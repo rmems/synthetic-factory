@@ -151,7 +151,7 @@ class Cli(unittest.TestCase):
 
     def test_generate_refuses_to_overwrite_an_existing_round(self):
         with tempfile.TemporaryDirectory() as tmp:
-            first = _cli(["generate", tmp, "--round", "3", "--steps", "4"])
+            first = _cli(["generate", tmp, "--round", "3", "--steps", "6"])
             self.assertEqual(first.returncode, 0, first.stderr)
             out = Path(json.loads(first.stdout)["written"])
             before = out.read_bytes()
@@ -166,7 +166,7 @@ class Cli(unittest.TestCase):
         # protects pre-existing files.
         with tempfile.TemporaryDirectory() as tmp:
             destination = str(Path(tmp) / "outputs" / "raw" / "2026-08-31")
-            result = _cli(["generate", destination, "--round", "3", "--steps", "4"])
+            result = _cli(["generate", destination, "--round", "3", "--steps", "6"])
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertIn("outputs/raw", result.stderr)
             self.assertFalse((Path(tmp) / "outputs").exists())

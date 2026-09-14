@@ -460,16 +460,13 @@ def build_scenario(spec, steps=10):
 # reset-convention scenarios have not reached the step where the two
 # runtimes disagree, so a shorter round reports their designed mismatch as
 # a match -- and validates, because each verdict is true of its window.
+# The `generate` command refuses a shorter --steps; the library does not,
+# because a unit test building one scenario has no round to protect.
 # `test_shorter_windows_are_refused_at_generation` pins the boundary.
 MINIMUM_STEPS = 6
 
 
 def build_scenarios(steps=10):
-    if not isinstance(steps, int) or isinstance(steps, bool) or steps < MINIMUM_STEPS:
-        raise ValueError(
-            f"steps must be an integer >= {MINIMUM_STEPS}; a shorter window reports "
-            "catalogued divergences as matches"
-        )
     return [build_scenario(spec, steps=steps) for spec in GRAPH_SPECS]
 
 

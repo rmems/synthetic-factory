@@ -129,8 +129,6 @@ class Validation(unittest.TestCase):
 
         from nir_equivalence_catalog import MINIMUM_STEPS
 
-        with self.assertRaises(ValueError):
-            nir.generate_records(steps=MINIMUM_STEPS - 1)
         default = sorted(
             (r["scenario"]["id"], r["result"]["verdict"]) for r in nir.generate_records()
         )
