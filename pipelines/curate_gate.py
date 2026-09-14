@@ -16,8 +16,11 @@ The shared vocabulary (``curate_gate_contract``), the hashing and tree capture
 (``curate_gate_paths``), the integration-plan loader (``curate_gate_plan``),
 the three-way merge (``curate_gate_merge``), lane authentication
 (``curate_gate_lanes``), record-level composition (``curate_gate_compose``),
-manifest-entry parsing (``curate_gate_manifests``), reward-sidecar loading
-(``curate_gate_evidence``), and identity source-claim authentication
+manifest-entry parsing and the manifest fold (``curate_gate_manifests``),
+governance-evidence loading and sealing (``curate_gate_evidence``), the
+re-verification of sealed evidence (``curate_gate_evidence_verify``), corpus
+record iteration (``curate_gate_records``), the final-output bindings
+(``curate_gate_bindings``), and identity source-claim authentication
 (``curate_gate_identity_gate``) live in siblings. Every name they own is
 re-exported here, so an existing ``curate_gate.X`` call site resolves
 unchanged.
@@ -111,21 +114,23 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_gate")
+    from . import curate_gate_bindings as _bindings
     from . import curate_gate_compose as _compose
     from . import curate_gate_contract as _contract
     from . import curate_gate_digest as _digest
     from . import curate_gate_evidence as _evidence
+    from . import curate_gate_evidence_verify as _evidence_verify
     from . import curate_gate_identity_gate as _identity_gate
     from . import curate_gate_lanes as _lanes
     from . import curate_gate_manifests as _manifests
     from . import curate_gate_merge as _merge
     from . import curate_gate_paths as _paths
     from . import curate_gate_plan as _plan
+    from . import curate_gate_records as _records
     from . import curate_identity
     from . import curate_rewards
     from . import training_audit
-    from .check_records import canonical_record_id, reject_json_constant
-    from .exact_json import parse_finite_json_float
+    from .check_records import canonical_record_id
     from .validate_run import check_line
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -133,21 +138,23 @@ else:
     )
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    import curate_gate_bindings as _bindings  # noqa: E402
     import curate_gate_compose as _compose  # noqa: E402
     import curate_gate_contract as _contract  # noqa: E402
     import curate_gate_digest as _digest  # noqa: E402
     import curate_gate_evidence as _evidence  # noqa: E402
+    import curate_gate_evidence_verify as _evidence_verify  # noqa: E402
     import curate_gate_identity_gate as _identity_gate  # noqa: E402
     import curate_gate_lanes as _lanes  # noqa: E402
     import curate_gate_manifests as _manifests  # noqa: E402
     import curate_gate_merge as _merge  # noqa: E402
     import curate_gate_paths as _paths  # noqa: E402
     import curate_gate_plan as _plan  # noqa: E402
+    import curate_gate_records as _records  # noqa: E402
     import curate_identity  # noqa: E402
     import curate_rewards  # noqa: E402
     import training_audit  # noqa: E402
-    from check_records import canonical_record_id, reject_json_constant  # noqa: E402
-    from exact_json import parse_finite_json_float  # noqa: E402
+    from check_records import canonical_record_id  # noqa: E402
     from validate_run import check_line  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -282,592 +289,23 @@ def compose(
 
 
 # ---------------------------------------------------------------------------
-# lane manifests: exclusions, quarantines, action counts
+# lane manifests (curate_gate_manifests): exclusions, quarantines, action
+# counts; governance evidence (curate_gate_evidence, curate_gate_evidence_verify)
+# and the final-output bindings (curate_gate_bindings)
 # ---------------------------------------------------------------------------
 
 _manifest_entries = _manifests._manifest_entries
 _normalize_entry = _manifests._normalize_entry
+_public_manifest_entry = _manifests._public_manifest_entry
+collect_lane_manifests = _manifests.collect_lane_manifests
+
 _load_reward_sidecars = _evidence._load_reward_sidecars
+_evidence_file = _evidence._evidence_file
+copy_lane_evidence = _evidence.copy_lane_evidence
+verify_lane_evidence = _evidence_verify.verify_lane_evidence
 
-
-def _public_manifest_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    return {key: copy.deepcopy(value) for key, value in entry.items() if not key.startswith("_")}
-
-
-def collect_lane_manifests(
-    prepared_lanes: Sequence[dict[str, Any]],
-    retained_source_keys: set[tuple[str, int]] | None = None,
-    source_record_sha256_by_key: dict[tuple[str, int], str] | None = None,
-) -> dict[str, Any]:
-    """Fold every lane's record-level manifest into exclusions and counts."""
-    exclusions: list[dict[str, Any]] = []
-    quarantines: list[dict[str, Any]] = []
-    repairs: list[dict[str, Any]] = []
-    review_candidates: list[dict[str, Any]] = []
-    actions_by_lane: dict[str, dict[str, int]] = {}
-    reason_counts: Counter[str] = Counter()
-    identity_mappings: list[dict[str, Any]] = []
-
-    for lane in prepared_lanes:
-        counts: Counter[str] = Counter()
-        for entry in lane["entries"]:
-            normalized = _public_manifest_entry(entry)
-            source_key = entry.get("_source_key")
-            if retained_source_keys is not None and source_key not in retained_source_keys:
-                # ``content_changed`` is derived from a source record that is
-                # intentionally absent after a later terminal disposition.
-                # Keep the repair action/reasons, but omit this non-replayable
-                # convenience field in both integration and promotion views.
-                normalized.pop("content_changed", None)
-            if (
-                source_record_sha256_by_key is not None
-                and source_key in source_record_sha256_by_key
-                and normalized.get("output_hash") is not None
-                and (retained_source_keys is None or source_key in retained_source_keys)
-            ):
-                normalized["content_changed"] = (
-                    normalized["output_hash"] != source_record_sha256_by_key[source_key]
-                )
-            action = normalized["action"]
-            key = str(action) if action is not None else "unspecified"
-            counts[key] += 1
-            lowered = key.strip().lower()
-            if lowered in EXCLUSION_ACTIONS:
-                exclusions.append(normalized)
-                review_candidates.append(normalized)
-                reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
-            elif lowered in QUARANTINE_ACTIONS:
-                quarantines.append(normalized)
-                review_candidates.append(normalized)
-                reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
-            elif lowered in REPAIR_ACTIONS:
-                repairs.append(normalized)
-                review_candidates.append(normalized)
-            elif (
-                lowered in RETAIN_ACTIONS
-                and normalized.get("content_changed")
-                and (retained_source_keys is None or source_key in retained_source_keys)
-            ):
-                derived = copy.deepcopy(normalized)
-                derived["review_action"] = "changed"
-                derived["review_reason_codes"] = [DERIVED_CHANGE_REASON]
-                review_candidates.append(derived)
-            if (
-                lane["transform"] == "curate_identity"
-                and lowered == "retained"
-                and (
-                    retained_source_keys is None or entry.get("_source_key") in retained_source_keys
-                )
-            ):
-                normalized["source_originals_sha256"] = _normalized_sha256(
-                    entry.get("_source_originals_sha256"),
-                    "retained identity source originals",
-                )
-                identity_mappings.append(normalized)
-        actions_by_lane[lane["transform"]] = dict(sorted(counts.items()))
-
-    return {
-        "actions_by_lane": actions_by_lane,
-        "lanes_without_manifest": [],
-        "exclusions": exclusions,
-        "quarantines": quarantines,
-        "repairs": repairs,
-        "identity_mappings": identity_mappings,
-        "review_candidates": review_candidates,
-        "reason_codes": dict(sorted(reason_counts.items())),
-    }
-
-
-def copy_lane_evidence(
-    prepared_lanes: Sequence[dict[str, Any]], destination: Path
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Copy authenticated manifests/artifacts into the cleaned governance tree."""
-    lane_evidence: list[dict[str, Any]] = []
-    governance_outputs: list[dict[str, Any]] = []
-    for lane in prepared_lanes:
-        lane_token = f"{lane['order']:02d}"
-        manifest_relative = (
-            Path(GOVERNANCE_DIRNAME)
-            / LANE_MANIFEST_DIRNAME
-            / lane_token
-            / f"manifest{lane['manifest_path'].suffix}.evidence"
-        )
-        manifest_target = destination / manifest_relative
-        manifest_target.parent.mkdir(parents=True, exist_ok=True)
-        manifest_target.write_bytes(lane["manifest_payload"])
-        if file_sha256(manifest_target) != lane["manifest_sha256"]:
-            raise GateError(f"lane manifest copy hash mismatch: {lane['manifest_path']}")
-        manifest_evidence = {
-            "path": manifest_relative.as_posix(),
-            "sha256": lane["manifest_sha256"],
-            "bytes": lane["manifest_bytes"],
-            "format": lane["manifest_format"],
-        }
-        governance_outputs.append({**manifest_evidence, "kind": "lane_manifest"})
-
-        artifact_evidence: list[dict[str, Any]] = []
-        for artifact in lane["artifacts"]:
-            artifact_relative = (
-                Path(GOVERNANCE_DIRNAME)
-                / (
-                    REWARD_CALIBRATION_DIRNAME
-                    if artifact["kind"] == REWARD_CALIBRATION_KIND
-                    else REWARD_SIDECAR_DIRNAME
-                )
-                / lane_token
-                / f"{artifact['destination']}.evidence"
-            )
-            target = destination / artifact_relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(artifact["_payload"])
-            digest = artifact["_sha256"]
-            if file_sha256(target) != digest:
-                raise GateError(
-                    f"governance artifact copy hash mismatch: {artifact['source_path']}"
-                )
-            evidence = {
-                "kind": artifact["kind"],
-                "path": artifact_relative.as_posix(),
-                "sha256": digest,
-                "bytes": artifact["_bytes"],
-                "documents": artifact["_documents"],
-            }
-            artifact_evidence.append(evidence)
-            governance_outputs.append(evidence)
-
-        lane_evidence.append(
-            {
-                "lane_order": lane["order"],
-                "bead": lane["bead"],
-                "transform": lane["transform"],
-                "version": lane["version"],
-                "manifest": manifest_evidence,
-                "artifacts": artifact_evidence,
-            }
-        )
-    return lane_evidence, governance_outputs
-
-
-def _evidence_file(cleaned: Path, value: Any, label: str) -> Path:
-    relative = _relative_artifact_destination(value, label)
-    path = cleaned / relative
-    if not path.is_file():
-        raise GateError(f"{label} is missing: {path}")
-    _assert_no_symlink(cleaned, path, label)
-    return path
-
-
-def verify_lane_evidence(
-    cleaned: Path,
-    manifest: dict[str, Any],
-    retained_source_keys: set[tuple[str, int]] | None = None,
-    source_record_sha256_by_key: dict[tuple[str, int], str] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Rebuild lane decisions only from the sealed copies in ``cleaned``."""
-    raw_evidence = manifest.get("lane_evidence")
-    if not isinstance(raw_evidence, list) or len(raw_evidence) != len(REQUIRED_LANES):
-        raise GateError("curation manifest needs evidence for all six lanes")
-
-    expected_files: set[str] = set()
-    expected_governance_outputs: list[dict[str, Any]] = []
-    prepared: list[dict[str, Any]] = []
-    declared: list[tuple[Any, Any]] = []
-    for index, evidence in enumerate(raw_evidence, 1):
-        if not isinstance(evidence, dict):
-            raise GateError(f"lane_evidence[{index}] must be an object")
-        order = evidence.get("lane_order")
-        transform = evidence.get("transform")
-        version = evidence.get("version")
-        bead = evidence.get("bead")
-        declared.append((bead, transform))
-        if order != index or not isinstance(version, str):
-            raise GateError(f"lane_evidence[{index}] has invalid lane metadata")
-        manifest_meta = evidence.get("manifest")
-        if not isinstance(manifest_meta, dict):
-            raise GateError(f"lane_evidence[{index}].manifest must be an object")
-        manifest_path = _evidence_file(
-            cleaned, manifest_meta.get("path"), f"lane_evidence[{index}].manifest"
-        )
-        expected_files.add(manifest_path.relative_to(cleaned).as_posix())
-        expected_sha = _normalized_sha256(
-            manifest_meta.get("sha256"), f"lane_evidence[{index}].manifest.sha256"
-        )
-        manifest_payload, actual_manifest_sha, manifest_bytes = _read_regular_file_snapshot(
-            manifest_path,
-            f"lane_evidence[{index}] manifest",
-        )
-        if actual_manifest_sha != expected_sha:
-            raise GateError(f"lane_evidence[{index}] manifest hash mismatch")
-        if manifest_meta.get("bytes") != manifest_bytes:
-            raise GateError(f"lane_evidence[{index}] manifest byte count mismatch")
-        expected_governance_outputs.append(
-            {
-                "path": manifest_path.relative_to(cleaned).as_posix(),
-                "sha256": expected_sha,
-                "bytes": manifest_bytes,
-                "format": manifest_meta.get("format"),
-                "kind": "lane_manifest",
-            }
-        )
-
-        lane = {
-            "order": index,
-            "bead": bead,
-            "transform": transform,
-            "version": version,
-            "manifest_path": manifest_path,
-        }
-        entries: list[dict[str, Any]] = []
-        seen_sources: set[tuple[str, int]] = set()
-        manifest_format = manifest_meta.get("format")
-        if manifest_format not in {"json", "jsonl"}:
-            raise GateError(f"lane_evidence[{index}].manifest has invalid format metadata")
-        for entry_index, raw_entry in enumerate(
-            _manifest_entries(
-                manifest_path,
-                manifest_format,
-                payload=manifest_payload,
-            ),
-            1,
-        ):
-            entry = _normalize_entry(raw_entry, lane)
-            label = f"{manifest_path}: entry {entry_index}"
-            if entry["declared_transform"] != transform or entry["declared_version"] != version:
-                raise GateError(f"{label} no longer matches its lane contract")
-            source_path = _logical_source_path(entry["source_path"], f"{label} source_path")
-            source_line = entry["source_line"]
-            if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
-                raise GateError(f"{label} source_line must be a positive integer")
-            source_key = (source_path, source_line)
-            if source_key in seen_sources:
-                raise GateError(f"{label} duplicates source identity {source_path}:{source_line}")
-            seen_sources.add(source_key)
-            entry["source_path"] = source_path
-            entry["source_hash"] = _normalized_sha256(
-                entry.get("source_hash"), f"{label} source hash"
-            )
-            entry["_source_key"] = source_key
-            if entry.get("output_hash") is not None:
-                entry["output_hash"] = _normalized_sha256(
-                    entry["output_hash"], f"{label} output hash"
-                )
-            entries.append(entry)
-
-        artifacts = evidence.get("artifacts", [])
-        if not isinstance(artifacts, list):
-            raise GateError(f"lane_evidence[{index}].artifacts must be a list")
-        for artifact_index, artifact in enumerate(artifacts, 1):
-            if not isinstance(artifact, dict) or artifact.get("kind") not in REWARD_ARTIFACT_KINDS:
-                raise GateError(f"lane_evidence[{index}].artifacts[{artifact_index}] is invalid")
-            artifact_path = _evidence_file(
-                cleaned,
-                artifact.get("path"),
-                f"lane_evidence[{index}].artifacts[{artifact_index}]",
-            )
-            expected_files.add(artifact_path.relative_to(cleaned).as_posix())
-            expected_sha = _normalized_sha256(
-                artifact.get("sha256"),
-                f"lane_evidence[{index}].artifacts[{artifact_index}].sha256",
-            )
-            artifact_payload, actual_artifact_sha, artifact_bytes = _read_regular_file_snapshot(
-                artifact_path,
-                f"lane_evidence[{index}] artifact {artifact_index}",
-            )
-            if actual_artifact_sha != expected_sha:
-                raise GateError(f"lane_evidence[{index}] artifact hash mismatch")
-            catalog = None
-            if artifact.get("kind") == REWARD_CALIBRATION_KIND:
-                try:
-                    catalog = curate_rewards.load_units_migration_bytes(
-                        artifact_payload,
-                        label=artifact_path.as_posix(),
-                    )
-                except curate_rewards.RewardOntologyError as exc:
-                    raise GateError(
-                        f"lane_evidence[{index}] calibration artifact is invalid: {exc}"
-                    ) from exc
-                documents: list[dict[str, Any]] = []
-            else:
-                documents = _load_reward_sidecars(artifact_path, payload=artifact_payload)
-            if artifact.get("documents") != len(documents):
-                raise GateError(f"lane_evidence[{index}] artifact document count mismatch")
-            if artifact.get("bytes") != artifact_bytes:
-                raise GateError(f"lane_evidence[{index}] artifact byte count mismatch")
-            expected_governance_outputs.append(
-                {
-                    "kind": artifact.get("kind"),
-                    "path": artifact_path.relative_to(cleaned).as_posix(),
-                    "sha256": expected_sha,
-                    "bytes": artifact_bytes,
-                    "documents": len(documents),
-                }
-            )
-            artifacts_for_lane = lane.setdefault("artifacts", [])
-            artifacts_for_lane.append(
-                {
-                    "kind": artifact.get("kind"),
-                    "source_path": artifact_path,
-                    "_catalog": catalog,
-                }
-            )
-        prepared.append({**lane, "entries": entries})
-
-    if tuple(declared) != REQUIRED_LANES:
-        raise GateError("lane evidence does not match the six required contracts in order")
-    actual_files = {
-        path.relative_to(cleaned).as_posix()
-        for path in sorted((cleaned / GOVERNANCE_DIRNAME).rglob("*"))
-        if path.is_file()
-    }
-    if actual_files != expected_files:
-        raise GateError(
-            "governance evidence file set mismatch: "
-            f"missing={sorted(expected_files - actual_files)}, "
-            f"extra={sorted(actual_files - expected_files)}"
-        )
-    if manifest.get("governance_outputs") != expected_governance_outputs:
-        raise GateError("governance_outputs metadata does not match copied evidence bytes")
-
-    raw_identity_mappings = manifest.get("identity_mappings")
-    if not isinstance(raw_identity_mappings, list):
-        raise GateError("curation manifest needs retained identity mappings")
-    attestations: dict[tuple[str, int, str], str] = {}
-    for index, mapping in enumerate(raw_identity_mappings, 1):
-        label = f"identity_mappings[{index}]"
-        if not isinstance(mapping, dict):
-            raise GateError(f"{label} must be an object")
-        source_path = _logical_source_path(mapping.get("source_path"), f"{label}.source_path")
-        source_line = mapping.get("source_line")
-        if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
-            raise GateError(f"{label}.source_line must be a positive integer")
-        manifest_entry_sha256 = _normalized_sha256(
-            mapping.get("manifest_entry_sha256"),
-            f"{label}.manifest_entry_sha256",
-        )
-        key = (source_path, source_line, manifest_entry_sha256)
-        if key in attestations:
-            raise GateError(f"{label} duplicates retained identity evidence")
-        attestations[key] = _normalized_sha256(
-            mapping.get("source_originals_sha256"),
-            f"{label}.source_originals_sha256",
-        )
-
-    restored: set[tuple[str, int, str]] = set()
-    for lane in prepared:
-        if lane["transform"] != "curate_identity":
-            continue
-        for entry in lane["entries"]:
-            source_key = entry["_source_key"]
-            action = str(entry.get("action") or "").strip().lower()
-            if action not in RETAIN_ACTIONS or (
-                retained_source_keys is not None and source_key not in retained_source_keys
-            ):
-                continue
-            key = (*source_key, entry["manifest_entry_sha256"])
-            attestation = attestations.get(key)
-            if attestation is None:
-                raise GateError(
-                    "curation manifest lacks source-original attestation for retained "
-                    f"identity entry {source_key[0]}:{source_key[1]}"
-                )
-            entry["_source_originals_sha256"] = attestation
-            restored.add(key)
-    if restored != set(attestations):
-        raise GateError("curation manifest has orphan retained identity attestations")
-    return prepared, collect_lane_manifests(
-        prepared,
-        retained_source_keys,
-        source_record_sha256_by_key,
-    )
-
-
-# ---------------------------------------------------------------------------
-# final-output bindings and retained identity evidence
-# ---------------------------------------------------------------------------
-
-
-def _normalize_record_bindings(raw_bindings: Any) -> list[dict[str, Any]]:
-    if not isinstance(raw_bindings, list) or not raw_bindings:
-        raise GateError("curation manifest needs a non-empty record_bindings list")
-    normalized: list[dict[str, Any]] = []
-    output_coordinates: set[tuple[str, int]] = set()
-    source_coordinates: set[tuple[str, int]] = set()
-    for index, raw in enumerate(raw_bindings, 1):
-        label = f"record_bindings[{index}]"
-        if not isinstance(raw, dict):
-            raise GateError(f"{label} must be an object")
-        output_path = _normalized_output_path(raw.get("output_path"), f"{label}.output_path")
-        source_path = _logical_source_path(raw.get("source_path"), f"{label}.source_path")
-        output_line = raw.get("output_line")
-        source_line = raw.get("source_line")
-        for field, value in (("output_line", output_line), ("source_line", source_line)):
-            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-                raise GateError(f"{label}.{field} must be a positive integer")
-        output_coordinate = (output_path, output_line)
-        source_coordinate = (source_path, source_line)
-        if output_coordinate in output_coordinates:
-            raise GateError(f"{label} duplicates output coordinate {output_path}:{output_line}")
-        if source_coordinate in source_coordinates:
-            raise GateError(f"{label} duplicates source coordinate {source_path}:{source_line}")
-        output_coordinates.add(output_coordinate)
-        source_coordinates.add(source_coordinate)
-
-        output_id = raw.get("output_id")
-        if output_id is not None and (
-            not isinstance(output_id, str)
-            or not output_id.strip()
-            or output_id != output_id.strip()
-        ):
-            raise GateError(f"{label}.output_id must be null or a normalized non-empty string")
-        lineage = raw.get("lineage")
-        if not isinstance(lineage, list) or not lineage:
-            raise GateError(f"{label}.lineage must be a non-empty list")
-        normalized_lineage: list[dict[str, Any]] = []
-        seen_lane_orders: set[int] = set()
-        for lineage_index, item in enumerate(lineage, 1):
-            lineage_label = f"{label}.lineage[{lineage_index}]"
-            if not isinstance(item, dict):
-                raise GateError(f"{lineage_label} must be an object")
-            order = item.get("lane_order")
-            if (
-                not isinstance(order, int)
-                or isinstance(order, bool)
-                or not 1 <= order <= len(REQUIRED_LANES)
-                or order in seen_lane_orders
-            ):
-                raise GateError(f"{lineage_label}.lane_order is invalid or duplicated")
-            seen_lane_orders.add(order)
-            transform = item.get("transform")
-            version = item.get("version")
-            if transform != REQUIRED_LANES[order - 1][1] or not isinstance(version, str):
-                raise GateError(f"{lineage_label} does not match its lane contract")
-            normalized_lineage.append(
-                {
-                    "lane_order": order,
-                    "transform": transform,
-                    "version": version,
-                    "output_sha256": _normalized_sha256(
-                        item.get("output_sha256"), f"{lineage_label}.output_sha256"
-                    ),
-                }
-            )
-        normalized.append(
-            {
-                "output_path": output_path,
-                "output_line": output_line,
-                "output_sha256": _normalized_sha256(
-                    raw.get("output_sha256"), f"{label}.output_sha256"
-                ),
-                "output_id": output_id,
-                "source_path": source_path,
-                "source_line": source_line,
-                "source_hash": _normalized_sha256(raw.get("source_hash"), f"{label}.source_hash"),
-                "source_record_sha256": _normalized_sha256(
-                    raw.get("source_record_sha256"), f"{label}.source_record_sha256"
-                ),
-                "lineage": sorted(normalized_lineage, key=lambda lane_row: lane_row["lane_order"]),
-            }
-        )
-    return sorted(normalized, key=lambda binding: (binding["output_path"], binding["output_line"]))
-
-
-def _output_evidence_gate(
-    cleaned: Path,
-    raw_bindings: Any,
-    prepared_lanes: Sequence[dict[str, Any]],
-) -> tuple[dict[str, Any], dict[tuple[str, int], Any], list[dict[str, Any]]]:
-    """Authenticate every final row against source identity and lane evidence."""
-    bindings = _normalize_record_bindings(raw_bindings)
-    actual_by_output: dict[tuple[str, int], Any] = {}
-    errors: list[dict[str, str]] = []
-    for relative, line, record in iter_records(cleaned):
-        coordinate = (relative, line)
-        if record is None:
-            errors.append(
-                {"source": f"{relative}:{line}", "error": "final output is not valid JSON"}
-            )
-            continue
-        actual_by_output[coordinate] = record
-
-    binding_by_output = {
-        (binding["output_path"], binding["output_line"]): binding for binding in bindings
-    }
-    missing_bindings = sorted(set(actual_by_output) - set(binding_by_output))
-    extra_bindings = sorted(set(binding_by_output) - set(actual_by_output))
-    for path, line in missing_bindings[:10]:
-        errors.append({"source": f"{path}:{line}", "error": "final record has no binding"})
-    for path, line in extra_bindings[:10]:
-        errors.append({"source": f"{path}:{line}", "error": "binding has no final record"})
-
-    entries_by_source: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
-    terminal_sources: set[tuple[str, int]] = set()
-    for lane in prepared_lanes:
-        for entry in lane["entries"]:
-            source_key = entry["_source_key"]
-            action = str(entry.get("action") or "").strip().lower()
-            if action in EXCLUSION_ACTIONS | QUARANTINE_ACTIONS:
-                terminal_sources.add(source_key)
-            if entry.get("output_hash") is not None:
-                entries_by_source[source_key].append(entry)
-
-    expected_source_keys = set(entries_by_source) - terminal_sources
-    bound_source_keys = {(binding["source_path"], binding["source_line"]) for binding in bindings}
-    for path, line in sorted(expected_source_keys - bound_source_keys)[:10]:
-        errors.append(
-            {"source": f"{path}:{line}", "error": "retained lane evidence has no final output"}
-        )
-    for path, line in sorted(bound_source_keys - expected_source_keys)[:10]:
-        errors.append(
-            {"source": f"{path}:{line}", "error": "final binding has no retained lane evidence"}
-        )
-
-    records_by_source: dict[tuple[str, int], Any] = {}
-    for coordinate in sorted(set(binding_by_output) & set(actual_by_output)):
-        binding = binding_by_output[coordinate]
-        record = actual_by_output[coordinate]
-        where = f"{coordinate[0]}:{coordinate[1]}"
-        if record_sha256(record) != binding["output_sha256"]:
-            errors.append({"source": where, "error": "final record hash mismatches binding"})
-        if canonical_record_id(record) != binding["output_id"]:
-            errors.append({"source": where, "error": "final record id mismatches binding"})
-        source_key = (binding["source_path"], binding["source_line"])
-        records_by_source[source_key] = record
-        evidence_entries = entries_by_source.get(source_key, [])
-        source_hashes = {entry.get("source_hash") for entry in evidence_entries}
-        if source_hashes != {binding["source_hash"]}:
-            errors.append(
-                {"source": where, "error": "binding source hash mismatches lane evidence"}
-            )
-        expected_lineage = sorted(
-            (
-                entry["lane_order"],
-                entry["transform"],
-                entry["version"],
-                entry["output_hash"],
-            )
-            for entry in evidence_entries
-        )
-        actual_lineage = sorted(
-            (
-                item["lane_order"],
-                item["transform"],
-                item["version"],
-                item["output_sha256"],
-            )
-            for item in binding["lineage"]
-        )
-        if actual_lineage != expected_lineage:
-            errors.append({"source": where, "error": "binding lineage mismatches lane evidence"})
-
-    report = {
-        "tool": "curate_gate final-output binding verifier",
-        "passed": not errors,
-        "records": len(actual_by_output),
-        "bindings": len(bindings),
-        "invalid_bindings": len(errors),
-        "examples": errors[:5],
-    }
-    return report, records_by_source, bindings
+_normalize_record_bindings = _bindings._normalize_record_bindings
+_output_evidence_gate = _bindings._output_evidence_gate
 
 
 # The identity source-claim authentication lives in curate_gate_identity_gate;
@@ -1067,24 +505,7 @@ def _repair_action(obj: Any) -> str:
     return "none"
 
 
-def iter_records(root: Path) -> Iterable[tuple[str, int, Any]]:
-    """Yield ``(relative_path, line_number, parsed_record)`` for the corpus."""
-    for path in jsonl_paths(root):
-        rel = path.relative_to(root).as_posix()
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for number, line in enumerate(_lf_lines(text), 1):
-            if not line.strip():
-                continue
-            try:
-                obj = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            except (json.JSONDecodeError, ValueError):
-                yield rel, number, None
-                continue
-            yield rel, number, obj
+iter_records = _records.iter_records
 
 
 def _review_candidates_from_manifest(cleaned: Path) -> list[dict[str, Any]]:

@@ -222,6 +222,42 @@ def _package_curate_gate_evidence() -> ModuleType:
     return module
 
 
+def _direct_curate_gate_evidence_verify() -> ModuleType:
+    import curate_gate_evidence_verify as module
+
+    return module
+
+
+def _package_curate_gate_evidence_verify() -> ModuleType:
+    import pipelines.curate_gate_evidence_verify as module
+
+    return module
+
+
+def _direct_curate_gate_records() -> ModuleType:
+    import curate_gate_records as module
+
+    return module
+
+
+def _package_curate_gate_records() -> ModuleType:
+    import pipelines.curate_gate_records as module
+
+    return module
+
+
+def _direct_curate_gate_bindings() -> ModuleType:
+    import curate_gate_bindings as module
+
+    return module
+
+
+def _package_curate_gate_bindings() -> ModuleType:
+    import pipelines.curate_gate_bindings as module
+
+    return module
+
+
 def _direct_curate_gate_identity_gate() -> ModuleType:
     import curate_gate_identity_gate as module
 
@@ -853,6 +889,18 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_gate_evidence": (
         _direct_curate_gate_evidence,
         _package_curate_gate_evidence,
+    ),
+    "curate_gate_evidence_verify": (
+        _direct_curate_gate_evidence_verify,
+        _package_curate_gate_evidence_verify,
+    ),
+    "curate_gate_records": (
+        _direct_curate_gate_records,
+        _package_curate_gate_records,
+    ),
+    "curate_gate_bindings": (
+        _direct_curate_gate_bindings,
+        _package_curate_gate_bindings,
     ),
     "curate_gate_identity_gate": (
         _direct_curate_gate_identity_gate,

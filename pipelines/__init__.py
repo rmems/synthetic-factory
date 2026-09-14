@@ -173,6 +173,9 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_gate_manifests",
     "curate_gate_evidence",
     "curate_gate_identity_gate",
+    "curate_gate_evidence_verify",
+    "curate_gate_bindings",
+    "curate_gate_records",
 ))
 
 
