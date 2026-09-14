@@ -1,0 +1,25 @@
+experiments/wsr_r89_leftover_leftover_leftover.py
+  ai_agent 1-806
+experiments/mill_wsr_leftover_r57.py
+  ai_agent 1-680
+experiments/wsr-plants-r73.py
+  ai_agent 1-689
+experiments/mill_wsr_leftover_r125.py
+  ai_agent 1-655
+experiments/mill_wsr_leftover_r73.py
+  ai_agent 1-680
+experiments/mill_wsr_leftover_r141.py
+  ai_agent 1-665
+experiments/wsr-mill-leftover3-r41.py
+  ai_agent 1-1377
+experiments/wsr_r105_leftover_leftover_leftover.py
+  ai_agent 1-829
+experiments/wsr-mill-r73.py
+  ai_agent 1-134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fec0f5f398a4cf22a5f6c2b2ef4cdc89b6d00202",
+  "prompts": {}
+}
