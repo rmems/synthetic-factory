@@ -57,9 +57,9 @@ def _census_mirror_payloads(payloads):
 class GitOpsRecoveryDeclarationTests(DeclarationTestCase):
     """Issue #65: thin `meta` versus the designed/plant leftover union schema."""
 
-    # The published dump is 1416 shards of exactly two records each, with no
-    # gaps: batch-r01.jsonl through batch-r1416.jsonl.
-    PAYLOAD_NAMES = [f"batch-r{n:02d}.jsonl" for n in range(1, 1417)]
+    # The published dump is 1959 shards of exactly two records each, with no
+    # gaps: batch-r01.jsonl through batch-r1959.jsonl.
+    PAYLOAD_NAMES = [f"batch-r{n:02d}.jsonl" for n in range(1, 1960)]
 
     SIR_IDS = [
         "sir-r1194-es-reindex-leftover3d-rebuild",
@@ -78,13 +78,13 @@ class GitOpsRecoveryDeclarationTests(DeclarationTestCase):
         "tags": ["synthetic-data", "trajectories", "git", "recovery"],
     }
     SUMMARY = publisher.PayloadSummary(
-        records=2832, bytes_=16825174, first="r01", last="r1416", names=PAYLOAD_NAMES
+        records=3918, bytes_=22432051, first="r01", last="r1959", names=PAYLOAD_NAMES
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
         names = self.names()
         self.assertEqual(set(names), EPISODE_FIELDS)
-        # `plan` is a string on 2756 of 2832 records and absent on 76 -- optional
+        # `plan` is a string on 3842 of 3918 records and absent on 76 -- optional
         # here, unlike most sibling dumps where it is mandatory.
         self.assertTrue(names["plan"]["optional"])
         self.assertEqual(names["plan"]["dtype"], "string")
@@ -112,10 +112,10 @@ class GitOpsRecoveryDeclarationTests(DeclarationTestCase):
     def test_published_mirror_reconciles_reward_and_meta_censuses(self):
         """Recheck the corrected card claims when the mirror is present."""
         payloads = sorted(GIT_OPS_MIRROR.glob("batch-*.jsonl"))
-        self.assertEqual(len(payloads), 1416)
+        self.assertEqual(len(payloads), 1959)
         records, reward_counts, meta_counts = _census_mirror_payloads(payloads)
 
-        self.assertEqual(records, 2832)
+        self.assertEqual(records, 3918)
         self.assertEqual(len(reward_counts), 58)
         self.assertEqual(sum(count == 1 for count in reward_counts.values()), 24)
         self.assertEqual(sum(count > 1 for count in reward_counts.values()), 34)
@@ -175,9 +175,9 @@ class GitOpsRecoveryDeclarationTests(DeclarationTestCase):
         self.assertEqual(disclosure["ids"], self.SIR_IDS)
         self.assertEqual(disclosure["issues"], [])
         self.assertIn("Ownership therefore stays with this dataset", disclosure["summary"])
-        # 171 leftover-in-id names split 167 same-factory + 4 foreign, not 171.
+        # 173 leftover-in-id names split 169 same-factory + 4 foreign, not 173.
         joined = " ".join(item["summary"] for item in self.declaration["disclosures"])
-        self.assertIn("167 same-factory plus 4 foreign", joined)
+        self.assertIn("169 same-factory plus 4 foreign", joined)
 
 
 if __name__ == "__main__":
