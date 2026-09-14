@@ -157,6 +157,12 @@ def _load_validate_run_rewards():
     return validate_run_rewards
 
 
+def _load_validate_run_thalamic():
+    from . import validate_run_thalamic
+
+    return validate_run_thalamic
+
+
 def _load_compose_curated_calibration():
     from . import compose_curated_calibration
 
@@ -525,6 +531,7 @@ _PACKAGE_SIBLING_LOADERS = {
     "validate_run_spikes": _load_validate_run_spikes,
     "validate_run_provenance": _load_validate_run_provenance,
     "validate_run_rewards": _load_validate_run_rewards,
+    "validate_run_thalamic": _load_validate_run_thalamic,
     "compose_contract": _load_compose_contract,
     "compose_curated": _load_compose_curated,
     "compose_curated_calibration": _load_compose_curated_calibration,
