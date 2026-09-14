@@ -1,0 +1,35 @@
+experiments/ssl-mill-r106.py
+  ai_agent 1-209
+experiments/ssl-mill-r112.py
+  ai_agent 1-253
+experiments/ssl-mill-r132.py
+  ai_agent 1-182
+experiments/ssl-mill-r27.py
+  ai_agent 1-641
+experiments/ssl-mill-r35.py
+  ai_agent 1-855
+experiments/ssl-mill-lll-r206.py
+  ai_agent 1-268
+experiments/ssl-loop-r132.py
+  ai_agent 1-84
+experiments/ssl_r148_leftover3_mill.py
+  ai_agent 1-675
+experiments/ssl-mill-lll-r286.py
+  ai_agent 1-268
+experiments/ssl_r164_leftover6_mill.py
+  ai_agent 1-660
+experiments/ssl-mill-r132-lll.py
+  ai_agent 1-100
+experiments/ssl-mill-lll-r182.py
+  ai_agent 1-199
+experiments/ssl-mill-lll-r190.py
+  ai_agent 1-202
+experiments/ssl-loop-r27.py
+  ai_agent 1-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a05bda0aacdbab61861e211dce4f39fd1cfa6621",
+  "prompts": {}
+}
