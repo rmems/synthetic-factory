@@ -1,0 +1,47 @@
+experiments/_gen_dbm_plants_r1340.py
+  ai_agent 1-1170
+experiments/dbm-mill-r1141.py
+  ai_agent 1-438
+experiments/dbm-mill-r1163.py
+  ai_agent 1-1424
+experiments/dbm-loop-r1260.py
+  ai_agent 1-110
+experiments/dbm-loop-r934.py
+  ai_agent 1-166
+experiments/dbm-mill-r1014.py
+  ai_agent 1-1109
+experiments/dbm-loop-r1163.py
+  ai_agent 1-106
+experiments/dbm-mill-r1340.py
+  ai_agent 1-1561
+experiments/dbm-loop-r1088.py
+  ai_agent 1-166
+experiments/dbm-loop-r844.py
+  ai_agent 1-173
+experiments/dbm-mill-r934.py
+  ai_agent 1-2397
+experiments/dbm-mill-r1260.py
+  ai_agent 1-1173
+experiments/unique_dbm_leftover3_mill.py
+  ai_agent 1-983
+experiments/dbm-loop-r1141.py
+  ai_agent 1-106
+experiments/dbm-loop-r1014.py
+  ai_agent 1-166
+experiments/dbm-loop-r1340.py
+  ai_agent 1-122
+experiments/dbm-loop-r888.py
+  ai_agent 1-126
+experiments/dbm-mill-r844.py
+  ai_agent 1-1808
+experiments/dbm-mill-r888.py
+  ai_agent 1-1667
+experiments/dbm-mill-r1088.py
+  ai_agent 1-837
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0b0018d3624f6d3b8d7a2820ecdf02d678d7ef3a",
+  "prompts": {}
+}
