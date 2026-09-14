@@ -1,0 +1,19 @@
+experiments/sir-mill-r31.py
+  ai_agent 1-355
+experiments/sir-loop-leftover3-r72.py
+  ai_agent 1-96
+experiments/sir-mill-r52.py
+  ai_agent 1-228
+experiments/sir_r108_leftover3d_mill.py
+  ai_agent 1-445
+experiments/sir-mill-leftover3-r72.py
+  ai_agent 1-362
+experiments/sir-mill-r72.py
+  ai_agent 1-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "854c59b31eb9bde983f79c8a1adf3b40d04100a9",
+  "prompts": {}
+}
