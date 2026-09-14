@@ -1,0 +1,53 @@
+experiments/amc-loop-r688.py
+  ai_agent 1-109
+experiments/amc-loop-r316.py
+  ai_agent 1-143
+experiments/amc-mill-r592.py
+  ai_agent 1-952
+experiments/amc-mill-r352.py
+  ai_agent 1-2296
+experiments/amc-mill-r704.py
+  ai_agent 1-356
+experiments/amc-loop-r229.py
+  ai_agent 1-137
+experiments/amc-mill-r424.py
+  ai_agent 1-1466
+experiments/amc-mill-r316.py
+  ai_agent 1-1160
+experiments/amc-loop-r704.py
+  ai_agent 1-109
+experiments/amc-loop-r424.py
+  ai_agent 1-167
+experiments/amc-loop-r352.py
+  ai_agent 1-137
+experiments/amc-loop-r608.py
+  ai_agent 1-111
+experiments/amc-loop-r592.py
+  ai_agent 1-164
+experiments/amc-mill-r170.py
+  ai_agent 1-3556
+experiments/amc-loop-r280.py
+  ai_agent 1-137
+experiments/amc-loop-r170.py
+  ai_agent 1-137
+experiments/amc-mill-r280.py
+  ai_agent 1-651
+experiments/amc-mill-r650.py
+  ai_agent 1-1918
+experiments/amc-mill-r688.py
+  ai_agent 1-344
+experiments/amc-mill-r608.py
+  ai_agent 1-2095
+experiments/amc-mill-r229.py
+  ai_agent 1-1545
+experiments/mill_amc_leftover_r688.py
+  ai_agent 1-671
+experiments/amc-loop-r650.py
+  ai_agent 1-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bb0775859c86d4692112c4845790fa1623ab8abb",
+  "prompts": {}
+}
