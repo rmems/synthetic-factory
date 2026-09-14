@@ -42,6 +42,7 @@ if __package__:
     from . import curate_identity_checks as _identity_checks
     from . import curate_identity_stages as _identity_stages
     from .exact_json import ExactJSONFloat, dumps_exact_json
+    from .operator_paths import operator_path
     from .record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
@@ -77,6 +78,7 @@ else:
     import curate_identity_checks as _identity_checks
     import curate_identity_stages as _identity_stages
     from exact_json import ExactJSONFloat, dumps_exact_json
+    from operator_paths import operator_path
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
@@ -2402,7 +2404,7 @@ def _summary(results: Iterable[CurationResult], registry: FactoryRegistry) -> di
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="JSONL file or run directory")
     parser.add_argument(
@@ -2410,16 +2412,45 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="write a NEW cleaned tree with FACTORY-REGISTRY.json and IDENTITY-MANIFEST.json",
     )
+    return parser
+
+
+class Inputs(NamedTuple):
+    """The operator's paths, each confined to the working, home and temp trees."""
+
+    source: Path
+    out: Path | None
+
+
+def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
+    """Confine both path arguments right after parsing; sinks never read ``args`` again.
+
+    ``write_run`` still applies ``_is_under_raw`` to the destination and
+    ``validate_identity_tree`` afterwards; this funnel only bounds where the
+    operator may point the CLI.
+    """
+    try:
+        return Inputs(
+            source=operator_path(str(args.source)),
+            out=None if args.out is None else operator_path(str(args.out)),
+        )
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
     args = parser.parse_args(argv)
+    paths = _inputs(parser, args)
     try:
         registry = default_registry()
-        if args.out is None:
+        if paths.out is None:
             results = curate_records(
-                iter_source_records(args.source, registry=registry),
+                iter_source_records(paths.source, registry=registry),
                 registry=registry,
             )
         else:
-            results = write_run(args.source, args.out, registry=registry)
+            results = write_run(paths.source, paths.out, registry=registry)
         print(json.dumps(_summary(results, registry), ensure_ascii=False, indent=2))
         return 0
     except (OSError, IdentityCurationError, ValueError) as exc:
