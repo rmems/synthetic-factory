@@ -90,6 +90,7 @@ NEW_SPLIT_MODULES = (
     "round_txn",
     "validate_run",
     "validate_run_provenance",
+    "validate_run_rewards",
 )
 RUN_SUPPORT_MODULES = (
     "compose_curated_run_cli",
@@ -146,6 +147,10 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["validate_run_provenance"].check_provenance,
                 packaged["validate_run_provenance"].check_provenance,
+            )
+            self.assertIs(
+                direct["validate_run_rewards"].check_reward_total,
+                packaged["validate_run_rewards"].check_reward_total,
             )
             # The four core CLIs raise and classify across the twin boundary:
             # a split copy makes ``except GateError`` miss and ``isinstance``

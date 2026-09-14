@@ -642,6 +642,18 @@ def _package_validate_run_provenance() -> ModuleType:
     return module
 
 
+def _direct_validate_run_rewards() -> ModuleType:
+    import validate_run_rewards as module
+
+    return module
+
+
+def _package_validate_run_rewards() -> ModuleType:
+    import pipelines.validate_run_rewards as module
+
+    return module
+
+
 Loader = Callable[[], ModuleType]
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "census": (_direct_census, _package_census),
@@ -715,6 +727,7 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     ),
     "validate_run": (_direct_validate_run, _package_validate_run),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
+    "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
 PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}

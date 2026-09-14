@@ -151,6 +151,12 @@ def _load_validate_run_provenance():
     return validate_run_provenance
 
 
+def _load_validate_run_rewards():
+    from . import validate_run_rewards
+
+    return validate_run_rewards
+
+
 def _load_compose_curated_calibration():
     from . import compose_curated_calibration
 
@@ -518,6 +524,7 @@ _PACKAGE_SIBLING_LOADERS = {
     "curate_bridge_raster_numbers": _load_curate_bridge_raster_numbers,
     "validate_run_spikes": _load_validate_run_spikes,
     "validate_run_provenance": _load_validate_run_provenance,
+    "validate_run_rewards": _load_validate_run_rewards,
     "compose_contract": _load_compose_contract,
     "compose_curated": _load_compose_curated,
     "compose_curated_calibration": _load_compose_curated_calibration,
