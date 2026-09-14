@@ -89,6 +89,16 @@ class ModelValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             oracle.normalize_model({"name": "x", "neurons": 1})
 
+    def test_model_dimensions_must_be_exact_positive_integers(self):
+        # int() used to accept these: 1.9 became one neuron, "2" parsed, and
+        # the oracle ran a model other than the one declared whenever the
+        # matrices happened to fit the coerced size.
+        for bad in (1.9, 2.0, "2", True, 0, -1):
+            with self.subTest(neurons=bad), self.assertRaises(ValueError):
+                oracle.normalize_model(_model(neurons=bad))
+            with self.subTest(inputs=bad), self.assertRaises(ValueError):
+                oracle.normalize_model(_model(inputs=bad))
+
     def test_bad_matrix_shape_rejected(self):
         with self.assertRaises(ValueError):
             oracle.normalize_model(_model(w_in=[[0.5]]))
@@ -423,6 +433,26 @@ class RecordedCapture(unittest.TestCase):
             self.assertEqual(
                 caught.exception.reason_code, "CAPTURE_QUANTIZATION_CONFLICT"
             )
+
+    def test_falsy_top_level_quantization_still_conflicts_with_the_payload(self):
+        # `if top and nested` used to skip the comparison for an empty top-level
+        # block, and `top or nested` then selected the payload's, so a capture
+        # carrying `quantization: {}` beside a real payload conversion replayed
+        # as if only the payload block existed.
+        for falsy in ({}, []):
+            with self.subTest(top=falsy), tempfile.TemporaryDirectory() as tmp:
+                path = self._capture(tmp)
+                capture = json.loads(path.read_text())
+                capture["payload"]["quantization"] = capture["quantization"]
+                capture["quantization"] = falsy
+                capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
+                path.write_text(json.dumps(capture), encoding="utf-8")
+                adapter = oracle.RecordedCaptureAdapter(path)
+                with self.assertRaises(oracle.OracleUnavailable) as caught:
+                    adapter.run(_model(), _stimulus())
+                self.assertEqual(
+                    caught.exception.reason_code, "CAPTURE_QUANTIZATION_CONFLICT"
+                )
 
     def test_capture_without_arithmetic_attestation_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

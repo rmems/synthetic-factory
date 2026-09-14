@@ -170,6 +170,14 @@ def _runtime_probe_errors(entry, expected_runtime, label):
         ]
     if available is False:
         return _unavailable_probe_errors(entry, availability, label)
+    # The probe says the runtime is here, so the entry cannot keep calling it
+    # absent: a stale `unavailable` would suppress an authoritative runtime's
+    # evidence and carry ORACLE_UNAVAILABLE for a runtime that can execute.
+    if entry.get("status") == STATUS_UNAVAILABLE:
+        return [
+            f"{label}: runtime probe reports available, so the entry cannot be "
+            f"recorded as {STATUS_UNAVAILABLE!r} [RUNTIME_STATUS_UNKNOWN]"
+        ]
     return []
 
 

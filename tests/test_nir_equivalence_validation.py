@@ -87,6 +87,67 @@ class Validation(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(any("DIVERGENCE_SUPPRESSED" in error for error in errors))
 
+    def test_stale_unavailable_entry_is_rejected_when_the_runtime_is_present(self):
+        # The available branch of the probe check used to return no error, so a
+        # record could keep an upstream runtime labelled `unavailable` -- and
+        # keep ORACLE_UNAVAILABLE -- after that runtime became present.
+        from unittest import mock
+
+        record = copy.deepcopy(_fixture_records()[0])
+        entry = next(e for e in record["oracle"]["runtimes"] if e["runtime"] == "nir_rs")
+        self.assertEqual(entry["status"], "unavailable")
+        runtime = nir._ALL_RUNTIME_BY_NAME["nir_rs"]
+        with mock.patch.object(runtime, "availability", return_value={"available": True}):
+            errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("cannot be recorded as 'unavailable'" in error for error in errors), errors
+        )
+
+    def test_published_schemas_bound_the_round_like_the_validator(self):
+        # parity_envelope requires meta.round >= 1, as validate_run does; a
+        # schema accepting 0 or a negative round would let external producers
+        # emit records this validator rejects.
+        import json as json_module
+        from pathlib import Path as PathType
+
+        schemas = PathType(nir.__file__).resolve().parents[1] / "schemas"
+        for name in ("nir-cross-runtime-v1.schema.json", "hardware-parity-v1.schema.json"):
+            with self.subTest(schema=name):
+                schema = json_module.loads((schemas / name).read_text(encoding="utf-8"))
+                round_schema = schema["properties"]["meta"]["properties"]["round"]
+                self.assertEqual(round_schema, {"type": "integer", "minimum": 1})
+
+    def test_shorter_windows_are_refused_at_generation(self):
+        # Below MINIMUM_STEPS the designed divergences have not happened yet, so
+        # a batch of `match` verdicts would be written for scenarios whose
+        # hypothesis is `mismatch`. The floor is measured: six is the first
+        # window whose verdict set equals the default window's.
+        import io
+        import tempfile
+        from contextlib import redirect_stderr
+        from pathlib import Path as PathType
+
+        from nir_equivalence_catalog import MINIMUM_STEPS
+
+        with self.assertRaises(ValueError):
+            nir.generate_records(steps=MINIMUM_STEPS - 1)
+        default = sorted(
+            (r["scenario"]["id"], r["result"]["verdict"]) for r in nir.generate_records()
+        )
+        floor = sorted(
+            (r["scenario"]["id"], r["result"]["verdict"])
+            for r in nir.generate_records(steps=MINIMUM_STEPS)
+        )
+        self.assertEqual(floor, default)
+        self.assertIn("mismatch", {verdict for _, verdict in floor})
+        with tempfile.TemporaryDirectory() as tmp:
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = nir.main(["generate", tmp, "--steps", str(MINIMUM_STEPS - 1)])
+            self.assertEqual(code, 2)
+            self.assertIn("[WINDOW_TOO_SHORT]", stderr.getvalue())
+            self.assertEqual(list(PathType(tmp).rglob("*.jsonl")), [])
+
     def test_published_schema_declares_the_object_lineage_entries(self):
         # The schema is documentation for downstream ingestion; declaring
         # string lineage items while every record carries {runtime, status,

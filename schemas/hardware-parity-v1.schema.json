@@ -222,7 +222,7 @@
       "type": "object",
       "required": ["round", "factory"],
       "properties": {
-        "round": { "type": "integer" },
+        "round": { "type": "integer", "minimum": 1 },
         "factory": { "type": "string", "minLength": 1 }
       }
     }

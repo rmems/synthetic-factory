@@ -109,7 +109,11 @@ def _cmd_generate(args):
             file=sys.stderr,
         )
         return 2
-    records = generate_records(round_number=args.round, steps=args.steps)
+    try:
+        records = generate_records(round_number=args.round, steps=args.steps)
+    except ValueError as exc:
+        print(f"nir_equivalence: {exc} [WINDOW_TOO_SHORT]", file=sys.stderr)
+        return 2
     errors = validate_records(records, source="generated")
     if errors:
         _print_errors(errors)

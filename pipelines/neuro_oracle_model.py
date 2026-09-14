@@ -21,16 +21,24 @@ RESET_MODES = ("zero", "subtract")
 DEFAULT_ACTION_LABELS = ("hold", "advance", "retreat", "halt")
 
 
+def _is_positive_count(value):
+    """An exact int >= 1. bool is an int in Python and is refused here."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 def _model_header(model):
     """Required keys and the scalars every other field is sized against."""
     required = ("name", "neurons", "inputs", "w_in", "bias", "threshold", "decay")
     missing = [key for key in required if key not in model]
     if missing:
         raise ValueError(f"model missing keys: {missing}")
-    neurons = int(model["neurons"])
-    inputs = int(model["inputs"])
-    if neurons < 1 or inputs < 1:
-        raise ValueError("model needs at least one neuron and one input")
+    neurons = model["neurons"]
+    inputs = model["inputs"]
+    # Exact integers, not int(): 1.9 would quietly become one neuron and a
+    # string or bool would be accepted, so whenever the matrices happened to
+    # fit the coerced size the oracle ran a model other than the one declared.
+    if not _is_positive_count(neurons) or not _is_positive_count(inputs):
+        raise ValueError("neurons and inputs must be exact integers >= 1")
     reset = model.get("reset", "subtract")
     if reset not in RESET_MODES:
         raise ValueError(f"reset must be one of {RESET_MODES}, got {reset!r}")

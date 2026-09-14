@@ -232,7 +232,10 @@ class RecordedCaptureAdapter(OracleAdapter):
         """
         top = self._capture.get("quantization")
         nested = payload.get("quantization") if isinstance(payload, dict) else None
-        if top and nested:
+        # Presence, not truthiness: a top-level `{}` or `[]` used to skip this
+        # comparison, and `top or nested` then quietly selected the payload's
+        # block -- a conflicting conversion left in the authenticated source.
+        if top is not None and nested is not None:
             try:
                 if canonical_json(top) != canonical_json(nested):
                     raise OracleUnavailable(
@@ -247,7 +250,7 @@ class RecordedCaptureAdapter(OracleAdapter):
                 ) from exc
             quantization = top
         else:
-            quantization = top or nested
+            quantization = top if top is not None else nested
         if not quantization:
             raise OracleUnavailable(
                 "CAPTURE_QUANTIZATION_MISSING",
