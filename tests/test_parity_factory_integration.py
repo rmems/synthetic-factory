@@ -77,6 +77,52 @@ class FixtureRun(unittest.TestCase):
                 NIR_BATCH.read_text(encoding="utf-8"),
             )
 
+    def test_generator_version_covers_the_oracle_sources(self):
+        # A neuro_oracle change alters spike traces and verdicts; the digest
+        # must move with it, or two oracles could share one generator_version.
+        from oracle_grounded import family_digest
+        import hardware_parity_provenance as hp_prov
+        import nir_equivalence_provenance as nir_prov
+
+        for prov, glob in ((hp_prov, "hardware_parity*.py"), (nir_prov, "nir_equivalence*.py")):
+            with self.subTest(family=glob):
+                with_oracle = family_digest.module_source_digest(
+                    prov._PIPELINES, glob, prov._FAMILY, prov.VALIDATOR
+                )
+                without = family_digest.module_source_digest(
+                    prov._PIPELINES, glob, prov._FAMILY, prov.VALIDATOR, with_oracle=False
+                )
+                self.assertEqual(prov._module_source_digest(), with_oracle)
+                self.assertNotEqual(with_oracle, without)
+
+    def test_reader_frames_a_bare_carriage_return_as_one_physical_line(self):
+        # read_text() would translate the CR to a newline and accept two records
+        # where validate_run's byte-based reader sees one malformed line.
+        import hardware_parity
+        import nir_equivalence
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cr.jsonl"
+            path.write_bytes(b'{"a": 1}\r{"b": 2}\n')
+            for module in (hardware_parity, nir_equivalence):
+                with self.subTest(module=module.__name__):
+                    records, errors = module.read_jsonl(path)
+                    self.assertEqual(records, [])
+                    self.assertEqual(len(errors), 1)
+
+    def test_scenario_interventions_are_copies_of_the_catalog(self):
+        import hardware_parity
+        import nir_equivalence
+
+        for module in (hardware_parity, nir_equivalence):
+            with self.subTest(module=module.__name__):
+                first = next(s for s in module.build_scenarios() if s["intervention"])
+                first["intervention"]["detail"] = "poisoned"
+                again = next(
+                    s for s in module.build_scenarios() if s["id"] == first["id"]
+                )
+                self.assertNotEqual(again["intervention"]["detail"], "poisoned")
+
     def test_no_record_claims_real_world_provenance(self):
         for path in (HARDWARE_BATCH, NIR_BATCH):
             for record in _records(path):

@@ -44,10 +44,32 @@ def family_sources(root, glob, family, validator):
     ]
 
 
-def module_source_digest(root, glob, family, validator):
+# The in-repo oracle every parity record is generated and re-validated with.
+# Its behaviour is part of the evidence, so it is part of generator_version:
+# two records produced by behaviourally different oracles must not share one.
+ORACLE_GLOB = "neuro_oracle*.py"
+ORACLE_FAMILY = (
+    "neuro_oracle.py",
+    "neuro_oracle_adapter.py",
+    "neuro_oracle_availability.py",
+    "neuro_oracle_capture.py",
+    "neuro_oracle_digest.py",
+    "neuro_oracle_model.py",
+    "neuro_oracle_observation.py",
+    "neuro_oracle_q88.py",
+    "neuro_oracle_quantize.py",
+    "neuro_oracle_reference.py",
+    "neuro_oracle_simulate.py",
+)
+
+
+def module_source_digest(root, glob, family, validator, *, with_oracle=True):
     """Immutable digest of the whole family, used as the in-repo generator_version."""
 
-    return digest({"paths": family_sources(root, glob, family, validator)})
+    paths = family_sources(root, glob, family, validator)
+    if with_oracle:
+        paths += family_sources(root, ORACLE_GLOB, ORACLE_FAMILY, validator)
+    return digest({"paths": paths})
 
 
 bind_import_twin(__name__)

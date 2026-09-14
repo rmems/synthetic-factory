@@ -451,7 +451,7 @@ def build_scenario(spec, steps=10):
             "channels": stimulus["channels"],
             "sha256": digest(stimulus["events"]),
         },
-        "intervention": spec["intervention"],
+        "intervention": copy.deepcopy(spec["intervention"]),
     }
 
 

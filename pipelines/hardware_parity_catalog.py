@@ -9,6 +9,8 @@ a reviewer can see what each case actually stresses.
 
 from __future__ import annotations
 
+import copy
+
 import sys
 from pathlib import Path
 
@@ -300,7 +302,7 @@ def build_scenario(spec, steps=12):
         "model_sha256": digest(model),
         "stimulus": stimulus,
         "input_fixture": stimulus_fixture(stimulus),
-        "intervention": spec["intervention"],
+        "intervention": copy.deepcopy(spec["intervention"]),
     }
 
 

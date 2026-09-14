@@ -49,7 +49,10 @@ def read_jsonl(path):
     errors = []
     source = Path(path)
     try:
-        text = source.read_text(encoding="utf-8")
+        # Bytes, not read_text(): universal-newline translation would turn a
+        # bare CR into a line break and frame one physical line as two records,
+        # where validate_run's byte reader rejects the extra value.
+        text = source.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         return [], [f"{source}: cannot read file: {exc}"]
     for lineno, raw_line in enumerate(text.split("\n"), 1):
