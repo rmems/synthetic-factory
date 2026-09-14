@@ -50,11 +50,27 @@ REWARD_TOL = 1e-6
 
 def _component_numeric(value):
     """Extract numeric component value from plain number or {value: number}."""
-    if _validate_run_spikes.is_number(value):
-        return float(value)
-    if isinstance(value, dict) and _validate_run_spikes.is_number(value.get("value")):
-        return float(value["value"])
-    return None
+    if isinstance(value, dict):
+        value = value.get("value")
+    return float(value) if _validate_run_spikes.is_number(value) else None
+
+
+# Metadata containers that are never scalar components; the sibling-sum loops
+# skip these alongside the shared bookkeeping vocabulary above.
+_SCALAR_CONTAINER_KEYS = frozenset(
+    {"components", "components_executed", "components_realized", "ticks"}
+)
+
+
+def _scalar_items(rc):
+    """Yield the (key, value) pairs eligible as scalar arithmetic components."""
+    # Union per call so a rebound REWARD_NON_COMPONENT_KEYS keeps flowing
+    # through; both sets stay tiny.
+    skip = REWARD_NON_COMPONENT_KEYS | _SCALAR_CONTAINER_KEYS
+    for k, v in rc.items():
+        if k in skip:
+            continue
+        yield k, v
 
 
 # Marker substrings of the two mismatch messages built in check_reward_total.
@@ -74,32 +90,24 @@ def _sibling_component_sum(rc):
     """Sum the numeric sibling components, skipping bookkeeping keys."""
     component_sum = 0.0
     has_component = False
-    for k, v in rc.items():
-        if k in REWARD_NON_COMPONENT_KEYS:
-            continue
-        # Skip known metadata containers that are not scalar components
-        if k in ("components", "components_executed", "components_realized", "ticks"):
-            continue
+    for _, v in _scalar_items(rc):
         num = _component_numeric(v)
         if num is not None:
-            # Guard against non-finite already filtered by _component_numeric
-            component_sum += float(num)
+            component_sum += num
             has_component = True
     return component_sum, has_component
 
 
 def _nonfinite_component_error(key, value, where):
-    """Report one non-numeric component, or None when it is valid."""
+    """Report one non-finite component, or None when it is valid."""
     if _component_numeric(value) is not None:
         return None
     if isinstance(value, dict) and "value" in value:
-        # Rich object with non-finite value
-        if isinstance(value.get("value"), (int, float)) and not _validate_run_spikes.is_number(
-            value["value"]
-        ):
-            return f"{where}: reward_components.{key}.value must be a finite number"
-    elif isinstance(value, (int, float)) and not _validate_run_spikes.is_number(value):
-        return f"{where}: reward_components.{key} must be a finite number"
+        target, suffix = value.get("value"), ".value"
+    else:
+        target, suffix = value, ""
+    if isinstance(target, (int, float)) and not _validate_run_spikes.is_number(target):
+        return f"{where}: reward_components.{key}{suffix} must be a finite number"
     return None
 
 
@@ -120,12 +128,7 @@ def _unweighted_errors(rc, total, where):
     """Validate the unweighted layout against the sum of sibling components."""
     errs = []
     component_sum, has_component = _sibling_component_sum(rc)
-    for k, v in rc.items():
-        if k in REWARD_NON_COMPONENT_KEYS:
-            continue
-        # Skip known metadata containers that are not scalar components
-        if k in ("components", "components_executed", "components_realized", "ticks"):
-            continue
+    for k, v in _scalar_items(rc):
         error = _nonfinite_component_error(k, v, where)
         if error is not None:
             errs.append(error)
@@ -137,18 +140,25 @@ def _unweighted_errors(rc, total, where):
 check_reward_total = _validate_run_reward_total.check_reward_total
 
 
+def _container_children(path, value):
+    """Child path/value pairs for one container node, else no children."""
+    if isinstance(value, dict):
+        return [(f"{path}.{key}", child) for key, child in value.items()]
+    if isinstance(value, list):
+        return [(f"{path}[{index}]", child) for index, child in enumerate(value)]
+    return []
+
+
 def _finite_number_errors(reward, where):
     """Walk one reward tree and report every non-finite float by path."""
     errors = []
     stack = [("reward", reward)]
     while stack:
         path, value = stack.pop()
-        if isinstance(value, dict):
-            stack.extend((f"{path}.{key}", child) for key, child in value.items())
-        elif isinstance(value, list):
-            stack.extend((f"{path}[{index}]", child) for index, child in enumerate(value))
-        elif isinstance(value, float) and not math.isfinite(value):
+        if isinstance(value, float) and not math.isfinite(value):
             errors.append(f"{where}: {path} must be a finite number")
+        else:
+            stack.extend(_container_children(path, value))
     return errors
 
 
