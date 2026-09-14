@@ -1,0 +1,21 @@
+CLAUDE.md
+  s_af31ed7264ce5b::t_4c3e29e28d9cda 25-29
+REVIEW.md
+  ai_agent 18,63-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ef414cb0e5117767e14e2b19364447e454f335a1",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
