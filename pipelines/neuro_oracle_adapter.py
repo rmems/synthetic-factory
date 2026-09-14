@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""What every oracle adapter is: its identity, its targets, and its refusal.
+
+`OracleUnavailable` carries a reason code rather than being a bare failure,
+because "this oracle did not run" is evidence a record has to state.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
+
+from neuro_oracle_digest import digest  # noqa: E402
+
+
+SCHEMA_VERSION = "1.0.0"
+
+
+REFERENCE_DETERMINISM_MEANING = (
+    "bit-determinism of this reference implementation; it is not "
+    "evidence about run-to-run variability of physical hardware"
+)
+
+# The determinism.meaning text the recorded-capture adapter emits. A capture
+# deployment's determinism is measured variability of the recorded runs, so
+# validators bind a physical deployment's meaning to this exact constant the
+# same way both reference sides bind to REFERENCE_DETERMINISM_MEANING --
+# a deterministic simulator cannot relabel its repeats as measured hardware
+# variability, and a capture cannot claim reference bit-determinism.
+CAPTURE_DETERMINISM_MEANING = (
+    "run-to-run variability observed during the recorded capture"
+)
+
+
+TARGET_SOFTWARE_FLOAT = "software_float"
+TARGET_FIXED_POINT_MODEL = "fixed_point_reference_model"
+TARGET_RECORDED_CAPTURE = "recorded_capture"
+TARGET_FPGA_HARDWARE = "fpga_hardware"
+EXECUTION_TARGETS = (
+    TARGET_SOFTWARE_FLOAT,
+    TARGET_FIXED_POINT_MODEL,
+    TARGET_RECORDED_CAPTURE,
+    TARGET_FPGA_HARDWARE,
+)
+# Targets that are physical silicon, or a recording of physical silicon. These
+# require full board/bitstream provenance before any parity claim is accepted.
+PHYSICAL_TARGETS = frozenset({TARGET_FPGA_HARDWARE, TARGET_RECORDED_CAPTURE})
+
+
+class OracleUnavailable(Exception):
+    """Raised when an oracle cannot execute. Carries a machine reason code."""
+
+    def __init__(self, reason_code, detail):
+        super().__init__(f"{reason_code}: {detail}")
+        self.reason_code = reason_code
+        self.detail = detail
+
+
+def run_digest(outcome):
+    """Fingerprint the complete retained behavioural observation."""
+    return digest(
+        {
+            key: outcome[key]
+            for key in ("spikes", "spike_events", "membrane", "action", "arithmetic")
+        }
+    )
+
+
+class OracleAdapter:
+    """Interface every parity oracle implements.
+
+    ``availability()`` must be answerable without executing anything, and an
+    adapter that reports ``available: False`` must raise
+    :class:`OracleUnavailable` from ``run`` rather than returning a plausible
+    substitute. That is the whole point of the boundary.
+    """
+
+    name = "abstract"
+    execution_target = None
+    runtime_class = "abstract"
+
+    def availability(self):
+        raise NotImplementedError
+
+    def run(self, model, stimulus, repeats=1):
+        raise NotImplementedError
+
+    def _envelope(self, outcome, repeats, latency, extra=None):
+        fingerprint = run_digest(outcome)
+        payload = {
+            "adapter": self.name,
+            "execution_target": self.execution_target,
+            "runtime_class": self.runtime_class,
+            "repeats": repeats,
+            "repeat_digests": [fingerprint] * repeats,
+            "determinism": {
+                "identical_repeats": True,
+                "distinct_digests": 1,
+                "meaning": REFERENCE_DETERMINISM_MEANING,
+            },
+            "latency": latency,
+            "output_digest": fingerprint,
+        }
+        payload.update(outcome)
+        if extra:
+            payload.update(extra)
+        return payload
