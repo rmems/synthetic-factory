@@ -63,12 +63,16 @@ ORACLE_FAMILY = (
 )
 
 
-def module_source_digest(root, glob, family, validator, *, with_oracle=True):
+def module_source_digest(root, glob, family, validator):
     """Immutable digest of the whole family, used as the in-repo generator_version."""
 
+    return digest({"paths": family_sources(root, glob, family, validator)})
+
+
+def generator_version(root, glob, family, validator):
+    """The family digest with the oracle sources it executes folded in."""
     paths = family_sources(root, glob, family, validator)
-    if with_oracle:
-        paths += family_sources(root, ORACLE_GLOB, ORACLE_FAMILY, validator)
+    paths += family_sources(root, ORACLE_GLOB, ORACLE_FAMILY, validator)
     return digest({"paths": paths})
 
 

@@ -86,11 +86,11 @@ class FixtureRun(unittest.TestCase):
 
         for prov, glob in ((hp_prov, "hardware_parity*.py"), (nir_prov, "nir_equivalence*.py")):
             with self.subTest(family=glob):
-                with_oracle = family_digest.module_source_digest(
+                with_oracle = family_digest.generator_version(
                     prov._PIPELINES, glob, prov._FAMILY, prov.VALIDATOR
                 )
                 without = family_digest.module_source_digest(
-                    prov._PIPELINES, glob, prov._FAMILY, prov.VALIDATOR, with_oracle=False
+                    prov._PIPELINES, glob, prov._FAMILY, prov.VALIDATOR
                 )
                 self.assertEqual(prov._module_source_digest(), with_oracle)
                 self.assertNotEqual(with_oracle, without)

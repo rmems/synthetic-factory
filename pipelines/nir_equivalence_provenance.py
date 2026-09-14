@@ -70,7 +70,7 @@ def _family_sources():
 
 def _module_source_digest():
     """Immutable source digest of the whole family, used as generator_version."""
-    return family_digest.module_source_digest(_PIPELINES, "nir_equivalence*.py", _FAMILY, VALIDATOR)
+    return family_digest.generator_version(_PIPELINES, "nir_equivalence*.py", _FAMILY, VALIDATOR)
 
 
 def _catalog_provenance_stamps():
