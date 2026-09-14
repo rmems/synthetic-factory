@@ -1,0 +1,37 @@
+experiments/_gen_iac_plants_r1132.py
+  ai_agent 1-609
+experiments/iac-mill-r1132.py
+  ai_agent 1-609
+experiments/iac-mill-r683.py
+  ai_agent 1-1545
+experiments/iac-loop-r777.py
+  ai_agent 1-231
+experiments/iac-loop-r609.py
+  ai_agent 1-163
+experiments/iac-loop-r1132.py
+  ai_agent 1-231
+experiments/iac-loop-r709.py
+  ai_agent 1-231
+experiments/iac-mill-r1514.py
+  ai_agent 1-1285
+experiments/iac-loop-r1514.py
+  ai_agent 1-231
+experiments/iac-mill-r777.py
+  ai_agent 1-1365
+experiments/iac-mill-r709.py
+  ai_agent 1-4587
+experiments/iac-mill-r609.py
+  ai_agent 1-3816
+experiments/iac-loop-r659.py
+  ai_agent 1-187
+experiments/_gen_iac_append_r1514.py
+  ai_agent 1-1062
+experiments/iac-mill-r659.py
+  ai_agent 1-2121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "51bc810cd2cdd753e97b1ae737d5fa5b00b92478",
+  "prompts": {}
+}
