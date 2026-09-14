@@ -32,3 +32,18 @@ outputs/cleaned/
 outputs/curated/
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
+
+# Agent tool runtime state (never committed; regenerable or machine-local)
+.beads/
+.opencode/
+.codex/
+.grok/
+.scratch*/
+.swarm/
+uv.lock
+time_snapshot_stage.py
+
+# Worktrees — promoted from .git/info/exclude, which is machine-local only.
+# .codex/worktrees was previously excluded nowhere while holding a live worktree.
+**/.claude/worktrees/
+**/.codex/worktrees/
