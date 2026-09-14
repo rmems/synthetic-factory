@@ -70,3 +70,11 @@ CATALOG_AUTHORSHIP = {
         "session; every resulting record is research-only."
     ),
 }
+
+REQUIRED_HARDWARE_FIELDS = (
+    ("hardware", "revision"),
+    ("hardware", "board_serial"),
+    ("bitstream", "sha256"),
+    ("bitstream", "toolchain"),
+    ("capture", "manifest_sha256"),
+)
