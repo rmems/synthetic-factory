@@ -1,0 +1,47 @@
+experiments/qbp-loop-leftover3-r74.py
+  ai_agent 1-158
+experiments/qbp-mill-r74.py
+  ai_agent 1-129
+experiments/qbp-loop-leftover-lll-r77.py
+  ai_agent 1-158
+experiments/mill_qbp_leftover_r126.py
+  ai_agent 1-670
+experiments/qbp-mill-r94.py
+  ai_agent 1-125
+experiments/qbp-mill-leftover3-r58.py
+  ai_agent 1-132
+experiments/qbp-loop-leftover3-r58.py
+  ai_agent 1-158
+experiments/qbp-plants-leftover-lll-r77.py
+  ai_agent 1-690
+experiments/qbp-plants-leftover3.py
+  ai_agent 1-764
+experiments/qbp-plants-r74.py
+  ai_agent 1-855
+experiments/qbp-loop-r74.py
+  ai_agent 1-129
+experiments/mill_qbp_leftover_r110.py
+  ai_agent 1-670
+experiments/qbp-loop-leftover3-r42.py
+  ai_agent 1-158
+experiments/qbp-loop-r94.py
+  ai_agent 1-87
+experiments/qbp-plants-leftover3-r58.py
+  ai_agent 1-772
+experiments/qbp-mill-leftover3-r42.py
+  ai_agent 1-132
+experiments/qbp-mill-leftover-lll-r77.py
+  ai_agent 1-132
+experiments/qbp-mill-leftover3-r74.py
+  ai_agent 1-132
+experiments/qbp-plants-r94.py
+  ai_agent 1-687
+experiments/qbp-plants-leftover3-r74.py
+  ai_agent 1-773
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b094475fbdeebbd3f25abaf1c995ca5fbec05098",
+  "prompts": {}
+}
