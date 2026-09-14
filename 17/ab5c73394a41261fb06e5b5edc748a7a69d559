@@ -1,0 +1,43 @@
+experiments/gql-mill-r211.py
+  ai_agent 1-910
+experiments/gql-mill-r260.py
+  ai_agent 1-306
+experiments/gql-mill-r271.py
+  ai_agent 1-311
+experiments/gql-loop-r211.py
+  ai_agent 1-162
+experiments/gql-loop-r271.py
+  ai_agent 1-125
+experiments/gql-hop-lll-from-lhc-r4688.py
+  ai_agent 1-185
+experiments/gql-hop-loop-r211.py
+  ai_agent 1-217
+experiments/gql-mill-r232.py
+  ai_agent 1-304
+experiments/gql-mill-r216.py
+  ai_agent 1-693
+experiments/gql-loop-r216.py
+  ai_agent 1-163
+experiments/gql-leftover-hop-r215.py
+  ai_agent 1-587
+experiments/gql-loop-r270.py
+  ai_agent 1-125
+experiments/mill_gql_leftover6_r260.py
+  ai_agent 1-209
+experiments/gql-loop-r232.py
+  ai_agent 1-100
+experiments/gql-mill-r167.py
+  ai_agent 1-1070
+experiments/gql-loop-r167.py
+  ai_agent 1-144
+experiments/gql-loop-r260.py
+  ai_agent 1-94
+experiments/gql-mill-r270.py
+  ai_agent 1-311
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "17ab5c73394a41261fb06e5b5edc748a7a69d559",
+  "prompts": {}
+}
