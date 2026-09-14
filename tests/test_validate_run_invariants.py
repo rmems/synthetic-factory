@@ -277,5 +277,27 @@ class ValidationIsTotalOverDecodedJson(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
 
+class ValidateThalamicFacadeLiveHooks(unittest.TestCase):
+    """PR #215 coderabbit: the split facade's check_thalamic must honor
+    rebinding of the facade-level check_meta_round and SAFETY_DECISIONS
+    compatibility names, exactly as the inline gate did before the split."""
+
+    def test_facade_check_meta_round_rebinding_flows_through(self):
+        with mock.patch.object(
+            validate_run, "check_meta_round", return_value=["rebound-hook"]
+        ):
+            errs = validate_run.check_thalamic({"meta": {"round": 1}}, "record")
+            self.assertIn("rebound-hook", errs)
+
+    def test_facade_safety_decisions_rebinding_flows_through(self):
+        rec = {"safety_decision": {"decision": "ACCEPT", "rationale": "ok"}}
+        with mock.patch.object(validate_run, "SAFETY_DECISIONS", frozenset()):
+            errs = validate_run.check_thalamic(rec, "record")
+            self.assertIn(
+                "record: safety_decision.decision must be ACCEPT|MODIFY|REJECT",
+                errs,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

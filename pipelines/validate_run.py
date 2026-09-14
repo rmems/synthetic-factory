@@ -230,11 +230,15 @@ def check_thalamic(obj, where):
     rebinding (mock.patch.object on this module) keeps flowing through,
     exactly as when the whole check lived inline.
     """
-    errs = _validate_run_thalamic.thalamic_core_errors(obj, where)
+    errs = _validate_run_thalamic.thalamic_core_errors(
+        obj, where, SAFETY_DECISIONS
+    )
     errs += check_provenance(obj, where)
     # Deep publish-time provenance: any nested 'real' fails
     errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
-    errs += _validate_run_thalamic.thalamic_tail_errors(obj, where)
+    errs += _validate_run_thalamic.thalamic_tail_errors(
+        obj, where, check_meta_round
+    )
     return errs
 
 

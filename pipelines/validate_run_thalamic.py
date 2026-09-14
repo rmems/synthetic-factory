@@ -80,13 +80,19 @@ def _thalamic_shape_errors(obj, where):
     return object_errors + string_errors
 
 
-def _safety_decision_errors(safety_decision, where):
-    """Validate one object-typed safety decision without unhashable crashes."""
+def _safety_decision_errors(safety_decision, where, allowed_decisions=None):
+    """Validate one object-typed safety decision without unhashable crashes.
+
+    ``allowed_decisions`` defaults to this module's SAFETY_DECISIONS; the
+    validate_run facade passes its own live binding so rebinding the
+    facade-level compatibility name keeps affecting validation.
+    """
     if not isinstance(safety_decision, dict):
         return []
+    decisions = SAFETY_DECISIONS if allowed_decisions is None else allowed_decisions
     errs = _validate_run_provenance.typed_enum_errors(
         safety_decision.get("decision"),
-        SAFETY_DECISIONS,
+        decisions,
         f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT",
     )
     rationale = safety_decision.get("rationale")
@@ -121,22 +127,30 @@ def check_meta_round(obj, where):
     return errs
 
 
-def thalamic_core_errors(obj, where):
+def thalamic_core_errors(obj, where, safety_decisions=None):
     """Validate the thalamic-owned core layers: shape, safety decision, and
     reward arithmetic. Provenance and the meta/spike tail stay with the
     caller so layer order and vocabulary rebinding match the inline gate.
     """
     errs = _thalamic_shape_errors(obj, where)
-    errs += _safety_decision_errors(obj.get("safety_decision"), where)
+    errs += _safety_decision_errors(
+        obj.get("safety_decision"), where, safety_decisions
+    )
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
         errs += _validate_run_rewards.check_reward_total(rc, where)
     return errs
 
 
-def thalamic_tail_errors(obj, where):
-    """Validate meta.round and the spike stream after the provenance layers."""
-    errs = check_meta_round(obj, where)
+def thalamic_tail_errors(obj, where, meta_round_checker=None):
+    """Validate meta.round and the spike stream after the provenance layers.
+
+    ``meta_round_checker`` defaults to this module's check_meta_round; the
+    validate_run facade passes its own live binding so rebinding the
+    facade-level compatibility name keeps affecting validation.
+    """
+    checker = check_meta_round if meta_round_checker is None else meta_round_checker
+    errs = checker(obj, where)
     # Optional trajectory-level spike train: same ordering contract as bridge.
     errs += _validate_run_spikes.check_spike_stream(obj, where)
     return errs
