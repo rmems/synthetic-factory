@@ -156,8 +156,8 @@ class IrcContract(unittest.TestCase):
         self.assertEqual(DEFERRED_MILLS, 60)
         self.assertEqual(FAMILY_LANE_COMMIT[:8], "813f93f1")
         self.assertEqual(FULL_SPEC_ROW_COUNT, 2900)
-        self.assertEqual(COMMITTED_SPEC_ROW_COUNT, 1848)
-        self.assertEqual(COMMITTED_MILL_CATALOGS, 34)
+        self.assertEqual(COMMITTED_SPEC_ROW_COUNT, 2900)
+        self.assertEqual(COMMITTED_MILL_CATALOGS, 60)
         self.assertEqual(SOURCE_COMMIT[:8], "070f1697")
         self.assertEqual(SOURCE_SHA256[:8], "99608f5b")
 
@@ -325,19 +325,26 @@ class IrcPipeCatalog(unittest.TestCase):
         ]
         self.assertEqual(len(deferred), FULL_MILL_CATALOGS - COMMITTED_MILL_CATALOGS)
         rounds = pipe_catalog.iter_committed_mill_rounds(family.sources)
-        self.assertEqual(rounds[-1], 4481)
-        self.assertNotIn(5001, rounds)
+        self.assertEqual(rounds[-1], 5001)
+        self.assertIn(5001, rounds)
 
-    def test_deferred_r5001_is_pinned_not_in_jsonl(self):
+    def test_r5001_specs_match_committed_jsonl_without_exec(self):
+        try:
+            source = subprocess.check_output(
+                ["git", "show", f"{SOURCE_REF}:experiments/irc-mill-r5001.py"],
+                text=True,
+                cwd=REPO,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        field, rows = pipe_catalog.pipe_rows_from_source(source)
+        self.assertEqual(field, "ROWS")
+        self.assertEqual(len(rows), 52)
         family = pipe_catalog.load_family_catalog()
-        deferred = next(
-            source
-            for source in family.sources
-            if source.get("path") == "experiments/irc-mill-r5001.py"
-        )
-        self.assertFalse(deferred.get("committed"))
-        self.assertEqual(deferred.get("n_rows_extracted"), 52)
-        self.assertFalse(any(row.mill_round == 5001 for row in family.spec_rows))
+        committed = [row for row in family.spec_rows if row.mill_round == 5001]
+        self.assertEqual(len(committed), 52)
+        self.assertEqual([row.pipe for row in committed], list(rows))
 
 
 class IrcCli(unittest.TestCase):

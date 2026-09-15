@@ -2,9 +2,9 @@
 """AST-extracted IRC pipe-row catalog (SPECS/ROWS literals only).
 
 ``CATALOG.json`` pins every file on ``origin/legacy-mill-lane`` @ ``813f93f``.
-``specs.jsonl`` holds compact pipe rows for mills through r4481. Later mills,
-loops, chains, and the unrecoverable ``/tmp/irc_mill_r3234.py`` helper stay
-off-repo; rows are never executed to build plants.
+``specs.jsonl`` holds compact pipe rows for all 60 pipe-row mills through
+r5001. Loops, chains, and the unrecoverable ``/tmp/irc_mill_r3234.py`` helper
+stay off-repo; rows are never executed to build plants.
 """
 
 from __future__ import annotations
