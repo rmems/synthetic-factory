@@ -36,11 +36,10 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
 
     def test_measured_option_is_a_boolean_or_none(self):
         for claimed in ("false", 0, "yes"):
-            with self.subTest(claimed=claimed):
-                with self.assertRaises(oc.ContractError):
-                    oc.new_measurement(
-                        "recovery_latency_ms", 4.0, "simulator_clock", measured=claimed
-                    )
+            with self.subTest(claimed=claimed), self.assertRaises(oc.ContractError):
+                oc.new_measurement(
+                    "recovery_latency_ms", 4.0, "simulator_clock", measured=claimed
+                )
         lowered = oc.new_measurement("recovery_latency_ms", 4.0, "simulator_clock", measured=False)
         self.assertIs(lowered["measured"], False)
 
@@ -70,9 +69,11 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
             (oc.GeneratorIdentity("g", version="1"), True),
             (oc.GeneratorIdentity("g", version="1"), 2.0),
         ):
-            with self.subTest(name=identity.name, version=identity.version, seed=seed):
-                with self.assertRaises(oc.ContractError):
-                    oc.new_generator(identity, seed=seed)
+            with (
+                self.subTest(name=identity.name, version=identity.version, seed=seed),
+                self.assertRaises(oc.ContractError),
+            ):
+                oc.new_generator(identity, seed=seed)
 
     def test_oracle_type_authority_and_run(self):
         def identity(**changes):
@@ -141,9 +142,8 @@ class EveryBuilderCopiesInsideTheBoundary(unittest.TestCase):
                 "recovery_latency_ms", 4.0, "simulator_clock", detail={"k": bad}
             )),
         ):
-            with self.subTest(section=name):
-                with self.assertRaises(oc.ContractError):
-                    build()
+            with self.subTest(section=name), self.assertRaises(oc.ContractError):
+                build()
 
 
 class BuilderCopyBoundary(unittest.TestCase):

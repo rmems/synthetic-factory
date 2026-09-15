@@ -34,17 +34,19 @@ class ComposeDestinationFacadeCompatibility(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "member.jsonl").write_bytes(b'{}\n')
-            with mock.patch.object(
-                compose_destination,
-                facade_name,
-                side_effect=FacadeSentinel(facade_name),
+            with (
+                mock.patch.object(
+                    compose_destination,
+                    facade_name,
+                    side_effect=FacadeSentinel(facade_name),
+                ),
+                self.assertRaisesRegex(FacadeSentinel, facade_name),
             ):
-                with self.assertRaisesRegex(FacadeSentinel, facade_name):
-                    compose_destination._read_exact_regular_file(
-                        root,
-                        "member.jsonl",
-                        "source member",
-                    )
+                compose_destination._read_exact_regular_file(
+                    root,
+                    "member.jsonl",
+                    "source member",
+                )
 
     def test_exact_read_reaches_the_facade_opened_identity_seam(self):
         self._assert_exact_read_reaches("_assert_opened_source_identity")
@@ -67,19 +69,21 @@ class ComposeDestinationFacadeCompatibility(unittest.TestCase):
                     parent,
                     "source child",
                 )
-                with mock.patch.object(
-                    compose_destination,
-                    facade_name,
-                    side_effect=FacadeSentinel(facade_name),
+                with (
+                    mock.patch.object(
+                        compose_destination,
+                        facade_name,
+                        side_effect=FacadeSentinel(facade_name),
+                    ),
+                    self.assertRaisesRegex(FacadeSentinel, facade_name),
                 ):
-                    with self.assertRaisesRegex(FacadeSentinel, facade_name):
-                        compose_destination._read_pinned_child_bytes(
-                            "child.json",
-                            parent,
-                            descriptor,
-                            before,
-                            "source child",
-                        )
+                    compose_destination._read_pinned_child_bytes(
+                        "child.json",
+                        parent,
+                        descriptor,
+                        before,
+                        "source child",
+                    )
             finally:
                 if descriptor is not None:
                     os.close(descriptor)
@@ -95,46 +99,53 @@ class ComposeDestinationFacadeCompatibility(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "member.jsonl").write_bytes(b'{}\n')
-            with mock.patch.object(
-                compose_destination,
-                "_round_visible_members",
-                side_effect=FacadeSentinel("round visibility"),
+            with (
+                mock.patch.object(
+                    compose_destination,
+                    "_round_visible_members",
+                    side_effect=FacadeSentinel("round visibility"),
+                ),
+                self.assertRaisesRegex(FacadeSentinel, "round visibility"),
             ):
-                with self.assertRaisesRegex(FacadeSentinel, "round visibility"):
-                    compose_destination.source_jsonl_members(root)
+                compose_destination.source_jsonl_members(root)
 
     def test_round_visibility_reaches_the_facade_marker_root_seam(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            with mock.patch.object(
-                compose_destination,
-                "_enclosing_marker_root",
-                side_effect=FacadeSentinel("marker root"),
+            with (
+                mock.patch.object(
+                    compose_destination,
+                    "_enclosing_marker_root",
+                    side_effect=FacadeSentinel("marker root"),
+                ),
+                self.assertRaisesRegex(FacadeSentinel, "marker root"),
             ):
-                with self.assertRaisesRegex(FacadeSentinel, "marker root"):
-                    compose_destination._round_visible_members(
-                        root,
-                        ["member.jsonl"],
-                    )
+                compose_destination._round_visible_members(
+                    root,
+                    ["member.jsonl"],
+                )
 
     def test_round_visibility_reaches_the_facade_committed_paths_seam(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "member.jsonl").write_bytes(b'{}\n')
-            with mock.patch.object(
-                compose_destination,
-                "_enclosing_marker_root",
-                return_value=root,
-            ), mock.patch.object(
-                compose_destination,
-                "_committed_paths",
-                side_effect=FacadeSentinel("committed paths"),
+            with (
+                mock.patch.object(
+                    compose_destination,
+                    "_enclosing_marker_root",
+                    return_value=root,
+                ),
+                mock.patch.object(
+                    compose_destination,
+                    "_committed_paths",
+                    side_effect=FacadeSentinel("committed paths"),
+                ),
+                self.assertRaisesRegex(FacadeSentinel, "committed paths"),
             ):
-                with self.assertRaisesRegex(FacadeSentinel, "committed paths"):
-                    compose_destination._round_visible_members(
-                        root,
-                        ["member.jsonl"],
-                    )
+                compose_destination._round_visible_members(
+                    root,
+                    ["member.jsonl"],
+                )
 
 
 if __name__ == "__main__":

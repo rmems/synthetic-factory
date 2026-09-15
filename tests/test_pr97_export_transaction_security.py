@@ -40,13 +40,15 @@ class ExportTransactionContracts(unittest.TestCase):
                     os.close(descriptor)
                 return real_finish(pinned)
 
-            with mock.patch.object(
-                export_hf,
-                "_finish_pinned_destination",
-                side_effect=mutate_then_finish,
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_finish_pinned_destination",
+                    side_effect=mutate_then_finish,
+                ),
+                self.assertRaises(export_hf.ExportError),
             ):
-                with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, destination)
+                export_hf.export_run(curated, destination)
 
             self.assertFalse(destination.exists())
 
@@ -63,13 +65,15 @@ class ExportTransactionContracts(unittest.TestCase):
                 (pinned.root / "undeclared-extra").write_bytes(b"not declared\n")
                 return real_finish(pinned)
 
-            with mock.patch.object(
-                export_hf,
-                "_finish_pinned_destination",
-                side_effect=add_extra_then_finish,
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_finish_pinned_destination",
+                    side_effect=add_extra_then_finish,
+                ),
+                self.assertRaises(export_hf.ExportError),
             ):
-                with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, destination)
+                export_hf.export_run(curated, destination)
 
             self.assertFalse(destination.exists())
 
@@ -90,13 +94,15 @@ class ExportTransactionContracts(unittest.TestCase):
                     (destination / "concurrent-owner").write_bytes(b"keep me\n")
                 return real_finish(pinned)
 
-            with mock.patch.object(
-                export_hf,
-                "_finish_pinned_destination",
-                side_effect=race_at_finish,
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_finish_pinned_destination",
+                    side_effect=race_at_finish,
+                ),
+                self.assertRaises(export_hf.ExportError),
             ):
-                with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, destination)
+                export_hf.export_run(curated, destination)
 
             self.assertEqual(
                 (destination / "concurrent-owner").read_bytes(),
@@ -120,16 +126,18 @@ class ExportTransactionContracts(unittest.TestCase):
                 late.write_bytes(b'{}\n')
                 return result
 
-            with mock.patch.object(
-                export_hf,
-                "_write_export_metadata",
-                side_effect=authenticate_then_add,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_write_export_metadata",
+                    side_effect=authenticate_then_add,
+                ),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "curated member set changed",
-                ):
-                    export_hf.export_run(curated, destination)
+                ),
+            ):
+                export_hf.export_run(curated, destination)
 
             self.assertFalse(destination.exists())
 
@@ -141,13 +149,15 @@ class ExportTransactionContracts(unittest.TestCase):
             member = root / "member.jsonl"
             member.write_bytes(b'{}\n')
 
-            with mock.patch.object(Path, "lstat", side_effect=OSError("denied")):
-                with self.assertRaisesRegex(export_hf.ExportError, "cannot inspect"):
-                    export_members._read_exact_regular_file(
-                        root,
-                        member.name,
-                        "curated payload",
-                    )
+            with (
+                mock.patch.object(Path, "lstat", side_effect=OSError("denied")),
+                self.assertRaisesRegex(export_hf.ExportError, "cannot inspect"),
+            ):
+                export_members._read_exact_regular_file(
+                    root,
+                    member.name,
+                    "curated payload",
+                )
 
     def test_pre_and_post_read_lstat_failures_are_export_errors(self):
         """Both descriptor-authentication lstat phases normalize OSError."""
@@ -161,28 +171,28 @@ class ExportTransactionContracts(unittest.TestCase):
                 [OSError("pre-read denied")],
                 [original, OSError("post-read denied")],
             ):
-                with self.subTest(phase=len(observations)):
-                    with (
-                        mock.patch.object(
-                            export_members_read,
-                            "compose_member_path",
-                            return_value=member,
-                        ),
-                        mock.patch.object(
-                            Path,
-                            "lstat",
-                            side_effect=observations,
-                        ),
-                    ):
-                        with self.assertRaisesRegex(
-                            export_members.ExportError,
-                            "cannot inspect declared file",
-                        ):
-                            export_members_read.read_exact_regular_file(
-                                root,
-                                member.name,
-                                "curated payload",
-                            )
+                with (
+                    self.subTest(phase=len(observations)),
+                    mock.patch.object(
+                        export_members_read,
+                        "compose_member_path",
+                        return_value=member,
+                    ),
+                    mock.patch.object(
+                        Path,
+                        "lstat",
+                        side_effect=observations,
+                    ),
+                    self.assertRaisesRegex(
+                        export_members.ExportError,
+                        "cannot inspect declared file",
+                    ),
+                ):
+                    export_members_read.read_exact_regular_file(
+                        root,
+                        member.name,
+                        "curated payload",
+                    )
 
     def test_export_error_remains_in_star_import_surface(self):
         self.assertIn("ExportError", export_members.__all__)
