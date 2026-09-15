@@ -33,8 +33,13 @@ from evh.catalog_extract import (  # noqa: E402
 )
 from evh.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from evh.leftover_plants import load_leftover_plants  # noqa: E402
+from evh.leftover_plants_b import load_leftover_plants_b  # noqa: E402
 from evh.pairs import load_pairs  # noqa: E402
-from evh.plants_extract import extract_leftover_plant_pairs, leftover_plants_jsonl_path  # noqa: E402
+from evh.plants_extract import (  # noqa: E402
+    extract_leftover_plant_pairs,
+    leftover_plants_b_jsonl_path,
+    leftover_plants_jsonl_path,
+)
 from evh.sources import MILL_SOURCES, catalog_sources, loop_sources, source_by_id  # noqa: E402
 from evh import vocabulary as cv  # noqa: E402
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
@@ -257,6 +262,7 @@ class EvhSkeletonTests(unittest.TestCase):
             "catalog.py",
             "identity.py",
             "leftover_plants.py",
+            "leftover_plants_b.py",
             "pairs.py",
             "plants_extract.py",
         ):
@@ -383,7 +389,9 @@ class EvhLegacyExtractTests(unittest.TestCase):
         expected = json.loads(dumps_catalog(catalog_document(mills)))
         committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
         archive_b = committed.pop("archive_b")
+        archive_c = committed.pop("archive_c")
         self.assertIsNotNone(archive_b)
+        self.assertIsNotNone(archive_c)
         self.assertEqual(committed, expected)
 
     def test_loop_and_gen_scripts_name_companion_mill_dir(self):
@@ -468,6 +476,48 @@ class EvhArchiveBPlantsTests(unittest.TestCase):
         extracted = extract_leftover_plant_pairs(text)
         committed = list(load_leftover_plants())
         self.assertEqual(len(extracted), cv.LEFTOVER_PLANTS_N_ROWS)
+        self.assertEqual(extracted, committed)
+
+
+class EvhArchiveCPlantsTests(unittest.TestCase):
+    def test_leftover_plants_b_jsonl_stays_compact(self):
+        path = leftover_plants_b_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(cv.LEFTOVER_PLANT_ROW_KEYS))
+            self.assertEqual(row["source"], cv.ARCHIVE_C_PATH)
+
+    def test_archive_c_rows_match_catalog_pins(self):
+        archive = CATALOG.archive_c
+        self.assertIsNotNone(archive)
+        assert archive is not None
+        self.assertEqual(archive.path, cv.ARCHIVE_C_PATH)
+        self.assertEqual(archive.n_pairs, cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertEqual(len(archive.pairs), cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertEqual(archive.pairs[0]["ok_slug"], "prettier-json-sort-bind-f71m")
+        self.assertEqual(archive.pairs[-1]["ok_slug"], "instructor-ge-retry-swallow-l77s")
+
+    def test_live_reextract_archive_c_matches_committed(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{cv.ARCHIVE_C_LEGACY_COMMIT}:{cv.ARCHIVE_C_PATH}",
+            ],
+            text=True,
+            cwd=REPO,
+        )
+        extracted = extract_leftover_plant_pairs(text, path=cv.ARCHIVE_C_PATH)
+        committed = list(load_leftover_plants_b())
+        self.assertEqual(len(extracted), cv.LEFTOVER_PLANTS_B_N_ROWS)
         self.assertEqual(extracted, committed)
 
 

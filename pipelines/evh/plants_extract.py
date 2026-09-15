@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AST-extract Archive B leftover trajectory plants from ``mill_plants.py``.
+"""AST-extract Archive B/C leftover trajectory plants from ``mill_plants*.py``.
 
 Reads only ``PAIRS.append((_ok(...), _bad(...)))`` module statements. Does not
 import, compile, or exec ``scripts/eval_harness_unique_mill``.
@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from .catalog_extract import sha256_bytes
-from .vocabulary import ARCHIVE_B_PATH, LEFTOVER_PLANT_ROW_KEYS, LEFTOVER_PLANTS_FILENAME
+from .vocabulary import (
+    ARCHIVE_B_PATH,
+    LEFTOVER_PLANT_ROW_KEYS,
+    LEFTOVER_PLANTS_B_FILENAME,
+    LEFTOVER_PLANTS_FILENAME,
+)
 
 _PLANT_CALLS = frozenset({"_ok", "_bad"})
 _SIDE_KEYS = ("slug", "domain", "kind")
@@ -115,3 +120,8 @@ def dumps_leftover_plants_jsonl(rows: list[Mapping[str, Any]]) -> str:
 def leftover_plants_jsonl_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / LEFTOVER_PLANTS_FILENAME
+
+
+def leftover_plants_b_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / LEFTOVER_PLANTS_B_FILENAME

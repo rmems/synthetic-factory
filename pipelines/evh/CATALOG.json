@@ -10,6 +10,17 @@
     "plants_sha256": "a5aed8de6f90ca53acfd83830558ba2b39a7b104600be693c62b995c4feee398",
     "sha256": "159cd87e658e7e9cf38794a8a46977df5a6c725145857c35f71c43590d0a3b31"
   },
+  "archive_c": {
+    "blob_sha": "d1077301f4e9bfbc4516e63a55950c869ff54fe9",
+    "first_ok_slug": "prettier-json-sort-bind-f71m",
+    "last_ok_slug": "instructor-ge-retry-swallow-l77s",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 4,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_b.py",
+    "plants_filename": "leftover-plants-b.jsonl",
+    "plants_sha256": "ebbcd586ffd72960673a0d273dc87e363f3b8c140b05e96735f7ac86995b7779",
+    "sha256": "dfd7c0b4dd3ce74d61b5ba03ed6482f040900190ae6c96f2581a867a92a17d0d"
+  },
   "factory": "eval-harness-trajectory-factory",
   "generator": "grok-4.6",
   "mills": {

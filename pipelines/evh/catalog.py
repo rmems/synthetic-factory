@@ -11,15 +11,21 @@ from typing import Any
 
 from .catalog_extract import catalog_json_path
 from .leftover_plants import load_leftover_plants
+from .leftover_plants_b import load_leftover_plants_b
 from .pairs import load_pairs
 from .sources import MILL_SOURCES, catalog_sources
 from .vocabulary import (
     ARCHIVE_B_BLOB_SHA,
     ARCHIVE_B_PATH,
+    ARCHIVE_C_BLOB_SHA,
+    ARCHIVE_C_PATH,
     CATALOG_SCHEMA_ID,
     FACTORY,
     FIRST_SLICE_MILL_ID,
     GENERATOR,
+    LEFTOVER_PLANTS_B_FILENAME,
+    LEFTOVER_PLANTS_B_N_ROWS,
+    LEFTOVER_PLANTS_B_SHA256,
     LEFTOVER_PLANTS_FILENAME,
     LEFTOVER_PLANTS_N_ROWS,
     LEFTOVER_PLANTS_SHA256,
@@ -91,6 +97,7 @@ class EvhCatalog:
     mills: Mapping[str, MillCatalog]
     deferred_pairs: tuple[Mapping[str, Any], ...] = ()
     archive_b: ArchiveBPlants | None = None
+    archive_c: ArchiveBPlants | None = None
 
     @property
     def n_pair_rows(self) -> int:
@@ -126,10 +133,15 @@ def load_catalog(path=None) -> EvhCatalog:
             document.get("archive_b"),
             catalog_path.parent,
         ),
+        archive_c=_archive_b_from_document(
+            document.get("archive_c"),
+            catalog_path.parent,
+        ),
     )
     _bind_sources(catalog)
     _bind_deferred_pairs(catalog)
     _bind_archive_b_plants(catalog)
+    _bind_archive_c_plants(catalog)
     return catalog
 
 
@@ -143,7 +155,13 @@ def _archive_b_from_document(
 ) -> ArchiveBPlants | None:
     if row is None:
         return None
-    pairs = load_leftover_plants(package_dir / row["plants_filename"])
+    plants_path = package_dir / row["plants_filename"]
+    if row["plants_filename"] == LEFTOVER_PLANTS_B_FILENAME:
+        pairs = load_leftover_plants_b(plants_path)
+    elif row["plants_filename"] == LEFTOVER_PLANTS_FILENAME:
+        pairs = load_leftover_plants(plants_path)
+    else:
+        raise ValueError(f"unknown archive plants filename {row['plants_filename']}")
     return ArchiveBPlants(
         path=row["path"],
         legacy_commit=row["legacy_commit"],
@@ -264,30 +282,62 @@ def _bind_deferred_pairs(catalog: EvhCatalog) -> None:
 
 
 def _bind_archive_b_plants(catalog: EvhCatalog) -> None:
-    archive = catalog.archive_b
+    _bind_archive_leftover_plants(
+        catalog.archive_b,
+        path_pin=ARCHIVE_B_PATH,
+        blob_pin=ARCHIVE_B_BLOB_SHA,
+        plants_filename=LEFTOVER_PLANTS_FILENAME,
+        plants_sha256=LEFTOVER_PLANTS_SHA256,
+        n_rows=LEFTOVER_PLANTS_N_ROWS,
+        label="archive_b",
+    )
+
+
+def _bind_archive_c_plants(catalog: EvhCatalog) -> None:
+    _bind_archive_leftover_plants(
+        catalog.archive_c,
+        path_pin=ARCHIVE_C_PATH,
+        blob_pin=ARCHIVE_C_BLOB_SHA,
+        plants_filename=LEFTOVER_PLANTS_B_FILENAME,
+        plants_sha256=LEFTOVER_PLANTS_B_SHA256,
+        n_rows=LEFTOVER_PLANTS_B_N_ROWS,
+        label="archive_c",
+    )
+
+
+def _bind_archive_leftover_plants(
+    archive: ArchiveBPlants | None,
+    *,
+    path_pin: str,
+    blob_pin: str,
+    plants_filename: str,
+    plants_sha256: str,
+    n_rows: int,
+    label: str,
+) -> None:
     if archive is None:
-        raise ValueError("catalog must pin Archive B leftover plants")
-    if archive.path != ARCHIVE_B_PATH:
-        raise ValueError("archive_b.path drifted from vocabulary")
-    if archive.blob_sha != ARCHIVE_B_BLOB_SHA:
-        raise ValueError("archive_b.blob_sha drifted from vocabulary")
-    if archive.plants_filename != LEFTOVER_PLANTS_FILENAME:
-        raise ValueError("archive_b.plants_filename drifted from vocabulary")
-    if archive.plants_sha256 != LEFTOVER_PLANTS_SHA256:
-        raise ValueError("archive_b.plants_sha256 drifted from vocabulary")
-    if archive.n_pairs != LEFTOVER_PLANTS_N_ROWS:
-        raise ValueError("archive_b.n_pairs drifted from vocabulary")
+        raise ValueError(f"catalog must pin {label} leftover plants")
+    if archive.path != path_pin:
+        raise ValueError(f"{label}.path drifted from vocabulary")
+    if archive.blob_sha != blob_pin:
+        raise ValueError(f"{label}.blob_sha drifted from vocabulary")
+    if archive.plants_filename != plants_filename:
+        raise ValueError(f"{label}.plants_filename drifted from vocabulary")
+    if archive.plants_sha256 != plants_sha256:
+        raise ValueError(f"{label}.plants_sha256 drifted from vocabulary")
+    if archive.n_pairs != n_rows:
+        raise ValueError(f"{label}.n_pairs drifted from vocabulary")
     if len(archive.pairs) != archive.n_pairs:
-        raise ValueError("archive_b.n_pairs does not match leftover-plants.jsonl")
+        raise ValueError(f"{label}.n_pairs does not match plants jsonl")
     if archive.pairs[0]["ok_slug"] != archive.first_ok_slug:
-        raise ValueError("archive_b.first_ok_slug drifted from leftover-plants.jsonl")
+        raise ValueError(f"{label}.first_ok_slug drifted from plants jsonl")
     if archive.pairs[-1]["ok_slug"] != archive.last_ok_slug:
-        raise ValueError("archive_b.last_ok_slug drifted from leftover-plants.jsonl")
+        raise ValueError(f"{label}.last_ok_slug drifted from plants jsonl")
     for index, row in enumerate(archive.pairs):
         if row["index"] != index:
-            raise ValueError(f"leftover-plants.jsonl index {row['index']} != row {index}")
-        if row["source"] != ARCHIVE_B_PATH:
-            raise ValueError(f"leftover-plants.jsonl row {index} source drifted")
+            raise ValueError(f"{label} plants jsonl index {row['index']} != row {index}")
+        if row["source"] != path_pin:
+            raise ValueError(f"{label} plants jsonl row {index} source drifted")
 
 
 CATALOG = load_catalog()
