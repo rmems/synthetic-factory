@@ -85,6 +85,44 @@ class Agreement(unittest.TestCase):
         self.assertEqual(self._hidden(module, [{"args": "(0.5,)", "want": "0.5"}]), ["pass"])
 
 
+class TamperResistance(unittest.TestCase):
+    """Issue #213: in-band ``limits_applied`` must not downgrade a limited run."""
+
+    _FRAME_WALK = (
+        "import sys\n"
+        "def _tamper():\n"
+        "    frame = sys._getframe()\n"
+        "    while frame is not None:\n"
+        "        report = frame.f_locals.get('report')\n"
+        "        if isinstance(report, dict) and isinstance(report.get('environment'), dict):\n"
+        "            report['environment']['limits_applied'] = False\n"
+        "            return True\n"
+        "        frame = frame.f_back\n"
+        "_tamper()\n\n"
+    )
+    _GC_WALK = (
+        "import gc\n"
+        "for obj in gc.get_objects():\n"
+        "    if isinstance(obj, dict) and obj.get('limits_applied') is True and 'platform' in obj:\n"
+        "        obj['limits_applied'] = False\n\n"
+    )
+
+    def _run_tamper(self, preamble: str) -> ex.PhaseReport:
+        module = preamble + "def f(n):\n    return n\n"
+        job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
+        return RUNNER.run(job)
+
+    def test_frame_walk_cannot_refuse_the_run_by_clearing_limits(self):
+        report = self._run_tamper(self._FRAME_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_gc_walk_cannot_refuse_the_run_by_clearing_limits(self):
+        report = self._run_tamper(self._GC_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+
 class Failures(unittest.TestCase):
     def test_a_child_that_streams_discarded_output_is_stopped_by_the_timeout(self):
         """Discarded output stays out of memory while the wall-clock bound stops the loop."""
@@ -129,7 +167,11 @@ class Failures(unittest.TestCase):
 
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
-        head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
+        head = (
+            f'{ex.LIMITS_ATTESTATION_PREFIX}true\n'
+            '{"protocol": "code-repair-harness/2", "environment": {"limits_applied": true}, '
+            '"load": {"status": "ok", "error": null}, '
+        )
         full = head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
         self.assertTrue(ex._parse_report(job, 0, full.encode()).ok)
         bad = (

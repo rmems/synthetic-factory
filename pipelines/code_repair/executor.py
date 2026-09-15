@@ -39,6 +39,7 @@ FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
+LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
@@ -221,17 +222,41 @@ def _harness_error(detail: str) -> PhaseReport:
     return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
 
 
+def _split_limits_attestation(stdout: bytes) -> tuple[bool | None, bytes, str | None]:
+    """The first stdout line is authoritative for limits; the remainder is the JSON report."""
+
+    if not stdout:
+        return None, b"", "empty stdout"
+    newline = stdout.find(b"\n")
+    if newline < 0:
+        return None, stdout, "missing limits attestation line"
+    line = stdout[:newline].decode("utf-8")
+    remainder = stdout[newline + 1 :]
+    if not line.startswith(LIMITS_ATTESTATION_PREFIX):
+        return None, remainder, "missing limits attestation line"
+    token = line[len(LIMITS_ATTESTATION_PREFIX) :].strip()
+    if token == "true":
+        return True, remainder, None
+    if token == "false":
+        return False, remainder, None
+    return None, remainder, "limits attestation malformed"
+
+
 def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
     """The protocol object the child wrote, or the reason there is none."""
 
     if returncode != 0:
         return f"exit status {returncode}"
+    limits_applied, json_bytes, attestation_error = _split_limits_attestation(stdout)
+    if attestation_error is not None:
+        return attestation_error
     try:
-        parsed = load_strict_json(stdout.decode("utf-8"))
+        parsed = load_strict_json(json_bytes.decode("utf-8"))
     except ValueError as exc:
         return f"report unreadable: {exc}"
     if not isinstance(parsed, dict) or parsed.get("protocol") != cv.HARNESS_PROTOCOL:
         return "report is not the protocol"
+    parsed["_limits_attested"] = limits_applied
     return parsed
 
 
@@ -245,9 +270,11 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     parsed = _parsed_report(returncode, stdout)
     if isinstance(parsed, str):
         return _harness_error(parsed)
-    environment = _object(parsed, "environment")
-    if environment.get("limits_applied") is not True:
+    limits_attested = parsed.pop("_limits_attested", None)
+    if limits_attested is not True:
         return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    environment = _object(parsed, "environment")
+    environment = {**environment, "limits_applied": True}
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = _scrub_detail(str(load.get("error") or "load failed"))

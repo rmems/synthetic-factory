@@ -5,8 +5,9 @@ Runs under ``python -P -s -S -B -X utf8`` in a fresh working directory holding
 ``program.py`` and ``spec.json``; applies its own resource limits; loads the
 module through ``importlib``; runs the target function's doctest examples once
 in order (they may carry state) through a ``DocTestRunner`` whose report hooks
-record one row per example; evaluates the pinned hidden cases; and prints one
-JSON object on stdout. It exits 0 whatever the program did: failures are rows,
+record one row per example; evaluates the pinned hidden cases; writes an
+out-of-band limits attestation line on real stdout before ``program.py`` is read;
+then prints one JSON object on stdout. It exits 0 whatever the program did: failures are rows,
 never exit codes, and any internal error is reported in ``load``.
 """
 
@@ -26,7 +27,8 @@ import traceback
 import types
 from pathlib import Path
 
-PROTOCOL = "code-repair-harness/1"
+PROTOCOL = "code-repair-harness/2"
+LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
 MAX_CAPTURE_CHARS = 65_536
@@ -257,15 +259,23 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
-def _run(workdir: Path, spec: dict) -> dict:
+def _write_limits_attestation(stream, limits_applied: bool) -> None:
+    """Out-of-band limits proof on real stdout before ``program.py`` is read."""
+
+    token = "true" if limits_applied else "false"
+    stream.write(f"{LIMITS_ATTESTATION_PREFIX}{token}\n")
+    stream.flush()
+
+
+def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     report: dict = {"protocol": PROTOCOL, "load": {"status": "ok", "error": None}}
     report["environment"] = {
         "python": platform.python_version(),
         "implementation": platform.python_implementation().lower(),
         "platform": sys.platform,
-        "limits_applied": _apply_limits(spec),
+        "limits_applied": limits_applied,
     }
-    if not report["environment"]["limits_applied"]:
+    if not limits_applied:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
         return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
@@ -299,18 +309,29 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         return 2
     workdir = Path(argv[1])
     real_stdout, real_stderr = sys.stdout, sys.stderr
+    real_stdout.flush()
+    real_stderr.flush()
+    try:
+        spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
+    except Exception as exc:
+        error = f"HarnessError: {exc}"
+        _write_limits_attestation(real_stdout, False)
+        report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
+        real_stdout.write(_dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True))
+        real_stdout.flush()
+        return 0
+
+    limits_applied = _apply_limits(spec)
+    _write_limits_attestation(real_stdout, limits_applied)
     # The program under test never writes on the protocol channel; whatever it
     # prints is discarded outright, so streaming forever buys it nothing.
     with open(os.devnull, "w", encoding="utf-8") as sink:
-        real_stdout.flush()
-        real_stderr.flush()
         saved = (os.dup(1), os.dup(2))
         os.dup2(sink.fileno(), 1)
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-            report = _run(workdir, spec)
+            report = _run(workdir, spec, limits_applied=limits_applied)
         except Exception as exc:
             error = f"HarnessError: {exc}"
             report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}

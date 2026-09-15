@@ -105,10 +105,19 @@ class ExecutionEvidence(unittest.TestCase):
         for flag in (None, False, 1):
             report = {"protocol": cv.HARNESS_PROTOCOL, "load": {"status": "ok"},
                       "environment": {"limits_applied": flag}, "public": [], "hidden": []}
-            result = ex._parse_report(ex.Job("limits", "", "f", (), False),
-                                      0, json.dumps(report).encode())
+            body = json.dumps(report).encode()
+            stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode() + body
+            result = ex._parse_report(ex.Job("limits", "", "f", (), False), 0, stdout)
             self.assertFalse(result.ok)
             self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, result.detail)
+
+    def test_in_band_limits_cannot_override_a_true_attestation(self):
+        report = {"protocol": cv.HARNESS_PROTOCOL, "load": {"status": "ok"},
+                  "environment": {"limits_applied": False}, "public": [], "hidden": []}
+        body = json.dumps(report).encode()
+        stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode() + body
+        result = ex._parse_report(ex.Job("limits", "", "f", (), False), 0, stdout)
+        self.assertTrue(result.environment["limits_applied"])
 
     def test_unavailable_limits_stop_before_loading_program_code(self):
         from code_repair import _harness
@@ -120,7 +129,7 @@ class ExecutionEvidence(unittest.TestCase):
                 f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
             )
             with patch.object(_harness, "_apply_limits", return_value=False):
-                result = _harness._run(directory, {})
+                result = _harness._run(directory, {}, limits_applied=False)
             self.assertEqual(result["load"]["status"], "error")
             self.assertFalse(marker.exists())
 
