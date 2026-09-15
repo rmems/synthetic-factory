@@ -1,0 +1,68 @@
+{
+  "catalog_id": "gql-plants-v1",
+  "factory": "graphql-nplusone-factory",
+  "format": "gql-catalog/1",
+  "mill_prefix": "gql",
+  "mills": [
+    {
+      "base_round": 167,
+      "mill_id": "gql_r167",
+      "plant_count": 16,
+      "source": "experiments/gql-mill-r167.py"
+    },
+    {
+      "base_round": 211,
+      "mill_id": "gql_r211",
+      "plant_count": 12,
+      "source": "experiments/gql-mill-r211.py"
+    },
+    {
+      "base_round": 216,
+      "mill_id": "gql_r216",
+      "plant_count": 10,
+      "source": "experiments/gql-mill-r216.py"
+    },
+    {
+      "base_round": 232,
+      "mill_id": "gql_r232",
+      "plant_count": 16,
+      "source": "experiments/gql-mill-r232.py"
+    },
+    {
+      "base_round": 260,
+      "mill_id": "gql_r260",
+      "plant_count": 16,
+      "source": "experiments/gql-mill-r260.py"
+    },
+    {
+      "base_round": 270,
+      "mill_id": "gql_r270",
+      "plant_count": 16,
+      "source": "experiments/gql-mill-r270.py"
+    },
+    {
+      "base_round": 271,
+      "mill_id": "gql_r271",
+      "plant_count": 16,
+      "source": "experiments/gql-mill-r271.py"
+    }
+  ],
+  "plant_count": 102,
+  "plants_sha256": "b47c1c3a48f2bcfd81e90ac7b8763207fa7f5e77e563428559470ecbbe11d9ca",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/gql-mill-r167.py",
+      "experiments/gql-mill-r211.py",
+      "experiments/gql-mill-r216.py",
+      "experiments/gql-mill-r232.py",
+      "experiments/gql-mill-r260.py",
+      "experiments/gql-mill-r270.py",
+      "experiments/gql-mill-r271.py"
+    ]
+  }
+}

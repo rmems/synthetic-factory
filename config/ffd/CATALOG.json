@@ -1,0 +1,85 @@
+{
+  "banned_sub": [
+    "rpitit",
+    "thinlto",
+    "loopvar",
+    "django-async",
+    "asgi",
+    "promql-histogram",
+    "prometheus-histogram-native",
+    "vale-region",
+    "koka-effect",
+    "kanidm",
+    "gluu",
+    "casdoor",
+    "authentik",
+    "oauth2",
+    "zitadel",
+    "authelia",
+    "pomerium",
+    "teleport",
+    "agama",
+    "sssd",
+    "pam-mkhomedir",
+    "hydra",
+    "kratos",
+    "keto",
+    "ory-keto",
+    "pr-ory-",
+    "origin-https",
+    "origin-frontend",
+    "pass-identity",
+    "whoami-tokenized",
+    "rust-pin",
+    "pin-unpin",
+    "pin-project",
+    "transmute"
+  ],
+  "catalog_id": "ffd-v1",
+  "digests": {
+    "hop_pairs_sha256": "c62ce55992ea6febd6e12ea5785bfaba4da8ef80046f59fd298f79256890d854",
+    "hop_plants_sha256": "3dd65783585186f84c1a68fb1387180e6935a60c8735e1a025447ad6f0e9c92b",
+    "leftover3_pairs_sha256": "9e36bf876b2f5079a9d8e1fd484e9d4cf3476b690022609ef58ef23591efd53f",
+    "lll_pairs_sha256": "5594272aa8b4b9b8d1550876e983d620e76f4d324b5240d50124f64f3acb1d8b"
+  },
+  "factory": "feature-flag-debug-factory",
+  "family": "ffd",
+  "files": {
+    "hop_pairs": "hop-pairs.jsonl",
+    "hop_plants": "hop-plants.jsonl",
+    "leftover3_pairs": "leftover3-pairs.jsonl",
+    "lll_pairs": "lll-pairs.jsonl"
+  },
+  "format": "ffd-mill-catalog/1",
+  "generator": "grok-4.6",
+  "legacy": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "ref": "origin/legacy-mill-lane"
+  },
+  "pair_counts": {
+    "hop": 9,
+    "leftover3": 39,
+    "lll": 16
+  },
+  "prefix": "ffd",
+  "sources": {
+    "hop": {
+      "catalog_first": 102,
+      "git_blob": "1f19d84950451225b7f2a404a862295eb707adb5",
+      "path": "experiments/ffd-mill-hop-r102.py",
+      "sha256": "14de5684e3d171e949d36a489e77bf41b038af07c6724f11ced8e2882b6fb8e7"
+    },
+    "leftover3": {
+      "catalog_first": 41,
+      "git_blob": "05fbe7a742964099adcf34110fcca20320ce4fb3",
+      "path": "experiments/ffd-mill-leftover3-r41.py",
+      "sha256": "17326bd3c07e4b6aaa89fdca67f8a8ead34858830c27ac0f76570394b048457c"
+    },
+    "lll": {
+      "catalog_first": 61,
+      "git_blob": "7731e0639ce1a016c597f868d800d7d4d6bda9f9",
+      "path": "experiments/ffd-mill-lll-r61.py",
+      "sha256": "e33ba603414786695d0540558ffdce8784e04dd54c9e3d44c54d512903437e0e"
+    }
+  }
+}
