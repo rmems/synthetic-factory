@@ -8,7 +8,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .catalog_extract import catalog_json_path, load_r72_rows, r72_jsonl_path
+from .catalog_extract import (
+    catalog_json_path,
+    load_r72_header,
+    load_r72_rows,
+    r72_jsonl_path,
+)
 from .sources import MILL_SOURCES, R72_SOURCE, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
@@ -16,12 +21,15 @@ from .vocabulary import (
     GENERATOR,
     KIND_HOME_PAIRS,
     PRESERVE_COMMIT,
+    R72_BLOB_SHA,
     R72_CATALOG_FIRST,
     R72_FIRST_SLUG,
+    R72_JSONL_SHA256,
     R72_LAST_SLUG,
     R72_MILL_ID,
     R72_N_ROWS,
     R72_PATH,
+    R72_SHA256,
     R72_SLICE_ID,
     SLICE_ID,
 )
@@ -152,6 +160,14 @@ def _bind_sources(catalog: SearchCatalog) -> None:
 
 
 def load_r72(path=None) -> HomeMillCatalog:
+    header = load_r72_header()
+    mill = header["mill"]
+    if mill.get("mill_id") != R72_MILL_ID or mill.get("path") != R72_PATH:
+        raise ValueError("r72 header mill pin drifted from vocabulary")
+    if mill.get("blob_sha") != R72_BLOB_SHA or mill.get("sha256") != R72_SHA256:
+        raise ValueError("r72 header source hashes drifted from vocabulary")
+    if header.get("pairs_sha256") != R72_JSONL_SHA256:
+        raise ValueError("r72 header pairs_sha256 drifted from vocabulary")
     jsonl_path = path if path is not None else r72_jsonl_path()
     rows = load_r72_rows(jsonl_path)
     if len(rows) != R72_N_ROWS:

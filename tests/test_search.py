@@ -22,10 +22,14 @@ from search.catalog_extract import (  # noqa: E402
     catalog_json_path,
     dumps_catalog,
     dumps_pair_jsonl,
+    dumps_r72_header,
     extract_home_mill_catalog,
     extract_mill_catalog,
     mill_summary,
+    r72_header_document,
+    r72_header_path,
     r72_jsonl_path,
+    sha256_bytes,
 )
 from search.identity import (  # noqa: E402
     is_vendor_filename,
@@ -442,6 +446,10 @@ class SearchR72Tests(unittest.TestCase):
         self.assertEqual(live["catalog_first"], R72.catalog_first)
         self.assertEqual(live["n_hops"], 0)
         self.assertEqual(dumps_pair_jsonl(live["pairs"]), r72_jsonl_path().read_text())
+        digest = sha256_bytes(r72_jsonl_path().read_bytes())
+        self.assertEqual(digest, cv.R72_JSONL_SHA256)
+        header = r72_header_document(live, pairs_sha256=digest)
+        self.assertEqual(dumps_r72_header(header), r72_header_path().read_text())
 
 
 if __name__ == "__main__":

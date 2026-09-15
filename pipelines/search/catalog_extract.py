@@ -22,13 +22,18 @@ from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
     FACTORY,
+    FAMILY,
     GENERATOR,
     KIND_HOME_PAIRS,
     KIND_LEFTOVER_PAIRS,
     LEGACY_REF,
     PRESERVE_COMMIT,
+    R72_HEADER_FILENAME,
+    R72_HEADER_SCHEMA_ID,
     R72_JSONL_FILENAME,
+    R72_JSONL_SHA256,
     R72_MILL_ID,
+    R72_PRESERVE_COMMIT,
     R72_SLICE_ID,
     SHAPE_PAIR_6TUPLES,
     SLICE_ID,
@@ -279,6 +284,59 @@ def r72_jsonl_path(package_dir: Path | None = None) -> Path:
     return root / R72_JSONL_FILENAME
 
 
+def r72_header_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / R72_HEADER_FILENAME
+
+
+def r72_header_document(record: Mapping[str, Any], *, pairs_sha256: str) -> dict[str, Any]:
+    return {
+        "extraction": (
+            "AST literals only; leftover3/lll mills already cataloged are refused; never exec"
+        ),
+        "factory": FACTORY,
+        "family": FAMILY,
+        "generator": GENERATOR,
+        "mill": {
+            "blob_sha": record["blob_sha"],
+            "catalog_first": record["catalog_first"],
+            "first_slug": record["first_slug"],
+            "kind": record["kind"],
+            "last_slug": record["last_slug"],
+            "mill_id": record["mill_id"],
+            "n_hops": record["n_hops"],
+            "n_rows": record["n_rows"],
+            "path": record["path"],
+            "sha256": record["sha256"],
+        },
+        "n_rows": record["n_rows"],
+        "pairs_filename": R72_JSONL_FILENAME,
+        "pairs_sha256": pairs_sha256,
+        "preserve_commit": R72_PRESERVE_COMMIT,
+        "schema": R72_HEADER_SCHEMA_ID,
+        "slice": R72_SLICE_ID,
+        "source_ref": LEGACY_REF,
+    }
+
+
+def dumps_r72_header(document: Mapping[str, Any]) -> str:
+    return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+def load_r72_header(path: Path | None = None) -> dict[str, Any]:
+    header_path = path if path is not None else r72_header_path()
+    document = json.loads(header_path.read_text(encoding="utf-8"))
+    if document.get("schema") != R72_HEADER_SCHEMA_ID:
+        raise ValueError(f"{header_path} schema is not {R72_HEADER_SCHEMA_ID}")
+    if document.get("slice") != R72_SLICE_ID:
+        raise ValueError(f"{header_path} slice drifted from vocabulary")
+    if document.get("preserve_commit") != R72_PRESERVE_COMMIT:
+        raise ValueError(f"{header_path} preserve_commit drifted from vocabulary")
+    if document.get("pairs_sha256") != R72_JSONL_SHA256:
+        raise ValueError(f"{header_path} pairs_sha256 drifted from vocabulary")
+    return document
+
+
 def dumps_pair_jsonl(pairs: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> str:
     return "".join(
         json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
@@ -288,8 +346,12 @@ def dumps_pair_jsonl(pairs: list[Mapping[str, Any]] | tuple[Mapping[str, Any], .
 
 def load_r72_rows(path: Path | None = None) -> list[dict[str, Any]]:
     jsonl_path = path if path is not None else r72_jsonl_path()
+    payload = jsonl_path.read_bytes()
+    digest = sha256_bytes(payload)
+    if path is None and digest != R72_JSONL_SHA256:
+        raise ValueError(f"{jsonl_path} sha256 {digest} != pinned {R72_JSONL_SHA256}")
     rows: list[dict[str, Any]] = []
-    for line_no, line in enumerate(jsonl_path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_no, line in enumerate(payload.decode("utf-8").splitlines(), 1):
         if not line:
             raise ValueError(f"{jsonl_path} line {line_no} is empty")
         row = json.loads(line)
