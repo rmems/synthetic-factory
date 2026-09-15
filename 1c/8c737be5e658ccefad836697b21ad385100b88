@@ -1,0 +1,34 @@
+pipelines/curate_identity.py
+  s_c5f44e4588bc4d::t_a5b3479141624a 44
+  s_c5f44e4588bc4d::t_7ec3b5839bd755 69
+pipelines/curate_identity_registry_fields.py
+  s_c5f44e4588bc4d::t_4fb1e41435145e 12
+pipelines/curate_identity_registry.py
+  s_af31ed7264ce5b::t_3ad2a90207f356 1-20,22,24-30,32-47,49-430
+pipelines/curate_identity_json.py
+  s_af31ed7264ce5b::t_ef5cab0d8d994f 1-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1c8c737be5e658ccefad836697b21ad385100b88",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_c5f44e4588bc4d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fd0614f3-677f-4e2f-b902-8eb027d06b17",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
