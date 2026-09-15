@@ -34,5 +34,6 @@ then loads a fresh module for the hidden suite, matching generation's isolation,
 uses batches no larger than the hidden-case cap, compares repeated observations,
 and excludes truncated or unstable representations. A final observation verifies
 that discarding failed probes did not change the state used by retained inputs.
-These selection checks bound the pinned-source pilot; they are not an operating
-system sandbox for arbitrary Python input.
+These selection checks bound the pinned-source pilot. Execution of any catalog
+that is not that reviewed pin requires the `bwrap-ro-netns-v1` OS boundary
+recorded in the oracle fingerprint; replay refuses a different sandbox identity.

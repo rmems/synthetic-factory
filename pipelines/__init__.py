@@ -252,7 +252,7 @@ def _expose_package_sibling(qualified_name: str) -> None:
     direct_candidate = _local_sibling_module(sibling_name)
     if direct_candidate is not None:
         sys.modules[qualified_name] = direct_candidate
-    else:
+    elif candidate is not None:
         sys.modules.setdefault(sibling_name, candidate)
 
 
