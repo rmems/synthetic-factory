@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Notebook-to-pipeline mill family (``ntp``): AST catalog extract and package skeleton.
 
-PR-a landed leftover-slice identities. PR-b binds compact r1326 theme rows
-from ``themes.jsonl``. Catalog rows are extracted from
+PR-a landed leftover-slice identities. PR-b binds r1326 theme rows in
+``themes.jsonl``. PR-c binds orch / lll / llll rows in ``pairs.jsonl``.
+Catalog rows are extracted from
 ``origin/legacy-mill-lane`` mill sources via :mod:`ntp.catalog_extract`.
 The mill publishers themselves are not vendored and are never executed.
 """
