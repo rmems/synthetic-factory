@@ -6,11 +6,11 @@
   "slice": "full",
   "extraction": "AST literals only; leftover mill functions are not exec'd",
   "source_ref": "origin/legacy-mill-lane",
-  "source_commit": "6d530df77acc70a3dc98fa6b19e31fb2447fd0c2",
-  "n_pair_rows_extracted": 171,
-  "n_pair_rows_committed": 171,
+  "source_commit": "813f93f",
+  "n_pair_rows_extracted": 243,
+  "n_pair_rows_committed": 243,
   "pairs_filename": "pairs.jsonl",
-  "pairs_sha256": "4ae1b09e71b206aadabca045b3d26cc522092611ba8d32d985638b71aa5fe788",
+  "pairs_sha256": "4baecfe533ae0d5c6878503438798a519d888f65a9a7d624f7d0ed66a8280673",
   "mills": [
     {
       "mill_id": "brw-mill-r212",
@@ -26,11 +26,39 @@
       "first_widget": "composition-add",
       "last_ok_place": "goosefootfen",
       "last_widget": "text-size-adjust"
+    },
+    {
+      "mill_id": "brw-mill-r383",
+      "source_path": "experiments/brw-mill-r383.py",
+      "source_blob_sha1": "2f3cfa87192835a76d4e187aed2befc3d44f5832",
+      "source_sha256": "369ec79c054843a653ec11f13d3e03be0541db8d8ba3b745dcdf8fa614f8552e",
+      "source_lines": 225,
+      "catalog_first": 383,
+      "catalog_last": 394,
+      "n_rows_extracted": 12,
+      "n_rows_committed": 12,
+      "first_ok_place": "glasswortcot",
+      "first_widget": "math-style",
+      "last_ok_place": "alariacot",
+      "last_widget": "flex-grow"
+    },
+    {
+      "mill_id": "brw-mill-r395",
+      "source_path": "experiments/brw-mill-r395.py",
+      "source_blob_sha1": "b5c9ebf082265723ad0b810d0c2d2738fd01abee",
+      "source_sha256": "05c05690ecaf076b8cefa4d5b0a190cc0ac80cc386643f72626d67cdbeeeb3f4",
+      "source_lines": 944,
+      "catalog_first": 395,
+      "catalog_last": 454,
+      "n_rows_extracted": 60,
+      "n_rows_committed": 60,
+      "first_ok_place": "cystoseiracot",
+      "first_widget": "flex-shrink",
+      "last_ok_place": "pleurocapscot",
+      "last_widget": "text-wrap-style"
     }
   ],
   "deferred": [
-    "brw-mill-r383",
-    "brw-mill-r395",
     "brw-mill-r395-extra*",
     "brw-loop-r395-extra6 (filename-historical; loads brw-mill-r395 later)"
   ]
