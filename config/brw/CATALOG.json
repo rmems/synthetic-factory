@@ -1,0 +1,37 @@
+{
+  "schema_version": "brw-leftover-catalog-v1",
+  "family": "brw",
+  "factory": "browser-tool-use-factory",
+  "generator": "grok-4.6",
+  "slice": "full",
+  "extraction": "AST literals only; leftover mill functions are not exec'd",
+  "source_ref": "origin/legacy-mill-lane",
+  "source_commit": "6d530df77acc70a3dc98fa6b19e31fb2447fd0c2",
+  "n_pair_rows_extracted": 171,
+  "n_pair_rows_committed": 171,
+  "pairs_filename": "pairs.jsonl",
+  "pairs_sha256": "4ae1b09e71b206aadabca045b3d26cc522092611ba8d32d985638b71aa5fe788",
+  "mills": [
+    {
+      "mill_id": "brw-mill-r212",
+      "source_path": "experiments/brw-mill-r212.py",
+      "source_blob_sha1": "4118ae35200e8bb9557a2c1e723294760be9c81a",
+      "source_sha256": "ebcb8ac1e8b32f8c24210e24fc0a189db242198cc1efbaea31b463c3184ed9a8",
+      "source_lines": 2472,
+      "catalog_first": 212,
+      "catalog_last": 382,
+      "n_rows_extracted": 171,
+      "n_rows_committed": 171,
+      "first_ok_place": "feverfewcot",
+      "first_widget": "composition-add",
+      "last_ok_place": "goosefootfen",
+      "last_widget": "text-size-adjust"
+    }
+  ],
+  "deferred": [
+    "brw-mill-r383",
+    "brw-mill-r395",
+    "brw-mill-r395-extra*",
+    "brw-loop-r395-extra6 (filename-historical; loads brw-mill-r395 later)"
+  ]
+}

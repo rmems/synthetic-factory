@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
-"""AST-extracted plant catalog for ``brw-mill-r193``.
+"""AST-extracted plant catalogs for the browser-tool-use family.
 
-Source: ``origin/legacy-mill-lane:experiments/brw-mill-r193.py``.
-The sixteen pair dicts are the assignment value from that script; leftover mill
-publisher paths and the ``*mill*.py`` filename are not copied here.
+r193 lives as the sixteen inline pair dicts from
+``origin/legacy-mill-lane:experiments/brw-mill-r193.py``. r212 lives as compact
+JSONL under ``config/brw/`` (171 leftover pairs). Leftover mill publisher
+paths and ``*mill*.py`` / ``*loop*.py`` filenames are not copied here.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from typing import Any
 
 from ._contract import CATALOG_FIRST, BrwError
 
-__all__ = ["PAIRS", "pair_at", "pair_by_ok_slug", "pair_for_round", "slugs"]
+__all__ = [
+    "PAIRS",
+    "R212_CATALOG_FIRST",
+    "R212_HEADER",
+    "R212_PAIRS",
+    "R212_PAIR_COUNT",
+    "pair_at",
+    "pair_by_ok_slug",
+    "pair_for_round",
+    "r212_pair_at",
+    "r212_pair_for_round",
+    "r212_slugs",
+    "slugs",
+]
 
 PAIRS: tuple[dict[str, Any], ...] = tuple([
     {
@@ -749,3 +766,123 @@ def pair_for_round(rnd: int) -> dict[str, Any]:
             f"last={CATALOG_FIRST + len(PAIRS) - 1})"
         )
     return PAIRS[idx]
+
+
+R212_DIR = Path(__file__).resolve().parents[2] / "config" / "brw"
+R212_HEADER_NAME = "CATALOG.json"
+R212_PAIRS_NAME = "pairs.jsonl"
+R212_SOURCE_PATH = "experiments/brw-mill-r212.py"
+R212_SOURCE_REF = "origin/legacy-mill-lane"
+R212_CATALOG_FIRST = 212
+R212_PAIR_COUNT = 171
+R212_PAIR_KEYS = frozenset(
+    {
+        "aux",
+        "bad_place",
+        "btn",
+        "code",
+        "css",
+        "err",
+        "err_slug",
+        "fail_item",
+        "fref",
+        "from",
+        "item",
+        "js",
+        "keep",
+        "neigh",
+        "new",
+        "next",
+        "not",
+        "note",
+        "nref",
+        "ok_place",
+        "path",
+        "prefix",
+        "ref",
+        "seed_bad",
+        "seed_ok",
+        "teach",
+        "title",
+        "to",
+        "verb",
+        "widget",
+        "x0",
+        "x1",
+        "y",
+    }
+)
+
+
+def _sha256_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _load_r212_header() -> dict[str, Any]:
+    path = R212_DIR / R212_HEADER_NAME
+    if not path.is_file():
+        raise BrwError(f"missing r212 header: {path}")
+    header = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(header, dict):
+        raise BrwError("r212 header must be an object")
+    mills = header.get("mills")
+    if not isinstance(mills, list) or len(mills) != 1:
+        raise BrwError("r212 header needs exactly one mill row")
+    mill = mills[0]
+    if mill.get("mill_id") != "brw-mill-r212":
+        raise BrwError(f"unexpected r212 mill_id: {mill.get('mill_id')!r}")
+    if header.get("n_pair_rows_committed") != R212_PAIR_COUNT:
+        raise BrwError("r212 header committed row count drifted")
+    return header
+
+
+def _load_r212_pairs(header: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    path = R212_DIR / R212_PAIRS_NAME
+    if not path.is_file():
+        raise BrwError(f"missing r212 pairs: {path}")
+    raw = path.read_bytes()
+    if b"\r" in raw:
+        raise BrwError("r212 pairs.jsonl contains CR")
+    if not raw.endswith(b"\n"):
+        raise BrwError("r212 pairs.jsonl missing trailing newline")
+    digest = _sha256_bytes(raw)
+    expected = header.get("pairs_sha256")
+    if digest != expected:
+        raise BrwError(f"r212 pairs sha256 mismatch: {digest} != {expected}")
+    rows: list[dict[str, Any]] = []
+    for line in raw.decode("utf-8").splitlines():
+        if not line or line[:1] in {" ", "\t"}:
+            raise BrwError("r212 pairs.jsonl is not compact")
+        row = json.loads(line)
+        if not isinstance(row, dict) or set(row) != R212_PAIR_KEYS:
+            raise BrwError("r212 pair keys drifted")
+        rows.append(row)
+    if len(rows) != R212_PAIR_COUNT:
+        raise BrwError(f"r212 pair count {len(rows)} != {R212_PAIR_COUNT}")
+    return tuple(rows)
+
+
+R212_HEADER = _load_r212_header()
+R212_PAIRS: tuple[dict[str, Any], ...] = _load_r212_pairs(R212_HEADER)
+
+
+def r212_slugs() -> tuple[str, ...]:
+    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R212_PAIRS)
+
+
+def r212_pair_at(index: int) -> dict[str, Any]:
+    if type(index) is not int or not 0 <= index < len(R212_PAIRS):
+        raise BrwError(f"unknown_r212_index: {index!r}")
+    return R212_PAIRS[index]
+
+
+def r212_pair_for_round(rnd: int) -> dict[str, Any]:
+    if type(rnd) is not int:
+        raise BrwError(f"invalid_round: {rnd!r}")
+    idx = rnd - R212_CATALOG_FIRST
+    if idx < 0 or idx >= len(R212_PAIRS):
+        last = R212_CATALOG_FIRST + len(R212_PAIRS) - 1
+        raise BrwError(
+            f"no r212 catalog entry for r{rnd} (first={R212_CATALOG_FIRST} last={last})"
+        )
+    return R212_PAIRS[idx]
