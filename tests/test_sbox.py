@@ -242,12 +242,12 @@ class CommittedCatalog(unittest.TestCase):
         report = cat.catalog_check()
         self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 1411)
+        self.assertEqual(len(loaded.plants), 2404)
         self.assertEqual(len(loaded.sources), 65)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 1411)
+        self.assertEqual(report["plants"], 2404)
         self.assertEqual(report["full_row_count"], 2678)
-        self.assertEqual(report["deferred_row_count"], 1267)
+        self.assertEqual(report["deferred_row_count"], 274)
         self.assertEqual(report["catalog_files"], 57)
         self.assertFalse(report["exec"])
         self.assertEqual(loaded.plants[0].family, "bpftrace-kprobe-write")
@@ -266,7 +266,7 @@ class CommittedCatalog(unittest.TestCase):
         lines = payload.split("\n")
         if lines[-1] == "":
             lines = lines[:-1]
-        self.assertEqual(len(lines), 1411)
+        self.assertEqual(len(lines), 2404)
         for index, line in enumerate(lines, 1):
             self.assertEqual(line, line.strip(), f"line {index} has leading whitespace")
             self.assertTrue(line.startswith("{"), f"line {index} is not an object")
@@ -322,9 +322,9 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 1411)
+        self.assertEqual(payload["plants"], 2404)
         self.assertEqual(payload["full_row_count"], 2678)
-        self.assertEqual(payload["deferred_row_count"], 1267)
+        self.assertEqual(payload["deferred_row_count"], 274)
 
     def test_extract_json_from_a_runtime_snippet(self):
         handle = tempfile.NamedTemporaryFile(
