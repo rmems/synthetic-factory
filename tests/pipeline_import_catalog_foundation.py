@@ -858,6 +858,42 @@ def _package_operator_paths() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_json() -> ModuleType:
+    import curate_identity_json as module
+
+    return module
+
+
+def _package_curate_identity_json() -> ModuleType:
+    import pipelines.curate_identity_json as module
+
+    return module
+
+
+def _direct_curate_identity_registry() -> ModuleType:
+    import curate_identity_registry as module
+
+    return module
+
+
+def _package_curate_identity_registry() -> ModuleType:
+    import pipelines.curate_identity_registry as module
+
+    return module
+
+
+def _direct_curate_identity_registry_fields() -> ModuleType:
+    import curate_identity_registry_fields as module
+
+    return module
+
+
+def _package_curate_identity_registry_fields() -> ModuleType:
+    import pipelines.curate_identity_registry_fields as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1054,6 +1090,9 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     ),
     "validate_run": (_direct_validate_run, _package_validate_run),
     "operator_paths": (_direct_operator_paths, _package_operator_paths),
+    "curate_identity_json": (_direct_curate_identity_json, _package_curate_identity_json),
+    "curate_identity_registry": (_direct_curate_identity_registry, _package_curate_identity_registry),
+    "curate_identity_registry_fields": (_direct_curate_identity_registry_fields, _package_curate_identity_registry_fields),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (
