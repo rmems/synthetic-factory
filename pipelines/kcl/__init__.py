@@ -4,8 +4,8 @@ The leftover ``kcl-mill*.py`` / ``kcl-loop*.py`` scripts on
 ``legacy-mill-lane`` are not vendored and are never executed. Their
 ``pair()`` / ``PAIRS`` / ``mk()`` catalogs are AST-extracted
 (``git show`` + ``ast.parse``) into ``config/kcl/``. The committed
-``plants.jsonl`` is a representative slice; mill ``plant_count`` values
-are the full leftover inventory (705 plants / 11 mills). Hop replay uses
+``plants.jsonl`` pins every extracted plant identity; twelve rows keep
+full pair/plant bodies and the rest are compact identity lines. Hop replay uses
 hopper on main (the **g46c** API: ``start_by_factory`` /
 ``pairs_by_factory`` / ``emit_stage``) instead of a leftover hopper mill.
 """
