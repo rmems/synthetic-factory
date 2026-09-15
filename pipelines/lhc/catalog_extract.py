@@ -30,6 +30,7 @@ from .catalog_extract_pairs import (
 from .catalog_extract_plants import plant_count, plants_context
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
+    EXCLUDED_DEFERRED_MILL_ID,
     FACTORY,
     GENERATOR,
     KIND_PAIRS,
@@ -47,6 +48,7 @@ __all__ = (
     "SHAPE_PLANTS_P_FN",
     "catalog_document",
     "extract_mill_catalog",
+    "is_deferred_excluded_mill",
     "is_slice_mill",
     "mill_summary",
     "sha256_bytes",
@@ -174,3 +176,7 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
 
 def is_slice_mill(mill_id: str) -> bool:
     return mill_id == SLICE_MILL_ID
+
+
+def is_deferred_excluded_mill(mill_id: str) -> bool:
+    return mill_id == EXCLUDED_DEFERRED_MILL_ID
