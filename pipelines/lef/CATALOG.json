@@ -1,0 +1,126 @@
+{
+  "factory": "llm-eval-flakiness-factory",
+  "generator": "grok-4.6",
+  "mills": {
+    "lef-mill-r629": {
+      "banned_keys": [
+        "thought",
+        "chain_of_thought",
+        "scratch",
+        "inner_monologue"
+      ],
+      "banned_snippets": [
+        "SKU-9",
+        "combining mark",
+        "combining-char",
+        "U+0300",
+        "U+1D17",
+        "U+1D173",
+        "U+1D17A",
+        "\ud834\udd73",
+        "\ud834\udd7a",
+        "musical symbol",
+        "skip-as-1.0",
+        "skip-as-one",
+        "numpy.bool_",
+        "numpy.int64"
+      ],
+      "blob_sha": "c469901aabd9c590c4e70ed15938973c1320c17d",
+      "catalog_first": 629,
+      "factory": "llm-eval-flakiness-factory",
+      "first_slug": "azure-api-version-unkeyed",
+      "generator": "grok-4.6",
+      "kind": "tables",
+      "last_slug": "candidate-count-unkeyed",
+      "mill_id": "lef-mill-r629",
+      "n_pair_slots": 144,
+      "n_rows": 48,
+      "n_table_rows": 288,
+      "path": "experiments/lef-mill-r629.py",
+      "sha256": "499c2fa198be0950e48b1d655016641f54f23b30f07fb605e7634c9d28895db9",
+      "shape": "six-tables"
+    },
+    "lef-mill-r728": {
+      "banned_slugs": [
+        "conll-coref-avg",
+        "simpson-policy-mix"
+      ],
+      "blob_sha": "b8afb84386270b05c39d756fb6ac1ca48107faf1",
+      "catalog_first": 728,
+      "factory": "llm-eval-flakiness-factory",
+      "first_slug": "cuda-graph-capture-unkeyed",
+      "generator": "grok-4.6",
+      "kind": "tables",
+      "last_slug": "nbd-timeout-unkeyed",
+      "mill_id": "lef-mill-r728",
+      "n_pair_slots": 240,
+      "n_rows": 80,
+      "n_table_rows": 480,
+      "path": "experiments/lef-mill-r728.py",
+      "sha256": "deff9fdcbd28591b5600a885e0c52eeeb085b785f1aeb7608817e9e5051390ec",
+      "shape": "six-tables"
+    },
+    "lef-mill-r968": {
+      "banned_slugs": [
+        "conll-coref-avg",
+        "nbd-list-trunc",
+        "nbd-live-as-gpt",
+        "simpson-policy-mix"
+      ],
+      "blob_sha": "f08cb67f66a999d027730ad0587d08cea0943923",
+      "catalog_first": 968,
+      "factory": "llm-eval-flakiness-factory",
+      "first_slug": "tsc-offset-unkeyed",
+      "generator": "grok-4.6",
+      "kind": "stems",
+      "last_slug": "iwd-roam-unkeyed",
+      "mill_id": "lef-mill-r968",
+      "n_pair_slots": 1662,
+      "n_rows": 554,
+      "n_table_rows": 3324,
+      "nums": {
+        "hi": {
+          "base": 0.86,
+          "mod": 8,
+          "ndigits": 2,
+          "step": 0.01
+        },
+        "lo": {
+          "base": 0.14,
+          "mod": 9,
+          "ndigits": 2,
+          "step": 0.01
+        },
+        "mid": {
+          "base": 0.7,
+          "mod": 7,
+          "ndigits": 2,
+          "step": 0.01
+        }
+      },
+      "path": "experiments/lef-mill-r968.py",
+      "sha256": "01a65e131c5d56aaf2008f94e7aea85003449029e54efba46fb6d0122ea57a39",
+      "shape": "stems"
+    }
+  },
+  "n_catalog_rows": 682,
+  "n_mills": 3,
+  "n_pair_slots": 2046,
+  "n_table_rows": 4092,
+  "preserve_commit": "02d05373e4144ab609ec141b28fd4c52a4174f21",
+  "schema": "lef-catalog-extract/v1",
+  "slice": "r629",
+  "slice_mill": "lef-mill-r629",
+  "slice_rows_file": "rows.jsonl",
+  "slugs": {
+    "blob_sha": "f1fb1b7ce112f2ff997c7bc3c03b5dd35798bf5f",
+    "first_slug": "3pl-guess-c-vs-pct",
+    "kind": "slugs",
+    "last_slug": "zstd-window-cut",
+    "mill_id": "lef-used-slugs",
+    "n_rows": 2095,
+    "path": "experiments/.lef-used-slugs.txt",
+    "sha256": "8aac454c599486e0cde49f2cac396034f46f96d8c51ad2bfe53744f3399f9509"
+  },
+  "source_ref": "origin/legacy-mill-lane"
+}
