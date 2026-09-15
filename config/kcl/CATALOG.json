@@ -1,0 +1,111 @@
+{
+  "catalog_id": "kcl-plants-v1",
+  "factory": "k8s-crashloop-factory",
+  "format": "kcl-catalog/1",
+  "full_pair_count": 478,
+  "full_plant_count": 705,
+  "full_row_count": 227,
+  "mill_prefix": "kcl",
+  "mills": [
+    {
+      "base_round": 1007,
+      "mill_id": "kcl_r1007",
+      "plant_count": 141,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-r1007.py"
+    },
+    {
+      "base_round": 1076,
+      "mill_id": "kcl_pref",
+      "plant_count": 16,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-pref.py"
+    },
+    {
+      "base_round": 1092,
+      "mill_id": "kcl_u1092",
+      "plant_count": 12,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-unique-r1092.py"
+    },
+    {
+      "base_round": 1092,
+      "mill_id": "kcl_r1092",
+      "plant_count": 32,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-r1092.py"
+    },
+    {
+      "base_round": 1152,
+      "mill_id": "kcl_r1152",
+      "plant_count": 64,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-r1152.py"
+    },
+    {
+      "base_round": 1216,
+      "mill_id": "kcl_r1216",
+      "plant_count": 20,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-r1216.py"
+    },
+    {
+      "base_round": 1236,
+      "mill_id": "kcl_r1236",
+      "plant_count": 160,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-r1236.py"
+    },
+    {
+      "base_round": 1266,
+      "mill_id": "kcl_r1266",
+      "plant_count": 16,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-r1266.py"
+    },
+    {
+      "base_round": 1379,
+      "mill_id": "kcl_r1379",
+      "plant_count": 17,
+      "shape": "pair",
+      "source": "experiments/kcl-mill-lll-r1379.py"
+    },
+    {
+      "base_round": 1443,
+      "mill_id": "kcl_r1443",
+      "plant_count": 195,
+      "shape": "row",
+      "source": "experiments/kcl-plants-r1443.py"
+    },
+    {
+      "base_round": 1644,
+      "mill_id": "kcl_r1644",
+      "plant_count": 32,
+      "shape": "row",
+      "source": "experiments/kcl-plants-r1644.py"
+    }
+  ],
+  "plant_count": 12,
+  "plants_sha256": "2a38a08cabe0d234a6876fb5c4bf8da0ba6048b726a1a550d78514552380bbf6",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "slice": "representative",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/kcl-mill-r1007.py",
+      "experiments/kcl-mill-pref.py",
+      "experiments/kcl-mill-unique-r1092.py",
+      "experiments/kcl-mill-r1092.py",
+      "experiments/kcl-mill-r1152.py",
+      "experiments/kcl-mill-r1216.py",
+      "experiments/kcl-mill-r1236.py",
+      "experiments/kcl-mill-r1266.py",
+      "experiments/kcl-mill-lll-r1379.py",
+      "experiments/kcl-plants-r1443.py",
+      "experiments/kcl-plants-r1644.py"
+    ]
+  }
+}
