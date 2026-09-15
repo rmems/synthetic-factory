@@ -1,0 +1,21 @@
+pipelines/validate_run_episode.py
+  s_af31ed7264ce5b::t_365b8b9234377b 1-318
+pipelines/validate_run_preference.py
+  s_af31ed7264ce5b::t_9af015de4a759c 1-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3fa97d5ef3a07a66ef7312946167bf44bd48802d",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
