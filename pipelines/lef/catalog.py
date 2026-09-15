@@ -19,6 +19,8 @@ from .vocabulary import (
     KIND_PLANTS,
     KIND_STEMS,
     KIND_TABLES,
+    PLANTS_B_FILENAME,
+    PLANTS_B_PAIR_COUNT,
     PLANTS_FILENAME,
     PLANTS_PAIR_COUNT,
     PRESERVE_COMMIT,
@@ -114,6 +116,7 @@ class LefCatalog:
     slugs: SlugListing
     mills: Mapping[str, MillCatalog]
     plants: PlantsCatalog | None = None
+    plants_b: PlantsCatalog | None = None
 
 
 def load_catalog(path=None) -> LefCatalog:
@@ -146,6 +149,17 @@ def load_catalog(path=None) -> LefCatalog:
         if plants_row is not None
         else None
     )
+    plants_b_row = document.get("plants_b")
+    plants_b = (
+        _load_plants_catalog(
+            plants_b_row,
+            catalog_path.parent,
+            default_filename=PLANTS_B_FILENAME,
+            pair_count=PLANTS_B_PAIR_COUNT,
+        )
+        if plants_b_row is not None
+        else None
+    )
     catalog = LefCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -159,6 +173,7 @@ def load_catalog(path=None) -> LefCatalog:
         slugs=slugs,
         mills=mills,
         plants=plants,
+        plants_b=plants_b,
     )
     _bind_sources(catalog)
     return catalog
@@ -307,18 +322,27 @@ def _parse_plants_jsonl(path: Path, *, expected: int) -> list[PlantPair]:
     return rows
 
 
-def _load_plants_catalog(row: Mapping[str, Any], package_dir: Path) -> PlantsCatalog:
-    path = plants_jsonl_path(package_dir)
+def _load_plants_catalog(
+    row: Mapping[str, Any],
+    package_dir: Path,
+    *,
+    default_filename: str = PLANTS_FILENAME,
+    pair_count: int | None = None,
+) -> PlantsCatalog:
+    plants_file = row.get("plants_file", default_filename)
+    path = plants_jsonl_path(package_dir, filename=plants_file)
     expected = row["n_pairs"]
+    if pair_count is not None and expected != pair_count:
+        raise ValueError(f"{plants_file} n_pairs drifted from vocabulary")
     pairs = tuple(_parse_plants_jsonl(path, expected=expected))
     digest = plants_sha256_bytes(path.read_bytes())
     pinned = row.get("plants_sha256")
     if pinned != digest:
         raise ValueError(f"{path.name} sha256 drifted from CATALOG.json plants_sha256")
     if pairs[0].ok["slug"] != row["first_ok_slug"]:
-        raise ValueError("plants first_ok_slug drifted from plants.jsonl")
+        raise ValueError(f"{plants_file} first_ok_slug drifted from jsonl")
     if pairs[-1].ok["slug"] != row["last_ok_slug"]:
-        raise ValueError("plants last_ok_slug drifted from plants.jsonl")
+        raise ValueError(f"{plants_file} last_ok_slug drifted from jsonl")
     return PlantsCatalog(
         mill_id=row["mill_id"],
         path=row["path"],
@@ -331,7 +355,7 @@ def _load_plants_catalog(row: Mapping[str, Any], package_dir: Path) -> PlantsCat
         n_pairs=row["n_pairs"],
         first_ok_slug=row["first_ok_slug"],
         last_ok_slug=row["last_ok_slug"],
-        plants_file=row.get("plants_file", PLANTS_FILENAME),
+        plants_file=plants_file,
         plants_sha256=digest,
         pairs=pairs,
     )
@@ -403,13 +427,13 @@ def _bind_sources(catalog: LefCatalog) -> None:
         widths += mill.n_rows
     if catalog.n_catalog_rows != widths:
         raise ValueError("catalog n_catalog_rows drifted from mill widths")
-    plant_pins = plant_sources()
+    plant_pins = {pin.mill_id: pin for pin in plant_sources()}
     if catalog.plants is not None:
-        if len(plant_pins) != 1:
-            raise ValueError("expected one Archive B plant source pin")
-        pin = plant_pins[0]
+        pin = plant_pins.get(catalog.plants.mill_id)
+        if pin is None:
+            raise ValueError("Archive B plant mill_id missing from sources.py")
         plants = catalog.plants
-        if plants.mill_id != pin.mill_id or plants.path != pin.path:
+        if plants.path != pin.path:
             raise ValueError("Archive B plant pin disagrees with sources.py")
         if plants.blob_sha != pin.blob_sha:
             raise ValueError("Archive B plant blob_sha disagrees with sources.py")
@@ -419,6 +443,21 @@ def _bind_sources(catalog: LefCatalog) -> None:
             raise ValueError("Archive B plant n_pairs drifted from vocabulary")
         if len(plants.pairs) != plants.n_pairs:
             raise ValueError("plants.jsonl width drifted from header n_pairs")
+    if catalog.plants_b is not None:
+        pin = plant_pins.get(catalog.plants_b.mill_id)
+        if pin is None:
+            raise ValueError("Archive B plants_b mill_id missing from sources.py")
+        plants_b = catalog.plants_b
+        if plants_b.path != pin.path:
+            raise ValueError("Archive B plants_b pin disagrees with sources.py")
+        if plants_b.blob_sha != pin.blob_sha:
+            raise ValueError("Archive B plants_b blob_sha disagrees with sources.py")
+        if plants_b.kind != pin.kind or plants_b.kind != KIND_PLANTS:
+            raise ValueError("Archive B plants_b kind disagrees with sources.py")
+        if plants_b.n_pairs != PLANTS_B_PAIR_COUNT:
+            raise ValueError("Archive B plants_b n_pairs drifted from vocabulary")
+        if len(plants_b.pairs) != plants_b.n_pairs:
+            raise ValueError("plants_b.jsonl width drifted from header n_pairs")
 
 
 CATALOG = load_catalog() if catalog_json_path().exists() else None

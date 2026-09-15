@@ -7,7 +7,9 @@ six flake-class catalogs from the 7 ``legacy-mill-lane`` scripts without
 vendoring ``lef-mill*.py`` and without executing a publisher. The second
 slice commits the deferred r728 and r968 table rows into ``rows.jsonl``.
 The third slice AST-extracts Archive B ``mill_plants.py`` (r613–r620) into
-``plants.jsonl`` without vendoring ``scripts/llm_eval_flakiness_mill/*``.
+``plants.jsonl`` without vendoring ``scripts/llm_eval_flakiness_mill/*``. The
+fourth slice AST-extracts ``mill_plants_b.py`` (r621–r628) into
+``plants_b.jsonl`` the same way.
 """
 
 from __future__ import annotations
@@ -36,6 +38,13 @@ PLANTS_CATALOG_FIRST = 613
 PLANTS_PAIR_COUNT = 8
 PLANTS_FILENAME = "plants.jsonl"
 PLANTS_BLOB_SHA = "98bf17417e6d5e25651c48febf09248b1ecabd34"
+PLANTS_B_SOURCE_PATH = "scripts/llm_eval_flakiness_mill/mill_plants_b.py"
+PLANTS_B_MILL_ID = "lef-mill-plants-b"
+PLANTS_B_CATALOG_FIRST = 621
+PLANTS_B_PAIR_COUNT = 8
+PLANTS_B_FILENAME = "plants_b.jsonl"
+PLANTS_B_BLOB_SHA = "f1ffb042ec711bd1b57a989dec51a30721687570"
+PLANTS_APPEND_LIST_B = "MORE"
 OK_CALL = "_ok"
 BAD_CALL = "_bad"
 
