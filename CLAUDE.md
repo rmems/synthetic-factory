@@ -169,7 +169,7 @@ if __package__:
 `pipelines/__init__.py` binds the direct-name and package-name copies to one
 module object so classes such as the exact-JSON decimal token keep one
 identity. Copy the prelude from a sibling when adding a module; a package child
-that others import both ways also needs a loader in `_PACKAGE_SIBLING_LOADERS`.
+that others import both ways also needs its name in `_PACKAGE_SIBLING_NAMES`.
 Fourteen older modules are direct-execution only because they import siblings
 by bare name (`next_round`, `quality_gate_audit`, `quality_gate_embedding`,
 `card_schema`, `card_schema_validate`, `card_schema_yaml`, `tag_io`,
