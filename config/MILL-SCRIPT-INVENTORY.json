@@ -1,0 +1,372 @@
+{
+  "schema_version": "mill-script-inventory-v1",
+  "notes": "Reviewed mill-script identity table (RM-1341 / GitHub #211 step 5). Every tracked path matching match_patterns must appear under scripts with a classification and canonical owner. Historical leftover generators stay recoverable on origin/legacy-mill-lane and as machine-local gitignored copies; they are not vendored onto main. Production mill detection, compose quarantine, training-audit mill prep, and cleaned mill-family packages remain in quality scope. Archiving is an explicit quality_scope=archived row or the historical_generator_policy, never a blanket *_mill.py / leftover / experiments/ suppress.",
+  "match_patterns": [
+    "*_mill.py",
+    "*-mill*.py",
+    "*_mill_leftover*.py",
+    "*leftover*_mill*.py",
+    "mill_*_r*.py",
+    "*_leftover*_r*.py",
+    "*leftover*_leftover*.py",
+    "scripts/*_mill/**",
+    "scripts/*_mill.py",
+    ".claude/skills/**/*mill*.py"
+  ],
+  "scripts": [
+    {
+      "path": "pipelines/leftover_mill.py",
+      "classification": "production",
+      "owner": "pipelines/leftover_mill.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/leftover_mill.py — leftover-mill census CLI and kind-mix ledger (#30/#43)"
+    },
+    {
+      "path": "pipelines/compose_mill.py",
+      "classification": "production",
+      "owner": "pipelines/compose_mill.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/compose_mill.py — compose/export foreign-mill quarantine"
+    },
+    {
+      "path": "pipelines/training_audit_mill.py",
+      "classification": "production",
+      "owner": "pipelines/training_audit_mill.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/training_audit_mill.py — training-audit mill-quarantine prep"
+    },
+    {
+      "path": "pipelines/mill_family.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_family.py — mill-mix detector facade"
+    },
+    {
+      "path": "pipelines/mill_evidence.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_evidence.py — split of mill_family evidence pass"
+    },
+    {
+      "path": "pipelines/mill_resolution.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_resolution.py — split of mill_family resolution maps"
+    },
+    {
+      "path": "pipelines/mill_ownership.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_ownership.py — split of mill_family ownership verdict"
+    },
+    {
+      "path": "pipelines/mill_signals.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_signals.py — split of mill_family per-record signals"
+    },
+    {
+      "path": "pipelines/mill_findings.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_findings.py — split of mill_family finding shape"
+    },
+    {
+      "path": "pipelines/mill_locations.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_locations.py — split of mill_family path identity"
+    },
+    {
+      "path": "pipelines/mill_reviewed_vocabulary.py",
+      "classification": "production",
+      "owner": "pipelines/mill_family.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_reviewed_vocabulary.py — reviewed mill prefix/goal homes"
+    },
+    {
+      "path": "pipelines/mill_cli.py",
+      "classification": "production",
+      "owner": "pipelines/mill",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_cli.py — CLI for the cleaned mill family package"
+    },
+    {
+      "path": "pipelines/cer/mill_runner.py",
+      "classification": "production",
+      "owner": "pipelines/cer",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/cer/mill_runner.py — cleaned CER burst mill driver"
+    },
+    {
+      "path": "tests/test_leftover_mill.py",
+      "classification": "production",
+      "owner": "pipelines/leftover_mill.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_leftover_mill.py"
+    },
+    {
+      "path": "tests/test_leftover_mill_kind_mix.py",
+      "classification": "production",
+      "owner": "pipelines/leftover_mill.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_leftover_mill_kind_mix.py"
+    },
+    {
+      "path": "tests/test_training_audit_mill.py",
+      "classification": "production",
+      "owner": "pipelines/training_audit_mill.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_training_audit_mill.py"
+    },
+    {
+      "path": "tests/test_dlk_mill.py",
+      "classification": "production",
+      "owner": "pipelines/dlk",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_dlk_mill.py — cleaned dlk mill-family tests"
+    },
+    {
+      "path": "pipelines/mill_script_inventory.py",
+      "classification": "production",
+      "owner": "pipelines/mill_script_inventory.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/mill_script_inventory.py — mill-script inventory guard (RM-1341)"
+    },
+    {
+      "path": "tests/test_mill_script_inventory.py",
+      "classification": "production",
+      "owner": "pipelines/mill_script_inventory.py",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_mill_script_inventory.py"
+    }
+  ],
+  "historical_generator_policy": {
+    "classification": "retained_historical_generator",
+    "status": "archived",
+    "quality_scope": "archived",
+    "canonical_owner": "the mill-family package that AST-extracts the catalog",
+    "canonical_replacement": "pipelines/<family>/ plus the pinned catalog under config/ or pipelines/<family>/",
+    "provenance_ref": "origin/legacy-mill-lane",
+    "location": "experiments/ on origin/legacy-mill-lane; machine-local untracked copies of the same paths",
+    "example_paths": [
+      "experiments/srl_r6110_leftover3_mill.py",
+      "experiments/saf_r5045_leftover_leftover_leftover_mill.py",
+      "experiments/code_review_preference_mill_leftover3.py",
+      "experiments/mill_leftover_leftover_leftover_pay_r330.py",
+      "experiments/dlk_r1214_leftover3_mill.py",
+      "experiments/wsr-mill-leftover3-r41.py"
+    ],
+    "notes": "Do not vendor, import, or execute these scripts on main. Catalog SHA-256 and commit pins in mill-family packages keep provenance valid without copying 156k lines of generators. Removable duplicates are none on main: leftover mills were never committed here."
+  },
+  "mill_families": [
+    {
+      "family": "actf",
+      "owner": "pipelines/actf",
+      "classification": "production",
+      "provenance": "origin/codex/recover-grok-01a06111 recovered ACTF generators; not vendored"
+    },
+    {
+      "family": "cer",
+      "owner": "pipelines/cer",
+      "classification": "production",
+      "provenance": "main:pipelines/cer — cleaned CER burst mill"
+    },
+    {
+      "family": "crp",
+      "owner": "pipelines/crp",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/code_review_preference_mill_leftover3.py"
+    },
+    {
+      "family": "cst",
+      "owner": "pipelines/cst",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/cst-mill-r1414.py"
+    },
+    {
+      "family": "dlk",
+      "owner": "pipelines/dlk",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/dlk_r1214_leftover3_mill.py"
+    },
+    {
+      "family": "ewr",
+      "owner": "pipelines/ewr",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/ewr_leftover3_mill.py"
+    },
+    {
+      "family": "ffd",
+      "owner": "pipelines/ffd",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/ffd-mill-leftover3-r41.py"
+    },
+    {
+      "family": "ffpc",
+      "owner": "pipelines/ffpc",
+      "classification": "production",
+      "provenance": "origin/codex/recover-grok-01a06111 recovered FFPC catalog; not vendored"
+    },
+    {
+      "family": "flk",
+      "owner": "pipelines/flk",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/flk_r1489_leftover3_mill.py"
+    },
+    {
+      "family": "gor",
+      "owner": "pipelines/gor",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/gor-mill-r946.py"
+    },
+    {
+      "family": "gql",
+      "owner": "pipelines/gql",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/gql-mill-r167.py"
+    },
+    {
+      "family": "hopper",
+      "owner": "pipelines/hopper",
+      "classification": "production",
+      "provenance": "main:pipelines/hopper — cleaned hopper replay; leftover mills not vendored"
+    },
+    {
+      "family": "iac",
+      "owner": "pipelines/iac",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/iac-mill-r609.py"
+    },
+    {
+      "family": "mill",
+      "owner": "pipelines/mill",
+      "classification": "production",
+      "provenance": "main:pipelines/mill — cleaned mill family; leftover mills not vendored"
+    },
+    {
+      "family": "msd",
+      "owner": "pipelines/msd",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/msd-leftover-mill-r430.py"
+    },
+    {
+      "family": "pay",
+      "owner": "pipelines/pay",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/mill_leftover_leftover_leftover_pay_r330.py"
+    },
+    {
+      "family": "rag",
+      "owner": "pipelines/rag",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/rag-mill-lll-r670.py"
+    },
+    {
+      "family": "rlb",
+      "owner": "pipelines/rlb",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/rlb_leftover3_mill.py"
+    },
+    {
+      "family": "saf",
+      "owner": "pipelines/saf",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/saf_r5045_leftover_leftover_leftover_mill.py"
+    },
+    {
+      "family": "srl",
+      "owner": "pipelines/srl",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/srl_r6110_leftover3_mill.py"
+    },
+    {
+      "family": "wsr",
+      "owner": "pipelines/wsr",
+      "classification": "production",
+      "provenance": "origin/legacy-mill-lane:experiments/wsr-mill-leftover3-r41.py"
+    }
+  ],
+  "quality_policy": {
+    "historical_ref": "origin/legacy-mill-lane",
+    "gitignore_patterns": [
+      "experiments/*mill*.py",
+      "experiments/**/*mill*.py",
+      "experiments/*leftover*.py",
+      "experiments/**/*leftover*.py",
+      "experiments/_gen_*.py",
+      "experiments/**/_gen_*.py",
+      "experiments/*plants*.py",
+      "experiments/**/*plants*.py",
+      "scripts/*_mill/",
+      "scripts/*_mill.py",
+      "pipelines/*_mill_leftover*.py",
+      "/mill_*_r*.py"
+    ],
+    "archived_exclude_patterns": [
+      "experiments/*mill*.py",
+      "experiments/**/*mill*.py",
+      "experiments/*leftover*.py",
+      "experiments/**/*leftover*.py",
+      "experiments/_gen_*.py",
+      "experiments/**/_gen_*.py",
+      "experiments/*plants*.py",
+      "experiments/**/*plants*.py",
+      "scripts/*_mill/**",
+      "scripts/*_mill.py",
+      "pipelines/*_mill_leftover*.py",
+      "mill_*_r*.py"
+    ],
+    "forbidden_blanket_patterns": [
+      "experiments/",
+      "pipelines/*_mill.py",
+      "**/*leftover*.py",
+      "**/*_mill.py"
+    ]
+  }
+}

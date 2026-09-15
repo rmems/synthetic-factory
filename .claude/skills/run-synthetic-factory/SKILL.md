@@ -39,8 +39,12 @@ python3 .claude/skills/run-synthetic-factory/driver.py audit outputs/raw/<date>
 python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<date> --json
 
 # Shared-detector leftover-mill report; names foreign-mill records and prints
-# the eligible denominator per destination without rewriting raw evidence
+# the eligible denominator per destination without rewriting raw evidence.
+# leftover_mill.py is production (config/MILL-SCRIPT-INVENTORY.json); do not
+# import archived experiments/*_mill.py generators from legacy-mill-lane.
 python3 pipelines/leftover_mill.py outputs/raw/<date>   # add --strict to gate
+python3 pipelines/mill_script_inventory.py --check      # mill-script classification guard
+python3 pipelines/mill_script_inventory.py --check      # mill-script classification guard
 ```
 
 `validate` is structural/invariant evidence. `audit` additionally checks reward
