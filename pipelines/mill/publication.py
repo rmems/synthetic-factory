@@ -100,7 +100,9 @@ def publish(request: PublishRequest) -> dict[str, Any]:
         "plants_sha256": loaded.plants_sha256,
         "run": summary,
     }
-    (request.out_dir / "receipt.json").write_text(dumps_exact_json(receipt, indent=2) + "\n", encoding="utf-8")
+    (request.out_dir / "receipt.json").write_text(
+        dumps_exact_json(receipt, indent=2) + "\n", encoding="utf-8", newline="",
+    )
     return receipt
 
 

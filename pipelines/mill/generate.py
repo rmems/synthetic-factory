@@ -60,7 +60,7 @@ def _check_request(request: RunRequest) -> str:
 
 def _write_new(path: Path, text: str) -> None:
     cv.refuse_when(path.exists(), cv.FINDING_DESTINATION_EXISTS, f"already exists: {path}")
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="")
 
 
 def run(request: RunRequest) -> dict[str, Any]:
