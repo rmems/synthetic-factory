@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -16,19 +17,23 @@ sys.path.insert(0, str(REPO / "pipelines"))
 from evh.catalog import CATALOG  # noqa: E402
 from evh.catalog_extract import (  # noqa: E402
     PAIR_IDENTITY_KEYS,
+    PAIR_ROW_KEYS,
     SHAPE_ADD_TABLES,
     SHAPE_FSTRING,
     SHAPE_PARAM,
     SHAPE_RAW,
     catalog_document,
     catalog_json_path,
+    deferred_rows_from_extract,
     dumps_catalog,
     extract_companion_path,
     extract_plant_catalog,
     mill_summary,
+    pairs_jsonl_path,
 )
 from evh.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
-from evh.sources import MILL_SOURCES, catalog_sources, loop_sources  # noqa: E402
+from evh.pairs import load_pairs  # noqa: E402
+from evh.sources import MILL_SOURCES, catalog_sources, loop_sources, source_by_id  # noqa: E402
 from evh import vocabulary as cv  # noqa: E402
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 
@@ -244,7 +249,13 @@ class EvhSkeletonTests(unittest.TestCase):
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "evh"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "catalog.py",
+            "identity.py",
+            "pairs.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
 
@@ -332,6 +343,8 @@ class EvhSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["_gen_evh_plants_r1357"].n_catalogs, 3)
         self.assertEqual(CATALOG.mills["_gen_evh_plants_r2761"].n_rows, 117)
         self.assertFalse(CATALOG.mills["_gen_evh_plants_r2761"].catalogs[0].pairs)
+        self.assertEqual(CATALOG.n_deferred_pairs, cv.PAIRS_N_ROWS)
+        self.assertEqual(cv.PAIRS_N_ROWS, 1716)
 
 
 class EvhLegacyExtractTests(unittest.TestCase):
@@ -361,7 +374,7 @@ class EvhLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
             self.assertEqual(live["n_catalogs"], committed.n_catalogs, source.mill_id)
             mills.append(
-                mill_summary(live, include_pairs=source.mill_id == "_gen_evh_plants_r801")
+                mill_summary(live, include_pairs=source.mill_id == cv.FIRST_SLICE_MILL_ID)
             )
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
@@ -392,6 +405,89 @@ class EvhLegacyExtractTests(unittest.TestCase):
             self.assertEqual(list(dest.glob("evh-*.py")), [])
             self.assertEqual(list(dest.glob("_gen_evh_*.py")), [])
             self.assertEqual(list(dest.glob("mill_plants*.py")), [])
+
+    def test_live_reextract_sample_matches_committed_rows(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        sample_id = "_gen_evh_plants_r927"
+        source = source_by_id(sample_id)
+        text = subprocess.check_output(
+            ["git", "show", f"{cv.LEGACY_REF}:{source.path}"],
+            text=True,
+            cwd=REPO,
+        )
+        live = extract_plant_catalog(text, path=source.path, blob_sha=source.blob_sha)
+        extracted = deferred_rows_from_extract(live)
+        committed = [row for row in CATALOG.deferred_pairs if row["mill_id"] == sample_id]
+        self.assertEqual(len(extracted), 78)
+        self.assertEqual(extracted, committed)
+        self.assertEqual(extracted[0]["success_slug"], "ansrel-minscore-hold-stale")
+        self.assertEqual(extracted[-1]["success_slug"], "addopts-timeout-func-hold-stale")
+
+
+class EvhDeferredPairsTests(unittest.TestCase):
+    def test_pairs_jsonl_stays_compact(self):
+        path = pairs_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.PAIRS_N_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        self.assertEqual(len(lines), 1716)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(tuple(row), PAIR_ROW_KEYS)
+            self.assertNotIn("pairs", row)
+            self.assertNotIn("catalogs", row)
+
+    def test_deferred_rows_match_catalog_dest_counts(self):
+        pairs = CATALOG.deferred_pairs
+        self.assertEqual(len(pairs), 1716)
+        deferred_ids = {
+            source.mill_id
+            for source in catalog_sources()
+            if source.mill_id != cv.FIRST_SLICE_MILL_ID
+        }
+        self.assertEqual({row["mill_id"] for row in pairs}, deferred_ids)
+        expected = {
+            "_gen_evh_plants_r927": 78,
+            "_gen_evh_plants_r1161": 117,
+            "_gen_evh_plants_r1357": 351,
+            "_gen_evh_plants_r1708": 351,
+            "_gen_evh_plants_r2059": 351,
+            "_gen_evh_plants_r2410": 351,
+            "_gen_evh_plants_r2761": 117,
+        }
+        counts: dict[str, int] = {mill_id: 0 for mill_id in expected}
+        for row in pairs:
+            counts[row["mill_id"]] += 1
+        self.assertEqual(counts, expected)
+        self.assertEqual(pairs[0]["dest"], "mill_plants_x")
+        self.assertEqual(pairs[-1]["dest"], "mill_plants_ao")
+        self.assertEqual(set(pairs[0]), set(PAIR_ROW_KEYS))
+
+    def test_loader_fails_closed_on_a_missing_pair_field(self):
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        del first["fail_slug"]
+        lines[0] = json.dumps(first, separators=(",", ":"))
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "pairs.jsonl"
+            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "keys differ"):
+                load_pairs(dest)
+
+    def test_loader_fails_closed_on_nested_dest_objects(self):
+        nested = json.dumps(
+            {"dest": "mill_plants_x", "mill_id": "_gen_evh_plants_r927", "pairs": []},
+            separators=(",", ":"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "pairs.jsonl"
+            dest.write_text(nested + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "nests dest objects"):
+                load_pairs(dest)
 
 
 if __name__ == "__main__":

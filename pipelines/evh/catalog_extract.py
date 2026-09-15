@@ -31,6 +31,7 @@ from .vocabulary import (
     GENERATOR,
     KIND_GEN,
     LEGACY_REF,
+    PAIRS_FILENAME,
     PRESERVE_COMMIT,
     SHAPE_ADD_TABLES,
     SHAPE_FSTRING,
@@ -57,6 +58,17 @@ PAIR_IDENTITY_KEYS = (
     "fail_plant",
     "fail_slug",
     "kind",
+    "success_domain",
+    "success_plant",
+    "success_slug",
+)
+PAIR_ROW_KEYS = (
+    "dest",
+    "fail_domain",
+    "fail_plant",
+    "fail_slug",
+    "kind",
+    "mill_id",
     "success_domain",
     "success_plant",
     "success_slug",
@@ -609,6 +621,39 @@ def compact_pair_identity(pair: Mapping[str, Any]) -> dict[str, Any]:
     return {key: pair[key] for key in PAIR_IDENTITY_KEYS}
 
 
+def compact_deferred_pair_row(
+    mill_id: str,
+    dest: str,
+    pair: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Flat JSONL identity. Do not nest dest objects or metric bodies."""
+
+    row = compact_pair_identity(pair)
+    row["dest"] = dest
+    row["mill_id"] = mill_id
+    return {key: row[key] for key in PAIR_ROW_KEYS}
+
+
+def deferred_rows_from_extract(record: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for dest in record["catalogs"]:
+        for pair in dest["pairs"]:
+            rows.append(
+                compact_deferred_pair_row(record["mill_id"], dest["dest"], pair)
+            )
+    return rows
+
+
+def dumps_pairs_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    """One compact identity per line. Trailing newline. No CR."""
+
+    lines = [
+        json.dumps(row, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        for row in rows
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def dumps_catalog(document: Mapping[str, Any]) -> str:
     """Pretty-print the catalog; pair identities stay one object per line."""
 
@@ -647,7 +692,21 @@ def catalog_json_path(package_dir: Path | None = None) -> Path:
     return root / CATALOG_FILENAME
 
 
+def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / PAIRS_FILENAME
+
+
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
     destination = path if path is not None else catalog_json_path()
     destination.write_text(dumps_catalog(document), encoding="utf-8")
+    return destination
+
+
+def write_pairs_jsonl(
+    rows: list[Mapping[str, Any]],
+    path: Path | None = None,
+) -> Path:
+    destination = path if path is not None else pairs_jsonl_path()
+    destination.write_text(dumps_pairs_jsonl(rows), encoding="utf-8")
     return destination
