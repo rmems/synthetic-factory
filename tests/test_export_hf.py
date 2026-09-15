@@ -244,11 +244,13 @@ class ExportCorpusGating(unittest.TestCase):
                 "totals": {"records": 7, "by_kind": {}},
             }
 
-            with mock.patch.object(
-                export_hf.training_audit, "audit_run", return_value=blocked_report
+            with (
+                mock.patch.object(
+                    export_hf.training_audit, "audit_run", return_value=blocked_report
+                ),
+                self.assertRaises(export_hf.ExportError) as caught,
             ):
-                with self.assertRaises(export_hf.ExportError) as caught:
-                    export_hf.export_run(curated, root / "export")
+                export_hf.export_run(curated, root / "export")
             self.assertIn("not training_ready", str(caught.exception))
             self.assertFalse((root / "export").exists())
 
@@ -261,20 +263,19 @@ class ExportCorpusGating(unittest.TestCase):
             "invalid utf-8": b"\xff\xfe\n",
         }
         for label, payload in broken.items():
-            with self.subTest(label):
-                with tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
-                    factory = (
-                        root
-                        / "curated"
-                        / compose_curated.RECORDS_DIRNAME
-                        / "thalamic-trajectory-factory"
-                    )
-                    factory.mkdir(parents=True)
-                    (factory / "batch-r01.jsonl").write_bytes(payload)
-                    with self.assertRaises(export_hf.ExportError):
-                        export_hf.export_run(root / "curated", root / "export")
-                    self.assertFalse((root / "export").exists())
+            with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                factory = (
+                    root
+                    / "curated"
+                    / compose_curated.RECORDS_DIRNAME
+                    / "thalamic-trajectory-factory"
+                )
+                factory.mkdir(parents=True)
+                (factory / "batch-r01.jsonl").write_bytes(payload)
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(root / "curated", root / "export")
+                self.assertFalse((root / "export").exists())
 
 
 if __name__ == "__main__":

@@ -86,16 +86,18 @@ class InProcessPackageForm(unittest.TestCase):
         self.assertEqual(parity_import_probe._split_siblings(), [])
 
     def test_every_registered_loader_returns_the_bound_sibling(self):
-        # _join_package_sibling reaches a sibling through its loader while
-        # the package child is still initializing; each loader must hand back
-        # the same object the bare name is bound to, never a second copy.
+        # _join_package_sibling reaches a sibling through
+        # ``_load_package_sibling`` while the package child is still
+        # initializing; the loader must hand back the same object the bare
+        # name is bound to, never a second copy.
         import pipelines
 
         for name in parity_import_probe.FLAT_SIBLINGS:
             with self.subTest(sibling=name):
-                loader = pipelines._PACKAGE_SIBLING_LOADERS[name]
-                self.assertIs(loader(), sys.modules[name])
-                self.assertIs(loader(), sys.modules[f"pipelines.{name}"])
+                self.assertIn(name, pipelines._PACKAGE_SIBLING_NAMES)
+                loaded = pipelines._load_package_sibling(name)
+                self.assertIs(loaded, sys.modules[name])
+                self.assertIs(loaded, sys.modules[f"pipelines.{name}"])
 
 
 if __name__ == "__main__":

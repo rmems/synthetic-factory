@@ -22,6 +22,7 @@ import re
 import sys
 from pathlib import Path
 
+from operator_paths import operator_path
 from round_txn import MODE_FILE, TransactionError, frontier_status
 
 BATCH_RE = re.compile(r"^batch-r(\d+)\.jsonl$")
@@ -188,7 +189,7 @@ def write_index(run_root):
     return payload, out
 
 
-def parse_args(argv=None):
+def _build_parser():
     parser = argparse.ArgumentParser(
         description="Allocate the next unused factory round.",
     )
@@ -207,12 +208,31 @@ def parse_args(argv=None):
         "path",
         help="factory directory, or run root with --write-index",
     )
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv=None):
+    return _build_parser().parse_args(argv)
+
+
+def _confined_path(parser, args):
+    """The operator's factory directory or run root, confined to the working, home and temp trees.
+
+    Both modes take the same positional, so the funnel runs once right after
+    parsing and no sink below reads ``args.path`` again. ``--write-index``
+    still refreshes ``NEXT_ROUND.json`` in place -- the documented exception to
+    "write only to new destinations" -- now under the confined root.
+    """
+    try:
+        return operator_path(args.path)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
 
 def main(argv=None):
-    args = parse_args(argv)
-    path = Path(args.path)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    path = _confined_path(parser, args)
     if args.write_index:
         if args.allocate is not None:
             print("refuse: --write-index cannot be combined with --allocate", file=sys.stderr)

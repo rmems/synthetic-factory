@@ -229,7 +229,7 @@ class TrainingAuditReportIdempotence(unittest.TestCase):
             record_tokens,
         )
         self.assertEqual(
-            training_audit.render_markdown(first),
+            training_audit.render_markdown(second),
             training_audit.render_markdown(first),
         )
 

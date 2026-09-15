@@ -195,11 +195,21 @@ def _authenticated_output_row(
     return {"path": raw_path, "records": records, "sha256": digest}
 
 
+def _json_integer_or_none(value: Any) -> int | None:
+    """The value when it is an exact JSON integer, else ``None``.
+
+    The value-returning form of ``_is_json_integer``, so a count that is then
+    compared and returned as an ``int`` is the one the guard admitted.
+    """
+
+    return value if _is_json_integer(value) else None
+
+
 def _positive_output_record_count(entry: Mapping[str, Any], raw_path: Any) -> int:
     """Require one declared output count to be a positive integer."""
 
-    records = entry.get("records")
-    if not _is_json_integer(records):
+    records = _json_integer_or_none(entry.get("records"))
+    if records is None:
         raise ExportError(f"COMPOSE.json: invalid record count for {raw_path}")
     if records < 1:
         raise ExportError(f"COMPOSE.json: invalid record count for {raw_path}")
@@ -224,7 +234,9 @@ def _authenticated_output_declaration(
 
     if not isinstance(entry, dict):
         raise ExportError(f"COMPOSE.json: outputs[{index}] must be an object")
-    raw_path = entry.get("path")
+    # Unvalidated JSON: ``_read_exact_regular_file`` below is the member-path
+    # validator, and every helper here takes the raw declaration the same way.
+    raw_path: Any = entry.get("path")
     _path, current_payload = _read_exact_regular_file(
         authentication.curated_root, raw_path, f"COMPOSE outputs[{index}]"
     )

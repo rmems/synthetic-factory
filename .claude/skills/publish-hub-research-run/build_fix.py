@@ -22,6 +22,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 REPO = Path("/home/raulmc/rmems/synthetic-factory")
 PIPELINES = REPO / "pipelines"
@@ -146,7 +147,7 @@ def census(records: list[dict]) -> dict:
     key_sets = [set(r.keys()) for r in records]
     common = sorted(set.intersection(*key_sets))
     optional = sorted(set.union(*key_sets) - set(common))
-    decisions = collections.Counter()
+    decisions: collections.Counter[str] = collections.Counter()
     for r in records:
         sd = r.get("safety_decision")
         if isinstance(sd, dict) and isinstance(sd.get("decision"), str):
@@ -352,7 +353,7 @@ def build_one(factory: str, repo: str, expected_missing: list[str]) -> dict:
     for f in files_meta:  # existing entries are reproduced exactly
         if f["path"] in old_files:
             assert old_files[f["path"]] == f, f["path"]
-    new_snap = {}
+    new_snap: dict[str, Any] = {}
     for key, value in snap.items():
         if key == "selection_rule":
             new_snap[key] = NEW_PROV_RULE

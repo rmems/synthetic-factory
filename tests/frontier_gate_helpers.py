@@ -70,11 +70,13 @@ class FrontierGateTestCaseMixin:
 
     def _interrupt_publish(self, factory, reservation, records, reason=None):
         self.stage(reservation, records)
-        with mock.patch.object(
-            round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+        with (
+            mock.patch.object(
+                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+            ),
+            self.assertRaises(OSError),
         ):
-            with self.assertRaises(OSError):
-                round_txn.publish(factory, 1, reservation["token"], reason)
+            round_txn.publish(factory, 1, reservation["token"], reason)
         publishing = factory / "ROUND-r01.publishing.json"
         self.assertTrue(publishing.is_file())
         return publishing

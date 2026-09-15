@@ -158,6 +158,18 @@ def is_number(value: Any) -> bool:
         return False
 
 
+def enum_value_or_none(value: Any, allowed: Container[str]) -> str | None:
+    """The value when :func:`is_enum_value` admits it, else ``None``.
+
+    The value-returning form of the same membership test. Callers that go on
+    to *use* the member (as a mapping key, or as a declared ``str`` field)
+    keep the narrowed value in hand instead of re-reading the raw JSON, so the
+    type of what they use is the type they checked.
+    """
+
+    return value if is_enum_value(value, allowed) else None
+
+
 def is_enum_value(value: Any, allowed: Container[str]) -> TypeGuard[str]:
     """Membership test for enum-like JSON fields that cannot raise.
 

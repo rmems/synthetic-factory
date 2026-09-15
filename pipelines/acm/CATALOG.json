@@ -1,0 +1,219 @@
+{
+  "bans": {
+    "blob_keys": [
+      "chain_of_thought",
+      "inner_monologue",
+      "scratch",
+      "spike_events",
+      "thought"
+    ],
+    "slug_needles": [
+      "207-multistatus",
+      "422-vs-400",
+      "w131",
+      "accept-language-required",
+      "callback-hmac-sha256",
+      "idempotency-key-required",
+      "pkce-s256",
+      "uuid-vs-ulid",
+      "disc-wallet",
+      "sunset-header-deprecation"
+    ]
+  },
+  "catalog_id": "api-contract-migration-v1",
+  "extract": {
+    "exec": false,
+    "full_row_count": 1052,
+    "full_source_files": 95,
+    "method": "ast.parse",
+    "slice": "representative",
+    "source_commit": "6d5ed0c1cac87618a05fab37f2e59bebca0a6031",
+    "source_files": 95,
+    "source_ref": "legacy-mill-lane"
+  },
+  "factory": "api-contract-migration-factory",
+  "family": "acm",
+  "format": "acm-catalog/1",
+  "generator": "grok-4.6",
+  "id_prefix": "acm",
+  "quota": 2,
+  "row_count": 8,
+  "rows": [
+    {
+      "catalog_id": "g46-w2",
+      "domain": "accept-ranges-bytes-vs-none",
+      "fail_err": "400: leftover none after bytes-only",
+      "fail_slug": "no-accept-ranges",
+      "fetch1": "https://www.rfc-editor.org/rfc/rfc9110.html#name-accept-ranges",
+      "fetch2": "https://spec.openapis.org/oas/v3.1.0.html#header-object",
+      "field": "Accept-Ranges",
+      "kind": "mill-pairs",
+      "new": "Accept-Ranges bytes",
+      "old": "none leftover",
+      "source": "experiments/acm-mill-g46-w2.py",
+      "success_slug": "accept-ranges-bytes",
+      "vs": "wrap range-requests-206 (Accept-Ranges bytes, not 206 Range responses)"
+    },
+    {
+      "catalog_id": "g46-w3",
+      "domain": "clear-site-data-vs-manual-cookie-clear",
+      "fail_err": "400: leftover Max-Age=0 after Clear-Site-Data-only",
+      "fail_slug": "manual-cookie-clear",
+      "fetch1": "https://www.w3.org/TR/clear-site-data/",
+      "fetch2": "",
+      "field": "Clear-Site-Data",
+      "kind": "mill-pairs",
+      "new": "Clear-Site-Data \"cookies\"",
+      "old": "Set-Cookie leftover Max-Age=0",
+      "source": "experiments/acm-mill-g46-w3.py",
+      "success_slug": "clear-site-data",
+      "vs": "r3567 cookie-session-token (Clear-Site-Data, not cookie session token)"
+    },
+    {
+      "catalog_id": "g46-w6",
+      "domain": "access-control-max-age-vs-none",
+      "fail_err": "400: leftover missing Max-Age after required",
+      "fail_slug": "no-preflight-cache",
+      "fetch1": "https://fetch.spec.whatwg.org/#http-access-control-max-age",
+      "fetch2": "",
+      "field": "Access-Control-Max-Age",
+      "kind": "mill-pairs",
+      "new": "Max-Age 600 required",
+      "old": "no-max-age leftover",
+      "source": "experiments/acm-mill-g46-w6.py",
+      "success_slug": "ac-max-age",
+      "vs": "r3620 origin-required-mutating (AC Max-Age, not Origin required)"
+    },
+    {
+      "catalog_id": "r3561",
+      "domain": "accept-profile-ldp",
+      "fail_err": "406: leftover Accept ld+json without Accept-Profile",
+      "fail_slug": "content-type-profile-param",
+      "fetch1": "https://www.w3.org/TR/dx-prof-conneg/",
+      "fetch2": "https://spec.openapis.org/oas/v3.1.0.html#header-object",
+      "field": "Accept-Profile",
+      "kind": "mill-pairs",
+      "new": "Accept-Profile https://www.w3.org/ns/ldp",
+      "old": "Accept application/ld+json",
+      "source": "experiments/acm-mill-r3561.py",
+      "success_slug": "accept-profile-ldp",
+      "vs": "wrap content-profile-geojson / accept-language (Accept-Profile LDP, not geojson or language)"
+    },
+    {
+      "catalog_id": "r3620",
+      "domain": "application-pgp-encrypted",
+      "fail_err": "415: leftover octet-stream after pgp-encrypted only",
+      "fail_slug": "application-jose-json",
+      "fetch1": "https://www.rfc-editor.org/rfc/rfc3156.html",
+      "fetch2": "https://spec.openapis.org/oas/v3.1.0.html#media-type-object",
+      "field": "content",
+      "kind": "mill-pairs",
+      "new": "application/pgp-encrypted",
+      "old": "application/octet-stream leftover",
+      "source": "experiments/acm-mill-r3620.py",
+      "success_slug": "application-pgp-encrypted",
+      "vs": "wrap protobuf-content-type / binary-vs-base64 (pgp-encrypted, not protobuf or byte format)"
+    },
+    {
+      "catalog_id": "r3667",
+      "domain": "accept-application-yaml",
+      "fail_err": "406: leftover Accept json after yaml-only",
+      "fail_slug": "content-type-toml",
+      "fetch1": "https://www.iana.org/assignments/media-types/application/yaml",
+      "fetch2": "https://spec.openapis.org/oas/v3.1.0.html#media-type-object",
+      "field": "Accept",
+      "kind": "mill-pairs",
+      "new": "application/yaml required",
+      "old": "application/json leftover only",
+      "source": "experiments/acm-mill-r3667.py",
+      "success_slug": "accept-yaml-media",
+      "vs": "r3620 content-type-profile-param (Accept yaml, not json profile param)"
+    },
+    {
+      "catalog_id": "r3698",
+      "domain": "ion-vs-json-leftover",
+      "fail_err": "415: leftover JSON after Ion-only",
+      "fail_slug": "json-text-vs-ion",
+      "fetch1": "https://amazon-ion.github.io/ion-docs/docs/binary.html",
+      "fetch2": "https://spec.openapis.org/oas/v3.1.0.html#media-type-object",
+      "field": "content",
+      "kind": "mill-pairs",
+      "new": "Ion 1.0 binary IVM required",
+      "old": "JSON leftover text",
+      "source": "experiments/acm-mill-r3698.py",
+      "success_slug": "amazon-ion-binary",
+      "vs": "r3694 twirp-error-meta (Amazon Ion leftover vs JSON, not twirp)"
+    },
+    {
+      "catalog_id": "r4230",
+      "domain": "oas-encoding-allow-reserved-vs-leftover-encoding-pct-all",
+      "fail_err": "415: leftover encoding percent leftover after encoding allowReserved-only",
+      "fail_slug": "leftover-encoding-pct-all",
+      "fetch1": "https://spec.openapis.org/oas/v3.1.0.html#encoding-object",
+      "fetch2": "https://datatracker.ietf.org/doc/html/rfc3986",
+      "field": "allowReserved",
+      "kind": "mill-pairs",
+      "new": "encoding allowReserved",
+      "old": "encoding percent leftover",
+      "source": "experiments/acm-mill-r4230.py",
+      "success_slug": "oas-encoding-allow-reserved",
+      "vs": "r4214 leftover-encoding-csv (encoding allowReserved vs leftover, not encoding mill)"
+    }
+  ],
+  "rows_sha256": "51d5a9cc622c2a5c1f69e27527841fd3f27d25cdc4d85fafa94758950fd55f8e",
+  "sources": [
+    {
+      "catalog_id": "plants-r4230",
+      "kind": "plant-gen",
+      "loop_mills": [],
+      "pair_count": 256,
+      "path": "experiments/_gen_acm_plants_r4230.py",
+      "sha256": "0cf915857b385140b30abed7ba6e03b89e6e151952e0932f54ae5c138ee392ca"
+    },
+    {
+      "catalog_id": "g46-w2",
+      "kind": "loop",
+      "loop_mills": [
+        "acm-mill-g46-w2.py"
+      ],
+      "pair_count": 0,
+      "path": "experiments/acm-loop-g46-w2.py",
+      "sha256": "e86e19f180833cbb9214b0a40a7febfdfa7b8d136b10ebde0a8df22d19402b58"
+    },
+    {
+      "catalog_id": "r3561",
+      "kind": "loop",
+      "loop_mills": [
+        "acm-mill-r3561.py"
+      ],
+      "pair_count": 0,
+      "path": "experiments/acm-loop-r3561.py",
+      "sha256": "7867798b5c98af2c1cac8ab921a0d9dacaa94186d2e9183b793c2a5f46dbb83b"
+    },
+    {
+      "catalog_id": "g46-w2",
+      "kind": "mill",
+      "loop_mills": [],
+      "pair_count": 32,
+      "path": "experiments/acm-mill-g46-w2.py",
+      "sha256": "8fa2fd5c3e4dbd57ce01290c1d0d89b9517f7f522d56dec5e902ccc5a35088d7"
+    },
+    {
+      "catalog_id": "r3561",
+      "kind": "mill",
+      "loop_mills": [],
+      "pair_count": 79,
+      "path": "experiments/acm-mill-r3561.py",
+      "sha256": "52303bb04bc644dfeb39d1556e2f09baeaedee86a3814918f18ddd31c6860ecb"
+    },
+    {
+      "catalog_id": "r4230",
+      "kind": "mill",
+      "loop_mills": [],
+      "pair_count": 16,
+      "path": "experiments/acm-mill-r4230.py",
+      "sha256": "e61d0b052c10e7310f28413be7f7441066537d5f686bb0c45249b7d398c2f204"
+    }
+  ],
+  "steps": 16
+}

@@ -1,5 +1,6 @@
 {
   "name": "synthetic-factory",
+  "user": "ubuntu",
   "build": {
     "dockerfile": "Dockerfile",
     "context": "."

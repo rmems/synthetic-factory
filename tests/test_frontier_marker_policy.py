@@ -71,12 +71,14 @@ class FrontierMarkerPolicy(FrontierGateTestCaseMixin, unittest.TestCase):
                 factory, 1, thalamic("unsupported-version"), {"version": 3}
             )
 
-            with mock.patch.object(round_txn, "validate_completed_batch"):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(round_txn, "validate_completed_batch"),
+                self.assertRaisesRegex(
                     round_txn.TransactionError,
                     r"unsupported completion marker version: ",
-                ):
-                    round_txn.completed_manifests(factory)
+                ),
+            ):
+                round_txn.completed_manifests(factory)
 
 
     def test_version_downgrade_cannot_skip_execution_verification(self):
@@ -148,16 +150,18 @@ class FrontierMarkerPolicy(FrontierGateTestCaseMixin, unittest.TestCase):
                 visited.append(round_number)
                 return real_bind(factory_dir, round_number, *args, **kwargs)
 
-            with mock.patch.object(
-                round_txn,
-                "_bind_completion_execution_verdict",
-                side_effect=record_bind,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    round_txn,
+                    "_bind_completion_execution_verdict",
+                    side_effect=record_bind,
+                ),
+                self.assertRaisesRegex(
                     round_txn.TransactionError,
                     "version downgrade cannot skip execution",
-                ):
-                    round_txn.completed_manifests(factory)
+                ),
+            ):
+                round_txn.completed_manifests(factory)
 
             self.assertEqual(visited, [2, 10])
 

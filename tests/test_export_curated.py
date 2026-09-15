@@ -30,9 +30,11 @@ class ExportViewerRecordFraming(unittest.TestCase):
         )
 
         for reader in readers:
-            with self.subTest(reader=reader):
-                with self.assertRaisesRegex(export_contract.ExportError, "LF-only"):
-                    reader()
+            with (
+                self.subTest(reader=reader),
+                self.assertRaisesRegex(export_contract.ExportError, "LF-only"),
+            ):
+                reader()
 
     def test_viewer_rows_keep_line_separators_inside_records(self):
         with tempfile.TemporaryDirectory() as td:

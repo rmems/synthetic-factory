@@ -29,6 +29,8 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_gate  # noqa: E402
+import curate_gate_digest  # noqa: E402
+import curate_gate_plan  # noqa: E402
 import curate_rewards  # noqa: E402
 
 
@@ -787,7 +789,7 @@ class IntegrationTests(unittest.TestCase):
         fixture = GateFixture(self.root)
         original = fixture.plan_path.read_bytes()
         original_digest = curate_gate.sha256_hex(original)
-        real_resolve = curate_gate._resolve_source_run_path
+        real_resolve = curate_gate_plan._resolve_source_run_path
         changed = False
 
         def mutate_after_snapshot(*args, **kwargs):
@@ -799,7 +801,7 @@ class IntegrationTests(unittest.TestCase):
             return resolved
 
         with mock.patch.object(
-            curate_gate,
+            curate_gate_plan,
             "_resolve_source_run_path",
             side_effect=mutate_after_snapshot,
         ):
@@ -1033,7 +1035,7 @@ class IntegrationTests(unittest.TestCase):
         replacement = self.root / "replacement.jsonl"
         path.write_text('{"id":"before"}\n', encoding="utf-8")
         replacement.write_text('{"id":"after"}\n', encoding="utf-8")
-        original_fstat = curate_gate.os.fstat
+        original_fstat = curate_gate_digest.os.fstat
         calls = 0
 
         def replace_before_second_fstat(descriptor):
@@ -1043,13 +1045,15 @@ class IntegrationTests(unittest.TestCase):
                 replacement.replace(path)
             return original_fstat(descriptor)
 
-        with mock.patch.object(
-            curate_gate.os,
-            "fstat",
-            side_effect=replace_before_second_fstat,
+        with (
+            mock.patch.object(
+                curate_gate_digest.os,
+                "fstat",
+                side_effect=replace_before_second_fstat,
+            ),
+            self.assertRaisesRegex(curate_gate.GateError, "changed while"),
         ):
-            with self.assertRaisesRegex(curate_gate.GateError, "changed while"):
-                curate_gate._read_regular_file_snapshot(path, "lane output")
+            curate_gate._read_regular_file_snapshot(path, "lane output")
 
     def test_source_loader_rejects_a_path_replaced_during_read(self):
         source_run = self.root / "raw"
@@ -1057,7 +1061,7 @@ class IntegrationTests(unittest.TestCase):
         replacement = self.root / "replacement.jsonl"
         _write_jsonl(path, [_thalamic("before")])
         _write_jsonl(replacement, [_thalamic("after")])
-        original_fstat = curate_gate.os.fstat
+        original_fstat = curate_gate_digest.os.fstat
         calls = 0
 
         def replace_before_second_fstat(descriptor):
@@ -1067,13 +1071,15 @@ class IntegrationTests(unittest.TestCase):
                 replacement.replace(path)
             return original_fstat(descriptor)
 
-        with mock.patch.object(
-            curate_gate.os,
-            "fstat",
-            side_effect=replace_before_second_fstat,
+        with (
+            mock.patch.object(
+                curate_gate_digest.os,
+                "fstat",
+                side_effect=replace_before_second_fstat,
+            ),
+            self.assertRaisesRegex(curate_gate.GateError, "changed while"),
         ):
-            with self.assertRaisesRegex(curate_gate.GateError, "changed while"):
-                curate_gate._load_source_records(source_run)
+            curate_gate._load_source_records(source_run)
 
     def test_lane_manifest_evidence_uses_the_authenticated_snapshot(self):
         fixture = GateFixture(self.root)

@@ -1,6 +1,8 @@
 # Cursor Cloud Agent environment for the synthetic data factory.
 # Do not COPY the repository; Cursor checks out the target commit itself.
-FROM ubuntu:24.04
+# Official CPython 3.14 line (same family as GitHub Actions setup-python),
+# not Ubuntu 24.04's distro python3 (3.12).
+FROM python:3.14-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -13,14 +15,13 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
-        python3 \
-        python3-pip \
-        python3-venv \
         sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Cloud agents clone with git and escalate with sudo.
-RUN printf 'ubuntu ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/ubuntu \
+# python:*-slim has no ubuntu user; Cloud agents clone with git and escalate with sudo.
+RUN groupadd --gid 1000 ubuntu \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash ubuntu \
+    && printf 'ubuntu ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/ubuntu \
     && chmod 0440 /etc/sudoers.d/ubuntu
 
 WORKDIR /workspace

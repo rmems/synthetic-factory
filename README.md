@@ -104,7 +104,7 @@ when those three declarations disagree.
 
 ## Development environment
 
-Pipelines are stdlib Python 3.12+. There is no network service to boot.
+Pipelines are stdlib Python 3.14+. There is no network service to boot.
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py' -q

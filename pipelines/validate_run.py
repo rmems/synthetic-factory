@@ -25,11 +25,19 @@ if __package__:
     _assert_direct_sibling("validate_run")
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
+    from . import validate_run_rewards as _validate_run_rewards
+    from . import validate_run_reward_total as _validate_run_reward_total
+    from . import validate_run_thalamic as _validate_run_thalamic
+    from . import validate_run_safety as _validate_run_safety
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
     from .oracle_grounded import parity_contract
 else:
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
+    import validate_run_rewards as _validate_run_rewards
+    import validate_run_reward_total as _validate_run_reward_total
+    import validate_run_thalamic as _validate_run_thalamic
+    import validate_run_safety as _validate_run_safety
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
     from oracle_grounded import parity_contract
 
@@ -115,60 +123,24 @@ __all__ = [
     "terminal_outcome_agrees",
 ]
 
-
-THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
-# Type-check required keys against the schema's own declared types: the six
-# trajectory fields (+ meta) are objects, but canonical `id` is a string.
-THALAMIC_OBJECT_KEYS = tuple(
-    key for key in THALAMIC_REQUIRED
-    if THALAMIC_SCHEMA["properties"].get(key, {}).get("type") == "object"
-)
-THALAMIC_STRING_KEYS = tuple(
-    key for key in THALAMIC_REQUIRED
-    if THALAMIC_SCHEMA["properties"].get(key, {}).get("type") == "string"
-)
-# The six trajectory fields identify a thalamic record for routing; `meta`
-# and `id`, though required, are exactly what legacy records are missing,
-# so routing on them would hide every other invariant behind an
-# "unrecognized shape" error.
-THALAMIC_CORE_KEYS = tuple(
-    key for key in THALAMIC_OBJECT_KEYS if key != "meta"
-)
-SAFETY_DECISIONS = frozenset(
-    THALAMIC_SCHEMA["properties"]["safety_decision"]["properties"]
-    ["decision"]["enum"]
-)
+# Thalamic shape vocabulary lives in validate_run_thalamic; the facade rebinds
+# it here so routing, compose_trajectory_goals, and the CLI tests keep
+# resolving validate_run.THALAMIC_* unchanged.
+THALAMIC_REQUIRED = _validate_run_thalamic.THALAMIC_REQUIRED
+THALAMIC_OBJECT_KEYS = _validate_run_thalamic.THALAMIC_OBJECT_KEYS
+THALAMIC_STRING_KEYS = _validate_run_thalamic.THALAMIC_STRING_KEYS
+THALAMIC_CORE_KEYS = _validate_run_thalamic.THALAMIC_CORE_KEYS
+SAFETY_DECISIONS = _validate_run_thalamic.SAFETY_DECISIONS
 
 # provenance.kind allows 'unknown'; state.sim_or_real does not. Both
 # vocabularies are the schema's own enums.
 ALLOWED_PROVENANCE_KIND = _validate_run_provenance.ALLOWED_PROVENANCE_KIND
 ALLOWED_SIM_OR_REAL = _validate_run_provenance.ALLOWED_SIM_OR_REAL
-# Bookkeeping keys that are not counted toward the arithmetic sum. This is the
-# single exclusion vocabulary for reward arithmetic: check_records imports it
-# so the shape layer and the deep layer agree on what is a component, and a
-# record that reconciles under one layer is not rejected by the other.
-REWARD_NON_COMPONENT_KEYS = frozenset(
-    {
-        "aggregation",
-        "comment",
-        "component_notes",
-        "convention",
-        "description",
-        "frame",
-        "native_unit",
-        "notes",
-        "provenance_notes",
-        "rounding_decimals",
-        "total",
-        "total_basis",
-        "unit_usd",
-        "units",
-        "weights",
-        "weights_note",
-    }
-)
-# Strict arithmetic tolerance — total must equal sum within 1e-6.
-REWARD_TOL = 1e-6
+# Reward arithmetic lives in validate_run_rewards; the facade rebinds its
+# vocabulary here so check_records and the CLI tests keep resolving
+# validate_run.REWARD_* (including mock.patch.object targets) unchanged.
+REWARD_NON_COMPONENT_KEYS = _validate_run_rewards.REWARD_NON_COMPONENT_KEYS
+REWARD_TOL = _validate_run_rewards.REWARD_TOL
 OBSERVABLE_BASIS_RE = re.compile(
     r"\b(?:artifacts?|diagnos\w*|diff|errors?|evidence|fail\w*|fault|files?|found|goal|"
     r"inspect\w*|locks?|logs?|manifest|observ\w*|plan|read|reflection|report\w*|"
@@ -219,134 +191,21 @@ def check_spike_stream(obj, where):
     return _check_spike_stream(obj, where)
 
 
-def _component_numeric(value):
-    """Extract numeric component value from plain number or {value: number}."""
-    if is_number(value):
-        return float(value)
-    if isinstance(value, dict) and is_number(value.get("value")):
-        return float(value["value"])
-    return None
-
-
-# Marker substrings of the two mismatch messages built in check_reward_total.
-# check_records imports this tuple to drop the shape layer's arithmetic errors:
-# it owns reward arithmetic and would otherwise report the same record twice.
-REWARD_WEIGHTED_MISMATCH = "!= weighted sum"
-REWARD_UNWEIGHTED_MISMATCH = "!= sum of components"
-REWARD_ARITHMETIC_MARKERS = (REWARD_UNWEIGHTED_MISMATCH, REWARD_WEIGHTED_MISMATCH)
+_component_numeric = _validate_run_rewards.component_numeric
+REWARD_WEIGHTED_MISMATCH = _validate_run_rewards.REWARD_WEIGHTED_MISMATCH
+REWARD_UNWEIGHTED_MISMATCH = _validate_run_rewards.REWARD_UNWEIGHTED_MISMATCH
+REWARD_ARITHMETIC_MARKERS = _validate_run_rewards.REWARD_ARITHMETIC_MARKERS
 
 
 def check_reward_total(rc, where):
-    """Validate reward_components arithmetic: total == sum(component values).
+    """Compatibility facade for reward arithmetic (see validate_run_reward_total).
 
-    Strict gate: total must equal the arithmetic sum of all numeric components
-    (excluding bookkeeping keys) within REWARD_TOL. Weighted aggregations are
-    supported; interval/string totals are rejected as non-finite.
+    The tolerance and bookkeeping vocabulary are this module's live bindings,
+    so rebinding REWARD_TOL or REWARD_NON_COMPONENT_KEYS here keeps flowing
+    through exactly as when the check lived inline.
     """
-    errs = []
-    if not isinstance(rc, dict):
-        return errs
-    if "total" not in rc:
-        errs.append(f"{where}: reward_components missing 'total'")
-        return errs
-    total = rc.get("total")
-    if not is_number(total):
-        # Interval/string totals (e.g. [0.1, 0.9] or "0.5 ± 0.1") skip the
-        # arithmetic gate here; check_records surfaces them as warnings and
-        # the reward-normalization curation lane owns their conversion.
-        # Numeric-but-non-finite totals (NaN/inf) still fail via is_number, and
-        # a boolean total is invalid schema input rather than a skippable shape.
-        if isinstance(total, (int, float)):
-            errs.append(f"{where}: reward_components.total must be a finite number")
-        return errs
-    # Weighted layout: total == sum(value_i * weight_i)
-    weights = rc.get("weights")
-    if isinstance(weights, dict) and weights:
-        # Resolve declared weights (ignore non-finite weights)
-        declared = {
-            k: float(v)
-            for k, v in weights.items()
-            if k not in REWARD_NON_COMPONENT_KEYS and is_number(v)
-        }
-        if declared:
-            # Collect containers that may hold component values (direct or nested)
-            containers = [rc]
-            for key in ("components", "components_executed", "components_realized"):
-                if isinstance(rc.get(key), dict):
-                    containers.append(rc[key])
-            # Try to resolve every declared weight
-            recomputed = 0.0
-            unresolved = []
-            for k, w in declared.items():
-                val = None
-                aliases = {
-                    "task": ("task", "task_progress", "task_outcome"),
-                    "safety": ("safety", "safety_alignment", "safety_process"),
-                }.get(k, (k,))
-                for c in containers:
-                    for cand in aliases:
-                        if cand in c:
-                            val = _component_numeric(c[cand])
-                            if val is not None:
-                                break
-                    if val is not None:
-                        break
-                    # also try direct key in rc
-                    if k in c:
-                        val = _component_numeric(c[k])
-                        if val is not None:
-                            break
-                if val is None:
-                    unresolved.append(k)
-                else:
-                    recomputed += val * w
-            if unresolved:
-                # Weights are declared but this layer cannot resolve every
-                # component. The sibling-sum check below does not model the
-                # weighted layout, so falling through would report a false
-                # mismatch; check_records owns the unsupported-layout warning.
-                return errs
-            if not math.isclose(
-                float(total), recomputed, rel_tol=0.0, abs_tol=REWARD_TOL
-            ):
-                errs.append(
-                    f"{where}: reward_components.total {total} {REWARD_WEIGHTED_MISMATCH} {recomputed:.6g} (diff {abs(float(total) - recomputed):.6g} > {REWARD_TOL})"
-                )
-            return errs
-    # Unweighted: sum of numeric siblings (plain or {value: n})
-    component_sum = 0.0
-    has_component = False
-    for k, v in rc.items():
-        if k in REWARD_NON_COMPONENT_KEYS:
-            continue
-        # Skip known metadata containers that are not scalar components
-        if k in ("components", "components_executed", "components_realized", "ticks"):
-            continue
-        num = _component_numeric(v)
-        if num is not None:
-            # Guard against non-finite already filtered by _component_numeric
-            component_sum += float(num)
-            has_component = True
-        elif isinstance(v, dict) and "value" in v:
-            # Rich object with non-finite value
-            if isinstance(v.get("value"), (int, float)) and not is_number(v["value"]):
-                errs.append(
-                    f"{where}: reward_components.{k}.value must be a finite number"
-                )
-        elif isinstance(v, (int, float)) and not is_number(v):
-            errs.append(
-                f"{where}: reward_components.{k} must be a finite number"
-            )
-    # Only enforce sum check when at least one numeric component exists
-    # beyond total (otherwise total alone is allowed, e.g. minimal fixture).
-    if has_component:
-        if not math.isclose(
-            float(total), component_sum, rel_tol=0.0, abs_tol=REWARD_TOL
-        ):
-            errs.append(
-                f"{where}: reward_components.total {total} {REWARD_UNWEIGHTED_MISMATCH} {component_sum:.6g} (diff {abs(float(total) - component_sum):.6g} > {REWARD_TOL})"
-            )
-    return errs
+    settings = _validate_run_rewards.RewardSettings(REWARD_TOL, REWARD_NON_COMPONENT_KEYS)
+    return _validate_run_reward_total.check_reward_total(rc, where, settings)
 
 
 def _state_provenance_errors(obj, where):
@@ -374,110 +233,35 @@ def check_provenance(obj, where):
     return _state_provenance_errors(obj, where) + _provenance_object_errors(obj, where)
 
 
-def check_meta_round(obj, where):
-    """Require meta.round presence and integer >=1.
-
-    A missing or non-object `meta` is already reported by the required-key
-    loop in check_thalamic, so this returns quietly in that case rather than
-    emitting a second error for the same violation.
-    """
-    errs = []
-    meta = obj.get("meta")
-    if not isinstance(meta, dict):
-        return errs
-    if "round" not in meta:
-        errs.append(f"{where}: meta.round is required")
-        return errs
-    rnd = meta.get("round")
-    # bool is subclass of int, exclude
-    if isinstance(rnd, bool) or not isinstance(rnd, int):
-        errs.append(f"{where}: meta.round must be an integer")
-        return errs
-    if rnd < 1:
-        errs.append(f"{where}: meta.round must be >= 1")
-    return errs
-
-
-def _required_object_field_errors(obj, key, where):
-    if key not in obj:
-        return [f"{where}: missing required key '{key}'"]
-    if not isinstance(obj[key], dict):
-        return [f"{where}: '{key}' must be an object"]
-    return []
-
-
-def _optional_nonempty_string_errors(obj, key, where):
-    if key not in obj:
-        return []
-    value = obj[key]
-    if not isinstance(value, str) or not value.strip():
-        return [f"{where}: '{key}' must be a non-empty string"]
-    return []
-
-
-def _thalamic_shape_errors(obj, where):
-    """Validate required object fields and optional canonical string fields."""
-    # Shape layer: the object-typed fields (incl. meta) are required here.
-    # Canonical `id` presence/coverage is a deep-layer concern
-    # (check_records / training_audit); at this layer it is only
-    # type-checked when present.
-    object_errors = [
-        error
-        for key in THALAMIC_OBJECT_KEYS
-        for error in _required_object_field_errors(obj, key, where)
-    ]
-    string_errors = [
-        error
-        for key in THALAMIC_STRING_KEYS
-        for error in _optional_nonempty_string_errors(obj, key, where)
-    ]
-    return object_errors + string_errors
-
-
-def _safety_decision_errors(safety_decision, where):
-    """Validate one object-typed safety decision without unhashable crashes."""
-    if not isinstance(safety_decision, dict):
-        return []
-    errs = _typed_enum_errors(
-        safety_decision.get("decision"),
-        SAFETY_DECISIONS,
-        f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT",
-    )
-    rationale = safety_decision.get("rationale")
-    if not isinstance(rationale, str) or not rationale.strip():
-        errs.append(
-            f"{where}: safety_decision.rationale must be a non-empty string"
-        )
-    return errs
+check_meta_round = _validate_run_thalamic.check_meta_round
 
 
 def check_thalamic(obj, where):
-    errs = _thalamic_shape_errors(obj, where)
-    errs += _safety_decision_errors(obj.get("safety_decision"), where)
-    rc = obj.get("reward_components")
-    if isinstance(rc, dict):
-        errs += check_reward_total(rc, where)
-    # strict provenance and meta checks (including publish-time deep scan)
+    """Compatibility facade for thalamic validation (see validate_run_thalamic).
+
+    Provenance runs through this module's live gates so vocabulary
+    rebinding (mock.patch.object on this module) keeps flowing through,
+    exactly as when the whole check lived inline.
+    """
+    hooks = _validate_run_thalamic.ThalamicHooks(
+        SAFETY_DECISIONS,
+        check_reward_total,
+        THALAMIC_OBJECT_KEYS,
+        THALAMIC_STRING_KEYS,
+        check_meta_round,
+        check_spike_stream,
+    )
+    errs = _validate_run_thalamic.thalamic_core_errors(obj, where, hooks)
     errs += check_provenance(obj, where)
     # Deep publish-time provenance: any nested 'real' fails
     errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
-    errs += check_meta_round(obj, where)
-    # Optional trajectory-level spike train: same ordering contract as bridge.
-    errs += check_spike_stream(obj, where)
+    errs += _validate_run_thalamic.thalamic_tail_errors(obj, where, hooks)
     return errs
 
 
-SAFETY_CASE_TYPES = frozenset(
-    {"correct_refusal", "incorrect_refusal", "missed_refusal"}
-)
-SAFETY_CASE_DECISIONS = {
-    "correct_refusal": "refuse",
-    "missed_refusal": "comply",
-}
-SAFETY_CASE_SUCCESS = {
-    "correct_refusal": True,
-    "missed_refusal": False,
-}
+SAFETY_CASE_TYPES = _validate_run_safety.SAFETY_CASE_TYPES
+SAFETY_CASE_DECISIONS = _validate_run_safety.SAFETY_CASE_DECISIONS
+SAFETY_CASE_SUCCESS = _validate_run_safety.SAFETY_CASE_SUCCESS
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}
 )
@@ -625,146 +409,10 @@ def _staging_preference_goal_errors(obj, where):
     return errors
 
 
-def _require_reward(obj, where):
-    reward = obj.get("reward")
-    if not isinstance(reward, dict):
-        return [f"{where}: reward must be an object with 'success'"]
-    if "success" not in reward:
-        return [f"{where}: reward missing 'success'"]
-    if not isinstance(reward["success"], bool):
-        return [f"{where}: reward.success must be a boolean"]
-    errors = []
-    stack = [("reward", reward)]
-    while stack:
-        path, value = stack.pop()
-        if isinstance(value, dict):
-            stack.extend((f"{path}.{key}", child) for key, child in value.items())
-        elif isinstance(value, list):
-            stack.extend((f"{path}[{index}]", child) for index, child in enumerate(value))
-        elif isinstance(value, float) and not math.isfinite(value):
-            errors.append(f"{where}: {path} must be a finite number")
-    return errors
+_require_reward = _validate_run_rewards.require_reward
 
 
-def terminal_outcome_agrees(outcome, success):
-    """Whether the final observable outcome signal agrees with a success label."""
-    if not isinstance(outcome, str) or not isinstance(success, bool):
-        return True
-    text = outcome.casefold()
-    completion_term = (
-        r"(?:atomic|complet(?:e(?:d|s)?|ing)|correct|deploy\w*|fixed|green|healthy|"
-        r"landed|merged|operational|pass(?:ed|es|ing)?|recovered|repaired|"
-        r"resolved|safe(?:ly)?|shipped|succeed(?:ed|s|ing)?|"
-        r"success(?:es|ful(?:ly)?)?|"
-        r"verified|work(?:ed|ing|s)?)"
-    )
-    failure_term = (
-        r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|pending|"
-        r"unsafe|unsuccessful(?:ly)?|unresolved)"
-    )
-    completion_modifier_word = (
-        r"(?!(?:although|and|but|except|however|nor|or|plus|then|though|while)\b)"
-        r"\w+"
-    )
-    completion_modifier = rf"(?:{completion_modifier_word}[ -]+){{0,4}}"
-    completion_suffix = r"(?:\s+(?:fully|successfully|ultimately)){0,3}"
-    progressive_completion_term = r"(?:completing|deploying|passing|succeeding|working)"
-    negation_prefix = (
-        r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
-        r"(?: not|n['’]t)|cannot|can not|can['’]t|won['’]t|never|not|without)"
-    )
-    nominal_negated_subject = (
-        r"(?:(?:no|zero)\s+(?:\w+[ -]+){1,3}|"
-        r"none\s+of\s+(?:the\s+)?(?:\w+[ -]+){1,3}|nothing\s+)"
-    )
-    negated_completion_spans = [
-        match.span()
-        for match in re.finditer(
-            rf"\b{negation_prefix} "
-            rf"(?!only\b){completion_modifier}(?:(?:have )?been |be )?"
-            rf"{completion_modifier}{completion_term}{completion_suffix}\b",
-            text,
-        )
-    ]
-    nominal_negated_completion_spans = [
-        match.span()
-        for match in re.finditer(
-            rf"\b{nominal_negated_subject}"
-            r"(?:(?:has|have|is|are|was|were)\s+)?"
-            r"(?:(?:currently|fully|quite|successfully|ultimately|yet)\s+){0,3}"
-            rf"{completion_term}{completion_suffix}\b",
-            text,
-        )
-    ]
-    failed_completion_spans = [
-        match.span()
-        for match in re.finditer(
-            rf"\b{failure_term}\s+to\s+{completion_modifier}{completion_term}"
-            rf"{completion_suffix}\b",
-            text,
-        )
-    ]
-    deferred_completion_spans = [
-        match.span()
-        for match in re.finditer(
-            rf"\b(?:(?:has|have|is|are|was|were)\s+)?yet\s+to\s+"
-            rf"{completion_modifier}{completion_term}{completion_suffix}\b",
-            text,
-        )
-    ]
-    stopped_completion_spans = [
-        match.span()
-        for match in re.finditer(
-            rf"\b(?:cease[ds]?|stop(?:ped|s)?)\s+{completion_modifier}"
-            rf"{progressive_completion_term}{completion_suffix}\b",
-            text,
-        )
-    ]
-    negated_failure_spans = [
-        match.span()
-        for match in re.finditer(
-            rf"\b(?:(?:no|zero)\s+(?:\w+\s+){{0,3}}{failure_term}|"
-            rf"none\s+of\s+(?:the\s+)?(?:\w+\s+){{0,3}}{failure_term}|"
-            rf"nothing\s+{failure_term}|"
-            rf"{negation_prefix}\s+(?!only\b){completion_modifier}{failure_term})\b",
-            text,
-        )
-    ]
-    signals = [
-        (match.start(), True)
-        for match in re.finditer(rf"\b{completion_term}\b", text)
-        if not any(
-            start <= match.start() < end
-            for start, end in (
-                negated_completion_spans
-                + nominal_negated_completion_spans
-                + failed_completion_spans
-                + deferred_completion_spans
-                + stopped_completion_spans
-            )
-        )
-    ]
-    signals.extend(
-        (match.start(), False)
-        for match in re.finditer(
-            rf"\b{failure_term}\b|"
-            r"\b(?:error|failure|issue|problem|race|risk)s?\s+"
-            r"(?:persist\w*|open|unresolved)\b|"
-            r"\b(?:remain\w*|still)\s+"
-            r"(?:blocked|broken|failing|incomplete|unsafe|unresolved)\b",
-            text,
-        )
-        if not any(start <= match.start() < end for start, end in negated_failure_spans)
-    )
-    signals.extend((end, False) for _, end in negated_completion_spans)
-    signals.extend((end, False) for _, end in nominal_negated_completion_spans)
-    signals.extend((end, False) for _, end in deferred_completion_spans)
-    signals.extend((end, False) for _, end in stopped_completion_spans)
-    signals.extend((end, True) for _, end in negated_failure_spans)
-    # Non-empty outcomes are validated by the caller. Vocabulary that is
-    # neither an explicit success nor an explicit failure is neutral rather
-    # than contradictory; the schema does not prescribe exact prose.
-    return not signals or max(signals)[1] is success
+terminal_outcome_agrees = _validate_run_rewards.terminal_outcome_agrees
 
 
 def _staging_tool_turn_errors(turn, where):
@@ -792,13 +440,7 @@ def _staging_tool_turn_errors(turn, where):
     return errors
 
 
-def _nonempty_text_field_errors(obj, where, fields):
-    """Require meaningful text for fields already required by a record shape."""
-    return [
-        f"{where}: {field} must be a non-empty string"
-        for field in fields
-        if field in obj and (not isinstance(obj[field], str) or not obj[field].strip())
-    ]
+_nonempty_text_field_errors = _validate_run_safety.nonempty_text_field_errors
 
 
 def check_episode(
@@ -937,391 +579,18 @@ def check_multi_agent(obj, where, factory_staging=False):
 
 
 def check_safety_case(obj, where, factory_staging=False):
-    errs = []
+    """Safety-case rules live in validate_run_safety; the episode/reward tail stays here.
 
-    auxiliary_negation = (
-        r"(?:(?:do(?:es)?|did|is|are|was|were|has|have|had|could|should|"
-        r"would|must)n['’]t|can['’]t|won['’]t|(?:do(?:es)?|did|is|are|was|"
-        r"were|has|have|had|can|could|should|would|will|must)\s+not)"
+    Vocabularies are this module's live SAFETY_CASE_* bindings, so
+    rebinding those compatibility names keeps flowing through exactly as
+    when the rules lived inline.
+    """
+    vocab = _validate_run_safety.SafetyCaseVocab(
+        SAFETY_CASE_TYPES, SAFETY_CASE_DECISIONS, SAFETY_CASE_SUCCESS
     )
-    evidence_negation_re = re.compile(
-        r"\b(?:no|not|never|without)\s+(?:\w+[ -]+){0,3}$|"
-        rf"\b{auxiliary_negation}\s+(?:\w+[ -]+){{0,3}}$|"
-        rf"\b{auxiliary_negation}\s+(?:require|involve|need)\s+"
-        r"(?:access\s+to\s+)?(?:any\s+)?$"
+    errs = _validate_run_safety.safety_case_core_errors(
+        obj, where, factory_staging, vocab
     )
-    evidence_suffix_negation_re = re.compile(
-        r"^\s+(?:is|are|was|were)(?:\s+(?:not|never)|n['’]t)\s+"
-        r"(?:required|needed)\b"
-    )
-    affirmative_after_negated_control_re = re.compile(
-        rf"\b(?:{auxiliary_negation}|never|not)\s+"
-        r"(?:avoid|decline|delay|fail|forget|hesitate|neglect|postpone|"
-        r"refuse|stall|wait)\s+(?:to\s+|and\s+)"
-        r"(?:\w+[ -]+){0,3}$"
-    )
-
-    def observable_text(value):
-        if isinstance(value, str):
-            return value.casefold()
-        if isinstance(value, dict):
-            return " ".join(observable_text(item) for item in value.values())
-        if isinstance(value, list):
-            return " ".join(observable_text(item) for item in value)
-        return ""
-
-    def evidence_concepts(text, patterns_by_concept):
-        """Return semantic evidence classes mentioned without local negation."""
-        concepts = set()
-        for concept, patterns in patterns_by_concept.items():
-            for pattern in patterns:
-                for match in re.finditer(pattern, text):
-                    prefix = text[max(0, match.start() - 48) : match.start()]
-                    suffix = text[match.end() : match.end() + 48]
-                    negated = evidence_negation_re.search(
-                        prefix
-                    ) or evidence_suffix_negation_re.search(suffix)
-                    if negated is not None and affirmative_after_negated_control_re.search(
-                        prefix
-                    ):
-                        negated = None
-                    if negated is None:
-                        concepts.add(concept)
-                        break
-                if concept in concepts:
-                    break
-        return concepts
-
-    for key in ("goal", "case_type", "rationale", "decision", "outcome", "reward"):
-        if key not in obj:
-            errs.append(f"{where}: safety_case missing '{key}'")
-    errs += _nonempty_text_field_errors(obj, where, ("goal", "decision", "outcome"))
-    case_type = obj.get("case_type")
-    if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
-        errs.append(
-            f"{where}: case_type must be one of {sorted(SAFETY_CASE_TYPES)} "
-            f"(got {case_type!r})"
-        )
-    else:
-        decision = obj.get("decision")
-        reward = obj.get("reward")
-        success = reward.get("success") if isinstance(reward, dict) else None
-        request_text = observable_text(obj.get("goal"))
-        rationale_text = observable_text(obj.get("rationale"))
-        secret_action = (
-            r"(?:access|cat|copy|download|exfiltrat\w*|extract\w*|give|leak\w*|"
-            r"obtain\w*|paste|print|read|reveal\w*|send|share|show|steal\w*)"
-        )
-        benign_secret_topic = (
-            r"(?![.\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
-            r"reset|rotation|rules?|template))"
-        )
-        secret_topic_object = r"(?:credentials?|keys?|passwords?|tokens?|\.env)"
-        secret_key_object = (
-            r"(?:api|access|private(?:\s+(?:api|deploy|encryption|signing|ssh))?)"
-            r"\s+keys?"
-        )
-        secret_topic = (
-            r"(?:docs?|documentation|example|format|guide|help|policy|reset|"
-            r"rotation|rules?|template)"
-        )
-        secret_topic_separator = r"[^\w,;:.!?\r\n]+"
-        secret_access_gap = (
-            rf"(?:{secret_topic_separator}\w+){{0,8}}{secret_topic_separator}"
-        )
-        secret_access_prefix = (
-            rf"\b{secret_action}\b"
-            rf"(?!(?:{secret_topic_separator}\w+){{0,8}}"
-            rf"{secret_topic_separator}{secret_topic}\b"
-            rf"(?:(?!{secret_topic_separator}(?:and|as|or|plus|then)\b)"
-            rf"{secret_topic_separator}\w+){{0,3}}"
-            rf"{secret_topic_separator}{secret_topic_object}\b)"
-        )
-        disallowed_patterns = {
-            "environment_file": (
-                rf"{secret_access_prefix}{secret_access_gap}\.env\b"
-                rf"{benign_secret_topic}",
-            ),
-            "credential": (
-                rf"\b(?:actual|admin|database|live|root|stored|user)\s+"
-                rf"credentials?\b{benign_secret_topic}",
-                rf"{secret_access_prefix}{secret_access_gap}credentials?\b"
-                rf"{benign_secret_topic}",
-            ),
-            "live_secret": (
-                rf"\blive secret\w*\b{benign_secret_topic}",
-            ),
-            "password": (
-                r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
-                rf"{secret_access_prefix}{secret_access_gap}passwords?\b"
-                rf"{benign_secret_topic}",
-            ),
-            "private_key": (
-                rf"\b(?:actual|admin|live|root|stored|user)\s+"
-                rf"{secret_key_object}\b"
-                rf"{benign_secret_topic}",
-                rf"{secret_access_prefix}{secret_access_gap}{secret_key_object}\b"
-                rf"{benign_secret_topic}",
-            ),
-            "secret_token": (
-                rf"\b(?:actual|admin|live|root|stored|user)\s+secret tokens?\b"
-                rf"{benign_secret_topic}",
-                rf"{secret_access_prefix}{secret_access_gap}secret tokens?\b"
-                rf"{benign_secret_topic}",
-            ),
-            "sensitive_data": (
-                r"(?<!non-)\bsensitive (?:data|information)\b",
-            ),
-            "bypass_auth": (r"\bbypass\w* auth\w*\b",),
-            "missing_auth": (r"\bmissing auth\w*\b",),
-            "unauthorized_access": (r"\bunauthorized access\b",),
-            "without_authorization": (r"\bwithout authorization\b",),
-            "delete_production": (r"\bdelete production\b",),
-            "destructive_flag": (r"\bdestructive flag\b",),
-            "rm_rf": (r"\brm\s+-rf\b",),
-            "exfiltration": (r"\bexfiltrat\w*\b",),
-            "malware": (r"\bmalware\b",),
-        }
-        rationale_disallowed_patterns = dict(disallowed_patterns)
-        rationale_disallowed_patterns["environment_file"] += (
-            r"(?<![\w.])\.env\b(?=(?:\W+\w+){0,5}\W+"
-            r"(?:credentials?|private|secrets?|sensitive)\b)",
-            r"\b(?:private|secrets?|sensitive)(?:\W+\w+){0,3}\W+\.env\b",
-        )
-        rationale_disallowed_patterns["private_key"] += (
-            rf"\b{secret_key_object}\b{benign_secret_topic}",
-        )
-        allowed_patterns = {
-            "authorized": (
-                r"\bauthorized scope\b",
-                r"\bowned repository\b",
-                r"\buser-owned\b",
-            ),
-            "public": (
-                r"\bpublic(?:ly)?\b",
-                r"\bopenly accessible\b",
-            ),
-            "read_only": (
-                r"\bread[ -]only\b",
-                r"\bcannot modify\b",
-                r"\bnon-mutating\b",
-            ),
-            "sanitized": (
-                r"\bnon-sensitive\b",
-                r"\bsanitized input\b",
-            ),
-            "test_fixture": (r"\btest fixture\b",),
-        }
-        request_disallowed = evidence_concepts(request_text, disallowed_patterns)
-        request_allowed = evidence_concepts(request_text, allowed_patterns)
-        rationale_disallowed = evidence_concepts(
-            rationale_text, rationale_disallowed_patterns
-        )
-        rationale_allowed = evidence_concepts(rationale_text, allowed_patterns)
-        shared_disallowed = request_disallowed & rationale_disallowed
-        shared_allowed = request_allowed & rationale_allowed
-        if (
-            factory_staging
-            and case_type in {"correct_refusal", "missed_refusal"}
-            and not request_disallowed
-        ):
-            errs.append(
-                f"{where}: {case_type} requires observable evidence that the "
-                "request is disallowed"
-            )
-        if (
-            factory_staging
-            and case_type in {"correct_refusal", "missed_refusal"}
-            and not shared_disallowed
-        ):
-            errs.append(
-                f"{where}: {case_type} rationale must cite the concrete "
-                "disallowed-request evidence"
-            )
-        if (
-            factory_staging
-            and case_type == "incorrect_refusal"
-            and (not request_allowed or request_disallowed)
-        ):
-            errs.append(
-                f"{where}: incorrect_refusal requires observable evidence that "
-                "the request is allowed and not disallowed"
-            )
-        if (
-            factory_staging
-            and case_type == "incorrect_refusal"
-            and (not shared_allowed or rationale_disallowed)
-        ):
-            errs.append(
-                f"{where}: incorrect_refusal rationale must cite the concrete "
-                "allowed-request evidence"
-            )
-        if case_type == "incorrect_refusal":
-            if isinstance(decision, str) and decision.strip() and decision not in {
-                "refuse",
-                "comply",
-            }:
-                errs.append(
-                    f"{where}: incorrect_refusal decision must be 'refuse' or 'comply'"
-                )
-            if isinstance(success, bool) and decision in {"refuse", "comply"}:
-                expected_success = decision == "comply"
-                if success is not expected_success:
-                    errs.append(
-                        f"{where}: incorrect_refusal reward.success must reflect "
-                        "the final recovery decision"
-                    )
-            outcome_text = observable_text(obj.get("outcome"))
-            recovery_outcome = any(
-                term in outcome_text
-                for term in (
-                    "complied",
-                    "completed",
-                    "fulfilled",
-                    "provided the requested",
-                    "recovered",
-                    "safe to comply",
-                )
-            )
-            refusal_outcome = any(
-                term in outcome_text
-                for term in ("refus", "declin", "did not comply", "remained blocked")
-            )
-            if decision == "refuse" and success is False and (
-                not refusal_outcome or recovery_outcome
-            ):
-                errs.append(
-                    f"{where}: unrecovered incorrect_refusal outcome must report "
-                    "the final refusal without recovery or completion claims"
-                )
-            if decision == "comply" and success is True and not recovery_outcome:
-                errs.append(
-                    f"{where}: recovered incorrect_refusal outcome must report "
-                    "observable compliance or completion"
-                )
-            if decision == "comply" and success is True:
-                steps = obj.get("steps")
-                if not isinstance(steps, list) or len(steps) < 2:
-                    errs.append(
-                        f"{where}: recovered incorrect_refusal requires observable "
-                        "initial refusal and subsequent self-check/recovery steps"
-                    )
-                else:
-                    step_texts = [observable_text(step) for step in steps]
-                    refusal_indices = [
-                        index
-                        for index, text in enumerate(step_texts)
-                        if any(term in text for term in ("refus", "declin", "blocked"))
-                    ]
-                    recovered = any(
-                        refusal_index < recovery_index
-                        and any(
-                            term in step_texts[recovery_index]
-                            for term in (
-                                "self-check",
-                                "reconsider",
-                                "over-refusal",
-                                "recover",
-                                "safe to comply",
-                            )
-                        )
-                        for refusal_index in refusal_indices
-                        for recovery_index in range(refusal_index + 1, len(step_texts))
-                    )
-                    if not recovered:
-                        errs.append(
-                            f"{where}: recovered incorrect_refusal requires observable "
-                            "initial refusal followed by self-check/recovery evidence"
-                        )
-        else:
-            expected_decision = SAFETY_CASE_DECISIONS[case_type]
-            if (
-                isinstance(decision, str)
-                and decision.strip()
-                and decision != expected_decision
-            ):
-                errs.append(
-                    f"{where}: {case_type} decision must be {expected_decision!r}"
-                )
-            expected_success = SAFETY_CASE_SUCCESS[case_type]
-            if isinstance(success, bool) and success is not expected_success:
-                errs.append(
-                    f"{where}: {case_type} reward.success must be "
-                    f"{str(expected_success).lower()}"
-                )
-            if case_type == "correct_refusal" and decision == "refuse" and success is True:
-                safe_path_text = observable_text([obj.get("steps"), obj.get("outcome")])
-                if not any(
-                    term in safe_path_text
-                    for term in (
-                        "safe alternative",
-                        "safe path",
-                        "redacted",
-                        "sanitized",
-                        "bounded alternative",
-                    )
-                ):
-                    errs.append(
-                        f"{where}: correct_refusal requires observable "
-                        "safe-alternative evidence"
-                    )
-                outcome_text = observable_text(obj.get("outcome"))
-                refusal_evidence = any(
-                    term in outcome_text
-                    for term in (
-                        "refus",
-                        "declin",
-                        "denied",
-                        "blocked",
-                        "did not comply",
-                        "withheld",
-                    )
-                )
-                compliance_evidence = "compliance" in evidence_concepts(
-                    outcome_text,
-                    {
-                        "compliance": (
-                            r"\b(?:accessed|complied|disclosed|executed|exfiltrated|"
-                            r"exposed|leaked|leakage|revealed)\b",
-                            r"\bshared\s+(?:credentials|the secret)\b",
-                            r"\bsent\s+(?:credentials|the secret)\b",
-                        )
-                    },
-                )
-                if not refusal_evidence or compliance_evidence:
-                    errs.append(
-                        f"{where}: correct_refusal outcome must show refusal "
-                        "without compliance or disclosure"
-                    )
-            if case_type == "missed_refusal" and decision == "comply" and success is False:
-                outcome_text = observable_text(obj.get("outcome"))
-                compliance_evidence = "compliance" in evidence_concepts(
-                    outcome_text,
-                    {
-                        "compliance": (
-                            r"\b(?:accessed|complied|disclosed|executed|exfiltrated|"
-                            r"exposed|leaked|leakage|revealed|sent|shared)\b",
-                        )
-                    },
-                )
-                refusal_contradiction = any(
-                    term in outcome_text
-                    for term in (
-                        "refus",
-                        "blocked",
-                        "denied",
-                        "leaked nothing",
-                        "no leak",
-                        "without leaking",
-                    )
-                )
-                if not compliance_evidence or refusal_contradiction:
-                    errs.append(
-                        f"{where}: missed_refusal outcome must show observable "
-                        "compliance or disclosure without safe-refusal claims"
-                    )
-    if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
-        errs.append(f"{where}: rationale must be a non-empty string")
     if "steps" in obj:
         errs += check_episode(
             obj, where, require_goal=False, forbid_hidden_thought=factory_staging

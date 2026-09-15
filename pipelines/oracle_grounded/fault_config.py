@@ -103,7 +103,15 @@ def _unique(channels: list[Any]) -> bool:
 
 
 # Applied in order and lazily, so ``_unique`` only ever sees a list of names.
-_CHANNEL_RULES = (lambda channels: isinstance(channels, list), _bounded, _all_names, _unique)
+# The rules are ``Predicate``s over the raw field: the first one establishes the
+# list shape the later ones read, which is a sequencing guarantee rather than a
+# per-rule parameter type.
+_CHANNEL_RULES: tuple[Predicate, ...] = (
+    lambda channels: isinstance(channels, list),
+    _bounded,
+    _all_names,
+    _unique,
+)
 
 
 def _channel_list_problem(system: dict[str, Any]) -> None:
@@ -291,21 +299,20 @@ def _disturbance_of(disturbance: Any) -> tuple[str, dict[str, Any]]:
     if not isinstance(disturbance, dict):
         fv.refuse(fv.FINDING_INPUT_NOT_AN_OBJECT, f"disturbance must be an object, got {fv.shown(disturbance)}")
     parameters = disturbance.get("parameters", {})
-    kind = disturbance.get("kind")
-    fv.refuse_first(
-        (
-            (
-                not isinstance(parameters, dict),
-                fv.FINDING_INPUT_NOT_AN_OBJECT,
-                f"disturbance.parameters must be an object, got {fv.shown(parameters)}",
-            ),
-            (
-                not envelope.is_enum_value(kind, fv.DISTURBANCES),
-                fv.FINDING_DISTURBANCE_KIND_UNKNOWN,
-                f"unknown disturbance kind: {fv.shown(kind)}",
-            ),
-        )
+    declared_kind = disturbance.get("kind")
+    kind = envelope.enum_value_or_none(declared_kind, fv.DISTURBANCES)
+    fv.refuse_when(
+        not isinstance(parameters, dict),
+        fv.FINDING_INPUT_NOT_AN_OBJECT,
+        f"disturbance.parameters must be an object, got {fv.shown(parameters)}",
     )
+    if kind is None:
+        # ``fv.refuse`` raises exactly this; raised here so the checked kind is
+        # the one returned below rather than the raw field read again.
+        raise fv.FaultRefusal(
+            fv.FINDING_DISTURBANCE_KIND_UNKNOWN,
+            f"unknown disturbance kind: {fv.shown(declared_kind)}",
+        )
     return kind, parameters
 
 
