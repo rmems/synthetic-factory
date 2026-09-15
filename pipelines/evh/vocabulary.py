@@ -20,6 +20,10 @@ DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "66deb037890ec2b8177c3a07542bf623924037bb"
 CATALOG_FILENAME = "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
+PAIRS_N_ROWS = 1716
+PAIRS_SHA256 = "4000c59b84031b00b41aa1cffc6563eb062830541faffbc105449ed6465ae2bb"
+FIRST_SLICE_MILL_ID = "_gen_evh_plants_r801"
 MILL_DIR = "scripts/eval_harness_unique_mill"
 
 KIND_PAIRS = "pairs"
