@@ -26,11 +26,17 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 from irc import catalog  # noqa: E402
 from irc import generate  # noqa: E402
+from irc import pipe_catalog  # noqa: E402
 from irc._contract import (  # noqa: E402
     BANNED_KEYS,
     CATALOG_FIRST,
     CATALOG_LAST,
+    COMMITTED_MILL_CATALOGS,
+    COMMITTED_SPEC_ROW_COUNT,
     DEFERRED_MILLS,
+    FAMILY_LANE_COMMIT,
+    FULL_MILL_CATALOGS,
+    FULL_SPEC_ROW_COUNT,
     FACTORY,
     FAMILY_PREFIX,
     FAMILY_SOURCE_FILES,
@@ -75,7 +81,14 @@ EXPECTED_OK_SLUGS = (
 )
 FIRST_OK_ID = "irc-r3366-networkd-ipv6acceptra-vs-dhcp-11265-78cf"
 FIRST_BAD_ID = "irc-r3366-dhcpcd-iaid-vs-networkd-11266-902b"
-PACKAGE_FILES = ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py")
+PACKAGE_FILES = (
+    "__init__.py",
+    "_contract.py",
+    "catalog.py",
+    "cli.py",
+    "generate.py",
+    "pipe_catalog.py",
+)
 FORBIDDEN_CALLS = frozenset({"exec", "eval", "compile", "__import__"})
 
 
@@ -141,6 +154,10 @@ class IrcContract(unittest.TestCase):
         self.assertEqual(STEPS, 17)
         self.assertEqual(FAMILY_SOURCE_FILES, 141)
         self.assertEqual(DEFERRED_MILLS, 60)
+        self.assertEqual(FAMILY_LANE_COMMIT[:8], "813f93f1")
+        self.assertEqual(FULL_SPEC_ROW_COUNT, 2900)
+        self.assertEqual(COMMITTED_SPEC_ROW_COUNT, 1848)
+        self.assertEqual(COMMITTED_MILL_CATALOGS, 34)
         self.assertEqual(SOURCE_COMMIT[:8], "070f1697")
         self.assertEqual(SOURCE_SHA256[:8], "99608f5b")
 
@@ -274,7 +291,7 @@ class IrcAstExtract(unittest.TestCase):
         self.assertNotIn("reserve", generate.__all__)
         self.assertNotIn("publish", generate.__all__)
 
-    def test_deferred_r3577_specs_are_eighty_literal_rows(self):
+    def test_r3577_specs_match_committed_jsonl_without_exec(self):
         try:
             source = subprocess.check_output(
                 ["git", "show", f"{SOURCE_REF}:experiments/irc-mill-r3577.py"],
@@ -284,18 +301,43 @@ class IrcAstExtract(unittest.TestCase):
             )
         except (subprocess.CalledProcessError, FileNotFoundError):
             self.skipTest("origin/legacy-mill-lane is not fetched")
-        tree = ast.parse(source)
-        specs = None
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                targets = [item.id for item in node.targets if isinstance(item, ast.Name)]
-                if targets == ["SPECS"]:
-                    specs = ast.literal_eval(node.value)
-        self.assertIsInstance(specs, str)
-        rows = [line for line in specs.splitlines() if line.strip() and not line.startswith("#")]
+        field, rows = pipe_catalog.pipe_rows_from_source(source)
+        self.assertEqual(field, "SPECS")
         self.assertEqual(len(rows), 80)
         self.assertEqual(rows[0].split("|", 1)[0], "debezium")
         self.assertEqual(rows[-1].split("|", 1)[0], "papermill")
+        family = pipe_catalog.load_family_catalog()
+        committed = [row for row in family.spec_rows if row.mill_round == 3577]
+        self.assertEqual(len(committed), 80)
+        self.assertEqual([row.pipe for row in committed], list(rows))
+
+
+class IrcPipeCatalog(unittest.TestCase):
+    def test_family_catalog_pins_and_row_count(self):
+        family = pipe_catalog.catalog_family_check()
+        self.assertEqual(family.committed_spec_rows, COMMITTED_SPEC_ROW_COUNT)
+        self.assertEqual(len(family.sources), 141)
+        deferred = [
+            source
+            for source in family.sources
+            if source.get("path", "").startswith("experiments/irc-mill-r")
+            and source.get("committed") is False
+        ]
+        self.assertEqual(len(deferred), FULL_MILL_CATALOGS - COMMITTED_MILL_CATALOGS)
+        rounds = pipe_catalog.iter_committed_mill_rounds(family.sources)
+        self.assertEqual(rounds[-1], 4481)
+        self.assertNotIn(5001, rounds)
+
+    def test_deferred_r5001_is_pinned_not_in_jsonl(self):
+        family = pipe_catalog.load_family_catalog()
+        deferred = next(
+            source
+            for source in family.sources
+            if source.get("path") == "experiments/irc-mill-r5001.py"
+        )
+        self.assertFalse(deferred.get("committed"))
+        self.assertEqual(deferred.get("n_rows_extracted"), 52)
+        self.assertFalse(any(row.mill_round == 5001 for row in family.spec_rows))
 
 
 class IrcCli(unittest.TestCase):
@@ -317,7 +359,10 @@ class IrcCli(unittest.TestCase):
     def test_catalog_check_ok(self):
         code, out, err = invoke(["catalog-check", "--json"])
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(json.loads(out)["plants"], 16)
+        payload = json.loads(out)
+        self.assertEqual(payload["plants"], 16)
+        self.assertEqual(payload["committed_spec_rows"], COMMITTED_SPEC_ROW_COUNT)
+        self.assertEqual(payload["full_spec_rows"], FULL_SPEC_ROW_COUNT)
 
     def test_generate_one_pair(self):
         root = Path(tempfile.mkdtemp(prefix="irc-cli-"))

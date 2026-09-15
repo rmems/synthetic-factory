@@ -16,10 +16,13 @@ from typing import Any
 if __package__:
     from . import catalog as cat
     from . import generate as gen
+    from . import pipe_catalog as pipes
     from ._contract import (
+        COMMITTED_SPEC_ROW_COUNT,
         CATALOG_FIRST,
         FACTORY,
         FAMILY_SOURCE_FILES,
+        FULL_SPEC_ROW_COUNT,
         GENERATOR,
         N_PAIRS,
         SOURCE_COMMIT,
@@ -36,10 +39,13 @@ else:
         sys.path.insert(0, str(_PIPELINES))
     from irc import catalog as cat
     from irc import generate as gen
+    from irc import pipe_catalog as pipes
     from irc._contract import (
+        COMMITTED_SPEC_ROW_COUNT,
         CATALOG_FIRST,
         FACTORY,
         FAMILY_SOURCE_FILES,
+        FULL_SPEC_ROW_COUNT,
         GENERATOR,
         N_PAIRS,
         SOURCE_COMMIT,
@@ -116,16 +122,22 @@ def _catalog_list(as_json: bool) -> int:
 
 
 def _catalog_check(as_json: bool) -> int:
+    family = pipes.catalog_family_check()
     payload = {
         "command": "catalog-check",
+        "committed_spec_rows": family.committed_spec_rows,
         "deferred_family_files": FAMILY_SOURCE_FILES,
         "factory": FACTORY,
+        "full_spec_rows": FULL_SPEC_ROW_COUNT,
         "plants": N_PAIRS,
         "source": SOURCE_MILL_ID,
         "source_commit": SOURCE_COMMIT,
         "status": "ok",
     }
-    text = f"catalog-check ok: {SOURCE_MILL_ID} {N_PAIRS} plants / 1 mill"
+    text = (
+        f"catalog-check ok: {SOURCE_MILL_ID} {N_PAIRS} pair plants; "
+        f"{family.committed_spec_rows}/{FULL_SPEC_ROW_COUNT} pipe rows committed"
+    )
     _emit(payload, as_json, text)
     return 0
 

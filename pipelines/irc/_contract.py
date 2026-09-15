@@ -43,8 +43,18 @@ SOURCE_COMMIT = "070f1697804fc5c719da58683a485f045b568ede"
 SOURCE_PATH = "experiments/irc_r3366_leftover3_mill.py"
 SOURCE_BLOB = "222a25cf0c89c92c2f63af14eab19ef728bb7fb4"
 SOURCE_SHA256 = "99608f5b89c4140b9ebc2e8d0e7f469151409fc6c26f067a635edb151b337e51"
+FAMILY_LANE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 FAMILY_SOURCE_FILES = 141
 DEFERRED_MILLS = 60
+FULL_MILL_CATALOGS = 60
+COMMITTED_MILL_CATALOGS = 34
+FULL_SPEC_ROW_COUNT = 2900
+COMMITTED_SPEC_ROW_COUNT = 1848
+CATALOG_ID = "irc-family-v1"
+CATALOG_SCHEMA = "irc-catalog-v1"
+CATALOG_FILENAME = "CATALOG.json"
+SPECS_FILENAME = "specs.jsonl"
+PIPE_FIELD_NAMES = ("SPECS", "ROWS")
 TICKET_BASE = 11265
 RUN_FORMAT = "irc-run/1"
 RECORDS_FILENAME = "records.jsonl"
@@ -72,6 +82,10 @@ FINDING_DESTINATION_UNDER_RAW = "irc.destination_under_raw"
 FINDING_VENDOR_PATH = "irc.vendor_path"
 FINDING_BANNED_KEY = "irc.banned_key"
 FINDING_USAGE = "irc.usage"
+FINDING_CATALOG_FILE_MISSING = "irc.catalog_file_missing"
+FINDING_CATALOG_FIELD_MISSING = "irc.catalog_field_missing"
+FINDING_CATALOG_FIELD_INVALID = "irc.catalog_field_invalid"
+FINDING_CATALOG_SHA256_MISMATCH = "irc.catalog_sha256_mismatch"
 FINDING_CODES = (
     FINDING_PAIR_NOT_FOUND,
     FINDING_ROUND_INVALID,
@@ -81,6 +95,10 @@ FINDING_CODES = (
     FINDING_VENDOR_PATH,
     FINDING_BANNED_KEY,
     FINDING_USAGE,
+    FINDING_CATALOG_FILE_MISSING,
+    FINDING_CATALOG_FIELD_MISSING,
+    FINDING_CATALOG_FIELD_INVALID,
+    FINDING_CATALOG_SHA256_MISMATCH,
 )
 FINDING_CODE_SET = frozenset(FINDING_CODES)
 
@@ -109,6 +127,14 @@ def require_round(rnd: object) -> int:
     return rnd  # type: ignore[return-value]
 
 
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def package_dir() -> Path:
+    return Path(__file__).resolve().parent
+
+
 def load_strict_json(payload: str | bytes):
     """Keep exact decimal tokens at catalog and record boundaries."""
 
@@ -122,13 +148,25 @@ def load_strict_json(payload: str | bytes):
 
 __all__ = [
     "BANNED_KEYS",
+    "CATALOG_FILENAME",
     "CATALOG_FIRST",
+    "CATALOG_ID",
     "CATALOG_LAST",
+    "CATALOG_SCHEMA",
+    "COMMITTED_MILL_CATALOGS",
+    "COMMITTED_SPEC_ROW_COUNT",
     "DEFERRED_MILLS",
     "FACTORY",
+    "FAMILY_LANE_COMMIT",
     "FAMILY_PREFIX",
     "FAMILY_SOURCE_FILES",
+    "FULL_MILL_CATALOGS",
+    "FULL_SPEC_ROW_COUNT",
     "FINDING_BANNED_KEY",
+    "FINDING_CATALOG_FIELD_INVALID",
+    "FINDING_CATALOG_FIELD_MISSING",
+    "FINDING_CATALOG_FILE_MISSING",
+    "FINDING_CATALOG_SHA256_MISMATCH",
     "FINDING_CODE_SET",
     "FINDING_CODES",
     "FINDING_DESTINATION_EXISTS",
@@ -143,6 +181,7 @@ __all__ = [
     "NOTES_FILENAME",
     "NOVEL_COVERAGE",
     "N_PAIRS",
+    "PIPE_FIELD_NAMES",
     "QUOTA_PER_ROUND",
     "RECORDS_FILENAME",
     "REVIEWED_HOME",
@@ -155,6 +194,7 @@ __all__ = [
     "SOURCE_PATH",
     "SOURCE_REF",
     "SOURCE_SHA256",
+    "SPECS_FILENAME",
     "STEPS",
     "TICKET_BASE",
     "VENDOR_PREFIXES",
@@ -163,7 +203,9 @@ __all__ = [
     "envelope",
     "is_under_raw",
     "load_strict_json",
+    "package_dir",
     "refuse",
+    "repo_root",
     "refuse_first",
     "refuse_vendor_paths",
     "refuse_when",
