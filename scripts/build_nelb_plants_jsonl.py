@@ -208,10 +208,11 @@ def main() -> int:
         },
     }
     NELB_DIR.mkdir(parents=True, exist_ok=True)
-    (NELB_DIR / PLANTS_FILENAME).write_text(payload, encoding="utf-8")
+    (NELB_DIR / PLANTS_FILENAME).write_text(payload, encoding="utf-8", newline="\n")
     (NELB_DIR / CATALOG_FILENAME).write_text(
         dumps_exact_json(header, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     print(
         f"plants={len(plants)} rounds={len(rounds)} "
