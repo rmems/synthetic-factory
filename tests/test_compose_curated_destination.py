@@ -111,18 +111,20 @@ class ComposeDestinationSafety(unittest.TestCase):
                 return child_descriptor, created
 
             try:
-                with mock.patch.object(
-                    compose_destination,
-                    "_open_pinned_child_directory",
-                    side_effect=open_then_move,
-                ):
-                    with self.assertRaisesRegex(
+                with (
+                    mock.patch.object(
+                        compose_destination,
+                        "_open_pinned_child_directory",
+                        side_effect=open_then_move,
+                    ),
+                    self.assertRaisesRegex(
                         compose_curated.ComposeError,
                         "escaped its pinned destination root",
-                    ):
-                        compose_curated._write_new_text(
-                            descriptor, "records/factory/rows.jsonl", "{}\n"
-                        )
+                    ),
+                ):
+                    compose_curated._write_new_text(
+                        descriptor, "records/factory/rows.jsonl", "{}\n"
+                    )
             finally:
                 os.close(descriptor)
 
@@ -153,9 +155,11 @@ class ComposeDestinationSafety(unittest.TestCase):
             descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 for unsafe in ("", "/absolute.jsonl", "../escape.jsonl", "a/./b.jsonl"):
-                    with self.subTest(unsafe=unsafe):
-                        with self.assertRaises(compose_curated.ComposeError):
-                            compose_curated._write_new_text(descriptor, unsafe, "{}\n")
+                    with (
+                        self.subTest(unsafe=unsafe),
+                        self.assertRaises(compose_curated.ComposeError),
+                    ):
+                        compose_curated._write_new_text(descriptor, unsafe, "{}\n")
             finally:
                 os.close(descriptor)
 
@@ -187,11 +191,13 @@ class ComposeDestinationSafety(unittest.TestCase):
                     raise OSError("simulated manifest write failure")
                 return real_write(root_descriptor, relative, text)
 
-            with mock.patch.object(
-                compose_curated, "_write_new_text", side_effect=fail_on_manifest
+            with (
+                mock.patch.object(
+                    compose_curated, "_write_new_text", side_effect=fail_on_manifest
+                ),
+                self.assertRaises(OSError),
             ):
-                with self.assertRaises(OSError):
-                    compose_curated.compose_run(source, destination)
+                compose_curated.compose_run(source, destination)
             self.assertFalse(destination.exists())
 
     def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
@@ -223,16 +229,18 @@ class ComposeDestinationSafety(unittest.TestCase):
                     replacement_parent.rename(parent)
                 return real_mkdir(path, mode, dir_fd=dir_fd)
 
-            with mock.patch.object(
-                compose_curated.os,
-                "mkdir",
-                side_effect=swap_parent_before_create,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    compose_curated.os,
+                    "mkdir",
+                    side_effect=swap_parent_before_create,
+                ),
+                self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "destination parent changed while it was pinned",
-                ):
-                    compose_curated.compose_run(source, destination)
+                ),
+            ):
+                compose_curated.compose_run(source, destination)
 
             self.assertTrue(swapped)
             self.assertFalse((moved_parent / destination.name).exists())

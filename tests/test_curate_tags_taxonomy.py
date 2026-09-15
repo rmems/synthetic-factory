@@ -149,11 +149,13 @@ class TaxonomyDocumentTests(unittest.TestCase):
                 ),
             )
             for site, document in documents:
-                with self.subTest(exception=exception_name, site=site):
-                    with self.assertRaisesRegex(
+                with (
+                    self.subTest(exception=exception_name, site=site),
+                    self.assertRaisesRegex(
                         TagTaxonomyError, "not a valid regex"
-                    ):
-                        Taxonomy(document, source="<test>")
+                    ),
+                ):
+                    Taxonomy(document, source="<test>")
 
     def test_unsafe_regexes_are_rejected_for_both_sites(self):
         for unsafe_name, pattern in UNSAFE_LINEAR_REGEX_PATTERNS:
@@ -261,9 +263,11 @@ class TaxonomyDocumentTests(unittest.TestCase):
             for exception_type in REGEX_RESOURCE_EXCEPTION_TYPES:
                 with self.subTest(stage=stage, exception=exception_type.__name__):
                     forced = exception_type("forced resource failure")
-                    with mock.patch(target, side_effect=forced):
-                        with self.assertRaises(TagTaxonomyError) as raised:
-                            Taxonomy(minimal_taxonomy(), source="<test>")
+                    with (
+                        mock.patch(target, side_effect=forced),
+                        self.assertRaises(TagTaxonomyError) as raised,
+                    ):
+                        Taxonomy(minimal_taxonomy(), source="<test>")
 
                     self.assertIn("not a valid regex", str(raised.exception))
                     self.assertIs(raised.exception.__cause__, forced)
@@ -304,9 +308,8 @@ class TaxonomyDocumentTests(unittest.TestCase):
             ("pattern rule id", rule_id),
             ("canonical tag", canonical_tag),
         ):
-            with self.subTest(label=label):
-                with self.assertRaisesRegex(TagTaxonomyError, "valid UTF-8"):
-                    Taxonomy(document, source="<test>")
+            with self.subTest(label=label), self.assertRaisesRegex(TagTaxonomyError, "valid UTF-8"):
+                Taxonomy(document, source="<test>")
 
     def test_taxonomy_without_unmapped_marker_is_rejected(self):
         document = minimal_taxonomy()
@@ -351,9 +354,11 @@ class TaxonomyDocumentTests(unittest.TestCase):
 
 
     def test_load_taxonomy_wraps_excessive_nesting(self):
-        with mock.patch("tag_taxonomy.load_strict_json", side_effect=RecursionError):
-            with self.assertRaises(TagTaxonomyError):
-                load_taxonomy(DEFAULT_TAXONOMY_PATH)
+        with (
+            mock.patch("tag_taxonomy.load_strict_json", side_effect=RecursionError),
+            self.assertRaises(TagTaxonomyError),
+        ):
+            load_taxonomy(DEFAULT_TAXONOMY_PATH)
 
 
 

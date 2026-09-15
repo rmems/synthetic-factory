@@ -143,13 +143,15 @@ class ComposeRollbackIdentity(unittest.TestCase):
                 (created / "attacker-extra").write_bytes(b"not authenticated\n")
                 replaced = True
 
-            with mock.patch.object(
-                compose_destination_creation.os,
-                "mkdir",
-                side_effect=replace_new_root,
+            with (
+                mock.patch.object(
+                    compose_destination_creation.os,
+                    "mkdir",
+                    side_effect=replace_new_root,
+                ),
+                self.assertRaises(compose_destination.ComposeError),
             ):
-                with self.assertRaises(compose_destination.ComposeError):
-                    compose_curated.compose_run(source, destination)
+                compose_curated.compose_run(source, destination)
 
             self.assertTrue(replaced)
             self.assertFalse(destination.exists())
@@ -180,17 +182,19 @@ class ComposeRollbackIdentity(unittest.TestCase):
                 replaced = True
 
             try:
-                with mock.patch.object(
-                    compose_destination_writer.os,
-                    "mkdir",
-                    side_effect=replace_new_child,
+                with (
+                    mock.patch.object(
+                        compose_destination_writer.os,
+                        "mkdir",
+                        side_effect=replace_new_child,
+                    ),
+                    self.assertRaises(compose_destination.ComposeError),
                 ):
-                    with self.assertRaises(compose_destination.ComposeError):
-                        compose_destination._open_pinned_child_directory(
-                            pinned.destination_descriptor,
-                            "records",
-                            "destination",
-                        )
+                    compose_destination._open_pinned_child_directory(
+                        pinned.destination_descriptor,
+                        "records",
+                        "destination",
+                    )
             finally:
                 pinned.cleanup()
 
@@ -215,13 +219,13 @@ class ComposeRollbackIdentity(unittest.TestCase):
                         "unlink",
                         side_effect=AssertionError("rollback called unlink"),
                     ),
+                    self.assertRaisesRegex(OSError, "simulated write failure"),
                 ):
-                    with self.assertRaisesRegex(OSError, "simulated write failure"):
-                        compose_destination.write_pinned_new_bytes(
-                            descriptor,
-                            "artifact.json",
-                            b"created by compose\n",
-                        )
+                    compose_destination.write_pinned_new_bytes(
+                        descriptor,
+                        "artifact.json",
+                        b"created by compose\n",
+                    )
             finally:
                 os.close(descriptor)
 
@@ -254,16 +258,18 @@ class ComposeRollbackIdentity(unittest.TestCase):
             source.mkdir()
             destination = root / "destination"
             pinned = compose_destination.create_pinned_destination(source, destination)
-            with mock.patch.object(
-                sys.modules[pinned.__class__.__module__],
-                "_rename_noreplace",
-                side_effect=OSError(errno.ENOSYS, "unsupported"),
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    sys.modules[pinned.__class__.__module__],
+                    "_rename_noreplace",
+                    side_effect=OSError(errno.ENOSYS, "unsupported"),
+                ),
+                self.assertRaisesRegex(
                     compose_destination.ComposeError,
                     "destination publication failed",
-                ):
-                    pinned.finish()
+                ),
+            ):
+                pinned.finish()
 
             self.assertFalse(destination.exists())
             self.assertTrue(pinned.closed)
@@ -287,12 +293,12 @@ class ComposeRollbackIdentity(unittest.TestCase):
                     "rmtree",
                     side_effect=AssertionError("rollback called rmtree"),
                 ),
-            ):
-                with self.assertRaisesRegex(
+                self.assertRaisesRegex(
                     compose_destination.ComposeError,
                     "open failed",
-                ):
-                    compose_destination.create_pinned_destination(source, destination)
+                ),
+            ):
+                compose_destination.create_pinned_destination(source, destination)
 
             self.assertFalse(destination.exists())
 
@@ -309,17 +315,19 @@ class ComposeRollbackIdentity(unittest.TestCase):
                 raise OSError("simulated write failure")
 
             try:
-                with mock.patch.object(
-                    compose_destination,
-                    "_write_all",
-                    side_effect=replace_then_fail,
+                with (
+                    mock.patch.object(
+                        compose_destination,
+                        "_write_all",
+                        side_effect=replace_then_fail,
+                    ),
+                    self.assertRaisesRegex(OSError, "simulated write failure"),
                 ):
-                    with self.assertRaisesRegex(OSError, "simulated write failure"):
-                        compose_destination.write_pinned_new_bytes(
-                            descriptor,
-                            "artifact.json",
-                            b"created by compose\n",
-                        )
+                    compose_destination.write_pinned_new_bytes(
+                        descriptor,
+                        "artifact.json",
+                        b"created by compose\n",
+                    )
             finally:
                 os.close(descriptor)
 
@@ -341,21 +349,23 @@ class ComposeRollbackIdentity(unittest.TestCase):
                 raise compose_destination.ComposeError("simulated pin failure")
 
             try:
-                with mock.patch.object(
-                    compose_destination.BoundDestinationAccess,
-                    "verify_child",
-                    replace_then_fail,
-                ):
-                    with self.assertRaisesRegex(
+                with (
+                    mock.patch.object(
+                        compose_destination.BoundDestinationAccess,
+                        "verify_child",
+                        replace_then_fail,
+                    ),
+                    self.assertRaisesRegex(
                         compose_destination.ComposeError,
                         "simulated pin failure",
-                    ):
-                        compose_destination._open_bound_destination_directory(
-                            descriptor,
-                            descriptor,
-                            "records",
-                            "destination",
-                        )
+                    ),
+                ):
+                    compose_destination._open_bound_destination_directory(
+                        descriptor,
+                        descriptor,
+                        "records",
+                        "destination",
+                    )
             finally:
                 os.close(descriptor)
 
@@ -367,13 +377,15 @@ class ComposeResolutionContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td)
             for failure in (RuntimeError("loop"), OSError("denied")):
-                with self.subTest(failure=type(failure).__name__):
-                    with mock.patch.object(Path, "resolve", side_effect=failure):
-                        with self.assertRaises(compose_destination.ComposeError):
-                            compose_destination._require_exact_directory(
-                                path,
-                                "destination parent",
-                            )
+                with (
+                    self.subTest(failure=type(failure).__name__),
+                    mock.patch.object(Path, "resolve", side_effect=failure),
+                    self.assertRaises(compose_destination.ComposeError),
+                ):
+                    compose_destination._require_exact_directory(
+                        path,
+                        "destination parent",
+                    )
 
     def test_public_destination_resolution_failures_are_compose_errors(self):
         with tempfile.TemporaryDirectory() as td:
@@ -388,21 +400,25 @@ class ComposeResolutionContract(unittest.TestCase):
                     raise RuntimeError("destination resolution denied")
                 return real_resolve(path, *args, **kwargs)
 
-            with mock.patch.object(Path, "resolve", selectively_fail):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(Path, "resolve", selectively_fail),
+                self.assertRaisesRegex(
                     compose_destination.ComposeError,
                     "cannot resolve",
-                ):
-                    compose_destination.create_pinned_destination(source, destination)
+                ),
+            ):
+                compose_destination.create_pinned_destination(source, destination)
 
             def fail_source(path, *args, **kwargs):
                 if path == source:
                     raise OSError("source resolution denied")
                 return real_resolve(path, *args, **kwargs)
 
-            with mock.patch.object(Path, "resolve", fail_source):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(Path, "resolve", fail_source),
+                self.assertRaisesRegex(
                     compose_destination.ComposeError,
                     "cannot resolve source/destination",
-                ):
-                    compose_destination.create_pinned_destination(source, destination)
+                ),
+            ):
+                compose_destination.create_pinned_destination(source, destination)
