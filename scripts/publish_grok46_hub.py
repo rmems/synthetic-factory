@@ -725,12 +725,13 @@ def marker_mode_state(
         paths = legacy_snapshot_paths(src, max(rounds)) if rounds else []
         before = {path.name: file_sha256(path) for path in paths}
         if rounds:
-            baseline = max(rounds)
-            kind_mix = legacy_kind_mix(src, baseline)
-            validate_legacy_baseline_payloads(src, baseline, kind_mix)
+            # Derived from the payloads on disk; the declared baseline below is a separate source.
+            discovered_baseline = max(rounds)
+            kind_mix = legacy_kind_mix(src, discovered_baseline)
+            validate_legacy_baseline_payloads(src, discovered_baseline, kind_mix)
             after = {
                 path.name: file_sha256(path)
-                for path in legacy_snapshot_paths(src, baseline)
+                for path in legacy_snapshot_paths(src, discovered_baseline)
             }
         else:
             after = {}

@@ -109,9 +109,10 @@ def _check_measurement_item(item: Any, spot: str) -> list[str]:
 
     if not isinstance(item, dict):
         return [f"{spot}: measurement must be an object"]
-    quantity = item.get("quantity")
-    if not envelope.is_enum_value(quantity, vocab.QUANTITY_UNITS):
-        return [f"{spot}: unknown quantity {quantity!r}"]
+    declared_quantity = item.get("quantity")
+    quantity = envelope.enum_value_or_none(declared_quantity, vocab.QUANTITY_UNITS)
+    if quantity is None:
+        return [f"{spot}: unknown quantity {declared_quantity!r}"]
     errors = _measurement_value_errors(item, quantity, spot)
     expected_unit = vocab.QUANTITY_UNITS[quantity]
     if item.get("unit") != expected_unit:

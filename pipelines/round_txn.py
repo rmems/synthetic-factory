@@ -43,15 +43,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
+    from .operator_paths import operator_path
     from . import round_txn_raster as _round_txn_raster
     from . import round_txn_stage as _stage_checks
     from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
+    from operator_paths import operator_path
     import round_txn_raster as _round_txn_raster
     import round_txn_stage as _stage_checks
     from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
@@ -2803,7 +2811,7 @@ def _abort_locked(factory_dir: Path, round_number: int, token: str):
     }
 
 
-def parse_args(argv=None):
+def _build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     front = sub.add_parser("frontier")
@@ -2839,28 +2847,49 @@ def parse_args(argv=None):
     abt.add_argument("factory_dir")
     abt.add_argument("--round", type=int, required=True, dest="round_number")
     abt.add_argument("--token", required=True)
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv=None):
+    return _build_parser().parse_args(argv)
+
+
+def _confined_factory_dir(parser, args):
+    """The operator's factory directory, confined to the working, home and temp trees.
+
+    Every subcommand takes the same positional, so the funnel runs once right
+    after parsing and no sink below reads ``args.factory_dir`` again. The
+    library entry points still ``resolve()`` what they are handed, so the
+    ``staging_dir`` string a reservation persists stays byte-identical to the
+    one ``publish`` and ``abort`` compare it against.
+    """
+    try:
+        return operator_path(args.factory_dir)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    factory_dir = _confined_factory_dir(parser, args)
     try:
         if args.command == "frontier":
-            result = frontier_status(Path(args.factory_dir))
+            result = frontier_status(factory_dir)
         elif args.command == "migrate-preference-v1":
-            result = migrate_preference_v1_markers(Path(args.factory_dir))
+            result = migrate_preference_v1_markers(factory_dir)
         elif args.command == "reserve":
             result = reserve(
-                Path(args.factory_dir),
+                factory_dir,
                 args.round_number,
                 args.expected,
                 args.preference_isolation,
             )
         elif args.command == "abort":
-            result = abort(Path(args.factory_dir), args.round_number, args.token)
+            result = abort(factory_dir, args.round_number, args.token)
         else:
             result = publish(
-                Path(args.factory_dir),
+                factory_dir,
                 args.round_number,
                 args.token,
                 getattr(args, "execution_override", None),
@@ -2870,6 +2899,10 @@ def main(argv=None):
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

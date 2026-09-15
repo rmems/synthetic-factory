@@ -17,13 +17,10 @@ from round_txn_preference_support import (  # noqa: E402
     PreferenceRoundHarness,
     diagnosis_document,
     ffpc_record,
-    rejected_scratch,
     shared_context,
     thalamic_factory,
-    write_records,
 )
 import round_txn  # noqa: E402
-import round_txn_preference  # noqa: E402
 import preference_arms  # noqa: E402
 
 

@@ -102,8 +102,11 @@ def _package_only_probe(repo_text: str, factory_text: str, operation: str) -> No
 
     from pipelines import round_txn
 
-    _require("round_txn" not in sys.modules,
-             "package-only probe loaded the direct round_txn module")
+    # The import-twin contract binds the direct name to the same module
+    # object, so its presence is expected; a *second*, divergent direct copy
+    # is what would break legacy consumers.
+    _require(sys.modules.get("round_txn", round_txn) is round_txn,
+             "package-only probe loaded a divergent direct round_txn module")
     factory = Path(factory_text)
     batch = factory / "batch-r01.jsonl"
     _OPERATION_CHECKS[operation](round_txn, factory, batch)

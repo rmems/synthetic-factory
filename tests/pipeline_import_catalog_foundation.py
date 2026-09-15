@@ -126,6 +126,234 @@ def _package_curate_coding() -> ModuleType:
     return module
 
 
+def _direct_curate_gate() -> ModuleType:
+    import curate_gate as module
+
+    return module
+
+
+def _package_curate_gate() -> ModuleType:
+    import pipelines.curate_gate as module
+
+    return module
+
+
+def _direct_curate_gate_contract() -> ModuleType:
+    import curate_gate_contract as module
+
+    return module
+
+
+def _package_curate_gate_contract() -> ModuleType:
+    import pipelines.curate_gate_contract as module
+
+    return module
+
+
+def _direct_curate_gate_digest() -> ModuleType:
+    import curate_gate_digest as module
+
+    return module
+
+
+def _package_curate_gate_digest() -> ModuleType:
+    import pipelines.curate_gate_digest as module
+
+    return module
+
+
+def _direct_curate_gate_paths() -> ModuleType:
+    import curate_gate_paths as module
+
+    return module
+
+
+def _package_curate_gate_paths() -> ModuleType:
+    import pipelines.curate_gate_paths as module
+
+    return module
+
+
+def _direct_curate_gate_plan() -> ModuleType:
+    import curate_gate_plan as module
+
+    return module
+
+
+def _package_curate_gate_plan() -> ModuleType:
+    import pipelines.curate_gate_plan as module
+
+    return module
+
+
+def _direct_curate_gate_merge() -> ModuleType:
+    import curate_gate_merge as module
+
+    return module
+
+
+def _package_curate_gate_merge() -> ModuleType:
+    import pipelines.curate_gate_merge as module
+
+    return module
+
+
+def _direct_curate_gate_manifests() -> ModuleType:
+    import curate_gate_manifests as module
+
+    return module
+
+
+def _package_curate_gate_manifests() -> ModuleType:
+    import pipelines.curate_gate_manifests as module
+
+    return module
+
+
+def _direct_curate_gate_evidence() -> ModuleType:
+    import curate_gate_evidence as module
+
+    return module
+
+
+def _package_curate_gate_evidence() -> ModuleType:
+    import pipelines.curate_gate_evidence as module
+
+    return module
+
+
+def _direct_curate_gate_evidence_verify() -> ModuleType:
+    import curate_gate_evidence_verify as module
+
+    return module
+
+
+def _package_curate_gate_evidence_verify() -> ModuleType:
+    import pipelines.curate_gate_evidence_verify as module
+
+    return module
+
+
+def _direct_curate_gate_records() -> ModuleType:
+    import curate_gate_records as module
+
+    return module
+
+
+def _package_curate_gate_records() -> ModuleType:
+    import pipelines.curate_gate_records as module
+
+    return module
+
+
+def _direct_curate_gate_bindings() -> ModuleType:
+    import curate_gate_bindings as module
+
+    return module
+
+
+def _package_curate_gate_bindings() -> ModuleType:
+    import pipelines.curate_gate_bindings as module
+
+    return module
+
+
+def _direct_curate_gate_identity_gate() -> ModuleType:
+    import curate_gate_identity_gate as module
+
+    return module
+
+
+def _package_curate_gate_identity_gate() -> ModuleType:
+    import pipelines.curate_gate_identity_gate as module
+
+    return module
+
+
+def _direct_curate_gate_identity_mapping() -> ModuleType:
+    import curate_gate_identity_mapping as module
+
+    return module
+
+
+def _package_curate_gate_identity_mapping() -> ModuleType:
+    import pipelines.curate_gate_identity_mapping as module
+
+    return module
+
+
+def _direct_curate_gate_review() -> ModuleType:
+    import curate_gate_review as module
+
+    return module
+
+
+def _package_curate_gate_review() -> ModuleType:
+    import pipelines.curate_gate_review as module
+
+    return module
+
+
+def _direct_curate_gate_lanes() -> ModuleType:
+    import curate_gate_lanes as module
+
+    return module
+
+
+def _package_curate_gate_lanes() -> ModuleType:
+    import pipelines.curate_gate_lanes as module
+
+    return module
+
+
+def _direct_curate_gate_reward() -> ModuleType:
+    import curate_gate_reward as module
+
+    return module
+
+
+def _package_curate_gate_reward() -> ModuleType:
+    import pipelines.curate_gate_reward as module
+
+    return module
+
+
+def _direct_curate_gate_reward_sidecars() -> ModuleType:
+    import curate_gate_reward_sidecars as module
+
+    return module
+
+
+def _package_curate_gate_reward_sidecars() -> ModuleType:
+    import pipelines.curate_gate_reward_sidecars as module
+
+    return module
+
+
+def _direct_curate_gate_gates() -> ModuleType:
+    import curate_gate_gates as module
+
+    return module
+
+
+def _package_curate_gate_gates() -> ModuleType:
+    import pipelines.curate_gate_gates as module
+
+    return module
+
+
+def _direct_curate_gate_compose() -> ModuleType:
+    import curate_gate_compose as module
+
+    return module
+
+
+def _package_curate_gate_compose() -> ModuleType:
+    import pipelines.curate_gate_compose as module
+
+    return module
+
+
 def _direct_curate_identity() -> ModuleType:
     import curate_identity as module
 
@@ -606,6 +834,30 @@ def _package_trajectory_pair_vocabulary() -> ModuleType:
     return module
 
 
+def _direct_validate_run() -> ModuleType:
+    import validate_run as module
+
+    return module
+
+
+def _package_validate_run() -> ModuleType:
+    import pipelines.validate_run as module
+
+    return module
+
+
+def _direct_operator_paths() -> ModuleType:
+    import operator_paths as module
+
+    return module
+
+
+def _package_operator_paths() -> ModuleType:
+    import pipelines.operator_paths as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -614,6 +866,54 @@ def _direct_validate_run_provenance() -> ModuleType:
 
 def _package_validate_run_provenance() -> ModuleType:
     import pipelines.validate_run_provenance as module
+
+    return module
+
+
+def _direct_validate_run_rewards() -> ModuleType:
+    import validate_run_rewards as module
+
+    return module
+
+
+def _package_validate_run_rewards() -> ModuleType:
+    import pipelines.validate_run_rewards as module
+
+    return module
+
+
+def _direct_validate_run_reward_total() -> ModuleType:
+    import validate_run_reward_total as module
+
+    return module
+
+
+def _package_validate_run_reward_total() -> ModuleType:
+    import pipelines.validate_run_reward_total as module
+
+    return module
+
+
+def _direct_validate_run_outcomes() -> ModuleType:
+    import validate_run_outcomes as module
+
+    return module
+
+
+def _package_validate_run_outcomes() -> ModuleType:
+    import pipelines.validate_run_outcomes as module
+
+    return module
+
+
+def _direct_validate_run_thalamic() -> ModuleType:
+    import validate_run_thalamic as module
+
+    return module
+
+
+def _package_validate_run_thalamic() -> ModuleType:
+    import pipelines.validate_run_thalamic as module
 
     return module
 
@@ -630,6 +930,70 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_agentic_output": (_direct_curate_agentic_output, _package_curate_agentic_output),
     "curate_agentic_shapes": (_direct_curate_agentic_shapes, _package_curate_agentic_shapes),
     "curate_coding": (_direct_curate_coding, _package_curate_coding),
+    "curate_gate": (_direct_curate_gate, _package_curate_gate),
+    "curate_gate_contract": (
+        _direct_curate_gate_contract,
+        _package_curate_gate_contract,
+    ),
+    "curate_gate_digest": (_direct_curate_gate_digest, _package_curate_gate_digest),
+    "curate_gate_paths": (_direct_curate_gate_paths, _package_curate_gate_paths),
+    "curate_gate_plan": (_direct_curate_gate_plan, _package_curate_gate_plan),
+    "curate_gate_merge": (
+        _direct_curate_gate_merge,
+        _package_curate_gate_merge,
+    ),
+    "curate_gate_manifests": (
+        _direct_curate_gate_manifests,
+        _package_curate_gate_manifests,
+    ),
+    "curate_gate_evidence": (
+        _direct_curate_gate_evidence,
+        _package_curate_gate_evidence,
+    ),
+    "curate_gate_evidence_verify": (
+        _direct_curate_gate_evidence_verify,
+        _package_curate_gate_evidence_verify,
+    ),
+    "curate_gate_records": (
+        _direct_curate_gate_records,
+        _package_curate_gate_records,
+    ),
+    "curate_gate_bindings": (
+        _direct_curate_gate_bindings,
+        _package_curate_gate_bindings,
+    ),
+    "curate_gate_identity_gate": (
+        _direct_curate_gate_identity_gate,
+        _package_curate_gate_identity_gate,
+    ),
+    "curate_gate_identity_mapping": (
+        _direct_curate_gate_identity_mapping,
+        _package_curate_gate_identity_mapping,
+    ),
+    "curate_gate_review": (
+        _direct_curate_gate_review,
+        _package_curate_gate_review,
+    ),
+    "curate_gate_lanes": (
+        _direct_curate_gate_lanes,
+        _package_curate_gate_lanes,
+    ),
+    "curate_gate_compose": (
+        _direct_curate_gate_compose,
+        _package_curate_gate_compose,
+    ),
+    "curate_gate_reward": (
+        _direct_curate_gate_reward,
+        _package_curate_gate_reward,
+    ),
+    "curate_gate_reward_sidecars": (
+        _direct_curate_gate_reward_sidecars,
+        _package_curate_gate_reward_sidecars,
+    ),
+    "curate_gate_gates": (
+        _direct_curate_gate_gates,
+        _package_curate_gate_gates,
+    ),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
     "curate_identity_output": (
         _direct_curate_identity_output,
@@ -688,7 +1052,16 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_trajectory_pair_vocabulary,
         _package_trajectory_pair_vocabulary,
     ),
+    "validate_run": (_direct_validate_run, _package_validate_run),
+    "operator_paths": (_direct_operator_paths, _package_operator_paths),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
+    "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
+    "validate_run_reward_total": (
+        _direct_validate_run_reward_total,
+        _package_validate_run_reward_total,
+    ),
+    "validate_run_thalamic": (_direct_validate_run_thalamic, _package_validate_run_thalamic),
+    "validate_run_outcomes": (_direct_validate_run_outcomes, _package_validate_run_outcomes),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
 PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}
