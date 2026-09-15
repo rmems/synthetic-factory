@@ -1,0 +1,25 @@
+pipelines/curate_gate_reward.py
+  s_af31ed7264ce5b::t_b3926e86c522d1 1-391
+pipelines/curate_gate_gates.py
+  s_af31ed7264ce5b::t_08b69cff8d7928 1-309,311-322,324-363
+  s_af31ed7264ce5b::t_ee63cdfca3311a 310
+pipelines/curate_gate_reward_sidecars.py
+  s_af31ed7264ce5b::t_1f38a9d2673ca3 407-410,412
+  s_af31ed7264ce5b::t_f27c17dcd34692 1-94,96-212,214-330,332-406,411,413-433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f40862f107e2ea5afd8f884901af5b5f5b9d177d",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
