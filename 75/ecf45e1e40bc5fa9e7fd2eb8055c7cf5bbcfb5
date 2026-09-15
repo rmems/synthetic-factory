@@ -1,0 +1,25 @@
+tests/test_evh.py
+  s_4db57d6154d4f0::t_46cf7f838f1845 326-329
+  s_4db57d6154d4f0::t_29b9b122b58ca4 18
+pipelines/evh/catalog_extract.py
+  s_4db57d6154d4f0::t_7d05f807715bcb 55-63
+  s_4db57d6154d4f0::t_f218b198530cdc 569-571
+  s_4db57d6154d4f0::t_1b7af5d48d1521 606-611,613-632,637-642
+  s_4db57d6154d4f0::t_1cffea87e59827 633-636
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "75ecf45e1e40bc5fa9e7fd2eb8055c7cf5bbcfb5",
+  "prompts": {},
+  "sessions": {
+    "s_4db57d6154d4f0": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c2ad0583-54fe-486a-ba1b-5a6a952f5afd",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
