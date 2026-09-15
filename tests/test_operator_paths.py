@@ -124,14 +124,12 @@ class ConfineHelper(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             existing = Path(td) / "already.jsonl"
             existing.write_text("keep\n", encoding="utf-8")
+            named = argparse.Namespace(source=td, output=str(existing))
+            arguments = {"source": "source", "output": "--output"}
+            destinations = frozenset({"output"})
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
-                confine_named(
-                    parser,
-                    argparse.Namespace(source=td, output=str(existing)),
-                    {"source": "source", "output": "--output"},
-                    frozenset({"output"}),
-                )
+                confine_named(parser, named, arguments, destinations)
             self.assertEqual(raised.exception.code, 2)
             self.assertIn("--output: the destination already exists", stderr.getvalue())
             self.assertEqual(existing.read_text(encoding="utf-8"), "keep\n")
