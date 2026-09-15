@@ -10,27 +10,21 @@ from typing import Any
 
 from .catalog_extract import (
     catalog_json_path,
-    load_r72_header,
-    load_r72_rows,
-    r72_jsonl_path,
+    home_jsonl_path,
+    home_mill_pins,
+    load_home_header,
+    load_home_rows,
 )
-from .sources import MILL_SOURCES, R72_SOURCE, catalog_sources
+from .sources import MILL_SOURCES, catalog_sources, home_mill_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
     GENERATOR,
     KIND_HOME_PAIRS,
     PRESERVE_COMMIT,
-    R72_BLOB_SHA,
-    R72_CATALOG_FIRST,
-    R72_FIRST_SLUG,
-    R72_JSONL_SHA256,
-    R72_LAST_SLUG,
+    R31_MILL_ID,
+    R52_MILL_ID,
     R72_MILL_ID,
-    R72_N_ROWS,
-    R72_PATH,
-    R72_SHA256,
-    R72_SLICE_ID,
     SLICE_ID,
 )
 
@@ -159,47 +153,54 @@ def _bind_sources(catalog: SearchCatalog) -> None:
             raise ValueError(f"{mill_id} pair rows do not match n_rows")
 
 
-def load_r72(path=None) -> HomeMillCatalog:
-    header = load_r72_header()
+def load_home_mill(mill_id: str, path=None) -> HomeMillCatalog:
+    pins = home_mill_pins(mill_id)
+    header = load_home_header(mill_id)
     mill = header["mill"]
-    if mill.get("mill_id") != R72_MILL_ID or mill.get("path") != R72_PATH:
-        raise ValueError("r72 header mill pin drifted from vocabulary")
-    if mill.get("blob_sha") != R72_BLOB_SHA or mill.get("sha256") != R72_SHA256:
-        raise ValueError("r72 header source hashes drifted from vocabulary")
-    if header.get("pairs_sha256") != R72_JSONL_SHA256:
-        raise ValueError("r72 header pairs_sha256 drifted from vocabulary")
-    jsonl_path = path if path is not None else r72_jsonl_path()
-    rows = load_r72_rows(jsonl_path)
-    if len(rows) != R72_N_ROWS:
-        raise ValueError(f"{jsonl_path} expected {R72_N_ROWS} rows, found {len(rows)}")
+    if mill.get("mill_id") != pins.mill_id or mill.get("path") != pins.path:
+        raise ValueError(f"{mill_id} header mill pin drifted from vocabulary")
+    if mill.get("blob_sha") != pins.blob_sha or mill.get("sha256") != pins.source_sha256:
+        raise ValueError(f"{mill_id} header source hashes drifted from vocabulary")
+    if header.get("pairs_sha256") != pins.jsonl_sha256:
+        raise ValueError(f"{mill_id} header pairs_sha256 drifted from vocabulary")
+    jsonl_path = path if path is not None else home_jsonl_path(mill_id)
+    rows = load_home_rows(mill_id, jsonl_path)
+    if len(rows) != pins.n_rows:
+        raise ValueError(f"{jsonl_path} expected {pins.n_rows} rows, found {len(rows)}")
     first = rows[0]["success_slug"]
     last = rows[-1]["success_slug"]
-    if first != R72_FIRST_SLUG or last != R72_LAST_SLUG:
+    if first != pins.first_slug or last != pins.last_slug:
         raise ValueError(f"{jsonl_path} first/last slugs drifted: {first} / {last}")
     for offset, row in enumerate(rows):
-        expected_round = R72_CATALOG_FIRST + offset
+        expected_round = pins.catalog_first + offset
         if row.get("round") != expected_round:
             raise ValueError(f"{jsonl_path} row {offset} round drifted from {expected_round}")
-    source = R72_SOURCE
-    if source.mill_id != R72_MILL_ID or source.path != R72_PATH:
-        raise ValueError("r72 source pin drifted from vocabulary")
-    if source.catalog_first != R72_CATALOG_FIRST or source.n_hops != 0:
-        raise ValueError("r72 source window drifted from vocabulary")
+    source = next(item for item in home_mill_sources() if item.mill_id == mill_id)
+    if source.path != pins.path or source.blob_sha != pins.blob_sha:
+        raise ValueError(f"{mill_id} source pin drifted from vocabulary")
+    if source.catalog_first != pins.catalog_first or source.n_hops != 0:
+        raise ValueError(f"{mill_id} source window drifted from vocabulary")
     if source.kind != KIND_HOME_PAIRS:
-        raise ValueError("r72 source kind is not home-pairs")
+        raise ValueError(f"{mill_id} source kind is not home-pairs")
     return HomeMillCatalog(
-        mill_id=R72_MILL_ID,
-        path=R72_PATH,
+        mill_id=pins.mill_id,
+        path=pins.path,
         blob_sha=source.blob_sha,
         kind=KIND_HOME_PAIRS,
-        catalog_first=R72_CATALOG_FIRST,
+        catalog_first=pins.catalog_first,
         n_rows=len(rows),
         first_slug=first,
         last_slug=last,
-        slice=R72_SLICE_ID,
+        slice=pins.slice_id,
         pairs=tuple(rows),
     )
 
 
+def load_r72(path=None) -> HomeMillCatalog:
+    return load_home_mill(R72_MILL_ID, path)
+
+
 CATALOG = load_catalog()
+R31 = load_home_mill(R31_MILL_ID)
+R52 = load_home_mill(R52_MILL_ID)
 R72 = load_r72()
