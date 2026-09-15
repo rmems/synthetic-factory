@@ -3,8 +3,7 @@
 
 Exit 0 on success, 2 on a coded refusal or usage error. ``--json``
 prints one object so an agent never parses prose. Invoke as
-``python3 -m pipelines.code.cli`` from the repository root (the short
-name ``code`` is the stdlib interactive module).
+``python3 -m pipelines.code_leftover3.cli`` from the repository root.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ __all__ = ["build_parser", "run"]
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="pipelines.code.cli", description=__doc__)
+    parser = argparse.ArgumentParser(prog="pipelines.code_leftover3.cli", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
     check = commands.add_parser(

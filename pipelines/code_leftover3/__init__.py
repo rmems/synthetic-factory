@@ -1,4 +1,4 @@
-"""Code-review preference family home (package ``code``, prefix ``crp``).
+"""Code-review preference family home (package ``code_leftover3``, prefix ``crp``).
 
 AST-extracts the prior leftover3 wave that
 ``experiments/code_review_preference_mill_leftover3.py`` names in every

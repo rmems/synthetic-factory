@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """The one place the code family reaches main's shared primitives.
 
-Both import forms are supported (``code.x`` with ``pipelines/`` on
-``sys.path``, and ``pipelines.code.x`` from the repository root). Every
-module ends with ``bind_import_twin(__name__)`` so the two spellings are
-one object. The short name ``code`` is also the stdlib interactive
-module; callers that need both should import ``pipelines.code`` first
-after the stdlib module is already loaded so ``setdefault`` keeps it.
+Both import forms are supported (``code_leftover3.x`` with
+``pipelines/`` on ``sys.path``, and ``pipelines.code_leftover3.x`` from
+the repository root). Every module ends with
+``bind_import_twin(__name__)`` so the two spellings are one object. The
+package is not named ``code`` so leftover_mill's ``sys.path`` insert
+cannot shadow the stdlib interactive module.
 """
 
 from __future__ import annotations

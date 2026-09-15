@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import io
 import json
 import shutil
@@ -13,18 +14,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-# Load the stdlib interactive module before pipelines.code so bind_import_twin
-# setdefault keeps it. The short name ``code`` is not this family.
-import code as stdlib_code  # noqa: F401
-
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from mill_family import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
-from pipelines.code import catalog as cat  # noqa: E402
-from pipelines.code import cli, generate  # noqa: E402
-from pipelines.code._contract import (  # noqa: E402
+from pipelines.code_leftover3 import catalog as cat  # noqa: E402
+from pipelines.code_leftover3 import cli, generate  # noqa: E402
+from pipelines.code_leftover3._contract import (  # noqa: E402
     FINDING_COVERED_SLUG,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
@@ -34,9 +31,10 @@ from pipelines.code._contract import (  # noqa: E402
     CodeRefusal,
 )
 from pipelines.crp import catalog as crp_cat  # noqa: E402
+from pipelines.oracle_grounded.import_twins import import_twin_of  # noqa: E402
 from record_kind import classify_kind  # noqa: E402
 
-PACKAGE = REPO / "pipelines" / "code"
+PACKAGE = REPO / "pipelines" / "code_leftover3"
 SNIPPET = """
 def P(family, slug, noun, title, core, boot, test, line, nit, defect, reach, missing, fix, needles, notfam):
     return locals()
@@ -74,18 +72,27 @@ class PackageShape(unittest.TestCase):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES["crp"], cat.FACTORY)
         self.assertEqual(cat.FACTORY, "code-review-preference-factory")
 
-    def test_package_import_does_not_shadow_stdlib_code(self):
+    def test_leftover_mill_path_insert_does_not_shadow_stdlib_code(self):
+        sys.modules.pop("code", None)
+        stdlib_code = importlib.import_module("code")
+
         self.assertEqual(Path(stdlib_code.__file__).name, "code.py")
         self.assertIn("lib", Path(stdlib_code.__file__).as_posix())
-        self.assertIs(sys.modules["code"], stdlib_code)
+        self.assertNotIn("/pipelines/code/", Path(stdlib_code.__file__).as_posix())
         self.assertTrue(hasattr(stdlib_code, "InteractiveConsole"))
+        self.assertFalse(hasattr(stdlib_code, "catalog"))
+        self.assertIs(sys.modules["code"], stdlib_code)
 
     def test_twin_names_are_symmetric(self):
-        from pipelines.oracle_grounded.import_twins import import_twin_of
-
-        self.assertEqual(import_twin_of("pipelines.code.catalog"), "code.catalog")
-        self.assertEqual(import_twin_of("code.catalog"), "pipelines.code.catalog")
-        self.assertIs(sys.modules["pipelines.code.catalog"], cat)
+        self.assertEqual(
+            import_twin_of("pipelines.code_leftover3.catalog"),
+            "code_leftover3.catalog",
+        )
+        self.assertEqual(
+            import_twin_of("code_leftover3.catalog"),
+            "pipelines.code_leftover3.catalog",
+        )
+        self.assertIs(sys.modules["pipelines.code_leftover3.catalog"], cat)
 
 
 class AstExtract(unittest.TestCase):
