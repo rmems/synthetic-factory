@@ -3,9 +3,9 @@
 
 r193 lives as the sixteen inline pair dicts from
 ``origin/legacy-mill-lane:experiments/brw-mill-r193.py``. Leftover mills r212,
-r383, and r395 live as compact JSONL under ``config/brw/`` (243 pairs).
-Leftover mill publisher paths and ``*mill*.py`` / ``*loop*.py`` filenames are
-not copied here.
+r383, r395, and the seventeen ``brw-mill-r395-extra*`` mills live as compact
+JSONL under ``config/brw/`` (1916 pairs). Leftover mill publisher paths and
+``*mill*.py`` / ``*loop*.py`` filenames are not copied here.
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ __all__ = [
     "R395_CATALOG_FIRST",
     "R395_PAIR_COUNT",
     "R395_PAIRS",
+    "R395_EXTRA_CATALOG_FIRST",
+    "R395_EXTRA_PAIR_COUNT",
+    "R395_EXTRA_PAIRS",
     "pair_at",
     "pair_by_ok_slug",
     "pair_for_round",
@@ -801,12 +804,35 @@ R383_SOURCE_PATH = "experiments/brw-mill-r383.py"
 R395_CATALOG_FIRST = 395
 R395_PAIR_COUNT = 60
 R395_SOURCE_PATH = "experiments/brw-mill-r395.py"
-LEFTOVER_PAIR_COUNT = R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT
+R395_EXTRA_CATALOG_FIRST = 455
+_R395_EXTRA_MILL_COUNTS: tuple[tuple[str, int], ...] = (
+    ("brw-mill-r395-extra", 58),
+    ("brw-mill-r395-extra2", 58),
+    ("brw-mill-r395-extra3", 52),
+    ("brw-mill-r395-extra4", 26),
+    ("brw-mill-r395-extra5", 54),
+    ("brw-mill-r395-extra6", 26),
+    ("brw-mill-r395-extra7", 16),
+    ("brw-mill-r395-extra8", 101),
+    ("brw-mill-r395-extra9", 111),
+    ("brw-mill-r395-extra10", 111),
+    ("brw-mill-r395-extra11", 112),
+    ("brw-mill-r395-extra12", 167),
+    ("brw-mill-r395-extra13", 180),
+    ("brw-mill-r395-extra14", 180),
+    ("brw-mill-r395-extra15", 120),
+    ("brw-mill-r395-extra16", 200),
+    ("brw-mill-r395-extra17", 101),
+)
+R395_EXTRA_PAIR_COUNT = sum(count for _, count in _R395_EXTRA_MILL_COUNTS)
+LEFTOVER_PAIR_COUNT = (
+    R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT + R395_EXTRA_PAIR_COUNT
+)
 _MILL_ORDER = (
     ("brw-mill-r212", R212_PAIR_COUNT),
     ("brw-mill-r383", R383_PAIR_COUNT),
     ("brw-mill-r395", R395_PAIR_COUNT),
-)
+) + _R395_EXTRA_MILL_COUNTS
 R212_PAIR_KEYS = frozenset(
     {
         "aux",
@@ -906,7 +932,8 @@ LEFTOVER_PAIRS: tuple[dict[str, Any], ...] = _load_leftover_pairs(LEFTOVER_HEADE
 R212_HEADER = LEFTOVER_HEADER
 R212_PAIRS = LEFTOVER_PAIRS[:R212_PAIR_COUNT]
 R383_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT : R212_PAIR_COUNT + R383_PAIR_COUNT]
-R395_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT :]
+R395_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT : R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT]
+R395_EXTRA_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT :]
 
 
 def r212_slugs() -> tuple[str, ...]:
