@@ -24,8 +24,12 @@ ARCHIVE_B_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 PLANTS_SOURCE_PATH = "scripts/infra_as_code_mill/mill_plants.py"
 PLANTS_BLOB_SHA = "af10345ae8103af86c05e58355559c5bcd795a8b"
 PLANTS_SOURCE_SHA256 = "d2d60f15dafbb666299f1be1f2df7bcdc60aafd9dfc2fda17310f97273f0c585"
+PLANTS_B_SOURCE_PATH = "scripts/infra_as_code_mill/mill_plants_b.py"
+PLANTS_B_BLOB_SHA = "f28b122cac1956113df18c04ea7eb545d884e590"
+PLANTS_B_SOURCE_SHA256 = "e6827da1d0ea4808e535c0cf4a9107f240d4da717790d82f001aeba029c0b558"
 CATALOG_FILENAME = "CATALOG.json"
 PLANTS_FILENAME = "plants.jsonl"
+PLANTS_B_FILENAME = "plants_b.jsonl"
 PLANTS_COMPACT_KEYS = (
     "index",
     "success_slug",
