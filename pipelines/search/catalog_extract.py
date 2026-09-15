@@ -17,14 +17,24 @@ from pathlib import Path
 from typing import Any
 
 from .catalog_ast import UNSET, assignment_of, literal_value, module_docstring
+from .identity import leftover_marker_in, refuse_cataloged_leftover_mill
 from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
     FACTORY,
+    FAMILY,
     GENERATOR,
+    KIND_HOME_PAIRS,
     KIND_LEFTOVER_PAIRS,
     LEGACY_REF,
     PRESERVE_COMMIT,
+    R72_HEADER_FILENAME,
+    R72_HEADER_SCHEMA_ID,
+    R72_JSONL_FILENAME,
+    R72_JSONL_SHA256,
+    R72_MILL_ID,
+    R72_PRESERVE_COMMIT,
+    R72_SLICE_ID,
     SHAPE_PAIR_6TUPLES,
     SLICE_ID,
 )
@@ -36,6 +46,61 @@ def sha256_bytes(payload: bytes) -> str:
 
 def mill_id_for_path(path: str) -> str:
     return Path(path).stem
+
+
+def extract_home_mill_catalog(
+    source: str,
+    *,
+    path: str,
+    blob_sha: str = "",
+) -> dict[str, Any]:
+    """AST-extract a home-factory mill (no hops). Leftover3 / leftover-lll refused."""
+
+    refuse_cataloged_leftover_mill(path)
+    payload = source.encode()
+    tree = ast.parse(source, filename=path)
+    mill_id = mill_id_for_path(path)
+    constants = _module_constants(tree)
+    hops = constants.get("HOP")
+    if hops:
+        raise ValueError(f"{path} has HOP destinations; leftover hops stay cataloged")
+    factory = constants.get("FACTORY", FACTORY)
+    generator = constants.get("GEN", GENERATOR)
+    catalog_first = constants.get("CATALOG_FIRST")
+    if not isinstance(factory, str) or not factory:
+        raise ValueError(f"{path} FACTORY is not a non-empty string")
+    if not isinstance(generator, str) or not generator:
+        raise ValueError(f"{path} GEN is not a non-empty string")
+    if not isinstance(catalog_first, int) or isinstance(catalog_first, bool):
+        raise ValueError(f"{path} CATALOG_FIRST is not an int")
+    rows = _pair_rows(constants.get("PAIRS"), path=path)
+    _refuse_leftover_pair_markers(rows, path=path)
+    n_rounds = constants.get("N_ROUNDS")
+    if n_rounds is not None and n_rounds != len(rows):
+        raise ValueError(f"{path} N_ROUNDS={n_rounds} disagrees with {len(rows)} pairs")
+    for offset, row in enumerate(rows):
+        row["mill_id"] = mill_id
+        row["round"] = catalog_first + offset
+    return {
+        "mill_id": mill_id,
+        "path": path,
+        "blob_sha": blob_sha,
+        "sha256": sha256_bytes(payload),
+        "kind": KIND_HOME_PAIRS,
+        "shape": SHAPE_PAIR_6TUPLES,
+        "catalog_first": catalog_first,
+        "n_rounds": len(rows),
+        "n_rows": len(rows),
+        "n_hops": 0,
+        "first_slug": rows[0]["success_slug"],
+        "last_slug": rows[-1]["success_slug"],
+        "generator": generator,
+        "factory": factory,
+        "hops": [],
+        "doc_first_line": _first_line(module_docstring(tree)),
+        "pairs": rows,
+        "slice": R72_SLICE_ID,
+    }
 
 
 def extract_mill_catalog(
@@ -138,6 +203,16 @@ def _pair_rows(pairs_raw: Any, *, path: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _refuse_leftover_pair_markers(rows: list[dict[str, Any]], *, path: str) -> None:
+    for index, row in enumerate(rows):
+        for key in ("success_slug", "fail_slug"):
+            slug = row[key]
+            if leftover_marker_in(slug):
+                raise ValueError(
+                    f"{path} PAIRS[{index}].{key} is leftover3/lll already cataloged: {slug}"
+                )
+
+
 def _is_six_strings(arm: Any) -> bool:
     return (
         isinstance(arm, (tuple, list))
@@ -204,7 +279,101 @@ def catalog_json_path(package_dir: Path | None = None) -> Path:
     return root / CATALOG_FILENAME
 
 
+def r72_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / R72_JSONL_FILENAME
+
+
+def r72_header_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / R72_HEADER_FILENAME
+
+
+def r72_header_document(record: Mapping[str, Any], *, pairs_sha256: str) -> dict[str, Any]:
+    return {
+        "extraction": (
+            "AST literals only; leftover3/lll mills already cataloged are refused; never exec"
+        ),
+        "factory": FACTORY,
+        "family": FAMILY,
+        "generator": GENERATOR,
+        "mill": {
+            "blob_sha": record["blob_sha"],
+            "catalog_first": record["catalog_first"],
+            "first_slug": record["first_slug"],
+            "kind": record["kind"],
+            "last_slug": record["last_slug"],
+            "mill_id": record["mill_id"],
+            "n_hops": record["n_hops"],
+            "n_rows": record["n_rows"],
+            "path": record["path"],
+            "sha256": record["sha256"],
+        },
+        "n_rows": record["n_rows"],
+        "pairs_filename": R72_JSONL_FILENAME,
+        "pairs_sha256": pairs_sha256,
+        "preserve_commit": R72_PRESERVE_COMMIT,
+        "schema": R72_HEADER_SCHEMA_ID,
+        "slice": R72_SLICE_ID,
+        "source_ref": LEGACY_REF,
+    }
+
+
+def dumps_r72_header(document: Mapping[str, Any]) -> str:
+    return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+def load_r72_header(path: Path | None = None) -> dict[str, Any]:
+    header_path = path if path is not None else r72_header_path()
+    document = json.loads(header_path.read_text(encoding="utf-8"))
+    if document.get("schema") != R72_HEADER_SCHEMA_ID:
+        raise ValueError(f"{header_path} schema is not {R72_HEADER_SCHEMA_ID}")
+    if document.get("slice") != R72_SLICE_ID:
+        raise ValueError(f"{header_path} slice drifted from vocabulary")
+    if document.get("preserve_commit") != R72_PRESERVE_COMMIT:
+        raise ValueError(f"{header_path} preserve_commit drifted from vocabulary")
+    if document.get("pairs_sha256") != R72_JSONL_SHA256:
+        raise ValueError(f"{header_path} pairs_sha256 drifted from vocabulary")
+    return document
+
+
+def dumps_pair_jsonl(pairs: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> str:
+    return "".join(
+        json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
+        for row in pairs
+    )
+
+
+def load_r72_rows(path: Path | None = None) -> list[dict[str, Any]]:
+    jsonl_path = path if path is not None else r72_jsonl_path()
+    payload = jsonl_path.read_bytes()
+    digest = sha256_bytes(payload)
+    if path is None and digest != R72_JSONL_SHA256:
+        raise ValueError(f"{jsonl_path} sha256 {digest} != pinned {R72_JSONL_SHA256}")
+    rows: list[dict[str, Any]] = []
+    for line_no, line in enumerate(payload.decode("utf-8").splitlines(), 1):
+        if not line:
+            raise ValueError(f"{jsonl_path} line {line_no} is empty")
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise ValueError(f"{jsonl_path} line {line_no} is not an object")
+        if leftover_marker_in(str(row.get("success_slug", ""))) or leftover_marker_in(
+            str(row.get("fail_slug", ""))
+        ):
+            raise ValueError(f"{jsonl_path} line {line_no} is leftover3/lll already cataloged")
+        if row.get("mill_id") != R72_MILL_ID:
+            raise ValueError(f"{jsonl_path} line {line_no} mill_id is not {R72_MILL_ID}")
+        rows.append(row)
+    return rows
+
+
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
     destination = path if path is not None else catalog_json_path()
     destination.write_text(dumps_catalog(document), encoding="utf-8")
+    return destination
+
+
+def write_r72_jsonl(pairs: list[Mapping[str, Any]], path: Path | None = None) -> Path:
+    destination = path if path is not None else r72_jsonl_path()
+    destination.write_text(dumps_pair_jsonl(pairs), encoding="utf-8")
     return destination
