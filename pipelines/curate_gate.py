@@ -98,16 +98,31 @@ from typing import Any, Iterable, Sequence
 
 _PIPELINES = Path(__file__).resolve().parent
 _REPO = _PIPELINES.parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
 
-import curate_rewards  # noqa: E402
-import curate_identity  # noqa: E402
-import training_audit  # noqa: E402
-from check_records import canonical_record_id, reject_json_constant  # noqa: E402
-from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
-from exact_json_compare import same_exact_json  # noqa: E402
-from validate_run import check_line  # noqa: E402
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_gate")
+    from . import curate_identity
+    from . import curate_rewards
+    from . import training_audit
+    from .check_records import canonical_record_id, reject_json_constant
+    from .exact_json import dumps_exact_json, parse_finite_json_float
+    from .exact_json_compare import same_exact_json
+    from .validate_run import check_line
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_gate"
+    )
+    if str(_PIPELINES) not in sys.path:
+        sys.path.insert(0, str(_PIPELINES))
+    import curate_identity  # noqa: E402
+    import curate_rewards  # noqa: E402
+    import training_audit  # noqa: E402
+    from check_records import canonical_record_id, reject_json_constant  # noqa: E402
+    from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
+    from exact_json_compare import same_exact_json  # noqa: E402
+    from validate_run import check_line  # noqa: E402
 
 TOOL_NAME = "curate_gate"
 TOOL_VERSION = "1.0.0"
@@ -3872,6 +3887,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except GateError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

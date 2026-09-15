@@ -38,6 +38,7 @@ REFACTORED_FACADES = (  # qlty-ignore(qlty:similar-code): unrelated name declara
     "curate_agentic_output",
     "curate_agentic_shapes",
     "curate_coding",
+    "curate_gate",
     "curate_identity",
     "curate_preferences",
     "curate_rewards",

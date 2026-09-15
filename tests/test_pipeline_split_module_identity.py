@@ -84,12 +84,24 @@ NEW_SPLIT_MODULES = (
     "training_audit_reasoning",
     "training_audit_snapshot",
     "curate_agentic",
+    "curate_gate",
+    "curate_identity",
     "curate_trajectory_preferences",
+    "round_txn",
+    "validate_run",
     "validate_run_provenance",
+    "validate_run_rewards",
+    "validate_run_thalamic",
+    "validate_run_outcomes",
+    "validate_run_reward_total",
 )
 RUN_SUPPORT_MODULES = (
     "compose_curated_run_cli",
     "compose_curated_run_facade",
+    # validate_run_rewards once re-exported check_reward_total from
+    # validate_run_reward_total, which imports validate_run_rewards back, so
+    # importing reward_total first raised AttributeError on a partial module.
+    "validate_run_reward_total",
 )
 
 
@@ -142,6 +154,37 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["validate_run_provenance"].check_provenance,
                 packaged["validate_run_provenance"].check_provenance,
+            )
+            self.assertIs(
+                direct["validate_run_thalamic"].check_meta_round,
+                packaged["validate_run_thalamic"].check_meta_round,
+            )
+            self.assertIs(
+                direct["validate_run_outcomes"].terminal_outcome_agrees,
+                packaged["validate_run_outcomes"].terminal_outcome_agrees,
+            )
+            self.assertIs(
+                direct["validate_run_reward_total"].check_reward_total,
+                packaged["validate_run_reward_total"].check_reward_total,
+            )
+            # The four core CLIs raise and classify across the twin boundary:
+            # a split copy makes ``except GateError`` miss and ``isinstance``
+            # of a FactoryRow fail, so pin the classes, not just the modules.
+            self.assertIs(
+                direct["curate_gate"].GateError,
+                packaged["curate_gate"].GateError,
+            )
+            self.assertIs(
+                direct["curate_identity"].FactoryRow,
+                packaged["curate_identity"].FactoryRow,
+            )
+            self.assertIs(
+                direct["round_txn"].TransactionError,
+                packaged["round_txn"].TransactionError,
+            )
+            self.assertIs(
+                direct["validate_run"].check_line,
+                packaged["validate_run"].check_line,
             )
 
     def test_all_new_split_modules_retain_identity_direct_first(self):

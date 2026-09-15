@@ -43,11 +43,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
     from . import round_txn_raster as _round_txn_raster
     from . import round_txn_stage as _stage_checks
     from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -2870,6 +2876,10 @@ def main(argv=None):
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":
