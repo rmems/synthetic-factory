@@ -1,0 +1,54 @@
+{
+  "catalog_id": "flk-plants-v1",
+  "factory": "flaky-test-quarantine-factory",
+  "format": "flk-catalog/1",
+  "mill_prefix": "flk",
+  "mills": [
+    {
+      "base_round": 1489,
+      "mill_id": "flk_r1489",
+      "plant_count": 16,
+      "source": "experiments/flk_r1489_leftover3_mill.py"
+    },
+    {
+      "base_round": 1505,
+      "mill_id": "flk_r1505",
+      "plant_count": 16,
+      "source": "experiments/flk_r1505_leftover3_mill.py"
+    },
+    {
+      "base_round": 1521,
+      "mill_id": "flk_r1521",
+      "plant_count": 16,
+      "source": "experiments/flk_r1521_leftover3_mill.py"
+    },
+    {
+      "base_round": 1544,
+      "mill_id": "flk_r1544",
+      "plant_count": 16,
+      "source": "experiments/flk_r1544_leftover3_mill.py"
+    },
+    {
+      "base_round": 1560,
+      "mill_id": "flk_r1560",
+      "plant_count": 16,
+      "source": "experiments/flk_r1560_leftover3_mill.py"
+    }
+  ],
+  "plant_count": 80,
+  "plants_sha256": "075a0d24c29733aeec43a411d5a59fded7962ee573218988eebad64649339f0a",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/flk_r1489_leftover3_mill.py",
+      "experiments/flk_r1505_leftover3_mill.py",
+      "experiments/flk_r1521_leftover3_mill.py",
+      "experiments/flk_r1544_leftover3_mill.py",
+      "experiments/flk_r1560_leftover3_mill.py"
+    ]
+  }
+}
