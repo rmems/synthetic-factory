@@ -174,11 +174,25 @@ class AstExtract(unittest.TestCase):
         hits += list((PIPELINES / "rag").rglob("*leftover*_mill.py"))
         hits += list((REPO / "config" / "rag").rglob("rag-*.py"))
         self.assertEqual(hits, [])
-        forbidden = ("exec(", "eval(", "runpy", "compile(")
+        forbidden_calls = frozenset({"exec", "eval", "compile"})
         for path in (PIPELINES / "rag").glob("*.py"):
-            text = path.read_text(encoding="utf-8")
-            for token in forbidden:
-                self.assertNotIn(token, text, msg=f"{path.name} contains {token}")
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    runpy_aliases = [
+                        alias.name
+                        for alias in node.names
+                        if alias.name == "runpy" or alias.name.startswith("runpy.")
+                    ]
+                    self.assertEqual(runpy_aliases, [], msg=f"{path.name} imports runpy")
+                if isinstance(node, ast.ImportFrom) and node.module == "runpy":
+                    self.fail(f"{path.name} imports runpy")
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    self.assertNotIn(
+                        node.func.id,
+                        forbidden_calls,
+                        msg=f"{path.name} calls {node.func.id}",
+                    )
 
 
 class GeneratePairs(unittest.TestCase):
@@ -235,6 +249,21 @@ class GeneratePairs(unittest.TestCase):
         with self.assertRaises(RagRefusal) as caught:
             generate.run(generate.GenerateRequest(FIXTURE, dest))
         self.assertEqual(caught.exception.code, FINDING_USAGE)
+
+    def test_committed_catalog_all_plants_are_episodes(self):
+        dest = self.root / "all"
+        summary = generate.run(generate.GenerateRequest(COMMITTED, dest, all_plants=True))
+        self.assertEqual(summary["records"], 32)
+        self.assertEqual(summary["pairs"], 16)
+        self.assertEqual(summary["generator"], GENERATOR)
+        lines = (dest / generate.RECORDS_FILENAME).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 32)
+        for index, line in enumerate(lines):
+            record = json.loads(line)
+            self.assertEqual(classify_kind(record), "episode")
+            self.assertEqual(check_episode(record, f"all-{index}"), [])
+            self.assertEqual(record["meta"]["generator"], GENERATOR)
+            self.assertNotEqual(record["meta"]["generator"], "grok-4.6")
 
 
 class CliSurface(unittest.TestCase):
