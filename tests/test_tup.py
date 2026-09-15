@@ -62,7 +62,7 @@ class CatalogPins(unittest.TestCase):
         self.assertEqual(loaded.meta["generator"], GENERATOR)
         self.assertNotEqual(GENERATOR, "grok-4.6")
         self.assertEqual(len(loaded.families), 138)
-        self.assertEqual(len(loaded.plants), 2493)
+        self.assertEqual(len(loaded.plants), 3237)
         self.assertEqual(loaded.meta["source_commit"], catalog_extract.PRESERVE_COMMIT)
         r1349_plants = tuple(p for p in loaded.plants if p.mill_id == catalog.SLICE_MILL)
         self.assertEqual(len(r1349_plants), 414)
@@ -95,6 +95,69 @@ class CatalogPins(unittest.TestCase):
         with self.assertRaises(TupRefusal) as caught:
             loaded.plant("missing-slug")
         self.assertEqual(caught.exception.code, FINDING_PLANT_NOT_FOUND)
+
+
+class FourthSliceExtract(unittest.TestCase):
+    def _mill_source_or_skip(self, path: str) -> str:
+        try:
+            return catalog_extract.git_show_mill(path)
+        except TupRefusal as exc:
+            if exc.code == FINDING_SOURCE_NOT_PARSEABLE and "not fetchable" in str(exc):
+                self.skipTest(f"legacy-mill-lane mill source is not fetchable: {path}")
+            raise
+
+    def test_r1743_rows_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-r1743.py")
+        rows = catalog_extract.plant_rows_from_source(source, mill_id="tup_r1743")
+        self.assertEqual(len(rows), 118)
+
+    def test_leftover_triples_rounds_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-leftover-triples.py")
+        rows = catalog_extract.round_plants_from_source(source, mill_id="tup_leftover_triples")
+        self.assertEqual(len(rows), 48)
+
+    def test_leftover4_plants_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-leftover4-r1576.py")
+        rows = catalog_extract.leftover_plants_from_source(source, mill_id="tup_leftover4_r1576")
+        self.assertEqual(len(rows), 36)
+
+    def test_committed_fourth_slice_mill_plant_totals(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        fourth_ids = {
+            "tup_r1743",
+            "tup_r1782",
+            "tup_r1810",
+            "tup_r1830",
+            "tup_r1848",
+            "tup_r2106",
+            "tup_r2133",
+            "tup_r2153",
+            "tup_r2335",
+            "tup_leftover_triples",
+            "tup_leftover4_r1576",
+            "tup_leftover_lll_r1594",
+        }
+        by_mill = {
+            row["mill_id"]: row["plants"]
+            for row in loaded.meta["mills"]
+            if isinstance(row, dict) and row.get("mill_id") in fourth_ids
+        }
+        expected = {
+            "tup_r1743": 99,
+            "tup_r1782": 76,
+            "tup_r1810": 60,
+            "tup_r1830": 56,
+            "tup_r1848": 58,
+            "tup_r2106": 82,
+            "tup_r2133": 63,
+            "tup_r2153": 52,
+            "tup_r2335": 68,
+            "tup_leftover_triples": 48,
+            "tup_leftover4_r1576": 36,
+            "tup_leftover_lll_r1594": 46,
+        }
+        self.assertEqual(by_mill, expected)
+        self.assertEqual(loaded.meta["slice"], "tup-fourth-slice")
 
 
 class SecondSliceExtract(unittest.TestCase):
@@ -282,7 +345,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         payload = json.loads(stdout)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 2493)
+        self.assertEqual(payload["plants"], 3237)
         self.assertEqual(payload["families"], 138)
 
     def test_generate_one_plant_json(self):
