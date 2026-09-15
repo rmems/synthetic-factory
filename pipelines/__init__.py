@@ -191,6 +191,9 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "round_txn_agentic_types",
     "round_txn_agentic_cascade",
     "validate_run_safety",
+    "validate_run_episode",
+    "validate_run_multi_agent",
+    "validate_run_preference",
 ))
 
 
