@@ -1,0 +1,38 @@
+{
+  "catalog_id": "lrd-r157-v1",
+  "factory": "log-redaction-factory",
+  "format": "lrd-mill-catalog/1",
+  "mill_prefix": "lrd",
+  "mills": [
+    {
+      "base_round": 157,
+      "mill_id": "lrd_r157",
+      "plant_count": 16,
+      "source": "experiments/lrd_r157_leftover_leftover_leftover_mill.py"
+    }
+  ],
+  "plant_count": 16,
+  "plants_sha256": "cd8dfd00c8a52b9f9ff78409b0ad28f8ab7a5032db69db397adbe274f091dc09",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "a9e6602a7bd43b314f9691984ae5f48d40c762b2",
+    "excluded": {
+      "hoppers": [
+        "experiments/dpr-lrd-hopper-leftover3.py",
+        "experiments/dpr-lrd-hopper-leftover3b.py"
+      ],
+      "loops": [
+        "experiments/lrd-loop-leftover3-idtoken.py",
+        "experiments/lrd-loop-r100.py",
+        "experiments/lrd-loop-r116.py",
+        "experiments/lrd-loop-r81.py"
+      ]
+    },
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/lrd_r157_leftover_leftover_leftover_mill.py"
+    ]
+  }
+}

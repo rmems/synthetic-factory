@@ -1,0 +1,61 @@
+{
+  "banned_bits": [
+    "cargo publish",
+    "npm pack",
+    "smartctl",
+    "lsscsi",
+    "hdparm",
+    "iscsi",
+    "multipathd",
+    "apt-get",
+    "swupd ",
+    "xbps-"
+  ],
+  "banned_goal": "Check designed checkout",
+  "banned_prefix": [
+    "pacman-",
+    "yq-",
+    "kubeconform",
+    "conftest-",
+    "terrascan",
+    "tfsec-",
+    "checkov-",
+    "kics-",
+    "gitleaks-",
+    "dockle-"
+  ],
+  "banned_slugs": [
+    "yq-eval",
+    "yq-eval-json",
+    "yq-eval-props",
+    "yq-help",
+    "yq-v",
+    "yq-exit-status",
+    "coredns-version"
+  ],
+  "catalog_id": "tup-r1349-v1",
+  "factory": "tool-use-preference-factory",
+  "families": 138,
+  "families_filename": "families.jsonl",
+  "families_sha256": "6bd8730ab2b616c0f199baec2078442866193411433eedfc560061ad2058b473",
+  "family": "tup",
+  "generator": "tup-mill",
+  "intended_use": "research_only",
+  "plants": 414,
+  "project_training_policy": "blocked",
+  "quota_per_round": 3,
+  "schema": "tup-catalog/1",
+  "sins": [
+    "wrong tool",
+    "skip verify",
+    "wrong tool"
+  ],
+  "slice": "tup-mill-r1349",
+  "source_blob_sha1": "b0e965da738d49af64219403398203f48d91ab8e",
+  "source_commit": "dba9f9a1d0e984e58fc14c992228f09534c26d57",
+  "source_lines": 1727,
+  "source_method": "git-show+ast.parse",
+  "source_path": "experiments/tup-mill-r1349.py",
+  "source_ref": "legacy-mill-lane",
+  "source_sha256": "c6dbebe3787759023d8a249791419a6add90f3a2fa6c0904159b051f265d85ab"
+}
