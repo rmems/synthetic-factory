@@ -47,7 +47,7 @@ if __package__:
 
     _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
-    from .operator_paths import operator_path
+    from .operator_paths import confine
     from . import round_txn_agentic as _round_txn_agentic
     from . import round_txn_agentic_terms as _round_txn_agentic_terms
     from . import round_txn_coverage as _round_txn_coverage
@@ -61,7 +61,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
-    from operator_paths import operator_path
+    from operator_paths import confine
     import round_txn_agentic as _round_txn_agentic
     import round_txn_agentic_terms as _round_txn_agentic_terms
     import round_txn_coverage as _round_txn_coverage
@@ -2172,10 +2172,10 @@ def _confined_factory_dir(parser, args):
     ``staging_dir`` string a reservation persists stays byte-identical to the
     one ``publish`` and ``abort`` compare it against.
     """
-    try:
-        return operator_path(args.factory_dir)
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    factory_dir = confine(parser, args.factory_dir, argument="factory_dir")
+    if factory_dir is None:
+        parser.error("factory_dir: the path is empty")
+    return factory_dir
 
 
 def main(argv=None):

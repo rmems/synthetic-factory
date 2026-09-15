@@ -22,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 
-from operator_paths import operator_path
+from operator_paths import confine
 from round_txn import MODE_FILE, TransactionError, frontier_status
 
 BATCH_RE = re.compile(r"^batch-r(\d+)\.jsonl$")
@@ -223,10 +223,10 @@ def _confined_path(parser, args):
     still refreshes ``NEXT_ROUND.json`` in place -- the documented exception to
     "write only to new destinations" -- now under the confined root.
     """
-    try:
-        return operator_path(args.path)
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    path = confine(parser, args.path, argument="path")
+    if path is None:
+        parser.error("path: the path is empty")
+    return path
 
 
 def main(argv=None):

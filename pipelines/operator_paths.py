@@ -3,7 +3,9 @@
 
 A CLI reads and writes only under the working directory, the home directory or
 the temp directory (SonarCloud S8707): a path is resolved with ``realpath`` and
-refused unless one of those roots is a prefix of it.
+refused unless one of those roots is a prefix of it. Leaf symlinks, dangling
+links, and special files are refused before any sink runs; destinations that
+already exist are refused so a failed validation cannot replace them.
 
 Confine at the CLI boundary, in the flow right after ``parse_args``, and never
 as an argparse ``type=`` converter -- Sonar's taint engine does not model
@@ -11,15 +13,21 @@ converters, which is why #203 moved the calls out of the parser. Internal APIs
 keep taking an unresolved ``Path``: several pipelines reject symlinked
 components lexically, and handing them a pre-resolved path would make those
 guards vacuous.
+
+Refusals name the rejected argument and never include the typed path, the
+resolved location, or the operator roots (home, temp, cwd), so environment
+secrets in those strings cannot leak through argparse.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
+from typing import NoReturn
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -30,6 +38,11 @@ else:
         "operator_paths"
     )
 
+KIND_PATH = "path"
+KIND_DESTINATION = "destination"
+_OUTSIDE = "the path lies outside the working, home and temp trees"
+_SPECIAL_MODES = (stat.S_ISFIFO, stat.S_ISCHR, stat.S_ISBLK, stat.S_ISSOCK)
+
 
 def operator_roots() -> tuple[str, ...]:
     return tuple(
@@ -37,14 +50,103 @@ def operator_roots() -> tuple[str, ...]:
     )
 
 
-def operator_path(value: str) -> Path:
-    """The resolved path, or an argparse error when it lies outside every operator root."""
+def _labeled(argument: str | None, reason: str) -> str:
+    if argument:
+        return f"{argument}: {reason}"
+    return reason
 
-    resolved = os.path.realpath(value)
-    for root in operator_roots():
-        if resolved == root or resolved.startswith(root.rstrip(os.sep) + os.sep):
-            return Path(resolved)
-    raise argparse.ArgumentTypeError("the path lies outside the working, home and temp trees")
+
+def _refuse(argument: str | None, reason: str) -> NoReturn:
+    raise argparse.ArgumentTypeError(_labeled(argument, reason))
+
+
+def _text_of(value: str | os.PathLike[str], argument: str | None) -> str:
+    try:
+        text = os.fspath(value)
+    except TypeError:
+        _refuse(argument, "the path is empty")
+    if not isinstance(text, str):
+        text = os.fsdecode(text)
+    if not text.strip():
+        _refuse(argument, "the path is empty")
+    return text
+
+
+def _is_special_file(mode: int) -> bool:
+    return any(check(mode) for check in _SPECIAL_MODES)
+
+
+def _refuse_leaf(typed: Path, argument: str | None) -> None:
+    """Refuse a typed leaf that is a symlink or a special file, before realpath."""
+
+    if typed.is_symlink():
+        if typed.exists():
+            _refuse(argument, "the path is a symlink")
+        _refuse(argument, "the path is a dangling symlink")
+    if not os.path.lexists(typed):
+        return
+    try:
+        mode = os.lstat(typed).st_mode
+    except OSError:
+        _refuse(argument, "the path cannot be inspected")
+    if _is_special_file(mode):
+        _refuse(argument, "the path is a special file")
+
+
+def _under_root(resolved: str, root: str) -> bool:
+    root = root.rstrip(os.sep)
+    try:
+        return os.path.commonpath([resolved, root]) == root
+    except ValueError:
+        return False
+
+
+def _inside_operator_trees(resolved: str) -> bool:
+    return any(_under_root(resolved, root) for root in operator_roots())
+
+
+def operator_path(
+    value: str | os.PathLike[str],
+    *,
+    argument: str | None = None,
+    kind: str = KIND_PATH,
+) -> Path:
+    """The resolved path, or an argparse error when the typed value is unsafe.
+
+    ``kind="destination"`` also refuses a leaf that already exists, so a
+    replacement cannot begin. ``--write-index`` and factory directories keep the
+    default kind because they name existing trees, not new files.
+    """
+
+    if kind not in {KIND_PATH, KIND_DESTINATION}:
+        _refuse(argument, "the path kind is not supported")
+    text = _text_of(value, argument)
+    typed = Path(text)
+    _refuse_leaf(typed, argument)
+    resolved = os.path.realpath(text)
+    if not _inside_operator_trees(resolved):
+        _refuse(argument, _OUTSIDE)
+    if kind == KIND_DESTINATION and os.path.lexists(typed):
+        _refuse(argument, "the destination already exists")
+    return Path(resolved)
+
+
+def confine(
+    parser: argparse.ArgumentParser,
+    value: str | os.PathLike[str] | None,
+    *,
+    argument: str,
+    kind: str = KIND_PATH,
+) -> Path | None:
+    """Confine one parsed argument, or leave an absent optional as ``None``."""
+
+    if value is None:
+        return None
+    try:
+        return operator_path(value, argument=argument, kind=kind)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+    raise AssertionError("argparse.ArgumentParser.error returns")
 
 
 if __package__:

@@ -213,13 +213,7 @@ class PreferenceArmsCli(_FunnelCase):
                     writer.assert_not_called()
 
     def test_verify_handoff_still_refuses_a_symlinked_staging_directory(self):
-        """Confinement resolves symlinks; the staging guard must still see the typed path.
-
-        Before this slice the CLI handed the path as typed to the library, whose
-        guard requires it to be real and canonical. A realpath'd input would
-        satisfy that guard by construction, so the CLI re-applies it to the
-        typed path and refuses exactly what it refused before.
-        """
+        """A typed staging symlink is refused at confinement before the sink."""
         token = "a" * 32
         with tempfile.TemporaryDirectory() as td:
             root = Path(td).resolve()
@@ -234,9 +228,11 @@ class PreferenceArmsCli(_FunnelCase):
             link.symlink_to(stage, target_is_directory=True)
 
             files = [flag for name in names for flag in ("--file", name)]
-            code, _, err = run_cli(["verify-handoff", str(link), *files])
-            self.assertEqual(code, 1)
-            self.assertIn("staging directory is not a real directory", err)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                preference_arms.main(["verify-handoff", str(link), *files])
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("the path is a symlink", stderr.getvalue())
 
             code, out, _ = run_cli(["verify-handoff", str(stage), *files])
             self.assertEqual(code, 0, out)

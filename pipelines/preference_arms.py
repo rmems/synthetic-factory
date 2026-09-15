@@ -916,11 +916,10 @@ class Inputs(NamedTuple):
 def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
     """Confine both path arguments right after parsing; sinks never read ``args`` again.
 
-    ``operator_path`` returns a realpath, which would satisfy
-    ``_require_canonical_staging_path`` by construction and silently accept a
-    staging directory typed as a symlink; ``_run_verify_handoff`` therefore
-    re-applies that guard to the path as typed whenever it differs from the
-    confined one, so the CLI refuses exactly what it refused before.
+    A typed symlink is refused at confinement. Relative spellings still
+    realpath to a different string than the operator typed, so
+    ``_run_verify_handoff`` re-applies ``_require_canonical_staging_path`` to
+    the typed path when they differ.
     """
 
     def optional(name: str) -> Path | None:

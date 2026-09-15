@@ -53,7 +53,7 @@ from typing import NamedTuple
 # declares the re-exported surface.
 if __package__:
     from .exact_json import dumps_exact_json, parse_finite_json_float
-    from .operator_paths import operator_path
+    from .operator_paths import KIND_DESTINATION, confine
     from .reward_calibration import _entry_calibrations
     from .reward_document import (
         canonical_magnitudes,
@@ -141,7 +141,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from exact_json import dumps_exact_json, parse_finite_json_float
-    from operator_paths import operator_path
+    from operator_paths import KIND_DESTINATION, confine
     from reward_calibration import _entry_calibrations
     from reward_document import (
         canonical_magnitudes,
@@ -822,21 +822,37 @@ class Inputs(NamedTuple):
     inputs: tuple[Path, ...]
 
 
+_PATH_ARGUMENTS = {
+    "input": "input",
+    "output": "output",
+    "sidecars": "sidecars",
+    "manifest": "--manifest",
+    "units_migration": "--units-migration",
+    "inputs": "inputs",
+}
+_DESTINATION_FIELDS = frozenset({"output", "sidecars", "manifest"})
+
+
 def _inputs(parser, args):
     """Confine every path argument right after parsing; sinks never read ``args`` again."""
 
     def optional(name):
-        value = getattr(args, name, None)
-        return None if value is None else operator_path(value)
-
-    try:
-        return Inputs(
-            optional("input"), optional("output"), optional("sidecars"),
-            optional("manifest"), optional("units_migration"),
-            tuple(operator_path(value) for value in getattr(args, "inputs", None) or ()),
+        kind = KIND_DESTINATION if name in _DESTINATION_FIELDS else "path"
+        return confine(
+            parser,
+            getattr(args, name, None),
+            argument=_PATH_ARGUMENTS[name],
+            kind=kind,
         )
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+
+    return Inputs(
+        optional("input"), optional("output"), optional("sidecars"),
+        optional("manifest"), optional("units_migration"),
+        tuple(
+            confine(parser, value, argument=_PATH_ARGUMENTS["inputs"])
+            for value in getattr(args, "inputs", None) or ()
+        ),
+    )
 
 
 def main(argv=None):
