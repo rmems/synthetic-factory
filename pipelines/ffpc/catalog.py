@@ -438,6 +438,108 @@ def _from_arm_or_rej(
     return plants
 
 
+def _kwargs_from_dict_call(call: ast.Call, consts: Mapping[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    for kw in call.keywords:
+        if kw.arg is None:
+            continue
+        resolved = _optional_const(kw.value, consts)
+        if resolved is None and isinstance(kw.value, ast.Name):
+            resolved = consts.get(kw.value.id)
+        if resolved is not None:
+            row[kw.arg] = resolved
+    return row
+
+
+def _failure_archetype_from_meta_call(node: ast.AST) -> str:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return ""
+    if node.func.id == "meta_block" and len(node.args) >= 2:
+        value = _optional_const(node.args[1], {})
+        return _text(value)
+    if node.func.id == "meta_for" and len(node.args) >= 3:
+        value = _optional_const(node.args[2], {})
+        return _text(value)
+    return ""
+
+
+def _failure_archetype_from_record_ast(record: ast.AST) -> str:
+    if not isinstance(record, ast.Dict):
+        return ""
+    for key_node, value_node in zip(record.keys, record.values):
+        if not isinstance(key_node, ast.Constant) or key_node.value != "meta":
+            continue
+        return _failure_archetype_from_meta_call(value_node)
+    return ""
+
+
+def _from_pairs_dict_calls(
+    pairs: ast.List,
+    consts: Mapping[str, Any],
+    round_n: int,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    plants: list[dict[str, Any]] = []
+    for offset, elt in enumerate(pairs.elts, start=1):
+        if not isinstance(elt, ast.Call) or not isinstance(elt.func, ast.Name) or elt.func.id != "dict":
+            continue
+        row = _kwargs_from_dict_call(elt, consts)
+        state = row.get("state") if isinstance(row.get("state"), dict) else {}
+        env = state.get("environment") if isinstance(state.get("environment"), dict) else {}
+        index = row.get("index") if type(row.get("index")) is int else offset
+        root = row.get("root")
+        root_cause = root if isinstance(root, str) else _text(root)
+        plants.append(
+            _plant_draft(
+                round_n,
+                index,
+                source_name,
+                record_id=row.get("pair_id") or row.get("id"),
+                site=_site_from_env(env),
+                domain=state.get("domain"),
+                sim_or_real=state.get("sim_or_real"),
+                failure_mode=row.get("failure_mode") or row.get("archetype") or row.get("flaw"),
+                root_cause=root_cause,
+                goal=row.get("goal"),
+            )
+        )
+    return plants
+
+
+def _from_rec_records(
+    consts: Mapping[str, Any],
+    raw: Mapping[str, ast.AST],
+    round_n: int,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    rec_keys = sorted(
+        (name for name in consts if re.fullmatch(r"REC_\d+", name)),
+        key=lambda name: int(name.split("_", 1)[1]),
+    )
+    plants: list[dict[str, Any]] = []
+    for offset, name in enumerate(rec_keys, start=1):
+        record = consts.get(name)
+        if not isinstance(record, dict) or not record.get("id"):
+            continue
+        meta = record.get("meta") if isinstance(record.get("meta"), dict) else {}
+        failure_mode = meta.get("failure_archetype") or meta.get("gate_flaw_class")
+        if not failure_mode:
+            failure_mode = _failure_archetype_from_record_ast(raw.get(name, ast.Constant(None)))
+        arm = dict(record)
+        if failure_mode and not isinstance(arm.get("meta"), dict):
+            arm["meta"] = {"failure_archetype": failure_mode}
+        elif failure_mode and isinstance(arm.get("meta"), dict):
+            arm = dict(record)
+            arm["meta"] = {**meta, "failure_archetype": failure_mode}
+        diag_key = f"DIAG_{name.split('_', 1)[1]}"
+        diag = consts.get(diag_key)
+        if isinstance(diag, dict) and not arm.get("diagnosis"):
+            arm = dict(arm)
+            arm["diagnosis"] = diag
+        plants.append(_plant_from_arm(arm, round_n, offset, source_name))
+    return plants
+
+
 def _from_rejected_pair_list(
     pairs: ast.List,
     consts: Mapping[str, Any],
@@ -479,6 +581,14 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
             plants = _from_rejected_pair_list(pairs, consts, round_n, source_name)
         else:
             plants = _from_pairs_dicts(pairs, consts, round_n, source_name)
+    elif (
+        isinstance(pairs, ast.List)
+        and pairs.elts
+        and isinstance(pairs.elts[0], ast.Call)
+        and isinstance(pairs.elts[0].func, ast.Name)
+        and pairs.elts[0].func.id == "dict"
+    ):
+        plants = _from_pairs_dict_calls(pairs, consts, round_n, source_name)
     elif isinstance(pairs, ast.List) and pairs.elts and isinstance(pairs.elts[0], ast.Call):
         plants = _from_pair_record_calls(pairs, consts, round_n, source_name)
     elif isinstance(pairs, ast.List) and pairs.elts:
@@ -489,6 +599,8 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
         plants = _from_arm_or_rej(consts, round_n, source_name)
     if len(plants) != 3:
         plants = _from_state_slots(consts, round_n, source_name)
+    if len(plants) != 3:
+        plants = _from_rec_records(consts, raw, round_n, source_name)
     refuse_when(
         len(plants) != 3,
         FINDING_CATALOG_TRIPLE_STRIDE,
