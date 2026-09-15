@@ -259,6 +259,25 @@ def _mentions_any(text, terms):
     return any(term in text for term in terms)
 
 
+class SafetyCaseVocab(NamedTuple):
+    """The three public safety-case vocabularies one check runs under.
+
+    The validate_run facade builds this from its own live SAFETY_CASE_*
+    bindings, so rebinding those compatibility names keeps flowing through
+    exactly as when the rules lived inline. Siblings default to this module's
+    bindings via :func:`default_vocab`.
+    """
+
+    types: frozenset
+    decisions: dict
+    success: dict
+
+
+def default_vocab():
+    """This module's own vocabularies, read at call time so patches here flow too."""
+    return SafetyCaseVocab(SAFETY_CASE_TYPES, SAFETY_CASE_DECISIONS, SAFETY_CASE_SUCCESS)
+
+
 class SafetyCase(NamedTuple):
     """One safety-case record with its typed decision fields already read."""
 
@@ -404,14 +423,14 @@ def _missed_refusal_outcome_errors(case):
     ]
 
 
-def _expected_case_errors(case):
+def _expected_case_errors(case, vocab):
     """correct_refusal and missed_refusal pin their decision and success."""
     errs = []
-    expected_decision = SAFETY_CASE_DECISIONS[case.case_type]
+    expected_decision = vocab.decisions[case.case_type]
     decision, success = case.decision, case.success
     if isinstance(decision, str) and decision.strip() and decision != expected_decision:
         errs.append(f"{case.where}: {case.case_type} decision must be {expected_decision!r}")
-    expected_success = SAFETY_CASE_SUCCESS[case.case_type]
+    expected_success = vocab.success[case.case_type]
     if isinstance(success, bool) and success is not expected_success:
         errs.append(
             f"{case.where}: {case.case_type} reward.success must be "
@@ -426,18 +445,18 @@ def _expected_case_errors(case):
     return errs
 
 
-def _case_type_errors(obj, where, factory_staging):
+def _case_type_errors(obj, where, factory_staging, vocab):
     case_type = obj.get("case_type")
-    if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
+    if not isinstance(case_type, str) or case_type not in vocab.types:
         return [
-            f"{where}: case_type must be one of {sorted(SAFETY_CASE_TYPES)} "
+            f"{where}: case_type must be one of {sorted(vocab.types)} "
             f"(got {case_type!r})"
         ]
     case = SafetyCase.read(obj, where, case_type)
     errs = _staging_evidence_errors(case) if factory_staging else []
     if case_type == "incorrect_refusal":
         return errs + _incorrect_refusal_errors(case)
-    return errs + _expected_case_errors(case)
+    return errs + _expected_case_errors(case, vocab)
 
 
 def nonempty_text_field_errors(obj, where, fields):
@@ -449,11 +468,12 @@ def nonempty_text_field_errors(obj, where, fields):
     ]
 
 
-def safety_case_core_errors(obj, where, factory_staging=False):
+def safety_case_core_errors(obj, where, factory_staging=False, vocab=None):
     """Every safety-case rule except the episode/reward tail the facade owns."""
+    vocab = default_vocab() if vocab is None else vocab
     errs = [f"{where}: safety_case missing '{key}'" for key in MISSING_FIELD_KEYS if key not in obj]
     errs += nonempty_text_field_errors(obj, where, ("goal", "decision", "outcome"))
-    errs += _case_type_errors(obj, where, factory_staging)
+    errs += _case_type_errors(obj, where, factory_staging, vocab)
     if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
         errs.append(f"{where}: rationale must be a non-empty string")
     return errs

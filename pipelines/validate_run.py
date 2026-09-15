@@ -576,8 +576,18 @@ def check_multi_agent(obj, where, factory_staging=False):
 
 
 def check_safety_case(obj, where, factory_staging=False):
-    """Safety-case rules live in validate_run_safety; the episode/reward tail stays here."""
-    errs = _validate_run_safety.safety_case_core_errors(obj, where, factory_staging)
+    """Safety-case rules live in validate_run_safety; the episode/reward tail stays here.
+
+    Vocabularies are this module's live SAFETY_CASE_* bindings, so
+    rebinding those compatibility names keeps flowing through exactly as
+    when the rules lived inline.
+    """
+    vocab = _validate_run_safety.SafetyCaseVocab(
+        SAFETY_CASE_TYPES, SAFETY_CASE_DECISIONS, SAFETY_CASE_SUCCESS
+    )
+    errs = _validate_run_safety.safety_case_core_errors(
+        obj, where, factory_staging, vocab
+    )
     if "steps" in obj:
         errs += check_episode(
             obj, where, require_goal=False, forbid_hidden_thought=factory_staging
