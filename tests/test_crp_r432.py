@@ -140,9 +140,11 @@ class AstExtract(unittest.TestCase):
                 "catalog.py",
                 "cli.py",
                 "generate.py",
+                "leftover3_prior.py",
                 "r432.py",
                 "r538.py",
                 "r729.py",
+                "r817.py",
             ),
         )
 
