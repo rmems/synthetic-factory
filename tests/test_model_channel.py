@@ -9,7 +9,9 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -159,6 +161,25 @@ class ModelChannelPolicyTests(unittest.TestCase):
         self.assertNotIn(
             "minimax/minimax-m3",
             {row["model_id"] for row in policy.reviewed_rows()},
+        )
+
+    def test_discover_lists_snapshot_members_without_fossilizing_an_allow_list(self):
+        from model_channel import cli as model_cli
+
+        stdout = StringIO()
+        with mock.patch("sys.stdout", stdout):
+            code = model_cli.run(
+                ["discover-openrouter", "--snapshot", str(SNAPSHOT), "--json"]
+            )
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        by_id = {item["id"]: item for item in payload["models"]}
+        self.assertIn("microsoft/phi-4", by_id)
+        self.assertIn("meta-llama/llama-3.3-70b-instruct", by_id)
+        self.assertTrue(by_id["microsoft/phi-4"]["in_reviewed_pilot"])
+        self.assertFalse(by_id["meta-llama/llama-3.3-70b-instruct"]["in_reviewed_pilot"])
+        self.assertEqual(
+            payload["authority"], "snapshot_membership_not_hardcoded_allow_list"
         )
 
     def test_openrouter_snapshot_membership_is_the_authority(self):

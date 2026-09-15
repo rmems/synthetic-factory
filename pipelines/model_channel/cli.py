@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -114,7 +115,7 @@ def _run_discover(args: argparse.Namespace) -> int:
                 if row["channel"] == "openrouter_api"}
     listing = []
     for item in snapshot["data"]:
-        model_id = item.get("id") if isinstance(item, dict) else None
+        model_id = item.get("id") if isinstance(item, Mapping) else None
         listing.append(
             {
                 "id": model_id,
