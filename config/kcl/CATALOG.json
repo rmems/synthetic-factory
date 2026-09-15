@@ -1,5 +1,6 @@
 {
   "catalog_id": "kcl-plants-v1",
+  "extraction": "AST literals only; twelve representative pair/plant bodies plus compact identities for every extracted row; remaining pair/plant metric bodies stay on legacy-mill-lane until a later slice.",
   "factory": "k8s-crashloop-factory",
   "format": "kcl-catalog/1",
   "full_pair_count": 478,
@@ -9,87 +10,122 @@
   "mills": [
     {
       "base_round": 1007,
+      "first_slug": "fqdn-hostname",
+      "last_slug": "devices-deny",
       "mill_id": "kcl_r1007",
       "plant_count": 141,
       "shape": "pair",
-      "source": "experiments/kcl-mill-r1007.py"
+      "source": "experiments/kcl-mill-r1007.py",
+      "source_sha256": "0e53513b9e074e90ffa1be061c3ea0b5bc90fb08e2a3cc56e0636a4c4d868ad9"
     },
     {
       "base_round": 1076,
+      "first_slug": "servicecidr-stale",
+      "last_slug": "map-reinvoke-old",
       "mill_id": "kcl_pref",
       "plant_count": 16,
       "shape": "pair",
-      "source": "experiments/kcl-mill-pref.py"
+      "source": "experiments/kcl-mill-pref.py",
+      "source_sha256": "87984a83190eb91c29530ee6f96c2f4b969af5670213b3b58efc74a32dc2ac5e"
     },
     {
       "base_round": 1092,
+      "first_slug": "job-failjob-policy",
+      "last_slug": "dra-adminaccess",
       "mill_id": "kcl_u1092",
       "plant_count": 12,
       "shape": "pair",
-      "source": "experiments/kcl-mill-unique-r1092.py"
+      "source": "experiments/kcl-mill-unique-r1092.py",
+      "source_sha256": "62f431eb4f8019b39adfde6fddae0f0655c38574b62e62cd1a734e6cd529d2bf"
     },
     {
       "base_round": 1092,
+      "first_slug": "vap-matchcond-skip",
+      "last_slug": "rclaim-admin-gone",
       "mill_id": "kcl_r1092",
       "plant_count": 32,
       "shape": "pair",
-      "source": "experiments/kcl-mill-r1092.py"
+      "source": "experiments/kcl-mill-r1092.py",
+      "source_sha256": "9867a40c12035b2e8790a6a0278b01e5205325eedd02b804960d4f9def8a8ebf"
     },
     {
       "base_round": 1152,
+      "first_slug": "rclaim-count-4",
+      "last_slug": "downward-divisor",
       "mill_id": "kcl_r1152",
       "plant_count": 64,
       "shape": "pair",
-      "source": "experiments/kcl-mill-r1152.py"
+      "source": "experiments/kcl-mill-r1152.py",
+      "source_sha256": "d8fe326b77bbc3fb8080999ccba099140d68a5ca22fc2e8eb1903d08885d2cd1"
     },
     {
       "base_round": 1216,
+      "first_slug": "dnspolicy-none",
+      "last_slug": "ctb-label-old",
       "mill_id": "kcl_r1216",
       "plant_count": 20,
       "shape": "pair",
-      "source": "experiments/kcl-mill-r1216.py"
+      "source": "experiments/kcl-mill-r1216.py",
+      "source_sha256": "934b14de5da068509027770f42cdcf373209fa359941d7f629e162652b80dcaa"
     },
     {
       "base_round": 1236,
+      "first_slug": "sethostname-as-fqdn",
+      "last_slug": "prestop-http-oldpath",
       "mill_id": "kcl_r1236",
       "plant_count": 160,
       "shape": "pair",
-      "source": "experiments/kcl-mill-r1236.py"
+      "source": "experiments/kcl-mill-r1236.py",
+      "source_sha256": "344d475167cee26a3cfe97480744197507af96cc4fa7003407242574e95c94cb"
     },
     {
       "base_round": 1266,
+      "first_slug": "vap-param-old",
+      "last_slug": "flowschema-dist-old",
       "mill_id": "kcl_r1266",
       "plant_count": 16,
       "shape": "pair",
-      "source": "experiments/kcl-mill-r1266.py"
+      "source": "experiments/kcl-mill-r1266.py",
+      "source_sha256": "943b72a0f92c077a2dcdf998faeebf6a5c91fa33faf9b00cced09561a2bcd618"
     },
     {
       "base_round": 1379,
+      "first_slug": "map-matchcond-skip",
+      "last_slug": "plc-ncs-zero",
       "mill_id": "kcl_r1379",
       "plant_count": 17,
       "shape": "pair",
-      "source": "experiments/kcl-mill-lll-r1379.py"
+      "source": "experiments/kcl-mill-lll-r1379.py",
+      "source_sha256": "f4574f6004a77b927d938784244a126404f4430a8f4deda5d2752a1fe76f84cb"
     },
     {
       "base_round": 1443,
+      "first_slug": "termmsg-run-out",
+      "last_slug": "fc-wwn-old",
       "mill_id": "kcl_r1443",
       "plant_count": 195,
       "shape": "row",
-      "source": "experiments/kcl-plants-r1443.py"
+      "source": "experiments/kcl-plants-r1443.py",
+      "source_sha256": "40360fbb985b1f605f9ccfcaa8f41b8433a9981886aab3c66bd980f626c2644b"
     },
     {
       "base_round": 1644,
+      "first_slug": "fc-wwid-old",
+      "last_slug": "deploy-paused-true",
       "mill_id": "kcl_r1644",
       "plant_count": 32,
       "shape": "row",
-      "source": "experiments/kcl-plants-r1644.py"
+      "source": "experiments/kcl-plants-r1644.py",
+      "source_sha256": "17dd69867f3a7f67b1b2ff3931eef94d89979af4809237214e256dc72ba0e98b"
     }
   ],
-  "plant_count": 12,
-  "plants_sha256": "2a38a08cabe0d234a6876fb5c4bf8da0ba6048b726a1a550d78514552380bbf6",
+  "n_plant_identities_committed": 705,
+  "n_representative_bodies": 12,
+  "plant_count": 705,
+  "plants_sha256": "0a9dd0355acc23bbeb1e26999b3318886a2ef65e5e098b3019f14f5d2279c757",
   "quota_per_round": 2,
   "record_kind": "episode",
-  "slice": "representative",
+  "slice": "identities",
   "source": {
     "commit": "813f93f1969c1c4421e5663492e9663739efa642",
     "method": "git-show+ast.parse",
