@@ -20,7 +20,7 @@ if __package__:
     from ._contract import (
         FACTORY,
         FAMILY_PREFIX,
-        SLICE_ID,
+        SLICE_IDS,
         SOURCE_COMMIT,
         SOURCE_REF,
         bind_import_twin,
@@ -35,7 +35,7 @@ else:
     from ttf._contract import (  # type: ignore[no-redef]
         FACTORY,
         FAMILY_PREFIX,
-        SLICE_ID,
+        SLICE_IDS,
         SOURCE_COMMIT,
         SOURCE_REF,
         bind_import_twin,
@@ -54,12 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     listed.add_argument("--json", action="store_true")
 
     check = commands.add_parser(
-        "catalog-check", help="fail closed unless the catalog is the r02c slice"
+        "catalog-check", help="fail closed unless recover-grok coverage is complete"
     )
     check.add_argument("--json", action="store_true")
 
     gen = commands.add_parser("generate", help="emit one slice (never raw, never publish)")
-    gen.add_argument("--round", type=int, required=True)
+    gen.add_argument("--slice", choices=SLICE_IDS, required=True)
     gen.add_argument("--out", type=Path, default=None, help="new destination; omit to print JSONL")
     gen.add_argument("--json", action="store_true")
     return parser
@@ -84,14 +84,15 @@ def _catalog(args: argparse.Namespace) -> int:
             "family_prefix": FAMILY_PREFIX,
             "factory": FACTORY,
             "catalog_id": loaded.catalog_id,
-            "slice": SLICE_ID,
+            "slices": list(SLICE_IDS),
             "plants": [plant.as_mapping() for plant in loaded.plants],
         }
         print(dumps_exact_json(payload, indent=2))
         return 0
     print(f"{loaded.catalog_id} {FACTORY} {len(loaded.plants)} plants")
     for plant in loaded.plants:
-        print(f"{plant.source_round:2d} {plant.record_id} {plant.domain} {plant.decision}")
+        slice_id = cat.slice_from_record_id(plant.record_id)
+        print(f"{slice_id:4s} {plant.record_id} {plant.domain} {plant.decision}")
     return 0
 
 
@@ -99,7 +100,7 @@ def _catalog_check(args: argparse.Namespace) -> int:
     report = cat.catalog_check()
     text = (
         f"catalog-check ok: {report['plants']} plants "
-        f"{report['slice']} r{report['first_round']}"
+        f"{report['coverage']} ({report['source_catalogs']} recover-grok catalogs)"
     )
     _emit({"command": "catalog-check", **report}, args.json, text)
     return 0
@@ -107,11 +108,11 @@ def _catalog_check(args: argparse.Namespace) -> int:
 
 def _generate(args: argparse.Namespace) -> int:
     if args.out is None:
-        plants = cat.plants_for_round(args.round)
+        plants = cat.plants_for_slice(args.slice)
         for plant in plants:
-            print(dumps_exact_json(generate.record(plant), sort_keys=False))
+            print(dumps_exact_json(generate.record(plant, slice_id=args.slice), sort_keys=False))
         return 0
-    summary = generate.run(generate.RunRequest(args.round, args.out))
+    summary = generate.run(generate.RunRequest(args.slice, args.out))
     text = f"generated {summary['records']} records into {args.out}"
     _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
     return 0

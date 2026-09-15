@@ -1,36 +1,49 @@
 #!/usr/bin/env python3
-"""TTF plant catalog: AST extract of the first recovered ``ttf*`` slice.
+"""TTF plant catalog: AST extract plus compact committed JSONL.
 
 ``plants_from_source`` walks a recovered generator as text (``ast.parse``
-only, ``exec: false``). The committed catalog is the five-record r02c
-identity extract from ``origin/codex/recover-grok-01a06111``. Recovered
-``*mill*.py`` / ``*loop*.py`` scripts are not vendored.
+only, ``exec: false``). The committed catalog is ``plants.jsonl`` under
+this package, covering every recover-grok mill catalog on
+``origin/codex/recover-grok-01a06111``. Recovered ``*mill*.py`` /
+``*loop*.py`` scripts are not vendored.
 """
 
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ._contract import (
+    CATALOG_FILENAME,
     CATALOG_ID,
+    CATALOG_SCHEMA,
     FACTORY,
     FINDING_AST_NOT_A_PLANT,
     FINDING_CATALOG_EMPTY,
+    FINDING_CATALOG_FILE_MISSING,
     FINDING_CATALOG_SLICE_STRIDE,
     FINDING_DUPLICATE_ID,
     FINDING_FIELD_INVALID,
     FINDING_FIELD_MISSING,
+    FINDING_PLANTS_SHA_MISMATCH,
     FINDING_ROUND_OUT_OF_DOMAIN,
     FINDING_SLICE_OUT_OF_DOMAIN,
+    FAMILY_PREFIX,
+    FULL_PLANT_COUNT,
     GENERATOR,
+    PLANTS_FILENAME,
     QUOTA_PER_ROUND,
-    SLICE_ID,
+    SLICE_IDS,
+    SOURCE_CATALOGS,
     TtfRefusal,
     bind_import_twin,
+    default_catalog_dir,
+    load_strict_json,
     refuse,
     refuse_first,
     refuse_when,
@@ -65,23 +78,27 @@ RECORD_ID_RE = re.compile(
     r"^ttf-r(?P<round>[0-9]+)(?P<suffix>[a-z]*)-(?P<index>[0-9]+)$"
 )
 TOTAL_RE = re.compile(r"total ([+-]?\d+\.\d+)")
-WAVE_ROUNDS = (2,)
+SOURCE_FILE_BY_SLICE = {item[0]: item[1] for item in SOURCE_CATALOGS}
 
 __all__ = [
+    "CATALOG_FILENAME",
     "CATALOG_ID",
     "FACTORY",
     "GENERATOR",
     "ID_PREFIX",
     "PLANT_FIELDS",
+    "PLANTS_FILENAME",
     "QUOTA_PER_ROUND",
-    "WAVE_ROUNDS",
+    "SLICE_IDS",
     "Catalog",
     "Plant",
     "catalog_check",
     "load_catalog",
     "plant_from_mapping",
     "plants_for_round",
+    "plants_for_slice",
     "plants_from_source",
+    "slice_from_record_id",
 ]
 
 
@@ -209,6 +226,17 @@ def _reward_total(note: str) -> float | None:
 def _round_from_id(record_id: str) -> int | None:
     match = RECORD_ID_RE.match(record_id)
     return int(match.group("round")) if match else None
+
+
+def slice_from_record_id(record_id: str) -> str:
+    match = RECORD_ID_RE.match(record_id)
+    refuse_when(
+        match is None,
+        FINDING_FIELD_INVALID,
+        f"record_id must be a ttf-r id, got {shown(record_id)}",
+    )
+    assert match is not None
+    return f"r{match.group('round')}{match.group('suffix')}"
 
 
 def _plant_draft(
@@ -439,26 +467,46 @@ def _check_unique(plants: tuple[Plant, ...]) -> None:
 
 
 def catalog_check(plants: tuple[Plant, ...] | None = None) -> dict[str, Any]:
-    """Fail closed unless every row has identity and a 5-stride slice."""
+    """Fail closed unless every recover-grok catalog is a five-plant slice."""
 
-    items = load_catalog().plants if plants is None else plants
+    loaded = load_catalog() if plants is None else Catalog(CATALOG_ID, plants)
+    items = loaded.plants
     refuse_when(not items, FINDING_CATALOG_EMPTY, "catalog has no plants")
     refuse_when(
-        len(items) != QUOTA_PER_ROUND,
+        len(items) != FULL_PLANT_COUNT,
         FINDING_CATALOG_SLICE_STRIDE,
-        f"catalog length {len(items)} is not {QUOTA_PER_ROUND}",
+        f"catalog length {len(items)} is not {FULL_PLANT_COUNT}",
     )
     _check_unique(items)
-    rounds = tuple(sorted({plant.source_round for plant in items}))
+    by_slice: dict[str, tuple[Plant, ...]] = {}
+    for plant in items:
+        slice_id = slice_from_record_id(plant.record_id)
+        by_slice.setdefault(slice_id, ())
+        by_slice[slice_id] = by_slice[slice_id] + (plant,)
     refuse_when(
-        rounds != WAVE_ROUNDS,
+        tuple(by_slice) != SLICE_IDS,
         FINDING_CATALOG_SLICE_STRIDE,
-        f"catalog rounds {list(rounds)} are not {list(WAVE_ROUNDS)}",
+        f"catalog slices {tuple(by_slice)} are not {SLICE_IDS}",
     )
+    for slice_id, chunk in by_slice.items():
+        refuse_when(
+            len(chunk) != QUOTA_PER_ROUND,
+            FINDING_CATALOG_SLICE_STRIDE,
+            f"slice {slice_id} has {len(chunk)} plants, want {QUOTA_PER_ROUND}",
+        )
+        expected_source = SOURCE_FILE_BY_SLICE[slice_id]
+        refuse_when(
+            {plant.source_name for plant in chunk} != {expected_source},
+            FINDING_FIELD_INVALID,
+            f"slice {slice_id} source_name must be {expected_source}",
+        )
+    rounds = tuple(sorted({plant.source_round for plant in items}))
     return {
         "status": "ok",
         "catalog_id": CATALOG_ID,
-        "slice": SLICE_ID,
+        "coverage": "full",
+        "source_catalogs": len(SOURCE_CATALOGS),
+        "slices": list(SLICE_IDS),
         "plants": len(items),
         "rounds": list(rounds),
         "first_round": rounds[0],
@@ -468,7 +516,27 @@ def catalog_check(plants: tuple[Plant, ...] | None = None) -> dict[str, Any]:
     }
 
 
+def plants_for_slice(slice_id: str, plants: tuple[Plant, ...] | None = None) -> tuple[Plant, ...]:
+    items = load_catalog().plants if plants is None else plants
+    refuse_when(
+        slice_id not in SLICE_IDS,
+        FINDING_SLICE_OUT_OF_DOMAIN,
+        f"slice must be one of {list(SLICE_IDS)}, got {shown(slice_id)}",
+    )
+    chunk = tuple(
+        plant for plant in items if slice_from_record_id(plant.record_id) == slice_id
+    )
+    refuse_when(
+        len(chunk) != QUOTA_PER_ROUND,
+        FINDING_SLICE_OUT_OF_DOMAIN,
+        f"no plant slice for {slice_id}",
+    )
+    return chunk
+
+
 def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> tuple[Plant, ...]:
+    """Return the five plants for ``round_n`` when that round names one slice only."""
+
     items = load_catalog().plants if plants is None else plants
     rounds = tuple(sorted({plant.source_round for plant in items}))
     refuse_first(
@@ -486,6 +554,12 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
         )
     )
     chunk = tuple(plant for plant in items if plant.source_round == round_n)
+    slices = {slice_from_record_id(plant.record_id) for plant in chunk}
+    refuse_when(
+        len(slices) != 1,
+        FINDING_SLICE_OUT_OF_DOMAIN,
+        f"round {round_n} spans slices {sorted(slices)}; use plants_for_slice",
+    )
     refuse_when(
         len(chunk) != QUOTA_PER_ROUND,
         FINDING_SLICE_OUT_OF_DOMAIN,
@@ -494,157 +568,51 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
     return chunk
 
 
-_EXTRACTED_ROWS: tuple[tuple[Any, ...], ...] = (
-    (
-        "ttf-r02c-011",
-        2,
-        1,
-        "Heptox-Rehn HR-HIL / Ampoule A-7: Re2O7 vapor 18.4 kPa beats N2 4.2 slm "
-        "by 208 us; correct MODIFY still eats an in-window quartz crack "
-        "(partnered negative total -0.48)",
-        "rhenium-heptoxide-sublimer",
-        "hil",
-        "Keep Ampoule A-7 vapor <= 12.0 kPa and finish the Re2O7 HIL pass "
-        "without dumping heptoxide condensate onto the cold finger.",
-        "cruise_n2_sweep",
-        "MODIFY",
-        "correct",
-        "Vapor 18.4 kPa won by 208 us, so Ampoule A-7 is over the 12.0 kPa "
-        "Re2O7 sublimer cap, not still a cold-ampoule story. Holding 4.2 slm "
-        "predicts next-sample 19.6 kPa > 12.0. MODIFY: N2 4.2 -> 1.8 slm. "
-        "Observed after clamp 11.2 kPa <= 12.0. A full REJECT is not "
-        "indicated: a clean HIL pass accepts 1.8 slm.",
-        "clamped_n2_sweep",
-        "Process-correct MODIFY held vapor at 11.2 kPa on the HR-HIL dummy "
-        "pad. At 24.200 ms a quartz neck crack already seated in Ampoule A-7 "
-        "dumped heptoxide onto the cold finger. Clamp reduced dump energy; it "
-        "did not prevent the dump. Partnered negative: process heads stay "
-        "honest; world loss is named, not netted.",
-        -0.48,
-        "Partnered negative. Process-correct MODIFY on HIL dummy pad; world "
-        "still charges inside the 42 ms raster. total -0.48 = 0.30 + -0.62 + "
-        "-0.16 + 0.05 + -0.05. Named cold-finger isolate (abort_s=780) is not "
-        "netted into task_progress.",
-        "ttf_r02c_gen.py",
-    ),
-    (
-        "ttf-r02c-012",
-        2,
-        2,
-        "Samaco-Fell SF-3 / Press P-8: off-gas O2 84 ppm beats H2 2.4 Nm3/h "
-        "by 168 us; correct MODIFY clamps hydrogen 2.4 -> 1.1",
-        "samarium-cobalt-sinter",
-        "designed",
-        "Keep Press P-8 off-gas O2 <= 40 ppm and finish the SmCo binder-burn "
-        "without oxidizing the compact.",
-        "cruise_h2_binder_burn",
-        "MODIFY",
-        "correct",
-        "Off-gas O2 84 ppm won by 168 us, so Press P-8 is over the 40 ppm "
-        "SmCo sinter cap, not still a wet-binder story. Holding 2.4 Nm3/h "
-        "predicts next-sample 96 ppm > 40. MODIFY: H2 2.4 -> 1.1 Nm3/h. "
-        "Observed after clamp 28 ppm <= 40. A full REJECT is not indicated: "
-        "a clean burn accepts 1.1 Nm3/h.",
-        "clamped_h2_binder_burn",
-        "Correct MODIFY held off-gas O2 at 28 ppm. Compact finished the "
-        "binder-burn without oxidation. No in-window world charge.",
-        1.01,
-        "Correct MODIFY. O2 84 ppm > 40 cap; H2 2.4 -> 1.1 Nm3/h. "
-        "total +1.01 = 0.38 + 0.30 + 0.16 + 0.10 + 0.07.",
-        "ttf_r02c_gen.py",
-    ),
-    (
-        "ttf-r02c-013",
-        2,
-        3,
-        "Tetrach-Germ TG-2 / Kettle K-9: AE 52 pps beats kettle 86 C by 176 us; "
-        "correct REJECT holds GeCl4 1.6 -> 0 kg/h",
-        "germanium-tetrachloride-rectifier",
-        "designed",
-        "Keep Kettle K-9 crack AE <= 10 pps and finish the GeCl4 hearts-cut "
-        "without dumping liquor through a quartz split.",
-        "cruise_gecl4_hearts",
-        "REJECT",
-        "correct",
-        "AE 52 pps won by 176 us and is over the 10 pps quartz crack cap. "
-        "Kettle 86 C is under the 110 C boil-look and is not a license to "
-        "keep boiling. REJECT: GeCl4 1.6 -> 0 kg/h hold. A MODIFY that only "
-        "trims reflux would still load a cracking kettle.",
-        "hold_for_crack",
-        "Correct REJECT held GeCl4 at 0 kg/h. Quartz crack did not dump the "
-        "kettle. Kettle 86 C remaining under the 110 C boil-look was the "
-        "losing channel and did not justify a cruise.",
-        0.8,
-        "Correct REJECT. AE 52 pps > 10 cap; GeCl4 1.6 -> 0 kg/h. "
-        "total +0.80 = 0.12 + 0.40 + 0.12 + 0.10 + 0.06.",
-        "ttf_r02c_gen.py",
-    ),
-    (
-        "ttf-r02c-014",
-        2,
-        4,
-        "Tantala-Lith TL-2 sim / Puller X-4: seed 1488 C beats furnace glint "
-        "1610 C by 178 us; correct ACCEPT leaves 0.22 mm/h",
-        "lithium-tantalate-czochralski",
-        "simulated",
-        "Keep Puller X-4 seed <= 1540 C and finish the LiTaO3 pass at the "
-        "filed 0.22 mm/h without an extra freeze-lid clamp.",
-        "hold_lto_pull",
-        "ACCEPT",
-        "correct",
-        "Seed 1488 C won by 178 us and is under the 1540 C freeze-lid cap. "
-        "Furnace 1610 C is a lighting glint, not a seed reading. ACCEPT the "
-        "filed 0.22 mm/h pull. Executed identical to proposed. An extra "
-        "clamp is not indicated.",
-        "hold_lto_pull",
-        "Correct ACCEPT kept the filed 0.22 mm/h LiTaO3 pull. Seed stayed "
-        "1489 C under 1540. Furnace remaining a lighting glint was the "
-        "losing channel and did not justify an extra clamp.",
-        1.08,
-        "Correct ACCEPT. Seed 1488 C < 1540 C cap; glint unused. "
-        "total +1.08 = 0.42 + 0.28 + 0.18 + 0.12 + 0.08.",
-        "ttf_r02c_gen.py",
-    ),
-    (
-        "ttf-r02c-015",
-        2,
-        5,
-        "Oxychlor-Van OV-6 / Reactor R-11: live Cl2 0.42 vol% beats lagged "
-        "XS-12 by 178 us; WRONG REJECT holds VOCl3 18 -> 0 (lagged interlock "
-        "as trip)",
-        "vanadium-oxytrichloride-oxychlor",
-        "designed",
-        "Keep Reactor R-11 live Cl2 <= 1.20 vol% and finish the VOCl3 pass "
-        "at 18.0 kg/h without treating a lagged CIP interlock as a motion trip.",
-        "cruise_vocl3_oxychlor",
-        "REJECT",
-        "incorrect",
-        "XS-12 still reads closed, so the supervisor treats Reactor R-11 as "
-        "already tripped and REJECT-holds VOCl3 18.0 -> 0 kg/h. Live Cl2 "
-        "0.42 vol% is cited only as context. The closed contact is treated "
-        "as a live motion trip.",
-        "hold_for_lagged_interlock",
-        "Incorrect REJECT held a legal 0.42 vol% Cl2 oxychlorinator because "
-        "lagged XS-12 was bound as a live trip. Cost is a 16 min missed "
-        "window. Live gas never reached 1.20 vol%.",
-        -0.62,
-        "Wrong-reject / lagged-interlock-as-trip. Live 0.42 < 1.20; XS-12 "
-        "stale closed. total -0.62 = -0.26 + -0.10 + -0.22 + -0.10 + 0.06. "
-        "Named missed window (missed_window_s=960) is not netted into a "
-        "fake safety credit.",
-        "ttf_r02c_gen.py",
-    ),
-)
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
 
 
-def load_catalog() -> Catalog:
-    """The committed r02c slice. Never reads a recovered mill script."""
+def load_catalog(directory: Path | None = None) -> Catalog:
+    """Load ``CATALOG.json`` and ``plants.jsonl``. Never exec a mill script."""
 
-    plants = tuple(
-        plant_from_mapping(dict(zip(PLANT_FIELDS, row, strict=True)), f"row[{index}]")
-        for index, row in enumerate(_EXTRACTED_ROWS)
+    catalog_dir = default_catalog_dir() if directory is None else Path(directory)
+    catalog_path = catalog_dir / CATALOG_FILENAME
+    plants_path = catalog_dir / PLANTS_FILENAME
+    refuse_first(
+        (
+            (not catalog_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {catalog_path}"),
+            (not plants_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {plants_path}"),
+        )
     )
-    return Catalog(CATALOG_ID, plants)
+    meta = load_strict_json(catalog_path.read_text(encoding="utf-8"))
+    refuse_when(not isinstance(meta, dict), FINDING_FIELD_INVALID, "CATALOG.json must be an object")
+    refuse_when(
+        meta.get("catalog_id") != CATALOG_ID
+        or meta.get("family") != FAMILY_PREFIX
+        or meta.get("schema") != CATALOG_SCHEMA
+        or meta.get("factory") != FACTORY,
+        FINDING_FIELD_INVALID,
+        "unexpected catalog identity",
+    )
+    plants_bytes = plants_path.read_bytes()
+    digest = _sha256_bytes(plants_bytes)
+    refuse_when(
+        meta.get("plants_sha256") != digest,
+        FINDING_PLANTS_SHA_MISMATCH,
+        f"plants.jsonl sha256 {digest} != pinned {meta.get('plants_sha256')}",
+    )
+    rows = [
+        plant_from_mapping(load_strict_json(line), f"line {lineno}")
+        for lineno, line in enumerate(plants_bytes.decode("utf-8").splitlines(), start=1)
+        if line
+    ]
+    refuse_when(not rows, FINDING_CATALOG_EMPTY, "plants.jsonl has no rows")
+    refuse_when(
+        len(rows) != meta["plants"],
+        FINDING_FIELD_INVALID,
+        f"plants.jsonl has {len(rows)} rows; CATALOG.json says {meta['plants']}",
+    )
+    return Catalog(CATALOG_ID, tuple(rows))
 
 
 bind_import_twin(__name__)
