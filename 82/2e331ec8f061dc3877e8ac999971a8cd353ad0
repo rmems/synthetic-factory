@@ -1,0 +1,26 @@
+pipelines/crp/r995.py
+  s_c32856a048afeb::t_72d71454b3de48 49
+tests/test_crp_r995.py
+  s_c32856a048afeb::t_a97212d52240e2 66,71-72,74,77-79,82-83
+  s_c32856a048afeb::t_d9fe7dd29d2c86 178-186,189
+  s_c32856a048afeb::t_50121ffffb33da 122,124
+  s_c32856a048afeb::t_af68c91eee5dc6 49
+  s_c32856a048afeb::t_bc7209a2156d57 2
+  s_c32856a048afeb::t_9233d0ef754a1f 199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "822e331ec8f061dc3877e8ac999971a8cd353ad0",
+  "prompts": {},
+  "sessions": {
+    "s_c32856a048afeb": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "2fc79f2d-5a48-4450-a24f-e2ca820abddb",
+        "model": "cursor-grok-4.6-high"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
