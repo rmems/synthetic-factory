@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,7 @@ from .catalog_extract import (
     pairs_jsonl_path,
     plants_jsonl_path,
 )
-from .sources import MILL_SOURCES, catalog_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     CATALOG_SLICE,
@@ -69,16 +69,8 @@ class DprCatalog:
 
 def load_catalog(path: Path | None = None) -> DprCatalog:
     catalog_path = path if path is not None else catalog_json_path()
+    document = _load_header(catalog_path)
     package_dir = catalog_path.parent
-    document = json.loads(catalog_path.read_text(encoding="utf-8"))
-    if document.get("schema") != CATALOG_SCHEMA_ID:
-        raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
-    if document.get("slice") != CATALOG_SLICE:
-        raise ValueError(f"{catalog_path} slice is not {CATALOG_SLICE}")
-    if document.get("preserve_commit") != PRESERVE_COMMIT:
-        raise ValueError(f"{catalog_path} preserve_commit drifted from vocabulary")
-    if document.get("factory") != FACTORY or document.get("generator") != GENERATOR:
-        raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
     plants = _rows_by_mill(_load_jsonl(plants_jsonl_path(package_dir)))
     pairs = _rows_by_mill(_load_jsonl(pairs_jsonl_path(package_dir)))
     mills = {
@@ -100,19 +92,48 @@ def load_catalog(path: Path | None = None) -> DprCatalog:
     return catalog
 
 
+def _load_header(catalog_path: Path) -> dict[str, Any]:
+    document = json.loads(catalog_path.read_text(encoding="utf-8"))
+    _refuse_header_identity(document, catalog_path)
+    return document
+
+
+def _refuse_header_identity(document: Mapping[str, Any], catalog_path: Path) -> None:
+    expected = {
+        "schema": CATALOG_SCHEMA_ID,
+        "slice": CATALOG_SLICE,
+        "preserve_commit": PRESERVE_COMMIT,
+        "factory": FACTORY,
+        "generator": GENERATOR,
+    }
+    for key, value in expected.items():
+        if document.get(key) != value:
+            raise ValueError(f"{catalog_path} {key} drifted from vocabulary")
+
+
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     text = path.read_text(encoding="utf-8")
-    if "\r" in text or (text and not text.endswith("\n")):
+    _refuse_jsonl_framing(path, text)
+    return [
+        _parse_jsonl_row(path, index, line)
+        for index, line in enumerate(text.splitlines(), start=1)
+    ]
+
+
+def _refuse_jsonl_framing(path: Path, text: str) -> None:
+    if "\r" in text:
         raise ValueError(f"{path.name} must be LF-framed jsonl")
-    rows: list[dict[str, Any]] = []
-    for index, line in enumerate(text.splitlines(), start=1):
-        if not line or line[:1].isspace():
-            raise ValueError(f"{path.name}:{index} is not compact jsonl")
-        row = json.loads(line)
-        if not isinstance(row, dict) or not row.get("mill_id"):
-            raise ValueError(f"{path.name}:{index} is missing mill_id")
-        rows.append(row)
-    return rows
+    if text and not text.endswith("\n"):
+        raise ValueError(f"{path.name} must be LF-framed jsonl")
+
+
+def _parse_jsonl_row(path: Path, index: int, line: str) -> dict[str, Any]:
+    if not line or line[:1].isspace():
+        raise ValueError(f"{path.name}:{index} is not compact jsonl")
+    row = json.loads(line)
+    if not isinstance(row, dict) or not row.get("mill_id"):
+        raise ValueError(f"{path.name}:{index} is missing mill_id")
+    return row
 
 
 def _rows_by_mill(rows: list[Mapping[str, Any]]) -> dict[str, tuple[dict[str, Any], ...]]:
@@ -158,8 +179,41 @@ def _expected_committed_pairs(mill: MillCatalog) -> int:
     return 0
 
 
-def _bind_sources(catalog: DprCatalog) -> None:
-    expected = {source.mill_id: source for source in catalog_sources()}
+def _refuse_end_slugs(mill: MillCatalog, rows: Sequence[Mapping[str, Any]]) -> None:
+    if rows[0]["slug"] != mill.first_slug:
+        raise ValueError(f"{mill.mill_id} first committed row drifted from header")
+    if rows[-1]["slug"] != mill.last_slug:
+        raise ValueError(f"{mill.mill_id} last committed row drifted from header")
+
+
+def _bind_plants(mill: MillCatalog) -> None:
+    if mill.n_rows != len(mill.plants):
+        raise ValueError(f"{mill.mill_id} leftover plants are not fully committed")
+    _refuse_end_slugs(mill, mill.plants)
+
+
+def _bind_pairs(mill: MillCatalog) -> None:
+    expected_pairs = _expected_committed_pairs(mill)
+    if len(mill.pairs) != expected_pairs:
+        raise ValueError(
+            f"{mill.mill_id} committed {len(mill.pairs)} pairs, expected {expected_pairs}"
+        )
+    if mill.pairs:
+        _refuse_end_slugs(mill, mill.pairs)
+
+
+def _bind_one_mill(mill: MillCatalog, source: MillSource) -> None:
+    if mill.path != source.path or mill.blob_sha != source.blob_sha:
+        raise ValueError(f"{mill.mill_id} pin disagrees with sources.py")
+    if mill.kind != source.kind:
+        raise ValueError(f"{mill.mill_id} kind disagrees with sources.py")
+    if mill.kind == KIND_PLANTS:
+        _bind_plants(mill)
+        return
+    _bind_pairs(mill)
+
+
+def _refuse_source_set(catalog: DprCatalog, expected: Mapping[str, MillSource]) -> None:
     if set(catalog.mills) != set(expected):
         raise ValueError(
             "catalog mills drifted from sources: "
@@ -168,34 +222,17 @@ def _bind_sources(catalog: DprCatalog) -> None:
         )
     if len(MILL_SOURCES) != 39:
         raise ValueError(f"expected 39 DPR sources, found {len(MILL_SOURCES)}")
+
+
+def _bind_sources(catalog: DprCatalog) -> None:
+    expected = {source.mill_id: source for source in catalog_sources()}
+    _refuse_source_set(catalog, expected)
     committed_pairs = 0
     committed_plants = 0
     for mill_id, mill in catalog.mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill.kind != source.kind:
-            raise ValueError(f"{mill_id} kind disagrees with sources.py")
-        if mill.kind == KIND_PLANTS:
-            if mill.n_rows != len(mill.plants):
-                raise ValueError(f"{mill_id} leftover plants are not fully committed")
-            if mill.plants[0]["slug"] != mill.first_slug:
-                raise ValueError(f"{mill_id} first plant drifted from header")
-            if mill.plants[-1]["slug"] != mill.last_slug:
-                raise ValueError(f"{mill_id} last plant drifted from header")
-            committed_plants += len(mill.plants)
-            continue
-        expected_pairs = _expected_committed_pairs(mill)
-        if len(mill.pairs) != expected_pairs:
-            raise ValueError(
-                f"{mill_id} committed {len(mill.pairs)} pairs, expected {expected_pairs}"
-            )
-        if mill.pairs:
-            if mill.pairs[0]["slug"] != mill.first_slug:
-                raise ValueError(f"{mill_id} first committed pair drifted from header")
-            if mill.pairs[-1]["slug"] != mill.last_slug:
-                raise ValueError(f"{mill_id} last committed pair drifted from header")
+        _bind_one_mill(mill, expected[mill_id])
         committed_pairs += len(mill.pairs)
+        committed_plants += len(mill.plants)
     if catalog.committed_pair_rows != committed_pairs:
         raise ValueError("committed_pair_rows does not match pairs.jsonl")
     if catalog.committed_plant_rows != committed_plants:

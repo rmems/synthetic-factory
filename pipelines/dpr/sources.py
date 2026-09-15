@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 from .vocabulary import KIND_GEN, KIND_HOPPER, KIND_LOOP, KIND_PAIRS, KIND_PLANTS
 
+LEFTOVER3_MILL_PATH = "experiments/dpr-mill-leftover3-r2475.py"
+
 
 @dataclass(frozen=True)
 class MillSource:
@@ -33,7 +35,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
     ),
     MillSource(
         "dpr-mill-leftover3-r2475",
-        "experiments/dpr-mill-leftover3-r2475.py",
+        LEFTOVER3_MILL_PATH,
         "2a8145231ffc3003a627cdb6ffc6a91c1bd60c12",
         KIND_PAIRS,
     ),
@@ -144,7 +146,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/dpr-loop-leftover3-r2475.py",
         "52b91ce38171177c13aee88a954ab0987be37f8f",
         KIND_LOOP,
-        "experiments/dpr-mill-leftover3-r2475.py",
+        LEFTOVER3_MILL_PATH,
     ),
     MillSource(
         "dpr-loop-r2631",
@@ -263,7 +265,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/dpr-lrd-hopper-leftover3.py",
         "9aec4dc0c1314697de026bfbfd1038216dfac9d5",
         KIND_HOPPER,
-        "experiments/dpr-mill-leftover3-r2475.py",
+        LEFTOVER3_MILL_PATH,
         "experiments/lrd-mill-leftover3-r67.py",
     ),
     MillSource(
@@ -271,7 +273,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/dpr-lrd-hopper-leftover3b.py",
         "20adc6164c4cde4e4a5c7bbbf20df0a90f2c4643",
         KIND_HOPPER,
-        "experiments/dpr-mill-leftover3-r2475.py",
+        LEFTOVER3_MILL_PATH,
         "experiments/lrd-mill-leftover3b-r75.py",
     ),
     MillSource(
