@@ -96,6 +96,8 @@ NEW_SPLIT_MODULES = (
     "curate_gate_records",
     "curate_gate_bindings",
     "curate_gate_identity_gate",
+    "curate_gate_identity_mapping",
+    "curate_gate_review",
     "curate_gate_lanes",
     "curate_gate_compose",
     "curate_identity",
