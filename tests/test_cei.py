@@ -26,11 +26,18 @@ from cei._contract import (  # noqa: E402
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
+    FINDING_LEFTOVER3_EXEC,
+    FINDING_LOOP_REFUSED,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FINDING_USAGE,
     GENERATOR,
+    LEFTOVER3_MILL_ID,
+    LEFTOVER3_PATH,
+    LEFTOVER3_ROUND,
+    LEFTOVER3_SHAPE,
     MILL_PREFIX,
+    SHAPE_OK_BAD,
     SOURCE_COMMIT,
     SOURCE_MILL_ID,
     SOURCE_PATH,
@@ -81,6 +88,75 @@ EXPECTED_OK_SLUGS = (
     "csv-quoting-none-vs-min",
     "xlsx-vml-vs-comment",
 )
+EXPECTED_R48_OK_SLUGS = (
+    "parquet-columnindex-vs-drop",
+    "avro-schema-vs-drop",
+    "hdf5-btree-vs-drop",
+    "stata-strl-vs-drop",
+    "numbers-preview-vs-drop",
+    "fods-styles-vs-drop",
+    "arrow-dict-vs-drop",
+    "csv-sniffer-vs-drop",
+    "parquet-pageindex-vs-drop",
+    "avro-codec-vs-drop",
+    "hdf5-ohdr-vs-drop",
+    "stata-frame-vs-drop",
+    "numbers-thumb-vs-drop",
+    "fods-meta-vs-drop",
+    "arrow-tensor-vs-drop",
+    "csv-utf16le-vs-drop",
+)
+TINY_LEFTOVER3_SOURCE = """
+PAIRS = [
+    (
+        S(
+            "tiny-parquet-vs-drop",
+            "tinypq",
+            "invoices.parquet",
+            "tiny leftover sidecar",
+            "unlink invoices.parquet",
+            "os.unlink(path)",
+            "bind leftover then drop",
+            "test_tiny_not_drop",
+            "https://example.test/a",
+            "https://example.test/b",
+            "tiny leftover survives unlink.",
+            "Bind leftover. Not clone.",
+            "AssertionError: unlinked; leftover remains",
+            "AssertionError: unlink leaves leftover",
+            "Naive unlink, then bind leftover.",
+            "Bind leftover sidecar; do not treat unlink as drop.",
+            "tiny-sidecar-vs-unlink",
+            "tiny leftover stack",
+            "sidecar bound then dropped (success).",
+            "Plan change: Bind leftover. Unlink is not drop.",
+        ),
+        S(
+            "tiny-orc-vs-drop",
+            "tinyor",
+            "invoices.orc",
+            "tiny leftover cache",
+            "unlink invoices.orc",
+            "path.unlink()",
+            "platform leftover reader",
+            "test_tiny_orc_not_drop",
+            "https://example.test/c",
+            "https://example.test/d",
+            "tiny leftover survives unlink.",
+            "Need leftover binder. Handoff TINY-ORC-16.",
+            "AssertionError: unlinked; leftover remains",
+            "AssertionError: unlink cannot drop leftover",
+            "Naive unlink, then hand off leftover.",
+            "Do not treat unlink as drop while leftover remains.",
+            "tiny-leftover-vs-unlink",
+            "tiny leftover cache",
+            "Still leftover after unlink; handoff TINY-ORC-16.",
+            "Plan change: leftover is platform. Handoff TINY-ORC-16.",
+            "TINY-ORC-16",
+        ),
+    )
+]
+"""
 
 TINY_SOURCE = """
 CATALOG_FIRST = 7
@@ -119,25 +195,37 @@ def invoke(argv):
 
 
 class CatalogLoading(unittest.TestCase):
-    def test_committed_catalog_loads_thirty_nine_ast_extracted_pairs(self):
+    def test_committed_catalog_loads_r81_and_r48_ast_extracted_pairs(self):
         loaded = catalog.load_catalog(COMMITTED)
         self.assertEqual(loaded.catalog_id, "cei-pairs-v1")
         self.assertEqual(loaded.factory, FACTORY)
         self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
-        self.assertEqual(len(loaded.plants), 39)
-        self.assertEqual(len(loaded.mills), 1)
-        self.assertEqual([plant.ok.slug for plant in loaded.plants], list(EXPECTED_OK_SLUGS))
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 39)
+        self.assertEqual(len(loaded.plants), 55)
+        self.assertEqual(len(loaded.mills), 2)
+        r81 = [plant for plant in loaded.plants if plant.mill_id == SOURCE_MILL_ID]
+        r48 = [plant for plant in loaded.plants if plant.mill_id == LEFTOVER3_MILL_ID]
+        self.assertEqual(len(r81), 39)
+        self.assertEqual(len(r48), 16)
+        self.assertEqual([plant.ok.slug for plant in r81], list(EXPECTED_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r48], list(EXPECTED_R48_OK_SLUGS))
+        self.assertEqual({plant.shape for plant in r81}, {SHAPE_OK_BAD})
+        self.assertEqual({plant.shape for plant in r48}, {LEFTOVER3_SHAPE})
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 55)
         slugs = [plant.ok.slug for plant in loaded.plants] + [
             plant.bad.slug for plant in loaded.plants
         ]
-        self.assertEqual(len(set(slugs)), 78)
+        self.assertEqual(len(set(slugs)), 110)
         self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
         self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
+        self.assertEqual(loaded.meta["source"]["scripts"], [SOURCE_PATH, LEFTOVER3_PATH])
         self.assertEqual(loaded.mills[0].mill_id, SOURCE_MILL_ID)
         self.assertEqual(loaded.mills[0].base_round, SOURCE_ROUND)
+        self.assertEqual(loaded.mills[1].mill_id, LEFTOVER3_MILL_ID)
+        self.assertEqual(loaded.mills[1].base_round, LEFTOVER3_ROUND)
         self.assertEqual(loaded.plants[0].bad.ticket, "DBF-MEMO-81")
-        self.assertEqual(loaded.plants[-1].ok.slug, "xlsx-vml-vs-comment")
+        self.assertEqual(r81[-1].ok.slug, "xlsx-vml-vs-comment")
+        self.assertEqual(r48[0].bad.ticket, "ORC-BLOOM-16")
+        self.assertEqual(r48[-1].ok.slug, "csv-utf16le-vs-drop")
 
     def test_fixture_catalog_is_one_pair(self):
         loaded = catalog.load_catalog(FIXTURE)
@@ -186,6 +274,38 @@ class AstExtract(unittest.TestCase):
             catalog.plants_from_source(source, mill_id="cei_r0001", source="bad.py")
         self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
 
+    def test_plants_from_source_reads_leftover3_s_calls_and_skips_exec(self):
+        rows = catalog.plants_from_source(
+            TINY_LEFTOVER3_SOURCE, mill_id="cei_r0048", source="tiny_leftover3.py"
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["plant_id"], "cei_r0048:tiny-parquet-vs-drop")
+        self.assertEqual(rows[0]["base_round"], 48)
+        self.assertEqual(rows[0]["shape"], LEFTOVER3_SHAPE)
+        self.assertEqual(rows[0]["ok"]["wrong"], "os.remove(path)")
+        self.assertEqual(rows[0]["bad"]["ticket"], "TINY-ORC-16")
+        self.assertNotIn("exec(", TINY_LEFTOVER3_SOURCE)
+        self.assertNotIn("hop_unreserved", TINY_LEFTOVER3_SOURCE)
+
+    def test_plants_from_source_refuses_hop_loop_and_leftover3_importers(self):
+        with self.assertRaises(CeiRefusal) as caught:
+            catalog.plants_from_source("PAIRS = []\n", mill_id="cei_r81", source="cei-loop-r81.py")
+        self.assertEqual(caught.exception.code, FINDING_LOOP_REFUSED)
+        with self.assertRaises(CeiRefusal) as caught:
+            catalog.plants_from_source(
+                "from cei_r48_mill import S\nPAIRS = []\n",
+                mill_id="cei_r65",
+                source="experiments/cei_r65_leftover3_mill.py",
+            )
+        self.assertEqual(caught.exception.code, FINDING_LEFTOVER3_EXEC)
+        with self.assertRaises(CeiRefusal) as caught:
+            catalog.plants_from_source(
+                "from cei_r48_mill import S, success_ep, fail_ep, notes\nPAIRS = []\n",
+                mill_id="cei_r65",
+                source="experiments/cei_foreign.py",
+            )
+        self.assertEqual(caught.exception.code, FINDING_LEFTOVER3_EXEC)
+
     def test_committed_catalog_matches_legacy_ast(self):
         try:
             text = subprocess.check_output(
@@ -200,14 +320,41 @@ class AstExtract(unittest.TestCase):
             text, mill_id=SOURCE_MILL_ID, source=SOURCE_PATH, base_round=SOURCE_ROUND
         )
         loaded = catalog.load_catalog(COMMITTED)
+        r81 = [plant for plant in loaded.plants if plant.mill_id == SOURCE_MILL_ID]
         self.assertEqual(len(rows), 39)
-        for row, plant in zip(rows, loaded.plants, strict=True):
+        self.assertEqual(len(r81), 39)
+        for row, plant in zip(rows, r81, strict=True):
             self.assertEqual(row["ok"]["slug"], plant.ok.slug)
             self.assertEqual(row["bad"]["slug"], plant.bad.slug)
             self.assertEqual(row["ok"]["stack"], plant.ok.stack)
             self.assertEqual(row["bad"]["ticket"], plant.bad.ticket)
             self.assertEqual(row["ok"]["first_old"], plant.ok.first_old)
             self.assertEqual(row["ok"]["fix_new"], plant.ok.fix_new)
+
+    def test_committed_r48_catalog_matches_legacy_ast(self):
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"origin/legacy-mill-lane:{LEFTOVER3_PATH}"],
+                cwd=REPO,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        self.assertNotIn("exec(", text)
+        rows = catalog.plants_from_source(
+            text, mill_id=LEFTOVER3_MILL_ID, source=LEFTOVER3_PATH, base_round=LEFTOVER3_ROUND
+        )
+        loaded = catalog.load_catalog(COMMITTED)
+        r48 = [plant for plant in loaded.plants if plant.mill_id == LEFTOVER3_MILL_ID]
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(len(r48), 16)
+        for row, plant in zip(rows, r48, strict=True):
+            self.assertEqual(row["ok"]["slug"], plant.ok.slug)
+            self.assertEqual(row["bad"]["slug"], plant.bad.slug)
+            self.assertEqual(row["bad"]["ticket"], plant.bad.ticket)
+            self.assertEqual(row["ok"]["leftover"], plant.ok.leftover)
+            self.assertEqual(row["ok"]["wrong2"], plant.ok.wrong2)
 
     def test_package_tree_has_no_leftover_mill_scripts(self):
         hits = list((PIPELINES / "cei").rglob("*leftover*_mill.py"))
@@ -260,6 +407,37 @@ class GeneratePairs(unittest.TestCase):
         self.assertIn("Novel coverage: 84%", notes)
         self.assertIn(GENERATOR, notes)
         self.assertNotIn("grok-4.6", notes)
+
+    def test_leftover3_pair_is_an_episode_and_not_hosted_grok(self):
+        dest = self.root / "leftover3-out"
+        request = generate.GenerateRequest(
+            COMMITTED, dest, plant_id="cei_r48:parquet-columnindex-vs-drop"
+        )
+        summary = generate.run(request)
+        self.assertEqual(summary["records"], 2)
+        self.assertEqual(summary["pairs"], 1)
+        self.assertEqual(summary["generator"], GENERATOR)
+        lines = (dest / generate.RECORDS_FILENAME).read_text(encoding="utf-8").splitlines()
+        ok, bad = [json.loads(line) for line in lines]
+        self.assertEqual(ok["id"], "cei-r48-parquet-columnindex-vs-drop")
+        self.assertEqual(bad["id"], "cei-r48-orc-bloom-vs-drop")
+        self.assertEqual(classify_kind(ok), "episode")
+        self.assertEqual(classify_kind(bad), "episode")
+        self.assertEqual(mill_prefix(ok), "cei")
+        self.assertTrue(ok["reward"]["success"])
+        self.assertFalse(bad["reward"]["success"])
+        self.assertEqual(len(ok["steps"]), 16)
+        self.assertEqual(len(bad["steps"]), 17)
+        self.assertEqual(ok["meta"]["generator"], GENERATOR)
+        self.assertNotEqual(ok["meta"]["generator"], "grok-4.6")
+        self.assertIn("bind leftover", ok["steps"][12]["observation"])
+        self.assertEqual(bad["meta"]["round"], 48)
+        notes = (dest / generate.NOTES_FILENAME).read_text(encoding="utf-8")
+        self.assertIn("Novel coverage: 84%", notes)
+        self.assertIn("leftover leftover leftover", notes)
+        self.assertIn(GENERATOR, notes)
+        self.assertNotIn("grok-4.6", notes)
+        self.assertNotIn("hop_unreserved", notes)
 
     def test_default_round_is_catalog_first_plus_index(self):
         dest = self.root / "default-round"
