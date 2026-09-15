@@ -17,8 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, boundary_site, envelope, generate, mutate, oc,
-    program, records, refusal, report, rows, smoke_run, verify, vocabulary as cv,
+    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, boundary_site, envelope, executor as ex,
+    generate, mutate, oc, program, records, refusal, report, rows, smoke_run, verify,
+    vocabulary as cv,
 )
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
@@ -26,7 +27,8 @@ from code_repair_test_support import (  # noqa: E402
 # exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
 # for digests on passing rows (Codex on #196, round 3).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-GOLDEN_SHA256 = "1b977de64ba94d655b92fa8d0d06aad56aa15cedd4aa372fe1e1d9ff11b14de0"
+# Re-pinned for unshare+Landlock isolation (#198): fingerprint.isolation and the configuration string.
+GOLDEN_SHA256 = "9634453643e8727006b71bb937db9f4e0ebe2261ee33960b8d9b8cdadcc7e487"
 
 
 def accepting_executor():
@@ -110,6 +112,7 @@ class ContractChecks(unittest.TestCase):
         self.assertEqual(provenance["split_lineage"]["lineage_id"], record["scenario"]["source"]["program_id"])
         self.assertEqual(record["oracle"]["fingerprint"]["python"], "3.14")
         self.assertEqual(len(record["oracle"]["fingerprint"]["harness_sha256"]), 64)
+        self.assertTrue(ex.isolation_applied(record["oracle"]["fingerprint"]["isolation"]))
 
     def test_a_rejected_record_is_stored_as_evidence_and_stays_eligible(self):
         fake = FakeExecutor({

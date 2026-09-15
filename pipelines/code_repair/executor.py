@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Sandboxed execution of one program text: the parent side of the harness protocol.
 
-One ``subprocess.run`` call site, a literal argv over ``sys.executable`` and
-the sibling ``_harness.py``, a fresh temporary working directory per phase, a
-minimal environment (``PYTHONHASHSEED=0`` for stable set and dict reprs), a
-wall-clock timeout, and a strict parse of the child's single JSON report.
-Wall time, exit codes and stderr tails go to a volatile execution log the
-caller writes beside the run; nothing timing-dependent enters a
-:class:`PhaseReport`, so the same program yields the same report bytes.
+One ``subprocess.run`` call site. The argv is the documented ``unshare``
+wrapper (user, mount and network namespaces, private mount propagation) over
+``sys.executable`` and the sibling ``_harness.py``. A fresh temporary working
+directory per phase, a minimal environment (``PYTHONHASHSEED=0`` for stable
+set and dict reprs), a wall-clock timeout, and a strict parse of the child's
+single JSON report. The child then applies a Landlock allowlist; the parent
+refuses with ``SANDBOX_UNAVAILABLE`` when either layer is missing. Wall time,
+exit codes and stderr tails go to a volatile execution log the caller writes
+beside the run; nothing timing-dependent enters a :class:`PhaseReport`, so
+the same program yields the same report bytes.
 """
 
 from __future__ import annotations
@@ -28,12 +31,17 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from . import _sandbox as sandbox
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
 
 HARNESS_FILENAME = "_harness.py"
+SANDBOX_FILENAME = "_sandbox.py"
 HARNESS_PATH = Path(__file__).with_name(HARNESS_FILENAME)
+SANDBOX_PATH = Path(__file__).with_name(SANDBOX_FILENAME)
 INTERPRETER_FLAGS = ("-P", "-s", "-S", "-B", "-X", "utf8")
+UNSHARE_BIN = sandbox.UNSHARE_BIN
+UNSHARE_FLAGS = sandbox.UNSHARE_FLAGS
 CHILD_ENV = {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
 FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
@@ -41,8 +49,9 @@ STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
 
 __all__ = [
-    "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
-    "harness_sha256", "rows_of",
+    "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "SANDBOX_PATH", "UNSHARE_BIN",
+    "UNSHARE_FLAGS", "Executor", "Job", "PhaseReport", "harness_sha256", "isolation_applied",
+    "rows_of",
 ]
 
 
@@ -76,7 +85,11 @@ class PhaseReport:
 
 
 def harness_sha256() -> str:
-    return hashlib.sha256(HARNESS_PATH.read_bytes()).hexdigest()
+    return hashlib.sha256(HARNESS_PATH.read_bytes() + SANDBOX_PATH.read_bytes()).hexdigest()
+
+
+def isolation_applied(token: Any) -> bool:
+    return sandbox.applied(token)
 
 
 def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -152,7 +165,9 @@ class Executor:
         _check_timeout(timeout_s)
         self.timeout_s = float(timeout_s)
         self._harness_bytes = HARNESS_PATH.read_bytes()
-        self.harness_sha256 = hashlib.sha256(self._harness_bytes).hexdigest()
+        self._sandbox_bytes = SANDBOX_PATH.read_bytes()
+        self.harness_sha256 = hashlib.sha256(self._harness_bytes + self._sandbox_bytes).hexdigest()
+        self._isolation_wrapper = sandbox.wrapper_available()
         self.log: list[dict[str, Any]] = []
 
     def spec(self, job: Job) -> dict[str, Any]:
@@ -170,12 +185,22 @@ class Executor:
 
     def run(self, job: Job) -> PhaseReport:
         _utf8_compatible_source(job.module_text)
+        if not self._isolation_wrapper:
+            report = _harness_error(
+                f"{cv.FINDING_SANDBOX_UNAVAILABLE}: unshare namespaces unavailable"
+            )
+            self.log.append({
+                "label": job.label, "timed_out": False, "returncode": None,
+                "status": report.status, "duration_s": 0.0,
+            })
+            return report
         workdir = Path(tempfile.mkdtemp(prefix="code-repair-"))
         try:
             program = workdir / cv.PROGRAM_FILENAME
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
             (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
+            (workdir / SANDBOX_FILENAME).write_bytes(self._sandbox_bytes)
             return replace(self._execute(job, workdir),
                            module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest())
         finally:
@@ -189,9 +214,10 @@ class Executor:
         the factory process.
         """
 
-        # This pilot runs reviewed pinned code only. Resource limits do not isolate host
-        # files, network access, or spawned children; OS isolation remains separate (#201).
-        argv = [sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir)]
+        argv = [
+            UNSHARE_BIN, *UNSHARE_FLAGS,
+            sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir),
+        ]
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
         stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
@@ -246,6 +272,8 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     if isinstance(parsed, str):
         return _harness_error(parsed)
     environment = _object(parsed, "environment")
+    if not isolation_applied(environment.get("isolation")):
+        return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: isolation not applied")
     if environment.get("limits_applied") is not True:
         return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
     load = _object(parsed, "load")

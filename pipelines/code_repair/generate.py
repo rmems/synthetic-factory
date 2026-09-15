@@ -112,8 +112,10 @@ def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
     report = state.executor.run(job)
     cv.refuse_when(
         cv.FINDING_SANDBOX_UNAVAILABLE in report.detail
-        or (report.ok and report.environment.get("limits_applied") is not True),
-        cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required resource limits",
+        or (report.ok and report.environment.get("limits_applied") is not True)
+        or (report.ok and not ex.isolation_applied(report.environment.get("isolation"))),
+        cv.FINDING_SANDBOX_UNAVAILABLE,
+        "the harness cannot apply required resource limits and isolation",
     )
     return report
 

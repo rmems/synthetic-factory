@@ -17,6 +17,7 @@ from code_repair_test_support import (  # noqa: E402
     boundary_site, catalog, executor as ex, mutate, program, refusal, vocabulary as cv,
 )
 from code_repair import _harness as harness  # noqa: E402
+from code_repair import _sandbox as sandbox  # noqa: E402
 
 RUNNER = ex.Executor(timeout_s=5.0)
 
@@ -31,6 +32,7 @@ class OriginalAndMutant(unittest.TestCase):
         self.assertEqual(len(report.public), len(prog.examples))
         self.assertEqual(len(report.hidden), len(prog.cases))
         self.assertTrue(report.environment["limits_applied"])
+        self.assertTrue(ex.isolation_applied(report.environment["isolation"]))
         self.assertEqual(report.environment["implementation"], "cpython")
 
     def test_the_mutant_fails_with_the_real_got_text(self):
@@ -129,7 +131,10 @@ class Failures(unittest.TestCase):
 
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
-        head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
+        head = (
+            '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true, '
+            f'"isolation": "{sandbox.token_for(6)}"}}, "load": {{"status": "ok", "error": null}}, '
+        )
         full = head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
         self.assertTrue(ex._parse_report(job, 0, full.encode()).ok)
         bad = (
@@ -189,6 +194,8 @@ class Isolation(unittest.TestCase):
         self.assertNotIn("shell=", source)
         self.assertNotIn("preexec_fn", source)
         self.assertEqual(ex.INTERPRETER_FLAGS, ("-P", "-s", "-S", "-B", "-X", "utf8"))
+        self.assertEqual(ex.UNSHARE_FLAGS, sandbox.UNSHARE_FLAGS)
+        self.assertEqual(ex.UNSHARE_BIN, "/usr/bin/unshare")
         self.assertEqual(set(ex.CHILD_ENV), {"PYTHONHASHSEED", "PYTHONDONTWRITEBYTECODE"})
 
     def test_the_harness_imports_nothing_from_the_repository(self):
@@ -197,6 +204,10 @@ class Isolation(unittest.TestCase):
             self.assertNotIn(needle, text)
         self.assertIsNone(re.search(r"(?<![\w.])(exec|eval)\(", text))
         self.assertEqual(len(RUNNER.harness_sha256), 64)
+        self.assertTrue(sandbox.wrapper_available())
+        self.assertTrue(sandbox.applied(sandbox.token_for(6)))
+        self.assertFalse(sandbox.applied(""))
+        self.assertFalse(sandbox.applied(sandbox.MECHANISM))
 
     def test_the_timeout_domain_is_refused_with_a_code(self):
         for value in (0, -1, True, "2", 61.0):
@@ -212,6 +223,50 @@ class Isolation(unittest.TestCase):
          {"id": "public:2", "status": "fail", "got": "x", "truncated": False,
           "got_sha256": digest}],
         )
+
+
+class HostIsolation(unittest.TestCase):
+    """Programs under test cannot read the host or open a network socket (#198)."""
+
+    def test_a_program_cannot_read_a_path_outside_the_working_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            secret = Path(root) / "secret"
+            secret.write_text("leaked-secret-value\n", encoding="utf-8")
+            module = f"def f():\n    return open({str(secret)!r}).read()\n"
+            report = RUNNER.run(ex.Job("fs:test", module, "f", ({"args": "()", "want": None},), False))
+        self.assertTrue(report.ok, report.detail)
+        row = report.hidden[0]
+        self.assertEqual(row["status"], "error")
+        self.assertNotIn("leaked-secret-value", str(row.get("got", "")))
+
+    def test_a_program_cannot_open_a_network_socket(self):
+        module = (
+            "import socket\n"
+            "def f():\n"
+            "    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+            "    probe.settimeout(0.2)\n"
+            "    probe.connect(('1.1.1.1', 80))\n"
+            "    return 'connected'\n"
+        )
+        report = RUNNER.run(ex.Job("net:test", module, "f", ({"args": "()", "want": None},), False))
+        self.assertTrue(report.ok, report.detail)
+        row = report.hidden[0]
+        self.assertEqual(row["status"], "error")
+        self.assertNotIn("connected", str(row.get("got", "")))
+
+    def test_unavailable_unshare_is_refused_without_running_the_program(self):
+        with mock.patch.object(sandbox, "wrapper_available", return_value=False):
+            runner = ex.Executor(timeout_s=3)
+            report = runner.run(ex.Job("no-ns:test", "def f():\n    return 1\n", "f",
+                                        ({"args": "()", "want": "1"},), False))
+        self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
+        self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+        self.assertIn("unshare", report.detail)
+
+    def test_the_sandbox_module_imports_nothing_from_the_repository(self):
+        text = ex.SANDBOX_PATH.read_text(encoding="utf-8")
+        for needle in ("from .", "code_repair", "oracle_grounded", "import random"):
+            self.assertNotIn(needle, text)
 
 
 class InProcessHarnessBehavior(unittest.TestCase):

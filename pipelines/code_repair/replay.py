@@ -175,7 +175,10 @@ def _fresh_phases(subject: _Subject, executor: ex.Executor) -> verify.Phases:
 
 def _environment_matches(record: dict, environment: dict) -> bool:
     fingerprint = record["oracle"]["fingerprint"]
-    fresh = {key: environment.get(key) for key in ("implementation", "platform", "limits_applied")}
+    fresh = {
+        key: environment.get(key)
+        for key in ("implementation", "platform", "limits_applied", "isolation")
+    }
     fresh["python"] = ".".join(str(environment.get("python", "")).split(".")[:2])
     return all(fingerprint.get(key) == value for key, value in fresh.items())
 
