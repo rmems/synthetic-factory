@@ -93,7 +93,7 @@ class BrwR212CompactJsonl(unittest.TestCase):
         self.assertTrue(text.endswith("\n"))
         self.assertNotIn("\r", text)
         lines = text.splitlines()
-        self.assertEqual(len(lines), 243)
+        self.assertEqual(len(lines), 1916)
         self.assertEqual(len(lines), catalog.LEFTOVER_PAIR_COUNT)
         r212_lines = lines[: catalog.R212_PAIR_COUNT]
         self.assertEqual(len(r212_lines), 171)
@@ -114,9 +114,9 @@ class BrwR212Header(unittest.TestCase):
         self.assertEqual(header["family"], "brw")
         self.assertEqual(header["factory"], FACTORY)
         self.assertEqual(header["slice"], "full")
-        self.assertEqual(header["n_pair_rows_extracted"], 243)
-        self.assertEqual(header["n_pair_rows_committed"], 243)
-        self.assertEqual(len(header["mills"]), 3)
+        self.assertEqual(header["n_pair_rows_extracted"], 1916)
+        self.assertEqual(header["n_pair_rows_committed"], 1916)
+        self.assertEqual(len(header["mills"]), 20)
         mill = header["mills"][0]
         self.assertEqual(mill["mill_id"], "brw-mill-r212")
         self.assertEqual(mill["source_path"], SOURCE_PATH)
@@ -129,8 +129,8 @@ class BrwR212Header(unittest.TestCase):
         self.assertEqual(mill["catalog_last"], 382)
         self.assertNotIn("brw-mill-r383", header["deferred"])
         self.assertNotIn("brw-mill-r395", header["deferred"])
-        self.assertTrue(any("r395-extra" in item for item in header["deferred"]))
-        self.assertTrue(any("r395-extra6" in item for item in header["deferred"]))
+        self.assertNotIn("brw-mill-r395-extra", str(header["deferred"]))
+        self.assertTrue(any("brw-loop-r395-extra6" in item for item in header["deferred"]))
 
 
 class BrwR212Catalog(unittest.TestCase):

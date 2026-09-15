@@ -76,7 +76,7 @@ class BrwThirdSliceHeader(unittest.TestCase):
     def test_header_pins_r383_and_r395(self):
         header = catalog.LEFTOVER_HEADER
         self.assertEqual(header["source_commit"], SOURCE_REF)
-        self.assertEqual(header["n_pair_rows_committed"], 243)
+        self.assertEqual(header["n_pair_rows_committed"], 1916)
         mills = {mill["mill_id"]: mill for mill in header["mills"]}
         r383 = mills["brw-mill-r383"]
         self.assertEqual(r383["source_path"], R383_PATH)
@@ -136,6 +136,12 @@ class BrwR395Catalog(unittest.TestCase):
             catalog.r395_pair_for_round(394)
         with self.assertRaises(BrwError):
             catalog.r395_pair_for_round(455)
+
+    def test_r395_extra_slice_starts_at_455(self):
+        self.assertEqual(len(catalog.R395_EXTRA_PAIRS), catalog.R395_EXTRA_PAIR_COUNT)
+        first = catalog.R395_EXTRA_PAIRS[0]
+        self.assertEqual(first["ok_place"], "usneacot")
+        self.assertEqual(first["widget"], "padding-inline")
 
 
 class BrwThirdSliceAstExtract(unittest.TestCase):
