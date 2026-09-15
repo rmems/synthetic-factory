@@ -1,0 +1,51 @@
+{
+  "catalog_id": "hopper-ssl-mills-v1",
+  "family": "hopper",
+  "schema": "hopper-ssl-pairs-v1",
+  "factory": "ssl-cert-rotation-factory",
+  "generator": "grok-4.6",
+  "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+  "source_ref": "origin/legacy-mill-lane",
+  "extraction": "AST literals only; ssl-mill-r35/r112/r132 never imported or executed",
+  "slice": "full",
+  "pairs_filename": "pairs.jsonl",
+  "pairs_sha256": "7337db54e9ed847f6008f4e083a7893984cb00cfa20e4185d52f81f80cbb2bd2",
+  "n_pair_rows_extracted": 111,
+  "n_pair_rows_committed": 111,
+  "mills": [
+    {
+      "mill_id": "ssl-mill-r35",
+      "source": "experiments/ssl-mill-r35.py",
+      "source_blob_sha1": "27ee440955bd2cfcd7b86075ba0c91393a91f937",
+      "source_sha256": "42c81dbdcbefcf875d3c416728df27a9973ec4fd2dc7a1f75d8b8bd120765a37",
+      "catalog_first": 35,
+      "n_rows": 71,
+      "first_slug": "rabbitmq-ssl-options-reload",
+      "last_slug": "mesos-ssl-handoff",
+      "shape": "ssl-tuple-pairs-v1"
+    },
+    {
+      "mill_id": "ssl-mill-r112",
+      "source": "experiments/ssl-mill-r112.py",
+      "source_blob_sha1": "9abdc16d549f7a6b42cfab3f9ab7fbab4f31bc64",
+      "source_sha256": "409ceb54b0f808cca2704016ad4c972f4c681c344826c90fbd17bb024ae5c9f0",
+      "catalog_first": 112,
+      "n_rows": 20,
+      "first_slug": "schema-registry-ssl-reload",
+      "last_slug": "trust-manager-configmap-handoff",
+      "shape": "ssl-tuple-pairs-v1"
+    },
+    {
+      "mill_id": "ssl-mill-r132",
+      "source": "experiments/ssl-mill-r132.py",
+      "source_blob_sha1": "1d331b67dcfff571e4ab952504b1169427fcd3e2",
+      "source_sha256": "c59496442df65d3dc20710ec33a6b4fc6e7f5b3909db0c464995bd9585482e7c",
+      "catalog_first": 132,
+      "n_rows": 20,
+      "first_slug": "haproxy-alpn-h2-reload",
+      "last_slug": "softhsm-key-handoff",
+      "shape": "ssl-tuple-pairs-v1"
+    }
+  ],
+  "note": "Gap slice between hopper START ssl 27 and 106. r27/r106 owned by wave-1; qbp r41 banned slugs stay off this extract."
+}
