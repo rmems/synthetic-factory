@@ -22,8 +22,11 @@ carries the project goal, the rights lanes, and the pipeline command reference.
 ## Commands
 
 ```bash
-# Full unit suite (about 2,800 tests, ~70 s) and the operator smoke check; both run in CI
-python3 -m unittest discover -s tests -p 'test_*.py' -q
+# Full unit suite (about 3,700 tests; 15-30 min locally -- the procedural publication/replay
+# coverage churns tens of GB of temp files, and CI budgets 20 min) and the operator smoke
+# check; both run in CI. -b keeps CLI payloads the tests print off the console. Set TMPDIR
+# to a directory with room; /tmp fills.
+python3 -m unittest discover -s tests -p 'test_*.py' -q -b
 python3 .claude/skills/run-synthetic-factory/driver.py smoke
 
 # One module, one class, one test (tests put pipelines/ on sys.path themselves)
@@ -36,7 +39,7 @@ python3 -m unittest discover -s tests -p 'test_rights_*.py'   # one family of mo
 python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 python3 pipelines/census.py tests/fixtures/mini-run   # validate_run.py on this fixture exits nonzero by design
 
-# Lint: ruff is configured in pyproject.toml (py312, line length 100) but not run in CI
+# Lint: ruff is configured in pyproject.toml (py314, line length 100) but not run in CI
 ruff check pipelines tests
 
 # Operator audits on a run tree (read-only)
@@ -51,12 +54,11 @@ python3 scripts/publish_grok46_hub.py schemas            # --strict exits nonzer
 python3 pipelines/verify_hf_release.py [--repo rmems/<dataset>]
 ```
 
-CI runs the unit suite with branch coverage on Python 3.14 (`pyproject.toml`
-still says `>=3.12`), the smoke check, Qodana (`qodana.yaml` documents the
-deliberate inspection exclusions), and a scheduled, path-filtered Hub release
-verification. CodeScene, Codacy, qlty (`.qlty/qlty.toml`, `smells.mode =
-"block"`) and Codecov review every PR; the owner wants findings fixed by
-refactoring, not suppressed.
+CI runs the unit suite with branch coverage on Python 3.14, the smoke check,
+Qodana (`qodana.yaml` documents the deliberate inspection exclusions), and a
+scheduled, path-filtered Hub release verification. CodeScene, Codacy, qlty
+(`.qlty/qlty.toml`, `smells.mode = "block"`) and Codecov review every PR; the
+owner wants findings fixed by refactoring, not suppressed.
 
 ## Architecture
 
@@ -169,7 +171,7 @@ if __package__:
 `pipelines/__init__.py` binds the direct-name and package-name copies to one
 module object so classes such as the exact-JSON decimal token keep one
 identity. Copy the prelude from a sibling when adding a module; a package child
-that others import both ways also needs a loader in `_PACKAGE_SIBLING_LOADERS`.
+that others import both ways also needs its name in `_PACKAGE_SIBLING_NAMES`.
 Fourteen older modules are direct-execution only because they import siblings
 by bare name (`next_round`, `quality_gate_audit`, `quality_gate_embedding`,
 `card_schema`, `card_schema_validate`, `card_schema_yaml`, `tag_io`,

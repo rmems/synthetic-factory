@@ -1,0 +1,31 @@
+{
+  "schema_id": "mill-usage-burst-plan/v1",
+  "family_prefix": "cer",
+  "factory": "cascading-error-recovery-factory",
+  "slice": "A",
+  "label": "cer cascading-error-recovery",
+  "run_label": "2026-08-19-agentic",
+  "quota_per_round": 2,
+  "mills": [
+    {
+      "id": "cer_r1901",
+      "plants_module": "cer.plants_r1901",
+      "start_round": 1901,
+      "n_rounds": 16,
+      "pair_count": 16
+    },
+    {
+      "id": "cer_r1958",
+      "plants_module": "cer.plants_r1958",
+      "start_round": 1966,
+      "n_rounds": 16,
+      "pair_count": 16
+    }
+  ],
+  "totals": {
+    "mills": 2,
+    "rounds": 32,
+    "pairs": 32,
+    "episodes": 64
+  }
+}

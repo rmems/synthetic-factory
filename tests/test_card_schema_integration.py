@@ -84,11 +84,13 @@ class PublisherIntegrationTests(unittest.TestCase):
                 payload = {**MINIMAL, "dataset": LONG_HORIZON}
                 payload.update(overrides)
                 write_declaration(root, LONG_HORIZON, payload)
-                with mock.patch.object(card_schema, "SCHEMA_ROOT", root):
-                    with self.assertRaisesRegex(
+                with (
+                    mock.patch.object(card_schema, "SCHEMA_ROOT", root),
+                    self.assertRaisesRegex(
                         SystemExit, "cannot render card schema"
-                    ):
-                        publisher.cmd_schemas()
+                    ),
+                ):
+                    publisher.cmd_schemas()
 
     def test_a_broken_declaration_fails_the_card_instead_of_degrading_it(self):
         item = {
@@ -101,18 +103,20 @@ class PublisherIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "card-schemas"
             write_declaration(root, LONG_HORIZON, {**MINIMAL, "dataset": LONG_HORIZON, "note": ""})
-            with mock.patch.object(card_schema, "SCHEMA_ROOT", root):
-                with self.assertRaisesRegex(SystemExit, "non-empty 'note'"):
-                    publisher.render_card(
-                        item,
-                        summary=publisher.PayloadSummary(
-                            records=2,
-                            bytes_=10,
-                            first="r01",
-                            last="r02",
-                            names=["batch-r01.jsonl"],
-                        ),
-                    )
+            with (
+                mock.patch.object(card_schema, "SCHEMA_ROOT", root),
+                self.assertRaisesRegex(SystemExit, "non-empty 'note'"),
+            ):
+                publisher.render_card(
+                    item,
+                    summary=publisher.PayloadSummary(
+                        records=2,
+                        bytes_=10,
+                        first="r01",
+                        last="r02",
+                        names=["batch-r01.jsonl"],
+                    ),
+                )
 
     def test_render_card_refuses_a_declaration_that_misses_a_payload(self):
         item = {

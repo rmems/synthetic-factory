@@ -43,18 +43,30 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
+    from .operator_paths import operator_path
+    from . import round_txn_agentic as _round_txn_agentic
+    from . import round_txn_agentic_terms as _round_txn_agentic_terms
+    from . import round_txn_coverage as _round_txn_coverage
     from . import round_txn_raster as _round_txn_raster
     from . import round_txn_stage as _stage_checks
-    from .validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
+    from operator_paths import operator_path
+    import round_txn_agentic as _round_txn_agentic
+    import round_txn_agentic_terms as _round_txn_agentic_terms
+    import round_txn_coverage as _round_txn_coverage
     import round_txn_raster as _round_txn_raster
     import round_txn_stage as _stage_checks
-    from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees
 
 # Compatibility exports retained after the raster contract moved to its own
 # module. These explicit assignments are intentional API, not unused imports.
@@ -69,6 +81,19 @@ _raster_contract_errors = _round_txn_raster.raster_contract_errors
 _validate_distillation_record = _round_txn_raster.validate_distillation_record
 enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
 validate_bridge_envelope = _round_txn_raster.validate_bridge_envelope
+abandoned_failed_hypotheses = _round_txn_coverage.abandoned_failed_hypotheses
+banned_agentic_wrapper_paths = _round_txn_coverage.banned_agentic_wrapper_paths
+contiguous_step_number_errors = _round_txn_coverage.contiguous_step_number_errors
+demonstrates_ordered_scenario = _round_txn_coverage.demonstrates_ordered_scenario
+has_long_horizon_debug_loop = _round_txn_coverage.has_long_horizon_debug_loop
+long_horizon_scenario_signature = _round_txn_coverage.long_horizon_scenario_signature
+nested_key_paths = _round_txn_coverage.nested_key_paths
+nested_strings = _round_txn_coverage.nested_strings
+normalized_category = _round_txn_coverage.normalized_category
+numbered_horizon_errors = _round_txn_coverage.numbered_horizon_errors
+shares_visible_terms = _round_txn_coverage.shares_visible_terms
+sparse_step_progress_errors = _round_txn_coverage.sparse_step_progress_errors
+visibly_names_fault = _round_txn_coverage.visibly_names_fault
 
 MODE_FILE = ".round-marker-mode.json"
 PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
@@ -162,171 +187,7 @@ AGENTIC_FACTORY_KINDS.update(
         "safety-calibration-factory": "safety_case",
     }
 )
-RESTART_LANE_SCENARIO_TERMS = {
-    "eval-harness-trajectory-factory": (
-        ("eval", "deepeval", "pytest"),
-        ("harness", "judge", "scorer", "fixture"),
-        ("fail", "drift", "mismatch", "error"),
-        ("repair", "fix", "correct"),
-        ("verify", "valid", "pass"),
-    ),
-    "incident-response-oncall-factory": (
-        ("incident", "on-call", "oncall", "outage"),
-        ("root cause", "rca", "red herring"),
-        ("mitigat", "rollback", "repair", "fix"),
-        ("verify", "recover", "healthy", "resolved"),
-    ),
-    "data-pipeline-repair-factory": (
-        ("pipeline", "etl", "data"),
-        ("schema drift", "late data", "schema", "late"),
-        ("repair", "backfill", "fix"),
-        ("verify", "reconcile", "valid", "pass"),
-    ),
-    "git-ops-recovery-factory": (
-        ("git", "rebase", "detached head", "ci"),
-        ("conflict", "detached", "failure", "broken"),
-        ("recover", "repair", "rebase", "fix"),
-        ("verify", "clean", "pass", "commit"),
-    ),
-    "browser-tool-use-factory": (
-        ("browser", "selector", "dom", "page"),
-        ("selector fail", "stale", "not found", "timeout"),
-        ("retry", "repair", "fallback", "fix"),
-        ("verify", "loaded", "found", "pass"),
-    ),
-    "rag-retrieval-debug-factory": (
-        ("rag", "retrieval", "chunk", "citation"),
-        ("wrong chunk", "citation miss", "irrelevant", "missed"),
-        ("rerank", "repair", "query", "fix"),
-        ("verify", "ground", "relevant", "citation"),
-    ),
-    "code-review-preference-factory": (
-        ("review", "patch", "diff"),
-        ("bug", "defect", "risk", "incorrect"),
-        ("prefer", "better", "reject", "critique"),
-        ("verify", "test", "correct", "safe"),
-    ),
-    "infra-as-code-factory": (
-        ("terraform", "kubernetes", "k8s", "infrastructure"),
-        ("misconfig", "drift", "plan", "policy"),
-        ("repair", "fix", "correct"),
-        ("verify", "validate", "plan", "pass"),
-    ),
-    "api-contract-migration-factory": (
-        ("openapi", "api", "contract"),
-        ("drift", "breaking", "incompatib", "schema"),
-        ("migrat", "repair", "compatib", "fix"),
-        ("verify", "validate", "pass", "compatible"),
-    ),
-    "observability-debug-factory": (
-        ("trace", "metric", "observability", "telemetry"),
-        ("lie", "mislead", "incorrect", "mismatch"),
-        ("diagnos", "repair", "fix", "correct"),
-        ("verify", "correlat", "valid", "pass"),
-    ),
-    "package-release-factory": (
-        ("package", "release", "artifact", "version"),
-        ("manifest", "attestation", "provenance"),
-        ("repair", "fix", "correct"),
-        ("verify", "valid", "pass"),
-    ),
-    "flaky-test-quarantine-factory": (
-        ("flaky", "nondeterministic", "intermittent"),
-        ("trigger", "seed", "timing", "repro"),
-        ("quarantine", "repair", "fix"),
-        ("verify", "stable", "repeat", "pass"),
-    ),
-    "db-migration-repair-factory": (
-        ("migration", "backfill", "schema"),
-        ("ordering", "compatib", "rollback", "preflight"),
-        ("repair", "fix", "additive"),
-        ("post-migration", "verify", "check", "pass"),
-    ),
-    "sandbox-refusal-factory": (
-        ("sandbox", "escape", "secret", "credential", "unsafe"),
-        ("refus", "deny", "prohibit"),
-        ("safe alternative", "redacted alternative", "bounded alternative"),
-        ("policy", "blocked", "outcome"),
-    ),
-    "monorepo-dep-bump-factory": (
-        ("workspace", "monorepo", "dependency"),
-        ("lockfile", "peer", "build graph", "build-graph"),
-        ("repair", "compatible", "pin", "bump"),
-        ("verify", "build", "pass"),
-    ),
-    "mcp-tool-schema-drift-factory": (
-        ("mcp", "tools/list", "tool schema"),
-        ("mismatch", "incompatib", "field", "version"),
-        ("request", "repair", "correct"),
-        ("verify", "valid", "success"),
-    ),
-    "llm-eval-flakiness-factory": (
-        ("judge", "rubric", "scorer", "seed"),
-        ("flaky", "instability", "varying", "nondeterministic"),
-        ("stabil", "pin", "aggregate"),
-        ("verify", "stable", "repeat"),
-    ),
-    "k8s-crashloop-factory": (
-        ("crashloop", "kubernetes", "k8s"),
-        ("config", "probe", "image", "dependency", "logs", "status"),
-        ("repair", "fix", "rollout"),
-        ("verify", "recover", "ready", "criterion"),
-    ),
-    "proto-breaking-change-factory": (
-        ("protobuf", "proto", "wire"),
-        ("tag", "field", "semantic", "incompatib"),
-        ("additive", "migration", "reserve"),
-        ("verify", "compatible", "check"),
-    ),
-    "docker-build-cache-factory": (
-        ("docker", "buildkit", "layer"),
-        ("cache", "stale", "invalidation", "key"),
-        ("rebuild", "repair", "no-cache"),
-        ("verify", "artifact", "input"),
-    ),
-    "authz-regression-factory": (
-        ("authorization", "authz", "idor", "bfla"),
-        ("denied", "allowed", "boundary", "privilege"),
-        ("repair", "policy", "fix"),
-        ("verify", "test", "confirmed"),
-    ),
-    "agent-memory-compaction-factory": (
-        ("memory", "compaction"),
-        ("stale", "lost", "evict", "retain"),
-        ("keep", "evict", "retained"),
-        ("verify", "relevant", "task state"),
-    ),
-    "prompt-cache-invalidation-factory": (
-        ("prompt", "cache", "prefix"),
-        ("schema", "tool", "change", "key"),
-        ("invalidate", "recompute"),
-        ("verify", "fresh", "updated"),
-    ),
-    "notebook-to-pipeline-factory": (
-        ("notebook", "pipeline"),
-        ("schema", "input", "operational"),
-        ("preserve", "reproducible", "transform"),
-        ("verify", "output", "repeat"),
-    ),
-    "secret-scan-remediation-factory": (
-        ("secret", "credential", "scan"),
-        ("false-positive", "detected", "pattern"),
-        ("redact", "rotate", "allowlist"),
-        ("verify", "scan", "clean"),
-    ),
-    "cache-stampede-factory": (
-        ("cache", "stampede", "miss"),
-        ("concurrent", "contention", "overload"),
-        ("singleflight", "lock", "backoff"),
-        ("verify", "bounded", "load"),
-    ),
-    "distributed-lock-factory": (
-        ("lease", "fencing", "split-brain", "lock"),
-        ("expiry", "stale", "ownership", "token"),
-        ("repair", "fence", "renew"),
-        ("verify", "cannot commit", "reject"),
-    ),
-}
+RESTART_LANE_SCENARIO_TERMS = _round_txn_agentic_terms.RESTART_LANE_SCENARIO_TERMS
 NOVEL_COVERAGE_LABEL_RE = re.compile(
     r"^[ \t]*novel[ _-]?coverage\b",
     re.IGNORECASE,
@@ -388,21 +249,6 @@ if __package__:
         validate_completed_execution_verification,
         validated_execution_verification_summary,
     )
-    from .round_txn_coverage import (
-        abandoned_failed_hypotheses,
-        banned_agentic_wrapper_paths,
-        contiguous_step_number_errors,
-        demonstrates_ordered_scenario,
-        has_long_horizon_debug_loop,
-        long_horizon_scenario_signature,
-        nested_key_paths,
-        nested_strings,
-        normalized_category,
-        numbered_horizon_errors,
-        shares_visible_terms,
-        sparse_step_progress_errors,
-        visibly_names_fault,
-    )
     from .round_txn_preference import (
         CommittedPreferenceRound,
         PreferenceHandoffExpectation,
@@ -432,21 +278,6 @@ else:
         recorded_execution_override,
         validate_completed_execution_verification,
         validated_execution_verification_summary,
-    )
-    from round_txn_coverage import (
-        abandoned_failed_hypotheses,
-        banned_agentic_wrapper_paths,
-        contiguous_step_number_errors,
-        demonstrates_ordered_scenario,
-        has_long_horizon_debug_loop,
-        long_horizon_scenario_signature,
-        nested_key_paths,
-        nested_strings,
-        normalized_category,
-        numbered_horizon_errors,
-        shares_visible_terms,
-        sparse_step_progress_errors,
-        visibly_names_fault,
     )
     from round_txn_preference import (
         CommittedPreferenceRound,
@@ -1627,541 +1458,27 @@ def validate_agentic_envelope(
     *,
     factory_staging_exempt_lines=frozenset(),
 ):
-    """Return fixed-contract envelope errors for one staged agentic batch."""
-    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
-        return []
-    expected_generator = _reviewed_hosted_generator(factory_dir)
-    records, errors = _jsonl_records(batch)
-    safety_case_types = []
-    cascade_fault_kinds = []
-    cascade_recovery_values = []
-    long_horizon_success_values = []
-    long_horizon_scenario_signatures = []
-    tool_use_lesson_signatures = []
-    for lineno, record in records:
-        if lineno in factory_staging_exempt_lines:
-            continue
-        where = f"{batch.name}:{lineno}"
-        if factory_dir.name == "safety-calibration-factory" and isinstance(record, dict):
-            safety_case_types.append(record.get("case_type"))
-        for path in sorted(set(banned_agentic_wrapper_paths(record))):
-            errors.append(
-                f"{where}: agentic records must not include spike_events, Spikenaut, "
-                f"or neuromorphic rasters at {path}"
-            )
-        scenario_terms = RESTART_LANE_SCENARIO_TERMS.get(factory_dir.name)
-        if scenario_terms is not None and isinstance(record, dict):
-            if not demonstrates_ordered_scenario(record, scenario_terms):
-                errors.append(
-                    f"{where}: {factory_dir.name} must demonstrate its required "
-                    "failure scenario, bounded correction, and observable verification "
-                    "in ordered trajectory evidence"
-                )
-        if factory_dir.name == "cascading-error-recovery-factory":
-            fault = record.get("error_introduced") if isinstance(record, dict) else None
-            steps = record.get("steps") if isinstance(record, dict) else None
-            diagnosis = record.get("diagnosis") if isinstance(record, dict) else None
-            reward = record.get("reward") if isinstance(record, dict) else None
-            errors.extend(contiguous_step_number_errors(where, steps, "cascading-error recovery"))
-            if not isinstance(fault, dict):
-                errors.append(f"{where}: error_introduced must be an object")
-            else:
-                step_number = fault.get("step")
-                if (
-                    not isinstance(step_number, int)
-                    or isinstance(step_number, bool)
-                    or step_number < 2
-                    or not isinstance(steps, list)
-                    or step_number >= len(steps)
-                ):
-                    errors.append(
-                        f"{where}: error_introduced.step must name a non-final step at least 2"
-                    )
-                if not isinstance(fault.get("kind"), str) or not fault["kind"].strip():
-                    errors.append(f"{where}: error_introduced.kind must be a non-empty string")
-                else:
-                    fault_kind = normalized_category(fault["kind"])
-                    if not fault_kind:
-                        errors.append(
-                            f"{where}: error_introduced.kind must contain a letter or number"
-                        )
-                    else:
-                        cascade_fault_kinds.append(fault_kind)
-                if not isinstance(fault.get("payload"), str) or not fault["payload"].strip():
-                    errors.append(f"{where}: error_introduced.payload must be a non-empty string")
-                if (
-                    isinstance(step_number, int)
-                    and not isinstance(step_number, bool)
-                    and isinstance(steps, list)
-                    and 1 <= step_number <= len(steps)
-                ):
-                    introduced_step = steps[step_number - 1]
-                    introduced_text = (
-                        " ".join(
-                            nested_strings(
-                                {
-                                    "action": introduced_step.get("action"),
-                                    "tool_call": introduced_step.get("tool_call"),
-                                    "observation": introduced_step.get("observation"),
-                                }
-                            )
-                        )
-                        if isinstance(introduced_step, dict)
-                        else ""
-                    )
-                    if not visibly_names_fault(
-                        introduced_text, fault.get("kind"), fault.get("payload")
-                    ):
-                        errors.append(
-                            f"{where}: error_introduced.step action or observation "
-                            "must visibly introduce the declared fault"
-                        )
-            if not isinstance(diagnosis, str) or not diagnosis.strip():
-                errors.append(f"{where}: diagnosis must be a non-empty string")
-            cascade_steps = reward.get("cascade_steps") if isinstance(reward, dict) else None
-            recovered = reward.get("recovered") if isinstance(reward, dict) else None
-            if (
-                not isinstance(recovered, int)
-                or isinstance(recovered, bool)
-                or recovered not in (0, 1)
-            ):
-                errors.append(f"{where}: reward.recovered must be 0 or 1")
-            else:
-                cascade_recovery_values.append(recovered)
-                success = reward.get("success") if isinstance(reward, dict) else None
-                if isinstance(success, bool) and success != bool(recovered):
-                    errors.append(f"{where}: reward.success must agree with reward.recovered")
-                outcome = record.get("outcome") if isinstance(record, dict) else None
-                outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
-                if recovered == 0:
-                    partial_evidence = re.search(
-                        r"\b(?:partial(?:ly)?|mitigat\w*|contain\w*|handoff|"
-                        r"handed off|blocked|unresolved)\b",
-                        outcome_text,
-                    )
-                    contradictory_completion = re.search(
-                        r"\b(?:fully|fixed|repaired|landed|completed|succeeded)\b|"
-                        r"all (?:systems )?(?:fixed|recovered)|all tests passed",
-                        outcome_text,
-                    )
-                    if partial_evidence is None or contradictory_completion is not None:
-                        errors.append(
-                            f"{where}: unrecovered cascade outcome must report "
-                            "partial containment, mitigation, or handoff without "
-                            "full-completion claims"
-                        )
-                else:
-                    completion_evidence = re.search(
-                        r"\b(?:completed|fixed|passed|recovered|repaired|succeeded|"
-                        r"verified)\b|all tests passed",
-                        outcome_text,
-                    )
-                    if completion_evidence is None or not terminal_outcome_agrees(outcome, True):
-                        errors.append(
-                            f"{where}: recovered cascade outcome must report "
-                            "verified full recovery without terminal failure, "
-                            "negation, partial, unresolved, or handoff claims"
-                        )
-            if (
-                not isinstance(cascade_steps, int)
-                or isinstance(cascade_steps, bool)
-                or not 3 <= cascade_steps <= 8
-            ):
-                errors.append(f"{where}: reward.cascade_steps must be an integer from 3 to 8")
-            elif (
-                isinstance(fault, dict)
-                and isinstance(fault.get("step"), int)
-                and not isinstance(fault.get("step"), bool)
-                and isinstance(steps, list)
-                and isinstance(diagnosis, str)
-                and diagnosis.strip()
-            ):
-                fault_step = fault["step"]
-                diagnosis_index = fault_step + cascade_steps
-                recovery_index = diagnosis_index + 1
-                fault_text = f"{fault.get('kind', '')} {fault.get('payload', '')}"
-                if recovery_index >= len(steps):
-                    errors.append(
-                        f"{where}: cascade needs {cascade_steps} inherited steps, then diagnosis and recovery"
-                    )
-                else:
-                    inherited = steps[fault_step:diagnosis_index]
-                    if any(
-                        not isinstance(step, dict)
-                        or not shares_visible_terms(step.get("observation"), fault_text)
-                        for step in inherited
-                    ):
-                        errors.append(
-                            f"{where}: each inherited cascade step must visibly reference the fault"
-                        )
-                    diagnosis_step = steps[diagnosis_index]
-                    diagnosis_text = (
-                        " ".join(
-                            value
-                            for value in (
-                                diagnosis_step.get("observation"),
-                                diagnosis_step.get("reflection"),
-                            )
-                            if isinstance(value, str)
-                        )
-                        if isinstance(diagnosis_step, dict)
-                        else None
-                    )
-                    if not shares_visible_terms(diagnosis_text, fault_text):
-                        errors.append(f"{where}: diagnosis step must visibly name the fault")
-                    if not (
-                        shares_visible_terms(diagnosis, fault_text)
-                        and shares_visible_terms(diagnosis, diagnosis_text)
-                    ):
-                        errors.append(
-                            f"{where}: top-level diagnosis must remain grounded "
-                            "in the introduced fault and diagnosis step"
-                        )
-                    recovery_step = steps[recovery_index]
-                    recovery_basis = (
-                        recovery_step.get("decision_basis")
-                        if isinstance(recovery_step, dict)
-                        else None
-                    )
-                    if not shares_visible_terms(recovery_basis, diagnosis):
-                        errors.append(f"{where}: recovery decision_basis must cite the diagnosis")
-                    if not (
-                        shares_visible_terms(recovery_basis, fault_text)
-                        and shares_visible_terms(recovery_basis, diagnosis_text)
-                    ):
-                        errors.append(
-                            f"{where}: recovery decision_basis must remain grounded "
-                            "in the introduced fault and diagnosis-step evidence"
-                        )
-        if factory_dir.name == "long-horizon-coding-factory" and isinstance(record, dict):
-            scenario_signature = long_horizon_scenario_signature(record)
-            if scenario_signature is None:
-                errors.append(
-                    f"{where}: long-horizon episodes require explicit non-empty "
-                    "codebase_type and bug_class categories"
-                )
-            else:
-                long_horizon_scenario_signatures.append(scenario_signature)
-            steps = record.get("steps")
-            for index, step in enumerate(steps if isinstance(steps, list) else ()):
-                basis = step.get("decision_basis") if isinstance(step, dict) else None
-                if isinstance(basis, str) and len(basis) > 240:
-                    errors.append(
-                        f"{where}: long-horizon steps[{index}].decision_basis "
-                        "must be at most 240 characters"
-                    )
-            errors.extend(
-                numbered_horizon_errors(
-                    where,
-                    steps,
-                    "long-horizon coding",
-                    (18, 28),
-                )
-            )
-            if not has_long_horizon_debug_loop(steps):
-                errors.append(
-                    f"{where}: long-horizon episodes require an observable edit, "
-                    "failing test, re-read, fix, and passing verification loop"
-                )
-            reward = record.get("reward")
-            success = reward.get("success") if isinstance(reward, dict) else None
-            if isinstance(success, bool):
-                long_horizon_success_values.append(success)
-                outcome = record.get("outcome")
-                outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
-                completion_evidence = re.search(
-                    r"\b(?:passed|verified|fixed|repaired|landed|completed|succeeded)\b",
-                    outcome_text,
-                )
-                partial_evidence = re.search(
-                    r"\b(?:partial(?:ly)?|mitigat\w*|contain\w*|handoff|handed off|blocked|unresolved)\b",
-                    outcome_text,
-                )
-                contradictory_completion = re.search(
-                    r"\b(?:fully|fixed|repaired|landed|completed|succeeded)\b|all tests passed",
-                    outcome_text,
-                )
-                if success and (
-                    completion_evidence is None
-                    or partial_evidence is not None
-                    or not terminal_outcome_agrees(outcome, True)
-                ):
-                    errors.append(
-                        f"{where}: successful long-horizon outcome must report "
-                        "observable verification without partial or handoff language"
-                    )
-                if not success and (
-                    partial_evidence is None or contradictory_completion is not None
-                ):
-                    errors.append(
-                        f"{where}: unsuccessful long-horizon outcome must report "
-                        "partial containment, mitigation, or handoff"
-                    )
-        if factory_dir.name == "multi-agent-coordination-factory" and isinstance(record, dict):
-            transcript = record.get("transcript")
-            disagreements = record.get("disagreements")
-            resolution = record.get("resolution")
-            if isinstance(transcript, list):
-                if not 6 <= len(transcript) <= 16:
-                    errors.append(f"{where}: coordination transcripts require 6 to 16 turns")
-                turn_contents = [
-                    turn.get("content") if isinstance(turn, dict) else None for turn in transcript
-                ]
-                grounded = False
-                if isinstance(disagreements, list) and isinstance(resolution, str):
-                    plan_change_terms = (
-                        "add",
-                        "adopt",
-                        "before",
-                        "change",
-                        "compromise",
-                        "defer",
-                        "escalat",
-                        "instead",
-                        "remove",
-                        "revise",
-                        "rollback",
-                        "update",
-                    )
-                    ignored_plan_terms = (
-                        "ignored",
-                        "no change",
-                        "original plan",
-                        "proceed as planned",
-                        "unchanged",
-                    )
-                    for disagreement in disagreements:
-                        disagreement_turns = [
-                            index
-                            for index, content in enumerate(turn_contents)
-                            if shares_visible_terms(disagreement, content)
-                        ]
-                        resolution_turns = [
-                            index
-                            for index, content in enumerate(turn_contents)
-                            if shares_visible_terms(resolution, content)
-                        ]
-                        if shares_visible_terms(disagreement, resolution):
-                            for disagreement_index in disagreement_turns:
-                                for resolution_index in resolution_turns:
-                                    candidate = (
-                                        f"{resolution} {turn_contents[resolution_index] or ''}"
-                                    ).casefold()
-                                    if (
-                                        disagreement_index < resolution_index
-                                        and any(term in candidate for term in plan_change_terms)
-                                        and not any(
-                                            term in candidate for term in ignored_plan_terms
-                                        )
-                                    ):
-                                        grounded = True
-                                        break
-                                if grounded:
-                                    break
-                        if grounded:
-                            break
-                if not grounded:
-                    errors.append(
-                        f"{where}: resolution must cite a disagreement and "
-                        "observably change the later coordination plan"
-                    )
-        if factory_dir.name == "sparse-reward-long-task-factory" and isinstance(record, dict):
-            steps = record.get("steps")
-            reward = record.get("reward")
-            if isinstance(steps, list):
-                errors.extend(
-                    numbered_horizon_errors(
-                        where,
-                        steps,
-                        "sparse long-task",
-                        (25, 60),
-                    )
-                )
-                errors.extend(sparse_step_progress_errors(where, steps))
-                for index, step in enumerate(steps):
-                    if isinstance(step, dict):
-                        for field in ("reward", "score", "tests_passed"):
-                            for path in nested_key_paths(step, field):
-                                if field == "reward":
-                                    errors.append(
-                                        f"{where}: sparse long-task steps[{index}] "
-                                        f"must not carry reward at {path}"
-                                    )
-                                else:
-                                    errors.append(
-                                        f"{where}: sparse long-task steps[{index}] "
-                                        f"must not carry intermediate {field} at {path}"
-                                    )
-                horizon_steps = reward.get("horizon_steps") if isinstance(reward, dict) else None
-                if (
-                    not isinstance(horizon_steps, int)
-                    or isinstance(horizon_steps, bool)
-                    or horizon_steps != len(steps)
-                ):
-                    errors.append(f"{where}: reward.horizon_steps must equal the staged step count")
-                if len(abandoned_failed_hypotheses(steps)) < 2:
-                    errors.append(
-                        f"{where}: sparse long-task episodes require at least two "
-                        "explicit hypotheses whose failure observations precede abandonment"
-                    )
-            if not isinstance(reward, dict) or reward.get("terminal_only") is not True:
-                errors.append(f"{where}: reward.terminal_only must be true")
-            success = reward.get("success") if isinstance(reward, dict) else None
-            outcome = record.get("outcome")
-            outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
-            completion_evidence = list(
-                re.finditer(
-                    r"\b(?:completed|delivered|fixed|passed|repaired|succeeded|verified)\b",
-                    outcome_text,
-                )
-            )
-            failed_evidence = list(re.finditer(r"\b(?:failed|failing)\b", outcome_text))
-            incomplete_evidence = re.search(
-                r"\b(?:blocked|handoff|handed off|incomplete|partial(?:ly)?|unresolved)\b",
-                outcome_text,
-            )
-            if isinstance(success, bool):
-                if success and (
-                    not completion_evidence
-                    or incomplete_evidence is not None
-                    or (
-                        failed_evidence
-                        and failed_evidence[-1].start() > completion_evidence[-1].start()
-                    )
-                ):
-                    errors.append(
-                        f"{where}: successful sparse terminal reward must match "
-                        "a verified completed outcome"
-                    )
-                if not success and (
-                    incomplete_evidence is None
-                    and (
-                        not failed_evidence
-                        or (
-                            completion_evidence
-                            and completion_evidence[-1].start() > failed_evidence[-1].start()
-                        )
-                    )
-                ):
-                    errors.append(
-                        f"{where}: unsuccessful sparse terminal reward must match "
-                        "an explicit failure, partial result, or handoff"
-                    )
-        if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
-            if factory_dir.name == "tool-use-preference-factory" and isinstance(record, dict):
-                lesson_category = record.get("lesson_category")
-                if not isinstance(lesson_category, str) or not lesson_category.strip():
-                    errors.append(
-                        f"{where}: tool-use preferences require a non-empty lesson_category"
-                    )
-                else:
-                    lesson_signature = normalized_category(lesson_category)
-                    if not lesson_signature:
-                        errors.append(
-                            f"{where}: tool-use preference lesson_category must "
-                            "contain a letter or number"
-                        )
-                    else:
-                        tool_use_lesson_signatures.append(lesson_signature)
-            for side_name in ("chosen", "rejected"):
-                side = record.get(side_name) if isinstance(record, dict) else None
-                if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
-                    errors.append(f"{where}: {side_name} must be an episode side with steps")
-                elif all(key in side for key in THALAMIC_CORE_KEYS):
-                    errors.append(f"{where}: {side_name} must not wrap a Thalamic trajectory")
-                if factory_dir.name == "tool-use-preference-factory" and isinstance(side, dict):
-                    errors.extend(
-                        numbered_horizon_errors(
-                            where,
-                            side.get("steps"),
-                            f"tool-use preference {side_name}",
-                            (4, 10),
-                        )
-                    )
-                side_reward = side.get("reward") if isinstance(side, dict) else None
-                success = side_reward.get("success") if isinstance(side_reward, dict) else None
-                required_success = side_name == "chosen"
-                if isinstance(success, bool) and success is not required_success:
-                    errors.append(
-                        f"{where}: {side_name}.reward.success must be "
-                        f"{str(required_success).lower()}"
-                    )
-                if isinstance(success, bool) and not terminal_outcome_agrees(
-                    side.get("outcome"), success
-                ):
-                    errors.append(
-                        f"{where}: {side_name}.outcome must agree with {side_name}.reward.success"
-                    )
-        meta = record.get("meta") if isinstance(record, dict) else None
-        if not isinstance(meta, dict):
-            errors.append(f"{where}: agentic record meta must be an object")
-            continue
-        if meta.get("factory") != factory_dir.name:
-            errors.append(f"{where}: meta.factory must be {factory_dir.name!r}")
-        meta_round = meta.get("round")
-        if (
-            not isinstance(meta_round, int)
-            or isinstance(meta_round, bool)
-            or meta_round != round_number
-        ):
-            errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
-        if meta.get("generator") != expected_generator:
-            errors.append(f"{where}: meta.generator must be {expected_generator!r}")
-    if factory_dir.name == "safety-calibration-factory":
-        required_case_types = {
-            "correct_refusal",
-            "incorrect_refusal",
-            "missed_refusal",
-        }
-        if (
-            len(safety_case_types) != len(required_case_types)
-            or set(safety_case_types) != required_case_types
-        ):
-            errors.append(
-                "safety-calibration-factory requires exactly one each of "
-                "correct_refusal, incorrect_refusal, and missed_refusal per batch"
-            )
-    if factory_dir.name == "cascading-error-recovery-factory" and sorted(
-        cascade_recovery_values
-    ) != [0, 1]:
-        errors.append(
-            "cascading-error-recovery-factory requires one full recovery and "
-            "one partial containment or handoff per batch"
-        )
-    if (
-        factory_dir.name == "cascading-error-recovery-factory"
-        and len(cascade_fault_kinds) == 2
-        and len(set(cascade_fault_kinds)) != 2
-    ):
-        errors.append(
-            "cascading-error-recovery-factory requires two distinct "
-            "error_introduced.kind fault classes per batch"
-        )
-    if factory_dir.name == "long-horizon-coding-factory" and sorted(
-        long_horizon_success_values
-    ) != [False, True]:
-        errors.append(
-            "long-horizon-coding-factory requires one success and one partial "
-            "containment, mitigation, or handoff per batch"
-        )
-    if factory_dir.name == "long-horizon-coding-factory" and (
-        len({signature[0] for signature in long_horizon_scenario_signatures})
-        != FACTORY_QUOTAS["long-horizon-coding-factory"]
-        or len({signature[1] for signature in long_horizon_scenario_signatures})
-        != FACTORY_QUOTAS["long-horizon-coding-factory"]
-    ):
-        errors.append(
-            "long-horizon-coding-factory requires two distinct codebase and "
-            "bug-class scenarios per batch"
-        )
-    if (
-        factory_dir.name == "tool-use-preference-factory"
-        and len(set(tool_use_lesson_signatures)) != FACTORY_QUOTAS["tool-use-preference-factory"]
-    ):
-        errors.append(
-            "tool-use-preference-factory requires three distinct tool-use lessons per batch"
-        )
-    return errors
+    """Return fixed-contract envelope errors for one staged agentic batch.
+
+    The per-factory rule table lives in ``round_txn_agentic``; the policy
+    object is built here so the facade's own names stay the seams it reads.
+    """
+    policy = _round_txn_agentic.AgenticPolicy(
+        factory_kinds=AGENTIC_FACTORY_KINDS,
+        factory_quotas=FACTORY_QUOTAS,
+        scenario_terms=RESTART_LANE_SCENARIO_TERMS,
+        reviewed_hosted_generator=_reviewed_hosted_generator,
+        jsonl_records=_jsonl_records,
+    )
+    return _round_txn_agentic.validate_envelope(
+        _round_txn_agentic.EnvelopeRequest(
+            batch,
+            factory_dir,
+            round_number,
+            factory_staging_exempt_lines,
+        ),
+        policy,
+    )
 
 
 def validate_preference_arm_gate(
@@ -2803,7 +2120,7 @@ def _abort_locked(factory_dir: Path, round_number: int, token: str):
     }
 
 
-def parse_args(argv=None):
+def _build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     front = sub.add_parser("frontier")
@@ -2839,28 +2156,49 @@ def parse_args(argv=None):
     abt.add_argument("factory_dir")
     abt.add_argument("--round", type=int, required=True, dest="round_number")
     abt.add_argument("--token", required=True)
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv=None):
+    return _build_parser().parse_args(argv)
+
+
+def _confined_factory_dir(parser, args):
+    """The operator's factory directory, confined to the working, home and temp trees.
+
+    Every subcommand takes the same positional, so the funnel runs once right
+    after parsing and no sink below reads ``args.factory_dir`` again. The
+    library entry points still ``resolve()`` what they are handed, so the
+    ``staging_dir`` string a reservation persists stays byte-identical to the
+    one ``publish`` and ``abort`` compare it against.
+    """
+    try:
+        return operator_path(args.factory_dir)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    factory_dir = _confined_factory_dir(parser, args)
     try:
         if args.command == "frontier":
-            result = frontier_status(Path(args.factory_dir))
+            result = frontier_status(factory_dir)
         elif args.command == "migrate-preference-v1":
-            result = migrate_preference_v1_markers(Path(args.factory_dir))
+            result = migrate_preference_v1_markers(factory_dir)
         elif args.command == "reserve":
             result = reserve(
-                Path(args.factory_dir),
+                factory_dir,
                 args.round_number,
                 args.expected,
                 args.preference_isolation,
             )
         elif args.command == "abort":
-            result = abort(Path(args.factory_dir), args.round_number, args.token)
+            result = abort(factory_dir, args.round_number, args.token)
         else:
             result = publish(
-                Path(args.factory_dir),
+                factory_dir,
                 args.round_number,
                 args.token,
                 getattr(args, "execution_override", None),
@@ -2870,6 +2208,10 @@ def main(argv=None):
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

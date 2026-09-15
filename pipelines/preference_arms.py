@@ -53,13 +53,14 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from curate_preferences import canonical_json, context_is_pure  # noqa: E402,F401
+from operator_paths import operator_path  # noqa: E402
 
 # The gate is split across sibling modules so each states one responsibility.
 # Everything the published surface exposes is re-exported here, so
@@ -851,7 +852,7 @@ def write_diagnosis_handoff_receipt(
     return receipt
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -893,15 +894,58 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="exclusively write the canonical round-scoped receipt before Session B",
     )
-    return parser.parse_args(argv)
+    return parser
 
 
-def _run_verify_handoff(args: argparse.Namespace) -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return _build_parser().parse_args(argv)
+
+
+class Inputs(NamedTuple):
+    """The operator's paths, each confined to the working, home and temp trees.
+
+    ``--file`` carries diagnosis *basenames*, not paths --
+    ``_require_diagnosis_basename`` refuses anything with a directory part --
+    so those values are never confined and stay on the parsed namespace.
+    """
+
+    source: Path | None
+    staging_dir: Path | None
+
+
+def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
+    """Confine both path arguments right after parsing; sinks never read ``args`` again.
+
+    ``operator_path`` returns a realpath, which would satisfy
+    ``_require_canonical_staging_path`` by construction and silently accept a
+    staging directory typed as a symlink; ``_run_verify_handoff`` therefore
+    re-applies that guard to the path as typed whenever it differs from the
+    confined one, so the CLI refuses exactly what it refused before.
+    """
+
+    def optional(name: str) -> Path | None:
+        value = getattr(args, name, None)
+        return None if value is None else operator_path(str(value))
+
     try:
+        return Inputs(*(optional(name) for name in Inputs._fields))
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+
+
+def _run_verify_handoff(args: argparse.Namespace, staging_dir: Path) -> int:
+    try:
+        # Confinement resolved the typed path; the staging guard requires the
+        # operator to have typed the canonical one. Re-apply it to the typed
+        # path when they differ so a symlinked or relative staging directory
+        # is refused at the CLI exactly as before, with the same messages.
+        typed = Path(args.staging_dir)
+        if typed != staging_dir:
+            _require_canonical_staging_path(typed)
         verifier = (
             write_diagnosis_handoff_receipt if args.write_receipt else verify_diagnosis_handoff
         )
-        receipt = verifier(args.staging_dir, args.diagnosis_files)
+        receipt = verifier(staging_dir, args.diagnosis_files)
     except (OSError, PreferenceArmsError, ValueError) as exc:
         print(f"diagnosis handoff verification failed: {exc}", file=sys.stderr)
         return 1
@@ -947,10 +991,10 @@ def _scan_verdict(scan: ArmScan) -> int:
     return 0
 
 
-def _run_scan(args: argparse.Namespace) -> int:
+def _run_scan(args: argparse.Namespace, source: Path) -> int:
     try:
         scan = scan_source(
-            args.source,
+            source,
             GatePolicy(
                 min_distance=args.min_distance,
                 require_isolation=args.require_isolation,
@@ -964,10 +1008,12 @@ def _run_scan(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    paths = _inputs(parser, args)
     if args.command == "verify-handoff":
-        return _run_verify_handoff(args)
-    return _run_scan(args)
+        return _run_verify_handoff(args, paths.staging_dir)
+    return _run_scan(args, paths.source)
 
 
 if __name__ == "__main__":

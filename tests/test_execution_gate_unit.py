@@ -154,9 +154,11 @@ class ExecutionGateUnit(FrontierGateTestCaseMixin, unittest.TestCase):
             batch = Path(td) / "batch-r01.jsonl"
             write(batch, [thalamic("gate-no-verifier")])
 
-            with mock.patch.dict(sys.modules, {"verify_execution": None}):
-                with self.assertRaises(round_txn.TransactionError) as raised:
-                    round_txn.execution_gate(batch, batch)
+            with (
+                mock.patch.dict(sys.modules, {"verify_execution": None}),
+                self.assertRaises(round_txn.TransactionError) as raised,
+            ):
+                round_txn.execution_gate(batch, batch)
 
         self.assertIn("execution verification is unavailable", str(raised.exception))
 
@@ -173,9 +175,11 @@ class ExecutionGateUnit(FrontierGateTestCaseMixin, unittest.TestCase):
 
 
     def test_gate_fails_closed_when_the_verifier_is_unimportable(self):
-        with mock.patch.dict(sys.modules, {"verify_execution": None}):
-            with self.assertRaises(round_txn.TransactionError) as raised:
-                round_txn.load_execution_verifier()
+        with (
+            mock.patch.dict(sys.modules, {"verify_execution": None}),
+            self.assertRaises(round_txn.TransactionError) as raised,
+        ):
+            round_txn.load_execution_verifier()
         self.assertIn("execution verification is unavailable", str(raised.exception))
 
 

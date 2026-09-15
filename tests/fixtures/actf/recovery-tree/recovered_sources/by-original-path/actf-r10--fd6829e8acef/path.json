@@ -1,0 +1,14 @@
+{
+  "path_key": "actf-r10--fd6829e8acef",
+  "original_path": "/tmp/actf-r10/gen.py",
+  "original_basename": "gen.py",
+  "classification": "exact",
+  "version_count": 1,
+  "final_state": "present_reconstructed",
+  "event_count": 2,
+  "hunk_evidence_count": 2,
+  "unresolved_event_count": 0,
+  "terminal_event_ids": [],
+  "terminal_final_state_uncertain": false,
+  "agent_ids": ["fixture-actf-r10"]
+}

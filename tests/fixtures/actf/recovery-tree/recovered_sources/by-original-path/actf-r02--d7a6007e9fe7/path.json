@@ -1,0 +1,14 @@
+{
+  "path_key": "actf-r02--d7a6007e9fe7",
+  "original_path": "/tmp/actf-r02/gen.py",
+  "original_basename": "gen.py",
+  "classification": "unrecoverable",
+  "version_count": 0,
+  "final_state": "absent",
+  "event_count": 1,
+  "hunk_evidence_count": 1,
+  "unresolved_event_count": 1,
+  "terminal_event_ids": [],
+  "terminal_final_state_uncertain": true,
+  "agent_ids": ["fixture-actf-r02"]
+}

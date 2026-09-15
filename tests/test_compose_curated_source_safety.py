@@ -90,16 +90,18 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                 )
                 return payloads
 
-            with mock.patch.object(
-                compose_curated,
-                "_captured_source_payloads",
-                side_effect=capture_then_add,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    compose_curated,
+                    "_captured_source_payloads",
+                    side_effect=capture_then_add,
+                ),
+                self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "member set changed while capturing the source snapshot",
-                ):
-                    compose_curated.compose_run(source, root / "curated")
+                ),
+            ):
+                compose_curated.compose_run(source, root / "curated")
             self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_hard_linked_calibration_evidence(self):
@@ -178,20 +180,22 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     )
                 return real_open(path, flags, mode, dir_fd=dir_fd)
 
-            with mock.patch.object(
-                compose_curated.os,
-                "open",
-                side_effect=swap_parent_before_open,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    compose_curated.os,
+                    "open",
+                    side_effect=swap_parent_before_open,
+                ),
+                self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "calibration parent changed while it was pinned",
-                ):
-                    compose_curated.compose_run(
-                        source,
-                        root / "curated",
-                        units_migration=calibration,
-                    )
+                ),
+            ):
+                compose_curated.compose_run(
+                    source,
+                    root / "curated",
+                    units_migration=calibration,
+                )
 
             self.assertTrue(swapped)
             self.assertFalse((root / "curated").exists())
@@ -214,11 +218,13 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     target.write_bytes(original + b" ")
                 return chunk
 
-            with mock.patch.object(compose_curated.os, "read", side_effect=read_then_mutate):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(compose_curated.os, "read", side_effect=read_then_mutate),
+                self.assertRaisesRegex(
                     compose_curated.ComposeError, "identity changed while reading"
-                ):
-                    compose_curated.compose_run(source, root / "curated")
+                ),
+            ):
+                compose_curated.compose_run(source, root / "curated")
             self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_nonfinite_calibration_even_when_ignored(self):
@@ -264,16 +270,18 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     member.write_bytes(b"{}\n")
                 return digest
 
-            with mock.patch.object(
-                compose_curated,
-                "_write_new_text",
-                side_effect=write_then_mutate,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    compose_curated,
+                    "_write_new_text",
+                    side_effect=write_then_mutate,
+                ),
+                self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "changed before compose commit",
-                ):
-                    compose_curated.compose_run(source, destination)
+                ),
+            ):
+                compose_curated.compose_run(source, destination)
             self.assertFalse(destination.exists())
 
 

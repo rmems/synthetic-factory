@@ -1,0 +1,14 @@
+{
+  "path_key": "ttf-r01--deadbeef0001",
+  "original_path": "/tmp/ttf-r01/gen.py",
+  "original_basename": "gen.py",
+  "classification": "exact",
+  "version_count": 0,
+  "final_state": "present_reconstructed",
+  "event_count": 0,
+  "hunk_evidence_count": 0,
+  "unresolved_event_count": 0,
+  "terminal_event_ids": [],
+  "terminal_final_state_uncertain": false,
+  "agent_ids": ["fixture-ttf-r01"]
+}
