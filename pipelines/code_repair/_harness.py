@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """The sandboxed child of the code-repair executor: stdlib only, imports nothing of the package.
 
-Runs under ``python -P -s -S -B -X utf8`` in a fresh working directory holding
-``program.py`` and ``spec.json``; applies its own resource limits; loads the
-module through ``importlib``; runs the target function's doctest examples once
-in order (they may carry state) through a ``DocTestRunner`` whose report hooks
-record one row per example; evaluates the pinned hidden cases; and prints one
-JSON object on stdout. It exits 0 whatever the program did: failures are rows,
-never exit codes, and any internal error is reported in ``load``.
+Runs under ``unshare`` (user, mount and network namespaces) and ``python -P -s
+-S -B -X utf8`` in a fresh working directory holding ``program.py``, ``spec.json``
+and ``_sandbox.py``; applies a Landlock allowlist and its own resource limits;
+loads the module through ``importlib``; runs the target function's doctest
+examples once in order (they may carry state) through a ``DocTestRunner`` whose
+report hooks record one row per example; evaluates the pinned hidden cases; and
+prints one JSON object on stdout. It exits 0 whatever the program did: failures
+are rows, never exit codes, and any internal error is reported in ``load``.
 """
 
 from __future__ import annotations
@@ -25,6 +26,14 @@ import sys
 import traceback
 import types
 from pathlib import Path
+
+_SANDBOX_SPEC = importlib.util.spec_from_file_location(
+    "_sandbox", Path(__file__).with_name("_sandbox.py"),
+)
+if _SANDBOX_SPEC is None or _SANDBOX_SPEC.loader is None:
+    raise ImportError("no import spec for _sandbox.py")
+_sandbox = importlib.util.module_from_spec(_SANDBOX_SPEC)
+_SANDBOX_SPEC.loader.exec_module(_sandbox)
 
 PROTOCOL = "code-repair-harness/1"
 PROGRAM_FILENAME = "program.py"
@@ -257,16 +266,20 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
-def _run(workdir: Path, spec: dict) -> dict:
+def _run(workdir: Path, spec: dict, isolation: str = "") -> dict:
     report: dict = {"protocol": PROTOCOL, "load": {"status": "ok", "error": None}}
     report["environment"] = {
         "python": platform.python_version(),
         "implementation": platform.python_implementation().lower(),
         "platform": sys.platform,
         "limits_applied": _apply_limits(spec),
+        "isolation": isolation,
     }
     if not report["environment"]["limits_applied"]:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
+        return report
+    if not _sandbox.applied(isolation):
+        report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: isolation"}
         return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
@@ -293,6 +306,20 @@ def _run(workdir: Path, spec: dict) -> dict:
     return report
 
 
+def _isolation_unavailable() -> dict:
+    return {
+        "protocol": PROTOCOL,
+        "environment": {
+            "python": platform.python_version(),
+            "implementation": platform.python_implementation().lower(),
+            "platform": sys.platform,
+            "limits_applied": False,
+            "isolation": "",
+        },
+        "load": {"status": "error", "error": "SANDBOX_UNAVAILABLE: isolation"},
+    }
+
+
 def main(argv: list[str], *, _dumps=json.dumps) -> int:
     if len(argv) != 2:
         sys.stderr.write("usage: _harness.py <workdir>\n")
@@ -309,8 +336,12 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-            report = _run(workdir, spec)
+            isolation = _sandbox.apply(str(workdir))
+            if not _sandbox.applied(isolation):
+                report = _isolation_unavailable()
+            else:
+                spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
+                report = _run(workdir, spec, isolation)
         except Exception as exc:
             error = f"HarnessError: {exc}"
             report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}

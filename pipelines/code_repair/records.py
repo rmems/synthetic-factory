@@ -25,8 +25,9 @@ from ._contract import bind_import_twin, oc
 
 ORACLE_COMMIT = None
 ORACLE_ISOLATION = (
-    "rlimits and a fresh working directory only: no filesystem or network isolation "
-    "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only modules"
+    "linux user, mount and network namespaces via unshare --user --map-root-user "
+    "--mount --net --propagation private; Landlock filesystem allowlist of the working "
+    "directory and interpreter; rlimits; a fresh working directory"
 )
 
 __all__ = [
@@ -98,7 +99,7 @@ def new_batch(
 
 
 def fingerprint(batch: Batch, original: ex.PhaseReport) -> dict[str, Any]:
-    """The oracle's environment identity: interpreter major.minor, platform, harness, limits."""
+    """The oracle's environment identity: interpreter, platform, harness, limits, isolation."""
 
     environment = original.environment
     version = str(environment.get("python", ""))
@@ -108,6 +109,7 @@ def fingerprint(batch: Batch, original: ex.PhaseReport) -> dict[str, Any]:
         "platform": environment.get("platform"),
         "harness_sha256": batch.harness_sha256,
         "limits_applied": environment.get("limits_applied"),
+        "isolation": environment.get("isolation"),
     }
 
 

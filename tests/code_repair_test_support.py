@@ -79,7 +79,7 @@ def report(public=(), hidden=(), failure=None, detail=""):
 
     environment = {
         "python": "3.14.7", "implementation": "cpython", "platform": "linux",
-        "limits_applied": True,
+        "limits_applied": True, "isolation": "unshare(user,mount,net)+landlock-abi6",
     }
     status = "ok" if failure in (None, "load") else failure
     return executor.PhaseReport(

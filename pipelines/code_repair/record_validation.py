@@ -7,6 +7,7 @@ from typing import Any
 
 from . import catalog as cat
 from . import records as assembly
+from . import _sandbox as sandbox
 from . import verify
 from . import vocabulary as cv
 from ._contract import (
@@ -84,8 +85,10 @@ def _configuration_shape(oracle: dict) -> None:
     for case in hidden['cases']:
         _fields(case, 'args want')
     _fields(oracle['fingerprint'], 'python harness_sha256')
-    _fields(oracle['fingerprint'], 'implementation platform', (str, type(None)))
+    _fields(oracle['fingerprint'], 'implementation platform isolation', (str, type(None)))
     _fields(oracle['fingerprint'], 'limits_applied', (bool, type(None)))
+    isolation = oracle['fingerprint']['isolation']
+    _require(isolation is None or sandbox.applied(isolation))
 
 
 def _examples(record: dict[str, Any]) -> tuple[cat.Example, ...]:

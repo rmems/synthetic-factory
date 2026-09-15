@@ -145,6 +145,6 @@ rows preserve IDs, groups, lineages and exact completion boundary offsets.
 Ordinary export without `--admit` remains blocked candidate mode. A local
 admitted export is distinct from an Agoge frozen split and a model-training
 launch; these commands do not launch training or upload to a Hub. This is a
-trusted reviewed source lane pending OS isolation in issue #201, not an
-arbitrary-code ingestion boundary or a cryptographically signed transaction
-ledger.
+trusted reviewed source lane with Linux namespace and Landlock isolation
+(#198), not an arbitrary-code ingestion boundary or a cryptographically signed
+transaction ledger.

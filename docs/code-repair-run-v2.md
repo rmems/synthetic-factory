@@ -29,8 +29,10 @@ observation `got_sha256`. The digest of the complete phase map binds these field
 The new `original_repeat` phase executes the same original source in a fresh
 process before mutants run. Differing stable observations reject with
 `SOURCE_NONDETERMINISTIC`; a restored repair must also reproduce those observations.
-Reference checks certify hidden wants independently. Resource limits must be
-reported as applied before generation continues.
+Reference checks certify hidden wants independently. Resource limits and the
+documented `unshare` plus Landlock isolation must be reported as applied before
+generation continues. The oracle configuration string and fingerprint name that
+isolation so records built with and without it are distinguishable.
 
 Stored evidence is locally checked by re-deriving the decision and public
 projection. This is an integrity check, not authentication of a consistently
