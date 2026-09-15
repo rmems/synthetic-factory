@@ -1,0 +1,31 @@
+tests/test_code.py
+  s_839bb026b8fc3e::t_078c9bc6e992a4 77
+  s_839bb026b8fc3e::t_d8947bf6469a21 37
+  s_839bb026b8fc3e::t_0788170bcc5506 22-24
+  s_839bb026b8fc3e::t_546081d1b92fef 75-76,78,81,83-84,87-95
+  s_839bb026b8fc3e::t_a5de1f34a437c3 7
+  s_839bb026b8fc3e::t_915c99638b744e 34
+pipelines/code_leftover3/cli.py
+  s_839bb026b8fc3e::t_120cfb64d4e12d 6
+  s_839bb026b8fc3e::t_110a33497289a3 25
+pipelines/code_leftover3/_contract.py
+  s_839bb026b8fc3e::t_5a2d7960e4e0c9 4-9
+pipelines/code_leftover3/__init__.py
+  s_839bb026b8fc3e::t_148d0ce70d2b24 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b4b3493ca6aabe41376ae2be09dfebb4f629ba64",
+  "prompts": {},
+  "sessions": {
+    "s_839bb026b8fc3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "172ea39a-c5dc-4dec-aa9e-c5e4271b5699",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
