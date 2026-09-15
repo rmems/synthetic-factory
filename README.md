@@ -124,9 +124,9 @@ same unit tests and operator smoke check.
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
-- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required.
+- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`) and mill-script inventory (`MILL-SCRIPT-INVENTORY.json`). Identity authority is the registry (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required. Classify leftover mill scripts in the mill-script inventory ([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
 - `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
-- `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
+- `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current). Leftover mill generator scripts are not stored here on `main`; they remain recoverable on `origin/legacy-mill-lane`.
 
 ## Historical prompt lane
 
@@ -144,6 +144,23 @@ published Hugging Face artifacts above. Do not reintroduce hosted-model prompt
 generation on `main`: new records come from registry-registered generators
 (see [Generator lanes and rights](#generator-lanes-and-rights) and the
 retired "Generator rule", preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
+
+## Historical mill generators
+
+Leftover-round mill scripts (`*_mill.py` under `experiments/` on
+`origin/legacy-mill-lane`) produced mill-mix records in the 2026-08-19 agentic
+run. They are retained historical generators, not production CLIs. Main keeps
+the mill *detectors* (`pipelines/leftover_mill.py`, `pipelines/mill_family.py`,
+`pipelines/compose_mill.py`) and cleaned mill-family packages that AST-extract
+catalogs without vendoring those scripts. Classification, the unclassified-file
+guard, and quality-scope globs live in `config/MILL-SCRIPT-INVENTORY.json`
+([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
+
+```bash
+git fetch origin legacy-mill-lane
+git show origin/legacy-mill-lane:experiments/srl_r6110_leftover3_mill.py | head
+python3 pipelines/mill_script_inventory.py --check
+```
 
 ## Pipelines
 

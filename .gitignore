@@ -33,18 +33,20 @@ outputs/curated/
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
 
-# Round generator scripts (mills). These are one-shot, machine-local generators
-# that were never committed: they hardcode this workstation's paths, no tracked
-# file imports or invokes them, and CI never sees them. Naming them here keeps
-# `git status` readable and keeps local scanners (qlty, bandit) reporting on the
-# repository rather than on 156k lines of scratch. The tracked mill modules in
-# pipelines/ -- mill_family, mill_evidence, mill_resolution, mill_ownership,
-# mill_signals, mill_findings, mill_locations, mill_reviewed_vocabulary,
-# leftover_mill, compose_mill, training_audit_mill -- are core code and are
-# deliberately NOT matched by any pattern below.
-experiments/
+# Historical mill/leftover generators. Patterns are the reviewed quality policy
+# in config/MILL-SCRIPT-INVENTORY.json. They match machine-local copies and
+# origin/legacy-mill-lane scripts without ignoring production mill modules
+# (leftover_mill.py, compose_mill.py, training_audit_mill.py, mill_family.py)
+# or the tracked harvest notes under experiments/.
+experiments/*mill*.py
+experiments/**/*mill*.py
+experiments/*leftover*.py
+experiments/**/*leftover*.py
+experiments/_gen_*.py
+experiments/**/_gen_*.py
+experiments/*plants*.py
+experiments/**/*plants*.py
 scripts/*_mill/
 scripts/*_mill.py
-pipelines/*_mill.py
 pipelines/*_mill_leftover*.py
 /mill_*_r*.py
