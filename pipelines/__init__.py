@@ -233,14 +233,12 @@ def _expose_package_sibling(qualified_name: str) -> None:
     prefix = f"{__name__}."
     sibling_name = qualified_name.removeprefix(prefix)
     candidate = sys.modules.get(qualified_name)
-    if candidate is None:
-        return
     origin = getattr(candidate, "__file__", None)
     if not qualified_name.startswith(prefix):
         return
     if "." in sibling_name:
         return
-    if origin is None:
+    if candidate is None or origin is None:
         return
     try:
         is_local = Path(origin).resolve() == (_package_dir / f"{sibling_name}.py").resolve()
