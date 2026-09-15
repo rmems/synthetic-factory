@@ -181,6 +181,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_gate_reward",
     "curate_gate_reward_sidecars",
     "curate_gate_gates",
+    "validate_run_safety",
 ))
 
 
