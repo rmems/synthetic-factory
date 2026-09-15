@@ -66,9 +66,11 @@ class ConfineArgv(unittest.TestCase):
             confined.close()
 
     def test_os_boundary_refuses_when_bwrap_cannot_unshare(self):
-        with mock.patch.object(sb, "os_boundary_available", return_value=False):
-            with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE, "bwrap"):
-                sb.Isolation.os_boundary()
+        with (
+            mock.patch.object(sb, "os_boundary_available", return_value=False),
+            refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE, "bwrap"),
+        ):
+            sb.Isolation.os_boundary()
 
 
 class ReviewedSourceGate(unittest.TestCase):

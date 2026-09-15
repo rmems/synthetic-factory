@@ -48,6 +48,7 @@ _KILL_SYSCALLS = {
     "x86_64": (101, 155, 165, 166, 167, 169, 175, 313, 321),
     "aarch64": (40, 39, 41, 105, 117, 142, 273, 280),
 }
+_UNAVAILABLE = "bwrap user-namespace sandbox is not available"
 _HIDE_ROOTS = ("home", "root", "workspace")
 
 __all__ = [
@@ -86,7 +87,7 @@ class Isolation:
         cv.refuse_when(
             not os_boundary_available(),
             cv.FINDING_SANDBOX_UNAVAILABLE,
-            "bwrap user-namespace sandbox is not available",
+            _UNAVAILABLE,
         )
         return Isolation(IDENTITY_BWRAP, "bwrap")
 
@@ -114,10 +115,39 @@ def reviewed_upstream(upstream: Mapping[str, Any] | None) -> bool:
 
 
 def _program_upstream_reviewed(upstream: Mapping[str, Any] | None) -> bool:
+    """True when a program row's upstream matches the sealed repository, commit, and license."""
     if not isinstance(upstream, Mapping):
         return False
     evidence = dict(sp.POLICY["source_license_evidence"])
     return all(upstream.get(key) == evidence[key] for key in ("repository", "commit", "license"))
+
+
+def _selector_is_reviewed(build: Any) -> bool:
+    """True when build metadata is absent or still names the reviewed selector."""
+
+    if not isinstance(build, Mapping):
+        return True
+    return build.get("selector") in (None, sp.REVIEWED_SELECTOR)
+
+
+def _meta_is_reviewed(meta: Mapping[str, Any]) -> bool | None:
+    """Reviewed-pin verdict for catalog meta, or None when meta carries no upstream."""
+
+    if meta.get("upstream") is None:
+        return None
+    if not _selector_is_reviewed(meta.get("build")):
+        return False
+    return reviewed_upstream(meta.get("upstream"))
+
+
+def _programs_are_reviewed(programs: Any) -> bool:
+    """True when every program's upstream is the sealed TheAlgorithms/Python pin."""
+
+    if not programs:
+        return False
+    return all(
+        _program_upstream_reviewed(getattr(program, "upstream", None)) for program in programs
+    )
 
 
 def catalog_is_reviewed(catalog: Any) -> bool:
@@ -128,15 +158,11 @@ def catalog_is_reviewed(catalog: Any) -> bool:
     """
 
     meta = getattr(catalog, "meta", None)
-    if isinstance(meta, Mapping) and meta.get("upstream") is not None:
-        build = meta.get("build")
-        if isinstance(build, Mapping) and build.get("selector") not in (None, sp.REVIEWED_SELECTOR):
-            return False
-        return reviewed_upstream(meta.get("upstream"))
-    programs = getattr(catalog, "programs", ()) or ()
-    return bool(programs) and all(
-        _program_upstream_reviewed(getattr(program, "upstream", None)) for program in programs
-    )
+    if isinstance(meta, Mapping):
+        verdict = _meta_is_reviewed(meta)
+        if verdict is not None:
+            return verdict
+    return _programs_are_reviewed(getattr(catalog, "programs", ()) or ())
 
 
 def executor_identity(engine: Any) -> str:
@@ -172,10 +198,14 @@ def refuse_unisolated_execution(
 ) -> None:
     """Fail closed: a source that is not the reviewed pin must run inside bwrap."""
 
-    reviewed = catalog_is_reviewed(catalog) if catalog is not None else (
-        reviewed_upstream(upstream)
-        and (selector is None or selector == sp.REVIEWED_SELECTOR)
-    )
+    if catalog is not None:
+        reviewed = catalog_is_reviewed(catalog)
+    elif not reviewed_upstream(upstream):
+        reviewed = False
+    elif selector is None:
+        reviewed = True
+    else:
+        reviewed = selector == sp.REVIEWED_SELECTOR
     if reviewed:
         return
     cv.refuse_when(
@@ -217,20 +247,26 @@ def _root_dir(*parts: str) -> str:
 
 
 def _insn(code: int, jt: int, jf: int, k: int) -> bytes:
+    """One classic BPF instruction."""
+
     return struct.pack("=HBBI", code, jt, jf, k)
 
 
 def _seccomp_syscalls() -> tuple[int, tuple[int, ...], tuple[int, ...]] | None:
+    """Audit arch plus the errno/kill syscall sets for this machine, or None."""
+
     machine = os.uname().machine
     arch = _AUDIT_ARCH.get(machine)
     errno_syscalls = _ERRNO_SYSCALLS.get(machine)
     kill_syscalls = _KILL_SYSCALLS.get(machine)
-    if arch is None or errno_syscalls is None or kill_syscalls is None:
+    if None in (arch, errno_syscalls, kill_syscalls):
         return None
     return arch, errno_syscalls, kill_syscalls
 
 
 def _syscall_jumps(errno_syscalls: tuple[int, ...], kill_syscalls: tuple[int, ...]) -> list[bytes]:
+    """JEQ jumps onto the errno-return and kill-process tails."""
+
     insns: list[bytes] = []
     remaining = len(errno_syscalls) + len(kill_syscalls)
     for syscall in errno_syscalls:
@@ -245,6 +281,8 @@ def _syscall_jumps(errno_syscalls: tuple[int, ...], kill_syscalls: tuple[int, ..
 def _seccomp_filter(
     arch: int, errno_syscalls: tuple[int, ...], kill_syscalls: tuple[int, ...],
 ) -> bytes:
+    """The packed seccomp-bpf program for this architecture."""
+
     header = [
         _insn(_BPF_LD_W_ABS, 0, 0, 4),
         _insn(_BPF_JMP_JEQ_K, 1, 0, arch),
@@ -260,11 +298,14 @@ def _seccomp_filter(
 
 
 def _seccomp_blob() -> bytes | None:
+    """The seccomp program, or None when this architecture is not in the table."""
+
     spec = _seccomp_syscalls()
     return None if spec is None else _seccomp_filter(*spec)
 
 
 def _hide_roots(workdir: Path) -> tuple[Path, ...]:
+    """Host trees to overlay with tmpfs, skipping any ancestor of the workdir."""
     roots = [Path(_root_dir(name)) for name in _HIDE_ROOTS]
     roots.append(sp.ROOT)
     home = Path.home()
@@ -277,7 +318,9 @@ def _hide_roots(workdir: Path) -> tuple[Path, ...]:
             resolved = root.resolve()
         except OSError:
             continue
-        if not resolved.exists() or resolved in hidden:
+        if not resolved.exists():
+            continue
+        if resolved in hidden:
             continue
         try:
             resolved_workdir.relative_to(resolved)
@@ -287,6 +330,7 @@ def _hide_roots(workdir: Path) -> tuple[Path, ...]:
 
 
 def _seccomp_reader(blob: bytes) -> int:
+    """A pipe holding the seccomp program for bwrap ``--seccomp FD``."""
     reader, writer = os.pipe()
     try:
         os.write(writer, blob)
@@ -296,6 +340,7 @@ def _seccomp_reader(blob: bytes) -> int:
 
 
 def _bwrap_prefix(bwrap: str, workdir: Path, env: Mapping[str, str], seccomp_fd: int) -> list[str]:
+    """Literal bwrap argv prefix: read-only root, unshared namespaces, private tmp."""
     host = str(workdir)
     prefix = [
         bwrap, "--die-with-parent", "--new-session", "--unshare-all",
@@ -315,12 +360,11 @@ def _bwrap_prefix(bwrap: str, workdir: Path, env: Mapping[str, str], seccomp_fd:
 def _bwrap_confinement(
     argv: list[str], workdir: Path, env: Mapping[str, str],
 ) -> Confinement:
+    """Prefix ``argv`` with the OS boundary, inheriting the seccomp descriptor."""
     binary = shutil.which(BWRAP_BIN)
     blob = _seccomp_blob()
-    cv.refuse_when(
-        binary is None or blob is None,
-        cv.FINDING_SANDBOX_UNAVAILABLE, "bwrap user-namespace sandbox is not available",
-    )
+    cv.refuse_when(binary is None, cv.FINDING_SANDBOX_UNAVAILABLE, _UNAVAILABLE)
+    cv.refuse_when(blob is None, cv.FINDING_SANDBOX_UNAVAILABLE, _UNAVAILABLE)
     reader = _seccomp_reader(blob or b"")
     try:
         prefix = _bwrap_prefix(binary or BWRAP_BIN, workdir, env, reader)
