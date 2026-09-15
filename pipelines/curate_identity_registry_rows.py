@@ -9,7 +9,6 @@ loads bytes and pins the resulting table.
 
 from __future__ import annotations
 
-import re
 import sys
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -20,6 +19,7 @@ if __package__:
 
     _assert_direct_sibling("curate_identity_registry_rows")
     from . import curate_identity_json as _identity_json
+    from . import curate_identity_registry_evidence as _evidence
     from . import curate_identity_registry_fields as _fields
     from .rights_mapping import (
         CANONICAL_PROVIDERS,
@@ -28,7 +28,6 @@ if __package__:
         HOSTED_FRONTIER_PROFILE_ID,
         NEMOTRON_PLACEHOLDER_PROFILE_ID,
         PROCEDURAL_PROFILE_ID,
-        SHA256_RE,
         SIMULATOR_PROFILE_ID,
     )
     from .rights_policy import (
@@ -41,6 +40,7 @@ else:
         "curate_identity_registry_rows"
     )
     import curate_identity_json as _identity_json
+    import curate_identity_registry_evidence as _evidence
     import curate_identity_registry_fields as _fields
     from rights_mapping import (
         CANONICAL_PROVIDERS,
@@ -49,7 +49,6 @@ else:
         HOSTED_FRONTIER_PROFILE_ID,
         NEMOTRON_PLACEHOLDER_PROFILE_ID,
         PROCEDURAL_PROFILE_ID,
-        SHA256_RE,
         SIMULATOR_PROFILE_ID,
     )
     from rights_policy import (
@@ -164,6 +163,7 @@ _PATH_RULES = _fields._PATH_RULES
 _RIGHTS_VOCABULARY_RULES = _fields._RIGHTS_VOCABULARY_RULES
 _SHAPE_RULES = _fields._SHAPE_RULES
 _PREFERENCE_SIDE_RULES = _fields._PREFERENCE_SIDE_RULES
+_require_profile_evidence = _evidence._require_profile_evidence
 
 
 def _is_normalized_token(value: Any) -> bool:
@@ -193,18 +193,6 @@ def _legacy_generator_identity(
             f"factories[{index}] missing fields: {missing}"
         )
     return _generator_identity(raw, index)
-
-
-_GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-CATALOG_AUTHORSHIP_VALUES = frozenset(
-    {"human-authored", "permissive-upstream-license"}
-)
-_PROFILE_EVIDENCE_FIELDS = (
-    "catalog_authorship",
-    "generator_source_digest",
-    "commit_sha",
-    "module_digest",
-)
 
 
 def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str, str]:
@@ -241,67 +229,6 @@ def _require_reviewed_authorization(
         raise IdentityCurationError(
             f"factories[{index}] rights fields drift from loaded policy"
         )
-
-
-def _require_prefixed_digest(raw: Mapping[str, Any], field: str, index: int) -> str:
-    value = raw.get(field)
-    if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
-        raise IdentityCurationError(
-            f"factories[{index}].{field} must be lowercase sha256:<64 hex>"
-        )
-    return value
-
-
-def _require_catalog_authorship(raw: Mapping[str, Any], index: int) -> str:
-    value = raw.get("catalog_authorship")
-    if value not in CATALOG_AUTHORSHIP_VALUES:
-        raise IdentityCurationError(
-            f"factories[{index}] procedural rows require catalog_authorship "
-            f"{sorted(CATALOG_AUTHORSHIP_VALUES)}"
-        )
-    return value
-
-
-def _require_commit_sha(raw: Mapping[str, Any], index: int) -> str:
-    value = raw.get("commit_sha")
-    if not isinstance(value, str) or _GIT_COMMIT_RE.fullmatch(value) is None:
-        raise IdentityCurationError(
-            f"factories[{index}].commit_sha must be a 40-character lowercase git SHA"
-        )
-    return value
-
-
-def _require_no_profile_evidence(raw: Mapping[str, Any], index: int) -> None:
-    unexpected = [field for field in _PROFILE_EVIDENCE_FIELDS if field in raw]
-    if unexpected:
-        raise IdentityCurationError(
-            f"factories[{index}] unexpected rights evidence fields: {unexpected}"
-        )
-
-
-def _require_profile_evidence(raw: Mapping[str, Any], index: int) -> None:
-    profile_id = raw["rights_profile_id"]
-    if profile_id == PROCEDURAL_PROFILE_ID:
-        _require_catalog_authorship(raw, index)
-        _require_prefixed_digest(raw, "generator_source_digest", index)
-        unexpected = [field for field in ("commit_sha", "module_digest") if field in raw]
-        if unexpected:
-            raise IdentityCurationError(
-                f"factories[{index}] unexpected rights evidence fields: {unexpected}"
-            )
-        return
-    if profile_id == SIMULATOR_PROFILE_ID:
-        _require_commit_sha(raw, index)
-        _require_prefixed_digest(raw, "module_digest", index)
-        unexpected = [
-            field for field in ("catalog_authorship", "generator_source_digest") if field in raw
-        ]
-        if unexpected:
-            raise IdentityCurationError(
-                f"factories[{index}] unexpected rights evidence fields: {unexpected}"
-            )
-        return
-    _require_no_profile_evidence(raw, index)
 
 
 def _require_reviewed_rights(
