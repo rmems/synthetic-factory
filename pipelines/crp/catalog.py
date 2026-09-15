@@ -3,8 +3,9 @@
 
 ``plants_from_source`` walks a mill module for literal ``P(...)`` /
 ``_p(...)`` calls, or expands a literal ``_RAW`` block with the pinned
-``keel{{base + i}}`` loop shape. The committed leftover3 catalog is the
-third leftover leftover leftover wave (r729+) extracted from
+``{{prefix}}{{base + i}}`` loop shape (``keel`` / ``atoll`` / ``reef``).
+The committed leftover3 catalog is the third leftover leftover leftover
+wave (r729+) extracted from
 ``experiments/code_review_preference_mill_leftover3.py`` on
 ``legacy-mill-lane``. The mill files themselves are not vendored.
 
@@ -144,7 +145,7 @@ def _indexed_noun_base(node: ast.AST) -> tuple[str, int] | None:
     if not isinstance(prefix_node, ast.Constant) or not isinstance(prefix_node.value, str):
         return None
     prefix = prefix_node.value
-    if prefix not in {"keel", "atoll"}:
+    if prefix not in {"keel", "atoll", "reef"}:
         return None
     if not isinstance(formatted, ast.FormattedValue):
         return None

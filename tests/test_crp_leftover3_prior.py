@@ -44,6 +44,7 @@ PACKAGE_PY = (
     "r538.py",
     "r729.py",
     "r817.py",
+    "r995.py",
 )
 
 
