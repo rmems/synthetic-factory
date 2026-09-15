@@ -257,9 +257,13 @@ def _seccomp_syscalls() -> tuple[int, tuple[int, ...], tuple[int, ...]] | None:
 
     machine = os.uname().machine
     arch = _AUDIT_ARCH.get(machine)
+    if arch is None:
+        return None
     errno_syscalls = _ERRNO_SYSCALLS.get(machine)
+    if errno_syscalls is None:
+        return None
     kill_syscalls = _KILL_SYSCALLS.get(machine)
-    if None in (arch, errno_syscalls, kill_syscalls):
+    if kill_syscalls is None:
         return None
     return arch, errno_syscalls, kill_syscalls
 
