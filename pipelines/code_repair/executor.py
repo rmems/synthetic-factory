@@ -185,11 +185,11 @@ class Executor:
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
             (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
-            report = replace(
+            executed: PhaseReport = replace(
                 self._execute(job, workdir),
                 module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest(),
             )
-            return self._stamp_identity(report)
+            return self._stamp_identity(executed)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 

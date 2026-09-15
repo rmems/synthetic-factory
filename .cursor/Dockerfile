@@ -12,11 +12,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        bubblewrap \
         ca-certificates \
         curl \
         git \
         sudo \
-        bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # python:*-slim has no ubuntu user; Cloud agents clone with git and escalate with sudo.

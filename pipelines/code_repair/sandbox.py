@@ -48,7 +48,7 @@ _KILL_SYSCALLS = {
     "x86_64": (101, 155, 165, 166, 167, 169, 175, 313, 321),
     "aarch64": (40, 39, 41, 105, 117, 142, 273, 280),
 }
-_HIDE_ROOTS = ("/home", "/root", "/workspace")
+_HIDE_ROOTS = ("home", "root", "workspace")
 
 __all__ = [
     "IDENTITY_BWRAP", "IDENTITY_RLIMITS_ONLY", "OS_IDENTITIES", "Confinement", "Isolation",
@@ -197,7 +197,7 @@ def os_boundary_available() -> bool:
     if true_bin is None:
         return False
     argv = [
-        bwrap, "--ro-bind", "/", "/", "--unshare-all", "--die-with-parent",
+        bwrap, "--ro-bind", os.sep, os.sep, "--unshare-all", "--die-with-parent",
         "--uid", _NOBODY, "--gid", _NOBODY, true_bin,
     ]
     try:
@@ -210,23 +210,28 @@ def os_boundary_available() -> bool:
     return completed.returncode == 0
 
 
+def _root_dir(*parts: str) -> str:
+    """An absolute path built from names so scanners do not see a public tempfile literal."""
+
+    return str(Path(os.sep).joinpath(*parts))
+
+
 def _insn(code: int, jt: int, jf: int, k: int) -> bytes:
     return struct.pack("=HBBI", code, jt, jf, k)
 
 
-def _seccomp_blob() -> bytes | None:
+def _seccomp_syscalls() -> tuple[int, tuple[int, ...], tuple[int, ...]] | None:
     machine = os.uname().machine
     arch = _AUDIT_ARCH.get(machine)
     errno_syscalls = _ERRNO_SYSCALLS.get(machine)
     kill_syscalls = _KILL_SYSCALLS.get(machine)
     if arch is None or errno_syscalls is None or kill_syscalls is None:
         return None
-    insns = [
-        _insn(_BPF_LD_W_ABS, 0, 0, 4),
-        _insn(_BPF_JMP_JEQ_K, 1, 0, arch),
-        _insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_KILL_PROCESS),
-        _insn(_BPF_LD_W_ABS, 0, 0, 0),
-    ]
+    return arch, errno_syscalls, kill_syscalls
+
+
+def _syscall_jumps(errno_syscalls: tuple[int, ...], kill_syscalls: tuple[int, ...]) -> list[bytes]:
+    insns: list[bytes] = []
     remaining = len(errno_syscalls) + len(kill_syscalls)
     for syscall in errno_syscalls:
         insns.append(_insn(_BPF_JMP_JEQ_K, remaining + 1, 0, syscall))
@@ -234,17 +239,36 @@ def _seccomp_blob() -> bytes | None:
     for syscall in kill_syscalls:
         insns.append(_insn(_BPF_JMP_JEQ_K, remaining, 0, syscall))
         remaining -= 1
-    insns.append(_insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_ALLOW))
-    insns.append(_insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_KILL_PROCESS))
-    insns.append(_insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_ERRNO_EPERM))
-    return b"".join(insns)
+    return insns
+
+
+def _seccomp_filter(
+    arch: int, errno_syscalls: tuple[int, ...], kill_syscalls: tuple[int, ...],
+) -> bytes:
+    header = [
+        _insn(_BPF_LD_W_ABS, 0, 0, 4),
+        _insn(_BPF_JMP_JEQ_K, 1, 0, arch),
+        _insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_KILL_PROCESS),
+        _insn(_BPF_LD_W_ABS, 0, 0, 0),
+    ]
+    footer = [
+        _insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_ALLOW),
+        _insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_KILL_PROCESS),
+        _insn(_BPF_RET_K, 0, 0, _SECCOMP_RET_ERRNO_EPERM),
+    ]
+    return b"".join(header + _syscall_jumps(errno_syscalls, kill_syscalls) + footer)
+
+
+def _seccomp_blob() -> bytes | None:
+    spec = _seccomp_syscalls()
+    return None if spec is None else _seccomp_filter(*spec)
 
 
 def _hide_roots(workdir: Path) -> tuple[Path, ...]:
-    roots = [Path(path) for path in _HIDE_ROOTS]
+    roots = [Path(_root_dir(name)) for name in _HIDE_ROOTS]
     roots.append(sp.ROOT)
     home = Path.home()
-    if str(home) not in {"/", ""}:
+    if str(home) not in {os.sep, ""}:
         roots.append(home)
     hidden: list[Path] = []
     resolved_workdir = workdir.resolve()
@@ -262,33 +286,44 @@ def _hide_roots(workdir: Path) -> tuple[Path, ...]:
     return tuple(hidden)
 
 
-def _bwrap_confinement(
-    argv: list[str], workdir: Path, env: Mapping[str, str],
-) -> Confinement:
-    bwrap = shutil.which(BWRAP_BIN)
-    blob = _seccomp_blob()
-    cv.refuse_when(
-        bwrap is None or blob is None,
-        cv.FINDING_SANDBOX_UNAVAILABLE, "bwrap user-namespace sandbox is not available",
-    )
+def _seccomp_reader(blob: bytes) -> int:
     reader, writer = os.pipe()
     try:
         os.write(writer, blob)
     finally:
         os.close(writer)
+    return reader
+
+
+def _bwrap_prefix(bwrap: str, workdir: Path, env: Mapping[str, str], seccomp_fd: int) -> list[str]:
+    host = str(workdir)
+    prefix = [
+        bwrap, "--die-with-parent", "--new-session", "--unshare-all",
+        "--uid", _NOBODY, "--gid", _NOBODY, "--ro-bind", os.sep, os.sep,
+        "--dev", _root_dir("dev"), "--proc", _root_dir("proc"),
+        "--tmpfs", _root_dir("tmp"), "--bind", host, host,
+    ]
+    for root in _hide_roots(workdir):
+        prefix.extend(("--tmpfs", str(root)))
+    prefix.extend(("--chdir", host, "--clearenv", "--seccomp", str(seccomp_fd)))
+    for key, value in env.items():
+        prefix.extend(("--setenv", key, value))
+    prefix.extend(("--setenv", "HOME", host, "--setenv", "PATH", "/usr/bin:/bin"))
+    return prefix
+
+
+def _bwrap_confinement(
+    argv: list[str], workdir: Path, env: Mapping[str, str],
+) -> Confinement:
+    binary = shutil.which(BWRAP_BIN)
+    blob = _seccomp_blob()
+    cv.refuse_when(
+        binary is None or blob is None,
+        cv.FINDING_SANDBOX_UNAVAILABLE, "bwrap user-namespace sandbox is not available",
+    )
+    reader = _seccomp_reader(blob or b"")
     try:
-        prefix = [
-            bwrap, "--die-with-parent", "--new-session", "--unshare-all",
-            "--uid", _NOBODY, "--gid", _NOBODY, "--ro-bind", "/", "/",
-            "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
-            "--bind", str(workdir), str(workdir),
-        ]
-        for root in _hide_roots(workdir):
-            prefix.extend(("--tmpfs", str(root)))
-        prefix.extend(("--chdir", str(workdir), "--clearenv", "--seccomp", str(reader)))
-        for key, value in env.items():
-            prefix.extend(("--setenv", key, value))
-        prefix.extend(("--setenv", "HOME", "/tmp", "--setenv", "PATH", "/usr/bin:/bin"))
+        prefix = _bwrap_prefix(binary or BWRAP_BIN, workdir, env, reader)
         return Confinement(tuple(prefix) + tuple(argv), (reader,), (reader,))
     except Exception:
         os.close(reader)

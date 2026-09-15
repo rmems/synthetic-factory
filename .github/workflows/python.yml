@@ -32,7 +32,11 @@ jobs:
           python-version: "3.14"
 
       - name: Install bubblewrap for the code-repair OS sandbox
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
+          # Ubuntu 24.04 AppArmor blocks unprivileged user namespaces by default.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --unshare-all --die-with-parent --uid 65534 --gid 65534 /bin/true
 
       - name: Compile Python sources and tests
         run: python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py

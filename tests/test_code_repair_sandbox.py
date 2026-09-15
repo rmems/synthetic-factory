@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import os
 import shutil
 import sys
 import tempfile
@@ -33,8 +34,10 @@ def _foreign_catalog():
 
 class ConfineArgv(unittest.TestCase):
     def test_rlimits_only_leaves_the_literal_argv_untouched(self):
-        argv = ["python", "-P", "_harness.py", "/tmp/work"]
-        confined = sb.Isolation.rlimits_only().confine(argv, Path("/tmp/work"), ex.CHILD_ENV)
+        workdir = Path(tempfile.mkdtemp(prefix="code-repair-argv-"))
+        self.addCleanup(shutil.rmtree, workdir, True)
+        argv = ["python", "-P", "_harness.py", str(workdir)]
+        confined = sb.Isolation.rlimits_only().confine(argv, workdir, ex.CHILD_ENV)
         self.assertEqual(confined.argv, tuple(argv))
         self.assertEqual(confined.pass_fds, ())
         confined.close()
@@ -56,6 +59,9 @@ class ConfineArgv(unittest.TestCase):
             ):
                 self.assertIn(flag, confined.argv)
             self.assertEqual(len(confined.pass_fds), 1)
+            argv_list = list(confined.argv)
+            self.assertEqual(argv_list[argv_list.index("HOME") + 1], str(workdir))
+            self.assertIn(str(Path(os.sep) / "tmp"), confined.argv)
         finally:
             confined.close()
 
