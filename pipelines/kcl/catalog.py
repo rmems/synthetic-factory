@@ -2,7 +2,9 @@
 """Pinned KCL leftover catalog: AST extract (never execute), load, and check.
 
 A catalog directory holds ``CATALOG.json`` and ``plants.jsonl``. Historical
-mill scripts are read only as text through :func:`ast_extract_plants`.
+mill scripts are read only as text through :func:`ast_extract_plants`. The
+committed catalog is a representative slice; mill ``plant_count`` values
+are the full leftover inventory.
 """
 
 from __future__ import annotations
@@ -19,9 +21,14 @@ from ._contract import (
     BANNED_ID_TOKENS,
     CATALOG_FILENAME,
     CATALOG_FORMAT,
+    CATALOG_SLICE,
     DEFAULT_CATALOG_ID,
     EXTRACT_METHOD,
     FACTORY,
+    FULL_MILL_COUNTS,
+    FULL_PAIR_COUNT,
+    FULL_PLANT_COUNT,
+    FULL_ROW_COUNT,
     FAMILY_PREFIX,
     FINDING_BANNED,
     FINDING_CATALOG_FIELD_INVALID,
@@ -572,6 +579,19 @@ def load_catalog(directory: Path | None = None, *, root: Path | None = None) -> 
     )
     catalog_id = _require_text(meta.get("catalog_id"), "catalog_id", FINDING_CATALOG_FIELD_INVALID)
     plant_count = _require_int(meta.get("plant_count"), "plant_count", FINDING_CATALOG_FIELD_INVALID, 1)
+    full_raw = meta.get("full_plant_count", plant_count)
+    full_plant_count = _require_int(full_raw, "full_plant_count", FINDING_CATALOG_FIELD_INVALID, 1)
+    refuse_when(
+        plant_count > full_plant_count,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"plant_count {plant_count} exceeds full_plant_count {full_plant_count}",
+    )
+    if full_plant_count != plant_count:
+        refuse_when(
+            meta.get("slice") != CATALOG_SLICE,
+            FINDING_CATALOG_FIELD_INVALID,
+            "a partial plants.jsonl must set slice=representative",
+        )
     plants_sha256 = _require_text(meta.get("plants_sha256"), "plants_sha256", FINDING_CATALOG_FIELD_INVALID)
     mill_rows = meta.get("mills")
     refuse_when(not isinstance(mill_rows, list), FINDING_CATALOG_FIELD_MISSING, "mills")
@@ -607,11 +627,17 @@ def load_catalog(directory: Path | None = None, *, root: Path | None = None) -> 
         FINDING_CATALOG_FIELD_INVALID,
         "catalog mills do not match plant mill_id values",
     )
+    refuse_when(
+        sum(mill.plant_count for mill in mills) != full_plant_count,
+        FINDING_CATALOG_FIELD_INVALID,
+        "mill plant_count values must sum to full_plant_count",
+    )
     for mill in mills:
+        committed = by_mill[mill.mill_id]
         refuse_when(
-            by_mill[mill.mill_id] != mill.plant_count,
+            committed < 1 or committed > mill.plant_count,
             FINDING_CATALOG_FIELD_INVALID,
-            f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
+            f"{mill.mill_id} committed {committed} outside 1..{mill.plant_count}",
         )
     return Catalog(
         catalog_id=catalog_id,
@@ -645,6 +671,33 @@ def catalog_check(directory: Path | None = None, *, root: Path | None = None) ->
         FINDING_CATALOG_FIELD_INVALID,
         "source mill order drifted from SOURCE_MILLS",
     )
+    if catalog.catalog_id == DEFAULT_CATALOG_ID:
+        refuse_first(
+            (
+                (catalog.meta.get("slice") != CATALOG_SLICE, FINDING_CATALOG_FIELD_INVALID, "slice"),
+                (
+                    catalog.meta.get("full_plant_count") != FULL_PLANT_COUNT,
+                    FINDING_CATALOG_FIELD_INVALID,
+                    "full_plant_count",
+                ),
+                (
+                    catalog.meta.get("full_pair_count") != FULL_PAIR_COUNT,
+                    FINDING_CATALOG_FIELD_INVALID,
+                    "full_pair_count",
+                ),
+                (
+                    catalog.meta.get("full_row_count") != FULL_ROW_COUNT,
+                    FINDING_CATALOG_FIELD_INVALID,
+                    "full_row_count",
+                ),
+                (
+                    tuple((mill.mill_id, mill.plant_count) for mill in catalog.mills)
+                    != FULL_MILL_COUNTS,
+                    FINDING_CATALOG_FIELD_INVALID,
+                    "mill plant_count inventory",
+                ),
+            )
+        )
     return catalog
 
 
@@ -654,10 +707,15 @@ def document_from_plants(
     *,
     catalog_id: str = DEFAULT_CATALOG_ID,
     plants_sha256: str,
+    full_plant_count: int | None = None,
+    full_pair_count: int | None = None,
+    full_row_count: int | None = None,
+    slice_name: str | None = None,
 ) -> dict[str, Any]:
     """Build the CATALOG.json document for a committed or fixture catalog."""
 
-    return {
+    inventory = full_plant_count if full_plant_count is not None else len(plants)
+    payload: dict[str, Any] = {
         "catalog_id": catalog_id,
         "factory": FACTORY,
         "format": CATALOG_FORMAT,
@@ -683,6 +741,14 @@ def document_from_plants(
             "scripts": [mill.source for mill in mills],
         },
     }
+    if inventory != len(plants) or slice_name is not None:
+        payload["full_plant_count"] = inventory
+        payload["slice"] = slice_name or CATALOG_SLICE
+    if full_pair_count is not None:
+        payload["full_pair_count"] = full_pair_count
+    if full_row_count is not None:
+        payload["full_row_count"] = full_row_count
+    return payload
 
 
 bind_import_twin(__name__)

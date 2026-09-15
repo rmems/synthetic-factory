@@ -25,6 +25,7 @@ sys.path.insert(0, str(PIPELINES))
 from hopper.plants import pairs_by_factory  # noqa: E402
 from kcl import catalog, cli, generate  # noqa: E402
 from kcl._contract import (  # noqa: E402
+    CATALOG_SLICE,
     EXTRACT_METHOD,
     FACTORY,
     FAMILY_PREFIX,
@@ -33,6 +34,10 @@ from kcl._contract import (  # noqa: E402
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_PLANT_NOT_FOUND,
     FINDING_UNKNOWN_WAVE,
+    FULL_MILL_COUNTS,
+    FULL_PAIR_COUNT,
+    FULL_PLANT_COUNT,
+    FULL_ROW_COUNT,
     GENERATOR,
     HANDOFF_STEPS,
     HOPPER_WAVE,
@@ -91,15 +96,22 @@ class KclCatalogTests(unittest.TestCase):
         loaded = catalog.catalog_check(root=REPO)
         self.assertEqual(loaded.catalog_id, "kcl-plants-v1")
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 705)
+        self.assertEqual(loaded.meta["slice"], CATALOG_SLICE)
+        self.assertEqual(loaded.meta["full_plant_count"], FULL_PLANT_COUNT)
+        self.assertEqual(loaded.meta["full_pair_count"], FULL_PAIR_COUNT)
+        self.assertEqual(loaded.meta["full_row_count"], FULL_ROW_COUNT)
+        self.assertEqual(len(loaded.plants), 12)
         self.assertEqual(len(loaded.mills), 11)
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 705)
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 12)
+        self.assertEqual({plant.mill_id for plant in loaded.plants}, {item[0] for item in SOURCE_MILLS})
         self.assertEqual(loaded.meta["source"]["method"], EXTRACT_METHOD)
         self.assertEqual(loaded.meta["source"]["commit"], LEGACY_COMMIT)
         self.assertEqual([mill.mill_id for mill in loaded.mills], [item[0] for item in SOURCE_MILLS])
-        pair = sum(1 for plant in loaded.plants if plant.shape == "pair")
-        row = sum(1 for plant in loaded.plants if plant.shape == "row")
-        self.assertEqual((pair, row), (478, 227))
+        self.assertEqual(tuple((mill.mill_id, mill.plant_count) for mill in loaded.mills), FULL_MILL_COUNTS)
+        self.assertEqual(dict(FULL_MILL_COUNTS)["kcl_r1007"], 141)
+        self.assertEqual(dict(FULL_MILL_COUNTS)["kcl_r1443"], 195)
+        self.assertIn("kcl_r1007:readinessgate-miss", {plant.plant_id for plant in loaded.plants})
+        self.assertTrue(any(plant.shape == "row" for plant in loaded.plants))
 
     def test_fixture_catalog_is_one_plant(self):
         loaded = catalog.load_catalog(FIXTURE)
@@ -137,11 +149,14 @@ class KclCatalogTests(unittest.TestCase):
                 source, mill_id=mill_id, path=rel, base_round=base_round, shape=shape
             )
             committed = loaded.mill_plants(mill_id)
-            self.assertEqual(len(extracted), len(committed), mill_id)
-            self.assertEqual(extracted[0]["slug"], committed[0].slug, mill_id)
-            self.assertEqual(
-                extracted[0]["payload"]["field"], committed[0].payload["field"], mill_id
-            )
+            full_count = dict(FULL_MILL_COUNTS)[mill_id]
+            self.assertEqual(len(extracted), full_count, mill_id)
+            self.assertLessEqual(len(committed), full_count, mill_id)
+            extracted_by_id = {row["plant_id"]: row for row in extracted}
+            for plant in committed:
+                row = extracted_by_id[plant.plant_id]
+                self.assertEqual(row["slug"], plant.slug, plant.plant_id)
+                self.assertEqual(row["payload"]["field"], plant.payload["field"], plant.plant_id)
             compared += 1
         self.assertEqual(compared, len(SOURCE_MILLS))
 
@@ -261,7 +276,8 @@ class KclCliTests(unittest.TestCase):
         code, stdout, stderr = invoke(["catalog-check", "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(stdout)
-        self.assertEqual(payload["plants"], 705)
+        self.assertEqual(payload["plants"], 12)
+        self.assertEqual(payload["full_plants"], FULL_PLANT_COUNT)
         self.assertEqual(payload["factory"], FACTORY)
         self.assertEqual(stderr, "")
 

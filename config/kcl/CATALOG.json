@@ -2,6 +2,9 @@
   "catalog_id": "kcl-plants-v1",
   "factory": "k8s-crashloop-factory",
   "format": "kcl-catalog/1",
+  "full_pair_count": 478,
+  "full_plant_count": 705,
+  "full_row_count": 227,
   "mill_prefix": "kcl",
   "mills": [
     {
@@ -82,10 +85,11 @@
       "source": "experiments/kcl-plants-r1644.py"
     }
   ],
-  "plant_count": 705,
-  "plants_sha256": "f92938bedbc7835a44085483cb61bfaf03f9fe17ad633e450f5105b6f262ee92",
+  "plant_count": 12,
+  "plants_sha256": "2a38a08cabe0d234a6876fb5c4bf8da0ba6048b726a1a550d78514552380bbf6",
   "quota_per_round": 2,
   "record_kind": "episode",
+  "slice": "representative",
   "source": {
     "commit": "813f93f1969c1c4421e5663492e9663739efa642",
     "method": "git-show+ast.parse",

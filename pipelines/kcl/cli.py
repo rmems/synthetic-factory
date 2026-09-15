@@ -74,6 +74,7 @@ def _catalog_check(args: argparse.Namespace) -> int:
         "status": "ok",
         "catalog_id": loaded.catalog_id,
         "plants": len(loaded.plants),
+        "full_plants": loaded.meta.get("full_plant_count", len(loaded.plants)),
         "mills": len(loaded.mills),
         "factory": loaded.factory,
     }

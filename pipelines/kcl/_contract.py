@@ -31,6 +31,10 @@ GENERATOR = "kcl-mill"
 HOPPER_WAVE = "g46c"
 CATALOG_FORMAT = "kcl-catalog/1"
 DEFAULT_CATALOG_ID = "kcl-plants-v1"
+CATALOG_SLICE = "representative"
+FULL_PLANT_COUNT = 705
+FULL_PAIR_COUNT = 478
+FULL_ROW_COUNT = 227
 RECORD_KIND = "episode"
 QUOTA_PER_ROUND = 2
 SUCCESS_STEPS = 16
@@ -141,6 +145,21 @@ SOURCE_MILLS = (
     ("kcl_r1443", 1443, "experiments/kcl-plants-r1443.py", SHAPE_ROW),
     ("kcl_r1644", 1644, "experiments/kcl-plants-r1644.py", SHAPE_ROW),
 )
+# Full leftover extract sizes. The committed plants.jsonl is a representative
+# slice; bulky dumps are kcl-mill-r1007.py (141) and kcl-plants-r1443.py (195).
+FULL_MILL_COUNTS = (
+    ("kcl_r1007", 141),
+    ("kcl_pref", 16),
+    ("kcl_u1092", 12),
+    ("kcl_r1092", 32),
+    ("kcl_r1152", 64),
+    ("kcl_r1216", 20),
+    ("kcl_r1236", 160),
+    ("kcl_r1266", 16),
+    ("kcl_r1379", 17),
+    ("kcl_r1443", 195),
+    ("kcl_r1644", 32),
+)
 
 FINDING_CATALOG_FILE_MISSING = "kcl.catalog_file_missing"
 FINDING_CATALOG_FIELD_MISSING = "kcl.catalog_field_missing"
@@ -220,12 +239,17 @@ __all__ = [
     "BANNED_PLANTS",
     "CATALOG_FILENAME",
     "CATALOG_FORMAT",
+    "CATALOG_SLICE",
     "DEFAULT_CATALOG",
     "DEFAULT_CATALOG_ID",
     "EXTRACT_METHOD",
     "FACTORY",
     "FAMILY_PREFIX",
     "FINDING_CODES",
+    "FULL_MILL_COUNTS",
+    "FULL_PAIR_COUNT",
+    "FULL_PLANT_COUNT",
+    "FULL_ROW_COUNT",
     "GENERATOR",
     "HANDOFF_STEPS",
     "HOPPER_WAVE",
