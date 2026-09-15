@@ -216,7 +216,7 @@ def _cascade_recovery_basis_errors(chain: _CascadeChain, diagnosis_text) -> list
 
 def _cascade_chain_errors(chain: _CascadeChain) -> list[str]:
     diagnosis_index = chain.fault_step + chain.cascade_steps
-    if diagnosis_index + 1 >= len(chain.steps):
+    if diagnosis_index < 0 or diagnosis_index + 1 >= len(chain.steps):
         return [
             f"{chain.where}: cascade needs {chain.cascade_steps} inherited steps, "
             "then diagnosis and recovery"
