@@ -1,0 +1,37 @@
+tests/test_kcl.py
+  s_35ee29b63aca9c::t_d26dd427a28ae7 99-103,105-106,110-114
+  s_35ee29b63aca9c::t_1f1298777d0291 28,37-40
+  s_35ee29b63aca9c::t_7573302eb7b491 279-280
+  s_35ee29b63aca9c::t_ae180f5f617fb1 152-159
+pipelines/kcl/cli.py
+  s_35ee29b63aca9c::t_520ed79d0105b3 77
+pipelines/kcl/_contract.py
+  s_35ee29b63aca9c::t_fb94dc6509b702 148-162
+  s_35ee29b63aca9c::t_f30763a26601d4 242,249-252
+  s_35ee29b63aca9c::t_c3e52e4cef2112 34-37
+pipelines/kcl/catalog.py
+  s_35ee29b63aca9c::t_dedeebfeae0a8d 630-634,636,638,640
+  s_35ee29b63aca9c::t_93a3eacdf186b4 674-700
+  s_35ee29b63aca9c::t_a6c087baa4a440 582-594
+  s_35ee29b63aca9c::t_37ff3d0406bd49 710-713,717-718,744-751
+  s_35ee29b63aca9c::t_ba3bd0d8931f6d 5-7
+  s_35ee29b63aca9c::t_f235d0ef1b3352 24,28-31
+pipelines/kcl/__init__.py
+  s_35ee29b63aca9c::t_a320a8b5962564 6-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5d5540d3f53c870adb508e416852feac133a3a31",
+  "prompts": {},
+  "sessions": {
+    "s_35ee29b63aca9c": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e137103b-2d3a-48dd-86da-eb1bdd34046c",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
