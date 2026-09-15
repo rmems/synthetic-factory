@@ -156,15 +156,23 @@ def _legacy_available() -> bool:
         return False
 
 
+class _ForbiddenCallFinder(ast.NodeVisitor):
+    """Collect ``exec`` / ``eval`` / ``compile`` calls; used only in tests."""
+
+    def __init__(self, filename: str) -> None:
+        self.filename = filename
+        self.hits: list[str] = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Name) and node.func.id in {"exec", "eval", "compile"}:
+            self.hits.append(f"{self.filename}:{node.lineno}:{node.func.id}")
+        self.generic_visit(node)
+
+
 def _module_uses_exec(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    hits: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        if node.func.id in {"exec", "eval", "compile"}:
-            hits.append(f"{path.name}:{node.lineno}:{node.func.id}")
-    return hits
+    finder = _ForbiddenCallFinder(path.name)
+    finder.visit(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+    return finder.hits
 
 
 class LhcSkeletonTests(unittest.TestCase):

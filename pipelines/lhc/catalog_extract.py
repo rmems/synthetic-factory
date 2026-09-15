@@ -57,16 +57,48 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def mill_id_for_path(path: str) -> str:
-    return Path(path).stem
-
-
-def catalog_first_from_name(path: str) -> int | None:
-    stem = Path(path).stem
-    marker = stem.rsplit("-r", 1)
-    if len(marker) != 2 or not marker[1].isdigit():
+def _round_suffix(path: str) -> int | None:
+    _, sep, tail = Path(path).stem.rpartition("-r")
+    if not sep or not tail.isdigit():
         return None
-    return int(marker[1])
+    return int(tail)
+
+
+def _scan_module_literals(tree: ast.AST) -> dict[str, Any]:
+    env: dict[str, Any] = {}
+    for stmt in ast.iter_child_nodes(tree):
+        name, value = assignment_of(stmt)
+        if name is None or value is None:
+            continue
+        resolved = literal_value(value, env)
+        if resolved is not UNSET:
+            env[name] = resolved
+    return env
+
+
+def _stamp_source(
+    record: dict[str, Any],
+    *,
+    path: str,
+    blob_sha: str,
+    digest: str,
+    constants: Mapping[str, Any],
+) -> dict[str, Any]:
+    first = constants.get("CATALOG_FIRST")
+    if not isinstance(first, int):
+        first = _round_suffix(path)
+    record["mill_id"] = Path(path).stem
+    record["path"] = path
+    record["blob_sha"] = blob_sha
+    record["sha256"] = digest
+    record["kind"] = KIND_PAIRS
+    record["catalog_first"] = first
+    record["generator"] = constants.get("GEN", GENERATOR)
+    record["factory"] = constants.get("FACTORY", FACTORY)
+    used_from = constants.get("USED_FROM")
+    if isinstance(used_from, int):
+        record["used_from"] = used_from
+    return record
 
 
 def extract_mill_catalog(
@@ -77,44 +109,16 @@ def extract_mill_catalog(
 ) -> dict[str, Any]:
     """Structured catalog extract for one mill source file."""
 
-    payload = source.encode()
     tree = ast.parse(source, filename=path)
-    mill_id = mill_id_for_path(path)
-    constants = _module_constants(tree)
-    factory = constants.get("FACTORY", FACTORY)
-    generator = constants.get("GEN", GENERATOR)
-    catalog_first = constants.get("CATALOG_FIRST")
-    if not isinstance(catalog_first, int):
-        catalog_first = catalog_first_from_name(path)
+    constants = _scan_module_literals(tree)
     record = _extract_shape(tree, path=path)
-    record.update(
-        {
-            "mill_id": mill_id,
-            "path": path,
-            "blob_sha": blob_sha,
-            "sha256": sha256_bytes(payload),
-            "kind": KIND_PAIRS,
-            "catalog_first": catalog_first,
-            "generator": generator,
-            "factory": factory,
-        }
+    return _stamp_source(
+        record,
+        path=path,
+        blob_sha=blob_sha,
+        digest=sha256_bytes(source.encode()),
+        constants=constants,
     )
-    used_from = constants.get("USED_FROM")
-    if isinstance(used_from, int):
-        record["used_from"] = used_from
-    return record
-
-
-def _module_constants(tree: ast.AST) -> dict[str, Any]:
-    env: dict[str, Any] = {}
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name is None or value is None:
-            continue
-        resolved = literal_value(value, env)
-        if resolved is not UNSET:
-            env[name] = resolved
-    return env
 
 
 def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:
