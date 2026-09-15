@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -258,6 +259,22 @@ class DprSkeletonTests(unittest.TestCase):
         for mill in header["mills"].values():
             self.assertNotIn("pairs", mill)
             self.assertNotIn("plants", mill)
+
+    def test_loader_fails_closed_on_noncompact_deferred_json(self):
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            raw = json.loads(line)
+            if set(raw) != set(dv.DEFERRED_PAIR_KEYS):
+                continue
+            lines[index] = json.dumps(raw)
+            break
+        else:
+            self.fail("no deferred identity row to mutate")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "pairs.jsonl"
+            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "is not compact sorted JSON"):
+                load_deferred_pairs(dest)
 
 
 @unittest.skipUnless(_legacy_available(), "origin/legacy-mill-lane is not fetched")

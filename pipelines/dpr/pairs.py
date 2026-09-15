@@ -84,7 +84,7 @@ def _split_jsonl(text: str, path: Path) -> list[dict[str, Any]]:
         if is_representative_pair_row(raw):
             representative += 1
             continue
-        deferred.append(_parse_deferred(raw, index))
+        deferred.append(_parse_deferred(raw, line, index))
     if representative != SLICE_PAIR_ROWS:
         raise ValueError(
             f"{path.name} has {representative} representative rows, expected {SLICE_PAIR_ROWS}"
@@ -92,13 +92,11 @@ def _split_jsonl(text: str, path: Path) -> list[dict[str, Any]]:
     return deferred
 
 
-def _parse_deferred(raw: Mapping[str, Any], index: int) -> dict[str, str]:
+def _parse_deferred(raw: Mapping[str, Any], line: str, index: int) -> dict[str, str]:
     if set(raw) != set(DEFERRED_PAIR_KEYS):
         raise ValueError(f"{PAIRS_FILENAME}:{index} keys drifted from {DEFERRED_PAIR_KEYS}")
     row = {key: raw[key] for key in DEFERRED_PAIR_KEYS}
-    if dumps_deferred_line(row) != json.dumps(
-        row, ensure_ascii=True, separators=(",", ":"), sort_keys=True
-    ):
+    if dumps_deferred_line(row) != line:
         raise ValueError(f"{PAIRS_FILENAME}:{index} is not compact sorted JSON")
     for key in DEFERRED_PAIR_KEYS:
         value = row[key]
