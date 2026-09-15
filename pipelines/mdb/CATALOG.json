@@ -1,0 +1,553 @@
+{
+  "factory": "monorepo-dep-bump-factory",
+  "generator": "grok-4.6",
+  "mills": {
+    "mdb-mill-r1068": {
+      "blob_sha": "63f128c09dd1f40f528358a7e38a7a1ff86bfac7",
+      "catalog_first": 1068,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "lammps-kspace-leftover-pppm",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "guix-inf-leftover-manifest",
+      "mill_id": "mdb-mill-r1068",
+      "n_rows": 16,
+      "path": "experiments/mdb-mill-r1068.py",
+      "sha256": "e90bccde209ac3ab979f2125eca67c88f38355bcebe67b3941cd11cf7f2e009e",
+      "shape": "tools-make"
+    },
+    "mdb-mill-r1084": {
+      "blob_sha": "abad43532355ada251a029653b07efd45db19f6e",
+      "catalog_first": 1084,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "rivet-yoda-leftover-histo",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "edalize-tcl-leftover-tool",
+      "mill_id": "mdb-mill-r1084",
+      "n_rows": 64,
+      "path": "experiments/mdb-mill-r1084.py",
+      "sha256": "0e4fdbf05cc44a4bc7d8806928b0055ffc1c394cfa3dc9e99f85ce3cba7b0826",
+      "shape": "tools-make"
+    },
+    "mdb-mill-r1148": {
+      "blob_sha": "43650553ee597c65abcc0db3859395299691f51a",
+      "catalog_first": 1148,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "qiskit-py-leftover-aer",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "strawberryfields-py-leftover-engine",
+      "mill_id": "mdb-mill-r1148",
+      "n_rows": 60,
+      "path": "experiments/mdb-mill-r1148.py",
+      "sha256": "e9b3151861b2a1e09e2d395d2d34024dcafe45ffe58ef4e79cb38e3214ae8afa",
+      "shape": "tools-make"
+    },
+    "mdb-mill-r1208": {
+      "blob_sha": "59dd2fad3150a6d99d3913dcfbb1ff0308be7f6a",
+      "catalog_first": 1208,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "ros2-xml-leftover-qos",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "solr-xml-leftover-cache",
+      "mill_id": "mdb-mill-r1208",
+      "n_rows": 143,
+      "path": "experiments/mdb-mill-r1208.py",
+      "sha256": "6aa690da4100b5bb375d2b25fd2dbc3a439455dd7e191a2ec320ac3020f5c673",
+      "shape": "tools-make"
+    },
+    "mdb-mill-r1351": {
+      "blob_sha": "2bf9037485ff40bf7574f6e8949612c90ee2babc",
+      "catalog_first": 1351,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "ffmpeg-ffpreset-leftover-codec",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "hydra-py-leftover-compose",
+      "mill_id": "mdb-mill-r1351",
+      "n_rows": 56,
+      "path": "experiments/mdb-mill-r1351.py",
+      "sha256": "77903f9f35b6a0136daeab254f6ae6cc6d4a74c0c45e8125bb935c9cf4032235",
+      "shape": "raw-expand"
+    },
+    "mdb-mill-r1407": {
+      "blob_sha": "80a51e96193385c9e38862a599f3615e98e2a505",
+      "catalog_first": 1407,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "klipper-cfg-leftover-inputshaper",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "elvish-toml-leftover-prompt",
+      "mill_id": "mdb-mill-r1407",
+      "n_rows": 47,
+      "path": "experiments/mdb-mill-r1407.py",
+      "sha256": "610e5f784459fd85d9dd6c944f78b57e8ef6f762055fc35812165700e85bfb60",
+      "shape": "raw-expand"
+    },
+    "mdb-mill-r1454": {
+      "blob_sha": "1e0a4c30ce935aa4b640cdde2e00dd90eefe129a",
+      "catalog_first": 1454,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "wezterm-toml-leftover-termgpu",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "just-justfile-leftover-dotenv",
+      "mill_id": "mdb-mill-r1454",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1454.py",
+      "sha256": "816328e3c009ecffb74a8e9f82e7c158776e8687aae458d7f6e637b0114f2f18",
+      "shape": "raw-r-ctor"
+    },
+    "mdb-mill-r1534": {
+      "blob_sha": "62a66e45f193becf0b239d1625ce060c1d5243a8",
+      "catalog_first": 1534,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "jellyfin-xml-leftover-transcode",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "beszel-yml-leftover-agent",
+      "mill_id": "mdb-mill-r1534",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1534.py",
+      "sha256": "94b1e34f2ac2893f929781488cec8b8550bd176665849dc8530e629960db25c6",
+      "shape": "slugs-row"
+    },
+    "mdb-mill-r1614": {
+      "blob_sha": "44e43b88724f99dd439c16e23cbebbb3ab3044c3",
+      "catalog_first": 1614,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "gromacs-conf-leftover-pme",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "darcsx-h-leftover-shelves",
+      "mill_id": "mdb-mill-r1614",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1614.py",
+      "sha256": "9047b2b62cc39257dccd8182430312844b5319a40f205d9a6c17b85929e6f100",
+      "shape": "slugs-row"
+    },
+    "mdb-mill-r1694": {
+      "blob_sha": "2fb658e531d084c9ca6f81d290a8df5039e21653",
+      "catalog_first": 1694,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "nixos-conf-leftover-channel",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "msgpackx-h-leftover-exttype",
+      "mill_id": "mdb-mill-r1694",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1694.py",
+      "sha256": "fb9d01f688defa5cac0dd2d835170fc8513b86dc98ab7db66ac06973a8ee5437",
+      "shape": "slugs-row"
+    },
+    "mdb-mill-r1774": {
+      "blob_sha": "35398a3ac62c2a5195d7a27b00da5cb25691e8a4",
+      "catalog_first": 1774,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "sdrplayx-conf-leftover-iqrate",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "ina219x-h-leftover-baofuv",
+      "mill_id": "mdb-mill-r1774",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1774.py",
+      "sha256": "1121a2067c7372c48764cb109347c0636908aa5d6671583098253a2852ccaff8",
+      "shape": "slugs-row"
+    },
+    "mdb-mill-r1854": {
+      "blob_sha": "b89c27da7078574ec7cb6d34abfe95e3f42bfde4",
+      "catalog_first": 1854,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "qgisx-conf-leftover-crsset",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "virtusurv-h-leftover-vsurvmap",
+      "mill_id": "mdb-mill-r1854",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1854.py",
+      "sha256": "db69adc8682e50e8d7f8bb513351ea83f3a1665788ce4ec09636a4a2eeb387df",
+      "shape": "slugs-row"
+    },
+    "mdb-mill-r1934": {
+      "blob_sha": "896cd06aaebaed6217a40c50c0f53f29cfbb7075",
+      "catalog_first": 1934,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "ardourx-conf-leftover-sessionx",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "modxx-h-leftover-vst3xml",
+      "mill_id": "mdb-mill-r1934",
+      "n_rows": 80,
+      "path": "experiments/mdb-mill-r1934.py",
+      "sha256": "4a8dbdb423a6189fb99c2699bb6a051573e00899c6a2fe7c480ec194393cc707",
+      "shape": "slugs-row"
+    },
+    "mdb-mill-r709": {
+      "blob_sha": "a752758de25114250ffe8b578065edd8b37da800",
+      "catalog_first": 709,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "bazel-bzlmod-vs-workspace-protobuf",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "argocd-appproj-leftover-sourcehydrate",
+      "mill_id": "mdb-mill-r709",
+      "n_rows": 37,
+      "pairs": [
+        {
+          "fail": true,
+          "fail_plant": "merlin",
+          "fail_slug": "pants-version-vs-lock-attrs",
+          "success_plant": "kestrel",
+          "success_slug": "bazel-bzlmod-vs-workspace-protobuf"
+        },
+        {
+          "fail": true,
+          "fail_plant": "saker",
+          "fail_slug": "please-module-leftover-xsync",
+          "success_plant": "hobby",
+          "success_slug": "buck2-prelude-leftover-cxx"
+        },
+        {
+          "fail": true,
+          "fail_plant": "harrier",
+          "fail_slug": "deno-lock-workspace-leftover-stdhttp",
+          "success_plant": "gyrfalcon",
+          "success_slug": "earthly-version-leftover-buildkit"
+        },
+        {
+          "fail": true,
+          "fail_plant": "osprey",
+          "fail_slug": "crystal-shards-lock-leftover-kemal",
+          "success_plant": "kite",
+          "success_slug": "bundler-gemspec-leftover-activesupport"
+        },
+        {
+          "fail": true,
+          "fail_plant": "caracara",
+          "fail_slug": "ocaml-opam-lock-leftover-lwt",
+          "success_plant": "secretary",
+          "success_slug": "dub-selections-leftover-vibed"
+        },
+        {
+          "fail": true,
+          "fail_plant": "vulture",
+          "fail_slug": "stack-extra-deps-leftover-httpclient",
+          "success_plant": "condor",
+          "success_slug": "nimble-lock-leftover-jester"
+        },
+        {
+          "fail": true,
+          "fail_plant": "dipper",
+          "fail_slug": "spago-lock-leftover-aff",
+          "success_plant": "wren",
+          "success_slug": "carton-snapshot-leftover-mojo"
+        },
+        {
+          "fail": true,
+          "fail_plant": "creeper",
+          "fail_slug": "flutter-pub-workspace-leftover-hooks",
+          "success_plant": "nuthatch",
+          "success_slug": "dart-pub-workspace-leftover-riverpod"
+        },
+        {
+          "fail": true,
+          "fail_plant": "lark",
+          "fail_slug": "xmake-repo-leftover-catch2",
+          "success_plant": "pipit",
+          "success_slug": "gn-dotgn-leftover-re2"
+        },
+        {
+          "fail": true,
+          "fail_plant": "grosbeak",
+          "fail_slug": "shadow-cljs-edn-leftover-reagent",
+          "success_plant": "bunting",
+          "success_slug": "clojure-deps-alias-leftover-reitit"
+        },
+        {
+          "fail": true,
+          "fail_plant": "redpoll",
+          "fail_slug": "spack-lock-leftover-hdf5",
+          "success_plant": "crossbill",
+          "success_slug": "guix-manifest-leftover-guile"
+        },
+        {
+          "fail": true,
+          "fail_plant": "linnet",
+          "fail_slug": "platformio-lock-leftover-arduinojson",
+          "success_plant": "siskin",
+          "success_slug": "west-zephyr-leftover-mbedtls"
+        },
+        {
+          "fail": true,
+          "fail_plant": "shoveler",
+          "fail_slug": "hatch-env-features-click-theme",
+          "success_plant": "bittern",
+          "success_slug": "pdm-ws-nested-cattrs-convert"
+        },
+        {
+          "fail": true,
+          "fail_plant": "wigeon",
+          "fail_slug": "piptools-constraint-jinja-passcontext",
+          "success_plant": "pintail",
+          "success_slug": "rye-ws-lock-cyclopts-meta"
+        },
+        {
+          "fail": true,
+          "fail_plant": "scoter",
+          "fail_slug": "cargo-resolver3-syn2-nestedmeta",
+          "success_plant": "merganser",
+          "success_slug": "cargo-wspkg-rustver-time-nowutc"
+        },
+        {
+          "fail": true,
+          "fail_plant": "murre",
+          "fail_slug": "composer-replace-symfony-console-hidden",
+          "success_plant": "razorbill",
+          "success_slug": "mix-umbrella-hexlock-lv-pushnavigate"
+        },
+        {
+          "fail": true,
+          "fail_plant": "shearwater",
+          "fail_slug": "paket-lock-fsharpdata-csvhttp",
+          "success_plant": "petrel",
+          "success_slug": "nuget-cpm-fluentvalidation-cascade"
+        },
+        {
+          "fail": true,
+          "fail_plant": "fulmar",
+          "fail_slug": "cocoapods-lock-kingfisher-imagebinder",
+          "success_plant": "albatross",
+          "success_slug": "swiftpm-resolved-argparser-flag"
+        },
+        {
+          "fail": true,
+          "fail_plant": "jaeger",
+          "fail_slug": "conan2-lock-nlohmann-jsonpointer",
+          "success_plant": "skua",
+          "success_slug": "cmake-fetchcontent-spdlog-pattern"
+        },
+        {
+          "fail": true,
+          "fail_plant": "snipe",
+          "fail_slug": "bun-trusteddeps-esbuild-leftover",
+          "success_plant": "crake",
+          "success_slug": "pnpm-peerrules-react19-forwardref"
+        },
+        {
+          "fail": true,
+          "fail_plant": "tattler",
+          "fail_slug": "gqlcodegen-near-operation-file",
+          "success_plant": "greenshank",
+          "success_slug": "buf-module-protovalidate-cel"
+        },
+        {
+          "fail": true,
+          "fail_plant": "yellowlegs",
+          "fail_slug": "scons-site-leftover-protobufc",
+          "success_plant": "willet",
+          "success_slug": "meson-wrap-leftover-fmt"
+        },
+        {
+          "fail": true,
+          "fail_plant": "puffin",
+          "fail_slug": "drizzle-kit-leftover-push",
+          "success_plant": "eider",
+          "success_slug": "prisma-engines-leftover-preview"
+        },
+        {
+          "fail": true,
+          "fail_plant": "barnacle",
+          "fail_slug": "julia-sources-json3-mutable",
+          "success_plant": "brant",
+          "success_slug": "cabal-srp-text-encoding"
+        },
+        {
+          "fail": true,
+          "fail_plant": "moorhen",
+          "fail_slug": "npm-packagemanager-corepack-leftover",
+          "success_plant": "phalarope",
+          "success_slug": "vcpkg-overlay-abseil-strformat"
+        },
+        {
+          "fail": true,
+          "fail_plant": "crossbillx",
+          "fail_slug": "renv-snapshot-datatable-fread",
+          "success_plant": "rail",
+          "success_slug": "pnpm-patcheddeps-minimatch-glob"
+        },
+        {
+          "fail": true,
+          "fail_plant": "teal",
+          "fail_slug": "carthage-resolved-alamofire-responsejson",
+          "success_plant": "gadwall",
+          "success_slug": "premake5-lua-leftover-lfs"
+        },
+        {
+          "fail": true,
+          "fail_plant": "goldeneye",
+          "fail_slug": "gomod-toolchain-pgx-collectonerow",
+          "success_plant": "smew",
+          "success_slug": "gradle-platform-junit5-methodorder"
+        },
+        {
+          "fail": true,
+          "fail_plant": "coot",
+          "fail_slug": "poetry-extras-rich-markdown",
+          "success_plant": "grebe",
+          "success_slug": "yarn-pnp-unplugged-datefns-formatiso"
+        },
+        {
+          "fail": true,
+          "fail_plant": "knot",
+          "fail_slug": "ninja-rules-leftover-re2c",
+          "success_plant": "gallinule",
+          "success_slug": "uv-constraint-msgspec-gc"
+        },
+        {
+          "fail": true,
+          "fail_plant": "tropicbird",
+          "fail_slug": "dagger-engine-leftover-llb",
+          "success_plant": "sandpiper",
+          "success_slug": "cue-modules-leftover-yaml"
+        },
+        {
+          "fail": true,
+          "fail_plant": "anhinga",
+          "fail_slug": "nickel-lock-leftover-stdlib",
+          "success_plant": "loon",
+          "success_slug": "dhall-freeze-leftover-prelude"
+        },
+        {
+          "fail": true,
+          "fail_plant": "scaup",
+          "fail_slug": "jsonnet-bundler-leftover-k8s",
+          "success_plant": "darter",
+          "success_slug": "pkl-project-leftover-stdlib"
+        },
+        {
+          "fail": true,
+          "fail_plant": "redhead",
+          "fail_slug": "opentofu-lock-leftover-aws",
+          "success_plant": "canvasback",
+          "success_slug": "terragrunt-source-leftover-vpc"
+        },
+        {
+          "fail": true,
+          "fail_plant": "harlequin",
+          "fail_slug": "skaffold-api-leftover-v2beta",
+          "success_plant": "bufflehead",
+          "success_slug": "packer-plugin-leftover-amazon"
+        },
+        {
+          "fail": true,
+          "fail_plant": "longtail",
+          "fail_slug": "tilt-ext-leftover-helm-resource",
+          "success_plant": "ringneck",
+          "success_slug": "kustomize-components-leftover-helmcharts"
+        },
+        {
+          "fail": true,
+          "fail_plant": "murrelet",
+          "fail_slug": "tekton-resolver-leftover-git",
+          "success_plant": "auklet",
+          "success_slug": "argocd-appproj-leftover-sourcehydrate"
+        }
+      ],
+      "path": "experiments/mdb-mill-r709.py",
+      "sha256": "3d6ba38f55ea3363d2aad78f9ba27ee77dff719f89a82292c60978b38f95766d",
+      "shape": "pairs-literal"
+    },
+    "mdb-mill-r746": {
+      "blob_sha": "25604a3edf00b76d8918a58b3c524296222f5f09",
+      "catalog_first": 746,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "rebar3-lock-leftover-ranch",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "qbs-modules-leftover-qregexp",
+      "mill_id": "mdb-mill-r746",
+      "n_rows": 16,
+      "path": "experiments/mdb-mill-r746.py",
+      "sha256": "ab0a73ac14e4d022db2be4a6b0622751ed7d70e6032b2095f07334d175f6ee87",
+      "shape": "pairs-literal"
+    },
+    "mdb-mill-r762": {
+      "blob_sha": "07ddb4bc60a11143033176e29da80911ba6d2ccc",
+      "catalog_first": 762,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "mercury-deps-leftover-stdutil",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "macports-portfile-leftover-python39",
+      "mill_id": "mdb-mill-r762",
+      "n_rows": 14,
+      "path": "experiments/mdb-mill-r762.py",
+      "sha256": "a2ff6560f600257adc2f5f19171a8bdd5579fe171552059d48196b1a5c9da7b8",
+      "shape": "pairs-literal"
+    },
+    "mdb-mill-r776": {
+      "blob_sha": "99603c7b2ccc63099727190526dc919fbd950ba1",
+      "catalog_first": 776,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "ansible-galaxy-leftover-k8score",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "argo-wf-leftover-retry",
+      "mill_id": "mdb-mill-r776",
+      "n_rows": 64,
+      "path": "experiments/mdb-mill-r776.py",
+      "sha256": "0d4d0ffe5da1ef2a8d4e821e8f595aabb26c965b17163dc047b5f78c422ceacd",
+      "shape": "pairs-p-ctor"
+    },
+    "mdb-mill-r840": {
+      "blob_sha": "68a827f955c0905e2022c8c090fd5381c1eb24e4",
+      "catalog_first": 840,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "texlive-tlmgr-leftover-fmtutil",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "openems-xml-leftover-fdtd",
+      "mill_id": "mdb-mill-r840",
+      "n_rows": 78,
+      "path": "experiments/mdb-mill-r840.py",
+      "sha256": "576b031d57e6d833d8d7d6ea4d001039bc0abd4229734f084782bbf683615445",
+      "shape": "pairs-p-ctor"
+    },
+    "mdb-mill-r918": {
+      "blob_sha": "c092461609e365ac88e27bc202aee2e00286897f",
+      "catalog_first": 918,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "openmc-xml-leftover-batches",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "graphite-conf-leftover-schema",
+      "mill_id": "mdb-mill-r918",
+      "n_rows": 150,
+      "path": "experiments/mdb-mill-r918.py",
+      "sha256": "fbcebb32623145fdc93cef3fe42eee64dbacf9097ffbc7256c81715a4c0725b8",
+      "shape": "tools-make"
+    },
+    "mdb-mill-r961": {
+      "blob_sha": "55c1a48a33b6f157b19f63604096f1a936d332bc",
+      "catalog_first": 977,
+      "factory": "monorepo-dep-bump-factory",
+      "first_slug": "lammps-in-leftover-hybrid",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "guix-scm-leftover-channels",
+      "mill_id": "mdb-mill-r961",
+      "n_rows": 16,
+      "path": "experiments/mdb-mill-r961.py",
+      "sha256": "27063761968da68d1dd74f06cbef4ff6b29a087881ff52304568a99ebfcebcca",
+      "shape": "tools-make"
+    }
+  },
+  "n_mills": 20,
+  "n_pair_rows": 1321,
+  "preserve_commit": "f769a8c09e45960ca7a3b7d600cbb2a481a67516",
+  "schema": "mdb-catalog-extract/v1",
+  "slice": "r709",
+  "source_ref": "origin/legacy-mill-lane"
+}

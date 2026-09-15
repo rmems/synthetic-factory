@@ -1,0 +1,27 @@
+{
+  "catalog_id": "kcl-fixture-v1",
+  "factory": "k8s-crashloop-factory",
+  "format": "kcl-catalog/1",
+  "mill_prefix": "kcl",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "kcl_r0001",
+      "plant_count": 1,
+      "shape": "pair",
+      "source": "tests/fixtures/kcl/tiny_source.py"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "8e3457179be2607f2b7064ca647facb508dd18de806afa2af8bf048a3eaae14b",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "tests/fixtures/kcl/tiny_source.py"
+    ]
+  }
+}

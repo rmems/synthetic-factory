@@ -1,0 +1,231 @@
+{
+  "schema_version": "amc-catalog-extract/v1",
+  "family": "amc",
+  "factory": "agent-memory-compaction-factory",
+  "generator": "grok-4.6",
+  "source_branch": "origin/legacy-mill-lane",
+  "source_commit": "bb0775859c86d4692112c4845790fa1623ab8abb",
+  "extraction": "AST literals only; legacy modules were never imported or executed. Compact identities for all 1401 extracted pair rows are committed: 24 first/last bookends plus 1377 deferred middle rows. No amc-mill or amc-loop scripts are vendored.",
+  "n_pair_rows_extracted": 1401,
+  "n_pair_rows_committed": 1401,
+  "quota_per_round": 2,
+  "success_steps": 16,
+  "catalogs": [
+    {
+      "source_path": "experiments/amc-mill-r170.py",
+      "mill_id": "amc-mill-r170",
+      "source_blob_sha1": "aa251ffc322df4f8c62141adc32d7db42d3be5e7",
+      "source_sha256": "10ed042b8e8bb8f761a9ee7c20fb097c838a78fb4a50b219d83154fd70a3b62e",
+      "kind": "pairs",
+      "shape": "pairs-fs",
+      "catalog_first": 170,
+      "n_rows_extracted": 59,
+      "first_slug": "zeigarnik-drops-unfinished-pin",
+      "last_slug": "self-reference-skipped-on-pin"
+    },
+    {
+      "source_path": "experiments/amc-mill-r229.py",
+      "mill_id": "amc-mill-r229",
+      "source_blob_sha1": "0a4de1557fd1d0da1f3a27d9170af461f372483b",
+      "source_sha256": "009ec109a9e7e8d4aa853562a10d2656aa48c2330218a2941487eb26697fe472",
+      "kind": "pairs",
+      "shape": "pairs-fs",
+      "catalog_first": 229,
+      "n_rows_extracted": 51,
+      "first_slug": "state-dependent-tag-stripped",
+      "last_slug": "childhood-amnesia-cutoff-drops-pin"
+    },
+    {
+      "source_path": "experiments/amc-mill-r280.py",
+      "mill_id": "amc-mill-r280",
+      "source_blob_sha1": "52d8d05b79c4ede9f990631fc55bfee9e8eccc0d",
+      "source_sha256": "29099aaeb4b880340f4c6f54ce5eb1732daefb0d1371305886603b8a2370ae43",
+      "kind": "pairs",
+      "shape": "pairs-prefix-new",
+      "catalog_first": 280,
+      "n_rows_extracted": 36,
+      "first_slug": "state-dependent-tag-stripped",
+      "last_slug": "korsakoff-drops-recent-pin",
+      "n_prefix": 16,
+      "n_new": 20,
+      "prefix_mill": "amc-mill-r229"
+    },
+    {
+      "source_path": "experiments/amc-mill-r316.py",
+      "mill_id": "amc-mill-r316",
+      "source_blob_sha1": "0fd0228c9653aab8b6e47e90e85567c2b4e606d8",
+      "source_sha256": "9dc250343bfe9231c833ca6900117320fde814862898ae24580a8cdcfc3dfda8",
+      "kind": "pairs",
+      "shape": "pairs-fs",
+      "catalog_first": 316,
+      "n_rows_extracted": 36,
+      "first_slug": "cache-control-ephemeral-drops-pin",
+      "last_slug": "saml-audience-gc-drops-pin"
+    },
+    {
+      "source_path": "experiments/amc-mill-r352.py",
+      "mill_id": "amc-mill-r352",
+      "source_blob_sha1": "209976e370396858316f3473ed1f858067e755f1",
+      "source_sha256": "2d596d4c7c4bdd9b16d51bb126c296836c5bfc6f704ef36d041737413a8491f2",
+      "kind": "pairs",
+      "shape": "pairs-fail-succ",
+      "catalog_first": 352,
+      "n_rows_extracted": 72,
+      "first_slug": "marksweep-gc-drops-pin",
+      "last_slug": "doorway-meeting-drops-pin"
+    },
+    {
+      "source_path": "experiments/amc-mill-r424.py",
+      "mill_id": "amc-mill-r424",
+      "source_blob_sha1": "b11c814e837860820356f6c2ce8f76ae1e3b2e3e",
+      "source_sha256": "8df9f4fc5c5597c8098b0dc4c1d23b3dddf2a11559c85055618056d687d6be94",
+      "kind": "pairs",
+      "shape": "pairs-table-zip",
+      "catalog_first": 424,
+      "n_rows_extracted": 999,
+      "first_slug": "shenandoah-satb-drops-pin",
+      "last_slug": "nback-limbu2-lure-drops-pin"
+    },
+    {
+      "source_path": "experiments/amc-mill-r592.py",
+      "mill_id": "amc-mill-r592",
+      "source_blob_sha1": "8340770e13151047bfabdf2d5b19ddd24816b22f",
+      "source_sha256": "50d5ab9078b3de403c9aef6fa12a51c63ba04cc060d1bff779c4dec5a9b48ac2",
+      "kind": "pairs",
+      "shape": "pairs-l",
+      "catalog_first": 592,
+      "n_rows_extracted": 16,
+      "first_slug": "redis-volatile-ttl-leftover",
+      "last_slug": "wasm-linear-memory-page-leftover"
+    },
+    {
+      "source_path": "experiments/amc-mill-r608.py",
+      "mill_id": "amc-mill-r608",
+      "source_blob_sha1": "bd6e9d4899ac92c44cb030154eafa036b36d1932",
+      "source_sha256": "204232d4d0452dfdd8bd050c1e469fb2a4ff2aee0f41f36fa6aaf9bda00925bb",
+      "kind": "pairs",
+      "shape": "pairs-l",
+      "catalog_first": 608,
+      "n_rows_extracted": 42,
+      "first_slug": "rocksdb-tombstone-seq-leftover",
+      "last_slug": "gradle-buildcache-leftover"
+    },
+    {
+      "source_path": "experiments/amc-mill-r650.py",
+      "mill_id": "amc-mill-r650",
+      "source_blob_sha1": "4998009758bd32e4cc1b7b980faa0047f570cfee",
+      "source_sha256": "a49bfb063a1e6b39193af48281f432f3173b0b1df699bc3e9784eee755538327",
+      "kind": "pairs",
+      "shape": "pairs-l",
+      "catalog_first": 650,
+      "n_rows_extracted": 38,
+      "first_slug": "alpine-apk-index-leftover",
+      "last_slug": "envoy-rl-descriptor-leftover"
+    },
+    {
+      "source_path": "experiments/amc-mill-r688.py",
+      "mill_id": "amc-mill-r688",
+      "source_blob_sha1": "a278d6c60b174301229ca48f9295893065ffc34b",
+      "source_sha256": "48c687138682d5b9bc36abd5574e67c6cbf1782faf8e28b52dd6197665bbedd2",
+      "kind": "pairs",
+      "shape": "pairs-p",
+      "catalog_first": 688,
+      "n_rows_extracted": 16,
+      "first_slug": "mem0-entity-merge-leftover",
+      "last_slug": "wasm-funcref-table-leftover"
+    },
+    {
+      "source_path": "experiments/amc-mill-r704.py",
+      "mill_id": "amc-mill-r704",
+      "source_blob_sha1": "3e8a36e36f0666ca899119a84cdbcd0b1ce8af1d",
+      "source_sha256": "51e41323d8390e80fa14e55bd281643269406880f2c0c758e5d18a870e1cfad5",
+      "kind": "pairs",
+      "shape": "pairs-p",
+      "catalog_first": 704,
+      "n_rows_extracted": 20,
+      "first_slug": "chromadb-where-doc-leftover",
+      "last_slug": "otel-sdk-span-proc-leftover"
+    },
+    {
+      "source_path": "experiments/mill_amc_leftover_r688.py",
+      "mill_id": "mill_amc_leftover_r688",
+      "source_blob_sha1": "96f1d03b9eff8bfcaeea4d16b44ed7f641ed58f8",
+      "source_sha256": "701e64418c876dc3df7b5daa811af68106d3888fbb4bd8f725bda942d1e1c556",
+      "kind": "leftover",
+      "shape": "leftover-dict",
+      "catalog_first": 688,
+      "n_rows_extracted": 16,
+      "first_slug": "airflow-xcom-backend-leftover-vs-drop-task",
+      "last_slug": "spark-ss-watermark-leftover-vs-drop-trigger",
+      "max_rounds": 16
+    }
+  ],
+  "loops": [
+    {
+      "mill_id": "amc-loop-r170",
+      "source_path": "experiments/amc-loop-r170.py",
+      "source_blob_sha1": "784a9dd009cafdbe939c9bd6e5d25cabb5c1fed2",
+      "companion_mill_path": "experiments/amc-mill-r170.py"
+    },
+    {
+      "mill_id": "amc-loop-r229",
+      "source_path": "experiments/amc-loop-r229.py",
+      "source_blob_sha1": "b936bc089cfea6036a14b8991011f40676704c18",
+      "companion_mill_path": "experiments/amc-mill-r229.py"
+    },
+    {
+      "mill_id": "amc-loop-r280",
+      "source_path": "experiments/amc-loop-r280.py",
+      "source_blob_sha1": "5bb02eaaf8c5d37e336a003d7284a181f4fe3a8a",
+      "companion_mill_path": "experiments/amc-mill-r280.py"
+    },
+    {
+      "mill_id": "amc-loop-r316",
+      "source_path": "experiments/amc-loop-r316.py",
+      "source_blob_sha1": "562e773b6683a4d5c20573f33e9bb500fe9dcd60",
+      "companion_mill_path": "experiments/amc-mill-r316.py"
+    },
+    {
+      "mill_id": "amc-loop-r352",
+      "source_path": "experiments/amc-loop-r352.py",
+      "source_blob_sha1": "54633d91f2e48d14990b4e37921d096127553cc9",
+      "companion_mill_path": "experiments/amc-mill-r352.py"
+    },
+    {
+      "mill_id": "amc-loop-r424",
+      "source_path": "experiments/amc-loop-r424.py",
+      "source_blob_sha1": "05653a2a88daa8f7dbff9839940556c7dc748067",
+      "companion_mill_path": "experiments/amc-mill-r424.py"
+    },
+    {
+      "mill_id": "amc-loop-r592",
+      "source_path": "experiments/amc-loop-r592.py",
+      "source_blob_sha1": "010667e4669569c4bbc972543e28eda9080b6a3d",
+      "companion_mill_path": "experiments/amc-mill-r592.py"
+    },
+    {
+      "mill_id": "amc-loop-r608",
+      "source_path": "experiments/amc-loop-r608.py",
+      "source_blob_sha1": "11ea36c9787f0eafe4869679fb3a23188c6e6408",
+      "companion_mill_path": "experiments/amc-mill-r608.py"
+    },
+    {
+      "mill_id": "amc-loop-r650",
+      "source_path": "experiments/amc-loop-r650.py",
+      "source_blob_sha1": "22ca9d59ebd58b21e94eecdaf56a497632234501",
+      "companion_mill_path": "experiments/amc-mill-r650.py"
+    },
+    {
+      "mill_id": "amc-loop-r688",
+      "source_path": "experiments/amc-loop-r688.py",
+      "source_blob_sha1": "3fb08af739e92ea497b8316dfaa2f9d7467bf306",
+      "companion_mill_path": "experiments/amc-mill-r688.py"
+    },
+    {
+      "mill_id": "amc-loop-r704",
+      "source_path": "experiments/amc-loop-r704.py",
+      "source_blob_sha1": "2aeca6d83001d0f466568ca8e35fdab54c704716",
+      "companion_mill_path": "experiments/amc-mill-r704.py"
+    }
+  ]
+}

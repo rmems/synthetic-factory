@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Emit CRP leftover3 preference pairs into a brand-new destination.
+"""Emit CRP leftover3 or r432 preference pairs into a brand-new destination.
 
 ``pair`` is the AST-extracted divergence-point DPO constructor from
 ``crp-mill-r432`` (PR numbering anchored at ``PAIR_FIRST_ROUND``). The
-leftover3 catalog supplies the plants, including ``noun``. Writers refuse
-an existing destination and any path that names or aliases ``outputs/raw/``.
+leftover3 catalog and the r432 / r538 compact JSONL slices supply the plants,
+including ``noun``. Writers refuse an existing destination and any path
+that names or aliases ``outputs/raw/``.
 """
 
 from __future__ import annotations
@@ -15,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog as cat
+from . import r432 as r432_cat
+from . import r538 as r538_cat
+from . import leftover3_prior as leftover3_prior_cat
+from . import r729 as r729_cat
+from . import r817 as r817_cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
     FINDING_DESTINATION_EXISTS,
@@ -482,7 +488,92 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
     }
 
 
-def notes_for(round_n: int, recs: list[dict[str, Any]], plants: tuple[cat.Plant, ...]) -> str:
+def _leftover3_last_round() -> int:
+    plants = cat.load_catalog().plants
+    return cat.WAVE_FIRST_ROUND + len(plants) // cat.PLANTS_PER_ROUND - 1
+
+
+def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
+    if (
+        type(round_n) is int
+        and r432_cat.WAVE_FIRST_ROUND <= round_n <= r432_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r432_cat.plants_for_round(round_n),
+            r432_cat.CATALOG_ID,
+            r432_cat.RUN_FORMAT,
+            "r432 application-bug stretch",
+        )
+    if (
+        type(round_n) is int
+        and leftover3_prior_cat.WAVE_FIRST_ROUND
+        <= round_n
+        <= leftover3_prior_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            leftover3_prior_cat.plants_for_round(round_n),
+            leftover3_prior_cat.CATALOG_ID,
+            leftover3_prior_cat.RUN_FORMAT,
+            "leftover leftover leftover IaC/policy stretch (prior wave)",
+        )
+    if (
+        type(round_n) is int
+        and r538_cat.WAVE_FIRST_ROUND <= round_n <= r538_cat.WAVE_LAST_ROUND
+        and round_n > r432_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r538_cat.plants_for_round(round_n),
+            r538_cat.CATALOG_ID,
+            r538_cat.RUN_FORMAT,
+            "r538 orchestration/data-platform stretch",
+        )
+    leftover3_last = _leftover3_last_round()
+    if (
+        type(round_n) is int
+        and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last
+    ):
+        return (
+            cat.plants_for_round(round_n),
+            cat.CATALOG_ID,
+            RUN_FORMAT,
+            "leftover leftover leftover stretch",
+        )
+    if (
+        type(round_n) is int
+        and r729_cat.WAVE_FIRST_ROUND <= round_n <= r729_cat.WAVE_LAST_ROUND
+        and round_n > leftover3_last
+    ):
+        return (
+            r729_cat.plants_for_round(round_n),
+            r729_cat.CATALOG_ID,
+            r729_cat.RUN_FORMAT,
+            "r729 commerce/platform stretch",
+        )
+    if (
+        type(round_n) is int
+        and r817_cat.WAVE_FIRST_ROUND <= round_n <= r817_cat.WAVE_LAST_ROUND
+        and round_n > r729_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r817_cat.plants_for_round(round_n),
+            r817_cat.CATALOG_ID,
+            r817_cat.RUN_FORMAT,
+            "r817 GIS/feature-flag/IoT stretch",
+        )
+    return (
+        cat.plants_for_round(round_n),
+        cat.CATALOG_ID,
+        RUN_FORMAT,
+        "leftover leftover leftover stretch",
+    )
+
+
+def notes_for(
+    round_n: int,
+    recs: list[dict[str, Any]],
+    plants: tuple[cat.Plant, ...],
+    stretch: str = "leftover leftover leftover stretch",
+) -> str:
     fams = [rec["meta"]["family"] for rec in recs]
     ids = [rec["id"] for rec in recs]
     nouns = [plant.noun for plant in plants]
@@ -492,7 +583,7 @@ def notes_for(round_n: int, recs: list[dict[str, Any]], plants: tuple[cat.Plant,
         "Novel coverage: 99.5%",
         "",
         f"Headline: blocking defect vs nit/LGTM on {', '.join(fams)} "
-        f"(leftover leftover leftover stretch)",
+        f"({stretch})",
         "",
         "Construction: divergence-point DPO (shared 7-step prefix; first "
         "differing tool_call is the review verdict). Same top-level goal both "
@@ -523,15 +614,15 @@ def _dump_line(record: dict[str, Any]) -> str:
 
 
 def run(request: RunRequest) -> dict[str, Any]:
-    """Write one leftover3 triple into a new directory. Never touches raw."""
+    """Write one leftover3, r432, or r538 triple into a new directory. Never touches raw."""
 
     out_dir = Path(request.out_dir)
     _check_destination(out_dir)
-    plants = cat.plants_for_round(request.round_n)
+    plants, catalog_id, run_format, stretch = _wave_for_round(request.round_n)
     recs = [pair(plant, request.round_n, slot) for slot, plant in enumerate(plants)]
     summary = {
-        "format": RUN_FORMAT,
-        "catalog_id": cat.CATALOG_ID,
+        "format": run_format,
+        "catalog_id": catalog_id,
         "factory": cat.FACTORY,
         "round": request.round_n,
         "records": len(recs),
@@ -549,7 +640,7 @@ def run(request: RunRequest) -> dict[str, Any]:
             ),
             (
                 f"{NOTES_PREFIX}{request.round_n:02d}.md",
-                notes_for(request.round_n, recs, plants),
+                notes_for(request.round_n, recs, plants, stretch),
             ),
             (
                 MANIFEST_FILENAME,

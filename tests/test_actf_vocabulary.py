@@ -56,7 +56,7 @@ class VocabularyTests(unittest.TestCase):
     def test_family_modules_are_the_declared_skeleton(self):
         self.assertEqual(
             FAMILY_MODULES,
-            ("_contract", "vocabulary", "lineage", "ast_scan", "records", "cli"),
+            ("_contract", "vocabulary", "lineage", "ast_scan", "records", "catalog", "cli"),
         )
 
 
