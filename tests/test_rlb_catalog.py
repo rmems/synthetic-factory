@@ -82,7 +82,6 @@ class RlbCatalogTests(unittest.TestCase):
             rounds.add(pair.round)
             modules.update((pair.success.module, pair.handoff.module))
             self.assertNotEqual(pair.success.slug, pair.handoff.slug)
-            self.assertEqual(pair.success.api, pair.handoff.api)
             self.assertTrue(pair.success.docs[0].startswith("https://"))
             self.assertTrue(pair.handoff.docs[1].startswith("https://"))
             self.assertGreaterEqual(pair.success.coverage, 0)

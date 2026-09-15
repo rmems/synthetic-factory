@@ -210,8 +210,6 @@ def _pair(value: Any, context: str) -> RoundPair:
     handoff = _handoff(row["handoff"], f"{context}.handoff")
     if success.slug == handoff.slug:
         raise CatalogError(f"{context} repeats one slug on both outcomes")
-    if success.api != handoff.api:
-        raise CatalogError(f"{context} must pair cases from the same API")
     return RoundPair(
         round=_integer(row["round"], f"{context}.round", minimum=1),
         success=success,
