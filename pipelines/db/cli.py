@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -20,13 +21,18 @@ __all__ = ["main", "run_loop"]
 def run_loop(min_rounds: int = 12, max_rounds: int = 16, minutes: float = 40.0) -> int:
     """Publish rounds via the transactional writer; deferred import keeps ``import`` pure."""
     # Deferred: round_txn is only needed for live publication, not for check/emit.
-    from round_txn import TransactionError, abort, frontier_status, publish, reserve
+    if (__package__ or "").startswith("pipelines."):
+        from ..round_txn import TransactionError, abort, frontier_status, publish, reserve
+    else:
+        from round_txn import TransactionError, abort, frontier_status, publish, reserve
 
     factory = Path(__file__).resolve().parents[2] / "outputs" / "raw" / "2026-08-19-agentic" / "db-migration-repair-factory"
     published: list[dict] = []
     hops: list[dict] = []
     deadline = time.monotonic() + minutes * 60
-    while len(published) < max_rounds and time.monotonic() < deadline:
+    while len(published) < max_rounds:
+        if len(published) >= min_rounds and time.monotonic() >= deadline:
+            break
         status = frontier_status(factory)
         round_n = status["next_round"]
         if (factory / f"ROUND-r{round_n:02d}.reserved.json").exists():
@@ -62,8 +68,6 @@ def run_loop(min_rounds: int = 12, max_rounds: int = 16, minutes: float = 40.0) 
             raise RuntimeError(f"stage/publish failed r{round_n}: {exc}") from exc
         published.append({"round": round_n, "ids": ids, "records": manifest.get("records")})
         print(json.dumps({"published": published[-1]}), flush=True)
-        if len(published) >= min_rounds and time.monotonic() >= deadline:
-            break
     print(json.dumps({"published_rounds": [p["round"] for p in published], "hops": hops}))
     return 0 if published else 1
 
@@ -74,9 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     if not argv or argv[0] in ("check", "--smoke"):
         self_check()
         if argv and argv[0] == "--smoke":
-            dest = Path("/tmp/dbm-unique-smoke")
-            dest.mkdir(parents=True, exist_ok=True)
-            print(json.dumps({"smoke_ids": emit_stage(dest, cfg.START_ROUND)}))
+            with tempfile.TemporaryDirectory(prefix="dbm-unique-smoke-") as td:
+                dest = Path(td)
+                print(json.dumps({"smoke_ids": emit_stage(dest, cfg.START_ROUND)}))
         return 0
     if argv[0] == "emit":
         round_n, dest = int(argv[1]), Path(argv[2])

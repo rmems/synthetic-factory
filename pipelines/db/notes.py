@@ -57,7 +57,11 @@ def emit_stage(stage: Path, round_n: int) -> tuple[str, str]:
     batch, notes_path = stage / f"batch-r{round_n:02d}.jsonl", stage / f"NOTES-r{round_n:02d}.md"
     if batch.exists() or notes_path.exists():
         raise FileExistsError(f"refuse to overwrite staged round r{round_n} in {stage}")
-    batch.write_text(ep_mod.dumps_episode(ea) + "\n" + ep_mod.dumps_episode(eb) + "\n", encoding="utf-8")
+    batch.write_text(
+        ep_mod.dumps_episode(ea) + "\n" + ep_mod.dumps_episode(eb) + "\n",
+        encoding="utf-8",
+        newline="",
+    )
     notes_path.write_text(notes, encoding="utf-8")
     return ea["id"], eb["id"]
 
