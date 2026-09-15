@@ -28,6 +28,7 @@ from compose_curated_test_support import (  # noqa: E402
     read_jsonl,
     thalamic,
     write_jsonl,
+    assert_research_only_audit,
 )
 
 
@@ -54,13 +55,14 @@ class ComposeCurated(unittest.TestCase):
                     else "compatible_core"
                 ),
             )
-            self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
-            self.assertEqual(summary["audit"]["blockers"], [])
+            assert_research_only_audit(self, summary["audit"])
             self.assertEqual(summary["audit"]["records"], 7)
+            self.assertEqual(summary["rights"]["lanes"]["research"], 7)
+            self.assertFalse(summary["rights"]["training_exportable"])
 
             records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
             report = training_audit.audit_run(records_dir)
-            self.assertTrue(report["training_ready"], report["blockers"])
+            assert_research_only_audit(self, report)
             self.assertEqual(report["identity"]["coverage_pct"], 100.0)
             self.assertEqual(report["preferences"]["context_purity_pct"], 100.0)
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
@@ -262,7 +264,7 @@ class ComposeCurated(unittest.TestCase):
 
             self.assertEqual(summary["counts"]["source_records"], 2)
             self.assertEqual(summary["audit"]["records"], 2)
-            self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
+            assert_research_only_audit(self, summary["audit"])
             self.assertEqual(len(records), 2)
             self.assertEqual(records[0]["state"]["domain"], first["state"]["domain"])
 

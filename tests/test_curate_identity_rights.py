@@ -6,9 +6,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+TESTS = Path(__file__).resolve().parent
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
 
 from test_curate_identity import (
     FABLE_ACT,
@@ -18,7 +23,10 @@ from test_curate_identity import (
     _valid_row,
     episode,
     identity,
+    source,
+    thalamic,
 )
+import training_audit
 
 
 def _legacy_row(**overrides):
@@ -73,6 +81,9 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                     "schema_version": "factory-registry-v0.1",
                     "sha256": legacy_digest,
                 }
+                envelope = mapping.get("rights")
+                if isinstance(envelope, dict):
+                    envelope["factory_registry_sha256"] = f"sha256:{legacy_digest}"
             manifest_path.write_bytes(_manifest_bytes(manifest))
 
             loaded = identity.validate_identity_tree(dest)
@@ -276,3 +287,59 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         Path(tmp) / str(index),
                         _registry_payload([_valid_row(**{field: value})]),
                     )
+
+
+class IdentityRightsEnvelopeTests(unittest.TestCase):
+    def test_retained_hosted_mapping_carries_a_research_envelope(self):
+        result = identity.curate_record(source(thalamic("designed")))
+        self.assertEqual(result.action, "retained")
+        envelope = result.mapping["rights"]
+        self.assertEqual(result.mapping["rights_lane"], "research")
+        self.assertEqual(envelope["intended_use"], "research_only")
+        self.assertEqual(envelope["project_training_policy"], "blocked")
+        self.assertEqual(envelope["authority"], "hosted")
+        self.assertNotIn("rights", result.record)
+
+    def test_retained_episode_mapping_carries_a_research_envelope(self):
+        result = identity.curate_record(
+            source(episode(FABLE_ACT), path=f"{FABLE_ACT}/episodes.jsonl")
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["rights_lane"], "research")
+        self.assertEqual(result.mapping["rights"]["intended_use"], "research_only")
+        self.assertNotIn("rights", result.record)
+
+    def test_identity_tree_replay_fails_closed_on_a_tampered_envelope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest[0]["rights_lane"], "research")
+            manifest[0]["rights"]["source_sha256"] = "sha256:" + ("0" * 64)
+            manifest_path.write_bytes(_manifest_bytes(manifest))
+            with self.assertRaises(identity.IdentityTreeError):
+                identity.validate_identity_tree(dest)
+
+    def test_identity_cleaned_hosted_tree_cannot_be_training_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            report = training_audit.audit_run(dest)
+            self.assertFalse(report["training_ready"], report.get("blockers"))
+            self.assertTrue(
+                any(str(item).startswith("rights:") for item in report.get("blockers") or []),
+                report.get("blockers"),
+            )

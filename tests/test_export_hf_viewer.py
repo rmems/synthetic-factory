@@ -9,6 +9,7 @@ from unittest import mock
 from export_test_support import (  # noqa: E402
     HAS_PYARROW,
     compose_fixture,
+    ResearchExportAllowed,
 )
 import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
@@ -16,7 +17,7 @@ import export_split  # noqa: E402
 import verify_hf_release  # noqa: E402
 
 
-class ViewerParquet(unittest.TestCase):
+class ViewerParquet(ResearchExportAllowed):
     def test_round_trips_rows_through_the_stdlib_writer_and_reader(self):
         rows = [
             export_hf.ViewerRow("data/curated/f/a.jsonl", 1, '{"id":"one"}'),
@@ -76,7 +77,7 @@ class ViewerParquet(unittest.TestCase):
         )
 
 
-class ExportSplitDeterminism(unittest.TestCase):
+class ExportSplitDeterminism(ResearchExportAllowed):
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -42,6 +42,8 @@ if __package__:
     from . import curate_identity_registry as _identity_registry
     from . import curate_identity_stages as _identity_stages
     from .curate_identity_registry import FactoryRow, FactoryRegistry
+    from . import rights_record as _rights_record
+    from .rights_mapping import RightsPolicyError
     from .operator_paths import operator_path
     from .record_kind import (
         PREFERENCE_SIDE_KINDS,
@@ -67,6 +69,8 @@ else:
     import curate_identity_registry as _identity_registry
     import curate_identity_stages as _identity_stages
     from curate_identity_registry import FactoryRow, FactoryRegistry
+    import rights_record as _rights_record
+    from rights_mapping import RightsPolicyError
     from operator_paths import operator_path
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
@@ -1069,6 +1073,18 @@ def curate_record(
             training_ready_true_paths=_training_ready_true_paths,
         )
         result = _identity_stages.curate_nonprocedural_record(context, dependencies)
+    if result.action == "retained":
+        if row is None:
+            raise IdentityCurationError("retained record has no reviewed registry row")
+        try:
+            _rights_record.attach_identity_rights(
+                result.mapping,
+                row,
+                source_sha256=source.sha256,
+                factory_registry_sha256=registry.sha256,
+            )
+        except RightsPolicyError as exc:
+            raise IdentityCurationError(str(exc)) from exc
     return result
 
 

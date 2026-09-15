@@ -30,6 +30,7 @@ if str(PIPELINES) not in sys.path:
 
 import curate_gate  # noqa: E402
 import curate_gate_digest  # noqa: E402
+import curate_gate_gates  # noqa: E402
 import curate_gate_plan  # noqa: E402
 import curate_rewards  # noqa: E402
 
@@ -82,6 +83,7 @@ class IntegrationTests(unittest.TestCase):
             "canonical_id_coverage",
             "reward_ontology",
             "reward_sidecars",
+            "rights",
         ):
             self.assertTrue(manifest["gates"][gate]["passed"], gate)
         # Composition happened, and both lane trees landed under one destination.
@@ -1202,6 +1204,35 @@ class IntegrationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(curate_gate.GateError, "multiple source identities"):
             curate_gate._prepare_lane(lane, source_records)
+
+
+class RightsGateTests(unittest.TestCase):
+    def test_research_only_envelope_blocks_the_gate(self):
+        log = curate_gate_gates._GateLog({}, [])
+        mapping = {
+            "action": "retained",
+            "rights": {
+                "intended_use": "research_only",
+                "project_training_policy": "blocked",
+                "provider_training_status": "blocked",
+                "source_sha256": "sha256:" + ("a" * 64),
+                "factory_registry_sha256": "sha256:" + ("b" * 64),
+            },
+        }
+        curate_gate_gates._rights_gate([mapping], log)
+        self.assertTrue(log.gates["rights"]["enforced"])
+        self.assertFalse(log.gates["rights"]["passed"])
+        self.assertTrue(
+            any(item.startswith("RIGHTS_RESEARCH_ONLY:") for item in log.blockers),
+            log.blockers,
+        )
+
+    def test_mappings_without_envelopes_are_not_enforced(self):
+        log = curate_gate_gates._GateLog({}, [])
+        curate_gate_gates._rights_gate([{"action": "retained", "output_id": "x"}], log)
+        self.assertFalse(log.gates["rights"]["enforced"])
+        self.assertTrue(log.gates["rights"]["passed"])
+        self.assertEqual(log.blockers, [])
 
 
 

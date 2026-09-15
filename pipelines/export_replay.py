@@ -20,6 +20,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
+import compose_curated_rights  # noqa: E402
 import compose_mill  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
@@ -73,6 +74,7 @@ class _ReplayState:
     source_files: list[dict[str, Any]] = field(default_factory=list)
     seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
     seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+    rights_lanes: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True)
@@ -245,6 +247,10 @@ def _replay_one_line_context(
 
     if decision.action == compose_curated.ACTION_RETAINED and decision.record is not None:
         emitted_line = _record_replayed_retained_context(state, decision, entry, replay)
+        try:
+            compose_curated_rights.bind_retained_rights(state, entry, decision, physical_line)
+        except ComposeError as exc:
+            raise ExportError(f"replayed rights envelope failed closed: {exc}") from exc
     else:
         _record_replayed_excluded(state, decision, entry)
         emitted_line = None
