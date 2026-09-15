@@ -1,0 +1,19 @@
+pipelines/curate_identity_registry.py
+  s_b024eeb7f2ca09::t_b5b07956031f6b 122-134,143-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "288e5fafa0d6d2a8ca7070a33ad643bd6c25d9fe",
+  "prompts": {},
+  "sessions": {
+    "s_b024eeb7f2ca09": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c3d21155-32bd-4bc8-a5af-afbf2c69b85a",
+        "model": "cursor-grok-4.6-xhigh"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
