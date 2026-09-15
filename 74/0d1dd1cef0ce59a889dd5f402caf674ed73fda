@@ -1,0 +1,49 @@
+pipelines/crp/generate.py
+  s_386be9b4ace1ae::t_9ac179db1fcee3 24
+  s_386be9b4ace1ae::t_d7d00daa81836d 564-574
+tests/test_crp_r817.py
+  s_386be9b4ace1ae::t_1a70f32ec873d8 47
+tests/test_crp_r995.py
+  s_386be9b4ace1ae::t_2e27df08736f57 1-48,50-74,79-80,82-177,179-192
+  s_386be9b4ace1ae::t_27e1e6b7ed60c2 49
+  s_386be9b4ace1ae::t_835cad8445ac00 76-78
+  s_386be9b4ace1ae::t_55a078845b2878 81
+  s_386be9b4ace1ae::t_5393f389fd276a 75
+  s_386be9b4ace1ae::t_c4f3ef65bac820 178
+tests/test_crp_r432.py
+  s_386be9b4ace1ae::t_83212bb15cbbc8 148
+tests/test_crp_r538.py
+  s_386be9b4ace1ae::t_200a92414e7017 149
+tests/test_crp.py
+  s_386be9b4ace1ae::t_52a4a999040a16 70
+tests/test_crp_r729.py
+  s_386be9b4ace1ae::t_dc59c138d9a6d6 154
+tests/test_crp_leftover3_prior.py
+  s_386be9b4ace1ae::t_08169bc5183002 47
+pipelines/crp/catalog.py
+  s_386be9b4ace1ae::t_72eeececdb3b50 7-8
+  s_386be9b4ace1ae::t_0bcb051bceac9a 148
+  s_386be9b4ace1ae::t_bdd57ecde09cb3 6
+pipelines/crp/cli.py
+  s_386be9b4ace1ae::t_42ff62b3602583 24
+  s_386be9b4ace1ae::t_6ba8698502fc44 76-77
+  s_386be9b4ace1ae::t_8c979ec3c7fdf8 41
+pipelines/crp/r995.py
+  s_386be9b4ace1ae::t_b41103f4b28cc0 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "740d1dd1cef0ce59a889dd5f402caf674ed73fda",
+  "prompts": {},
+  "sessions": {
+    "s_386be9b4ace1ae": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "25cc337f-b8a7-412b-aead-4c7d0b5cbe9d",
+        "model": "cursor-grok-4.6-high"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
