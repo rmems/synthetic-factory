@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _catalog_payload(loaded: cat.Catalog) -> dict[str, Any]:
     return {
-        "schema_id": "wsr-catalog/v1",
+        "schema_id": "wsr-catalog/v2",
         "family_prefix": loaded.family_prefix,
         "factory": loaded.factory,
         "generator": loaded.generator,
@@ -51,7 +51,12 @@ def _catalog_payload(loaded: cat.Catalog) -> dict[str, Any]:
         "quota_per_round": loaded.quota_per_round,
         "pair_count": len(loaded.pairs),
         "rounds": [pair.round_n for pair in loaded.pairs],
-        "slugs": [pair.ok["slug"] for pair in loaded.pairs],
+        "slugs": [
+            str(pair.ok["slug"])
+            if pair.source_format == "leftover3-v1"
+            else str((pair.plant or {})["slug"])
+            for pair in loaded.pairs
+        ],
         "source": dict(loaded.source),
     }
 
