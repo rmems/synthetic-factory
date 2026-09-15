@@ -97,8 +97,6 @@ def _step(
 
 
 def _assign_lhs(plant: cat.Plant) -> str:
-    if "=" not in plant.assign:
-        raise FlkRefusal(FINDING_USAGE, f"{plant.plant_id} assign has no '='")
     return plant.assign.split("=", 1)[0].strip()[:24]
 
 
@@ -499,7 +497,7 @@ def run(request: GenerateRequest) -> dict[str, Any]:
     lines = [dumps_exact_json(record, ensure_ascii=False, sort_keys=True) for record in records]
     records_text = "\n".join(lines) + "\n"
     records_path = out_dir / RECORDS_FILENAME
-    records_path.write_text(records_text, encoding="utf-8")
+    records_path.write_text(records_text, encoding="utf-8", newline="\n")
     notes_text = "\n".join(note_chunks)
     (out_dir / NOTES_FILENAME).write_text(notes_text, encoding="utf-8")
     summary = {

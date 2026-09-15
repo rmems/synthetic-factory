@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import shutil
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -187,6 +189,34 @@ class GeneratePairs(unittest.TestCase):
         with self.assertRaises(FlkRefusal) as caught:
             generate.run(generate.GenerateRequest(FIXTURE, dest))
         self.assertEqual(caught.exception.code, FINDING_USAGE)
+
+    def test_call_style_assign_without_equals_emits_handoff(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        plant = loaded.plant("flk_r1489:junit-fsorder-leftover")
+        self.assertNotIn("=", plant.assign)
+        dest = self.root / "call-style"
+        summary = generate.run(
+            generate.GenerateRequest(COMMITTED, dest, plant_id=plant.plant_id)
+        )
+        self.assertEqual(summary["records"], 2)
+        lines = (dest / generate.RECORDS_FILENAME).read_text(encoding="utf-8").splitlines()
+        bad = json.loads(lines[1])
+        self.assertEqual(classify_kind(bad), "episode")
+        self.assertEqual(check_episode(bad, "bad"), [])
+        pattern = bad["steps"][8]["tool_call"]["args"]["pattern"]
+        self.assertTrue(pattern.startswith("Files.list"))
+
+    def test_records_digest_matches_on_disk_bytes_when_linesep_is_crlf(self):
+        dest = self.root / "lf-records"
+        with patch("os.linesep", "\r\n"):
+            summary = generate.run(
+                generate.GenerateRequest(
+                    FIXTURE, dest, plant_id="flk_r0001:pytest-clock-leftover"
+                )
+            )
+        payload = (dest / generate.RECORDS_FILENAME).read_bytes()
+        self.assertNotIn(b"\r\n", payload)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), summary["records_sha256"])
 
 
 class CliSurface(unittest.TestCase):
