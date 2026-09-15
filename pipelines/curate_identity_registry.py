@@ -421,6 +421,13 @@ def default_registry() -> FactoryRegistry:
     """Return the committed reviewed registry, loaded once per process."""
 
     global _DEFAULT_REGISTRY
+    for name in ("curate_identity", "pipelines.curate_identity"):
+        module = sys.modules.get(name)
+        if module is None or module is sys.modules[__name__]:
+            continue
+        cached = getattr(module, "_DEFAULT_REGISTRY", None)
+        if cached is not None:
+            return cached
     if _DEFAULT_REGISTRY is None:
         _DEFAULT_REGISTRY = load_registry(FACTORY_REGISTRY_PATH)
     return _DEFAULT_REGISTRY
