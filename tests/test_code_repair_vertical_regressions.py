@@ -217,6 +217,16 @@ class VerticalRegressions(unittest.TestCase):
                 generate.run(generate.RunRequest(FIXTURE_CATALOG, Path(root)/'run', SEED, 1, PINNED_AT), fake)
             self.assertEqual(raised.exception.code, 'SANDBOX_UNAVAILABLE')
             self.assertFalse((Path(root)/'run').exists())
+            self.assertEqual(len(fake.jobs), 1)
+
+    def test_missing_isolation_is_refused_before_more_execution(self):
+        fake = FakeExecutor({'original': lambda job: dataclasses.replace(
+            report(rows('public', 1)), environment={'limits_applied': True, 'isolation': ''})})
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaises(cv.RepairRefusal) as raised:
+                generate.run(generate.RunRequest(FIXTURE_CATALOG, Path(root)/'run', SEED, 1, PINNED_AT), fake)
+            self.assertEqual(raised.exception.code, 'SANDBOX_UNAVAILABLE')
+            self.assertFalse((Path(root)/'run').exists())
         self.assertEqual(len(fake.jobs), 1)
 
     def test_decision_table_never_certifies_unlimited_execution(self):

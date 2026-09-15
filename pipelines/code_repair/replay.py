@@ -177,7 +177,7 @@ def _environment_matches(record: dict, environment: dict) -> bool:
     fingerprint = record["oracle"]["fingerprint"]
     fresh = {
         key: environment.get(key)
-        for key in ("implementation", "platform", "limits_applied", "sandbox_identity")
+        for key in ("implementation", "platform", "limits_applied", "isolation")
     }
     fresh["python"] = ".".join(str(environment.get("python", "")).split(".")[:2])
     return all(fingerprint.get(key) == value for key, value in fresh.items())
@@ -433,7 +433,7 @@ def run(request: ReplayRequest, executor: ex.Executor | None = None) -> dict[str
         not _catalog_bound(identity, catalog), cv.FINDING_REPLAY_CATALOG_UNBOUND,
         "the run pinned another catalog (id or programs digest differ)",
     )
-    engine = ex.executor_for(catalog, timeout_s=request.timeout_s, supplied=executor)
+    engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
     entries = [replay_record(record, catalog, engine) for record in _records(Path(request.run_dir))]
     summary = {"run_identity": identity, **_summary(request, catalog, engine, entries)}
     out = Path(request.out_dir)

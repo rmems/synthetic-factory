@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """The sandboxed child of the code-repair executor: stdlib only, imports nothing of the package.
 
-Runs under ``python -P -s -S -B -X utf8`` in a fresh working directory holding
-``program.py`` and ``spec.json``; applies its own resource limits; loads the
-module through ``importlib``; runs the target function's doctest examples once
-in order (they may carry state) through a ``DocTestRunner`` whose report hooks
-record one row per example; evaluates the pinned hidden cases; writes an
-out-of-band limits attestation line on real stdout before ``program.py`` is
-read; then writes one JSON object to an inherited unlinked report fd. It exits 0
-whatever the program did: failures are rows, never exit codes, and any
-internal error is reported in ``load``.
+Runs under ``unshare`` (user, mount and network namespaces) and ``python -P -s
+-S -B -X utf8`` in a fresh working directory holding ``program.py``, ``spec.json``
+and ``_sandbox.py``; applies a Landlock allowlist and its own resource limits;
+loads the module through ``importlib``; runs the target function's doctest
+examples once in order (they may carry state) through a ``DocTestRunner`` whose
+report hooks record one row per example; evaluates the pinned hidden cases; and
+prints one JSON object on stdout. It exits 0 whatever the program did: failures
+are rows, never exit codes, and any internal error is reported in ``load``.
 """
 
 from __future__ import annotations
 
 import ast
-import atexit
 import doctest
 import hashlib
 import importlib.util
@@ -29,36 +27,32 @@ import traceback
 import types
 from pathlib import Path
 
-# Bound before program.py can replace the module attributes.
-_ATEXIT_CLEAR = getattr(atexit, "_clear", lambda: None)
-_OS_EXIT = os._exit
+_SANDBOX_SPEC = importlib.util.spec_from_file_location(
+    "_sandbox", Path(__file__).with_name("_sandbox.py"),
+)
+if _SANDBOX_SPEC is None or _SANDBOX_SPEC.loader is None:
+    raise ImportError("no import spec for _sandbox.py")
+_sandbox = importlib.util.module_from_spec(_SANDBOX_SPEC)
+_SANDBOX_SPEC.loader.exec_module(_sandbox)
 
-PROTOCOL = "code-repair-harness/2"
-LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
-REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
+PROTOCOL = "code-repair-harness/1"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
 MAX_CAPTURE_CHARS = 65_536
 
 
 def _apply_limits(spec: dict) -> bool:
-    """Return False on setup failure so main emits a trusted false attestation.
-
-    Limits are applied before candidate code is read. Setup errors must not
-    escape as an ordinary candidate crash or bypass the run-wide refusal.
-    """
-
     try:
         import resource
-        limits = (
-            (resource.RLIMIT_CPU, int(spec["cpu_seconds"])),
-            (resource.RLIMIT_AS, int(spec["address_space_bytes"])),
-            (resource.RLIMIT_FSIZE, int(spec["file_size_bytes"])),
-        )
-        for name, value in limits:
-            resource.setrlimit(name, (value, value))
-    except (AttributeError, ImportError, KeyError, OverflowError, OSError, TypeError, ValueError):
+    except ImportError:  # pragma: no cover - POSIX only
         return False
+    limits = (
+        (resource.RLIMIT_CPU, int(spec["cpu_seconds"])),
+        (resource.RLIMIT_AS, int(spec["address_space_bytes"])),
+        (resource.RLIMIT_FSIZE, int(spec["file_size_bytes"])),
+    )
+    for name, value in limits:
+        resource.setrlimit(name, (value, value))
     return True
 
 
@@ -236,26 +230,17 @@ def _agree(got: str, want: str, spec: dict) -> bool:
     return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
 
 
-def _case_error(index: int, case: dict, exc: Exception, workdir: str, kind: str) -> dict:
-    """One hidden error row: observed probes keep the message; pinned wants keep only ``kind``."""
-
-    detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
-    if case["want"] is None:
-        return _row("hidden", index, "error", detail)
-    return {**_row("hidden", index, "error"), "kind": kind}
-
-
 def _run_case(target, index: int, case: dict, spec: dict, workdir: str = "") -> dict:
     """One hidden case: a pass/fail row against the pinned want, or an observed repr."""
 
     try:
         result = target(*ast.literal_eval(case["args"]))
-    except Exception as exc:  # the program under test may raise anything
-        return _case_error(index, case, exc, workdir, "exception")
-    try:
         got = _scrub_workdir(repr(result), workdir)
-    except Exception as exc:  # huge ints and hostile __repr__ must not abort the suite
-        return _case_error(index, case, exc, workdir, "unrepresentable")
+    except Exception as exc:  # the program under test may raise anything
+        detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
+        if case["want"] is None:
+            return _row("hidden", index, "error", detail)
+        return {**_row("hidden", index, "error"), "kind": "exception"}
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
     if _agree(got, case["want"], spec):
@@ -281,34 +266,20 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
-def _write_limits_attestation(stream, limits_applied: bool) -> None:
-    """Out-of-band limits proof on real stdout before ``program.py`` is read."""
-
-    stream.write(f"{LIMITS_ATTESTATION_PREFIX}{str(limits_applied).lower()}\n")
-    stream.flush()
-
-
-def _write_protocol_report(report: dict, dumps) -> None:
-    """JSON report on the inherited capture fd after dropping candidate atexit hooks."""
-
-    _ATEXIT_CLEAR()
-    data = dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True).encode("utf-8")
-    fd = int(os.environ[REPORT_FD_ENV])
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, data)
-    os.ftruncate(fd, len(data))
-
-
-def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
+def _run(workdir: Path, spec: dict, isolation: str = "") -> dict:
     report: dict = {"protocol": PROTOCOL, "load": {"status": "ok", "error": None}}
     report["environment"] = {
         "python": platform.python_version(),
         "implementation": platform.python_implementation().lower(),
         "platform": sys.platform,
-        "limits_applied": limits_applied,
+        "limits_applied": _apply_limits(spec),
+        "isolation": isolation,
     }
-    if not limits_applied:
+    if not report["environment"]["limits_applied"]:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
+        return report
+    if not _sandbox.applied(isolation):
+        report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: isolation"}
         return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
@@ -335,38 +306,57 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     return report
 
 
+def _isolation_unavailable() -> dict:
+    return {
+        "protocol": PROTOCOL,
+        "environment": {
+            "python": platform.python_version(),
+            "implementation": platform.python_implementation().lower(),
+            "platform": sys.platform,
+            "limits_applied": False,
+            "isolation": "",
+        },
+        "load": {"status": "error", "error": "SANDBOX_UNAVAILABLE: isolation"},
+    }
+
+
 def main(argv: list[str], *, _dumps=json.dumps) -> int:
     if len(argv) != 2:
         sys.stderr.write("usage: _harness.py <workdir>\n")
         return 2
     workdir = Path(argv[1])
     real_stdout, real_stderr = sys.stdout, sys.stderr
-    real_stdout.flush()
-    real_stderr.flush()
-    try:
-        spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-    except (OSError, TypeError, UnicodeError, ValueError):
-        spec = {}
-    limits_applied = _apply_limits(spec)
-    _write_limits_attestation(real_stdout, limits_applied)
-    # Drop the capture fds without keeping a dup. A leftover seekable stdout fd
-    # (or a workdir path the candidate can reopen) can rewrite the attestation.
+    # The program under test never writes on the protocol channel; whatever it
+    # prints is discarded outright, so streaming forever buys it nothing.
     with open(os.devnull, "w", encoding="utf-8") as sink:
+        real_stdout.flush()
+        real_stderr.flush()
+        saved = (os.dup(1), os.dup(2))
         os.dup2(sink.fileno(), 1)
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            report = _run(workdir, spec, limits_applied=limits_applied)
+            isolation = _sandbox.apply(str(workdir))
+            if not _sandbox.applied(isolation):
+                report = _isolation_unavailable()
+            else:
+                spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
+                report = _run(workdir, spec, isolation)
         except Exception as exc:
-            report = {
-                "protocol": PROTOCOL,
-                "load": {"status": "error", "error": _scrub_workdir(
-                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))},
-            }
-        _write_protocol_report(report, _dumps)
-    sys.stdout, sys.stderr = real_stdout, real_stderr
+            error = f"HarnessError: {exc}"
+            report = {"protocol": PROTOCOL, "load": {"status": "error", "error": error}}
+        finally:
+            real_stdout.flush()
+            real_stderr.flush()
+            for descriptor, backup in zip((1, 2), saved):
+                os.dup2(backup, descriptor)
+                os.close(backup)
+            sys.stdout, sys.stderr = real_stdout, real_stderr
+    # ensure_ascii=True keeps lone surrogates from breaking the exit-0 write.
+    real_stdout.write(_dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True))
+    real_stdout.flush()
     return 0
 
 
 if __name__ == "__main__":
-    _OS_EXIT(main(sys.argv))
+    sys.exit(main(sys.argv))

@@ -316,9 +316,9 @@ class ProceduralIntegrationTests(unittest.TestCase):
         record = required_item(r for r in self.records if r["result"]["outcome"] == "accepted")
         self.assertIsNone(record["oracle"]["commit"])
         self.assertEqual(record["oracle"]["configuration"]["isolation"],
-            "rlimits and a fresh working directory only: no filesystem or network isolation "
-            "(issue #201); programs come from a pinned catalog whose selector admits "
-            "stdlib-only modules")
+            "linux user, mount and network namespaces via unshare --user --map-root-user "
+            "--mount --net --propagation private; Landlock filesystem allowlist of the working "
+            "directory and interpreter; rlimits; a fresh working directory")
         errors, kind = check_line(record, "candidate")
         self.assertEqual(kind, "code_repair")
         self.assertEqual(errors, [])
