@@ -1,0 +1,20 @@
+tests/test_cei.py
+  s_3aabe03e623788::t_6f0ecd17290b4a 410-418
+  s_3aabe03e623788::t_74b9e3222cb3f1 391-399
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c7937018d775ec437c721d1fff3d9c113530be2e",
+  "prompts": {},
+  "sessions": {
+    "s_3aabe03e623788": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "72be9e75-ef32-4fe6-ad8e-550953f2e025",
+        "model": "composer-2.5-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
