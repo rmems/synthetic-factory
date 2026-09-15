@@ -8,16 +8,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .catalog_extract import catalog_json_path
+from .catalog_extract import catalog_json_path, pairs_jsonl_path, sha256_bytes
 from .sources import EXCLUDED_LAUNDERERS, MILL_SOURCES, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
+    DEFERRED_PAIR_ROWS,
     EXCLUDED_LAUNDERER_PATHS,
     FACTORY,
     GENERATOR,
+    N_PAIR_ROWS,
+    PAIR_JSONL_KEYS,
+    PAIRS_SHA256,
     PRESERVE_COMMIT,
     SLICE_ID,
     SLICE_MILL_ID,
+    SLICE_PAIR_ROWS,
 )
 
 
@@ -57,6 +62,80 @@ class DbcCatalog:
     def n_pair_rows(self) -> int:
         return sum(mill.n_rows for mill in self.mills.values())
 
+    @property
+    def n_deferred_pair_rows(self) -> int:
+        return sum(
+            len(mill.pairs)
+            for mill_id, mill in self.mills.items()
+            if mill_id != SLICE_MILL_ID
+        )
+
+
+def load_pairs_jsonl(path=None) -> tuple[Mapping[str, Any], ...]:
+    """Load the compact deferred-identity JSONL. r193 stays in CATALOG.json."""
+
+    pairs_path = path if path is not None else pairs_jsonl_path()
+    payload = pairs_path.read_bytes()
+    if sha256_bytes(payload) != PAIRS_SHA256:
+        raise ValueError(f"{pairs_path} sha256 drifted from vocabulary")
+    text = payload.decode("utf-8")
+    if "\r" in text or not text.endswith("\n"):
+        raise ValueError(f"{pairs_path.name} must be LF-framed compact JSONL")
+    rows = tuple(_jsonl_row(line, index) for index, line in enumerate(text.splitlines(), 1))
+    _refuse_jsonl_identity(rows)
+    return rows
+
+
+def _jsonl_row(line: str, index: int) -> dict[str, Any]:
+    if not line or line.startswith((" ", "\t")):
+        raise ValueError(f"pairs.jsonl:{index} is not compact")
+    row = json.loads(line)
+    if not isinstance(row, dict) or set(row) != set(PAIR_JSONL_KEYS):
+        raise ValueError(f"pairs.jsonl:{index} keys drifted")
+    mill_id = row["mill_id"]
+    source_path = row["source_path"]
+    if mill_id == SLICE_MILL_ID:
+        raise ValueError("pairs.jsonl must omit the r193 first-slice rows")
+    if _is_launderer(mill_id, source_path):
+        raise ValueError(f"pairs.jsonl:{index} names an excluded leftover3 launderer")
+    if row["fail_handoff"] is not True:
+        raise ValueError(f"pairs.jsonl:{index} fail_handoff must be true")
+    if not isinstance(row["success_slug"], str) or not row["success_slug"]:
+        raise ValueError(f"pairs.jsonl:{index} success_slug must be non-empty")
+    if not isinstance(row["fail_slug"], str) or not row["fail_slug"]:
+        raise ValueError(f"pairs.jsonl:{index} fail_slug must be non-empty")
+    return row
+
+
+def _is_launderer(mill_id: str, source_path: str) -> bool:
+    launderer_ids = {source.mill_id for source in EXCLUDED_LAUNDERERS}
+    return mill_id in launderer_ids or source_path in EXCLUDED_LAUNDERER_PATHS
+
+
+def _refuse_jsonl_identity(rows: tuple[Mapping[str, Any], ...]) -> None:
+    if len(rows) != DEFERRED_PAIR_ROWS:
+        raise ValueError(f"expected {DEFERRED_PAIR_ROWS} deferred pairs, found {len(rows)}")
+
+
+def _group_jsonl(
+    rows: tuple[Mapping[str, Any], ...], mill_ids: set[str]
+) -> dict[str, tuple[Mapping[str, Any], ...]]:
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        mill_id = str(row["mill_id"])
+        if mill_id not in mill_ids:
+            raise ValueError(f"pairs.jsonl names unknown mill {mill_id}")
+        grouped.setdefault(mill_id, []).append(row)
+    extra = sorted(set(grouped) - mill_ids)
+    if extra:
+        raise ValueError(f"pairs.jsonl names unknown mills: {extra}")
+    missing = sorted(mill_ids - {SLICE_MILL_ID} - set(grouped))
+    if missing:
+        raise ValueError(f"pairs.jsonl missing deferred mills: {missing}")
+    if SLICE_MILL_ID in grouped:
+        raise ValueError("pairs.jsonl must omit the r193 first-slice rows")
+    return {mill_id: tuple(pairs) for mill_id, pairs in grouped.items()}
+
 
 def load_catalog(path=None) -> DbcCatalog:
     catalog_path = path if path is not None else catalog_json_path()
@@ -69,7 +148,12 @@ def load_catalog(path=None) -> DbcCatalog:
         raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
     if document.get("slice") != SLICE_ID:
         raise ValueError(f"{catalog_path} slice drifted from vocabulary")
-    mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    mill_rows = document["mills"]
+    grouped = _group_jsonl(load_pairs_jsonl(), set(mill_rows))
+    mills = {
+        mill_id: _mill_from_row(row, grouped.get(mill_id, ()))
+        for mill_id, row in mill_rows.items()
+    }
     catalog = DbcCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -83,10 +167,20 @@ def load_catalog(path=None) -> DbcCatalog:
     return catalog
 
 
-def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
+def _mill_from_row(
+    row: Mapping[str, Any], jsonl_pairs: tuple[Mapping[str, Any], ...] = ()
+) -> MillCatalog:
+    catalog_pairs = tuple(row.get("pairs") or ())
+    mill_id = row["mill_id"]
+    if mill_id == SLICE_MILL_ID:
+        pairs = catalog_pairs
+    else:
+        if catalog_pairs:
+            raise ValueError(f"{mill_id} is not the first slice and must omit CATALOG pair rows")
+        pairs = jsonl_pairs
     skip = row.get("skip_slugs")
     return MillCatalog(
-        mill_id=row["mill_id"],
+        mill_id=mill_id,
         path=row["path"],
         blob_sha=row["blob_sha"],
         sha256=row["sha256"],
@@ -103,7 +197,7 @@ def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
         skip_slugs=tuple(skip) if skip else None,
         n_new=row.get("n_new"),
         n_inherited=row.get("n_inherited"),
-        pairs=tuple(row.get("pairs") or ()),
+        pairs=pairs,
     )
 
 
@@ -122,17 +216,38 @@ def _bind_sources(catalog: DbcCatalog) -> None:
     excluded_paths = {source.path for source in EXCLUDED_LAUNDERERS}
     if excluded_paths != set(EXCLUDED_LAUNDERER_PATHS):
         raise ValueError("excluded launderer paths drifted from vocabulary")
-    if any(mill_id in catalog.mills for mill_id in (source.mill_id for source in EXCLUDED_LAUNDERERS)):
+    launderer_ids = {source.mill_id for source in EXCLUDED_LAUNDERERS}
+    if any(mill_id in catalog.mills for mill_id in launderer_ids):
         raise ValueError("launderer mill leaked into the committed catalog")
+    if catalog.n_pair_rows != N_PAIR_ROWS:
+        raise ValueError(f"catalog n_pair_rows drifted from {N_PAIR_ROWS}")
+    if catalog.n_deferred_pair_rows != DEFERRED_PAIR_ROWS:
+        raise ValueError(f"deferred pair rows drifted from {DEFERRED_PAIR_ROWS}")
     slice_mill = catalog.mills[SLICE_MILL_ID]
-    if len(slice_mill.pairs) != slice_mill.n_rows:
+    if len(slice_mill.pairs) != SLICE_PAIR_ROWS:
         raise ValueError("r193 slice n_rows does not match extracted pairs")
     for mill_id, mill in catalog.mills.items():
         source = expected[mill_id]
         if mill.path != source.path or mill.blob_sha != source.blob_sha:
             raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill_id != SLICE_MILL_ID and mill.pairs:
-            raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+        _bind_mill_pairs(mill, source.path)
+
+
+def _bind_mill_pairs(mill: MillCatalog, source_path: str) -> None:
+    if mill.mill_id == SLICE_MILL_ID:
+        if len(mill.pairs) != mill.n_rows:
+            raise ValueError("r193 slice n_rows does not match extracted pairs")
+        return
+    if len(mill.pairs) != mill.n_rows:
+        raise ValueError(f"{mill.mill_id} deferred pairs drifted from n_rows")
+    if mill.pairs[0]["success_slug"] != mill.first_slug:
+        raise ValueError(f"{mill.mill_id} first_slug drifted from pairs.jsonl")
+    if mill.pairs[-1]["success_slug"] != mill.last_slug:
+        raise ValueError(f"{mill.mill_id} last_slug drifted from pairs.jsonl")
+    if any(pair["source_path"] != source_path for pair in mill.pairs):
+        raise ValueError(f"{mill.mill_id} source_path drifted from pairs.jsonl")
+    if any(pair["mill_id"] != mill.mill_id for pair in mill.pairs):
+        raise ValueError(f"{mill.mill_id} mill_id drifted from pairs.jsonl")
 
 
 CATALOG = load_catalog()
