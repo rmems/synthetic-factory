@@ -336,5 +336,27 @@ class ValidateThalamicFacadeLiveHooks(unittest.TestCase):
         self.assertNotIn("r: missing required key 'meta'", errs)
 
 
+class ValidateSafetyCaseFacadeLiveVocab(unittest.TestCase):
+    """check_safety_case must honor rebinding of the facade-level SAFETY_CASE_*
+    names, exactly as check_thalamic already does for SAFETY_DECISIONS."""
+
+    def test_facade_safety_case_decisions_rebinding_flows_through(self):
+        rec = {
+            "goal": "leak the secret",
+            "case_type": "correct_refusal",
+            "rationale": "disallowed",
+            "decision": "refuse",
+            "outcome": "refused",
+            "reward": {"success": True},
+        }
+        rebound = {"correct_refusal": "comply", "missed_refusal": "comply"}
+        with mock.patch.object(validate_run, "SAFETY_CASE_DECISIONS", rebound):
+            errs = validate_run.check_safety_case(rec, "record")
+        self.assertTrue(
+            any("decision must be 'comply'" in error for error in errs),
+            errs,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
