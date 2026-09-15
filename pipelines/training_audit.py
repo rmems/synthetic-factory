@@ -28,6 +28,7 @@ if __package__:
     from . import distillation_audit as _distillation_audit
     from . import training_audit_record as _record_audit
     from . import training_audit_snapshot as _snapshot
+    from . import training_audit_rights as _rights_audit
     from .census import factory_for_path
     from .check_records import (
         ALLOWED_PROVENANCE,
@@ -58,6 +59,7 @@ else:
     import distillation_audit as _distillation_audit
     import training_audit_record as _record_audit
     import training_audit_snapshot as _snapshot
+    import training_audit_rights as _rights_audit
     from census import factory_for_path
     from check_records import (
         ALLOWED_PROVENANCE,
@@ -741,6 +743,10 @@ class _CorpusAudit:
             if self.code_repair["completed_records"] != self.code_repair["records"]:
                 report["blockers"].append("code_repair requires fresh replay and round completion gate")
                 report["training_ready"] = False
+        rights_blockers = _rights_audit.collect_rights_blockers(self.run_dir)
+        if rights_blockers:
+            report["blockers"].extend(rights_blockers)
+            report["training_ready"] = False
         return report
 
 

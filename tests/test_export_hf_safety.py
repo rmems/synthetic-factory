@@ -12,6 +12,7 @@ from unittest import mock
 
 from export_test_support import (  # noqa: E402
     compose_fixture,
+    ResearchExportAllowed,
 )
 from compose_curated_test_support import multi_agent, write_jsonl  # noqa: E402
 import compose_curated  # noqa: E402
@@ -28,7 +29,7 @@ def _should_swap_destination_parent(path, destination, dir_fd, already_swapped):
     return not already_swapped
 
 
-class ExportDestinationSafety(unittest.TestCase):
+class ExportDestinationSafety(ResearchExportAllowed):
     def test_refuses_empty_missing_and_existing_destinations(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -131,7 +132,7 @@ class ExportDestinationSafety(unittest.TestCase):
             self.assertFalse(destination.exists())
 
 
-class ExportCompositionMemberSafety(unittest.TestCase):
+class ExportCompositionMemberSafety(ResearchExportAllowed):
     # ---- one alias per mutation, each swapping exactly one compose member ----
 
     @staticmethod
@@ -236,7 +237,7 @@ class ExportCompositionMemberSafety(unittest.TestCase):
             self.assertFalse((root / "export").exists())
 
 
-class ExportSnapshotCoherence(unittest.TestCase):
+class ExportSnapshotCoherence(ResearchExportAllowed):
     """Codex #97: replay authenticates one coherent source state, never a hybrid."""
 
     def test_a_member_changed_during_capture_refuses_the_export(self):
@@ -475,7 +476,7 @@ class ExportMemberFifoSwap(unittest.TestCase):
                 )
 
 
-class ExportAuditByteCapture(unittest.TestCase):
+class ExportAuditByteCapture(ResearchExportAllowed):
     def test_audit_uses_captured_bytes_when_output_changes_before_the_gate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -519,7 +520,7 @@ class ExportAuditByteCapture(unittest.TestCase):
             self.assertFalse((root / "export").exists())
 
 
-class ExportCli(unittest.TestCase):
+class ExportCli(ResearchExportAllowed):
     def test_cli_prints_provenance_and_reports_refusals(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

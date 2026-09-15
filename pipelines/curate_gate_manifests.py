@@ -145,7 +145,7 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
     reasons = entry.get("reason_codes")
     if reasons is None:
         reasons = []
-    return {
+    payload = {
         "lane_order": lane["order"],
         "transform": declared_transform or lane["transform"],
         "version": declared_version or lane["version"],
@@ -168,6 +168,11 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
         "provenance_mappings": copy.deepcopy(entry.get("provenance_mappings")),
         "manifest_entry_sha256": record_sha256(entry),
     }
+    if isinstance(entry.get("rights"), dict):
+        payload["rights"] = copy.deepcopy(entry.get("rights"))
+    if isinstance(entry.get("rights_lane"), str):
+        payload["rights_lane"] = entry.get("rights_lane")
+    return payload
 
 
 # ---------------------------------------------------------------------------

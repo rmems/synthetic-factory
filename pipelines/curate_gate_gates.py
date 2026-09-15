@@ -43,6 +43,7 @@ if __package__:
     from . import curate_gate_reward as _reward
     from . import curate_gate_reward_sidecars as _reward_sidecars
     from . import training_audit
+    from .rights_record import training_export_blockers
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_gates"
@@ -57,6 +58,7 @@ else:
     import curate_gate_reward as _reward
     import curate_gate_reward_sidecars as _reward_sidecars
     import training_audit
+    from rights_record import training_export_blockers
 
 GateError = _contract.GateError
 TOOL_NAME = _contract.TOOL_NAME
@@ -204,6 +206,42 @@ def _audit_gates(report: dict[str, Any], log: _GateLog) -> None:
         log.blockers.append(f"CANONICAL_ID_COVERAGE:{missing_ids} records lack a top-level id")
 
 
+def _rights_gate(identity_mappings: Sequence[dict[str, Any]], log: _GateLog) -> None:
+    """Fail closed when identity mappings carry a research-only envelope."""
+
+    envelopes = [
+        mapping
+        for mapping in identity_mappings
+        if isinstance(mapping.get("rights"), dict)
+    ]
+    research = 0
+    missing = 0
+    for mapping in identity_mappings:
+        action = str(mapping.get("action") or "").strip().lower()
+        if action not in {"retained", "retain", "unchanged"}:
+            continue
+        envelope = mapping.get("rights")
+        if not envelopes:
+            continue
+        if not isinstance(envelope, dict):
+            missing += 1
+            continue
+        exportable, _blockers = training_export_blockers(envelope)
+        if not exportable:
+            research += 1
+    passed = not (research or missing)
+    log.gates["rights"] = {
+        "passed": passed,
+        "enforced": bool(envelopes),
+        "research_only": research,
+        "missing": missing,
+    }
+    if research:
+        log.blockers.append(f"RIGHTS_RESEARCH_ONLY:{research} retained records are not training-exportable")
+    if missing:
+        log.blockers.append(f"RIGHTS_MISSING_ENVELOPE:{missing} retained identity mappings lack a rights envelope")
+
+
 def _reward_gates(
     cleaned: Path,
     normalized_bindings: Sequence[dict[str, Any]],
@@ -241,6 +279,7 @@ def run_gates(cleaned: Path, *, inputs: GateInputs, tools: GateTools) -> dict[st
     normalized_bindings = _evidence_gates(cleaned, inputs, log)
     report = _tool_gates(cleaned, tools, log)
     _audit_gates(report, log)
+    _rights_gate(inputs.lane_manifests.get("identity_mappings") or [], log)
     _reward_gates(cleaned, normalized_bindings, inputs.prepared_lanes, log)
 
     return {

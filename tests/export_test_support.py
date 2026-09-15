@@ -8,7 +8,10 @@ responsibility. Not named ``test_*`` so it is not itself collected.
 import importlib.util
 import json
 import sys
+import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parents[0]
@@ -16,11 +19,48 @@ sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import compose_curated  # noqa: E402
+import training_audit  # noqa: E402
+from rights_record import BLOCKER_PREFIX  # noqa: E402
 
 from compose_curated_test_support import build_source_run  # noqa: E402
 
 HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
+
+def strip_rights_blockers(report):
+    """Drop ``rights:`` blockers so writer tests can exercise export mechanics."""
+
+    blockers = [
+        item for item in report.get("blockers", []) if not str(item).startswith(BLOCKER_PREFIX)
+    ]
+    patched = dict(report)
+    patched["blockers"] = blockers
+    if list(report.get("blockers") or []) != blockers:
+        patched["training_ready"] = not blockers
+    return patched
+
+
+@contextmanager
+def allow_research_only_export():
+    """Strip rights blockers from the live audit used by compose and export."""
+
+    real = training_audit.audit_run
+
+    def patched(run_dir, snapshot=None):
+        return strip_rights_blockers(real(run_dir, snapshot=snapshot))
+
+    with mock.patch.object(training_audit, "audit_run", patched):
+        yield
+
+
+class ResearchExportAllowed(unittest.TestCase):
+    """Writer tests that compose hosted records still need an exportable audit."""
+
+    def setUp(self):
+        super().setUp()
+        self._rights_bypass = allow_research_only_export()
+        self._rights_bypass.__enter__()
+        self.addCleanup(self._rights_bypass.__exit__, None, None, None)
 
 
 def compose_fixture(root):

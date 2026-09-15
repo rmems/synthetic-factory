@@ -3082,6 +3082,9 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             for mapping in manifest:
                 mapping["registry"]["sha256"] = replacement_digest
+                envelope = mapping.get("rights")
+                if isinstance(envelope, dict):
+                    envelope["factory_registry_sha256"] = f"sha256:{replacement_digest}"
             manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
             identity.validate_identity_tree(dest)
