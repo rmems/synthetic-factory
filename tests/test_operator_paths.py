@@ -129,9 +129,11 @@ class LeafSafety(unittest.TestCase):
                         raise OSError("cannot inspect")
                 return real_lstat(path, *args, **kwargs)
 
-            with mock.patch("pipelines.operator_paths.os.lstat", side_effect=lstat):
-                with self.assertRaises(argparse.ArgumentTypeError) as raised:
-                    operator_path(leaf, argument="input")
+            with (
+                mock.patch("pipelines.operator_paths.os.lstat", side_effect=lstat),
+                self.assertRaises(argparse.ArgumentTypeError) as raised,
+            ):
+                operator_path(leaf, argument="input")
             self.assertEqual(str(raised.exception), "input: the path cannot be inspected")
 
     def test_fifo_and_device_leaves_are_refused(self):
@@ -165,7 +167,7 @@ class LeafSafety(unittest.TestCase):
             link.symlink_to(real)
             dangling = root / "dangling.jsonl"
             dangling.symlink_to(root / "missing-target")
-            fifo = _fifo(root / "named-pipe")
+            _fifo(root / "named-pipe")
             missing = root / "missing-dir"
             cases = (
                 (missing / ".." / "linked.jsonl", "the path is a symlink"),

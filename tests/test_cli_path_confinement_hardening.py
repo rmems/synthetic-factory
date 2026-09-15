@@ -60,7 +60,7 @@ def _linked_existing(root: Path, name: str) -> tuple[Path, Path]:
     return existing, link
 
 
-class _FunnelCase(unittest.TestCase):
+class _FunnelCase:
     def assertRefused(self, call, argv, expected: Expected):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
@@ -74,7 +74,7 @@ class _FunnelCase(unittest.TestCase):
         self.assertNotIn("HOME=", text)
 
 
-class FunnelLeaves(_FunnelCase):
+class FunnelLeaves(_FunnelCase, unittest.TestCase):
     """Direct funnels refuse unsafe leaves before any CLI sink is selected."""
 
     def test_rewards_and_verify_refuse_escape_symlink_dangling_fifo(self):
@@ -108,7 +108,7 @@ class FunnelLeaves(_FunnelCase):
                     self.assertRefused(funnel, (parser, args), expected)
 
 
-class WriterLeaves(_FunnelCase):
+class WriterLeaves(_FunnelCase, unittest.TestCase):
     def test_convert_and_curate_refuse_output_symlink_and_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -134,7 +134,7 @@ class WriterLeaves(_FunnelCase):
             self.assertFalse(manifest.exists())
 
 
-class FactoryLeaves(_FunnelCase):
+class FactoryLeaves(_FunnelCase, unittest.TestCase):
     def test_next_round_and_round_txn_refuse_symlink_and_fifo_factory_dirs(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
