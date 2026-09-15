@@ -306,6 +306,42 @@ def _package_curate_gate_lanes() -> ModuleType:
     return module
 
 
+def _direct_curate_gate_reward() -> ModuleType:
+    import curate_gate_reward as module
+
+    return module
+
+
+def _package_curate_gate_reward() -> ModuleType:
+    import pipelines.curate_gate_reward as module
+
+    return module
+
+
+def _direct_curate_gate_reward_sidecars() -> ModuleType:
+    import curate_gate_reward_sidecars as module
+
+    return module
+
+
+def _package_curate_gate_reward_sidecars() -> ModuleType:
+    import pipelines.curate_gate_reward_sidecars as module
+
+    return module
+
+
+def _direct_curate_gate_gates() -> ModuleType:
+    import curate_gate_gates as module
+
+    return module
+
+
+def _package_curate_gate_gates() -> ModuleType:
+    import pipelines.curate_gate_gates as module
+
+    return module
+
+
 def _direct_curate_gate_compose() -> ModuleType:
     import curate_gate_compose as module
 
@@ -945,6 +981,18 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_gate_compose": (
         _direct_curate_gate_compose,
         _package_curate_gate_compose,
+    ),
+    "curate_gate_reward": (
+        _direct_curate_gate_reward,
+        _package_curate_gate_reward,
+    ),
+    "curate_gate_reward_sidecars": (
+        _direct_curate_gate_reward_sidecars,
+        _package_curate_gate_reward_sidecars,
+    ),
+    "curate_gate_gates": (
+        _direct_curate_gate_gates,
+        _package_curate_gate_gates,
     ),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
     "curate_identity_output": (

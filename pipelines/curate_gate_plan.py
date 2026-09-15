@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -51,9 +51,37 @@ _lane_manifest_format = _paths._lane_manifest_format
 _relative_artifact_destination = _paths._relative_artifact_destination
 _resolve_declared_path = _paths._resolve_declared_path
 _resolve_source_run_path = _paths._resolve_source_run_path
+RepoRoots = _paths.RepoRoots
 
 # Every lane declaration needs these three as non-empty strings, in this order.
 _LANE_STRING_FIELDS = ("transform", "version", "outputs")
+
+
+class _PlanRoots(NamedTuple):
+    """The plan file and the directory its relative declarations resolve against."""
+
+    plan_path: Path
+    base: Path
+
+
+class _LaneScope(NamedTuple):
+    """One lane's position in the plan, carried through its resolution."""
+
+    plan_path: Path
+    base: Path
+    lane_index: int
+    transform: str
+
+    @property
+    def label(self) -> str:
+        return _lane_label(self.plan_path, self.lane_index, self.transform)
+
+
+class _LaneState(NamedTuple):
+    """What earlier lanes already claimed: one version per transform, one tree each."""
+
+    versions: dict[str, str]
+    seen_outputs: dict[Path, str]
 
 
 def _lane_label(plan_path: Path, index: int, transform: Any) -> str:
@@ -87,21 +115,19 @@ def _plan_snapshot(plan_path: Path) -> tuple[dict[str, Any], str]:
 
 def _plan_source_run(
     plan: dict[str, Any],
-    plan_path: Path,
-    base: Path,
-    repo_root: Path,
-    raw_output_root: Path,
+    roots: _PlanRoots,
+    repo_roots: RepoRoots,
 ) -> tuple[str, Path]:
     """The immutable source tree the lanes were derived from."""
+    plan_path = roots.plan_path
     source_run = plan.get("source_run")
     if not isinstance(source_run, str) or not source_run.strip():
         raise GateError(f"{plan_path}: plan needs a non-empty string 'source_run'")
     source_run_dir = _resolve_source_run_path(
-        base,
+        roots.base,
         source_run,
         f"{plan_path}: source_run",
-        repo_root,
-        raw_output_root,
+        repo_roots,
     )
     if not source_run_dir.is_dir():
         raise GateError(f"{plan_path}: source_run directory is missing: {source_run_dir}")
@@ -133,16 +159,13 @@ def _lane_declaration(
 
 
 def _lane_outputs_dir(
-    plan_path: Path,
-    base: Path,
-    index: int,
-    transform: str,
+    scope: _LaneScope,
     outputs: str,
     seen_outputs: dict[Path, str],
 ) -> Path:
     """One lane's curated output tree, which no other lane may reuse."""
-    label = _lane_label(plan_path, index, transform)
-    outputs_path = _resolve_declared_path(base, outputs, f"{label} outputs")
+    label = scope.label
+    outputs_path = _resolve_declared_path(scope.base, outputs, f"{label} outputs")
     if not outputs_path.is_dir():
         raise GateError(f"{label} outputs directory is missing: {outputs_path}")
     if outputs_path in seen_outputs:
@@ -150,23 +173,17 @@ def _lane_outputs_dir(
             f"{label} reuses the outputs directory of "
             f"lane {seen_outputs[outputs_path]}: {outputs_path}"
         )
-    seen_outputs[outputs_path] = f"{index} ({transform})"
+    seen_outputs[outputs_path] = f"{scope.lane_index} ({scope.transform})"
     return outputs_path
 
 
-def _lane_manifest(
-    plan_path: Path,
-    base: Path,
-    index: int,
-    transform: str,
-    lane: dict[str, Any],
-) -> tuple[Path, str]:
+def _lane_manifest(scope: _LaneScope, lane: dict[str, Any]) -> tuple[Path, str]:
     """The record-level manifest every lane must pair with its outputs."""
-    label = _lane_label(plan_path, index, transform)
+    label = scope.label
     manifest = lane.get("manifest")
     if not isinstance(manifest, str) or not manifest.strip():
         raise GateError(f"{label} needs a non-empty string 'manifest'")
-    manifest_path = _resolve_declared_path(base, manifest, f"{label} manifest")
+    manifest_path = _resolve_declared_path(scope.base, manifest, f"{label} manifest")
     if not manifest_path.is_file():
         raise GateError(f"{label} manifest is missing: {manifest_path}")
     manifest_format = _lane_manifest_format(manifest_path, f"{label} manifest")
@@ -203,15 +220,12 @@ def _lane_artifact(
 
 
 def _lane_artifacts(
-    plan_path: Path,
-    base: Path,
-    index: int,
-    transform: str,
+    scope: _LaneScope,
     lane: dict[str, Any],
     manifest_path: Path,
 ) -> list[dict[str, Any]]:
     """Every artifact this lane declares, each at its own destination."""
-    prefix = _lane_label(plan_path, index, transform)
+    prefix = scope.label
     raw_artifacts = lane.get("artifacts", [])
     if not isinstance(raw_artifacts, list):
         raise GateError(f"{prefix} artifacts must be a list")
@@ -219,7 +233,7 @@ def _lane_artifacts(
     destinations: set[Path] = set()
     for artifact_index, artifact in enumerate(raw_artifacts, 1):
         label = f"{prefix} artifact {artifact_index}"
-        resolved = _lane_artifact(base, artifact, label, manifest_path)
+        resolved = _lane_artifact(scope.base, artifact, label, manifest_path)
         destination = resolved["destination"]
         if destination in destinations:
             raise GateError(f"{label} reuses artifact destination {destination}")
@@ -229,18 +243,17 @@ def _lane_artifacts(
 
 
 def _resolve_lane(
-    plan_path: Path,
-    base: Path,
+    roots: _PlanRoots,
     index: int,
     lane: Any,
-    versions: dict[str, str],
-    seen_outputs: dict[Path, str],
+    state: _LaneState,
 ) -> dict[str, Any]:
     """One fully resolved lane declaration."""
-    transform, version, outputs = _lane_declaration(plan_path, index, lane, versions)
-    outputs_path = _lane_outputs_dir(plan_path, base, index, transform, outputs, seen_outputs)
-    manifest_path, manifest_format = _lane_manifest(plan_path, base, index, transform, lane)
-    artifacts = _lane_artifacts(plan_path, base, index, transform, lane, manifest_path)
+    transform, version, outputs = _lane_declaration(roots.plan_path, index, lane, state.versions)
+    scope = _LaneScope(roots.plan_path, roots.base, index, transform)
+    outputs_path = _lane_outputs_dir(scope, outputs, state.seen_outputs)
+    manifest_path, manifest_format = _lane_manifest(scope, lane)
+    artifacts = _lane_artifacts(scope, lane, manifest_path)
     return {
         "order": index,
         "bead": lane.get("bead"),
@@ -254,17 +267,15 @@ def _resolve_lane(
 
 
 def _resolve_lanes(
-    plan_path: Path,
-    base: Path,
+    roots: _PlanRoots,
     lanes: list[Any],
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Resolve every lane in declaration order, refusing the first bad one."""
     resolved: list[dict[str, Any]] = []
-    versions: dict[str, str] = {}
-    seen_outputs: dict[Path, str] = {}
+    state = _LaneState({}, {})
     for index, lane in enumerate(lanes, 1):
-        resolved.append(_resolve_lane(plan_path, base, index, lane, versions, seen_outputs))
-    return resolved, versions
+        resolved.append(_resolve_lane(roots, index, lane, state))
+    return resolved, state.versions
 
 
 def _assert_lane_contracts(plan_path: Path, resolved: list[dict[str, Any]]) -> None:
@@ -290,20 +301,18 @@ def load_plan(plan_path: Path, *, repo_root: Path, raw_output_root: Path) -> dic
     """Read and validate an integration plan; resolve its lane paths."""
     plan_path = Path(plan_path).resolve()
     plan, plan_sha256 = _plan_snapshot(plan_path)
-    base = plan_path.parent
+    roots = _PlanRoots(plan_path, plan_path.parent)
     source_run, source_run_dir = _plan_source_run(
         plan,
-        plan_path,
-        base,
-        repo_root,
-        raw_output_root,
+        roots,
+        RepoRoots(repo_root, raw_output_root),
     )
 
     lanes = plan.get("lanes")
     if not isinstance(lanes, list) or not lanes:
         raise GateError(f"{plan_path}: plan needs a non-empty 'lanes' list")
 
-    resolved, versions = _resolve_lanes(plan_path, base, lanes)
+    resolved, versions = _resolve_lanes(roots, lanes)
     _assert_lane_contracts(plan_path, resolved)
 
     return {

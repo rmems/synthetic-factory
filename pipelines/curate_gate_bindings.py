@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -257,13 +257,18 @@ def _source_coverage(
         )
 
 
-def _authenticate_final_record(
-    binding: dict[str, Any],
-    record: Any,
-    where: str,
-    evidence_entries: Sequence[dict[str, Any]],
-    errors: list[dict[str, str]],
-) -> None:
+class _FinalRow(NamedTuple):
+    """One emitted row, its binding, and the lane evidence that produced it."""
+
+    binding: dict[str, Any]
+    record: Any
+    where: str
+    evidence_entries: Sequence[dict[str, Any]]
+
+
+def _authenticate_final_record(row: _FinalRow, errors: list[dict[str, str]]) -> None:
+    binding, record, where = row.binding, row.record, row.where
+    evidence_entries = row.evidence_entries
     """Hash, id, source hash and lineage of one row against its binding."""
     if record_sha256(record) != binding["output_sha256"]:
         errors.append({"source": where, "error": "final record hash mismatches binding"})
@@ -314,10 +319,12 @@ def _output_evidence_gate(
         source_key = (binding["source_path"], binding["source_line"])
         records_by_source[source_key] = record
         _authenticate_final_record(
-            binding,
-            record,
-            f"{coordinate[0]}:{coordinate[1]}",
-            entries_by_source.get(source_key, []),
+            _FinalRow(
+                binding,
+                record,
+                f"{coordinate[0]}:{coordinate[1]}",
+                entries_by_source.get(source_key, []),
+            ),
             errors,
         )
 

@@ -19,7 +19,7 @@ import copy
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -55,6 +55,7 @@ record_sha256 = _digest.record_sha256
 _assert_disjoint_trees = _paths._assert_disjoint_trees
 _assert_new_destination = _paths._assert_new_destination
 _merge_lane_delta = _merge._merge_lane_delta
+MergeScope = _merge.MergeScope
 prepare_lanes = _lanes.prepare_lanes
 
 _SourceKey = tuple[str, int]
@@ -95,13 +96,19 @@ def _lineage_entry(lane: dict[str, Any], emitted: dict[str, Any]) -> dict[str, A
     }
 
 
-def _apply_terminal_entries(
-    lane: dict[str, Any],
-    state: dict[_SourceKey, dict[str, Any]],
-    terminal_actions: dict[_SourceKey, dict[str, Any]],
-    supersessions: list[dict[str, Any]],
-) -> None:
+class _ComposeState(NamedTuple):
+    """The three accumulators a composition folds every emitted record into."""
+
+    records: dict[_SourceKey, dict[str, Any]]
+    terminal_actions: dict[_SourceKey, dict[str, Any]]
+    supersessions: list[dict[str, Any]]
+
+
+def _apply_terminal_entries(lane: dict[str, Any], composed: _ComposeState) -> None:
     """Record the lane's exclusions and quarantines; drop any earlier composed record."""
+    state = composed.records
+    terminal_actions = composed.terminal_actions
+    supersessions = composed.supersessions
     for entry in lane["entries"]:
         action = str(entry.get("action") or "").strip().lower()
         if action not in EXCLUSION_ACTIONS | QUARANTINE_ACTIONS:
@@ -153,8 +160,7 @@ def _composed_record(
         emitted["source_record"],
         previous["record"],
         emitted["record"],
-        source_key=emitted["source_key"],
-        transform=lane["transform"],
+        MergeScope(emitted["source_key"], lane["transform"]),
     )
     merged_hash = record_sha256(merged_record)
     supersessions.append(
@@ -185,12 +191,12 @@ def _composed_record(
 def _apply_emitted_record(
     lane: dict[str, Any],
     emitted: dict[str, Any],
-    state: dict[_SourceKey, dict[str, Any]],
-    terminal_actions: dict[_SourceKey, dict[str, Any]],
-    supersessions: list[dict[str, Any]],
+    composed: _ComposeState,
 ) -> None:
     """Suppress, merge, or admit one emitted record by its source identity."""
-    terminal = terminal_actions.get(emitted["source_key"])
+    state = composed.records
+    supersessions = composed.supersessions
+    terminal = composed.terminal_actions.get(emitted["source_key"])
     if terminal is not None:
         supersessions.append(_suppression(lane, emitted, terminal))
         return
@@ -298,17 +304,23 @@ def _write_composed_tree(
     return outputs, record_bindings
 
 
+class ComposeTarget(NamedTuple):
+    """Where a composition writes, what it is reported as, and the raw root it may not touch."""
+
+    destination: Path
+    raw_output_root: Path
+    logical_destination: Path | None = None
+
+
 def compose(
     plan: dict[str, Any],
-    destination: Path,
-    *,
-    raw_output_root: Path,
-    logical_destination: Path | None = None,
+    target: ComposeTarget,
     prepared_lanes: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Three-way-compose authenticated lane deltas by source identity."""
-    destination = Path(destination).resolve()
-    logical_destination = Path(logical_destination or destination).resolve()
+    raw_output_root = target.raw_output_root
+    destination = Path(target.destination).resolve()
+    logical_destination = Path(target.logical_destination or destination).resolve()
     _assert_disjoint_trees(
         plan["source_run_dir"],
         logical_destination,
@@ -320,15 +332,14 @@ def compose(
     _assert_lanes_outside_destination(prepared_lanes, logical_destination)
     _create_destination(destination)
 
-    state: dict[_SourceKey, dict[str, Any]] = {}
-    terminal_actions: dict[_SourceKey, dict[str, Any]] = {}
-    supersessions: list[dict[str, Any]] = []
+    composed = _ComposeState({}, {}, [])
+    state = composed.records
     lane_summaries: list[dict[str, Any]] = []
     inputs: list[dict[str, Any]] = []
     for lane in prepared_lanes:
-        _apply_terminal_entries(lane, state, terminal_actions, supersessions)
+        _apply_terminal_entries(lane, composed)
         for emitted in lane["records"]:
-            _apply_emitted_record(lane, emitted, state, terminal_actions, supersessions)
+            _apply_emitted_record(lane, emitted, composed)
         inputs.extend(lane["input_files"])
         lane_summaries.append(_lane_summary(lane))
 
@@ -341,7 +352,7 @@ def compose(
         "inputs": inputs,
         "outputs": outputs,
         "record_bindings": record_bindings,
-        "supersessions": supersessions,
+        "supersessions": composed.supersessions,
     }
 
 

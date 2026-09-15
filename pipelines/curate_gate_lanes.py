@@ -20,7 +20,7 @@ import json
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -156,14 +156,18 @@ def _bind_entry_source(
     return source
 
 
-def _entry_output_hash(
-    entry: dict[str, Any],
-    lane: dict[str, Any],
-    source: dict[str, Any],
-    action: str,
-    label: str,
-) -> str | None:
+class _EntryScope(NamedTuple):
+    """One manifest entry's lane, its resolved source line, and how it is labelled."""
+
+    lane: dict[str, Any]
+    source: dict[str, Any]
+    action: str
+    label: str
+
+
+def _entry_output_hash(entry: dict[str, Any], scope: _EntryScope) -> str | None:
     """The normalized output digest, or ``None`` for an action that emits nothing."""
+    lane, source, action, label = scope
     output_hash = entry.get("output_hash")
     if output_hash is None:
         if action not in NO_OUTPUT_ACTIONS:
@@ -208,7 +212,7 @@ def _authenticate_manifest(
         action = _entry_action(entry, label)
         _assert_entry_transform(entry, lane, label)
         source = _bind_entry_source(entry, label, source_records, seen_sources)
-        output_hash = _entry_output_hash(entry, lane, source, action, label)
+        output_hash = _entry_output_hash(entry, _EntryScope(lane, source, action, label))
         if output_hash is not None:
             match_path = _match_path(lane, entry["source_path"])
             expected_by_path_hash[(match_path, output_hash)].append(entry)

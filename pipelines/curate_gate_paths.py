@@ -19,7 +19,7 @@ import errno
 import os
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -62,14 +62,25 @@ def _resolve_declared_path(base: Path, value: str, label: str) -> Path:
     return resolved
 
 
+class RepoRoots(NamedTuple):
+    """The two repository roots a plan-relative source path is resolved against.
+
+    Both stay owned by ``curate_gate`` so that redirecting the gate at a
+    temporary repository stays visible at the facade call site.
+    """
+
+    repo_root: Path
+    raw_output_root: Path
+
+
 def _resolve_source_run_path(
     plan_dir: Path,
     value: str,
     label: str,
-    repo_root: Path,
-    raw_output_root: Path,
+    roots: RepoRoots,
 ) -> Path:
     """Resolve a source tree without making the documented raw path ambiguous."""
+    repo_root, raw_output_root = roots
     declared = Path(value)
     if declared.is_absolute() or ".." in declared.parts:
         raise GateError(
