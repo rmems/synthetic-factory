@@ -105,8 +105,8 @@ def _refuse_hopper_defs(source: str, tree: ast.AST) -> None:
     }
     refuse_when(
         bool(defs & HOPPER_DEF_NAMES),
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"{source} defines hopper publish seam",
+        FINDING_HOPPER_REFUSED,
+        f"{source} defines mill_and_publish; hopper exec is refused",
     )
 
 
@@ -439,6 +439,7 @@ def ast_extract_plants(
 
     refuse_when(not MILL_ID_RE.fullmatch(mill_id), FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id}")
     refuse_hopper_source(path)
+    _refuse_loop_source(path)
     if shape == SHAPE_LEGACY:
         return _legacy_rows(source, mill_id=mill_id, path=path, base_round=base_round)
     try:

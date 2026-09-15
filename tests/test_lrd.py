@@ -211,6 +211,34 @@ class AstExtract(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, FINDING_LOOP_REFUSED)
 
+    def test_ast_extract_plants_refuses_a_loop_on_leftover3(self):
+        source = "PAIRS = [(OK(slug='a'), FAIL(slug='b'))]\n"
+        with self.assertRaises(LrdRefusal) as caught:
+            catalog.ast_extract_plants(
+                source,
+                mill_id="lrd_r0081",
+                path="experiments/lrd-loop-r81.py",
+                base_round=81,
+                shape=SHAPE_LEFTOVER3,
+            )
+        self.assertEqual(caught.exception.code, FINDING_LOOP_REFUSED)
+
+    def test_ast_extract_plants_refuses_hopper_by_def(self):
+        source = (
+            "def mill_and_publish():\n"
+            "    return None\n"
+            "PAIRS = [(OK(slug='a'), FAIL(slug='b'))]\n"
+        )
+        with self.assertRaises(LrdRefusal) as caught:
+            catalog.ast_extract_plants(
+                source,
+                mill_id="lrd_r0067",
+                path="experiments/custom.py",
+                base_round=67,
+                shape=SHAPE_LEFTOVER3,
+            )
+        self.assertEqual(caught.exception.code, FINDING_HOPPER_REFUSED)
+
     def test_committed_catalog_matches_legacy_ast(self):
         text = _legacy_source(SOURCE_PATH)
         if text is None:
