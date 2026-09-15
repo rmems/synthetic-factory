@@ -18,6 +18,7 @@ from typing import Any
 from . import catalog as cat
 from . import r432 as r432_cat
 from . import r538 as r538_cat
+from . import r729 as r729_cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
     FINDING_DESTINATION_EXISTS,
@@ -485,6 +486,11 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
     }
 
 
+def _leftover3_last_round() -> int:
+    plants = cat.load_catalog().plants
+    return cat.WAVE_FIRST_ROUND + len(plants) // cat.PLANTS_PER_ROUND - 1
+
+
 def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
     if (
         type(round_n) is int
@@ -506,6 +512,28 @@ def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]
             r538_cat.CATALOG_ID,
             r538_cat.RUN_FORMAT,
             "r538 orchestration/data-platform stretch",
+        )
+    leftover3_last = _leftover3_last_round()
+    if (
+        type(round_n) is int
+        and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last
+    ):
+        return (
+            cat.plants_for_round(round_n),
+            cat.CATALOG_ID,
+            RUN_FORMAT,
+            "leftover leftover leftover stretch",
+        )
+    if (
+        type(round_n) is int
+        and r729_cat.WAVE_FIRST_ROUND <= round_n <= r729_cat.WAVE_LAST_ROUND
+        and round_n > leftover3_last
+    ):
+        return (
+            r729_cat.plants_for_round(round_n),
+            r729_cat.CATALOG_ID,
+            r729_cat.RUN_FORMAT,
+            "r729 commerce/platform stretch",
         )
     return (
         cat.plants_for_round(round_n),

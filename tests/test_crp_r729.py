@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CRP r538 slice: compact JSONL catalog, AST re-extract, generate gates."""
+"""CRP r729 slice: compact JSONL catalog, AST re-extract, generate gates."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ PACKAGE = PIPELINES / "crp"
 sys.path.insert(0, str(PIPELINES))
 
 from crp import catalog as leftover3  # noqa: E402
-from crp import cli, generate, r432, r538  # noqa: E402
+from crp import cli, generate, r432, r538, r729  # noqa: E402
 from crp._contract import (  # noqa: E402
     FINDING_AST_NOT_A_PLANT,
     FINDING_DESTINATION_EXISTS,
@@ -43,55 +43,57 @@ def invoke(argv):
 
 class CatalogPins(unittest.TestCase):
     def test_committed_jsonl_is_compact_and_pinned(self):
-        payload = (COMMITTED / "plants-r538.jsonl").read_bytes()
+        payload = (COMMITTED / "plants-r729.jsonl").read_bytes()
         text = payload.decode("utf-8")
         self.assertNotIn(b"\r", payload)
         self.assertTrue(text.endswith("\n"))
         lines = text.splitlines()
-        self.assertEqual(len(lines), 495)
+        self.assertEqual(len(lines), 216)
         self.assertTrue(all(line and line[:1] not in {" ", "\t"} for line in lines))
         digest = hashlib.sha256(payload).hexdigest()
-        loaded = r538.load_catalog()
-        report = r538.catalog_check()
-        self.assertEqual(loaded.catalog_id, "crp-r538-v1")
-        self.assertEqual(len(loaded.plants), 495)
+        loaded = r729.load_catalog()
+        report = r729.catalog_check()
+        self.assertEqual(loaded.catalog_id, "crp-r729-v1")
+        self.assertEqual(len(loaded.plants), 216)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 495)
-        self.assertEqual(report["triples"], 165)
-        self.assertEqual(report["first_round"], 538)
-        self.assertEqual(report["last_round"], 702)
-        self.assertEqual(report["nouns"], 495)
+        self.assertEqual(report["plants"], 216)
+        self.assertEqual(report["triples"], 72)
+        self.assertEqual(report["first_round"], 729)
+        self.assertEqual(report["last_round"], 800)
+        self.assertEqual(report["nouns"], 216)
         self.assertEqual(
             digest,
-            json.loads((COMMITTED / "CATALOG-r538.json").read_text())["plants_sha256"],
+            json.loads((COMMITTED / "CATALOG-r729.json").read_text())["plants_sha256"],
         )
-        self.assertEqual(loaded.plants[0].slug, "prefect-retries-zero-charge")
-        self.assertEqual(loaded.plants[0].noun, "clew244")
+        self.assertEqual(loaded.plants[0].slug, "magento-quote-collect-unlocked")
+        self.assertEqual(loaded.plants[0].noun, "keel800")
         self.assertEqual(
             loaded.plants[0].repo,
-            "plant/clew244-prefect-retries-zero-charge",
+            "plant/keel800-magento-quote-collect-unlocked",
         )
-        self.assertEqual(loaded.plants[-1].slug, "chicken-normalize-pathname-open-swap")
+        self.assertEqual(loaded.plants[-1].slug, "mlserver-stream-replay")
 
     def test_pin_mismatch_is_a_coded_refusal(self):
-        root = Path(tempfile.mkdtemp(prefix="crp-r538-pin-"))
+        root = Path(tempfile.mkdtemp(prefix="crp-r729-pin-"))
         self.addCleanup(shutil.rmtree, root, True)
         dest = root / "catalog"
         shutil.copytree(COMMITTED, dest)
-        meta_path = dest / "CATALOG-r538.json"
+        meta_path = dest / "CATALOG-r729.json"
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         meta["plants_sha256"] = "0" * 64
         meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         with self.assertRaises(CrpRefusal) as caught:
-            r538.load_catalog(dest)
+            r729.load_catalog(dest)
         self.assertEqual(caught.exception.code, FINDING_PLANTS_SHA_MISMATCH)
 
-    def test_slugs_are_disjoint_from_leftover3_r432_and_prior(self):
-        r538_slugs = {plant.slug for plant in r538.load_catalog().plants}
+    def test_slugs_are_disjoint_from_leftover3_r432_r538_and_prior(self):
+        r729_slugs = {plant.slug for plant in r729.load_catalog().plants}
         leftover3_slugs = {plant.slug for plant in leftover3.load_catalog().plants}
         r432_slugs = {plant.slug for plant in r432.load_catalog().plants}
-        self.assertFalse(r538_slugs & leftover3_slugs)
-        self.assertFalse(r538_slugs & r432_slugs)
+        r538_slugs = {plant.slug for plant in r538.load_catalog().plants}
+        self.assertFalse(r729_slugs & leftover3_slugs)
+        self.assertFalse(r729_slugs & r432_slugs)
+        self.assertFalse(r729_slugs & r538_slugs)
         proc = subprocess.run(
             ["git", "show", "origin/legacy-mill-lane:experiments/crp-mill-leftover3.py"],
             cwd=REPO,
@@ -100,30 +102,33 @@ class CatalogPins(unittest.TestCase):
         )
         if proc.returncode == 0:
             prior = leftover3.plants_from_source(proc.stdout.decode("utf-8"))
-            self.assertFalse(r538_slugs & {plant.slug for plant in prior})
+            self.assertFalse(r729_slugs & {plant.slug for plant in prior})
 
 
 class AstExtract(unittest.TestCase):
     def test_committed_catalog_matches_legacy_ast(self):
         try:
-            text = r538.git_show_source(r538.SOURCE_PATH)
+            text = r729.git_show_source(r729.SOURCE_PATH)
         except CrpRefusal as exc:
             if exc.code == FINDING_AST_NOT_A_PLANT and "not fetchable" in str(exc):
                 self.skipTest("legacy-mill-lane pin is not fetchable")
             raise
         extracted = leftover3.plants_from_source(text)
-        committed = r538.load_catalog().plants
-        self.assertEqual(len(extracted), 495)
+        committed = r729.load_catalog().plants
+        self.assertEqual(len(extracted), 216)
         self.assertEqual(
             [(plant.slug, plant.noun, plant.family) for plant in extracted],
             [(plant.slug, plant.noun, plant.family) for plant in committed],
         )
-        self.assertIn("Never", r538.git_show_source.__doc__ or "")
-        self.assertEqual(r538.SOURCE_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
-        self.assertEqual(r538.SOURCE_SHA256, hashlib.sha256(text.encode("utf-8")).hexdigest())
+        self.assertIn("Never", r729.git_show_source.__doc__ or "")
+        self.assertEqual(r729.SOURCE_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
+        self.assertEqual(r729.SOURCE_SHA256, hashlib.sha256(text.encode("utf-8")).hexdigest())
 
-    def test_wave_stops_before_r729_leftover3(self):
-        self.assertLess(r538.WAVE_LAST_ROUND, leftover3.WAVE_FIRST_ROUND)
+    def test_generate_prefers_leftover3_for_rounds_shared_with_r729_catalog(self):
+        leftover3_last = leftover3.WAVE_FIRST_ROUND + len(leftover3.load_catalog().plants) // 3 - 1
+        self.assertEqual(leftover3_last, 744)
+        self.assertEqual(r729.WAVE_FIRST_ROUND, leftover3.WAVE_FIRST_ROUND)
+        self.assertGreater(r729.WAVE_LAST_ROUND, leftover3_last)
 
     def test_package_tree_has_no_vendored_mill_scripts(self):
         hits = list(PACKAGE.rglob("crp-mill*.py"))
@@ -162,59 +167,60 @@ class AstExtract(unittest.TestCase):
     def test_both_import_spellings_are_one_object(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
-        from pipelines.crp import r538 as packaged
+        from pipelines.crp import r729 as packaged
 
-        self.assertIs(packaged, r538)
-        self.assertIs(sys.modules["crp.r538"], sys.modules["pipelines.crp.r538"])
+        self.assertIs(packaged, r729)
+        self.assertIs(sys.modules["crp.r729"], sys.modules["pipelines.crp.r729"])
 
 
 class Generate(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="crp-r538-gen-"))
+        self.root = Path(tempfile.mkdtemp(prefix="crp-r729-gen-"))
         self.addCleanup(shutil.rmtree, self.root, True)
 
-    def test_round_554_writes_r538_triple_after_r432_wave(self):
+    def test_round_745_writes_r729_triple_after_leftover3_wave(self):
         out = self.root / "run"
-        summary = generate.run(generate.RunRequest(554, out))
-        self.assertEqual(summary["catalog_id"], "crp-r538-v1")
-        self.assertEqual(summary["format"], "crp-r538-run/1")
+        summary = generate.run(generate.RunRequest(745, out))
+        self.assertEqual(summary["catalog_id"], "crp-r729-v1")
+        self.assertEqual(summary["format"], "crp-r729-run/1")
         self.assertEqual(summary["records"], 3)
-        plants = r538.plants_for_round(554)
+        plants = r729.plants_for_round(745)
         self.assertEqual(summary["nouns"], [plant.noun for plant in plants])
-        first = json.loads((out / "batch-r554.jsonl").read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(first["id"], f"crp-r554-{plants[0].slug}")
+        first = json.loads((out / "batch-r745.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(first["id"], f"crp-r745-{plants[0].slug}")
         self.assertEqual(classify_kind(first), "preference")
-        notes = (out / "NOTES-r554.md").read_text(encoding="utf-8")
-        self.assertIn("r538 orchestration/data-platform stretch", notes)
+        notes = (out / "NOTES-r745.md").read_text(encoding="utf-8")
+        self.assertIn("r729 commerce/platform stretch", notes)
         with self.assertRaises(CrpRefusal) as exists:
-            generate.run(generate.RunRequest(554, out))
+            generate.run(generate.RunRequest(745, out))
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
         with self.assertRaises(CrpRefusal) as under_raw:
-            generate.run(generate.RunRequest(554, raw))
+            generate.run(generate.RunRequest(745, raw))
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 
-    def test_round_538_still_routes_to_r432_when_both_waves_overlap(self):
-        out = self.root / "r432-overlap"
-        summary = generate.run(generate.RunRequest(538, out))
-        self.assertEqual(summary["catalog_id"], "crp-r432-v1")
+    def test_round_729_still_routes_to_leftover3_when_both_waves_overlap(self):
+        out = self.root / "leftover3-overlap"
+        summary = generate.run(generate.RunRequest(729, out))
+        self.assertEqual(summary["catalog_id"], "crp-leftover3-v1")
+        self.assertEqual(summary["slugs"][0], "terraform-target-orphan-sku")
 
-    def test_a_round_outside_the_r538_wave_is_refused_by_r538(self):
+    def test_a_round_outside_the_r729_wave_is_refused_by_r729(self):
         with self.assertRaises(CrpRefusal) as ctx:
-            r538.plants_for_round(703)
+            r729.plants_for_round(801)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
 
 
 class Cli(unittest.TestCase):
-    def test_catalog_check_r538_json_reports_nouns(self):
-        code, out, err = invoke(["catalog-check", "--wave", "r538", "--json"])
+    def test_catalog_check_r729_json_reports_nouns(self):
+        code, out, err = invoke(["catalog-check", "--wave", "r729", "--json"])
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["catalog_id"], "crp-r538-v1")
-        self.assertEqual(payload["plants"], 495)
-        self.assertEqual(payload["nouns"], 495)
+        self.assertEqual(payload["catalog_id"], "crp-r729-v1")
+        self.assertEqual(payload["plants"], 216)
+        self.assertEqual(payload["nouns"], 216)
 
 
 if __name__ == "__main__":

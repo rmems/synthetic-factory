@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """CRP plant catalog: AST extract of leftover3 rows, each carrying ``noun``.
 
-``plants_from_source`` walks a mill module for ``P(...)`` / ``_p(...)``
-calls and materializes one row per call. The committed catalog is the
+``plants_from_source`` walks a mill module for literal ``P(...)`` /
+``_p(...)`` calls, or expands a literal ``_RAW`` block with the pinned
+``keel{{base + i}}`` loop shape. The committed leftover3 catalog is the
 third leftover leftover leftover wave (r729+) extracted from
 ``experiments/code_review_preference_mill_leftover3.py`` on
 ``legacy-mill-lane``. The mill files themselves are not vendored.
@@ -107,6 +108,13 @@ def _literal(node: ast.AST) -> Any:
         refuse(FINDING_AST_NOT_A_PLANT, f"P() argument is not a literal: {exc}")
 
 
+def _literal_or_none(node: ast.AST) -> Any | None:
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError, SyntaxError):
+        return None
+
+
 def _call_values(node: ast.Call) -> dict[str, Any] | None:
     """Literal ``P`` / ``_p`` kwargs, or None for wrappers such as ``_p(*args)``."""
 
@@ -118,10 +126,153 @@ def _call_values(node: ast.Call) -> dict[str, Any] | None:
     for index, arg in enumerate(node.args):
         if index >= len(PLANT_FIELDS):
             refuse(FINDING_AST_NOT_A_PLANT, "P() has extra positional arguments")
-        values[PLANT_FIELDS[index]] = _literal(arg)
+        literal = _literal_or_none(arg)
+        if literal is None:
+            return None
+        values[PLANT_FIELDS[index]] = literal
     for keyword in node.keywords:
         values[keyword.arg] = _literal(keyword.value)
     return values
+
+
+def _keel_noun_base(node: ast.AST) -> int | None:
+    """Parse ``f\"keel{800 + i}\"`` from a ``_p`` noun positional in a ``_RAW`` expand loop."""
+
+    if not isinstance(node, ast.JoinedStr) or len(node.values) != 2:
+        return None
+    prefix, formatted = node.values
+    if not isinstance(prefix, ast.Constant) or prefix.value != "keel":
+        return None
+    if not isinstance(formatted, ast.FormattedValue):
+        return None
+    inner = formatted.value
+    if isinstance(inner, ast.BinOp) and isinstance(inner.op, ast.Add):
+        if isinstance(inner.left, ast.Constant) and isinstance(inner.left.value, int):
+            if isinstance(inner.right, ast.Name) and inner.right.id == "i":
+                return inner.left.value
+    return None
+
+
+def _raw_rows_from_tree(tree: ast.AST) -> list[tuple[Any, ...]] | None:
+    for node in tree.body:
+        name: str | None = None
+        value_node: ast.AST | None = None
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name, value_node = node.target.id, node.value
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    name, value_node = target.id, node.value
+                    break
+        if name != "_RAW" or value_node is None:
+            continue
+        resolved = _literal_or_none(value_node)
+        if not isinstance(resolved, list) or not resolved:
+            return None
+        rows: list[tuple[Any, ...]] = []
+        for row in resolved:
+            if not isinstance(row, tuple):
+                return None
+            rows.append(row)
+        return rows
+    return None
+
+
+def _raw_noun_base_from_tree(tree: ast.AST) -> int | None:
+    for node in tree.body:
+        if not isinstance(node, ast.For):
+            continue
+        if not (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id == "enumerate"
+        ):
+            continue
+        for stmt in node.body:
+            if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+                continue
+            call = stmt.value
+            if not (
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "append"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "PLANTS"
+            ):
+                continue
+            if not call.args or not isinstance(call.args[0], ast.Call):
+                continue
+            plant_call = call.args[0]
+            if not (
+                isinstance(plant_call.func, ast.Name)
+                and plant_call.func.id in CALL_NAMES
+                and len(plant_call.args) >= 3
+            ):
+                continue
+            base = _keel_noun_base(plant_call.args[2])
+            if base is not None:
+                return base
+    return None
+
+
+def _plants_from_raw_enumerate(tree: ast.AST) -> tuple[Plant, ...] | None:
+    """Expand literal ``_RAW`` rows using the pinned ``keel{{base + i}}`` loop shape."""
+
+    rows = _raw_rows_from_tree(tree)
+    if rows is None:
+        return None
+    base = _raw_noun_base_from_tree(tree)
+    refuse_when(base is None, FINDING_AST_NOT_A_PLANT, "_RAW expand loop has no keel{{base + i}} noun")
+    ordered: list[Plant] = []
+    for index, row in enumerate(rows):
+        refuse_when(
+            len(row) != 13,
+            FINDING_AST_NOT_A_PLANT,
+            f"_RAW[{index}] must unpack to 13 fields, got {len(row)}",
+        )
+        (
+            family,
+            title,
+            core,
+            boot,
+            test,
+            line,
+            nit,
+            defect,
+            reach,
+            missing,
+            fix,
+            needles,
+            notfam,
+        ) = row
+        refuse_when(
+            not isinstance(family, str) or not family,
+            FINDING_AST_NOT_A_PLANT,
+            f"_RAW[{index}] family must be a non-empty string",
+        )
+        refuse_when(
+            type(line) is not int,
+            FINDING_FIELD_INVALID,
+            f"_RAW[{index}].line must be an int, got {shown(line)}",
+        )
+        mapping = {
+            "family": family,
+            "slug": family,
+            "noun": f"keel{base + index}",
+            "title": title,
+            "core": core,
+            "boot": boot,
+            "test": test,
+            "line": line,
+            "nit": nit,
+            "defect": defect,
+            "reach": reach,
+            "missing": missing,
+            "fix": fix,
+            "needles": needles,
+            "notfam": notfam,
+        }
+        ordered.append(plant_from_mapping(mapping, f"_RAW[{index}]"))
+    return tuple(ordered)
 
 
 def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
@@ -181,7 +332,12 @@ def plants_from_source(text: str) -> tuple[Plant, ...]:
             self.generic_visit(node)
 
     Visitor().visit(tree)
-    return tuple(ordered)
+    if ordered:
+        return tuple(ordered)
+    expanded = _plants_from_raw_enumerate(tree)
+    if expanded:
+        return expanded
+    refuse(FINDING_CATALOG_EMPTY, "mill source has no literal P() rows or _RAW expand block")
 
 
 def _check_unique(plants: tuple[Plant, ...]) -> None:

@@ -142,6 +142,7 @@ class AstExtract(unittest.TestCase):
                 "generate.py",
                 "r432.py",
                 "r538.py",
+                "r729.py",
             ),
         )
 
