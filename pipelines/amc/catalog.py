@@ -26,7 +26,8 @@ KIND_PAIRS = "pairs"
 KIND_LOOP = "loop"
 KIND_LEFTOVER = "leftover"
 EXTRACTED_PAIR_ROWS = 1401
-COMMITTED_PAIR_ROWS = 24
+COMMITTED_PAIR_ROWS = 1401
+DEFERRED_PAIR_ROWS = 1377
 VENDOR_PREFIXES = ("amc-mill-", "amc-loop-", "mill_amc_")
 FORBIDDEN_MILL_GLOBS = (
     "amc-mill*.py",
@@ -83,7 +84,10 @@ _LEFTOVER_PAIR_KEYS = {
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-_ROLES = frozenset({"first", "last"})
+ROLE_FIRST = "first"
+ROLE_LAST = "last"
+ROLE_DEFERRED = "deferred"
+_ROLES = frozenset({ROLE_FIRST, ROLE_LAST, ROLE_DEFERRED})
 
 
 class CatalogError(ValueError):
@@ -254,7 +258,7 @@ def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
     row = _mapping(raw, f"{PAIRS_FILENAME}:{index}", keys)
     role = _text(row["role"], f"{PAIRS_FILENAME}:{index}.role")
     if role not in _ROLES:
-        raise CatalogError(f"{PAIRS_FILENAME}:{index}.role must be first or last")
+        raise CatalogError(f"{PAIRS_FILENAME}:{index}.role must be first, last, or deferred")
     pair = CompactPair(
         source_path=_text(row["source_path"], f"{PAIRS_FILENAME}:{index}.source_path"),
         mill_id=mill_id,
@@ -272,20 +276,39 @@ def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
     return pair
 
 
+def _bookends(
+    pairs: tuple[CompactPair, ...], context: str
+) -> tuple[CompactPair, CompactPair, tuple[CompactPair, ...]]:
+    first = [pair for pair in pairs if pair.role == ROLE_FIRST]
+    last = [pair for pair in pairs if pair.role == ROLE_LAST]
+    deferred = [pair for pair in pairs if pair.role == ROLE_DEFERRED]
+    if any(pair.role not in _ROLES for pair in pairs):
+        raise CatalogError(f"{context} has a pair role outside first/last/deferred")
+    if len(first) != 1 or len(last) != 1:
+        raise CatalogError(f"{context} must commit exactly one first and one last pair")
+    return first[0], last[0], tuple(deferred)
+
+
 def _mill(raw: Any, context: str, grouped: dict[str, list[CompactPair]]) -> MillCatalog:
     row = _mapping_subset(raw, context, _MILL_REQUIRED, _MILL_OPTIONAL)
     mill_id = _text(row["mill_id"], f"{context}.mill_id")
     pairs = tuple(grouped.get(mill_id, ()))
-    if len(pairs) != 2 or {pair.role for pair in pairs} != _ROLES:
-        raise CatalogError(f"{context} must commit exactly one first and one last pair")
-    by_role = {pair.role: pair for pair in pairs}
+    first, last, deferred = _bookends(pairs, context)
+    n_rows = _integer(row["n_rows_extracted"], f"{context}.n_rows_extracted", minimum=2)
+    if len(pairs) != n_rows:
+        raise CatalogError(f"{context} committed {len(pairs)} identities, expected {n_rows}")
+    if len(deferred) != n_rows - 2:
+        raise CatalogError(f"{context} deferred identity count drifted from {n_rows - 2}")
+    identities = {(pair.fail_slug, pair.success_slug) for pair in pairs}
+    if len(identities) != len(pairs):
+        raise CatalogError(f"{context} repeats a compact pair identity")
     first_slug = _text(row["first_slug"], f"{context}.first_slug")
     last_slug = _text(row["last_slug"], f"{context}.last_slug")
     kind = _text(row["kind"], f"{context}.kind")
     if kind == KIND_LEFTOVER:
-        if by_role["first"].success_slug != first_slug or by_role["last"].success_slug != last_slug:
+        if first.success_slug != first_slug or last.success_slug != last_slug:
             raise CatalogError(f"{context} leftover slugs drifted from committed pairs")
-    elif by_role["first"].fail_slug != first_slug or by_role["last"].fail_slug != last_slug:
+    elif first.fail_slug != first_slug or last.fail_slug != last_slug:
         raise CatalogError(f"{context} pair slugs drifted from committed pairs")
     source_path = _text(row["source_path"], f"{context}.source_path")
     if any(pair.source_path != source_path for pair in pairs):
@@ -298,9 +321,7 @@ def _mill(raw: Any, context: str, grouped: dict[str, list[CompactPair]]) -> Mill
         kind=kind,
         shape=_text(row["shape"], f"{context}.shape"),
         catalog_first=_integer(row["catalog_first"], f"{context}.catalog_first", minimum=1),
-        n_rows_extracted=_integer(
-            row["n_rows_extracted"], f"{context}.n_rows_extracted", minimum=2
-        ),
+        n_rows_extracted=n_rows,
         first_slug=first_slug,
         last_slug=last_slug,
         pairs=pairs,
@@ -333,14 +354,20 @@ def _refuse_identity(catalog: Catalog) -> None:
     if catalog.n_pair_rows_extracted != EXTRACTED_PAIR_ROWS:
         raise CatalogError("extracted pair-row pin drifted from 1401")
     if catalog.n_pair_rows_committed != COMMITTED_PAIR_ROWS:
-        raise CatalogError("committed representative subset drifted from 24")
+        raise CatalogError("committed pair-row pin drifted from 1401")
+    if catalog.n_pair_rows_committed != catalog.n_pair_rows_extracted:
+        raise CatalogError("committed identities no longer cover the extracted set")
     if catalog.quota_per_round != QUOTA_PER_ROUND or catalog.success_steps != SUCCESS_STEPS:
         raise CatalogError("quota or step pin drifted")
     extracted = sum(mill.n_rows_extracted for mill in catalog.catalogs)
-    if extracted != EXTRACTED_PAIR_ROWS:
+    committed = sum(len(mill.pairs) for mill in catalog.catalogs)
+    deferred = sum(1 for pair in catalog.pairs() if pair.role == ROLE_DEFERRED)
+    if extracted != EXTRACTED_PAIR_ROWS or committed != COMMITTED_PAIR_ROWS:
         raise CatalogError("per-mill extracted counts no longer sum to 1401")
-    if "deferred" not in catalog.extraction:
-        raise CatalogError("extraction note must record the deferred remainder")
+    if deferred != DEFERRED_PAIR_ROWS:
+        raise CatalogError("deferred identity count drifted from 1377")
+    if "1377 deferred" not in catalog.extraction:
+        raise CatalogError("extraction note must record the deferred identity slice")
 
 
 def _refuse_duplicates(catalog: Catalog) -> None:
