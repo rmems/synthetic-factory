@@ -4,8 +4,9 @@
 Leftover blob SHAs are the preserve-commit objects (``vocabulary.PRESERVE_COMMIT``);
 they are byte-identical on ``origin/legacy-mill-lane`` tip. The leftover3 and
 leftover-lll publishers hop destinations; they stay off this branch.
-``R72_SOURCE`` pins ``experiments/sir-mill-r72.py`` from
-``vocabulary.R72_PRESERVE_COMMIT`` (also byte-identical on the legacy tip).
+Home mills ``sir-mill-r31``, ``sir-mill-r52``, and ``sir-mill-r72`` pin
+``experiments/sir-mill-r31.py``, ``sir-mill-r52.py``, and ``sir-mill-r72.py``
+from ``vocabulary.HOME_PRESERVE_COMMIT`` (byte-identical on the legacy tip).
 """
 
 from __future__ import annotations
@@ -15,6 +16,14 @@ from dataclasses import dataclass
 from .vocabulary import (
     KIND_HOME_PAIRS,
     KIND_LEFTOVER_PAIRS,
+    R31_BLOB_SHA,
+    R31_CATALOG_FIRST,
+    R31_MILL_ID,
+    R31_PATH,
+    R52_BLOB_SHA,
+    R52_CATALOG_FIRST,
+    R52_MILL_ID,
+    R52_PATH,
     R72_BLOB_SHA,
     R72_CATALOG_FIRST,
     R72_MILL_ID,
@@ -52,6 +61,22 @@ MILL_SOURCES: tuple[MillSource, ...] = (
 )
 
 
+R31_SOURCE = MillSource(
+    R31_MILL_ID,
+    R31_PATH,
+    R31_BLOB_SHA,
+    KIND_HOME_PAIRS,
+    R31_CATALOG_FIRST,
+    0,
+)
+R52_SOURCE = MillSource(
+    R52_MILL_ID,
+    R52_PATH,
+    R52_BLOB_SHA,
+    KIND_HOME_PAIRS,
+    R52_CATALOG_FIRST,
+    0,
+)
 R72_SOURCE = MillSource(
     R72_MILL_ID,
     R72_PATH,
@@ -61,9 +86,16 @@ R72_SOURCE = MillSource(
     0,
 )
 
+HOME_MILL_SOURCES: tuple[MillSource, ...] = (R31_SOURCE, R52_SOURCE, R72_SOURCE)
+_HOME_BY_ID = {source.mill_id: source for source in HOME_MILL_SOURCES}
+
 
 def catalog_sources() -> tuple[MillSource, ...]:
     return MILL_SOURCES
+
+
+def home_mill_sources() -> tuple[MillSource, ...]:
+    return HOME_MILL_SOURCES
 
 
 def r72_source() -> MillSource:
@@ -71,8 +103,8 @@ def r72_source() -> MillSource:
 
 
 def source_by_id(mill_id: str) -> MillSource:
-    if mill_id == R72_SOURCE.mill_id:
-        return R72_SOURCE
+    if mill_id in _HOME_BY_ID:
+        return _HOME_BY_ID[mill_id]
     for source in MILL_SOURCES:
         if source.mill_id == mill_id:
             return source

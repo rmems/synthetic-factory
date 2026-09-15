@@ -1,0 +1,25 @@
+{
+  "extraction": "AST literals only; leftover3/lll mills already cataloged are refused; never exec",
+  "factory": "search-index-rebuild-factory",
+  "family": "search",
+  "generator": "grok-4.6",
+  "mill": {
+    "blob_sha": "3dc95d6019dd2e193a431c6f60198d3875abbfd1",
+    "catalog_first": 52,
+    "first_slug": "pinecone-ns-rebuild",
+    "kind": "home-pairs",
+    "last_slug": "pgvector-sparsevec-rebuild",
+    "mill_id": "sir-mill-r52",
+    "n_hops": 0,
+    "n_rows": 20,
+    "path": "experiments/sir-mill-r52.py",
+    "sha256": "2f9ee3e5a294dbe79dafa4c1683a548b2d01bcea0f5ad4311594028216d8ff39"
+  },
+  "n_rows": 20,
+  "pairs_filename": "r52.jsonl",
+  "pairs_sha256": "a2385814f9f686d360c12246d454e537a9411d408e80db960da8f8c6410d3f73",
+  "preserve_commit": "854c59b31eb9bde983f79c8a1adf3b40d04100a9",
+  "schema": "search-r52-catalog/v1",
+  "slice": "sir-mill-r52",
+  "source_ref": "origin/legacy-mill-lane"
+}
