@@ -77,7 +77,12 @@ def _is_special_file(mode: int) -> bool:
 
 
 def _refuse_leaf(typed: Path, argument: str | None) -> None:
-    """Refuse a typed leaf that is a symlink or a special file, before realpath."""
+    """Refuse a typed leaf that is a symlink or a special file, before realpath.
+
+    ``typed`` must already be lexically normalized: ``lstat`` cannot walk a
+    missing component before ``..``, but ``realpath`` still collapses that
+    spelling onto the real leaf.
+    """
 
     if typed.is_symlink():
         if typed.exists():
@@ -124,9 +129,9 @@ def operator_path(
     if kind not in {KIND_PATH, KIND_DESTINATION}:
         _refuse(argument, "the path kind is not supported")
     text = _text_of(value, argument)
-    typed = Path(text)
+    typed = Path(os.path.normpath(text))
     _refuse_leaf(typed, argument)
-    resolved = os.path.realpath(text)
+    resolved = os.path.realpath(str(typed))
     if not _inside_operator_trees(resolved):
         _refuse(argument, _OUTSIDE)
     if kind == KIND_DESTINATION and os.path.lexists(typed):

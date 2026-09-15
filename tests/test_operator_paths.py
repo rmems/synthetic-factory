@@ -156,6 +156,37 @@ class LeafSafety(unittest.TestCase):
             self.assertEqual(str(raised.exception), "--output: the destination already exists")
             self.assertEqual(existing.read_text(encoding="utf-8"), "keep\n")
 
+    def test_a_missing_prefix_before_dotdot_cannot_skip_leaf_guards(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            real = root / "real.jsonl"
+            real.write_text("keep\n", encoding="utf-8")
+            link = root / "linked.jsonl"
+            link.symlink_to(real)
+            dangling = root / "dangling.jsonl"
+            dangling.symlink_to(root / "missing-target")
+            fifo = _fifo(root / "named-pipe")
+            missing = root / "missing-dir"
+            cases = (
+                (missing / ".." / "linked.jsonl", "the path is a symlink"),
+                (missing / ".." / "dangling.jsonl", "the path is a dangling symlink"),
+                (missing / ".." / "named-pipe", "the path is a special file"),
+            )
+            for candidate, reason in cases:
+                with self.subTest(reason=reason):
+                    with self.assertRaises(argparse.ArgumentTypeError) as raised:
+                        operator_path(candidate, argument="input")
+                    self.assertEqual(str(raised.exception), f"input: {reason}")
+            existing = missing / ".." / "real.jsonl"
+            with self.assertRaises(argparse.ArgumentTypeError) as raised:
+                operator_path(existing, argument="--output", kind=KIND_DESTINATION)
+            self.assertEqual(str(raised.exception), "--output: the destination already exists")
+            self.assertEqual(real.read_text(encoding="utf-8"), "keep\n")
+            fresh = missing / ".." / "new.jsonl"
+            confined = operator_path(fresh, argument="--output", kind=KIND_DESTINATION)
+            self.assertEqual(confined, Path(os.path.realpath(root / "new.jsonl")))
+            self.assertFalse(fresh.exists())
+
     def test_a_new_destination_under_temp_still_resolves(self):
         with tempfile.TemporaryDirectory() as td:
             destination = Path(td) / "new.jsonl"
