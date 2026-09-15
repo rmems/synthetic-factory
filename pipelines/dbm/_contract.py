@@ -42,7 +42,9 @@ MILL_COUNT = 9
 MILL_PAIRS = 601
 MILL_PLANTS = 1202
 DEFAULT_LEFTOVER3 = Path("config") / "dbm" / "leftover3.json"
+DEFAULT_LEFTOVER3_PLANTS = Path("config") / "dbm" / "leftover3-plants.jsonl"
 DEFAULT_MILLS = Path("config") / "dbm" / "mills.json"
+LEFTOVER3_PLANTS_FILE = "leftover3-plants.jsonl"
 LEGACY_LANE = "legacy-mill-lane"
 LEGACY_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 LEGACY_LEFTOVER3 = "experiments/unique_dbm_leftover3_mill.py"
@@ -159,6 +161,10 @@ def leftover3_path(root: Path | None = None) -> Path:
     return (root or repo_root()) / DEFAULT_LEFTOVER3
 
 
+def leftover3_plants_path(root: Path | None = None) -> Path:
+    return (root or repo_root()) / DEFAULT_LEFTOVER3_PLANTS
+
+
 def mills_path(root: Path | None = None) -> Path:
     return (root or repo_root()) / DEFAULT_MILLS
 
@@ -168,7 +174,9 @@ __all__ = [
     "CONSTRUCTORS",
     "COVERAGE_FLOOR",
     "DEFAULT_LEFTOVER3",
+    "DEFAULT_LEFTOVER3_PLANTS",
     "DEFAULT_MILLS",
+    "LEFTOVER3_PLANTS_FILE",
     "DbmRefusal",
     "ENGINES",
     "FACTORY",
@@ -197,6 +205,7 @@ __all__ = [
     "dumps_exact_json",
     "is_under_raw",
     "leftover3_path",
+    "leftover3_plants_path",
     "load_strict_json",
     "mills_path",
     "refuse",

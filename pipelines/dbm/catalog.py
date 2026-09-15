@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Pinned dbm leftover3 plants and sequential leftover-mill identities.
 
-The leftover3 catalog lives at ``config/dbm/leftover3.json``. Sequential mill
-pins live at ``config/dbm/mills.json``. Both were AST-extracted from
+The leftover3 catalog lives at ``config/dbm/leftover3.json`` plus
+``leftover3-plants.jsonl``. Sequential mill pins live at
+``config/dbm/mills.json``. Both were AST-extracted from
 ``origin/legacy-mill-lane``; leftover mill scripts are never vendored.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,7 @@ from ._contract import (
     LEGACY_LEFTOVER3_SHA256,
     LEGACY_PLANTS_GEN,
     LEGACY_PLANTS_GEN_SHA256,
+    LEFTOVER3_PLANTS_FILE,
     MILL_COUNT,
     MILL_PAIRS,
     MILL_PLANTS,
@@ -96,7 +99,9 @@ class MillPin:
     constructor: str
     pair_count: int
     plant_count: int
-    slugs: tuple[str, ...]
+    first_slug: str
+    last_slug: str
+    slugs_sha256: str
 
 
 @dataclass(frozen=True)
@@ -203,31 +208,16 @@ def _validate_leftover3(raw: object) -> dict[str, Any]:
             ),
         )
     )
-    plants_raw = _require_field(document, "plants", "leftover3")
-    refuse_when(
-        not isinstance(plants_raw, list),
-        FINDING_CATALOG_FIELD_INVALID,
-        "plants must be a list",
+    plants_file = _require_str(
+        _require_field(document, "plants_file", "leftover3"),
+        "leftover3.plants_file",
     )
-    assert isinstance(plants_raw, list)
     refuse_when(
-        len(plants_raw) != N_PAIRS * 2,
-        FINDING_CATALOG_PAIR_COUNT,
-        f"need {N_PAIRS * 2} leftover3 plants, got {len(plants_raw)}",
+        plants_file != LEFTOVER3_PLANTS_FILE,
+        FINDING_CATALOG_SCHEMA,
+        f"plants_file must be {LEFTOVER3_PLANTS_FILE!r}",
     )
-    slugs, plants, tables, leftovers, surfaces = [], [], [], [], []
-    for index, entry in enumerate(plants_raw):
-        plant = _plant(entry, f"plants[{index}]")
-        slugs.append(plant["slug"])
-        plants.append(plant["plant"])
-        tables.append(plant["table"])
-        leftovers.extend((plant["leftover"], plant["leftover2"]))
-        surfaces.append(plant["surface"])
-    _unique("slugs", slugs)
-    _unique("plants", plants)
-    _unique("tables", tables)
-    _unique("leftovers", leftovers)
-    _unique("surfaces", surfaces)
+    _require_str(_require_field(document, "plants_sha256", "leftover3"), "leftover3.plants_sha256")
     source = _require_object(_require_field(document, "source", "leftover3"), "source")
     refuse_first(
         (
@@ -254,6 +244,49 @@ def _validate_leftover3(raw: object) -> dict[str, Any]:
         )
     )
     return document
+
+
+def _validate_plants(plants_raw: object) -> list[Any]:
+    refuse_when(
+        not isinstance(plants_raw, list),
+        FINDING_CATALOG_FIELD_INVALID,
+        "plants must be a list",
+    )
+    assert isinstance(plants_raw, list)
+    refuse_when(
+        len(plants_raw) != N_PAIRS * 2,
+        FINDING_CATALOG_PAIR_COUNT,
+        f"need {N_PAIRS * 2} leftover3 plants, got {len(plants_raw)}",
+    )
+    slugs, plants, tables, leftovers, surfaces = [], [], [], [], []
+    for index, entry in enumerate(plants_raw):
+        plant = _plant(entry, f"plants[{index}]")
+        slugs.append(plant["slug"])
+        plants.append(plant["plant"])
+        tables.append(plant["table"])
+        leftovers.extend((plant["leftover"], plant["leftover2"]))
+        surfaces.append(plant["surface"])
+    _unique("slugs", slugs)
+    _unique("plants", plants)
+    _unique("tables", tables)
+    _unique("leftovers", leftovers)
+    _unique("surfaces", surfaces)
+    return plants_raw
+
+
+def _load_plants_jsonl(path: Path, expected_sha256: str) -> list[Any]:
+    text = path.read_text(encoding="utf-8")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    refuse_when(
+        digest != expected_sha256,
+        FINDING_CATALOG_SCHEMA,
+        "leftover3 plants_sha256 drifted from leftover3-plants.jsonl",
+    )
+    plants: list[Any] = []
+    for index, line in enumerate(text.splitlines()):
+        refuse_when(not line.strip(), FINDING_CATALOG_FIELD_INVALID, f"plants[{index}] is empty")
+        plants.append(load_strict_json(line))
+    return _validate_plants(plants)
 
 
 def _validate_mills(raw: object) -> dict[str, Any]:
@@ -294,8 +327,9 @@ def _validate_mills(raw: object) -> dict[str, Any]:
         FINDING_CATALOG_PAIR_COUNT,
         f"need {MILL_COUNT} leftover mills, got {len(mills_raw)}",
     )
-    slugs: list[str] = []
     pair_total = 0
+    plant_total = 0
+    edges: list[str] = []
     for index, entry in enumerate(mills_raw):
         item = _require_object(entry, f"mills[{index}]")
         path = _require_str(item.get("path"), f"mills[{index}].path")
@@ -320,26 +354,27 @@ def _validate_mills(raw: object) -> dict[str, Any]:
             f"mills[{index}] plant_count must be 2 * pair_count",
         )
         pair_total += pair_count
-        slugs_raw = _require_field(item, "slugs", f"mills[{index}]")
+        plant_total += plant_count
+        first_slug = _require_str(item.get("first_slug"), f"mills[{index}].first_slug")
+        last_slug = _require_str(item.get("last_slug"), f"mills[{index}].last_slug")
+        _require_str(item.get("slugs_sha256"), f"mills[{index}].slugs_sha256")
         refuse_when(
-            not isinstance(slugs_raw, list) or len(slugs_raw) != plant_count,
-            FINDING_CATALOG_PAIR_COUNT,
-            f"mills[{index}].slugs must have {plant_count} entries",
+            first_slug == last_slug,
+            FINDING_CATALOG_DUPLICATE,
+            f"mills[{index}] first_slug and last_slug must differ",
         )
-        assert isinstance(slugs_raw, list)
-        for slug_index, slug in enumerate(slugs_raw):
-            slugs.append(_require_str(slug, f"mills[{index}].slugs[{slug_index}]"))
+        edges.extend((first_slug, last_slug))
     refuse_when(
         pair_total != MILL_PAIRS,
         FINDING_CATALOG_PAIR_COUNT,
         f"need {MILL_PAIRS} sequential pairs, got {pair_total}",
     )
     refuse_when(
-        len(slugs) != MILL_PLANTS,
+        plant_total != MILL_PLANTS,
         FINDING_CATALOG_PAIR_COUNT,
-        f"need {MILL_PLANTS} sequential plants, got {len(slugs)}",
+        f"need {MILL_PLANTS} sequential plants, got {plant_total}",
     )
-    _unique("sequential slugs", slugs)
+    _unique("sequential mill edge slugs", edges)
     source = _require_object(_require_field(document, "source", "mills"), "mills.source")
     refuse_first(
         (
@@ -371,8 +406,12 @@ def _validate_mills(raw: object) -> dict[str, Any]:
 def load_leftover3(path: Path | None = None, *, root: Path | None = None) -> Leftover3:
     catalog_path = (path or leftover3_path(root)).resolve()
     document = _validate_leftover3(load_strict_json(catalog_path.read_text(encoding="utf-8")))
+    plants_path = catalog_path.parent / str(document["plants_file"])
     plants = tuple(
-        _plant(entry, f"plants[{index}]") for index, entry in enumerate(document["plants"])
+        _plant(entry, f"plants[{index}]")
+        for index, entry in enumerate(
+            _load_plants_jsonl(plants_path, str(document["plants_sha256"]))
+        )
     )
     pairs = tuple(
         Pair(
@@ -408,7 +447,9 @@ def load_mills(path: Path | None = None, *, root: Path | None = None) -> tuple[M
                 constructor=str(entry["constructor"]),
                 pair_count=int(entry["pair_count"]),
                 plant_count=int(entry["plant_count"]),
-                slugs=tuple(str(slug) for slug in entry["slugs"]),
+                first_slug=str(entry["first_slug"]),
+                last_slug=str(entry["last_slug"]),
+                slugs_sha256=str(entry["slugs_sha256"]),
             )
         )
     return tuple(pins)
@@ -423,8 +464,8 @@ def catalog_check(
     leftover3 = load_leftover3(leftover3_file, root=root)
     mills = load_mills(mills_file, root=root)
     leftover3_slugs = [plant["slug"] for plant in leftover3.plants]
-    sequential = [slug for pin in mills for slug in pin.slugs]
-    overlap = sorted(set(leftover3_slugs).intersection(sequential))
+    edges = [slug for pin in mills for slug in (pin.first_slug, pin.last_slug)]
+    overlap = sorted(set(leftover3_slugs).intersection(edges))
     refuse_when(
         bool(overlap),
         FINDING_CATALOG_DUPLICATE,

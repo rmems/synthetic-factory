@@ -142,7 +142,9 @@ class DbmCatalogTests(unittest.TestCase):
             self.assertEqual(extracted["catalog_first"], pin.catalog_first)
             self.assertEqual(extracted["constructor"], pin.constructor)
             self.assertEqual(extracted["pair_count"], pin.pair_count)
-            self.assertEqual(extracted["slugs"], pin.slugs)
+            self.assertEqual(extracted["slugs"][0], pin.first_slug)
+            self.assertEqual(extracted["slugs"][-1], pin.last_slug)
+            self.assertEqual(sha256_text("\n".join(extracted["slugs"])), pin.slugs_sha256)
 
     def test_r1340_gen_slugs_match_the_mill_pin(self):
         loaded = catalog_check(root=REPO)
@@ -150,7 +152,10 @@ class DbmCatalogTests(unittest.TestCase):
         if gen_src is None:
             self.skipTest("legacy-mill-lane r1340 plant generator is not available")
         r1340 = next(pin for pin in loaded.mills if pin.path.endswith("dbm-mill-r1340.py"))
-        self.assertEqual(ast_extract_gen_slugs(gen_src), r1340.slugs)
+        slugs = ast_extract_gen_slugs(gen_src)
+        self.assertEqual(slugs[0], r1340.first_slug)
+        self.assertEqual(slugs[-1], r1340.last_slug)
+        self.assertEqual(sha256_text("\n".join(slugs)), r1340.slugs_sha256)
 
 
 class DbmGenerateTests(unittest.TestCase):
