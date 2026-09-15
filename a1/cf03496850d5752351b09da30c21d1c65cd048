@@ -1,0 +1,46 @@
+tests/test_hopper_cli.py
+  s_446c5f1025e07f::t_d7fc7b7b0416bb 1-6,8-11,15-94
+  s_446c5f1025e07f::t_14bd3bf3015d3d 7,12-14
+pipelines/hopper/_contract.py
+  s_446c5f1025e07f::t_c8c90c2df8df20 1-98
+tests/hopper_test_support.py
+  s_446c5f1025e07f::t_09b82ff1d0a7a1 1-26
+tests/test_hopper_plants.py
+  s_446c5f1025e07f::t_d8d1faac72dbcd 1-6,8-10,14-91
+  s_446c5f1025e07f::t_2de3fe52b51184 7,11-13
+config/hopper/CATALOG.json
+  s_446c5f1025e07f::t_40ec909408682e 1-80
+pipelines/hopper/plants.py
+  s_446c5f1025e07f::t_6becbb45c6c4bd 1-349
+pipelines/hopper/__init__.py
+  s_446c5f1025e07f::t_f16cdc6fa880d5 1-54
+pipelines/hopper/notes.py
+  s_446c5f1025e07f::t_c3a4ec88d6abcf 1-66
+pipelines/hopper/episode.py
+  s_446c5f1025e07f::t_dc4504116c2c81 1-465
+pipelines/hopper/cli.py
+  s_446c5f1025e07f::t_9d2bf754c5fa66 1-211
+tests/test_hopper_episode.py
+  s_446c5f1025e07f::t_01736a8caa50c3 92
+  s_446c5f1025e07f::t_3b24ca62d70972 7,9,12-14
+  s_446c5f1025e07f::t_23727c6b6b69d6 10
+  s_446c5f1025e07f::t_d8f603fe4d7182 112-115,117-118
+  s_446c5f1025e07f::t_5be639cc7a9c14 116
+  s_446c5f1025e07f::t_cb21d68284bffa 1-6,8,11,15-91,93-111,119-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a1cf03496850d5752351b09da30c21d1c65cd048",
+  "prompts": {},
+  "sessions": {
+    "s_446c5f1025e07f": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "45d6a98e-ffc7-40b2-a1e6-70999f90b2c0",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
