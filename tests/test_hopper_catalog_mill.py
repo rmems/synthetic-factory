@@ -59,7 +59,8 @@ class HopperMillCatalogLayoutTests(unittest.TestCase):
         meta = catalog_mill_check()
         self.assertEqual(meta["n_pair_rows_committed"], 114)
         self.assertEqual(meta["n_pair_rows_extracted"], 114)
-        self.assertEqual(len(meta["mills"]), 4)
+        tuple_mills = [item for item in meta["mills"] if item["shape"] == "ssl-tuple-pairs-v1"]
+        self.assertEqual(len(tuple_mills), 4)
 
 
 class HopperMillNeverExec(unittest.TestCase):
@@ -113,9 +114,13 @@ class HopperMillReextractTests(unittest.TestCase):
         payload = (DEFAULT_MILL_CATALOG_DIR / PAIRS_FILENAME).read_bytes()
         self.assertEqual(meta["pairs_sha256"], sha256_bytes(payload))
 
-    def test_header_lists_mills_with_expected_counts(self):
+    def test_header_lists_tuple_mills_with_expected_counts(self):
         meta, _ = load_mill_catalog()
-        by_id = {item["mill_id"]: item for item in meta["mills"]}
+        by_id = {
+            item["mill_id"]: item
+            for item in meta["mills"]
+            if item["shape"] == "ssl-tuple-pairs-v1"
+        }
         self.assertEqual(by_id["ssl-mill-r35"]["n_rows"], 71)
         self.assertEqual(by_id["ssl-mill-r112"]["n_rows"], 20)
         self.assertEqual(by_id["ssl-mill-r132"]["n_rows"], 20)
