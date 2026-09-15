@@ -2,9 +2,10 @@
 """Data-pipeline-repair mill family (``dpr``): AST catalog extract.
 
 Archive catalog of ``mill_dpr_leftover_r2631`` and the ``dpr-mill`` /
-``dpr_mill`` scripts on ``origin/legacy-mill-lane``. Loop scripts and lrd
-hoppers are pinned but not extracted. Mill publishers are not vendored and
-are never executed.
+``dpr_mill`` scripts on ``origin/legacy-mill-lane``. PR-b commits deferred
+compact pair identities in ``pairs.jsonl``. Loop scripts and lrd hoppers are
+pinned but not extracted. Mill publishers are not vendored and are never
+executed.
 """
 
 from .catalog import CATALOG, DprCatalog, MillCatalog, load_catalog
@@ -21,6 +22,7 @@ from .catalog_extract import (
     select_representative_pair_rows,
     select_representative_plant_rows,
 )
+from .pairs import DEFERRED_PAIRS, DeferredPair, load_deferred_pairs
 from .sources import (
     MILL_SOURCES,
     MillSource,
@@ -35,6 +37,8 @@ from .vocabulary import FACTORY, FAMILY_PREFIX
 __all__ = (
     "CATALOG",
     "DprCatalog",
+    "DEFERRED_PAIRS",
+    "DeferredPair",
     "DprExtractError",
     "FACTORY",
     "FAMILY_PREFIX",
@@ -50,6 +54,7 @@ __all__ = (
     "gen_sources",
     "hopper_sources",
     "load_catalog",
+    "load_deferred_pairs",
     "loop_sources",
     "mill_header",
     "pairs_jsonl_path",

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -30,9 +31,11 @@ from dpr.catalog_extract import (  # noqa: E402
     is_hopper_path,
     pairs_jsonl_path,
     plants_jsonl_path,
+    select_deferred_pair_rows,
     select_representative_pair_rows,
     select_representative_plant_rows,
 )
+from dpr.pairs import DEFERRED_PAIRS, deferred_sources, load_deferred_pairs  # noqa: E402
 from dpr.sources import (  # noqa: E402
     MILL_SOURCES,
     catalog_sources,
@@ -210,8 +213,14 @@ class DprSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.n_pair_rows, 727)
         self.assertEqual(CATALOG.n_plant_rows, 16)
         self.assertEqual(CATALOG.committed_plant_rows, 16)
-        self.assertEqual(CATALOG.committed_pair_rows, 21)
+        self.assertEqual(CATALOG.committed_pair_rows, 727)
         self.assertEqual(CATALOG.preserve_commit, dv.PRESERVE_COMMIT)
+        self.assertEqual(len(DEFERRED_PAIRS), dv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(
+            {pair.mill_id for pair in DEFERRED_PAIRS},
+            {source.mill_id for source in deferred_sources()},
+        )
+        self.assertNotIn("dpr-mill-leftover3-r2475", {pair.mill_id for pair in DEFERRED_PAIRS})
         leftover = CATALOG.mills["mill_dpr_leftover_r2631"]
         self.assertEqual(leftover.kind, KIND_PLANTS)
         self.assertEqual(leftover.n_rows, 16)
@@ -224,16 +233,15 @@ class DprSkeletonTests(unittest.TestCase):
         self.assertEqual(leftover3.first_slug, "xtable-sync")
         r2631 = CATALOG.mills["dpr-mill-r2631"]
         self.assertEqual(r2631.n_rows, 100)
-        self.assertEqual(len(r2631.pairs), 2)
+        self.assertEqual(len(r2631.pairs), 100)
         self.assertEqual(r2631.pairs[0]["slug"], r2631.first_slug)
-        self.assertEqual(r2631.pairs[1]["slug"], r2631.last_slug)
-        deferred = [
-            mill
-            for mill in CATALOG.mills.values()
-            if mill.kind == KIND_PAIRS and mill.mill_id not in dv.REPRESENTATIVE_PAIR_POLICY
-        ]
-        self.assertTrue(deferred)
-        self.assertTrue(all(mill.pairs == () for mill in deferred))
+        self.assertEqual(r2631.pairs[-1]["slug"], r2631.last_slug)
+        self.assertIn("ok", r2631.pairs[0])
+        self.assertNotIn("ok", r2631.pairs[1])
+        for mill in CATALOG.mills.values():
+            if mill.kind != KIND_PAIRS:
+                continue
+            self.assertEqual(len(mill.pairs), mill.n_rows)
         self.assertNotIn("dpr-lrd-hopper-leftover3", CATALOG.mills)
         self.assertNotIn("dpr-lrd-hopper-leftover3b", CATALOG.mills)
         self.assertFalse(any("lrd" in mill.path for mill in CATALOG.mills.values()))
@@ -252,6 +260,22 @@ class DprSkeletonTests(unittest.TestCase):
             self.assertNotIn("pairs", mill)
             self.assertNotIn("plants", mill)
 
+    def test_loader_fails_closed_on_noncompact_deferred_json(self):
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            raw = json.loads(line)
+            if set(raw) != set(dv.DEFERRED_PAIR_KEYS):
+                continue
+            lines[index] = json.dumps(raw)
+            break
+        else:
+            self.fail("no deferred identity row to mutate")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "pairs.jsonl"
+            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "is not compact sorted JSON"):
+                load_deferred_pairs(dest)
+
 
 @unittest.skipUnless(_legacy_available(), "origin/legacy-mill-lane is not fetched")
 class DprLegacyExtractTests(unittest.TestCase):
@@ -269,21 +293,26 @@ class DprLegacyExtractTests(unittest.TestCase):
                 cwd=REPO,
             ).strip()
             self.assertEqual(blob, source.blob_sha, source.mill_id)
-            live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
+            extracted = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
             committed = CATALOG.mills[source.mill_id]
-            self.assertEqual(live["n_rows"], committed.n_rows, source.mill_id)
-            self.assertEqual(live["first_slug"], committed.first_slug, source.mill_id)
-            self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
-            self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
-            self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
+            self.assertEqual(extracted["n_rows"], committed.n_rows, source.mill_id)
+            self.assertEqual(extracted["first_slug"], committed.first_slug, source.mill_id)
+            self.assertEqual(extracted["last_slug"], committed.last_slug, source.mill_id)
+            self.assertEqual(extracted["catalog_first"], committed.catalog_first, source.mill_id)
+            self.assertEqual(extracted["sha256"], committed.sha256, source.mill_id)
             if committed.plants:
-                self.assertEqual(live["plants"], list(committed.plants), source.mill_id)
+                self.assertEqual(extracted["plants"], list(committed.plants), source.mill_id)
             live_pairs = {}
-            if live["kind"] == KIND_PAIRS:
-                live_pairs = {pair["slug"]: pair for pair in live["pairs"]}
+            if extracted["kind"] == KIND_PAIRS:
+                live_pairs = {pair["slug"]: pair for pair in extracted["pairs"]}
             for pair in committed.pairs:
-                self.assertEqual(pair, live_pairs[pair["slug"]], source.mill_id)
-            mills.append(live)
+                live_pair = live_pairs[pair["slug"]]
+                if "ok" in pair:
+                    self.assertEqual(pair, live_pair, source.mill_id)
+                else:
+                    self.assertEqual(pair["slug"], live_pair["slug"], source.mill_id)
+                    self.assertEqual(pair["fail_slug"], live_pair["fail_slug"], source.mill_id)
+            mills.append(extracted)
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
@@ -292,10 +321,11 @@ class DprLegacyExtractTests(unittest.TestCase):
             dumps_jsonl(select_representative_plant_rows(mills)),
             plants_jsonl_path().read_text(encoding="utf-8"),
         )
-        self.assertEqual(
-            dumps_jsonl(select_representative_pair_rows(mills)),
-            pairs_jsonl_path().read_text(encoding="utf-8"),
+        expected_pairs = dumps_jsonl(select_representative_pair_rows(mills)) + dumps_jsonl(
+            select_deferred_pair_rows(mills)
         )
+        self.assertEqual(expected_pairs, pairs_jsonl_path().read_text(encoding="utf-8"))
+        self.assertEqual(load_deferred_pairs(), DEFERRED_PAIRS)
 
     def test_leftover3_loop_names_the_leftover3_mill(self):
         source = next(item for item in loop_sources() if item.mill_id == "dpr-loop-leftover3-r2475")

@@ -1,5 +1,5 @@
 {
-  "committed_pair_rows": 21,
+  "committed_pair_rows": 727,
   "committed_plant_rows": 16,
   "excluded_kinds": [
     "hopper",
@@ -279,8 +279,8 @@
   "n_mills": 19,
   "n_pair_rows": 727,
   "n_plant_rows": 16,
-  "preserve_commit": "6fe337661de77b0dcc71e686578ddb0fa01e5863",
+  "preserve_commit": "813f93f1969c1c4421e5663492e9663739efa642",
   "schema": "dpr-catalog-extract/v1",
-  "slice": "representative",
+  "slice": "full",
   "source_ref": "origin/legacy-mill-lane"
 }
