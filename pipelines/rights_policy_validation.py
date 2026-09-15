@@ -101,12 +101,12 @@ class _RuleCoverage:
     combinations: set[tuple[str, str, str]] = field(default_factory=set)
 
 
-def _rule_verdict(rule: dict, reasons: tuple[str, ...]) -> tuple[object, ...]:
-    return (
-        rule.get("intended_use"),
-        rule.get("project_training_policy"),
-        list(reasons),
-    )
+def _rule_verdict(rule: dict, reasons: tuple[str, ...]) -> tuple[object, ...] | None:
+    intended_use = rule.get("intended_use")
+    project_policy = rule.get("project_training_policy")
+    if not is_exact_string(intended_use) or not is_exact_string(project_policy):
+        return None
+    return (intended_use, project_policy, list(reasons))
 
 
 def _validated_rule(
@@ -130,12 +130,6 @@ def _validated_rule(
             f"rule {rule_id!r} cites unknown reasons {unknown_reasons}",
         )
     profile = profiles[profile_id]
-    intended_use = rule.get("intended_use")
-    project_policy = rule.get("project_training_policy")
-    if not is_exact_string(intended_use) or not is_exact_string(project_policy):
-        raise policy_error(
-            where, f"rule {rule_id!r} authorizes a verdict outside profile"
-        )
     verdict = _rule_verdict(rule, reasons)
     expected = (
         profile["intended_use"],

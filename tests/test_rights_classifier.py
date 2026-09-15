@@ -48,9 +48,11 @@ class RightsClassifierTests(RightsPolicyTestCase):
         for target, field, replacement in attempts:
             original = object.__getattribute__(target, field)
             try:
-                with self.subTest(target=type(target).__name__, field=field):
-                    with self.assertRaises((AttributeError, TypeError)):
-                        object.__setattr__(target, field, replacement)
+                with (
+                    self.subTest(target=type(target).__name__, field=field),
+                    self.assertRaises((AttributeError, TypeError)),
+                ):
+                    object.__setattr__(target, field, replacement)
             finally:
                 if object.__getattribute__(target, field) != original:
                     object.__setattr__(target, field, original)
@@ -72,9 +74,8 @@ class RightsClassifierTests(RightsPolicyTestCase):
             self.verification(),
         )
         for value in values:
-            with self.subTest(value=type(value).__name__):
-                with self.assertRaises(AttributeError):
-                    value.__dict__
+            with self.subTest(value=type(value).__name__), self.assertRaises(AttributeError):
+                value.__dict__
 
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
