@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""NELB plant catalog: AST extract of the recovered r01 builder.
+"""NELB plant catalog: AST extract of recovered builders (never exec).
 
 ``plants_from_source`` walks a recovered mill as text (``ast.parse`` only,
-``exec: false``). The committed catalog is the first three-pair slice from
-``origin/codex/recover-grok-01a06111``. Recovered ``*mill*.py`` / ``gen_r*.py``
-scripts are not vendored.
+``exec: false``). The committed catalog is compact JSONL beside
+``CATALOG.json`` under ``pipelines/nelb/``. Recovered ``*mill*.py`` /
+``gen_r*.py`` scripts are not vendored.
 """
 
 from __future__ import annotations
@@ -12,13 +12,17 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ._contract import (
+    CATALOG_FILENAME,
     CATALOG_ID,
     FACTORY,
     FINDING_AST_NOT_A_PLANT,
     FINDING_CATALOG_EMPTY,
+    FINDING_CATALOG_FILE_MISSING,
+    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_CATALOG_TRIPLE_STRIDE,
     FINDING_DUPLICATE_ID,
     FINDING_FIELD_INVALID,
@@ -26,12 +30,16 @@ from ._contract import (
     FINDING_ROUND_OUT_OF_DOMAIN,
     FINDING_TRIPLE_OUT_OF_DOMAIN,
     GENERATOR,
+    PLANTS_FILENAME,
     QUOTA_PER_ROUND,
     NelbRefusal,
     bind_import_twin,
+    default_catalog_dir,
+    load_strict_json,
     refuse,
     refuse_first,
     refuse_when,
+    sha256_bytes,
     shown,
 )
 
@@ -65,10 +73,12 @@ __all__ = [
     "Catalog",
     "Plant",
     "catalog_check",
+    "default_catalog_dir",
     "load_catalog",
     "plant_from_mapping",
     "plants_for_round",
     "plants_from_source",
+    "sha256_bytes",
 ]
 
 
@@ -356,9 +366,10 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
         round_n = 1
     plants: list[dict[str, Any]] = []
     if rec_funcs:
-        for fn in rec_funcs:
+        for index, fn in enumerate(rec_funcs, start=1):
             row = _from_rec_func(fn, consts, round_n, source_name)
             if row is not None:
+                row["index"] = index
                 plants.append(row)
     pairs = raw.get("PAIRS")
     if len(plants) != QUOTA_PER_ROUND and isinstance(pairs, ast.List):
@@ -509,73 +520,94 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
     return chunk
 
 
-_EXTRACTED_ROWS: tuple[tuple[Any, ...], ...] = (
-    (
-        "nelb-r01-001",
-        1,
-        1,
-        "Brackfen Pool BF-3",
-        "johnson_noise_spent_fuel_pool_t",
-        "designed",
-        "johnson_noise_pool_temperature",
-        "T_K = k_j * V_rms_uV^2; k_j = T_K / V_rms_uV^2",
-        "REJECT",
-        "MODIFY",
-        "trajectory_recirc_hold",
-        "Gate continue-recirc at BF-3 when Johnson-noise T_K = k_j*V^2 is 320 K "
-        "over the 315 K isolate floor; Noiseveil 298 K is not SoT.",
-        "gen_r01.py",
-    ),
-    (
-        "nelb-r01-002",
-        1,
-        2,
-        "Flintshaw CMP FS-6",
-        "coulter_cmp_slurry_particles",
-        "hil",
-        "coulter_cmp_particle_concentration",
-        "C_ppm = k_c * (Vp_mV / Vref_mV); R = Vp_mV / Vref_mV",
-        "MODIFY",
-        "ACCEPT",
-        "trajectory_new_aperture",
-        "Gate keep-polish at FS-6 when Coulter C_ppm = k_c*(Vp/Vref) is 120 ppm "
-        "over the 80 ppm isolate floor; Slurryveil 18.20 ppm is not SoT.",
-        "gen_r01.py",
-    ),
-    (
-        "nelb-r01-003",
-        1,
-        3,
-        "Yewholt COPV YH-9",
-        "photoelastic_copv_hoop_stress",
-        "simulated",
-        "photoelastic_copv_hoop_stress",
-        "sigma_MPa = k_p * N; N = sigma_MPa / k_p",
-        "ACCEPT",
-        "REJECT",
-        "trajectory_skip_vessel_refusal",
-        "Gate V-4 isolate at YH-9 when photoelastic sigma = k_p*N is 32 MPa "
-        "over the 24 MPa isolate floor; Fringeveil 6.40 MPa cannot skip V-1..V-3.",
-        "gen_r01.py",
-    ),
-)
-
-
-def _plants_from_extracted() -> tuple[Plant, ...]:
-    plants = tuple(
-        plant_from_mapping(dict(zip(PLANT_FIELDS, row, strict=True)), f"extracted[{index}]")
-        for index, row in enumerate(_EXTRACTED_ROWS)
+def _read_plants_jsonl(path: Path) -> tuple[Plant, ...]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        refuse(FINDING_CATALOG_FILE_MISSING, f"{path} is unreadable: {exc}")
+    refuse_when(
+        not text.endswith("\n") or "\r" in text,
+        FINDING_FIELD_INVALID,
+        f"{path.name} must be LF-framed jsonl",
     )
-    _check_unique(plants)
-    return plants
+    plants: list[Plant] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        refuse_when(not line, FINDING_FIELD_INVALID, f"{path.name}:{index} is empty")
+        try:
+            row = load_strict_json(line)
+        except ValueError as exc:
+            refuse(FINDING_FIELD_INVALID, f"{path.name}:{index} is not strict JSON: {exc}")
+        refuse_when(
+            not isinstance(row, dict),
+            FINDING_FIELD_INVALID,
+            f"{path.name}:{index} is not an object",
+        )
+        plants.append(plant_from_mapping(row, f"{path.name}:{index}"))
+    _check_unique(tuple(plants))
+    return tuple(plants)
 
 
-_CATALOG = Catalog(CATALOG_ID, _plants_from_extracted())
-WAVE_ROUNDS = tuple(sorted({plant.source_round for plant in _CATALOG.plants}))
+def _load_committed_catalog(catalog_dir: Path | None = None) -> Catalog:
+    root = default_catalog_dir() if catalog_dir is None else catalog_dir
+    meta_path = root / CATALOG_FILENAME
+    plants_path = root / PLANTS_FILENAME
+    try:
+        meta = load_strict_json(meta_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        refuse(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is unreadable: {exc}")
+    except ValueError as exc:
+        refuse(FINDING_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON: {exc}")
+    refuse_when(
+        not isinstance(meta, dict),
+        FINDING_FIELD_INVALID,
+        f"{CATALOG_FILENAME} must be an object",
+    )
+    catalog_id = meta.get("catalog_id")
+    refuse_when(
+        catalog_id != CATALOG_ID,
+        FINDING_FIELD_INVALID,
+        f"{CATALOG_FILENAME} catalog_id is {shown(catalog_id)}",
+    )
+    pinned = meta.get("plants_sha256")
+    refuse_when(
+        not isinstance(pinned, str) or len(pinned) != 64,
+        FINDING_FIELD_MISSING,
+        f"{CATALOG_FILENAME} missing plants_sha256",
+    )
+    try:
+        plants_raw = plants_path.read_bytes()
+    except OSError as exc:
+        refuse(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is unreadable: {exc}")
+    digest = sha256_bytes(plants_raw)
+    refuse_when(
+        digest != pinned,
+        FINDING_CATALOG_SHA256_MISMATCH,
+        f"{PLANTS_FILENAME} digest {digest} != pinned {pinned}",
+    )
+    plants = _read_plants_jsonl(plants_path)
+    expected = meta.get("plant_count")
+    refuse_when(
+        type(expected) is int and expected != len(plants),
+        FINDING_FIELD_INVALID,
+        f"{CATALOG_FILENAME} plant_count {expected} != {len(plants)} rows",
+    )
+    return Catalog(CATALOG_ID, plants)
+
+
+_CATALOG: Catalog | None = None
 
 
 def load_catalog() -> Catalog:
+    global _CATALOG
+    if _CATALOG is None:
+        _CATALOG = _load_committed_catalog()
     return _CATALOG
+
+
+def __getattr__(name: str) -> Any:
+    if name == "WAVE_ROUNDS":
+        return tuple(sorted({plant.source_round for plant in load_catalog().plants}))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 bind_import_twin(__name__)
