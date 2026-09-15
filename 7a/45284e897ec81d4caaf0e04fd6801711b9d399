@@ -1,0 +1,19 @@
+pipelines/__init__.py
+  s_0376781a4206a3::t_620432e0e79956 190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7a45284e897ec81d4caaf0e04fd6801711b9d399",
+  "prompts": {},
+  "sessions": {
+    "s_0376781a4206a3": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "541629e3-72d6-4b80-be72-547926576436",
+        "model": "cursor-grok-4.6-xhigh"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
