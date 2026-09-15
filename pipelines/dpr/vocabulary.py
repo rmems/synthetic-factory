@@ -17,10 +17,18 @@ GENERATOR = "grok-4.6"
 RECORD_ID_PREFIX = FAMILY_PREFIX
 QUOTA_PER_ROUND = 2
 CATALOG_SCHEMA_ID = "dpr-catalog-extract/v1"
+CATALOG_SLICE = "representative"
 DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "6fe337661de77b0dcc71e686578ddb0fa01e5863"
 CATALOG_FILENAME = "CATALOG.json"
+PLANTS_FILENAME = "plants.jsonl"
+PAIRS_FILENAME = "pairs.jsonl"
+# "all" keeps every extracted pair; "ends" keeps first and last only.
+REPRESENTATIVE_PAIR_POLICY = {
+    "dpr-mill-leftover3-r2475": "all",
+    "dpr-mill-r2631": "ends",
+}
 
 KIND_PAIRS = "pairs"
 KIND_PLANTS = "plants"

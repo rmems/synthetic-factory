@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import unittest
@@ -22,10 +23,15 @@ from dpr.catalog_extract import (  # noqa: E402
     catalog_document,
     catalog_json_path,
     dumps_catalog,
+    dumps_jsonl,
     extract_call_path_constant,
     extract_joined_path_constant,
     extract_mill_catalog,
     is_hopper_path,
+    pairs_jsonl_path,
+    plants_jsonl_path,
+    select_representative_pair_rows,
+    select_representative_plant_rows,
 )
 from dpr.sources import (  # noqa: E402
     MILL_SOURCES,
@@ -200,18 +206,51 @@ class DprSkeletonTests(unittest.TestCase):
 
     def test_committed_catalog_counts(self):
         self.assertEqual(len(CATALOG.mills), 19)
+        self.assertEqual(CATALOG.slice, dv.CATALOG_SLICE)
         self.assertEqual(CATALOG.n_pair_rows, 727)
         self.assertEqual(CATALOG.n_plant_rows, 16)
+        self.assertEqual(CATALOG.committed_plant_rows, 16)
+        self.assertEqual(CATALOG.committed_pair_rows, 21)
         self.assertEqual(CATALOG.preserve_commit, dv.PRESERVE_COMMIT)
         leftover = CATALOG.mills["mill_dpr_leftover_r2631"]
         self.assertEqual(leftover.kind, KIND_PLANTS)
         self.assertEqual(leftover.n_rows, 16)
+        self.assertEqual(len(leftover.plants), 16)
         self.assertEqual(leftover.first_slug, "airflow-xcom-backend-leftover-vs-drop-task")
+        self.assertEqual(leftover.last_slug, "spark-ss-watermark-leftover-vs-drop-trigger")
         self.assertEqual(leftover.max_rounds, 16)
+        leftover3 = CATALOG.mills["dpr-mill-leftover3-r2475"]
+        self.assertEqual(len(leftover3.pairs), leftover3.n_rows)
+        self.assertEqual(leftover3.first_slug, "xtable-sync")
+        r2631 = CATALOG.mills["dpr-mill-r2631"]
+        self.assertEqual(r2631.n_rows, 100)
+        self.assertEqual(len(r2631.pairs), 2)
+        self.assertEqual(r2631.pairs[0]["slug"], r2631.first_slug)
+        self.assertEqual(r2631.pairs[1]["slug"], r2631.last_slug)
+        deferred = [
+            mill
+            for mill in CATALOG.mills.values()
+            if mill.kind == KIND_PAIRS and mill.mill_id not in dv.REPRESENTATIVE_PAIR_POLICY
+        ]
+        self.assertTrue(deferred)
+        self.assertTrue(all(mill.pairs == () for mill in deferred))
         self.assertNotIn("dpr-lrd-hopper-leftover3", CATALOG.mills)
         self.assertNotIn("dpr-lrd-hopper-leftover3b", CATALOG.mills)
         self.assertFalse(any("lrd" in mill.path for mill in CATALOG.mills.values()))
         self.assertFalse(any("hopper" in mill.path for mill in CATALOG.mills.values()))
+
+    def test_committed_jsonl_stays_compact(self):
+        for path in (plants_jsonl_path(), pairs_jsonl_path()):
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.endswith("\n"))
+            self.assertNotIn("\r", text)
+            for line in text.splitlines():
+                self.assertFalse(line.startswith((" ", "\t")))
+                json.loads(line)
+        header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        for mill in header["mills"].values():
+            self.assertNotIn("pairs", mill)
+            self.assertNotIn("plants", mill)
 
 
 @unittest.skipUnless(_legacy_available(), "origin/legacy-mill-lane is not fetched")
@@ -237,10 +276,25 @@ class DprLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
+            if committed.plants:
+                self.assertEqual(live["plants"], list(committed.plants), source.mill_id)
+            live_pairs = {}
+            if live["kind"] == KIND_PAIRS:
+                live_pairs = {pair["slug"]: pair for pair in live["pairs"]}
+            for pair in committed.pairs:
+                self.assertEqual(pair, live_pairs[pair["slug"]], source.mill_id)
             mills.append(live)
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_jsonl(select_representative_plant_rows(mills)),
+            plants_jsonl_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_jsonl(select_representative_pair_rows(mills)),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
         )
 
     def test_leftover3_loop_names_the_leftover3_mill(self):

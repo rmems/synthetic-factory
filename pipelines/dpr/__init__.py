@@ -10,10 +10,16 @@ are never executed.
 from .catalog import CATALOG, DprCatalog, MillCatalog, load_catalog
 from .catalog_extract import (
     DprExtractError,
+    dumps_jsonl,
     extract_call_path_constant,
     extract_catalog_nodes,
     extract_joined_path_constant,
     extract_mill_catalog,
+    mill_header,
+    pairs_jsonl_path,
+    plants_jsonl_path,
+    select_representative_pair_rows,
+    select_representative_plant_rows,
 )
 from .sources import (
     MILL_SOURCES,
@@ -36,6 +42,7 @@ __all__ = (
     "MillCatalog",
     "MillSource",
     "catalog_sources",
+    "dumps_jsonl",
     "extract_call_path_constant",
     "extract_catalog_nodes",
     "extract_joined_path_constant",
@@ -44,5 +51,10 @@ __all__ = (
     "hopper_sources",
     "load_catalog",
     "loop_sources",
+    "mill_header",
+    "pairs_jsonl_path",
+    "plants_jsonl_path",
+    "select_representative_pair_rows",
+    "select_representative_plant_rows",
     "source_by_id",
 )

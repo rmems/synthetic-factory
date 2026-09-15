@@ -20,6 +20,7 @@ from .vocabulary import (
     CATALOG_ASSIGNMENT_NAMES,
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
+    CATALOG_SLICE,
     FACTORY,
     GENERATOR,
     HOPPER_NAME_NEEDLES,
@@ -31,7 +32,10 @@ from .vocabulary import (
     LEGACY_REF,
     LEFTOVER_PLANT_KEYS,
     PAIR_CTOR_NAMES,
+    PAIRS_FILENAME,
+    PLANTS_FILENAME,
     PRESERVE_COMMIT,
+    REPRESENTATIVE_PAIR_POLICY,
 )
 
 _ROUND_RE = re.compile(r"r(\d+)")
@@ -361,11 +365,44 @@ def _pairs_record(
     }
 
 
+def mill_header(mill: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in mill.items() if key not in {"pairs", "plants"}}
+
+
+def select_representative_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for mill in mills:
+        if mill.get("kind") != KIND_PAIRS:
+            continue
+        pairs = list(mill.get("pairs") or ())
+        policy = REPRESENTATIVE_PAIR_POLICY.get(mill["mill_id"])
+        if policy == "all":
+            selected = pairs
+        elif policy == "ends":
+            selected = [pairs[0], pairs[-1]] if len(pairs) > 1 else pairs
+        else:
+            continue
+        rows.extend({"mill_id": mill["mill_id"], **pair} for pair in selected)
+    return rows
+
+
+def select_representative_plant_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for mill in mills:
+        if mill.get("kind") != KIND_PLANTS:
+            continue
+        rows.extend({"mill_id": mill["mill_id"], **plant} for plant in mill.get("plants") or ())
+    return rows
+
+
 def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills if mill["kind"] == KIND_PAIRS)
     plant_rows = sum(mill["n_rows"] for mill in mills if mill["kind"] == KIND_PLANTS)
+    committed_pairs = select_representative_pair_rows(mills)
+    committed_plants = select_representative_plant_rows(mills)
     return {
         "schema": CATALOG_SCHEMA_ID,
+        "slice": CATALOG_SLICE,
         "source_ref": LEGACY_REF,
         "preserve_commit": PRESERVE_COMMIT,
         "factory": FACTORY,
@@ -373,8 +410,10 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "n_mills": len(mills),
         "n_pair_rows": pair_rows,
         "n_plant_rows": plant_rows,
+        "committed_pair_rows": len(committed_pairs),
+        "committed_plant_rows": len(committed_plants),
         "excluded_kinds": [KIND_HOPPER, KIND_LOOP, KIND_GEN],
-        "mills": {mill["mill_id"]: mill for mill in mills},
+        "mills": {mill["mill_id"]: mill_header(mill) for mill in mills},
     }
 
 
@@ -382,12 +421,36 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
+def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    lines = [
+        json.dumps(row, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        for row in rows
+    ]
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def catalog_json_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / CATALOG_FILENAME
 
 
-def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
-    destination = path if path is not None else catalog_json_path()
-    destination.write_text(dumps_catalog(document), encoding="utf-8")
+def plants_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / PLANTS_FILENAME
+
+
+def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / PAIRS_FILENAME
+
+
+def write_catalog_document(mills: list[dict[str, Any]], package_dir: Path | None = None) -> Path:
+    destination = catalog_json_path(package_dir)
+    destination.write_text(dumps_catalog(catalog_document(mills)), encoding="utf-8")
+    plants_jsonl_path(package_dir).write_text(
+        dumps_jsonl(select_representative_plant_rows(mills)), encoding="utf-8"
+    )
+    pairs_jsonl_path(package_dir).write_text(
+        dumps_jsonl(select_representative_pair_rows(mills)), encoding="utf-8"
+    )
     return destination
