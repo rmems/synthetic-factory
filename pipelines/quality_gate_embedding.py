@@ -215,7 +215,7 @@ def _string_gap_features(path: str, units):
 
 def _features_repeat_across_string_units(path: str, units) -> bool:
     """Whether separate scanner units emit any shared lexical feature."""
-    seen = set()
+    seen: set[str] = set()
     for kind, unit, gap in units:
         current = {
             feature
@@ -564,7 +564,7 @@ def _embedding_stats(threshold: float) -> dict:
 
 def _corpus_idf(records, indices) -> dict:
     """Build one document-frequency map over all embeddable records."""
-    document_freq = Counter()
+    document_freq: Counter[str] = Counter()
     for index in indices:
         document_freq.update(records[index]["tokens"].keys())
     population = len(indices)

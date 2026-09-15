@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -99,7 +99,14 @@ def index_compose_mills(
                 frame_lines,
             ),
         )
-    return {finding.ref: finding for finding in mills.findings()}
+    findings: dict[tuple[str, int], MillFinding] = {}
+    for finding in mills.findings():
+        # ``MillFinding.ref`` is ``Hashable`` because ``MillIndex`` serves every
+        # caller's own coordinate; the refs reaching this index are exactly the
+        # ``(member, line)`` tuples ``_index_member_mills`` issues above.
+        coordinate: Any = finding.ref
+        findings[coordinate] = finding
+    return findings
 
 
 if __package__:

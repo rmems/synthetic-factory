@@ -581,7 +581,7 @@ def build_one(cfg: dict) -> dict:
     key_sets = [set(r.keys()) for r in records]
     common = sorted(set.intersection(*key_sets))
     optional = sorted(set.union(*key_sets) - set(common))
-    decisions = collections.Counter()
+    decisions: collections.Counter[str] = collections.Counter()
     for r in records:
         sd = r.get("safety_decision")
         if isinstance(sd, dict) and isinstance(sd.get("decision"), str):
