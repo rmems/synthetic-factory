@@ -1038,6 +1038,54 @@ def _package_validate_run_thalamic() -> ModuleType:
     return module
 
 
+def _direct_validate_run_episode() -> ModuleType:
+    import validate_run_episode as module
+
+    return module
+
+
+def _package_validate_run_episode() -> ModuleType:
+    import pipelines.validate_run_episode as module
+
+    return module
+
+
+def _direct_validate_run_multi_agent() -> ModuleType:
+    import validate_run_multi_agent as module
+
+    return module
+
+
+def _package_validate_run_multi_agent() -> ModuleType:
+    import pipelines.validate_run_multi_agent as module
+
+    return module
+
+
+def _direct_validate_run_routes() -> ModuleType:
+    import validate_run_routes as module
+
+    return module
+
+
+def _package_validate_run_routes() -> ModuleType:
+    import pipelines.validate_run_routes as module
+
+    return module
+
+
+def _direct_validate_run_cli() -> ModuleType:
+    import validate_run_cli as module
+
+    return module
+
+
+def _package_validate_run_cli() -> ModuleType:
+    import pipelines.validate_run_cli as module
+
+    return module
+
+
 Loader = Callable[[], ModuleType]
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "census": (_direct_census, _package_census),
@@ -1195,6 +1243,13 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     ),
     "validate_run_thalamic": (_direct_validate_run_thalamic, _package_validate_run_thalamic),
     "validate_run_outcomes": (_direct_validate_run_outcomes, _package_validate_run_outcomes),
+    "validate_run_episode": (_direct_validate_run_episode, _package_validate_run_episode),
+    "validate_run_multi_agent": (
+        _direct_validate_run_multi_agent,
+        _package_validate_run_multi_agent,
+    ),
+    "validate_run_routes": (_direct_validate_run_routes, _package_validate_run_routes),
+    "validate_run_cli": (_direct_validate_run_cli, _package_validate_run_cli),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
 PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}

@@ -123,6 +123,10 @@ NEW_SPLIT_MODULES = (
     "validate_run_thalamic",
     "validate_run_outcomes",
     "validate_run_reward_total",
+    "validate_run_episode",
+    "validate_run_multi_agent",
+    "validate_run_routes",
+    "validate_run_cli",
 )
 RUN_SUPPORT_MODULES = (
     "compose_curated_run_cli",
@@ -211,6 +215,14 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["validate_run"].check_line,
                 packaged["validate_run"].check_line,
+            )
+            self.assertIs(
+                direct["validate_run_episode"].check_episode,
+                packaged["validate_run_episode"].check_episode,
+            )
+            self.assertIs(
+                direct["validate_run_routes"].check_line,
+                packaged["validate_run_routes"].check_line,
             )
 
     def _assert_identity_export_twins(self, direct, packaged) -> None:

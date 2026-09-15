@@ -7,9 +7,9 @@ script under a second module name.
 from __future__ import annotations
 
 if __package__:
-    from .validate_run import HIDDEN_THOUGHT_KEYS
+    from .validate_run_episode import HIDDEN_THOUGHT_KEYS
 else:
-    from validate_run import HIDDEN_THOUGHT_KEYS
+    from validate_run_episode import HIDDEN_THOUGHT_KEYS
 
 
 TRANSFORM_NAME = "coding_observability"
