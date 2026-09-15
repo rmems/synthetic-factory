@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from collections.abc import Mapping
 from typing import Any
 
 from ._contract import (
@@ -18,7 +19,7 @@ from ._contract import (
     LEGACY_COMMIT,
     MAPPING_FIELDS,
     MILL_SOURCES,
-    N_MAPPING_PAIRS,
+    MillPin,
     N_PLANT_PAIRS,
     PLANTS_MILL_ID,
     START_ROUND,
@@ -170,21 +171,37 @@ def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
     return tuple(rows)
 
 
+def _mapping_slice(
+    pin: MillPin, rows: tuple[dict[str, str | int], ...]
+) -> tuple[dict[str, str | int], ...]:
+    refuse_when(
+        pin.legacy_first is None,
+        FINDING_CATALOG_MILL,
+        f"{pin.mill_id} missing legacy_first",
+    )
+    start_index = pin.catalog_first - pin.legacy_first
+    end_index = start_index + pin.n_pairs
+    refuse_when(
+        start_index < 0 or end_index > len(rows),
+        FINDING_CATALOG_PAIR_COUNT,
+        f"{pin.mill_id} slice [{start_index}:{end_index}] out of range for {len(rows)} rows",
+    )
+    return rows[start_index:end_index]
+
+
 def ast_extract_catalog_rows(
     plants_source: str,
     mill_source: str,
-    mapping_mill_source: str,
+    mapping_sources_by_path: Mapping[str, str],
     *,
     plants_sha256: str | None = None,
     mill_sha256: str | None = None,
-    mapping_sha256: str | None = None,
     commit: str = LEGACY_COMMIT,
 ) -> list[dict[str, Any]]:
-    """Build compact JSONL row dicts for both committed ewr mills."""
+    """Build compact JSONL row dicts for every committed ewr mill pin."""
 
     constants = ast_extract_mill_constants(mill_source)
     plant_pairs = ast_extract_plant_pairs(plants_source)
-    mapping_pairs = ast_extract_mapping_pairs(mapping_mill_source)
     refuse_first(
         (
             (
@@ -202,17 +219,11 @@ def ast_extract_catalog_rows(
                 FINDING_CATALOG_PAIR_COUNT,
                 f"need {N_PLANT_PAIRS} plant pairs, got {len(plant_pairs)}",
             ),
-            (
-                len(mapping_pairs) != N_MAPPING_PAIRS,
-                FINDING_CATALOG_PAIR_COUNT,
-                f"need {N_MAPPING_PAIRS} mapping pairs, got {len(mapping_pairs)}",
-            ),
         )
     )
     plants_sha = plants_sha256 or sha256_text(plants_source)
     mill_sha = mill_sha256 or sha256_text(mill_source)
-    mapping_sha = mapping_sha256 or sha256_text(mapping_mill_source)
-    pinned_plants, pinned_mapping = MILL_SOURCES
+    pinned_plants = MILL_SOURCES[0]
     refuse_first(
         (
             (
@@ -224,11 +235,6 @@ def ast_extract_catalog_rows(
                 mill_sha != pinned_plants.mill_sha256,
                 FINDING_CATALOG_SCHEMA,
                 "mill_sha256 drifted from the pinned leftover mill bytes",
-            ),
-            (
-                mapping_sha != pinned_mapping.mill_sha256,
-                FINDING_CATALOG_SCHEMA,
-                "mapping mill sha256 drifted from the pinned lll-r56 bytes",
             ),
         )
     )
@@ -242,15 +248,36 @@ def ast_extract_catalog_rows(
                 "bad": bad,
             }
         )
-    mapping_first = pinned_mapping.catalog_first
-    for index, mapping in enumerate(mapping_pairs):
-        rows.append(
-            {
-                "mill_id": pinned_mapping.mill_id,
-                "round": mapping_first + index,
-                "mapping": mapping,
-            }
+    for pin in MILL_SOURCES[1:]:
+        if pin.source_format != "mapping-v1":
+            continue
+        source = mapping_sources_by_path.get(pin.mill_path)
+        refuse_when(
+            source is None,
+            FINDING_CATALOG_MILL,
+            f"missing mapping source for {pin.mill_path}",
         )
+        assert source is not None
+        mapping_sha = sha256_text(source)
+        refuse_when(
+            mapping_sha != pin.mill_sha256,
+            FINDING_CATALOG_SCHEMA,
+            f"{pin.mill_id} mill_sha256 drifted from pinned bytes",
+        )
+        mapping_rows = _mapping_slice(pin, ast_extract_mapping_pairs(source))
+        refuse_when(
+            len(mapping_rows) != pin.n_pairs,
+            FINDING_CATALOG_PAIR_COUNT,
+            f"{pin.mill_id} expected {pin.n_pairs} mapping rows, got {len(mapping_rows)}",
+        )
+        for offset, mapping in enumerate(mapping_rows):
+            rows.append(
+                {
+                    "mill_id": pin.mill_id,
+                    "round": pin.catalog_first + offset,
+                    "mapping": mapping,
+                }
+            )
     _ = commit
     return rows
 

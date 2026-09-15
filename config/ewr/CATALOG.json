@@ -4,12 +4,12 @@
   "factory": "email-webhook-retry-factory",
   "generator": "grok-4.6",
   "quota_per_round": 2,
-  "n_mills": 2,
-  "n_pairs": 32,
+  "n_mills": 5,
+  "n_pairs": 67,
   "n_plant_pairs": 16,
-  "n_mapping_pairs": 16,
+  "n_mapping_pairs": 51,
   "pairs_filename": "pairs.jsonl",
-  "pairs_sha256": "851928c4c83b87f04beaa676e5d176704c59f31e6593ccb57cf38d5eaa3f3c2c",
+  "pairs_sha256": "753f5746e4b7c82f28c9d2fbaaedd23ace89aadba839b435ff1b9bdb8af44df6",
   "extraction": "AST literals only; legacy modules were never imported or executed",
   "source": {
     "lane": "legacy-mill-lane",
@@ -21,10 +21,10 @@
       "source_format": "plants-v1",
       "path": "experiments/ewr_leftover3_mill.py",
       "sha256": "607ea5ed58611c410f8b7d5d5746c9d745588226e62646d77aa3b34676abfdbf",
-      "plants": "experiments/ewr_leftover3_plants.py",
-      "plants_sha256": "cfe8e4334c7ae6f0d592e262fafa34bd7da590b2a1f24d59100f82284ffcbd2a",
       "catalog_first": 40,
-      "n_pairs": 16
+      "n_pairs": 16,
+      "plants": "experiments/ewr_leftover3_plants.py",
+      "plants_sha256": "cfe8e4334c7ae6f0d592e262fafa34bd7da590b2a1f24d59100f82284ffcbd2a"
     },
     {
       "mill_id": "ewr-lll-r56",
@@ -35,6 +35,36 @@
       "n_pairs": 16,
       "first_slug": "pm-serverid-bind",
       "last_slug": "fb-msgid-bind"
+    },
+    {
+      "mill_id": "ewr-lll-r59",
+      "source_format": "mapping-v1",
+      "path": "experiments/mill_leftover_leftover_leftover_r59.py",
+      "sha256": "d112d255a1053f8a69fcc6247e029b45d894fe6831ca875867a2203e768129a9",
+      "catalog_first": 72,
+      "n_pairs": 3,
+      "first_slug": "ses-configset-bind",
+      "last_slug": "rs-broadcast-bind"
+    },
+    {
+      "mill_id": "ewr-lll-r75",
+      "source_format": "mapping-v1",
+      "path": "experiments/mill_leftover_leftover_leftover_r75.py",
+      "sha256": "946a1180d1d90690b60844bab4d6a176f45f53759085da7eddf8b78ff7d46d47",
+      "catalog_first": 75,
+      "n_pairs": 16,
+      "first_slug": "loops-mailingid-bind",
+      "last_slug": "rs-template-bind"
+    },
+    {
+      "mill_id": "ewr-lll-r91",
+      "source_format": "mapping-v1",
+      "path": "experiments/mill_leftover_leftover_leftover_r91.py",
+      "sha256": "f81136f578a3ff1384e9fa7cf058afe24b416203ade1c22475920e3fc99d7a4c",
+      "catalog_first": 91,
+      "n_pairs": 16,
+      "first_slug": "sg-asm-group-bind",
+      "last_slug": "drip-broadcast-bind"
     }
   ]
 }

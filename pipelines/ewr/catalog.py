@@ -350,7 +350,7 @@ def _validate_header(document: dict[str, Any], digest: str) -> None:
     refuse_when(
         not isinstance(mills_raw, list) or len(mills_raw) != N_MILLS,
         FINDING_CATALOG_PAIR_COUNT,
-        "mills must list both ewr extracts",
+        "mills must list every pinned ewr extract",
     )
     for index, (raw, pinned) in enumerate(zip(mills_raw, MILL_SOURCES, strict=True)):
         item = _require_object(raw, f"mills[{index}]")
@@ -378,10 +378,14 @@ def _validate_rows(pair_rows: list[dict[str, Any]]) -> tuple[tuple[Pair, ...], t
     refuse_when(len(pair_rows) != N_PAIRS, FINDING_CATALOG_PAIR_COUNT, f"need {N_PAIRS} rows, got {len(pair_rows)}")
     windows = {pin.mill_id: (pin.catalog_first, pin.n_pairs, pin.source_format) for pin in MILL_SOURCES}
     seen = {mill_id: 0 for mill_id in windows}
-    slugs: list[str] = []
-    mods: list[str] = []
-    tickets: list[str] = []
-    domains: list[str] = []
+    plant_slugs: list[str] = []
+    plant_mods: list[str] = []
+    plant_tickets: list[str] = []
+    plant_domains: list[str] = []
+    mapping_slugs: list[str] = []
+    mapping_mods: list[str] = []
+    mapping_tickets: list[str] = []
+    mapping_domains: list[str] = []
     plant_pairs: list[Pair] = []
     mapping_pairs: list[MappingPair] = []
     for index, entry in enumerate(pair_rows):
@@ -403,10 +407,10 @@ def _validate_rows(pair_rows: list[dict[str, Any]]) -> tuple[tuple[Pair, ...], t
             for plant, label in ((ok, "ok"), (bad, "bad")):
                 slug = str(plant["slug"])
                 _reject_banned(slug, f"pairs[{index}].{label}")
-                slugs.append(slug)
-                mods.append(str(plant["mod"]))
-                domains.append(str(plant["domain"]))
-            tickets.append(str(bad["ticket"]))
+                plant_slugs.append(slug)
+                plant_mods.append(str(plant["mod"]))
+                plant_domains.append(str(plant["domain"]))
+            plant_tickets.append(str(bad["ticket"]))
             plant_pairs.append(Pair(mill_id=mill_id, round_n=round_n, ok=ok, bad=bad))
             continue
         if source_format == "mapping-v1":
@@ -415,10 +419,10 @@ def _validate_rows(pair_rows: list[dict[str, Any]]) -> tuple[tuple[Pair, ...], t
             fail_slug = str(mapping["fail"])
             _reject_banned(slug, f"pairs[{index}].mapping.slug")
             _reject_banned(fail_slug, f"pairs[{index}].mapping.fail")
-            slugs.extend((slug, fail_slug))
-            mods.extend((str(mapping["mod"]), str(mapping["drop"])))
-            domains.append(str(mapping["domain"]))
-            tickets.append(str(mapping["ticket"]))
+            mapping_slugs.extend((f"{mill_id}:{slug}", f"{mill_id}:{fail_slug}"))
+            mapping_mods.extend((f"{mill_id}:{mapping['mod']}", f"{mill_id}:{mapping['drop']}"))
+            mapping_domains.append(f"{mill_id}:{mapping['domain']}")
+            mapping_tickets.append(f"{mill_id}:{mapping['ticket']}")
             mapping_pairs.append(MappingPair(mill_id=mill_id, round_n=round_n, mapping=mapping))
             continue
         refuse(FINDING_CATALOG_MILL, f"pairs[{index}] unsupported mill format {source_format!r}")
@@ -427,10 +431,14 @@ def _validate_rows(pair_rows: list[dict[str, Any]]) -> tuple[tuple[Pair, ...], t
         FINDING_CATALOG_PAIR_COUNT,
         f"pair counts drifted: {seen}",
     )
-    _unique("slugs", slugs)
-    _unique("mods", mods)
-    _unique("tickets", tickets)
-    _unique("domains", domains)
+    _unique("plant slugs", plant_slugs)
+    _unique("plant mods", plant_mods)
+    _unique("plant tickets", plant_tickets)
+    _unique("plant domains", plant_domains)
+    _unique("mapping slugs", mapping_slugs)
+    _unique("mapping mods", mapping_mods)
+    _unique("mapping tickets", mapping_tickets)
+    _unique("mapping domains", mapping_domains)
     return tuple(plant_pairs), tuple(mapping_pairs)
 
 
@@ -475,45 +483,49 @@ def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Cata
     """Load the committed catalog and re-assert the leftover-event contract."""
 
     catalog = load_catalog(path, root=root)
-    refuse_first(
+    checks: list[tuple[bool, str, str]] = [
         (
+            catalog.source.get("commit") != LEGACY_COMMIT,
+            FINDING_CATALOG_SCHEMA,
+            "source.commit drifted from the leftover mill family commit",
+        ),
+        (
+            catalog.mills[0].path != LEGACY_MILL,
+            FINDING_CATALOG_SCHEMA,
+            "leftover3 mill path drifted",
+        ),
+        (
+            catalog.mills[0].plants != LEGACY_PLANTS,
+            FINDING_CATALOG_SCHEMA,
+            "leftover3 plants path drifted",
+        ),
+        (
+            catalog.mills[0].plants_sha256 != LEGACY_PLANTS_SHA256,
+            FINDING_CATALOG_SCHEMA,
+            "leftover3 plants_sha256 drifted",
+        ),
+        (
+            catalog.mills[0].sha256 != LEGACY_MILL_SHA256,
+            FINDING_CATALOG_SCHEMA,
+            "leftover3 mill_sha256 drifted",
+        ),
+    ]
+    for index, (loaded, pinned) in enumerate(zip(catalog.mills[1:], MILL_SOURCES[1:], strict=True)):
+        checks.extend(
             (
-                catalog.source.get("commit") != LEGACY_COMMIT,
-                FINDING_CATALOG_SCHEMA,
-                "source.commit drifted from the leftover mill family commit",
-            ),
-            (
-                catalog.mills[0].path != LEGACY_MILL,
-                FINDING_CATALOG_SCHEMA,
-                "leftover3 mill path drifted",
-            ),
-            (
-                catalog.mills[0].plants != LEGACY_PLANTS,
-                FINDING_CATALOG_SCHEMA,
-                "leftover3 plants path drifted",
-            ),
-            (
-                catalog.mills[0].plants_sha256 != LEGACY_PLANTS_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "leftover3 plants_sha256 drifted",
-            ),
-            (
-                catalog.mills[0].sha256 != LEGACY_MILL_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "leftover3 mill_sha256 drifted",
-            ),
-            (
-                catalog.mills[1].path != LEGACY_MAPPING_MILL,
-                FINDING_CATALOG_SCHEMA,
-                "lll-r56 mill path drifted",
-            ),
-            (
-                catalog.mills[1].sha256 != LEGACY_MAPPING_MILL_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "lll-r56 mill_sha256 drifted",
-            ),
+                (
+                    loaded.path != pinned.mill_path,
+                    FINDING_CATALOG_SCHEMA,
+                    f"mills[{index + 1}] path drifted from {pinned.mill_id}",
+                ),
+                (
+                    loaded.sha256 != pinned.mill_sha256,
+                    FINDING_CATALOG_SCHEMA,
+                    f"mills[{index + 1}] sha256 drifted from {pinned.mill_id}",
+                ),
+            )
         )
-    )
+    refuse_first(tuple(checks))
     refuse_when(len(catalog.pairs) != N_PLANT_PAIRS, FINDING_CATALOG_PAIR_COUNT, "plant pair count drifted")
     refuse_when(
         len(catalog.mapping_pairs) != N_MAPPING_PAIRS,
