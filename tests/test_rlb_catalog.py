@@ -11,7 +11,9 @@ from pipelines.rlb import CATALOG, CatalogError, load_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "pipelines" / "rlb"
-CONFIG = ROOT / "config" / "rlb-case-catalog-v1.json"
+CONFIG_DIR = ROOT / "config" / "rlb"
+CATALOG_JSON = CONFIG_DIR / "CATALOG.json"
+PAIRS_JSONL = CONFIG_DIR / "pairs.jsonl"
 
 SOURCE_PROVENANCE = {
     "experiments/rlb_leftover3_mill.py": (
@@ -115,15 +117,29 @@ class RlbCatalogTests(unittest.TestCase):
             self.assertNotIn("round_txn", imports)
             self.assertNotIn("outputs/raw", source)
 
+    def test_pairs_jsonl_stays_compact(self):
+        text = PAIRS_JSONL.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), 64)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            json.loads(line)
+
     def test_loader_fails_closed_on_a_missing_case_field(self):
-        payload = json.loads(CONFIG.read_text(encoding="utf-8"))
-        del payload["catalogs"][0]["pairs"][0]["success"]["header"]
+        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
+        lines = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        del first["success"]["header"]
+        lines[0] = json.dumps(first, separators=(",", ":"))
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "catalog.json"
-            path.write_text(json.dumps(payload), encoding="utf-8")
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(CatalogError, "keys differ"):
-                load_catalog(path)
+                load_catalog(dest)
 
 
 if __name__ == "__main__":

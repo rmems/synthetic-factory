@@ -9,12 +9,36 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-CATALOG_PATH = Path(__file__).resolve().parents[2] / "config" / "rlb-case-catalog-v1.json"
+CATALOG_DIR = Path(__file__).resolve().parents[2] / "config" / "rlb"
+CATALOG_FILENAME = "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
+CATALOG_PATH = CATALOG_DIR / CATALOG_FILENAME
 SCHEMA_VERSION = "rlb-case-catalog-v1"
 FACTORY = "rate-limit-backoff-factory"
 GENERATOR = "grok-4.6"
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _MODULE = re.compile(r"^[a-z0-9]+$")
+_CATALOG_KEYS = {
+    "schema_version",
+    "family",
+    "factory",
+    "generator",
+    "source_branch",
+    "source_commit",
+    "extraction",
+    "catalogs",
+}
+_SOURCE_META_KEYS = {
+    "source_path",
+    "source_format",
+    "source_blob_sha1",
+    "source_sha256",
+    "source_lines",
+    "start_round",
+    "end_round",
+}
+_PAIR_ROW_KEYS = {"source_path", "round", "success", "handoff"}
+_SOURCE_KEYS = _SOURCE_META_KEYS | {"pairs"}
 
 
 class CatalogError(ValueError):
@@ -118,7 +142,9 @@ def _text(value: Any, context: str, *, pattern: re.Pattern[str] | None = None) -
 def _integer(value: Any, context: str, *, minimum: int = 0, maximum: int | None = None) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise CatalogError(f"{context} must be an integer")
-    if value < minimum or (maximum is not None and value > maximum):
+    if value < minimum:
+        raise CatalogError(f"{context} out of range: {value}")
+    if maximum is not None and value > maximum:
         raise CatalogError(f"{context} out of range: {value}")
     return value
 
@@ -134,10 +160,11 @@ def _scalar(value: Any, context: str) -> int | str:
 def _docs(value: Any, context: str) -> tuple[str, str]:
     if not isinstance(value, list) or len(value) != 2:
         raise CatalogError(f"{context} must contain exactly two URLs")
-    docs = tuple(_text(item, f"{context}[{index}]") for index, item in enumerate(value))
-    if any(not item.startswith("https://") for item in docs):
+    first = _text(value[0], f"{context}[0]")
+    second = _text(value[1], f"{context}[1]")
+    if not first.startswith("https://") or not second.startswith("https://"):
         raise CatalogError(f"{context} URLs must use https")
-    return docs
+    return (first, second)
 
 
 def _success(value: Any, context: str) -> SuccessCase:
@@ -218,20 +245,7 @@ def _pair(value: Any, context: str) -> RoundPair:
 
 
 def _source(value: Any, context: str) -> SourceCatalog:
-    row = _mapping(
-        value,
-        context,
-        {
-            "source_path",
-            "source_format",
-            "source_blob_sha1",
-            "source_sha256",
-            "source_lines",
-            "start_round",
-            "end_round",
-            "pairs",
-        },
-    )
+    row = _mapping(value, context, _SOURCE_KEYS)
     raw_pairs = row["pairs"]
     if not isinstance(raw_pairs, list) or not raw_pairs:
         raise CatalogError(f"{context}.pairs must be a non-empty list")
@@ -253,29 +267,98 @@ def _source(value: Any, context: str) -> SourceCatalog:
     )
 
 
-def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
-    """Load and validate the extracted catalog without importing a legacy mill."""
+def _catalog_dir(path: Path) -> Path:
+    if path.is_dir():
+        return path
+    return path.parent
+
+
+def _load_json(path: Path) -> Any:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CatalogError(f"cannot load RLB catalog {path}: {exc}") from exc
-    row = _mapping(
-        payload,
-        "catalog",
-        {
-            "schema_version",
-            "family",
-            "factory",
-            "generator",
-            "source_branch",
-            "source_commit",
-            "extraction",
-            "catalogs",
-        },
-    )
+
+
+def _load_jsonl(path: Path) -> list[Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CatalogError(f"cannot load RLB catalog {path}: {exc}") from exc
+    if "\r" in text or not text.endswith("\n"):
+        raise CatalogError(f"{path.name} must be LF-framed jsonl")
+    rows: list[Any] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        if not line:
+            raise CatalogError(f"{path.name}:{index} is empty")
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise CatalogError(f"{path.name}:{index} is not JSON: {exc}") from exc
+    if not rows:
+        raise CatalogError(f"{path.name} must contain at least one pair")
+    return rows
+
+
+def _pair_rows_by_source(rows: list[Any]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for index, raw in enumerate(rows):
+        row = _mapping(raw, f"{PAIRS_FILENAME}:{index + 1}", _PAIR_ROW_KEYS)
+        source_path = _text(row["source_path"], f"{PAIRS_FILENAME}:{index + 1}.source_path")
+        grouped.setdefault(source_path, []).append(
+            {"success": row["success"], "handoff": row["handoff"], "round": row["round"]}
+        )
+    return grouped
+
+
+def _sources_with_pairs(raw_catalogs: list[Any], pair_rows: list[Any]) -> list[dict[str, Any]]:
+    grouped = _pair_rows_by_source(pair_rows)
+    assembled: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_catalogs):
+        meta = _mapping(raw, f"catalog.catalogs[{index}]", _SOURCE_META_KEYS)
+        source_path = _text(meta["source_path"], f"catalog.catalogs[{index}].source_path")
+        if source_path in seen:
+            raise CatalogError(f"catalog repeats source {source_path}")
+        seen.add(source_path)
+        pairs = grouped.get(source_path)
+        if not pairs:
+            raise CatalogError(f"catalog.catalogs[{index}] has no pairs")
+        assembled.append({**meta, "pairs": pairs})
+    extra = sorted(set(grouped) - seen)
+    if extra:
+        raise CatalogError(f"{PAIRS_FILENAME} names unknown sources: {extra}")
+    return assembled
+
+
+def _refuse_identity(catalog: Catalog) -> None:
+    if catalog.schema_version != SCHEMA_VERSION:
+        raise CatalogError(f"unsupported schema version: {catalog.schema_version!r}")
+    if catalog.family != "rlb":
+        raise CatalogError("catalog identity does not match the reviewed RLB family")
+    if catalog.factory != FACTORY:
+        raise CatalogError("catalog identity does not match the reviewed RLB family")
+    if catalog.generator != GENERATOR:
+        raise CatalogError("catalog identity does not match the reviewed RLB family")
+
+
+def _refuse_duplicates(catalog: Catalog) -> None:
+    rounds = [pair.round for pair in catalog.pairs()]
+    record_ids = list(catalog.record_ids())
+    if len(rounds) != len(set(rounds)):
+        raise CatalogError("catalog repeats a round")
+    if len(record_ids) != len(set(record_ids)):
+        raise CatalogError("catalog repeats a record id")
+
+
+def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
+    """Load and validate the extracted catalog without importing a legacy mill."""
+    directory = _catalog_dir(path)
+    row = _mapping(_load_json(directory / CATALOG_FILENAME), "catalog", _CATALOG_KEYS)
     raw_catalogs = row["catalogs"]
     if not isinstance(raw_catalogs, list) or not raw_catalogs:
         raise CatalogError("catalog.catalogs must be a non-empty list")
+    sources = _sources_with_pairs(raw_catalogs, _load_jsonl(directory / PAIRS_FILENAME))
     catalog = Catalog(
         schema_version=_text(row["schema_version"], "catalog.schema_version"),
         family=_text(row["family"], "catalog.family"),
@@ -286,19 +369,11 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
         extraction=_text(row["extraction"], "catalog.extraction"),
         catalogs=tuple(
             _source(item, f"catalog.catalogs[{index}]")
-            for index, item in enumerate(raw_catalogs)
+            for index, item in enumerate(sources)
         ),
     )
-    if catalog.schema_version != SCHEMA_VERSION:
-        raise CatalogError(f"unsupported schema version: {catalog.schema_version!r}")
-    if catalog.family != "rlb" or catalog.factory != FACTORY or catalog.generator != GENERATOR:
-        raise CatalogError("catalog identity does not match the reviewed RLB family")
-    rounds = [pair.round for pair in catalog.pairs()]
-    record_ids = list(catalog.record_ids())
-    if len(rounds) != len(set(rounds)):
-        raise CatalogError("catalog repeats a round")
-    if len(record_ids) != len(set(record_ids)):
-        raise CatalogError("catalog repeats a record id")
+    _refuse_identity(catalog)
+    _refuse_duplicates(catalog)
     return catalog
 
 

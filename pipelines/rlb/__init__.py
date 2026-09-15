@@ -2,6 +2,7 @@
 
 from .catalog import (
     CATALOG,
+    CATALOG_DIR,
     CATALOG_PATH,
     FACTORY,
     GENERATOR,
@@ -16,6 +17,7 @@ from .catalog import (
 
 __all__ = [
     "CATALOG",
+    "CATALOG_DIR",
     "CATALOG_PATH",
     "FACTORY",
     "GENERATOR",
