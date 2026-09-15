@@ -468,8 +468,10 @@ def curate_source(source: Path, policy: GatePolicy = DEFAULT_POLICY) -> Curation
         tallies["classifications"][decision.classification] += 1
         tallies["reasons"].update(decision.reason_codes)
 
+        # ``_emitted_line`` returns bytes exactly when the decision carries a
+        # record, so the record itself is the discriminator for both.
         output_line = _emitted_line(decision, line.location, policy)
-        if output_line is not None:
+        if decision.record is not None:
             output_records.append(decision.record)
         manifest.append(_manifest_entry(decision, record, line, output_line))
 
