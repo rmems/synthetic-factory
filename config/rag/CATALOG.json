@@ -1,0 +1,30 @@
+{
+  "catalog_id": "rag-lll-v1",
+  "factory": "rag-retrieval-debug-factory",
+  "format": "rag-catalog/1",
+  "mill_prefix": "rag",
+  "mills": [
+    {
+      "base_round": 670,
+      "mill_id": "rag_r670",
+      "plant_count": 16,
+      "source": "experiments/rag-mill-lll-r670.py"
+    }
+  ],
+  "plant_count": 16,
+  "plants_sha256": "83c30dd673e1e299efdf883bc9ecd4042589e84f6a4ed877435632f6d4613afe",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "not_executed": [
+      "experiments/rag-loop-r343.py",
+      "experiments/rag-mill-lll-r670.py"
+    ],
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/rag-mill-lll-r670.py"
+    ]
+  }
+}

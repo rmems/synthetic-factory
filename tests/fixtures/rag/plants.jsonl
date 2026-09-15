@@ -1,0 +1,1 @@
+{"base_round":1,"eng":"qdrant","leftover":"payload","mill_id":"rag_r0001","plant_id":"rag_r0001:qdrant-payload","slug":"qdrant-payload","source":"tests/fixtures/rag/plants.jsonl","ticket_fail":"QD-PL-2","ticket_ok":"QD-PL-1"}
