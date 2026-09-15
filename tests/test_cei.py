@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""CEI mill package: catalog pins, AST extract, generate, CLI, no leftover mills."""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+PIPELINES = REPO / "pipelines"
+FIXTURE = REPO / "tests" / "fixtures" / "cei"
+COMMITTED = REPO / "config" / "cei"
+
+sys.path.insert(0, str(PIPELINES))
+
+from cei import catalog, cli, generate  # noqa: E402
+from cei._contract import (  # noqa: E402
+    FACTORY,
+    FINDING_CATALOG_SHA256_MISMATCH,
+    FINDING_DESTINATION_EXISTS,
+    FINDING_DESTINATION_UNDER_RAW,
+    FINDING_PLANT_NOT_FOUND,
+    FINDING_SOURCE_NOT_PARSEABLE,
+    FINDING_USAGE,
+    GENERATOR,
+    MILL_PREFIX,
+    SOURCE_COMMIT,
+    SOURCE_MILL_ID,
+    SOURCE_PATH,
+    SOURCE_ROUND,
+    CeiRefusal,
+)
+from mill_family import REVIEWED_MILL_PREFIX_HOMES, mill_prefix  # noqa: E402
+from record_kind import classify_kind  # noqa: E402
+
+EXPECTED_OK_SLUGS = (
+    "csv-sniffer-vs-header",
+    "xlsx-date1904-vs-serial",
+    "parquet-bloom-vs-stats",
+    "geojson-crs84-vs-bbox",
+    "shapefile-shx-vs-dbf",
+    "las-vlr-vs-point",
+    "netcdf-cf-vs-coord",
+    "fits-header-vs-table",
+    "sqlite-schema-vs-pages",
+    "csv-escape-vs-quote",
+    "xlsx-defined-name-vs-used",
+    "arrow-schema-vs-body",
+    "csv-byte-order-vs-utf8",
+    "xlsx-pivotcache-vs-sheet",
+    "jsonl-schema-vs-row",
+    "xlsx-theme-vs-cellfill",
+    "csv-rfc4180-vs-split",
+    "parquet-dict-vs-plain",
+    "xlsx-table-vs-list",
+    "csv-skipinitial-vs-pad",
+    "csv-lineterm-vs-row",
+    "xlsx-comments-vs-cell",
+    "parquet-pageidx-vs-rowgroup",
+    "wkt-vs-wkb",
+    "csv-strict-vs-rest",
+    "xlsx-autofilter-vs-used",
+    "csv-unix-vs-excel",
+    "parquet-int96-vs-ts",
+    "xlsx-hyperlink-vs-text",
+    "csv-doublequote-vs-escape",
+    "xlsx-phonetic-vs-run",
+    "csv-fieldsize-vs-chunk",
+    "xlsx-datavalid-vs-cell",
+    "csv-restval-vs-pad",
+    "xlsx-sparkline-vs-chart",
+    "csv-dialect-register-vs-excel",
+    "xlsx-customxml-vs-sheet",
+    "csv-quoting-none-vs-min",
+    "xlsx-vml-vs-comment",
+)
+
+TINY_SOURCE = """
+CATALOG_FIRST = 7
+PAIRS = [
+    (
+        _ok(
+            "tiny-csv-sniffer",
+            "Honor csv.Sniffer dialect.",
+            "csvsni",
+            "csv.Sniffer dialect",
+            "https://docs.python.org/3/library/csv.html",
+            "return {'header': True}",
+            "    return {'header': False}",
+            "    return {'kind': 'csvsni', 'dialect': 'sniffed'}",
+        ),
+        _bad(
+            "tiny-dbase-handoff",
+            "Hand off dBase memo.",
+            "dbfmem",
+            "dBase memo .dbt",
+            "https://example.test/dbt",
+            "return {'rows': True}",
+            "    return {'rows': False}",
+            "DBF-TINY-7",
+        ),
+    )
+]
+"""
+
+
+def invoke(argv):
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli.run(argv)
+    return code, out.getvalue(), err.getvalue()
+
+
+class CatalogLoading(unittest.TestCase):
+    def test_committed_catalog_loads_thirty_nine_ast_extracted_pairs(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        self.assertEqual(loaded.catalog_id, "cei-pairs-v1")
+        self.assertEqual(loaded.factory, FACTORY)
+        self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
+        self.assertEqual(len(loaded.plants), 39)
+        self.assertEqual(len(loaded.mills), 1)
+        self.assertEqual([plant.ok.slug for plant in loaded.plants], list(EXPECTED_OK_SLUGS))
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 39)
+        slugs = [plant.ok.slug for plant in loaded.plants] + [
+            plant.bad.slug for plant in loaded.plants
+        ]
+        self.assertEqual(len(set(slugs)), 78)
+        self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
+        self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
+        self.assertEqual(loaded.mills[0].mill_id, SOURCE_MILL_ID)
+        self.assertEqual(loaded.mills[0].base_round, SOURCE_ROUND)
+        self.assertEqual(loaded.plants[0].bad.ticket, "DBF-MEMO-81")
+        self.assertEqual(loaded.plants[-1].ok.slug, "xlsx-vml-vs-comment")
+
+    def test_fixture_catalog_is_one_pair(self):
+        loaded = catalog.load_catalog(FIXTURE)
+        self.assertEqual(loaded.catalog_id, "cei-fixture-v1")
+        self.assertEqual(len(loaded.plants), 1)
+        self.assertEqual(loaded.plants[0].plant_id, "cei_r0001:csv-sniffer-vs-header")
+        self.assertEqual(loaded.plants[0].ok.mod, "csvsni")
+        self.assertEqual(loaded.plants[0].bad.ticket, "DBF-MEMO-81")
+
+    def test_pin_mismatch_is_a_coded_refusal(self):
+        root = Path(tempfile.mkdtemp(prefix="cei-pin-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        dest = root / "catalog"
+        shutil.copytree(FIXTURE, dest)
+        meta_path = dest / catalog.CATALOG_FILENAME
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["plants_sha256"] = "0" * 64
+        meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        with self.assertRaises(CeiRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_SHA256_MISMATCH)
+
+    def test_unknown_plant_is_a_coded_refusal(self):
+        loaded = catalog.load_catalog(FIXTURE)
+        with self.assertRaises(CeiRefusal) as caught:
+            loaded.plant("cei_r0001:missing")
+        self.assertEqual(caught.exception.code, FINDING_PLANT_NOT_FOUND)
+
+
+class AstExtract(unittest.TestCase):
+    def test_plants_from_source_reads_ok_bad_calls_and_skips_exec(self):
+        rows = catalog.plants_from_source(
+            TINY_SOURCE, mill_id="cei_r0007", source="tiny_source.py"
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["plant_id"], "cei_r0007:tiny-csv-sniffer")
+        self.assertEqual(rows[0]["base_round"], 7)
+        self.assertEqual(rows[0]["ok"]["domain"], "tiny-csv-sniffer-dialect-index")
+        self.assertEqual(rows[0]["bad"]["ticket"], "DBF-TINY-7")
+        self.assertIn(rows[0]["ok"]["first_old"], rows[0]["ok"]["src_body"])
+        self.assertNotIn("exec", TINY_SOURCE)
+
+    def test_plants_from_source_refuses_a_non_literal_call(self):
+        source = "PAIRS = [(_ok(other()), _bad('x'))]\n"
+        with self.assertRaises(CeiRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="cei_r0001", source="bad.py")
+        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+
+    def test_committed_catalog_matches_legacy_ast(self):
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"origin/legacy-mill-lane:{SOURCE_PATH}"],
+                cwd=REPO,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        rows = catalog.plants_from_source(
+            text, mill_id=SOURCE_MILL_ID, source=SOURCE_PATH, base_round=SOURCE_ROUND
+        )
+        loaded = catalog.load_catalog(COMMITTED)
+        self.assertEqual(len(rows), 39)
+        for row, plant in zip(rows, loaded.plants, strict=True):
+            self.assertEqual(row["ok"]["slug"], plant.ok.slug)
+            self.assertEqual(row["bad"]["slug"], plant.bad.slug)
+            self.assertEqual(row["ok"]["stack"], plant.ok.stack)
+            self.assertEqual(row["bad"]["ticket"], plant.bad.ticket)
+            self.assertEqual(row["ok"]["first_old"], plant.ok.first_old)
+            self.assertEqual(row["ok"]["fix_new"], plant.ok.fix_new)
+
+    def test_package_tree_has_no_leftover_mill_scripts(self):
+        hits = list((PIPELINES / "cei").rglob("*leftover*_mill.py"))
+        self.assertEqual(hits, [])
+        self.assertEqual(list((REPO / "config" / "cei").rglob("*leftover*_mill.py")), [])
+        self.assertEqual(list((PIPELINES / "cei").rglob("*mill*.py")), [])
+        names = tuple(
+            sorted(path.name for path in (PIPELINES / "cei").iterdir() if path.suffix == ".py")
+        )
+        self.assertEqual(
+            names, ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py")
+        )
+
+
+class GeneratePairs(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="cei-gen-"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_fixture_pair_is_an_episode_and_not_hosted_grok(self):
+        dest = self.root / "out"
+        request = generate.GenerateRequest(
+            FIXTURE, dest, plant_id="cei_r0001:csv-sniffer-vs-header", round=81
+        )
+        summary = generate.run(request)
+        self.assertEqual(summary["records"], 2)
+        self.assertEqual(summary["pairs"], 1)
+        self.assertEqual(summary["generator"], GENERATOR)
+        self.assertNotEqual(GENERATOR, "grok-4.6")
+        lines = (dest / generate.RECORDS_FILENAME).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        ok, bad = [json.loads(line) for line in lines]
+        self.assertEqual(ok["id"], "cei-r81-csv-sniffer-vs-header")
+        self.assertEqual(bad["id"], "cei-r81-dbase-memo-handoff")
+        self.assertEqual(classify_kind(ok), "episode")
+        self.assertEqual(classify_kind(bad), "episode")
+        self.assertEqual(mill_prefix(ok), "cei")
+        self.assertEqual(mill_prefix(bad), "cei")
+        self.assertFalse(ok["id"].startswith("sir-"))
+        self.assertFalse(ok["id"].startswith("dbc-"))
+        self.assertTrue(ok["reward"]["success"])
+        self.assertFalse(bad["reward"]["success"])
+        self.assertEqual(len(ok["steps"]), 16)
+        self.assertEqual(len(bad["steps"]), 17)
+        self.assertEqual(ok["meta"]["factory"], FACTORY)
+        self.assertEqual(ok["meta"]["generator"], GENERATOR)
+        self.assertNotEqual(ok["meta"]["generator"], "grok-4.6")
+        self.assertEqual(ok["steps"][0]["decision_basis"][:5], "Plan:")
+        notes = (dest / generate.NOTES_FILENAME).read_text(encoding="utf-8")
+        self.assertIn("Novel coverage: 84%", notes)
+        self.assertIn(GENERATOR, notes)
+        self.assertNotIn("grok-4.6", notes)
+
+    def test_default_round_is_catalog_first_plus_index(self):
+        dest = self.root / "default-round"
+        generate.run(
+            generate.GenerateRequest(FIXTURE, dest, plant_id="cei_r0001:csv-sniffer-vs-header")
+        )
+        lines = (dest / generate.RECORDS_FILENAME).read_text(encoding="utf-8").splitlines()
+        ok = json.loads(lines[0])
+        self.assertEqual(ok["id"], "cei-r1-csv-sniffer-vs-header")
+        self.assertEqual(ok["meta"]["round"], 1)
+
+    def test_existing_destination_is_refused(self):
+        dest = self.root / "exists"
+        dest.mkdir()
+        with self.assertRaises(CeiRefusal) as caught:
+            generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+        self.assertEqual(caught.exception.code, FINDING_DESTINATION_EXISTS)
+
+    def test_destination_under_raw_is_refused(self):
+        dest = self.root / "outputs" / "raw" / "cei-out"
+        with self.assertRaises(CeiRefusal) as caught:
+            generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+        self.assertEqual(caught.exception.code, FINDING_DESTINATION_UNDER_RAW)
+        self.assertFalse(dest.exists())
+
+    def test_generate_requires_exactly_one_selector(self):
+        dest = self.root / "none"
+        with self.assertRaises(CeiRefusal) as caught:
+            generate.run(generate.GenerateRequest(FIXTURE, dest))
+        self.assertEqual(caught.exception.code, FINDING_USAGE)
+
+
+class CliSurface(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="cei-cli-"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_catalog_check_json_on_the_fixture(self):
+        code, out, err = invoke(["catalog-check", "--catalog", str(FIXTURE), "--json"])
+        self.assertEqual((code, err), (0, ""))
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["plants"], 1)
+        self.assertEqual(payload["findings"], [])
+
+    def test_catalog_json_lists_the_fixture_pair(self):
+        code, out, err = invoke(["catalog", "--catalog", str(FIXTURE), "--json"])
+        self.assertEqual((code, err), (0, ""))
+        payload = json.loads(out)
+        self.assertEqual(payload["plants"][0]["ok"], "csv-sniffer-vs-header")
+        self.assertEqual(payload["plants"][0]["ticket"], "DBF-MEMO-81")
+
+    def test_generate_json_writes_the_pair(self):
+        dest = self.root / "cli-out"
+        code, out, err = invoke(
+            [
+                "generate",
+                "--catalog",
+                str(FIXTURE),
+                "--out",
+                str(dest),
+                "--plant",
+                "cei_r0001:csv-sniffer-vs-header",
+                "--json",
+            ]
+        )
+        self.assertEqual((code, err), (0, ""))
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["summary"]["records"], 2)
+        self.assertTrue((dest / generate.RECORDS_FILENAME).is_file())
+
+    def test_missing_catalog_is_exit_two_and_json_on_stdout(self):
+        code, out, err = invoke(["catalog-check", "--catalog", "/nonexistent/cei", "--json"])
+        self.assertEqual((code, err), (2, ""))
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "refused")
+        self.assertTrue(payload["code"].startswith("cei."))
+
+
+class ImportTwins(unittest.TestCase):
+    def test_flat_and_package_catalog_are_one_object(self):
+        if str(REPO) not in sys.path:
+            sys.path.insert(0, str(REPO))
+        import pipelines.cei.catalog as packaged
+
+        self.assertIs(packaged, catalog)
+
+
+if __name__ == "__main__":
+    unittest.main()
