@@ -858,6 +858,54 @@ def _package_operator_paths() -> ModuleType:
     return module
 
 
+def _direct_round_txn_agentic() -> ModuleType:
+    import round_txn_agentic as module
+
+    return module
+
+
+def _package_round_txn_agentic() -> ModuleType:
+    import pipelines.round_txn_agentic as module
+
+    return module
+
+
+def _direct_round_txn_agentic_terms() -> ModuleType:
+    import round_txn_agentic_terms as module
+
+    return module
+
+
+def _package_round_txn_agentic_terms() -> ModuleType:
+    import pipelines.round_txn_agentic_terms as module
+
+    return module
+
+
+def _direct_round_txn_agentic_types() -> ModuleType:
+    import round_txn_agentic_types as module
+
+    return module
+
+
+def _package_round_txn_agentic_types() -> ModuleType:
+    import pipelines.round_txn_agentic_types as module
+
+    return module
+
+
+def _direct_round_txn_agentic_cascade() -> ModuleType:
+    import round_txn_agentic_cascade as module
+
+    return module
+
+
+def _package_round_txn_agentic_cascade() -> ModuleType:
+    import pipelines.round_txn_agentic_cascade as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1054,6 +1102,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     ),
     "validate_run": (_direct_validate_run, _package_validate_run),
     "operator_paths": (_direct_operator_paths, _package_operator_paths),
+    "round_txn_agentic": (_direct_round_txn_agentic, _package_round_txn_agentic),
+    "round_txn_agentic_terms": (_direct_round_txn_agentic_terms, _package_round_txn_agentic_terms),
+    "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
+    "round_txn_agentic_cascade": (_direct_round_txn_agentic_cascade, _package_round_txn_agentic_cascade),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (
