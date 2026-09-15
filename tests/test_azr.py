@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/azr`` skeleton (no vendored mills)."""
+"""PR-a/PR-b: AST catalog extract, skeleton, and deferred ``pairs.jsonl``."""
 
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from azr.catalog import CATALOG  # noqa: E402
+from azr.catalog import CATALOG, load_catalog  # noqa: E402
 from azr.catalog_extract import (  # noqa: E402
     SHAPE_IDOR_BFLA,
     SHAPE_IDOR_BFLA_COMPOSE,
@@ -23,11 +24,15 @@ from azr.catalog_extract import (  # noqa: E402
     SHAPE_SLICE,
     catalog_document,
     catalog_json_path,
+    deferred_pair_rows,
     dumps_catalog,
+    dumps_pairs_jsonl,
     extract_companion_path,
     extract_mill_catalog,
     extract_plant_catalog,
     mill_summary,
+    pair_identity,
+    pairs_jsonl_path,
 )
 from azr.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from azr.sources import (  # noqa: E402
@@ -293,13 +298,63 @@ class AzrSkeletonTests(unittest.TestCase):
         self.assertEqual(r1181.last_slug, "jackson-isadmin-missing-jsonignore")
         self.assertEqual(len(r1181.pairs), 13)
         self.assertEqual(r1181.pairs[0]["fail_slug"], "openfga-unshare-write-not-delete")
+        self.assertEqual(CATALOG.n_deferred_pair_rows, av.DEFERRED_PAIR_ROWS)
+        bulky = CATALOG.mills[av.BULKY_MILL_ID]
+        self.assertEqual(bulky.n_rows, av.BULKY_N_ROWS)
+        self.assertEqual(len(bulky.pairs), av.BULKY_N_ROWS)
         self.assertEqual(CATALOG.mills["azr-mill-r1193"].n_rows, 12)
         self.assertEqual(CATALOG.mills["azr-mill-r1205"].n_rows, 160)
         self.assertEqual(CATALOG.mills["azr-mill-r1205"].shape, SHAPE_IDOR_BFLA_COMPOSE)
         self.assertEqual(CATALOG.mills["azr-mill-r1245"].n_rows, 20)
         self.assertEqual(CATALOG.mills["azr-mill-r1285"].first_slug, "icd10-dx-idor")
         self.assertEqual(CATALOG.mills["azr-mill-r1365"].first_slug, "mgrs-grid-idor")
-        self.assertFalse(CATALOG.mills["azr-mill-r2320"].pairs)
+        self.assertEqual(len(CATALOG.mills["azr-mill-r2320"].pairs), 80)
+
+    def test_header_omits_deferred_pair_bodies(self):
+        header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        self.assertEqual(header["slice"], av.SLICE_ID)
+        self.assertEqual(header["n_pair_rows"], 1333)
+        for mill_id, row in header["mills"].items():
+            if mill_id == av.SLICE_MILL_ID:
+                self.assertEqual(len(row["pairs"]), 13)
+            else:
+                self.assertNotIn("pairs", row, mill_id)
+
+    def test_pairs_jsonl_stays_compact(self):
+        path = pairs_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), av.DEFERRED_PAIR_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        parsed = []
+        seen = set()
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(av.PAIR_ROW_KEYS))
+            key = (row["mill_id"], row["success_slug"])
+            self.assertNotIn(key, seen)
+            seen.add(key)
+            parsed.append(row)
+        self.assertNotIn(av.SLICE_MILL_ID, {row["mill_id"] for row in parsed})
+        bulky_rows = [row for row in parsed if row["mill_id"] == av.BULKY_MILL_ID]
+        self.assertEqual(len(bulky_rows), av.BULKY_N_ROWS)
+        self.assertEqual(bulky_rows[0]["success_slug"], "vin-vehicle-title-idor")
+        self.assertEqual(bulky_rows[-1]["success_slug"], "geohash-cell-idor")
+
+    def test_loader_fails_closed_on_a_missing_pair_field(self):
+        header = catalog_json_path().read_text(encoding="utf-8")
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        del first["success_slug"]
+        lines[0] = json.dumps(first, separators=(",", ":"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(header, encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "keys differ"):
+                load_catalog(dest / "CATALOG.json")
 
 
 def _loop_suffixes() -> set[str]:
@@ -335,6 +390,7 @@ class AzrLegacyExtractTests(unittest.TestCase):
             self.skipTest("origin/legacy-mill-lane is not fetched")
         plants = _plant_texts()
         mills = []
+        extracts = []
         for source in catalog_sources():
             text = _show(source.path)
             blob = subprocess.check_output(
@@ -356,10 +412,20 @@ class AzrLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            mills.append(mill_summary(live, include_pairs=source.mill_id == "azr-mill-r1181"))
+            self.assertEqual(
+                [pair_identity(pair) for pair in live["pairs"]],
+                list(committed.pairs),
+                source.mill_id,
+            )
+            extracts.append(live)
+            mills.append(mill_summary(live, include_pairs=source.mill_id == av.SLICE_MILL_ID))
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_pairs_jsonl(deferred_pair_rows(extracts)),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
         )
 
     def test_loop_and_gen_scripts_name_companions(self):
