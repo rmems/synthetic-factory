@@ -3,7 +3,7 @@
 
 ``pair`` is the AST-extracted divergence-point DPO constructor from
 ``crp-mill-r432`` (PR numbering anchored at ``PAIR_FIRST_ROUND``). The
-leftover3 catalog and the r432 compact JSONL slice supply the plants,
+leftover3 catalog and the r432 / r538 compact JSONL slices supply the plants,
 including ``noun``. Writers refuse an existing destination and any path
 that names or aliases ``outputs/raw/``.
 """
@@ -17,6 +17,7 @@ from typing import Any
 
 from . import catalog as cat
 from . import r432 as r432_cat
+from . import r538 as r538_cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
     FINDING_DESTINATION_EXISTS,
@@ -495,6 +496,17 @@ def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]
             r432_cat.RUN_FORMAT,
             "r432 application-bug stretch",
         )
+    if (
+        type(round_n) is int
+        and r538_cat.WAVE_FIRST_ROUND <= round_n <= r538_cat.WAVE_LAST_ROUND
+        and round_n > r432_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r538_cat.plants_for_round(round_n),
+            r538_cat.CATALOG_ID,
+            r538_cat.RUN_FORMAT,
+            "r538 orchestration/data-platform stretch",
+        )
     return (
         cat.plants_for_round(round_n),
         cat.CATALOG_ID,
@@ -549,7 +561,7 @@ def _dump_line(record: dict[str, Any]) -> str:
 
 
 def run(request: RunRequest) -> dict[str, Any]:
-    """Write one leftover3 or r432 triple into a new directory. Never touches raw."""
+    """Write one leftover3, r432, or r538 triple into a new directory. Never touches raw."""
 
     out_dir = Path(request.out_dir)
     _check_destination(out_dir)

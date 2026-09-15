@@ -56,7 +56,7 @@ class PackageShape(unittest.TestCase):
         names = {path.name for path in PACKAGE.glob("*.py")}
         self.assertEqual(
             names,
-            {"__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py", "r432.py"},
+            {"__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py", "r432.py", "r538.py"},
         )
         self.assertEqual(list(PACKAGE.glob("crp-mill*.py")), [])
         self.assertEqual([p.name for p in PACKAGE.glob("*mill*.py")], [])
