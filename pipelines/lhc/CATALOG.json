@@ -284,7 +284,7 @@
   "n_mills": 134,
   "n_pair_rows": 1326,
   "n_plant_rows": 2652,
-  "preserve_commit": "e1d2e7b4d70eeb103301ba3f6a134fbb61f62b0a",
+  "preserve_commit": "813f93f1969c1c4421e5663492e9663739efa642",
   "schema": "lhc-catalog-extract/v1",
   "slice": "w4x-r4358",
   "source_ref": "origin/legacy-mill-lane"

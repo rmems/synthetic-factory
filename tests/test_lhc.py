@@ -172,7 +172,7 @@ class LhcSkeletonTests(unittest.TestCase):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[cv.FAMILY_PREFIX], cv.FACTORY)
         self.assertEqual(cv.FACTORY, "long-horizon-coding-factory")
         self.assertEqual(cv.GENERATOR, "grok-4.6")
-        self.assertEqual(cv.PRESERVE_COMMIT, "e1d2e7b4d70eeb103301ba3f6a134fbb61f62b0a")
+        self.assertEqual(cv.PRESERVE_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
         self.assertEqual(cv.SLICE_ID, "w4x-r4358")
 
     def test_one_hundred_thirty_four_catalog_sources(self):

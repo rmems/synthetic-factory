@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Pinned inventory of the 134 LHC scripts on ``legacy-mill-lane``.
 
-Blob SHAs are the preserve-commit objects (``vocabulary.PRESERVE_COMMIT``);
-they are byte-identical on ``origin/legacy-mill-lane`` tip. Paths are
+Blob SHAs are the preserve-commit objects (``vocabulary.PRESERVE_COMMIT``).
+The 134 ``lhc-mill*.py`` blobs are byte-identical on ``e1d2e7b4`` and
+``813f93f1`` (``origin/legacy-mill-lane`` tip). Paths are
 ``experiments/<mill_id>.py``. The mill publishers themselves are not vendored.
 """
 
