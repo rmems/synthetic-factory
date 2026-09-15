@@ -17,13 +17,16 @@ from .catalog_extract import (
     plants_jsonl_path,
 )
 from .sources import MILL_SOURCES, MillSource, catalog_sources
+from .catalog_extract import is_representative_pair_row
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     CATALOG_SLICE,
+    DEFERRED_PAIR_KEYS,
     FACTORY,
     GENERATOR,
     PRESERVE_COMMIT,
     REPRESENTATIVE_PAIR_POLICY,
+    SLICE_PAIR_ROWS,
 )
 
 
@@ -72,7 +75,7 @@ def load_catalog(path: Path | None = None) -> DprCatalog:
     document = _load_header(catalog_path)
     package_dir = catalog_path.parent
     plants = _rows_by_mill(_load_jsonl(plants_jsonl_path(package_dir)))
-    pairs = _rows_by_mill(_load_jsonl(pairs_jsonl_path(package_dir)))
+    pairs = _merge_pair_rows(_load_pair_jsonl(pairs_jsonl_path(package_dir)))
     mills = {
         mill_id: _mill_from_row(row, plants.get(mill_id, ()), pairs.get(mill_id, ()))
         for mill_id, row in document["mills"].items()
@@ -109,6 +112,48 @@ def _refuse_header_identity(document: Mapping[str, Any], catalog_path: Path) -> 
     for key, value in expected.items():
         if document.get(key) != value:
             raise ValueError(f"{catalog_path} {key} drifted from vocabulary")
+
+
+def _load_pair_jsonl(path: Path) -> dict[str, tuple[Mapping[str, Any], ...]]:
+    text = path.read_text(encoding="utf-8")
+    _refuse_jsonl_framing(path, text)
+    representative: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        row = _parse_jsonl_row(path, index, line)
+        if is_representative_pair_row(row):
+            representative.append(row)
+        else:
+            deferred.append(_parse_deferred_pair_row(path, index, row))
+    if len(representative) != SLICE_PAIR_ROWS:
+        raise ValueError(f"{path.name} representative rows {len(representative)} != {SLICE_PAIR_ROWS}")
+    rep_by_mill = _rows_by_mill(representative)
+    def_by_mill = _rows_by_mill(deferred)
+    merged: dict[str, tuple[Mapping[str, Any], ...]] = {}
+    for mill_id in set(rep_by_mill) | set(def_by_mill):
+        rep = list(rep_by_mill.get(mill_id, ()))
+        body = list(def_by_mill.get(mill_id, ()))
+        policy = REPRESENTATIVE_PAIR_POLICY.get(mill_id)
+        if policy == "all":
+            merged[mill_id] = tuple(rep)
+        elif policy == "ends":
+            if len(rep) != 2:
+                raise ValueError(f"{mill_id} representative ends slice must have 2 rows")
+            merged[mill_id] = tuple([rep[0], *body, rep[1]])
+        else:
+            merged[mill_id] = tuple(body)
+    return merged
+
+
+def _parse_deferred_pair_row(path: Path, index: int, row: Mapping[str, Any]) -> dict[str, Any]:
+    keys = set(row.keys())
+    if keys != set(DEFERRED_PAIR_KEYS):
+        raise ValueError(f"{path.name}:{index} deferred keys drifted")
+    return dict(row)
+
+
+def _merge_pair_rows(grouped: dict[str, tuple[Mapping[str, Any], ...]]) -> dict[str, tuple[Mapping[str, Any], ...]]:
+    return grouped
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -170,15 +215,6 @@ def _mill_from_row(
     )
 
 
-def _expected_committed_pairs(mill: MillCatalog) -> int:
-    policy = REPRESENTATIVE_PAIR_POLICY.get(mill.mill_id)
-    if policy == "all":
-        return mill.n_rows
-    if policy == "ends":
-        return 2 if mill.n_rows > 1 else mill.n_rows
-    return 0
-
-
 def _refuse_end_slugs(mill: MillCatalog, rows: Sequence[Mapping[str, Any]]) -> None:
     if rows[0]["slug"] != mill.first_slug:
         raise ValueError(f"{mill.mill_id} first committed row drifted from header")
@@ -193,10 +229,9 @@ def _bind_plants(mill: MillCatalog) -> None:
 
 
 def _bind_pairs(mill: MillCatalog) -> None:
-    expected_pairs = _expected_committed_pairs(mill)
-    if len(mill.pairs) != expected_pairs:
+    if len(mill.pairs) != mill.n_rows:
         raise ValueError(
-            f"{mill.mill_id} committed {len(mill.pairs)} pairs, expected {expected_pairs}"
+            f"{mill.mill_id} committed {len(mill.pairs)} pairs, expected {mill.n_rows}"
         )
     if mill.pairs:
         _refuse_end_slugs(mill, mill.pairs)

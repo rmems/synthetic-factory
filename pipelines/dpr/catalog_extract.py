@@ -369,6 +369,39 @@ def mill_header(mill: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in mill.items() if key not in {"pairs", "plants"}}
 
 
+def is_representative_pair_row(row: Mapping[str, Any]) -> bool:
+    return "ok" in row
+
+
+def compact_deferred_pair(mill_id: str, path: str, pair: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "fail_slug": pair["fail_slug"],
+        "mill_id": mill_id,
+        "path": path,
+        "slug": pair["slug"],
+    }
+
+
+def select_deferred_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    ordered = sorted(
+        (mill for mill in mills if mill.get("kind") == KIND_PAIRS),
+        key=lambda mill: (mill.get("catalog_first") or 0, mill["mill_id"]),
+    )
+    rows: list[dict[str, Any]] = []
+    for mill in ordered:
+        policy = REPRESENTATIVE_PAIR_POLICY.get(mill["mill_id"])
+        if policy == "all":
+            continue
+        pairs = list(mill.get("pairs") or ())
+        if policy == "ends":
+            if len(pairs) <= 2:
+                continue
+            pairs = pairs[1:-1]
+        for pair in pairs:
+            rows.append(compact_deferred_pair(mill["mill_id"], mill["path"], pair))
+    return rows
+
+
 def select_representative_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for mill in mills:
@@ -398,8 +431,10 @@ def select_representative_plant_rows(mills: list[Mapping[str, Any]]) -> list[dic
 def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills if mill["kind"] == KIND_PAIRS)
     plant_rows = sum(mill["n_rows"] for mill in mills if mill["kind"] == KIND_PLANTS)
-    committed_pairs = select_representative_pair_rows(mills)
     committed_plants = select_representative_plant_rows(mills)
+    committed_pairs = len(select_representative_pair_rows(mills)) + len(
+        select_deferred_pair_rows(mills)
+    )
     return {
         "schema": CATALOG_SCHEMA_ID,
         "slice": CATALOG_SLICE,
@@ -410,7 +445,7 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "n_mills": len(mills),
         "n_pair_rows": pair_rows,
         "n_plant_rows": plant_rows,
-        "committed_pair_rows": len(committed_pairs),
+        "committed_pair_rows": committed_pairs,
         "committed_plant_rows": len(committed_plants),
         "excluded_kinds": [KIND_HOPPER, KIND_LOOP, KIND_GEN],
         "mills": {mill["mill_id"]: mill_header(mill) for mill in mills},
