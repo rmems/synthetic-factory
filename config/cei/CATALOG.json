@@ -9,10 +9,16 @@
       "mill_id": "cei_r81",
       "plant_count": 39,
       "source": "experiments/cei-mill-r81.py"
+    },
+    {
+      "base_round": 48,
+      "mill_id": "cei_r48",
+      "plant_count": 16,
+      "source": "experiments/cei_r48_mill.py"
     }
   ],
-  "plant_count": 39,
-  "plants_sha256": "4f8cd699063d8f9c6c1b24e217a38be8e2e818a3be1f21bb53efb7ca583edde4",
+  "plant_count": 55,
+  "plants_sha256": "06a5799cc1b360d801eb1e8ad5d113da78f10b44fb49cdcfd16d26b5b3baed36",
   "quota_per_round": 2,
   "record_kind": "episode",
   "source": {
@@ -20,7 +26,8 @@
     "method": "git-show+ast.parse",
     "ref": "legacy-mill-lane",
     "scripts": [
-      "experiments/cei-mill-r81.py"
+      "experiments/cei-mill-r81.py",
+      "experiments/cei_r48_mill.py"
     ]
   }
 }

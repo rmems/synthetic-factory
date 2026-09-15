@@ -2,10 +2,11 @@
 """Pinned CEI pair catalog: load, pin, and AST-extract (never exec).
 
 A catalog directory holds ``CATALOG.json`` (identity, factory, mill pins)
-and ``plants.jsonl`` (one ``_ok``/``_bad`` pair per line). Load verifies
-the plants digest and every required field before a pair is trusted.
-Historical hop-mill scripts are read only as text through
-:func:`plants_from_source`.
+and ``plants.jsonl`` (one pair per line). Load verifies the plants digest
+and every required field before a pair is trusted. Historical hop-mill
+and leftover leftover leftover scripts are read only as text through
+:func:`plants_from_source`. Hop-loop and leftover leftover leftover
+leftover3 importers are refused.
 """
 
 from __future__ import annotations
@@ -25,18 +26,29 @@ from ._contract import (
     BANNED_SLUG_BITS,
     CATALOG_FILENAME,
     CATALOG_FORMAT,
+    DEFERRED_LEFTOVER3_MARKERS,
     FACTORY,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_FACTORY_NOT_REGISTERED,
+    FINDING_LEFTOVER3_EXEC,
+    FINDING_LOOP_REFUSED,
     FINDING_MILL_NOT_FOUND,
     FINDING_PLANT_DUPLICATE_ID,
     FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
+    FOREIGN_LEFTOVER3_IMPORTS,
+    LEFTOVER3_BAD_KEYS,
+    LEFTOVER3_BANNED_SLUGS,
+    LEFTOVER3_CALL,
+    LEFTOVER3_OK_KEYS,
+    LEFTOVER3_SHAPE,
+    LEFTOVER3_WRONG,
+    LOOP_NAME_MARKERS,
     MILL_PREFIX,
     NOVEL_COVERAGE_BAD,
     NOVEL_COVERAGE_OK,
@@ -46,7 +58,10 @@ from ._contract import (
     PLANTS_FILENAME,
     QUOTA_PER_ROUND,
     RECORD_KIND,
+    SHAPE_OK_BAD,
     SOURCE_ROUND,
+    S_BAD_ARG_NAMES,
+    S_OK_ARG_NAMES,
     CeiRefusal,
     bind_import_twin,
     load_strict_json,
@@ -58,12 +73,14 @@ SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 __all__ = [
     "Catalog",
+    "Leftover3Side",
     "Mill",
     "Plant",
     "Side",
     "catalog_check",
     "default_catalog_dir",
     "expand_bad",
+    "expand_leftover3",
     "expand_ok",
     "load_catalog",
     "plants_from_source",
@@ -116,6 +133,41 @@ class Side:
 
 
 @dataclass(frozen=True)
+class Leftover3Side:
+    """One leftover leftover leftover ``S()`` spec from ``cei_r48_mill``."""
+
+    slug: str
+    mod: str
+    file: str
+    leftover: str
+    naive: str
+    wrong: str
+    wrong2: str
+    fix: str
+    test: str
+    url: str
+    url2: str
+    doc: str
+    doc2: str
+    fail1: str
+    fail2: str
+    plan: str
+    goal: str
+    domain: str
+    stack: str
+    outcome: str
+    chg: str
+    ticket: str | None = None
+
+    def as_mapping(self) -> dict[str, Any]:
+        payload = {key: getattr(self, key) for key in LEFTOVER3_OK_KEYS if key != "ok"}
+        payload["ok"] = self.outcome
+        if self.ticket is not None:
+            payload["ticket"] = self.ticket
+        return payload
+
+
+@dataclass(frozen=True)
 class Plant:
     """One AST-extracted CEI pair (success side + handoff side)."""
 
@@ -124,8 +176,9 @@ class Plant:
     source: str
     base_round: int
     index: int
-    ok: Side
-    bad: Side
+    shape: str
+    ok: Side | Leftover3Side
+    bad: Side | Leftover3Side
 
 
 @dataclass(frozen=True)
@@ -269,6 +322,24 @@ def expand_bad(args: Mapping[str, Any]) -> dict[str, Any]:
     return row
 
 
+def expand_leftover3(args: Mapping[str, Any], *, ticket_required: bool) -> dict[str, Any]:
+    """Faithful ``S()`` expansion from ``cei_r48_mill``. Never exec."""
+
+    names = S_BAD_ARG_NAMES if ticket_required else S_OK_ARG_NAMES
+    missing = [name for name in names if name not in args]
+    if missing:
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"S() missing {missing[0]}")
+    extra = {key: args[key] for key in args if key not in names}
+    row = {key: args[key] for key in names}
+    row.setdefault("wrong", LEFTOVER3_WRONG)
+    row.update(extra)
+    if ticket_required and not isinstance(row.get("ticket"), str):
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "S() handoff missing ticket")
+    if not ticket_required and "ticket" in row:
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "S() success side must omit ticket")
+    return row
+
+
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. Never exec, compile, or eval."""
 
@@ -323,6 +394,56 @@ def _refuse_banned_slug(slug: str, domain: str, where: str) -> None:
             raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} carries banned {bit!r}")
 
 
+def _refuse_leftover3_slug(slug: str, where: str) -> None:
+    if slug in LEFTOVER3_BANNED_SLUGS:
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} slug is banned {slug!r}")
+
+
+def _source_filename(source: str) -> str:
+    return Path(source).name.lower()
+
+
+def _refuse_loop_or_foreign_leftover3(text: str, source: str) -> None:
+    """Refuse hop-loop and leftover leftover leftover leftover3 exec/import."""
+
+    name = _source_filename(source)
+    if any(marker in name for marker in LOOP_NAME_MARKERS):
+        raise CeiRefusal(FINDING_LOOP_REFUSED, f"{source} is a hop-loop, not a catalog")
+    if any(marker in name for marker in DEFERRED_LEFTOVER3_MARKERS):
+        raise CeiRefusal(
+            FINDING_LEFTOVER3_EXEC,
+            f"{source} leftover leftover leftover leftover3 mill is not this slice",
+        )
+    for marker in FOREIGN_LEFTOVER3_IMPORTS:
+        if marker in text:
+            raise CeiRefusal(
+                FINDING_LEFTOVER3_EXEC,
+                f"{source} leftover leftover leftover leftover3 imports a foreign mill",
+            )
+
+
+def _is_named_call(node: ast.AST, name: str) -> bool:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+
+
+def _is_ok_bad_pair(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Tuple)
+        and len(node.elts) == 2
+        and _is_named_call(node.elts[0], OK_CALL)
+        and _is_named_call(node.elts[1], BAD_CALL)
+    )
+
+
+def _is_s_pair(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Tuple)
+        and len(node.elts) == 2
+        and _is_named_call(node.elts[0], LEFTOVER3_CALL)
+        and _is_named_call(node.elts[1], LEFTOVER3_CALL)
+    )
+
+
 def plants_from_source(
     text: str,
     *,
@@ -330,8 +451,9 @@ def plants_from_source(
     source: str,
     base_round: int | None = None,
 ) -> tuple[dict[str, Any], ...]:
-    """AST-extract ``PAIRS`` of ``_ok``/``_bad`` calls. Never exec."""
+    """AST-extract ``PAIRS`` of ``_ok``/``_bad`` or leftover leftover leftover ``S()``. Never exec."""
 
+    _refuse_loop_or_foreign_leftover3(text, source)
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
@@ -355,11 +477,14 @@ def plants_from_source(
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not cei_rNNN")
     base = inferred_base if base_round is None else base_round
     if base is None:
-        base = SOURCE_ROUND
+        suffix = mill_id.removeprefix("cei_r")
+        base = int(suffix) if suffix.isdigit() else SOURCE_ROUND
     if not isinstance(base, int) or isinstance(base, bool) or base < 1:
         raise CeiRefusal(
             FINDING_PLANT_FIELD_INVALID, f"{source} CATALOG_FIRST must be a positive int"
         )
+    if _is_s_pair(raw_pairs.elts[0]):
+        return _plants_from_s_calls(raw_pairs, mill_id=mill_id, source=source, base=base)
     rows = []
     seen_slugs: set[str] = set()
     seen_mods: set[str] = set()
@@ -415,6 +540,61 @@ def plants_from_source(
     return tuple(rows)
 
 
+def _plants_from_s_calls(
+    raw_pairs: ast.List,
+    *,
+    mill_id: str,
+    source: str,
+    base: int,
+) -> tuple[dict[str, Any], ...]:
+    rows = []
+    seen_slugs: set[str] = set()
+    seen_mods: set[str] = set()
+    seen_tickets: set[str] = set()
+    for index, raw in enumerate(raw_pairs.elts):
+        if not _is_s_pair(raw):
+            raise CeiRefusal(
+                FINDING_SOURCE_NOT_PARSEABLE,
+                f"{source} PAIRS[{index}] is not an (S, S) leftover leftover leftover tuple",
+            )
+        ok_node, bad_node = raw.elts
+        ok = expand_leftover3(
+            _call_args(ok_node, S_OK_ARG_NAMES, f"{source} PAIRS[{index}].ok"),
+            ticket_required=False,
+        )
+        bad = expand_leftover3(
+            _call_args(bad_node, S_BAD_ARG_NAMES, f"{source} PAIRS[{index}].bad"),
+            ticket_required=True,
+        )
+        _refuse_leftover3_slug(ok["slug"], f"{source} PAIRS[{index}].ok")
+        _refuse_leftover3_slug(bad["slug"], f"{source} PAIRS[{index}].bad")
+        for slug in (ok["slug"], bad["slug"]):
+            if slug in seen_slugs:
+                raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
+            seen_slugs.add(slug)
+        for mod in (ok["mod"], bad["mod"]):
+            if mod in seen_mods:
+                raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate mod {mod}")
+            seen_mods.add(mod)
+        ticket = bad["ticket"]
+        if ticket in seen_tickets:
+            raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate ticket {ticket}")
+        seen_tickets.add(ticket)
+        rows.append(
+            {
+                "plant_id": f"{mill_id}:{ok['slug']}",
+                "mill_id": mill_id,
+                "source": source,
+                "base_round": base,
+                "index": index,
+                "shape": LEFTOVER3_SHAPE,
+                "ok": ok,
+                "bad": bad,
+            }
+        )
+    return tuple(rows)
+
+
 def _ok_label() -> str:
     return f"{OK_CALL}(...), {BAD_CALL}(...)"
 
@@ -444,6 +624,31 @@ def _require_payload(value: Any, where: str, code: str) -> str:
     if not isinstance(value, str) or not value.strip() or "\r" in value:
         raise CeiRefusal(code, f"{where} must be a non-empty LF string")
     return value
+
+
+def _leftover3_side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Leftover3Side:
+    if not isinstance(row, dict):
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
+    missing = [key for key in keys if key not in row]
+    if missing:
+        raise CeiRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
+    extra = [key for key in row if key not in keys]
+    if extra:
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} has extra {extra[0]}")
+    identity_keys = frozenset({"slug", "mod", "test", "url", "url2", "ticket"})
+    fields: dict[str, Any] = {}
+    for key in keys:
+        checker = _require_text if key in identity_keys else _require_payload
+        fields[key] = checker(row[key], f"{where}.{key}", FINDING_PLANT_FIELD_INVALID)
+    slug = fields["slug"]
+    if not SLUG_RE.fullmatch(slug):
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+    _refuse_leftover3_slug(slug, where)
+    if fields["wrong"] != LEFTOVER3_WRONG:
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.wrong must be {LEFTOVER3_WRONG!r}")
+    outcome = fields.pop("ok")
+    ticket = fields.pop("ticket", None)
+    return Leftover3Side(**fields, outcome=outcome, ticket=ticket)
 
 
 def _side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Side:
@@ -485,8 +690,15 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     if not MILL_ID_RE.fullmatch(mill_id):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not cei_rNNN")
-    ok = _side_from_row(row.get("ok"), OK_SIDE_KEYS, f"{where}.ok")
-    bad = _side_from_row(row.get("bad"), BAD_SIDE_KEYS, f"{where}.bad")
+    shape = row.get("shape", SHAPE_OK_BAD)
+    if shape == LEFTOVER3_SHAPE:
+        ok = _leftover3_side_from_row(row.get("ok"), LEFTOVER3_OK_KEYS, f"{where}.ok")
+        bad = _leftover3_side_from_row(row.get("bad"), LEFTOVER3_BAD_KEYS, f"{where}.bad")
+    elif shape == SHAPE_OK_BAD:
+        ok = _side_from_row(row.get("ok"), OK_SIDE_KEYS, f"{where}.ok")
+        bad = _side_from_row(row.get("bad"), BAD_SIDE_KEYS, f"{where}.bad")
+    else:
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape {shape!r} is not a CEI shape")
     plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
     expected = f"{mill_id}:{ok.slug}"
     if plant_id != expected:
@@ -503,6 +715,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         source=_require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING),
         base_round=base_round,
         index=index,
+        shape=shape,
         ok=ok,
         bad=bad,
     )
