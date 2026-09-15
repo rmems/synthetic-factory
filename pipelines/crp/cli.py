@@ -18,6 +18,7 @@ from . import catalog as cat
 from . import generate
 from . import r432 as r432_cat
 from . import r538 as r538_cat
+from . import r729 as r729_cat
 from ._contract import bind_import_twin, dumps_exact_json, envelope
 
 __all__ = ["build_parser", "run"]
@@ -29,19 +30,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = commands.add_parser(
         "catalog-check",
-        help="every leftover3, r432, or r538 row has noun; slugs and families are unique",
+        help="every leftover3, r432, r538, or r729 row has noun; slugs and families are unique",
     )
     check.add_argument("--json", action="store_true")
     check.add_argument(
         "--wave",
-        choices=("leftover3", "r432", "r538"),
+        choices=("leftover3", "r432", "r538", "r729"),
         default="leftover3",
-        help="leftover3 (r729) is the default; r432/r538 are compact JSONL slices",
+        help="leftover3 is the default; r432/r538/r729 are compact JSONL slices",
     )
 
     gen = commands.add_parser(
         "generate",
-        help="one leftover3, r432, or r538 triple into a new destination (never raw)",
+        help="one leftover3, r432, r538, or r729 triple into a new destination (never raw)",
     )
     gen.add_argument("--round", type=int, required=True)
     gen.add_argument("--out", type=Path, required=True)
@@ -63,6 +64,8 @@ def _catalog_check(args: argparse.Namespace) -> int:
         report = r432_cat.catalog_check()
     elif args.wave == "r538":
         report = r538_cat.catalog_check()
+    elif args.wave == "r729":
+        report = r729_cat.catalog_check()
     else:
         report = cat.catalog_check()
     text = (
