@@ -36,10 +36,12 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_identity")
+    from . import curate_identity_apply as _identity_apply
     from . import curate_identity_output as _identity_output
     from . import curate_identity_checks as _identity_checks
     from . import curate_identity_json as _identity_json
     from . import curate_identity_registry as _identity_registry
+    from . import curate_identity_shape as _identity_shape
     from . import curate_identity_stages as _identity_stages
     from .curate_identity_registry import FactoryRow, FactoryRegistry
     from .operator_paths import operator_path
@@ -50,21 +52,16 @@ if __package__:
         preference_side_kinds,
     )
     from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
-    from .validate_run import (
-        check_episode,
-        check_multi_agent,
-        check_safety_case,
-        check_spike_order,
-        check_thalamic,
-    )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity"
     )
+    import curate_identity_apply as _identity_apply
     import curate_identity_output as _identity_output
     import curate_identity_checks as _identity_checks
     import curate_identity_json as _identity_json
     import curate_identity_registry as _identity_registry
+    import curate_identity_shape as _identity_shape
     import curate_identity_stages as _identity_stages
     from curate_identity_registry import FactoryRow, FactoryRegistry
     from operator_paths import operator_path
@@ -75,13 +72,6 @@ else:
         preference_side_kinds,
     )
     from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
-    from validate_run import (
-        check_episode,
-        check_multi_agent,
-        check_safety_case,
-        check_spike_order,
-        check_thalamic,
-    )
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"
@@ -624,80 +614,9 @@ def _shape_validation_errors(
     kind: str,
     owner_specs: list[tuple[str, Mapping[str, Any]]] | None = None,
 ) -> list[str]:
-    def structural_thalamic_errors(
-        owner: Mapping[str, Any], owner_where: str
-    ) -> list[str]:
-        # Identity intentionally accepts the legacy provenance vocabulary and
-        # canonicalizes it below. Every other Thalamic invariant is
-        # structural and must pass before the record can enter a cleaned tree.
-        return [
-            error
-            for error in check_thalamic(owner, owner_where)
-            if not error.startswith(f"{owner_where}: state.sim_or_real must ")
-        ]
-
-    if kind == "thalamic":
-        return structural_thalamic_errors(record, "record")
-    if kind == "episode":
-        return check_episode(record, "record")
-    if kind == "preference":
-        errors: list[str] = []
-        if owner_specs is None:
-            try:
-                owner_specs = _owner_specs(record, kind)
-            except IdentityCurationError as exc:
-                return [str(exc)]
-        side_specs = tuple(zip(owner_specs, preference_side_kinds(record), strict=True))
-        if "goal" in record and any(
-            side_kind == "episode" and "goal" not in owner
-            for ((_owner_path, owner), side_kind) in side_specs
-        ):
-            wrapper_goal = record["goal"]
-            if not isinstance(wrapper_goal, str) or not wrapper_goal.strip():
-                errors.append("record: inherited goal must be a non-empty string")
-        for (owner_path, owner), side_kind in side_specs:
-            if side_kind == "episode":
-                errors.extend(
-                    check_episode(
-                        owner,
-                        f"record{owner_path}",
-                        require_goal="goal" not in record,
-                    )
-                )
-            elif side_kind == "thalamic":
-                where = f"record{owner_path}"
-                errors.extend(structural_thalamic_errors(owner, where))
-            else:
-                errors.append(f"record{owner_path}: unsupported preference-side shape")
-        return errors
-    if kind == "bridge_pair":
-        errors: list[str] = []
-        events = record.get("spike_events")
-        if not isinstance(events, list) or not events:
-            errors.append("record: spike_events must be a non-empty array")
-        else:
-            errors.extend(check_spike_order(events, "record", enclosing=record))
-        language_view = record.get("language_view")
-        if not isinstance(language_view, Mapping):
-            errors.append("record: language_view must be an object")
-        else:
-            trajectory = language_view.get("trajectory")
-            if not isinstance(trajectory, Mapping):
-                errors.append(
-                    "record: language_view.trajectory missing or not an object"
-                )
-            else:
-                errors.extend(
-                    structural_thalamic_errors(
-                        trajectory, "record.language_view.trajectory"
-                    )
-                )
-        return errors
-    if kind == "safety_case":
-        return check_safety_case(record, "record")
-    if kind == "multi_agent":
-        return check_multi_agent(record, "record")
-    return []
+    return _identity_shape.shape_validation_errors(
+        record, kind, owner_specs, owner_specs_fn=_owner_specs
+    )
 
 
 def _collect_state_resolutions(
@@ -743,16 +662,21 @@ def _collect_state_resolutions(
     return provenance_resolutions, unresolved
 
 
-def _provenance_mapping_sha256(mapping: Mapping[str, Any]) -> str:
-    payload = dict(mapping)
-    payload.pop("mapping_sha256", None)
-    return sha256_json(payload)
+def _apply_ids() -> _identity_apply.ApplyIds:
+    """Live facade helpers the apply sibling stamps through."""
+
+    return _identity_apply.ApplyIds(
+        owner_specs=_owner_specs,
+        canonical_id=_canonical_id,
+        legacy_ids=_legacy_ids,
+        canonical_json_equal=_canonical_json_equal,
+        error_type=IdentityCurationError,
+        shape_basis=SHAPE_BASIS,
+    )
 
 
-def _seal_provenance_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
-    sealed = copy.deepcopy(dict(mapping))
-    sealed["mapping_sha256"] = _provenance_mapping_sha256(sealed)
-    return sealed
+_provenance_mapping_sha256 = _identity_apply.provenance_mapping_sha256
+_seal_provenance_mapping = _identity_apply.seal_provenance_mapping
 
 
 def _assign_nested_ids(
@@ -764,28 +688,16 @@ def _assign_nested_ids(
     output_id: str,
     root_original_ids: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    id_mappings: list[dict[str, Any]] = [
-        {
-            "owner_path": "/",
-            "original_ids": root_original_ids,
-            "output_id": output_id,
-        }
-    ]
-    curated_owners = dict(_owner_specs(curated, kind)) if owner_specs else {}
-    for owner_path, _owner in owner_specs:
-        if owner_path == "/":
-            continue
-        nested_id = _canonical_id(source, kind, owner_path)
-        curated_owners[owner_path]["id"] = nested_id
-        original_owner = dict(_owner_specs(original, kind))[owner_path]
-        id_mappings.append(
-            {
-                "owner_path": owner_path,
-                "original_ids": _legacy_ids(original_owner, owner_path),
-                "output_id": nested_id,
-            }
-        )
-    return id_mappings
+    return _identity_apply.assign_nested_ids(
+        curated,
+        original,
+        source,
+        kind,
+        owner_specs,
+        output_id,
+        root_original_ids,
+        _apply_ids(),
+    )
 
 
 def _curated_resolve_owners(
@@ -793,12 +705,9 @@ def _curated_resolve_owners(
     kind: str,
     resolve_owners: list[tuple[str, Mapping[str, Any]]],
 ) -> list[tuple[str, Mapping[str, Any]]]:
-    specs = _owner_specs(curated, kind)
-    if specs:
-        return specs
-    if resolve_owners:
-        return [("/", curated)]
-    return []
+    return _identity_apply.curated_resolve_owners(
+        curated, kind, resolve_owners, _apply_ids()
+    )
 
 
 def _apply_resolved_state(
@@ -812,97 +721,20 @@ def _apply_resolved_state(
     output_id: str,
     root_original_ids: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    id_mappings = _assign_nested_ids(
-        curated,
-        original,
-        source,
-        kind,
-        native_owner_specs,
-        output_id,
-        root_original_ids,
+    return _identity_apply.apply_resolved_state(
+        _identity_apply.ResolvedStatePlan(
+            curated,
+            original,
+            source,
+            kind,
+            native_owner_specs,
+            resolve_owners,
+            resolutions,
+            output_id,
+            root_original_ids,
+        ),
+        _apply_ids(),
     )
-    curated_owners = _curated_resolve_owners(curated, kind, resolve_owners)
-    provenance_mappings: list[dict[str, Any]] = []
-    canonical_provenances: list[dict[str, Any]] = []
-    for resolution, (owner_path, owner) in zip(resolutions, curated_owners, strict=True):
-        state = owner["state"]
-        canonical_provenance = {
-            "kind": resolution["kind"],
-            "claimed": copy.deepcopy(resolution["claimed"]),
-        }
-        if canonical_provenance["kind"] == "real":
-            raise IdentityCurationError("identity must never emit provenance.kind=real")
-        state["sim_or_real"] = resolution["kind"]
-        state["provenance"] = copy.deepcopy(canonical_provenance)
-        owner["provenance"] = copy.deepcopy(canonical_provenance)
-        canonical_provenances.append(canonical_provenance)
-        provenance_mappings.append(
-            _seal_provenance_mapping(
-                {
-                    "owner_path": owner_path,
-                    "state_path": resolution["state_path"],
-                    "basis": resolution["basis"],
-                    "original": resolution["original"],
-                    "canonical": copy.deepcopy(canonical_provenance),
-                }
-            )
-        )
-
-    if kind in {"preference", "bridge_pair"}:
-        kinds = {item["kind"] for item in canonical_provenances}
-        if len(kinds) == 1:
-            wrapper_kind = next(iter(kinds))
-            claims = [item["claimed"] for item in canonical_provenances]
-            wrapper_claimed = (
-                claims[0]
-                if all(_canonical_json_equal(item, claims[0]) for item in claims)
-                else claims
-            )
-        else:
-            wrapper_kind = "unknown"
-            wrapper_claimed = [item["claimed"] for item in canonical_provenances]
-        curated["provenance"] = {
-            "kind": wrapper_kind,
-            "claimed": copy.deepcopy(wrapper_claimed),
-        }
-        provenance_mappings.append(
-            _seal_provenance_mapping(
-                {
-                    "owner_path": "/",
-                    "basis": "nested_trajectory_aggregate",
-                    "original": {
-                        "owner_provenance": {
-                            "present": "provenance" in original,
-                            "value": copy.deepcopy(original.get("provenance")),
-                        }
-                    },
-                    "canonical": copy.deepcopy(curated["provenance"]),
-                }
-            )
-        )
-    elif kind in {"episode", "safety_case", "multi_agent"} and resolutions:
-        root = {
-            "kind": resolutions[0]["kind"],
-            "claimed": copy.deepcopy(resolutions[0]["claimed"]),
-            "basis": resolutions[0]["basis"],
-        }
-        curated["provenance"] = root
-        provenance_mappings.append(
-            _seal_provenance_mapping(
-                {
-                    "owner_path": "/",
-                    "basis": resolutions[0]["basis"],
-                    "original": {
-                        "owner_provenance": {
-                            "present": "provenance" in original,
-                            "value": copy.deepcopy(original.get("provenance")),
-                        }
-                    },
-                    "canonical": copy.deepcopy(root),
-                }
-            )
-        )
-    return id_mappings, provenance_mappings
 
 
 def _apply_shape_designed(
@@ -914,52 +746,18 @@ def _apply_shape_designed(
     output_id: str,
     root_original_ids: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    basis = SHAPE_BASIS[kind]
-    designed = {"kind": "designed", "claimed": None, "basis": basis}
-    original_provenance = {
-        "present": "provenance" in original,
-        "value": copy.deepcopy(original.get("provenance")),
-    }
-    curated["provenance"] = copy.deepcopy(designed)
-    id_mappings = _assign_nested_ids(
-        curated, original, source, kind, owner_specs, output_id, root_original_ids
+    return _identity_apply.apply_shape_designed(
+        _identity_apply.ShapeDesignedPlan(
+            curated,
+            original,
+            source,
+            kind,
+            owner_specs,
+            output_id,
+            root_original_ids,
+        ),
+        _apply_ids(),
     )
-    provenance_mappings = [
-        _seal_provenance_mapping(
-            {
-                "owner_path": "/",
-                "basis": basis,
-                "original": {"owner_provenance": original_provenance},
-                "canonical": copy.deepcopy(designed),
-            }
-        )
-    ]
-    if owner_specs:
-        original_owners = dict(_owner_specs(original, kind))
-        for owner_path, owner in _owner_specs(curated, kind):
-            nested_designed = {
-                "kind": "designed",
-                "claimed": None,
-                "basis": basis,
-            }
-            owner["provenance"] = copy.deepcopy(nested_designed)
-            original_owner = original_owners[owner_path]
-            provenance_mappings.append(
-                _seal_provenance_mapping(
-                    {
-                        "owner_path": owner_path,
-                        "basis": basis,
-                        "original": {
-                            "owner_provenance": {
-                                "present": "provenance" in original_owner,
-                                "value": copy.deepcopy(original_owner.get("provenance")),
-                            }
-                        },
-                        "canonical": copy.deepcopy(nested_designed),
-                    }
-                )
-            )
-    return id_mappings, provenance_mappings
 
 
 def _curate_code_repair(original, row, mapping):

@@ -918,6 +918,30 @@ def _package_curate_identity_registry_rows() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_shape() -> ModuleType:
+    import curate_identity_shape as module
+
+    return module
+
+
+def _package_curate_identity_shape() -> ModuleType:
+    import pipelines.curate_identity_shape as module
+
+    return module
+
+
+def _direct_curate_identity_apply() -> ModuleType:
+    import curate_identity_apply as module
+
+    return module
+
+
+def _package_curate_identity_apply() -> ModuleType:
+    import pipelines.curate_identity_apply as module
+
+    return module
+
+
 def _direct_round_txn_agentic() -> ModuleType:
     import round_txn_agentic as module
 
@@ -1182,6 +1206,8 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_curate_identity_registry_rows,
         _package_curate_identity_registry_rows,
     ),
+    "curate_identity_shape": (_direct_curate_identity_shape, _package_curate_identity_shape),
+    "curate_identity_apply": (_direct_curate_identity_apply, _package_curate_identity_apply),
     "round_txn_agentic": (_direct_round_txn_agentic, _package_round_txn_agentic),
     "round_txn_agentic_terms": (_direct_round_txn_agentic_terms, _package_round_txn_agentic_terms),
     "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
