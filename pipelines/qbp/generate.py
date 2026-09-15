@@ -50,6 +50,7 @@ def build_pair(pair: cat.Pair) -> BuiltPair:
         notes = hopper_notes_md(FACTORY, pair.round_n, pair.ok, pair.bad, ok_ep["id"], bad_ep["id"])
     except envelope.ContractError as exc:
         refuse(FINDING_GENERATE_SHAPE, str(exc))
+        raise
     refuse_when(len(ok_ep["steps"]) != SUCCESS_STEPS, FINDING_GENERATE_SHAPE, "success steps")
     refuse_when(len(bad_ep["steps"]) != HANDOFF_STEPS, FINDING_GENERATE_SHAPE, "handoff steps")
     refuse_when("Novel coverage:" not in notes, FINDING_GENERATE_SHAPE, "NOTES missing Novel coverage")
@@ -77,18 +78,20 @@ def _selected(
     return rows
 
 
-def generate(
-    out_dir: Path,
-    *,
-    catalog: cat.Catalog | None = None,
-    mill_id: str | None = None,
-    rounds: tuple[int, ...] | None = None,
-    catalog_path: Path | None = None,
-) -> tuple[BuiltPair, ...]:
+@dataclass(frozen=True)
+class GenerateRequest:
+    catalog: cat.Catalog | None = None
+    mill_id: str | None = None
+    rounds: tuple[int, ...] | None = None
+    catalog_path: Path | None = None
+
+
+def generate(out_dir: Path, request: GenerateRequest | None = None) -> tuple[BuiltPair, ...]:
     """Write leftover batches into a brand-new destination, one mill subdirectory each."""
 
-    loaded = catalog if catalog is not None else cat.catalog_check(catalog_path)
-    selected = _selected(loaded, mill_id, rounds)
+    req = request or GenerateRequest()
+    loaded = req.catalog if req.catalog is not None else cat.catalog_check(req.catalog_path)
+    selected = _selected(loaded, req.mill_id, req.rounds)
     refuse_when(is_under_raw(out_dir), FINDING_GENERATE_RAW_TREE, f"refusing raw-tree dest {out_dir}")
     refuse_when(out_dir.exists(), FINDING_GENERATE_DEST_EXISTS, f"destination exists: {out_dir}")
     out_dir.mkdir(parents=True)

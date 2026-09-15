@@ -72,27 +72,18 @@ def _p(**kwargs: Any) -> dict[str, Any]:
     return dict(kwargs)
 
 
-def _ok(
-    slug,
-    goal,
-    plan,
-    mod,
-    test_fn,
-    bound_key,
-    bound_val,
-    timeout_key,
-    timeout_old,
-    timeout_new,
-    docs_url,
-    docs_ok,
-    docs_url2,
-    docs_ok2,
-    domain,
-    stack,
-    residual,
-    extra_fix=None,
-):
-    extra = extra_fix or DEFAULT_EXTRA_FIX
+def _ok(row: Mapping[str, Any]) -> dict[str, Any]:
+    slug = row["slug"]
+    goal = row["goal"]
+    plan = row["plan"]
+    mod = row["mod"]
+    test_fn = row["test_fn"]
+    bound_key = row["bound_key"]
+    bound_val = row["bound_val"]
+    timeout_key = row["timeout_key"]
+    timeout_old = row["timeout_old"]
+    timeout_new = row["timeout_new"]
+    extra = row.get("extra_fix") or DEFAULT_EXTRA_FIX
     extra_lit = repr(extra)
     return _p(
         slug=slug,
@@ -119,45 +110,34 @@ def _ok(
         ),
         fix_new=f"    return {{{bound_key!r}: {bound_val!r}, **{extra_lit}}} if lag else {{}}",
         fix_obs=f"patched {bound_key}={bound_val}",
-        docs_url=docs_url,
-        docs_ok=docs_ok,
-        docs_url2=docs_url2,
-        docs_ok2=docs_ok2,
+        docs_url=row["docs_url"],
+        docs_ok=row["docs_ok"],
+        docs_url2=row["docs_url2"],
+        docs_ok2=row["docs_ok2"],
         outcome=f"{bound_key} {bound_val} bound leftover. Timeout unused (success).",
-        domain=domain,
-        stack=stack,
+        domain=row["domain"],
+        stack=row["stack"],
         seed=slug,
-        residual=residual,
+        residual=row["residual"],
         coverage=86,
     )
 
 
-def _bad(
-    slug,
-    goal,
-    plan,
-    mod,
-    test_fn,
-    timeout_key,
-    timeout_old,
-    timeout_new,
-    drop_key,
-    docs_url,
-    docs_ok,
-    docs_url2,
-    docs_ok2,
-    domain,
-    stack,
-    residual,
-    ticket,
-    ticket_why,
-):
+def _bad(row: Mapping[str, Any]) -> dict[str, Any]:
+    slug = row["slug"]
+    mod = row["mod"]
+    test_fn = row["test_fn"]
+    timeout_key = row["timeout_key"]
+    timeout_old = row["timeout_old"]
+    timeout_new = row["timeout_new"]
+    drop_key = row["drop_key"]
+    ticket = row["ticket"]
     return _p(
         slug=slug,
-        goal=goal,
-        plan=plan,
-        mod=mod,
-        test_fn=test_fn,
+        goal=row["goal"],
+        plan=row["plan"],
+        mod=row["mod"],
+        test_fn=row["test_fn"],
         src_body=(
             f"def tune(blocked):\n    return {{{timeout_key!r}: {timeout_old}}} if blocked else {{}}\n"
         ),
@@ -177,17 +157,17 @@ def _bad(
         plan_change=f"{drop_key} drop is platform. Handoff {ticket}.",
         fix_new=f"    return {{'handoff': {ticket!r}}} if blocked else {{}}",
         fix_obs="ticket filed. still timeout-classed",
-        docs_url=docs_url,
-        docs_ok=docs_ok,
-        docs_url2=docs_url2,
-        docs_ok2=docs_ok2,
+        docs_url=row["docs_url"],
+        docs_ok=row["docs_ok"],
+        docs_url2=row["docs_url2"],
+        docs_ok2=row["docs_ok2"],
         outcome=f"Still timeout-classed; leftover drop {drop_key} is platform — handoff {ticket}.",
-        domain=domain,
-        stack=stack,
+        domain=row["domain"],
+        stack=row["stack"],
         seed=slug,
-        residual=residual,
+        residual=row["residual"],
         ticket=ticket,
-        ticket_why=ticket_why,
+        ticket_why=row["ticket_why"],
         coverage=84,
     )
 
@@ -196,11 +176,11 @@ def expand_ok(row: Mapping[str, Any]) -> dict[str, Any]:
     kwargs = {name: row[name] for name in OK_ARG_NAMES}
     if "extra_fix" in row:
         kwargs["extra_fix"] = row["extra_fix"]
-    return _ok(**kwargs)
+    return _ok(kwargs)
 
 
 def expand_bad(row: Mapping[str, Any]) -> dict[str, Any]:
-    return _bad(**{name: row[name] for name in BAD_ARG_NAMES})
+    return _bad({name: row[name] for name in BAD_ARG_NAMES})
 
 
 bind_import_twin(__name__)

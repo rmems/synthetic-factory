@@ -92,46 +92,69 @@ def _generate_payload(built: tuple[gen.BuiltPair, ...], out_dir: Path) -> dict[s
     }
 
 
+def _emit(payload: dict[str, Any], *, as_json: bool, prose: str) -> int:
+    if as_json:
+        print(dumps_exact_json(payload, indent=2))
+    else:
+        print(prose)
+    return 0
+
+
+def _run_catalog_check(args: argparse.Namespace) -> int:
+    loaded = cat.catalog_check(args.catalog)
+    payload = _catalog_payload(loaded)
+    return _emit(
+        payload,
+        as_json=args.json,
+        prose=f"catalog-check ok: {payload['pair_count']} leftover pairs across {payload['n_mills']} mills",
+    )
+
+
+def _run_self_check(args: argparse.Namespace) -> int:
+    loaded = cat.catalog_check(args.catalog)
+    built = gen.build_catalog(loaded)
+    payload = {
+        "command": "self-check",
+        "status": "ok",
+        "pairs": len(built),
+        "mills": len(loaded.mills),
+    }
+    return _emit(
+        payload,
+        as_json=args.json,
+        prose=f"self-check ok: {len(built)} pairs across {len(loaded.mills)} mills",
+    )
+
+
+def _run_generate(args: argparse.Namespace) -> int:
+    rounds = tuple(args.rounds) if args.rounds else None
+    built = gen.generate(
+        args.out,
+        gen.GenerateRequest(catalog_path=args.catalog, mill_id=args.mill_id, rounds=rounds),
+    )
+    payload = _generate_payload(built, args.out)
+    return _emit(
+        payload,
+        as_json=args.json,
+        prose=f"generate ok: {payload['episodes']} episodes -> {args.out}",
+    )
+
+
+def _dispatch(args: argparse.Namespace) -> int:
+    handlers = {
+        "catalog-check": _run_catalog_check,
+        "self-check": _run_self_check,
+        "generate": _run_generate,
+    }
+    if args.command not in handlers:
+        refuse(FINDING_USAGE, f"unknown command {args.command!r}")
+    return handlers[args.command](args)
+
+
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "catalog-check":
-            loaded = cat.catalog_check(args.catalog)
-            payload = _catalog_payload(loaded)
-            if args.json:
-                print(dumps_exact_json(payload, indent=2))
-            else:
-                print(f"catalog-check ok: {payload['pair_count']} leftover pairs across {payload['n_mills']} mills")
-            return 0
-        if args.command == "self-check":
-            loaded = cat.catalog_check(args.catalog)
-            built = gen.build_catalog(loaded)
-            payload = {
-                "command": "self-check",
-                "status": "ok",
-                "pairs": len(built),
-                "mills": len(loaded.mills),
-            }
-            if args.json:
-                print(dumps_exact_json(payload, indent=2))
-            else:
-                print(f"self-check ok: {len(built)} pairs across {len(loaded.mills)} mills")
-            return 0
-        if args.command == "generate":
-            rounds = tuple(args.rounds) if args.rounds else None
-            built = gen.generate(
-                args.out,
-                catalog_path=args.catalog,
-                mill_id=args.mill_id,
-                rounds=rounds,
-            )
-            payload = _generate_payload(built, args.out)
-            if args.json:
-                print(dumps_exact_json(payload, indent=2))
-            else:
-                print(f"generate ok: {payload['episodes']} episodes -> {args.out}")
-            return 0
-        refuse(FINDING_USAGE, f"unknown command {args.command!r}")
+        return _dispatch(args)
     except (QbpRefusal, envelope.ContractError) as exc:
         print(str(exc), file=sys.stderr)
         if getattr(args, "json", False):

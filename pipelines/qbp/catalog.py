@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pinned qbp leftover catalog: AST extract, load, and check.
+"""Pinned qbp leftover catalog: load and check.
 
 Pair constructor args are AST-extracted from ``qbp-mill*.py`` (via the plants
 path each mill names) on ``legacy-mill-lane``. Mill scripts are never vendored
@@ -8,13 +8,11 @@ or executed. Load raises and stops the run when the committed catalog drifts.
 
 from __future__ import annotations
 
-import ast
-import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     BAN,
@@ -36,21 +34,18 @@ from ._contract import (
     MILL_SOURCES,
     N_MILLS,
     N_PAIRS,
-    PAIRS_FILENAME,
-    QUOTA_PER_ROUND,
     SCHEMA_ID,
     bind_import_twin,
     default_catalog_path,
     default_pairs_path,
     load_pair_json,
     load_strict_json,
-    refuse,
     refuse_first,
     refuse_when,
 )
+from .catalog_ast import ast_extract_catalog, ast_extract_mill, ast_extract_plants
+from .catalog_ast import sha256_bytes, sha256_text
 from .plants import BAD_ARG_NAMES, OK_ARG_NAMES, expand_bad, expand_ok
-
-PLANT_CALLS = frozenset(("_ok", "_bad"))
 
 __all__ = [
     "Catalog",
@@ -63,222 +58,6 @@ __all__ = [
     "load_catalog",
     "sha256_text",
 ]
-
-
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _literal(node: ast.AST, where: str) -> Any:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float, bool)):
-        return node.value
-    if isinstance(node, ast.Constant) and node.value is None:
-        return None
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        value = _literal(node.operand, where)
-        refuse_when(
-            not isinstance(value, (int, float)) or isinstance(value, bool),
-            FINDING_CATALOG_PLANT,
-            f"{where}: unary operand must be a number",
-        )
-        return -value if isinstance(node.op, ast.USub) else value
-    if isinstance(node, ast.Dict):
-        out: dict[Any, Any] = {}
-        for key, value in zip(node.keys, node.values, strict=True):
-            refuse_when(key is None, FINDING_CATALOG_PLANT, f"{where}: starred dict")
-            out[_literal(key, where)] = _literal(value, where)
-        return out
-    if isinstance(node, ast.List):
-        return [_literal(elt, f"{where}[]") for elt in node.elts]
-    if isinstance(node, ast.Tuple):
-        return [_literal(elt, f"{where}()") for elt in node.elts]
-    if isinstance(node, ast.Set):
-        return [_literal(elt, where) for elt in node.elts]
-    refuse(FINDING_CATALOG_PLANT, f"{where}: unsupported {type(node).__name__}")
-
-
-def _assign_map(tree: ast.Module) -> dict[str, ast.AST]:
-    found: dict[str, ast.AST] = {}
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    found[target.id] = node.value
-    return found
-
-
-def _plants_path(tree: ast.Module) -> str:
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
-        if name != "SourceFileLoader" or len(node.args) < 2:
-            continue
-        path_node = node.args[1]
-        if (
-            isinstance(path_node, ast.Call)
-            and isinstance(path_node.func, ast.Name)
-            and path_node.func.id == "str"
-            and path_node.args
-        ):
-            joined = path_node.args[0]
-            if isinstance(joined, ast.BinOp) and isinstance(joined.op, ast.Div):
-                if isinstance(joined.right, ast.Constant) and isinstance(joined.right.value, str):
-                    return joined.right.value
-    refuse(FINDING_CATALOG_MILL, "mill source has no SourceFileLoader plants path")
-
-
-def _ctor_row(node: ast.AST, names: tuple[str, ...], where: str) -> dict[str, Any]:
-    refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id not in PLANT_CALLS
-        or len(node.args) != len(names),
-        FINDING_CATALOG_PLANT,
-        f"{where}: expected {node.func.id if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) else 'call'}"
-        f"({len(names)} positional args)",
-    )
-    assert isinstance(node, ast.Call)
-    row = {name: _literal(arg, f"{where}.{name}") for name, arg in zip(names, node.args, strict=True)}
-    for keyword in node.keywords:
-        refuse_when(
-            keyword.arg != "extra_fix",
-            FINDING_CATALOG_PLANT,
-            f"{where}: unexpected keyword {keyword.arg!r}",
-        )
-        row["extra_fix"] = _literal(keyword.value, f"{where}.extra_fix")
-    return row
-
-
-def ast_extract_mill(source: str) -> dict[str, Any]:
-    """Return FACTORY/PREFIX/BAN and the plants filename from a mill module."""
-
-    tree = ast.parse(source)
-    assigns = _assign_map(tree)
-    missing = [name for name in ("FACTORY", "PREFIX", "BAN") if name not in assigns]
-    refuse_when(bool(missing), FINDING_CATALOG_MILL, f"mill source missing {missing}")
-    factory = _literal(assigns["FACTORY"], "FACTORY")
-    prefix = _literal(assigns["PREFIX"], "PREFIX")
-    ban = _literal(assigns["BAN"], "BAN")
-    refuse_when(
-        factory != FACTORY or prefix != FAMILY_PREFIX,
-        FINDING_CATALOG_SCHEMA,
-        f"mill identity {factory!r}/{prefix!r} is not {FACTORY}/{FAMILY_PREFIX}",
-    )
-    refuse_when(set(ban) != set(BAN), FINDING_CATALOG_BANNED, f"mill BAN drifted: {ban}")
-    plants = _plants_path(tree)
-    return {
-        "factory": factory,
-        "prefix": prefix,
-        "ban": sorted(BAN),
-        "plants": f"experiments/{plants}",
-    }
-
-
-def ast_extract_plants(source: str) -> dict[str, Any]:
-    """Return CATALOG_FIRST and constructor-arg pairs from a plants module."""
-
-    tree = ast.parse(source)
-    assigns = _assign_map(tree)
-    refuse_when("CATALOG_FIRST" not in assigns or "PAIRS" not in assigns, FINDING_CATALOG_PLANT, "plants source missing CATALOG_FIRST/PAIRS")
-    first = _literal(assigns["CATALOG_FIRST"], "CATALOG_FIRST")
-    refuse_when(not isinstance(first, int) or isinstance(first, bool), FINDING_CATALOG_PLANT, "CATALOG_FIRST must be an int")
-    payload = assigns["PAIRS"]
-    refuse_when(not isinstance(payload, ast.List), FINDING_CATALOG_PLANT, "PAIRS must be a list")
-    pairs: list[dict[str, Any]] = []
-    for index, item in enumerate(payload.elts):
-        refuse_when(
-            not isinstance(item, (ast.Tuple, ast.List)) or len(item.elts) != 2,
-            FINDING_CATALOG_PLANT,
-            f"PAIRS[{index}] must be an (ok, bad) pair",
-        )
-        assert isinstance(item, (ast.Tuple, ast.List))
-        pairs.append(
-            {
-                "round": first + index,
-                "ok": _ctor_row(item.elts[0], OK_ARG_NAMES, f"PAIRS[{index}].ok"),
-                "bad": _ctor_row(item.elts[1], BAD_ARG_NAMES, f"PAIRS[{index}].bad"),
-            }
-        )
-    return {"catalog_first": first, "n_pairs": len(pairs), "pairs": pairs}
-
-
-def ast_extract_catalog(
-    mill_sources: Mapping[str, str],
-    plants_sources: Mapping[str, str],
-    *,
-    commit: str = LEGACY_COMMIT,
-) -> dict[str, Any]:
-    """Build the catalog document from mill/plants source text (AST only)."""
-
-    mills: list[dict[str, Any]] = []
-    pairs: list[dict[str, Any]] = []
-    for mill_id, path, mill_sha, plants_path, plants_sha, catalog_first, n_pairs in MILL_SOURCES:
-        refuse_when(path not in mill_sources, FINDING_CATALOG_MILL, f"missing mill source {path}")
-        refuse_when(
-            plants_path not in plants_sources,
-            FINDING_CATALOG_MILL,
-            f"missing plants source {plants_path}",
-        )
-        mill_text = mill_sources[path]
-        plants_text = plants_sources[plants_path]
-        refuse_first(
-            (
-                (sha256_text(mill_text) != mill_sha, FINDING_CATALOG_SCHEMA, f"{path} sha256 drifted"),
-                (
-                    sha256_text(plants_text) != plants_sha,
-                    FINDING_CATALOG_SCHEMA,
-                    f"{plants_path} sha256 drifted",
-                ),
-            )
-        )
-        extracted_mill = ast_extract_mill(mill_text)
-        refuse_when(
-            extracted_mill["plants"] != plants_path,
-            FINDING_CATALOG_MILL,
-            f"{path} plants pointer {extracted_mill['plants']!r} != {plants_path!r}",
-        )
-        extracted_plants = ast_extract_plants(plants_text)
-        refuse_when(
-            extracted_plants["catalog_first"] != catalog_first
-            or extracted_plants["n_pairs"] != n_pairs,
-            FINDING_CATALOG_PAIR_COUNT,
-            f"{path} catalog window {extracted_plants['catalog_first']}+{extracted_plants['n_pairs']}",
-        )
-        mills.append(
-            {
-                "mill_id": mill_id,
-                "path": path,
-                "sha256": mill_sha,
-                "plants": plants_path,
-                "plants_sha256": plants_sha,
-                "catalog_first": catalog_first,
-                "n_pairs": n_pairs,
-                "ban": sorted(BAN),
-            }
-        )
-        for row in extracted_plants["pairs"]:
-            pairs.append({"mill_id": mill_id, **row})
-    document = {
-        "schema_id": SCHEMA_ID,
-        "family_prefix": FAMILY_PREFIX,
-        "factory": FACTORY,
-        "generator": GENERATOR,
-        "quota_per_round": QUOTA_PER_ROUND,
-        "n_mills": len(mills),
-        "n_pairs": len(pairs),
-        "pairs_filename": PAIRS_FILENAME,
-        "source": {"lane": LEGACY_LANE, "commit": commit},
-        "mills": mills,
-        "pairs": pairs,
-    }
-    _validate_counts(document)
-    return document
 
 
 @dataclass(frozen=True)
@@ -322,20 +101,17 @@ class Catalog:
 
 def _require_object(raw: object, where: str) -> dict[str, Any]:
     refuse_when(not isinstance(raw, dict), FINDING_CATALOG_NOT_AN_OBJECT, f"{where} must be an object")
-    assert isinstance(raw, dict)
-    return raw
+    return cast(dict[str, Any], raw)
 
 
 def _require_str(raw: object, where: str) -> str:
     refuse_when(not isinstance(raw, str) or not raw, FINDING_CATALOG_FIELD_INVALID, f"{where} must be a non-empty string")
-    assert isinstance(raw, str)
-    return raw
+    return cast(str, raw)
 
 
 def _require_int(raw: object, where: str) -> int:
     refuse_when(not isinstance(raw, int) or isinstance(raw, bool), FINDING_CATALOG_FIELD_INVALID, f"{where} must be an integer")
-    assert isinstance(raw, int)
-    return raw
+    return cast(int, raw)
 
 
 def _require_field(mapping: dict[str, Any], key: str, where: str) -> Any:
@@ -345,11 +121,13 @@ def _require_field(mapping: dict[str, Any], key: str, where: str) -> Any:
 
 def _ctor_args(raw: object, names: tuple[str, ...], where: str) -> dict[str, Any]:
     row = _require_object(raw, where)
-    out: dict[str, Any] = {}
-    for name in names:
-        out[name] = _require_field(row, name, where)
+    out: dict[str, Any] = {name: _require_field(row, name, where) for name in names}
     if "extra_fix" in row:
-        refuse_when(not isinstance(row["extra_fix"], dict), FINDING_CATALOG_FIELD_INVALID, f"{where}.extra_fix must be an object")
+        refuse_when(
+            not isinstance(row["extra_fix"], dict),
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{where}.extra_fix must be an object",
+        )
         out["extra_fix"] = row["extra_fix"]
     _require_str(out["slug"], f"{where}.slug")
     return out
@@ -376,6 +154,51 @@ def _validate_counts(document: Mapping[str, Any]) -> None:
     )
 
 
+def _mill_pin_ok(item: dict[str, Any], pinned: tuple[Any, ...], index: int) -> None:
+    mill_id, path, mill_sha, plants_path, plants_sha, catalog_first, n_pairs = pinned
+    refuse_first(
+        (
+            (item.get("mill_id") != mill_id, FINDING_CATALOG_MILL, f"mills[{index}].mill_id must be {mill_id}"),
+            (item.get("path") != path, FINDING_CATALOG_MILL, f"mills[{index}].path must be {path}"),
+            (item.get("sha256") != mill_sha, FINDING_CATALOG_SCHEMA, f"mills[{index}].sha256 drifted"),
+            (item.get("plants") != plants_path, FINDING_CATALOG_MILL, f"mills[{index}].plants drifted"),
+            (item.get("plants_sha256") != plants_sha, FINDING_CATALOG_SCHEMA, f"mills[{index}].plants_sha256 drifted"),
+            (item.get("catalog_first") != catalog_first, FINDING_CATALOG_SCHEMA, f"mills[{index}].catalog_first drifted"),
+            (item.get("n_pairs") != n_pairs, FINDING_CATALOG_PAIR_COUNT, f"mills[{index}].n_pairs drifted"),
+        )
+    )
+
+
+def _collect_pair(item: dict[str, Any], index: int, first: int, offset: int) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    mill_id = _require_str(_require_field(item, "mill_id", f"pairs[{index}]"), f"pairs[{index}].mill_id")
+    round_n = _require_int(_require_field(item, "round", f"pairs[{index}]"), f"pairs[{index}].round")
+    refuse_when(round_n != first + offset, FINDING_CATALOG_FIELD_INVALID, f"pairs[{index}].round must be {first + offset}")
+    ok = _ctor_args(item.get("ok"), OK_ARG_NAMES, f"pairs[{index}].ok")
+    bad = _ctor_args(item.get("bad"), BAD_ARG_NAMES, f"pairs[{index}].bad")
+    return mill_id, ok, bad
+
+
+@dataclass
+class _Uniques:
+    slugs: list[str]
+    mods: list[str]
+    domains: list[str]
+    tickets: list[str]
+
+    def add_pair(self, ok: dict[str, Any], bad: dict[str, Any], index: int) -> None:
+        for plant, label in ((ok, "ok"), (bad, "bad")):
+            slug = str(plant["slug"])
+            _reject_banned(slug, f"pairs[{index}].{label}")
+            self.slugs.append(slug)
+            self.mods.append(str(plant["mod"]))
+            self.domains.append(str(plant["domain"]))
+        self.tickets.append(str(bad["ticket"]))
+        plant_ok = expand_ok(ok)
+        plant_bad = expand_bad(bad)
+        refuse_when(plant_ok["first_old"] not in plant_ok["src_body"], FINDING_CATALOG_PLANT, f"pairs[{index}].ok first_old not in src_body")
+        refuse_when(plant_bad["first_old"] not in plant_bad["src_body"], FINDING_CATALOG_PLANT, f"pairs[{index}].bad first_old not in src_body")
+
+
 def _validate_document(meta: object, pair_rows: list[dict[str, Any]], digest: str) -> dict[str, Any]:
     document = _require_object(meta, "catalog")
     _validate_counts(document)
@@ -385,28 +208,17 @@ def _validate_document(meta: object, pair_rows: list[dict[str, Any]], digest: st
         f"pairs.jsonl sha256 {digest} != pinned {document.get('pairs_sha256')}",
     )
     mills_raw = _require_field(document, "mills", "catalog")
-    refuse_when(not isinstance(mills_raw, list) or len(mills_raw) != N_MILLS, FINDING_CATALOG_PAIR_COUNT, "mills must list the six qbp-mill* extracts")
-    assert isinstance(mills_raw, list)
-    slugs: list[str] = []
-    mods: list[str] = []
-    tickets: list[str] = []
-    domains: list[str] = []
+    refuse_when(
+        not isinstance(mills_raw, list) or len(mills_raw) != N_MILLS,
+        FINDING_CATALOG_PAIR_COUNT,
+        "mills must list the six qbp-mill* extracts",
+    )
+    uniques = _Uniques(slugs=[], mods=[], tickets=[], domains=[])
     mill_ids: list[str] = []
-    for index, (raw, pinned) in enumerate(zip(mills_raw, MILL_SOURCES, strict=True)):
-        mill_id, path, mill_sha, plants_path, plants_sha, catalog_first, n_pairs = pinned
+    for index, (raw, pinned) in enumerate(zip(cast(list[Any], mills_raw), MILL_SOURCES, strict=True)):
         item = _require_object(raw, f"mills[{index}]")
-        refuse_first(
-            (
-                (item.get("mill_id") != mill_id, FINDING_CATALOG_MILL, f"mills[{index}].mill_id must be {mill_id}"),
-                (item.get("path") != path, FINDING_CATALOG_MILL, f"mills[{index}].path must be {path}"),
-                (item.get("sha256") != mill_sha, FINDING_CATALOG_SCHEMA, f"mills[{index}].sha256 drifted"),
-                (item.get("plants") != plants_path, FINDING_CATALOG_MILL, f"mills[{index}].plants drifted"),
-                (item.get("plants_sha256") != plants_sha, FINDING_CATALOG_SCHEMA, f"mills[{index}].plants_sha256 drifted"),
-                (item.get("catalog_first") != catalog_first, FINDING_CATALOG_SCHEMA, f"mills[{index}].catalog_first drifted"),
-                (item.get("n_pairs") != n_pairs, FINDING_CATALOG_PAIR_COUNT, f"mills[{index}].n_pairs drifted"),
-            )
-        )
-        mill_ids.append(mill_id)
+        _mill_pin_ok(item, pinned, index)
+        mill_ids.append(str(pinned[0]))
     refuse_when(len(pair_rows) != N_PAIRS, FINDING_CATALOG_PAIR_COUNT, f"need {N_PAIRS} pair rows, got {len(pair_rows)}")
     expected_windows = {row[0]: (row[5], row[6]) for row in MILL_SOURCES}
     seen: dict[str, int] = {mill_id: 0 for mill_id in mill_ids}
@@ -414,29 +226,20 @@ def _validate_document(meta: object, pair_rows: list[dict[str, Any]], digest: st
         item = _require_object(entry, f"pairs[{index}]")
         mill_id = _require_str(_require_field(item, "mill_id", f"pairs[{index}]"), f"pairs[{index}].mill_id")
         refuse_when(mill_id not in expected_windows, FINDING_CATALOG_MILL, f"pairs[{index}] unknown mill {mill_id}")
-        first, n_pairs = expected_windows[mill_id]
+        first, _window = expected_windows[mill_id]
         offset = seen[mill_id]
-        round_n = _require_int(_require_field(item, "round", f"pairs[{index}]"), f"pairs[{index}].round")
-        refuse_when(round_n != first + offset, FINDING_CATALOG_FIELD_INVALID, f"pairs[{index}].round must be {first + offset}")
+        mill_id, ok, bad = _collect_pair(item, index, first, offset)
         seen[mill_id] = offset + 1
-        ok = _ctor_args(item.get("ok"), OK_ARG_NAMES, f"pairs[{index}].ok")
-        bad = _ctor_args(item.get("bad"), BAD_ARG_NAMES, f"pairs[{index}].bad")
-        for plant, label in ((ok, "ok"), (bad, "bad")):
-            slug = str(plant["slug"])
-            _reject_banned(slug, f"pairs[{index}].{label}")
-            slugs.append(slug)
-            mods.append(str(plant["mod"]))
-            domains.append(str(plant["domain"]))
-        tickets.append(str(bad["ticket"]))
-        plant_ok = expand_ok(ok)
-        plant_bad = expand_bad(bad)
-        refuse_when(plant_ok["first_old"] not in plant_ok["src_body"], FINDING_CATALOG_PLANT, f"pairs[{index}].ok first_old not in src_body")
-        refuse_when(plant_bad["first_old"] not in plant_bad["src_body"], FINDING_CATALOG_PLANT, f"pairs[{index}].bad first_old not in src_body")
-    refuse_when(seen != {mill_id: expected_windows[mill_id][1] for mill_id in mill_ids}, FINDING_CATALOG_PAIR_COUNT, f"pair counts drifted: {seen}")
-    _unique("slugs", slugs)
-    _unique("mods", mods)
-    _unique("tickets", tickets)
-    _unique("domains", domains)
+        uniques.add_pair(ok, bad, index)
+    refuse_when(
+        seen != {mill_id: expected_windows[mill_id][1] for mill_id in mill_ids},
+        FINDING_CATALOG_PAIR_COUNT,
+        f"pair counts drifted: {seen}",
+    )
+    _unique("slugs", uniques.slugs)
+    _unique("mods", uniques.mods)
+    _unique("tickets", uniques.tickets)
+    _unique("domains", uniques.domains)
     source = _require_object(_require_field(document, "source", "catalog"), "source")
     refuse_when(source.get("lane") != LEGACY_LANE, FINDING_CATALOG_SCHEMA, "source.lane drifted")
     refuse_when(source.get("commit") != LEGACY_COMMIT, FINDING_CATALOG_SCHEMA, "source.commit drifted")

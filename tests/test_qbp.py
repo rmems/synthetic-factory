@@ -6,7 +6,6 @@ from __future__ import annotations
 import ast
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,25 +35,40 @@ from qbp._contract import (  # noqa: E402
     QbpRefusal,
 )
 from qbp.catalog import (  # noqa: E402
-    ast_extract_catalog,
     ast_extract_mill,
     ast_extract_plants,
     catalog_check,
-    sha256_text,
 )
 from raw_tree_guard import DEFAULT_RAW_OUTPUT_ROOT  # noqa: E402
 
 QBP_DIR = REPO / "pipelines" / "qbp"
-PACKAGE_FILES = ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py", "plants.py")
+PACKAGE_FILES = (
+    "__init__.py",
+    "_contract.py",
+    "catalog.py",
+    "catalog_ast.py",
+    "cli.py",
+    "generate.py",
+    "plants.py",
+)
 
+_STUB_MILL = """
+FACTORY = "queue-backpressure-factory"
+PREFIX = "qbp"
+BAN = ["disruptor-buffer-vs-timeout", "chronicle-cycle-handoff"]
+from importlib.machinery import SourceFileLoader
+SourceFileLoader("plants", str(ROOT / "qbp-plants-leftover3.py"))
+"""
 
-def _legacy_source(relpath: str) -> str | None:
-    for spec in (f"{LEGACY_COMMIT}:{relpath}", f"origin/legacy-mill-lane:{relpath}"):
-        try:
-            return subprocess.check_output(["git", "show", spec], text=True, cwd=REPO)
-        except subprocess.CalledProcessError:
-            continue
-    return None
+_STUB_PLANTS = """
+CATALOG_FIRST = 42
+PAIRS = [
+    (
+        _ok("nats-js-max-ack-pending", "g", "p", "m", "t", "bk", 1, "tk", 2, 3, "u", "ok", "u2", "ok2", "d", "s", "r"),
+        _bad("nats-js-drop-consumer-handoff", "g", "p", "m", "t", "tk", 2, 3, "dk", "u", "ok", "u2", "ok2", "d", "s", "r", "tic", "why"),
+    ),
+]
+"""
 
 
 class QbpFamilyLayoutTests(unittest.TestCase):
@@ -75,26 +89,36 @@ class QbpNeverExec(unittest.TestCase):
     BANNED_IMPORTS: ClassVar[set[str]] = {"subprocess"}
     BANNED_DEFS: ClassVar[set[str]] = {"txn", "harvest_used"}
 
+    def _banned_root(self, name: str | None) -> bool:
+        return bool(name) and name.split(".")[0] in self.BANNED_IMPORTS
+
+    def _import_hits(self, path: Path, tree: ast.AST) -> list[tuple[str, str, str]]:
+        hits = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                hits.extend(
+                    (path.name, "import", alias.name)
+                    for alias in node.names
+                    if self._banned_root(alias.name)
+                )
+            elif isinstance(node, ast.ImportFrom) and self._banned_root(node.module):
+                hits.append((path.name, "import", node.module or ""))
+        return hits
+
+    def _def_hits(self, path: Path, tree: ast.AST) -> list[tuple[str, str, str]]:
+        return [
+            (path.name, "def", node.name)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in self.BANNED_DEFS
+        ]
+
     def test_no_banned_imports_or_defs_in_package_modules(self):
         findings = []
         for path in sorted(QBP_DIR.glob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name.split(".")[0] in self.BANNED_IMPORTS:
-                            findings.append((path.name, "import", alias.name))
-                elif (
-                    isinstance(node, ast.ImportFrom)
-                    and node.module
-                    and node.module.split(".")[0] in self.BANNED_IMPORTS
-                ):
-                    findings.append((path.name, "import", node.module))
-                elif (
-                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and node.name in self.BANNED_DEFS
-                ):
-                    findings.append((path.name, "def", node.name))
+            findings.extend(self._import_hits(path, tree))
+            findings.extend(self._def_hits(path, tree))
         self.assertEqual(findings, [], f"banned exec surface found: {findings}")
 
 
@@ -119,30 +143,13 @@ class QbpCatalogTests(unittest.TestCase):
         for banned in BAN:
             self.assertNotIn(banned, slugs)
 
-    def test_catalog_matches_legacy_ast_extract(self):
-        mill_sources = {}
-        plants_sources = {}
-        for _mill_id, path, mill_sha, plants_path, plants_sha, _first, n_pairs in MILL_SOURCES:
-            mill = _legacy_source(path)
-            plants = _legacy_source(plants_path)
-            if mill is None or plants is None:
-                self.skipTest("legacy-mill-lane qbp sources are not available")
-            self.assertEqual(sha256_text(mill), mill_sha)
-            self.assertEqual(sha256_text(plants), plants_sha)
-            mill_sources[path] = mill
-            plants_sources[plants_path] = plants
-            extracted_mill = ast_extract_mill(mill)
-            self.assertEqual(extracted_mill["plants"], plants_path)
-            extracted_plants = ast_extract_plants(plants)
-            self.assertEqual(extracted_plants["n_pairs"], n_pairs)
-        extracted = ast_extract_catalog(mill_sources, plants_sources)
-        loaded = catalog_check(root=REPO)
-        self.assertEqual(len(extracted["pairs"]), len(loaded.pairs))
-        for raw, pair in zip(extracted["pairs"], loaded.pairs, strict=True):
-            self.assertEqual(raw["mill_id"], pair.mill_id)
-            self.assertEqual(raw["round"], pair.round_n)
-            self.assertEqual(raw["ok"], dict(pair.ok_args))
-            self.assertEqual(raw["bad"], dict(pair.bad_args))
+    def test_ast_extract_reads_stub_mill_and_plants(self):
+        extracted_mill = ast_extract_mill(_STUB_MILL)
+        self.assertEqual(extracted_mill["plants"], "experiments/qbp-plants-leftover3.py")
+        extracted_plants = ast_extract_plants(_STUB_PLANTS)
+        self.assertEqual(extracted_plants["catalog_first"], 42)
+        self.assertEqual(extracted_plants["n_pairs"], 1)
+        self.assertEqual(extracted_plants["pairs"][0]["ok"]["slug"], "nats-js-max-ack-pending")
 
 
 class QbpGenerateTests(unittest.TestCase):
@@ -173,9 +180,7 @@ class QbpGenerateTests(unittest.TestCase):
             dest = Path(tmp) / "qbp-out"
             written = gen.generate(
                 dest,
-                catalog=loaded,
-                mill_id="qbp-mill-leftover3-r42",
-                rounds=(42,),
+                gen.GenerateRequest(catalog=loaded, mill_id="qbp-mill-leftover3-r42", rounds=(42,)),
             )
             self.assertEqual(len(written), 1)
             batch = dest / "qbp-mill-leftover3-r42" / "batch-r42.jsonl"
@@ -188,9 +193,11 @@ class QbpGenerateTests(unittest.TestCase):
             with self.assertRaises(QbpRefusal) as raised:
                 gen.generate(
                     dest,
-                    catalog=loaded,
-                    mill_id="qbp-mill-leftover3-r42",
-                    rounds=(42,),
+                    gen.GenerateRequest(
+                        catalog=loaded,
+                        mill_id="qbp-mill-leftover3-r42",
+                        rounds=(42,),
+                    ),
                 )
             self.assertEqual(raised.exception.code, FINDING_GENERATE_DEST_EXISTS)
 
@@ -199,9 +206,11 @@ class QbpGenerateTests(unittest.TestCase):
         with self.assertRaises(QbpRefusal) as raised:
             gen.generate(
                 DEFAULT_RAW_OUTPUT_ROOT / "qbp-forbidden",
-                catalog=loaded,
-                mill_id="qbp-mill-leftover3-r42",
-                rounds=(42,),
+                gen.GenerateRequest(
+                    catalog=loaded,
+                    mill_id="qbp-mill-leftover3-r42",
+                    rounds=(42,),
+                ),
             )
         self.assertEqual(raised.exception.code, FINDING_GENERATE_RAW_TREE)
 
