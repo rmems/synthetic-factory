@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import types
 from pathlib import Path
 
 
@@ -238,7 +239,7 @@ def _expose_package_sibling(qualified_name: str) -> None:
         return
     if "." in sibling_name:
         return
-    if candidate is None or origin is None:
+    if origin is None:
         return
     try:
         is_local = Path(origin).resolve() == (_package_dir / f"{sibling_name}.py").resolve()
@@ -250,6 +251,13 @@ def _expose_package_sibling(qualified_name: str) -> None:
     if direct_candidate is not None:
         sys.modules[qualified_name] = direct_candidate
     else:
+        _bind_unloaded_direct_sibling(sibling_name, candidate)
+
+
+def _bind_unloaded_direct_sibling(sibling_name: str, candidate: object) -> None:
+    """Bind a package child under its direct CLI name when that name is free."""
+
+    if isinstance(candidate, types.ModuleType):
         sys.modules.setdefault(sibling_name, candidate)
 
 
