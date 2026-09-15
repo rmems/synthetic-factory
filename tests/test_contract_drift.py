@@ -11,34 +11,34 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from contract_drift import catalog  # noqa: E402
-from contract_drift import catalog_extract  # noqa: E402
-from contract_drift import check  # noqa: E402
-from contract_drift import identity  # noqa: E402
+from acm import _contract  # noqa: E402
+from acm import catalog  # noqa: E402
+from acm import generate  # noqa: E402
 
 FIXTURE = REPO / "tests" / "fixtures" / "contract-drift" / "tiny-source"
 
 
 class Identity(unittest.TestCase):
     def test_family_maps_to_the_registered_factory(self):
-        self.assertEqual(identity.FAMILY, "acm")
-        self.assertEqual(identity.FACTORY_NAME, "api-contract-migration-factory")
-        self.assertEqual(identity.GENERATOR, "grok-4.6")
-        self.assertEqual(identity.QUOTA, 2)
-        self.assertEqual(identity.STEPS, 16)
-        self.assertEqual(identity.ID_PREFIX, "acm")
-        self.assertEqual(identity.SOURCE_COMMIT, "6d5ed0c1cac87618a05fab37f2e59bebca0a6031")
+        self.assertEqual(_contract.FAMILY, "acm")
+        self.assertEqual(_contract.FACTORY_NAME, "api-contract-migration-factory")
+        self.assertEqual(_contract.GENERATOR, "grok-4.6")
+        self.assertEqual(_contract.QUOTA, 2)
+        self.assertEqual(_contract.STEPS, 16)
+        self.assertEqual(_contract.ID_PREFIX, "acm")
+        self.assertEqual(_contract.SOURCE_COMMIT, "6d5ed0c1cac87618a05fab37f2e59bebca0a6031")
+        self.assertEqual(_contract.REVIEWED_HOME, "api-contract-migration-factory")
 
     def test_refuse_vendor_paths_fails_closed_on_mill_scripts(self):
         with self.assertRaises(SystemExit) as caught:
-            identity.refuse_vendor_paths((Path("experiments") / "acm-mill-r3561.py",))
+            _contract.refuse_vendor_paths((Path("experiments") / "acm-mill-r3561.py",))
         self.assertIn("acm-mill-r3561.py", str(caught.exception))
 
 
 class Extract(unittest.TestCase):
     def test_ast_extract_reads_pairs_and_plant_gen_without_exec(self):
-        payload = catalog_extract.extract_tree(FIXTURE)
-        check.check_catalog(payload)
+        payload = generate.extract_tree(FIXTURE)
+        catalog.check_catalog(payload)
         slugs = {(row["success_slug"], row["fail_slug"]) for row in payload["rows"]}
         self.assertEqual(
             slugs,
@@ -75,48 +75,50 @@ class Extract(unittest.TestCase):
                 'LEGACY_MILL = "acm-mill-r1.py"\n',
                 encoding="utf-8",
             )
-            payload = catalog_extract.extract_tree(root)
+            payload = generate.extract_tree(root)
         kinds = {item["kind"]: item for item in payload["sources"]}
         self.assertEqual(kinds["loop"]["loop_mills"], ["acm-mill-r1.py"])
         self.assertEqual(payload["row_count"], 0)
 
     def test_write_refuses_an_existing_destination_and_vendor_names(self):
-        payload = catalog_extract.extract_tree(FIXTURE)
+        payload = generate.extract_tree(FIXTURE)
         with tempfile.TemporaryDirectory() as raw:
             dest = Path(raw) / "catalog"
-            dest.mkdir()
-            catalog.write_catalog(dest, payload)
-            self.assertTrue((dest / catalog.CATALOG_FILENAME).is_file())
-            self.assertTrue((dest / catalog.ROWS_FILENAME).is_file())
+            written = catalog.write_catalog(dest, payload)
+            self.assertTrue(written.is_file())
+            self.assertFalse((dest / "rows.jsonl").exists())
             loaded = catalog.load_catalog(dest)
             self.assertEqual(loaded["row_count"], 3)
-            again = Path(raw) / "catalog"
             with self.assertRaises(FileExistsError):
-                again.mkdir(exist_ok=False)
+                catalog.write_catalog(dest, payload)
             with self.assertRaises(SystemExit):
-                identity.refuse_vendor_paths((dest / "acm-mill-r1.py",))
+                _contract.refuse_vendor_paths((dest / "acm-mill-r1.py",))
 
 
 class CommittedCatalog(unittest.TestCase):
     def test_committed_catalog_loads_and_passes_shape_checks(self):
         payload = catalog.load_catalog()
-        check.check_catalog(payload)
+        catalog.check_catalog(payload)
         self.assertGreater(payload["row_count"], 0)
         self.assertEqual(payload["row_count"], len(payload["rows"]))
-        self.assertEqual(payload["extract"]["source_commit"], identity.SOURCE_COMMIT)
+        self.assertEqual(payload["extract"]["source_commit"], _contract.SOURCE_COMMIT)
         self.assertFalse(payload["extract"]["exec"])
+        self.assertEqual(payload["extract"]["slice"], "representative")
         loops = [item for item in payload["sources"] if item["kind"] == "loop"]
         self.assertGreater(len(loops), 0)
         self.assertTrue(any(item["loop_mills"] for item in loops))
+        slugs = {(row["success_slug"], row["fail_slug"]) for row in payload["rows"]}
+        self.assertIn(("accept-ranges-bytes", "no-accept-ranges"), slugs)
+        self.assertIn(("accept-profile-ldp", "content-type-profile-param"), slugs)
 
     def test_repository_does_not_vendor_acm_mill_scripts(self):
-        check.check_tree_has_no_vendor(REPO)
-        package = REPO / "pipelines" / "contract_drift"
-        check.check_tree_has_no_vendor(package)
-        catalogs = REPO / "catalogs" / identity.CATALOG_ID
-        check.check_tree_has_no_vendor(catalogs)
+        catalog.check_tree_has_no_vendor(REPO)
+        package = REPO / "pipelines" / "acm"
+        catalog.check_tree_has_no_vendor(package)
         self.assertEqual(list((REPO / "tests").rglob("acm-loop-*.py")), [])
         self.assertFalse((FIXTURE / "acm-loop-r1.py").exists())
+        self.assertTrue((FIXTURE / "acm-pairs-r1.py").is_file())
+        self.assertTrue((FIXTURE / "_gen_acm_plants_r2.py").is_file())
 
 
 if __name__ == "__main__":
