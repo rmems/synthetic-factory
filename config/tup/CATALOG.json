@@ -137,11 +137,107 @@
       "source": "experiments/tup-mill-r2065.py",
       "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
       "source_sha256": "bab001632bea22a003f39bd0286e507e271d445c4c3ad4422bd2cb0312fe8d41"
+    },
+    {
+      "mill_id": "tup_r1743",
+      "plants": 99,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1743.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "cdacaddf08c3b214834cf8f6c2e12e66978fad4f04d4041e0bd49ff65e95ba33"
+    },
+    {
+      "mill_id": "tup_r1782",
+      "plants": 76,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1782.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "b6e37cc1aef302ee3a3600111da3393589c73ec7857918ad1950fa1c71ee9322"
+    },
+    {
+      "mill_id": "tup_r1810",
+      "plants": 60,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1810.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "eca9788a57687de4c7d738ec4641ee3ad79f21c7765d4eb7086add4ebe69cde8"
+    },
+    {
+      "mill_id": "tup_r1830",
+      "plants": 56,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1830.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "3574c56c237b13aa00e3a7044e3bb19fc2280da3d2daeeeb3c60fd416d7a8152"
+    },
+    {
+      "mill_id": "tup_r1848",
+      "plants": 58,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1848.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "8fa7545783e77456a92504fa6e3a2121733dc09eeec6a648520deb2efe6edc09"
+    },
+    {
+      "mill_id": "tup_r2106",
+      "plants": 82,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2106.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "aa2544af4d90cacc77f4493c45b77ea793f101e4d366e0b2240ae8236f179994"
+    },
+    {
+      "mill_id": "tup_r2133",
+      "plants": 63,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2133.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "e0b14f02a7c0b17a0554dc34d935c2769b1e94b53b157af5e0a7d3aa8352349b"
+    },
+    {
+      "mill_id": "tup_r2153",
+      "plants": 52,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2153.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "4abc84e58b37a610e344c9a62070878aa294a6b73635befe3dce90f4088dbbb4"
+    },
+    {
+      "mill_id": "tup_r2335",
+      "plants": 68,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2335.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "6bb53a25da0657571a0005d8793b88bce7e0b732a410c66d765f769d85e6c74b"
+    },
+    {
+      "mill_id": "tup_leftover_triples",
+      "plants": 48,
+      "shape": "plants",
+      "source": "experiments/tup-mill-leftover-triples.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "c10e0f3afce2f0272c05164deafa2ffb8d5b12a880a40d7f31ed76bf5bd96d17"
+    },
+    {
+      "mill_id": "tup_leftover4_r1576",
+      "plants": 36,
+      "shape": "plants",
+      "source": "experiments/tup-mill-leftover4-r1576.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "913c2b78c07442d68d7004373b51581598082ded22dab866b57b150156d4980b"
+    },
+    {
+      "mill_id": "tup_leftover_lll_r1594",
+      "plants": 46,
+      "shape": "plants",
+      "source": "experiments/tup-mill-leftover-lll-r1594.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "929fa99bb5a44ac9fcce7f9e79138861faf900c95cf7c3e713576841eb8f7aee"
     }
   ],
-  "plants": 2493,
+  "plants": 3237,
   "plants_extra_filename": "plants-extra.jsonl",
-  "plants_extra_sha256": "a631e74913bc4a3762ba6cac075623342024c6be6d25d0f0e3ae3f0a465919fc",
+  "plants_extra_sha256": "cfa9acb23f5c387164913292b9c4b6868b032de5d54fcaeb46b36f7c7fced80c",
   "project_training_policy": "blocked",
   "quota_per_round": 3,
   "schema": "tup-catalog/1",
@@ -150,7 +246,7 @@
     "skip verify",
     "wrong tool"
   ],
-  "slice": "tup-second-slice",
+  "slice": "tup-fourth-slice",
   "source_blob_sha1": "b0e965da738d49af64219403398203f48d91ab8e",
   "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
   "source_lines": 1727,

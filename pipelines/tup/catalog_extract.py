@@ -20,8 +20,10 @@ __all__ = [
     "PRESERVE_COMMIT",
     "family_rows_from_source",
     "git_show_mill",
+    "leftover_plants_from_source",
     "mill_sha256",
     "plant_rows_from_source",
+    "round_plants_from_source",
     "sha256_bytes",
 ]
 
@@ -234,6 +236,166 @@ def plant_rows_from_source(source: str, *, mill_id: str, var: str | None = None)
             f"{mill_id} {chosen}[{index}] is not a tuple",
         )
         rows.append(_row_tuple_to_plant(row, mill_id=mill_id, index=index))
+    return rows
+
+
+def _literal_value(node: ast.AST, label: str) -> Any:
+    refuse_when(
+        not isinstance(node, ast.Constant),
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{label} is not a literal",
+    )
+    return node.value
+
+
+def _grep_from_read_cmd(cmd: Any) -> str:
+    if not isinstance(cmd, str):
+        return "pay|designed"
+    match = re.search(r"grep -nE '([^']+)'", cmd)
+    if match:
+        return match.group(1)
+    match = re.search(r'grep -nE "([^"]+)"', cmd)
+    if match:
+        return match.group(1)
+    return "pay|designed"
+
+
+def _plant_from_p_call(node: ast.Call, *, mill_id: str, index: int) -> dict[str, Any]:
+    fields = {
+        kw.arg: _literal_value(kw.value, f"PLANTS[{index}].{kw.arg}")
+        for kw in node.keywords
+        if kw.arg
+    }
+    refuse_when("slug" not in fields, FINDING_SOURCE_NOT_PARSEABLE, f"PLANTS[{index}] missing slug")
+    verify = fields.get("good_cmd") or fields.get("good") or ""
+    destroy = fields.get("bad_cmd") or fields.get("bad") or ""
+    tool = str(fields.get("tool", ""))
+    return {
+        "mill_id": mill_id,
+        "slug": str(fields["slug"]),
+        "bin": tool.split()[0] if tool else "",
+        "verify": str(verify),
+        "destroy": str(destroy),
+        "keep": str(fields.get("keep", "")),
+        "wait": int(fields.get("wait", 3)),
+        "grep": _grep_from_read_cmd(fields.get("read_cmd")),
+    }
+
+
+def _plant_from_plant_call(node: ast.Call, *, mill_id: str, index: int) -> dict[str, Any]:
+    refuse_when(
+        len(node.args) < 13,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"PLANTS[{index}] plant() needs 13 positional literals",
+    )
+    args = [_literal_value(arg, f"PLANTS[{index}].plant()[{pos}]") for pos, arg in enumerate(node.args[:13])]
+    _leftover, slug, tool, _good, _bad, keep, _resource, wait, _src429, _ver, grep, verify, destroy = args
+    tool_s = str(tool)
+    return {
+        "mill_id": mill_id,
+        "slug": str(slug),
+        "bin": tool_s.split()[0] if tool_s else "",
+        "verify": str(verify),
+        "destroy": str(destroy),
+        "keep": str(keep),
+        "wait": int(wait),
+        "grep": str(grep),
+    }
+
+
+def _assigned_plants_list(tree: ast.Module) -> ast.List | None:
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "PLANTS":
+            if isinstance(node.value, ast.List):
+                return node.value
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "PLANTS" and isinstance(node.value, ast.List):
+                    return node.value
+    return None
+
+
+def leftover_plants_from_source(source: str, *, mill_id: str) -> list[dict[str, Any]]:
+    """AST-extract ``PLANTS`` entries built with ``P(...)`` or ``plant(...)``."""
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"mill source is not parseable: {exc}")
+    nodes = _assigned_plants_list(tree)
+    refuse_when(nodes is None, FINDING_SOURCE_NOT_PARSEABLE, f"missing PLANTS in {mill_id}")
+    rows: list[dict[str, Any]] = []
+    for index, elt in enumerate(nodes.elts):
+        refuse_when(
+            not isinstance(elt, ast.Call) or not isinstance(elt.func, ast.Name),
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"PLANTS[{index}] is not a call",
+        )
+        if elt.func.id == "P":
+            rows.append(_plant_from_p_call(elt, mill_id=mill_id, index=index))
+        elif elt.func.id == "plant":
+            rows.append(_plant_from_plant_call(elt, mill_id=mill_id, index=index))
+        else:
+            refuse(
+                FINDING_SOURCE_NOT_PARSEABLE,
+                f"PLANTS[{index}] uses unsupported builder {elt.func.id!r}",
+            )
+    refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"PLANTS is empty in {mill_id}")
+    return rows
+
+
+def round_plants_from_source(source: str, *, mill_id: str) -> list[dict[str, Any]]:
+    """AST-extract nested ``ROUNDS`` triple batches (slug, tool, fork, verify, ...)."""
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"mill source is not parseable: {exc}")
+    rounds_node: ast.List | None = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "ROUNDS" and isinstance(node.value, ast.List):
+                    rounds_node = node.value
+                    break
+    refuse_when(rounds_node is None, FINDING_SOURCE_NOT_PARSEABLE, f"missing ROUNDS in {mill_id}")
+    rows: list[dict[str, Any]] = []
+    for group_index, group in enumerate(rounds_node.elts):
+        refuse_when(
+            not isinstance(group, ast.List),
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"ROUNDS[{group_index}] is not a list",
+        )
+        for plant_index, elt in enumerate(group.elts):
+            label = f"ROUNDS[{group_index}][{plant_index}]"
+            refuse_when(
+                not isinstance(elt, ast.Tuple) or len(elt.elts) != 8,
+                FINDING_SOURCE_NOT_PARSEABLE,
+                f"{label} is not an 8-tuple",
+            )
+            slug = _literal_value(elt.elts[0], f"{label}.slug")
+            tool = _literal_value(elt.elts[1], f"{label}.tool")
+            _fork = _literal_value(elt.elts[2], f"{label}.fork")
+            verify = _literal_value(elt.elts[3], f"{label}.verify")
+            destroy = _literal_value(elt.elts[4], f"{label}.destroy")
+            keep = _literal_value(elt.elts[5], f"{label}.keep")
+            grep = _literal_value(elt.elts[6], f"{label}.grep")
+            wait = _literal_value(elt.elts[7], f"{label}.wait")
+            tool_s = str(tool)
+            rows.append(
+                {
+                    "mill_id": mill_id,
+                    "slug": str(slug),
+                    "bin": tool_s.split()[0] if tool_s else "",
+                    "verify": str(verify),
+                    "destroy": str(destroy),
+                    "keep": str(keep),
+                    "wait": int(wait),
+                    "grep": str(grep),
+                }
+            )
+            _ = _fork
+    refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"ROUNDS is empty in {mill_id}")
     return rows
 
 
