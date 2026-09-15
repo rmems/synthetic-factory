@@ -1,0 +1,53 @@
+{
+  "catalog_id": "obs-fixture-v1",
+  "digests": {
+    "hop_plants_sha256": "03c12bc243c5dcf0da7772ca560d4d2ae2c926bfb60b8ea08a16f91306cf11aa",
+    "leftover3_pairs_sha256": "db562d3b3bc527ec321febe1c9238d9d456da9aae32d1606ad3ca1c92c07c694",
+    "leftover_specs_sha256": "3332705ea30261ac09a2c137e0b76568462e5799832ffa3a6bb097e03d854af3"
+  },
+  "factory": "observability-debug-factory",
+  "files": {
+    "hop_plants": "hop-plants.jsonl",
+    "leftover3_pairs": "leftover3-pairs.jsonl",
+    "leftover_specs": "leftover-specs.jsonl"
+  },
+  "format": "obs-catalog/1",
+  "mill_prefix": "obs",
+  "mills": [
+    {
+      "base_round": 2,
+      "mill_id": "obs_r0002",
+      "plant_count": 1,
+      "shape": "hop",
+      "source": "tests/fixtures/obs/tiny-source/obs-mill-plants-tiny.py"
+    },
+    {
+      "base_round": 1,
+      "mill_id": "obs_r0001",
+      "plant_count": 1,
+      "shape": "leftover3",
+      "source": "tests/fixtures/obs/tiny-source/obs_r0001_leftover3.py"
+    },
+    {
+      "base_round": 9,
+      "mill_id": "obs_leftover9",
+      "plant_count": 1,
+      "shape": "leftover_spec",
+      "source": "tests/fixtures/obs/tiny-source/_gen_obs_leftover_tiny.py"
+    }
+  ],
+  "pair_counts": {
+    "hop": 1,
+    "leftover3": 1,
+    "leftover_specs": 1
+  },
+  "plant_count": 3,
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "4efb4b3db81efec46c341723087d801683f2051b",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": []
+  }
+}
