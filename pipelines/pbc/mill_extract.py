@@ -69,7 +69,12 @@ LANGC = {
 
 
 def _legacy_text(path: str) -> str:
-    return subprocess.check_output(["git", "show", f"{LEGACY}:{path}"], text=True)
+    for ref in (SOURCE_REF, LEGACY):
+        try:
+            return subprocess.check_output(["git", "show", f"{ref}:{path}"], text=True)
+        except subprocess.CalledProcessError:
+            continue
+    raise FileNotFoundError(f"git show failed for {path} at {SOURCE_REF} and {LEGACY}")
 
 
 def _const(node: ast.AST, where: str) -> Any:
@@ -423,12 +428,13 @@ def pair_row(
     full_n_rounds: int,
     ok: dict[str, Any],
     bad: dict[str, Any],
+    start: int,
 ) -> dict[str, Any]:
     notes_extra, notes_footer = MILL_NOTES.get(mill_id, ("", ""))
     return {
         "mill_id": mill_id,
         "catalog_first": catalog_first,
-        "start": catalog_first,
+        "start": start,
         "full_n_rounds": full_n_rounds,
         "notes_extra": notes_extra,
         "notes_footer": notes_footer,
@@ -443,8 +449,10 @@ def build_plants_jsonl() -> str:
     for mill_id, source_path, catalog_first, kind in MILL_SOURCES:
         pairs = extract_mill(mill_id, source_path, kind)
         counts[mill_id] = len(pairs)
-        for ok, bad in pairs:
-            rows.append(pair_row(mill_id, catalog_first, len(pairs), ok, bad))
+        for offset, (ok, bad) in enumerate(pairs):
+            rows.append(
+                pair_row(mill_id, catalog_first, len(pairs), ok, bad, catalog_first + offset)
+            )
     expected = 533
     if len(rows) != expected:
         raise SystemExit(f"expected {expected} catalog rows, got {len(rows)}: {counts}")
@@ -457,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "--stdout":
         sys.stdout.write(build_plants_jsonl())
         return 0
-    out_path.write_text(build_plants_jsonl(), encoding="utf-8")
+    out_path.write_text(build_plants_jsonl(), encoding="utf-8", newline="")
     print(f"wrote {out_path} ({out_path.read_text().count(chr(10))} lines)")
     return 0
 
