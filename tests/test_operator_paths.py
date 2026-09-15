@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pipelines.operator_paths import KIND_DESTINATION, confine, operator_path, operator_roots
+from pipelines.operator_paths import KIND_DESTINATION, confine, confine_named, operator_path, operator_roots
 from scripts import operator_paths as scripts_operator_paths
 
 
@@ -118,6 +118,23 @@ class ConfineHelper(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("error: input:", stderr.getvalue())
         self.assertNotIn("passwd", stderr.getvalue())
+
+    def test_confine_named_applies_destination_kind(self):
+        parser = argparse.ArgumentParser(prog="tool")
+        with tempfile.TemporaryDirectory() as td:
+            existing = Path(td) / "already.jsonl"
+            existing.write_text("keep\n", encoding="utf-8")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                confine_named(
+                    parser,
+                    argparse.Namespace(source=td, output=str(existing)),
+                    {"source": "source", "output": "--output"},
+                    frozenset({"output"}),
+                )
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("--output: the destination already exists", stderr.getvalue())
+            self.assertEqual(existing.read_text(encoding="utf-8"), "keep\n")
 
 
 class CompatibilitySpelling(unittest.TestCase):

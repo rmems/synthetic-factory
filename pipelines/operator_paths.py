@@ -149,5 +149,22 @@ def confine(
     raise AssertionError("argparse.ArgumentParser.error returns")
 
 
+def confine_named(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    arguments: dict[str, str],
+    destinations: frozenset[str] = frozenset(),
+) -> dict[str, Path | None]:
+    """Confine each named field on ``args``; destination names refuse an existing leaf."""
+
+    confined: dict[str, Path | None] = {}
+    for name, argument in arguments.items():
+        kind = KIND_DESTINATION if name in destinations else KIND_PATH
+        confined[name] = confine(
+            parser, getattr(args, name, None), argument=argument, kind=kind
+        )
+    return confined
+
+
 if __package__:
     _expose_package_sibling(__name__)

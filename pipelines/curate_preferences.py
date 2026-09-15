@@ -62,7 +62,7 @@ from typing import Any, NamedTuple
 
 if __package__:
     from . import leftover_mill
-    from .operator_paths import KIND_DESTINATION, confine
+    from .operator_paths import confine_named
     from .preference_audit import (
         AUDIT_NAME,
         AUDIT_SCHEMA_VERSION,
@@ -111,7 +111,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     import leftover_mill
-    from operator_paths import KIND_DESTINATION, confine
+    from operator_paths import confine_named
     from preference_audit import (
         AUDIT_NAME,
         AUDIT_SCHEMA_VERSION,
@@ -660,16 +660,8 @@ _DESTINATION_FIELDS = frozenset({"output", "manifest"})
 def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
     """Confine every path argument right after parsing; sinks never read ``args`` again."""
 
-    def optional(name: str) -> Path | None:
-        kind = KIND_DESTINATION if name in _DESTINATION_FIELDS else "path"
-        return confine(
-            parser,
-            getattr(args, name, None),
-            argument=_PATH_ARGUMENTS[name],
-            kind=kind,
-        )
-
-    return Inputs(*(optional(name) for name in Inputs._fields))
+    paths = confine_named(parser, args, _PATH_ARGUMENTS, _DESTINATION_FIELDS)
+    return Inputs(*(paths[name] for name in Inputs._fields))
 
 
 def _print_audit_text(audit: dict[str, Any]) -> None:
