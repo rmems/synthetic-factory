@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/ntp`` skeleton (no vendored mills)."""
+"""PR-b: compact r1326 theme identities on the PR-a NTP catalog skeleton."""
 
 from __future__ import annotations
 
@@ -28,10 +28,13 @@ from ntp.catalog_extract import (  # noqa: E402
     extract_companion_path,
     extract_mill_catalog,
     is_slice_mill,
+    is_theme_mill,
     leftover_jsonl_path,
     mill_summary,
     mills_jsonl_path,
     split_catalog,
+    split_theme_rows,
+    themes_jsonl_path,
 )
 from ntp.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from ntp.sources import (  # noqa: E402
@@ -133,6 +136,9 @@ class NtpSkeletonTests(unittest.TestCase):
         self.assertEqual(nv.GENERATOR, "grok-4.6")
         self.assertEqual(nv.PRESERVE_COMMIT, "ffd8e849694818083c5cf3dbadfba5872294c5f1")
         self.assertEqual(nv.SLICE_ID, "leftover")
+        self.assertEqual(nv.THEME_MILL_ID, "ntp-mill-r1326")
+        self.assertEqual(nv.THEMES_FILENAME, "themes.jsonl")
+        self.assertEqual(nv.THEME_MILL_IDS, frozenset({nv.THEME_MILL_ID}))
 
     def test_eighty_four_sources_split_into_mills_loops_gens_and_chains(self):
         self.assertEqual(len(MILL_SOURCES), 84)
@@ -207,6 +213,26 @@ class NtpSkeletonTests(unittest.TestCase):
         self.assertEqual(extracted["first_leftover_slug"], "altair-vl-json-leftover")
         self.assertEqual(extracted["success"][0]["plant"], "folio-kfp")
 
+    def test_theme_mill_is_r1326_only(self):
+        self.assertTrue(is_theme_mill("ntp-mill-r1326"))
+        self.assertFalse(is_theme_mill(nv.SLICE_MILL_ID))
+        self.assertFalse(is_theme_mill("ntp-mill-orch-leftover3"))
+        self.assertFalse(is_slice_mill("ntp-mill-r1326"))
+
+    def test_split_theme_rows_keep_mill_id(self):
+        extracted = extract_mill_catalog(
+            _R1326_SNIPPET,
+            path="experiments/ntp-mill-r1326.py",
+        )
+        document = catalog_document([mill_summary(extracted, include_themes=True)])
+        rows = split_theme_rows(document)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["kind"], "success")
+        self.assertEqual(rows[0]["mill_id"], "ntp-mill-r1326")
+        self.assertEqual(rows[0]["slug"], "kubeflow-pipeline-run-as-dest")
+        self.assertEqual(rows[1]["kind"], "leftover")
+        self.assertEqual(rows[1]["leftover"], ".altair/vl.json")
+
     def test_extractor_reads_wave_s_from_lists(self):
         extracted = extract_mill_catalog(
             _WAVE_SNIPPET,
@@ -278,28 +304,45 @@ class NtpSkeletonTests(unittest.TestCase):
         self.assertEqual(r1326.catalog_first, 1326)
         self.assertEqual(r1326.shape, SHAPE_S_L_KW)
         self.assertEqual(r1326.first_slug, "kubeflow-pipeline-run-as-dest")
-        self.assertFalse(r1326.success)
+        self.assertEqual(len(r1326.success), 445)
+        self.assertEqual(len(r1326.leftover), 445)
+        self.assertEqual(r1326.success[0]["plant"], "folio-kfp2")
+        self.assertEqual(r1326.success[0]["artifact"], ".kfp/kfp2-run.json")
+        self.assertEqual(r1326.success[-1]["slug"], "icechunk-store-as-dest")
+        self.assertEqual(r1326.leftover[0]["leftover"], "alt2.vl.json")
+        self.assertEqual(r1326.leftover[-1]["slug"], "geoviews-html-leftover")
         orch = CATALOG.mills["ntp-mill-orch-leftover3"]
         self.assertEqual(orch.n_rows, 16)
         self.assertEqual(orch.catalog_first, 1558)
+        self.assertFalse(orch.success)
+        self.assertFalse(orch.leftover)
         self.assertEqual(CATALOG.mills["ntp-mill-unique-llll"].catalog_first, 1719)
         self.assertEqual(CATALOG.mills["ntp-mill-unique-llll34"].n_rows, 32)
+        self.assertFalse(CATALOG.mills["ntp-mill-unique-llll34"].success)
 
     def test_catalog_files_stay_compact(self):
         header = catalog_json_path().read_text(encoding="utf-8")
         mills = mills_jsonl_path().read_text(encoding="utf-8")
         leftover = leftover_jsonl_path().read_text(encoding="utf-8")
+        themes = themes_jsonl_path().read_text(encoding="utf-8")
         self.assertNotIn('"success"', header)
         self.assertNotIn('"mills":', header)
+        self.assertIn('"themes_filename"', header)
         self.assertLessEqual(len(header.splitlines()), 16)
         self.assertEqual(len(mills.splitlines()), 38)
         self.assertEqual(len(leftover.splitlines()), 130)
-        for text in (mills, leftover):
+        self.assertEqual(len(themes.splitlines()), 890)
+        self.assertNotIn('"mill_id"', leftover)
+        for text in (mills, leftover, themes):
             self.assertTrue(text.endswith("\n"))
             self.assertNotIn("\r", text)
             for line in text.splitlines():
                 self.assertFalse(line.startswith((" ", "\t")))
                 json.loads(line)
+        for line in themes.splitlines():
+            row = json.loads(line)
+            self.assertEqual(row["mill_id"], nv.THEME_MILL_ID)
+            self.assertIn(row["kind"], ("success", "leftover"))
 
 
 class NtpLegacyExtractTests(unittest.TestCase):
@@ -329,10 +372,18 @@ class NtpLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            mills.append(mill_summary(live, include_themes=is_slice_mill(source.mill_id)))
-        header, mill_rows, leftover_rows = split_catalog(catalog_document(mills))
+            mills.append(
+                mill_summary(
+                    live,
+                    include_themes=is_slice_mill(source.mill_id)
+                    or is_theme_mill(source.mill_id),
+                )
+            )
+        document = catalog_document(mills)
+        header, mill_rows, leftover_rows = split_catalog(document)
+        theme_rows = split_theme_rows(document)
         self.assertEqual(
-            dumps_catalog(catalog_document(mills)),
+            dumps_catalog(document),
             catalog_json_path().read_text(encoding="utf-8"),
         )
         self.assertEqual(dumps_jsonl(mill_rows), mills_jsonl_path().read_text(encoding="utf-8"))
@@ -340,9 +391,17 @@ class NtpLegacyExtractTests(unittest.TestCase):
             dumps_jsonl(leftover_rows),
             leftover_jsonl_path().read_text(encoding="utf-8"),
         )
+        self.assertEqual(
+            dumps_jsonl(theme_rows),
+            themes_jsonl_path().read_text(encoding="utf-8"),
+        )
         self.assertEqual(header["n_pair_rows"], 1625)
+        self.assertEqual(header["themes_filename"], nv.THEMES_FILENAME)
         self.assertEqual(len(mill_rows), 38)
         self.assertEqual(len(leftover_rows), 130)
+        self.assertEqual(len(theme_rows), 890)
+        self.assertEqual(theme_rows[0]["slug"], "kubeflow-pipeline-run-as-dest")
+        self.assertEqual(theme_rows[445]["slug"], "altair-vl-json-leftover")
 
     def test_loop_and_gen_scripts_name_companion_mills(self):
         if not _legacy_available():
