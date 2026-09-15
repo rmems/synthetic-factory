@@ -1,9 +1,9 @@
 {
   "catalog_id": "obs-fixture-v1",
   "digests": {
-    "hop_plants_sha256": "03c12bc243c5dcf0da7772ca560d4d2ae2c926bfb60b8ea08a16f91306cf11aa",
-    "leftover3_pairs_sha256": "db562d3b3bc527ec321febe1c9238d9d456da9aae32d1606ad3ca1c92c07c694",
-    "leftover_specs_sha256": "3332705ea30261ac09a2c137e0b76568462e5799832ffa3a6bb097e03d854af3"
+    "hop_plants_sha256": "ffe889bec5009fb234985dfc7564f9d0783ace12d7c32d3b42db9e5f4bcf7d11",
+    "leftover3_pairs_sha256": "3418f87c4b6e670381c786f3f617c8ccf3ad234178dd4ddba3501469ccc82ae0",
+    "leftover_specs_sha256": "1b3736e37e5eddea209ee01d03769a5200c52e53a317cfd63ed5ff39e2f3908b"
   },
   "factory": "observability-debug-factory",
   "files": {
@@ -19,21 +19,21 @@
       "mill_id": "obs_r0002",
       "plant_count": 1,
       "shape": "hop",
-      "source": "tests/fixtures/obs/tiny-source/obs-mill-plants-tiny.py"
+      "source": "tests/fixtures/obs/tiny-source/hop-plants.txt"
     },
     {
       "base_round": 1,
       "mill_id": "obs_r0001",
       "plant_count": 1,
       "shape": "leftover3",
-      "source": "tests/fixtures/obs/tiny-source/obs_r0001_leftover3.py"
+      "source": "tests/fixtures/obs/tiny-source/leftover3-pair.txt"
     },
     {
       "base_round": 9,
       "mill_id": "obs_leftover9",
       "plant_count": 1,
       "shape": "leftover_spec",
-      "source": "tests/fixtures/obs/tiny-source/_gen_obs_leftover_tiny.py"
+      "source": "tests/fixtures/obs/tiny-source/leftover-spec.txt"
     }
   ],
   "pair_counts": {

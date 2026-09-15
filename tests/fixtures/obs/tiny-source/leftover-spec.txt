@@ -1,9 +1,3 @@
-"""Tiny leftover-spec row for OBS catalog extract tests. Not a mill."""
-
-from pathlib import Path
-
-OUT = Path("scripts/observability_debug_mill/mill_plants_ab.py")
-
 SPECS = [
     dict(
         vendor="Tiny Broker",

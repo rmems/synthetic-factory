@@ -3,7 +3,7 @@
   "digests": {
     "hop_plants_sha256": "e7cfd07715ec26d3144542764dde5c86e528a07c79e2551a4028a92fa45b4532",
     "leftover3_pairs_sha256": "d2510ca3d9ac067e305cc0ab7dfa27043668f71672347fb0d6b3600aecca421b",
-    "leftover_specs_sha256": "3ccc84f57b39b25a4c89ae7d96acb43e771e97801cc23da5641efdff0fb0ec61"
+    "leftover_specs_sha256": "2e7c9bb90947c99703583f56a7bce431a4593ebfa35fbae3db1c86bdb7241f6b"
   },
   "factory": "observability-debug-factory",
   "files": {
@@ -90,50 +90,12 @@
     "leftover3": 16,
     "leftover_specs": 440
   },
-  "plant_count": 631,
+  "plant_count": 191,
   "quota_per_round": 2,
   "record_kind": "episode",
   "source": {
     "commit": "4efb4b3db81efec46c341723087d801683f2051b",
     "method": "git-show+ast.parse",
-    "ref": "legacy-mill-lane",
-    "scripts": [
-      {
-        "path": "experiments/obs-mill-r245.py",
-        "sha256": "105a7559448a060ddb25e2829506a476a7c5dc02555f9a48c7cf809da6767d21"
-      },
-      {
-        "path": "experiments/obs-mill-plants-r293.py",
-        "sha256": "ad9c2115655d7ac932d33ae15d8f3cafb5c49259c205cf77fcdce91ab9e5cdfb"
-      },
-      {
-        "path": "experiments/obs-mill-plants-r341.py",
-        "sha256": "670f15287717c8c7d39f93fd93fc1f3477da1624b324c506041d3dec30eb2750"
-      },
-      {
-        "path": "experiments/obs-mill-plants-r401.py",
-        "sha256": "0dea26123d7b8155c2b7488b8b86c25b54addbc5b0df9571a1a28743c16dd725"
-      },
-      {
-        "path": "experiments/obs_r385_leftover3_mill.py",
-        "sha256": "cbb4ebd758c6057f4f4f8eea9e1ab93df01773a7a9de49b4c85547c50c288cc4"
-      },
-      {
-        "path": "experiments/_gen_obs_leftover9.py",
-        "sha256": "1fbe0a9a67621dc67516ca5d835d69ff2cb68cabb742f8a3ebe8cf25645ee338"
-      },
-      {
-        "path": "experiments/_gen_obs_leftover10.py",
-        "sha256": "9217852e9e1641306fba51c9b68a3f920fa2204e5fed6f73df2d00a80b0213df"
-      },
-      {
-        "path": "experiments/_gen_obs_leftover14.py",
-        "sha256": "5faa42874c5627e9a8e07ad8180f2df03b855604d341f24168ce967c81035986"
-      },
-      {
-        "path": "experiments/_gen_obs_leftover16.py",
-        "sha256": "f114f80c077a9dea9ff4f24f5d259e94b56fd07cfc7e2c04b28784d15633fec8"
-      }
-    ]
+    "ref": "legacy-mill-lane"
   }
 }

@@ -21,7 +21,6 @@ from typing import Any
 from ._contract import (
     CATALOG_FILENAME,
     CATALOG_FORMAT,
-    DEFAULT_CATALOG_ID,
     FACTORY,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
@@ -45,10 +44,7 @@ from ._contract import (
     SHAPE_LEFTOVER3,
     SHAPE_LEFTOVER_SPEC,
     SOURCE_COMMIT,
-    SOURCE_METHOD,
-    SOURCE_REF,
     bind_import_twin,
-    dumps_exact_json,
     load_strict_json,
     repo_root,
 )
@@ -147,87 +143,29 @@ DEFAULT_KIND_NS = {
     "ch": ("clickhouse", "clickhouse"),
     "am": ("monitoring", "alertmanager"),
 }
-
-SOURCE_ROWS = (
-    {
-        "mill_id": "obs_r245",
-        "base_round": 245,
-        "source": "experiments/obs-mill-r245.py",
-        "shape": SHAPE_HOP,
-    },
-    {
-        "mill_id": "obs_r293",
-        "base_round": 293,
-        "source": "experiments/obs-mill-plants-r293.py",
-        "shape": SHAPE_HOP,
-    },
-    {
-        "mill_id": "obs_r341",
-        "base_round": 341,
-        "source": "experiments/obs-mill-plants-r341.py",
-        "shape": SHAPE_HOP,
-    },
-    {
-        "mill_id": "obs_r401",
-        "base_round": 401,
-        "source": "experiments/obs-mill-plants-r401.py",
-        "shape": SHAPE_HOP,
-    },
-    {
-        "mill_id": "obs_r385",
-        "base_round": 385,
-        "source": "experiments/obs_r385_leftover3_mill.py",
-        "shape": SHAPE_LEFTOVER3,
-    },
-    {
-        "mill_id": "obs_leftover9",
-        "base_round": 964,
-        "source": "experiments/_gen_obs_leftover9.py",
-        "shape": SHAPE_LEFTOVER_SPEC,
-        "family": "leftover9",
-    },
-    {
-        "mill_id": "obs_leftover10",
-        "base_round": 1052,
-        "source": "experiments/_gen_obs_leftover10.py",
-        "shape": SHAPE_LEFTOVER_SPEC,
-        "family": "leftover10",
-    },
-    {
-        "mill_id": "obs_leftover14",
-        "base_round": 1260,
-        "source": "experiments/_gen_obs_leftover14.py",
-        "shape": SHAPE_LEFTOVER_SPEC,
-        "family": "leftover14",
-    },
-    {
-        "mill_id": "obs_leftover15",
-        "base_round": 1348,
-        "source": "experiments/_gen_obs_leftover14.py",
-        "shape": SHAPE_LEFTOVER_SPEC,
-        "family": "leftover15",
-    },
-    {
-        "mill_id": "obs_leftover16",
-        "base_round": 1436,
-        "source": "experiments/_gen_obs_leftover16.py",
-        "shape": SHAPE_LEFTOVER_SPEC,
-        "family": "leftover16",
-    },
+SPEC_INDEX_KIND = "obs-leftover-spec-index/1"
+_KIND_BIT_KEYS = (
+    "query",
+    "lquery",
+    "exec_path",
+    "exec_obs",
+    "exec_err",
+    "exec_ok",
+    "grafana_obs",
+    "truth_cmd",
+    "truth_obs",
 )
 
 __all__ = [
     "Catalog",
     "Mill",
     "Plant",
-    "SOURCE_ROWS",
     "catalog_check",
     "default_catalog_dir",
     "git_show_source",
     "load_catalog",
     "plants_from_source",
     "sha256_bytes",
-    "write_catalog_dir",
 ]
 
 
@@ -261,6 +199,7 @@ class Catalog:
     plants: tuple[Plant, ...]
     mills: tuple[Mill, ...]
     meta: Mapping[str, Any]
+    leftover_spec_index: Mapping[str, Any] | None = None
 
     def plant(self, plant_id: str) -> Plant:
         for item in self.plants:
@@ -286,10 +225,6 @@ def default_catalog_dir() -> Path:
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
-
-def sha256_text(text: str) -> str:
-    return sha256_bytes(text.encode("utf-8"))
 
 
 def git_show_source(path: str, commit: str = SOURCE_COMMIT) -> str:
@@ -360,144 +295,134 @@ def _require_int(value: Any, where: str, code: str, minimum: int = 0) -> int:
 def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
     """Reconstruct r401 ``_kind_bits`` from extracted constants. Never exec."""
 
-    if kind == "tempo":
-        return {
-            "query": f'{{resource.service.name="{svc}"}}',
-            "lquery": f'{{resource.service.name="{lsvc}"}}',
-            "exec_path": "/api/search",
-            "exec_obs": f'{{"traces":[],"error":"max concurrent {fail_val}"}}',
-            "exec_err": f"tempo empty {fail_val}",
-            "exec_ok": '{"traces":[{"traceID":"r401a"}]}',
-            "grafana_obs": '{"name":"Traces"}',
-            "truth_cmd": (
-                f"kubectl -n {svc.split('-')[0]} logs deploy/{svc} --tail=30 | grep -c otlp"
-            ),
-            "truth_obs": "18",
-        }
-    if kind == "loki":
-        return {
-            "query": f'{{job="{svc}"}}',
-            "lquery": f'{{job="{lsvc}"}}',
-            "exec_path": "/loki/api/v1/query_range",
-            "exec_obs": f'{{"status":"error","error":"loki {fail_val}"}}',
-            "exec_err": f"loki {fail_val}",
-            "exec_ok": '{"status":"success","data":{"result":[{"values":[["1","ok"]]}]}}',
-            "grafana_obs": '{"name":"Logs"}',
-            "truth_cmd": f"kubectl -n loki logs deploy/ingester --tail=20 | grep -c {svc}",
-            "truth_obs": "11",
-        }
-    if kind == "prom":
-        return {
-            "query": f'http_requests_total{{job="{svc}"}}',
-            "lquery": f'http_requests_total{{job="{lsvc}"}}',
-            "exec_path": "/api/v1/query",
-            "exec_obs": f'{{"status":"error","error":"prom {fail_val}"}}',
-            "exec_err": f"prom {fail_val}",
-            "exec_ok": '{"status":"success","data":{"result":[{"value":[1,"7"]}]}}',
-            "grafana_obs": '{"name":"Prom"}',
-            "truth_cmd": f"curl -sS $APP/metrics | grep -c {svc.split('-')[0]}",
-            "truth_obs": "9",
-        }
-    if kind == "mimir":
-        return {
-            "query": f'http_requests_total{{service="{svc}"}}',
-            "lquery": f'http_requests_total{{service="{lsvc}"}}',
-            "exec_path": "/prometheus/api/v1/query",
-            "exec_obs": f'{{"status":"error","error":"mimir {fail_val}"}}',
-            "exec_err": f"mimir {fail_val}",
-            "exec_ok": '{"status":"success","data":{"result":[{"value":[1,"6"]}]}}',
-            "grafana_obs": '{"name":"Mimir"}',
-            "truth_cmd": "curl -sS $MIMIR/ready | head -1",
-            "truth_obs": "ready",
-        }
-    if kind == "otel":
-        return {
-            "query": f'{{resource.service.name="{svc}"}}',
-            "lquery": f'{{resource.service.name="{lsvc}"}}',
-            "exec_path": "/api/search",
-            "exec_obs": '{"traces":[]}',
-            "exec_err": f"otel {fail_val}",
-            "exec_ok": '{"traces":[{"traceID":"otel401"}]}',
-            "grafana_obs": '{"name":"OTel"}',
-            "truth_cmd": f"kubectl -n otel logs deploy/otelcol --tail=40 | grep -c {svc}",
-            "truth_obs": "15",
-        }
-    if kind == "grafana":
-        return {
-            "query": f'{{resource.service.name="{svc}"}}',
-            "lquery": f'{{resource.service.name="{lsvc}"}}',
-            "exec_path": "/api/ds/query",
-            "exec_obs": f'{{"message":"grafana {fail_val}"}}',
-            "exec_err": f"grafana {fail_val}",
-            "exec_ok": '{"results":{"A":{"frames":[{"schema":{"fields":[{"name":"Time"}]}}]}}}',
-            "grafana_obs": '{"name":"Panel"}',
-            "truth_cmd": (
-                f"curl -sS $GRAFANA/api/dashboards/uid/{svc[:6]} | jq '.dashboard.panels|length'"
-            ),
-            "truth_obs": "2",
-        }
-    if kind == "thanos":
-        return {
-            "query": f'http_requests_total{{job="{svc}"}}',
-            "lquery": f'http_requests_total{{job="{lsvc}"}}',
-            "exec_path": "/api/v1/query",
-            "exec_obs": f'{{"status":"error","error":"thanos {fail_val}"}}',
-            "exec_err": f"thanos {fail_val}",
-            "exec_ok": '{"status":"success","data":{"result":[{"value":[1,"4"]}]}}',
-            "grafana_obs": '{"name":"Thanos"}',
-            "truth_cmd": "curl -sS $THANOS/-/ready",
-            "truth_obs": "OK",
-        }
-    if kind == "pyro":
-        return {
-            "query": f'process_cpu{{service_name="{svc}"}}',
-            "lquery": f'process_cpu{{service_name="{lsvc}"}}',
-            "exec_path": "/pyroscope/render",
-            "exec_obs": "0",
-            "exec_err": f"pyro {fail_val}",
-            "exec_ok": "36",
-            "grafana_obs": '{"name":"Flame"}',
-            "truth_cmd": "curl -sS $APP/debug/pprof/profile?seconds=1 | wc -c",
-            "truth_obs": "4096",
-        }
-    if kind == "vm":
-        return {
-            "query": f'http_requests_total{{job="{svc}"}}',
-            "lquery": f'http_requests_total{{job="{lsvc}"}}',
-            "exec_path": "/api/v1/query",
-            "exec_obs": f'{{"status":"error","error":"vm {fail_val}"}}',
-            "exec_err": f"vm {fail_val}",
-            "exec_ok": '{"status":"success","data":{"result":[{"value":[1,"8"]}]}}',
-            "grafana_obs": '{"name":"VM"}',
-            "truth_cmd": "curl -sS $VM/health",
-            "truth_obs": "OK",
-        }
-    if kind == "ch":
-        return {
-            "query": f"SELECT count() FROM otel.traces WHERE service='{svc}'",
-            "lquery": f"SELECT count() FROM otel.traces WHERE service='{lsvc}'",
-            "exec_path": "/",
-            "exec_obs": "0\n",
-            "exec_err": f"ch {fail_val}",
-            "exec_ok": "88\n",
-            "grafana_obs": '{"name":"SQL"}',
-            "truth_cmd": (
+    ns = svc.split("-")[0]
+    rows = {
+        "tempo": (
+            f'{{resource.service.name="{svc}"}}',
+            f'{{resource.service.name="{lsvc}"}}',
+            "/api/search",
+            f'{{"traces":[],"error":"max concurrent {fail_val}"}}',
+            f"tempo empty {fail_val}",
+            '{"traces":[{"traceID":"r401a"}]}',
+            '{"name":"Traces"}',
+            f"kubectl -n {ns} logs deploy/{svc} --tail=30 | grep -c otlp",
+            "18",
+        ),
+        "loki": (
+            f'{{job="{svc}"}}',
+            f'{{job="{lsvc}"}}',
+            "/loki/api/v1/query_range",
+            f'{{"status":"error","error":"loki {fail_val}"}}',
+            f"loki {fail_val}",
+            '{"status":"success","data":{"result":[{"values":[["1","ok"]]}]}}',
+            '{"name":"Logs"}',
+            f"kubectl -n loki logs deploy/ingester --tail=20 | grep -c {svc}",
+            "11",
+        ),
+        "prom": (
+            f'http_requests_total{{job="{svc}"}}',
+            f'http_requests_total{{job="{lsvc}"}}',
+            "/api/v1/query",
+            f'{{"status":"error","error":"prom {fail_val}"}}',
+            f"prom {fail_val}",
+            '{"status":"success","data":{"result":[{"value":[1,"7"]}]}}',
+            '{"name":"Prom"}',
+            f"curl -sS $APP/metrics | grep -c {ns}",
+            "9",
+        ),
+        "mimir": (
+            f'http_requests_total{{service="{svc}"}}',
+            f'http_requests_total{{service="{lsvc}"}}',
+            "/prometheus/api/v1/query",
+            f'{{"status":"error","error":"mimir {fail_val}"}}',
+            f"mimir {fail_val}",
+            '{"status":"success","data":{"result":[{"value":[1,"6"]}]}}',
+            '{"name":"Mimir"}',
+            "curl -sS $MIMIR/ready | head -1",
+            "ready",
+        ),
+        "otel": (
+            f'{{resource.service.name="{svc}"}}',
+            f'{{resource.service.name="{lsvc}"}}',
+            "/api/search",
+            '{"traces":[]}',
+            f"otel {fail_val}",
+            '{"traces":[{"traceID":"otel401"}]}',
+            '{"name":"OTel"}',
+            f"kubectl -n otel logs deploy/otelcol --tail=40 | grep -c {svc}",
+            "15",
+        ),
+        "grafana": (
+            f'{{resource.service.name="{svc}"}}',
+            f'{{resource.service.name="{lsvc}"}}',
+            "/api/ds/query",
+            f'{{"message":"grafana {fail_val}"}}',
+            f"grafana {fail_val}",
+            '{"results":{"A":{"frames":[{"schema":{"fields":[{"name":"Time"}]}}]}}}',
+            '{"name":"Panel"}',
+            f"curl -sS $GRAFANA/api/dashboards/uid/{svc[:6]} | jq '.dashboard.panels|length'",
+            "2",
+        ),
+        "thanos": (
+            f'http_requests_total{{job="{svc}"}}',
+            f'http_requests_total{{job="{lsvc}"}}',
+            "/api/v1/query",
+            f'{{"status":"error","error":"thanos {fail_val}"}}',
+            f"thanos {fail_val}",
+            '{"status":"success","data":{"result":[{"value":[1,"4"]}]}}',
+            '{"name":"Thanos"}',
+            "curl -sS $THANOS/-/ready",
+            "OK",
+        ),
+        "pyro": (
+            f'process_cpu{{service_name="{svc}"}}',
+            f'process_cpu{{service_name="{lsvc}"}}',
+            "/pyroscope/render",
+            "0",
+            f"pyro {fail_val}",
+            "36",
+            '{"name":"Flame"}',
+            "curl -sS $APP/debug/pprof/profile?seconds=1 | wc -c",
+            "4096",
+        ),
+        "vm": (
+            f'http_requests_total{{job="{svc}"}}',
+            f'http_requests_total{{job="{lsvc}"}}',
+            "/api/v1/query",
+            f'{{"status":"error","error":"vm {fail_val}"}}',
+            f"vm {fail_val}",
+            '{"status":"success","data":{"result":[{"value":[1,"8"]}]}}',
+            '{"name":"VM"}',
+            "curl -sS $VM/health",
+            "OK",
+        ),
+        "ch": (
+            f"SELECT count() FROM otel.traces WHERE service='{svc}'",
+            f"SELECT count() FROM otel.traces WHERE service='{lsvc}'",
+            "/",
+            "0\n",
+            f"ch {fail_val}",
+            "88\n",
+            '{"name":"SQL"}',
+            (
                 "clickhouse-client -q \"SELECT count() FROM otel.traces "
                 f"WHERE service='{svc}' SETTINGS max_result_rows=100\""
             ),
-            "truth_obs": "88",
-        }
-    return {
-        "query": f'alerts{{service="{svc}"}}',
-        "lquery": f'alerts{{service="{lsvc}"}}',
-        "exec_path": "/api/v2/alerts",
-        "exec_obs": "[]",
-        "exec_err": f"am {fail_val}",
-        "exec_ok": '[{"labels":{"alertname":"X"}}]',
-        "grafana_obs": '{"name":"AM"}',
-        "truth_cmd": "curl -sS $AM/-/ready",
-        "truth_obs": "OK",
+            "88",
+        ),
+        "am": (
+            f'alerts{{service="{svc}"}}',
+            f'alerts{{service="{lsvc}"}}',
+            "/api/v2/alerts",
+            "[]",
+            f"am {fail_val}",
+            '[{"labels":{"alertname":"X"}}]',
+            '{"name":"AM"}',
+            "curl -sS $AM/-/ready",
+            "OK",
+        ),
     }
+    return dict(zip(_KIND_BIT_KEYS, rows.get(kind, rows["am"])))
 
 
 def _apply_hop_defaults(row: dict[str, Any]) -> dict[str, Any]:
@@ -809,6 +734,16 @@ def _mill_from_row(row: Any, where: str) -> Mill:
     )
 
 
+def _leftover_spec_index(rows: tuple[Any, ...]) -> Mapping[str, Any] | None:
+    if (
+        len(rows) == 1
+        and isinstance(rows[0], dict)
+        and rows[0].get("kind") == SPEC_INDEX_KIND
+    ):
+        return rows[0]
+    return None
+
+
 def _read_jsonl(path: Path) -> tuple[Any, ...]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -827,13 +762,6 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
                 FINDING_CATALOG_FIELD_INVALID, f"{path.name}:{index} is not strict JSON"
             ) from exc
     return tuple(rows)
-
-
-def _jsonl_bytes(rows: list[Mapping[str, Any]]) -> bytes:
-    lines = [
-        dumps_exact_json(dict(row), ensure_ascii=True, sort_keys=True) + "\n" for row in rows
-    ]
-    return "".join(lines).encode("utf-8")
 
 
 def _registry_factory_ids() -> set[str]:
@@ -916,6 +844,7 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         (LEFTOVER_SPECS_FILENAME, "leftover_specs_sha256", "leftover_specs"),
     )
     rows: list[Any] = []
+    spec_index: Mapping[str, Any] | None = None
     for filename, digest_key, file_key in members:
         expected_name = _field(files, file_key, str, f"{CATALOG_FILENAME}.files")
         if expected_name != filename:
@@ -935,9 +864,26 @@ def load_catalog(directory: Path | None = None) -> Catalog:
                 FINDING_CATALOG_SHA256_MISMATCH,
                 f"{filename} digest {digest} != catalog pin {pinned}",
             )
-        rows.extend(_read_jsonl(path))
+        member_rows = _read_jsonl(path)
+        if filename == LEFTOVER_SPECS_FILENAME:
+            spec_index = _leftover_spec_index(member_rows)
+            if spec_index is not None:
+                continue
+        rows.extend(member_rows)
     if factory not in _registry_factory_ids():
         raise ObsRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
+    if spec_index is not None:
+        pair_counts = _field(meta, "pair_counts", dict, CATALOG_FILENAME)
+        leftover_specs = _field(
+            pair_counts, "leftover_specs", int, f"{CATALOG_FILENAME}.pair_counts"
+        )
+        total = _field(spec_index, "total", int, f"{LEFTOVER_SPECS_FILENAME}.total")
+        if leftover_specs != total:
+            raise ObsRefusal(
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{CATALOG_FILENAME}.pair_counts.leftover_specs is {leftover_specs}, "
+                f"index total is {total}",
+            )
     if len(rows) != plant_count:
         raise ObsRefusal(
             FINDING_CATALOG_FIELD_INVALID,
@@ -953,16 +899,75 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     for plant in plants:
         by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
     mill_ids = {mill.mill_id for mill in mills}
-    if mill_ids != set(by_mill):
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-        )
-    for mill in mills:
-        if by_mill[mill.mill_id] != mill.plant_count:
+    spec_mill_ids = {mill.mill_id for mill in mills if mill.shape == SHAPE_LEFTOVER_SPEC}
+    if spec_index is None:
+        if mill_ids != set(by_mill):
+            raise ObsRefusal(
+                FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
+            )
+        for mill in mills:
+            if by_mill[mill.mill_id] != mill.plant_count:
+                raise ObsRefusal(
+                    FINDING_CATALOG_FIELD_INVALID,
+                    f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
+                )
+    else:
+        if mill_ids - spec_mill_ids != set(by_mill):
+            raise ObsRefusal(
+                FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
+            )
+        indexed_rows = _field(spec_index, "mills", list, f"{LEFTOVER_SPECS_FILENAME}.mills")
+        indexed = {
+            _require_text(
+                _field(row, "mill_id", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
+                f"{LEFTOVER_SPECS_FILENAME}.mills.mill_id",
+                FINDING_CATALOG_FIELD_INVALID,
+            ): row
+            for row in indexed_rows
+        }
+        if set(indexed) != spec_mill_ids:
             raise ObsRefusal(
                 FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
+                "leftover-spec index mills do not match catalog leftover_spec mills",
             )
+        for mill in mills:
+            if mill.shape == SHAPE_LEFTOVER_SPEC:
+                count = _field(
+                    indexed[mill.mill_id],
+                    "count",
+                    int,
+                    f"{LEFTOVER_SPECS_FILENAME}.mills",
+                )
+                first = _require_text(
+                    _field(
+                        indexed[mill.mill_id],
+                        "first",
+                        str,
+                        f"{LEFTOVER_SPECS_FILENAME}.mills",
+                    ),
+                    f"{LEFTOVER_SPECS_FILENAME}.mills.first",
+                    FINDING_CATALOG_FIELD_INVALID,
+                )
+                last = _require_text(
+                    _field(
+                        indexed[mill.mill_id],
+                        "last",
+                        str,
+                        f"{LEFTOVER_SPECS_FILENAME}.mills",
+                    ),
+                    f"{LEFTOVER_SPECS_FILENAME}.mills.last",
+                    FINDING_CATALOG_FIELD_INVALID,
+                )
+                if count != mill.plant_count or not first or not last:
+                    raise ObsRefusal(
+                        FINDING_CATALOG_FIELD_INVALID,
+                        f"{mill.mill_id} leftover-spec index does not match mill pin",
+                    )
+            elif by_mill[mill.mill_id] != mill.plant_count:
+                raise ObsRefusal(
+                    FINDING_CATALOG_FIELD_INVALID,
+                    f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
+                )
     return Catalog(
         catalog_id=catalog_id,
         directory=catalog_dir,
@@ -970,6 +975,7 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         plants=plants,
         mills=mills,
         meta=meta,
+        leftover_spec_index=spec_index,
     )
 
 
@@ -978,115 +984,6 @@ def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
 
     load_catalog(directory)
     return []
-
-
-def extract_family(read_source) -> dict[str, Any]:
-    """AST-extract every reviewed source through ``read_source(path)``."""
-
-    hop: list[dict[str, Any]] = []
-    leftover3: list[dict[str, Any]] = []
-    specs: list[dict[str, Any]] = []
-    mills: list[dict[str, Any]] = []
-    source_pins: list[dict[str, Any]] = []
-    seen_paths: set[str] = set()
-    for spec in SOURCE_ROWS:
-        path = spec["source"]
-        text = read_source(path)
-        rows = plants_from_source(
-            text,
-            mill_id=spec["mill_id"],
-            source=path,
-            base_round=spec["base_round"],
-            shape=spec["shape"],
-            family=spec.get("family"),
-        )
-        if spec["shape"] == SHAPE_HOP:
-            hop.extend(rows)
-        elif spec["shape"] == SHAPE_LEFTOVER3:
-            leftover3.extend(rows)
-        else:
-            specs.extend(rows)
-        mills.append(
-            {
-                "base_round": spec["base_round"],
-                "mill_id": spec["mill_id"],
-                "plant_count": len(rows),
-                "shape": spec["shape"],
-                "source": path,
-            }
-        )
-        if path not in seen_paths:
-            seen_paths.add(path)
-            source_pins.append(
-                {
-                    "path": path,
-                    "sha256": sha256_text(text),
-                }
-            )
-    return {
-        "hop": hop,
-        "leftover3": leftover3,
-        "leftover_specs": specs,
-        "mills": mills,
-        "source_pins": source_pins,
-    }
-
-
-def write_catalog_dir(
-    directory: Path,
-    family: Mapping[str, Any],
-    *,
-    catalog_id: str = DEFAULT_CATALOG_ID,
-) -> dict[str, Any]:
-    """Write a brand-new catalog directory. Refuses one that exists."""
-
-    dest = Path(directory)
-    if dest.exists():
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"catalog destination {dest} already exists"
-        )
-    dest.mkdir(parents=True)
-    hop_bytes = _jsonl_bytes(list(family["hop"]))
-    leftover3_bytes = _jsonl_bytes(list(family["leftover3"]))
-    spec_bytes = _jsonl_bytes(list(family["leftover_specs"]))
-    (dest / HOP_FILENAME).write_bytes(hop_bytes)
-    (dest / LEFTOVER3_FILENAME).write_bytes(leftover3_bytes)
-    (dest / LEFTOVER_SPECS_FILENAME).write_bytes(spec_bytes)
-    plant_count = len(family["hop"]) + len(family["leftover3"]) + len(family["leftover_specs"])
-    meta = {
-        "catalog_id": catalog_id,
-        "digests": {
-            "hop_plants_sha256": sha256_bytes(hop_bytes),
-            "leftover3_pairs_sha256": sha256_bytes(leftover3_bytes),
-            "leftover_specs_sha256": sha256_bytes(spec_bytes),
-        },
-        "factory": FACTORY,
-        "files": {
-            "hop_plants": HOP_FILENAME,
-            "leftover3_pairs": LEFTOVER3_FILENAME,
-            "leftover_specs": LEFTOVER_SPECS_FILENAME,
-        },
-        "format": CATALOG_FORMAT,
-        "mill_prefix": MILL_PREFIX,
-        "mills": list(family["mills"]),
-        "pair_counts": {
-            "hop": len(family["hop"]),
-            "leftover3": len(family["leftover3"]),
-            "leftover_specs": len(family["leftover_specs"]),
-        },
-        "plant_count": plant_count,
-        "quota_per_round": QUOTA_PER_ROUND,
-        "record_kind": RECORD_KIND,
-        "source": {
-            "commit": SOURCE_COMMIT,
-            "method": SOURCE_METHOD,
-            "ref": SOURCE_REF,
-            "scripts": list(family["source_pins"]),
-        },
-    }
-    rendered = dumps_exact_json(meta, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
-    (dest / CATALOG_FILENAME).write_text(rendered, encoding="utf-8")
-    return meta
 
 
 bind_import_twin(__name__)

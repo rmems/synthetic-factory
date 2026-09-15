@@ -1,8 +1,4 @@
-"""Tiny leftover3 pair for OBS catalog extract tests. Not a mill."""
-
-from __future__ import annotations
-
-PAIRS: list[dict] = [
+PAIRS = [
     {
         "slug": "tiny-dd-env-drop-leftover",
         "lslug": "tiny-nr-span-drop-leftover",

@@ -14,9 +14,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 FIXTURE = REPO / "tests" / "fixtures" / "obs" / "catalog"
-TINY_HOP = REPO / "tests" / "fixtures" / "obs" / "tiny-source" / "obs-mill-plants-tiny.py"
-TINY_L3 = REPO / "tests" / "fixtures" / "obs" / "tiny-source" / "obs_r0001_leftover3.py"
-TINY_SPEC = REPO / "tests" / "fixtures" / "obs" / "tiny-source" / "_gen_obs_leftover_tiny.py"
+TINY_HOP = REPO / "tests" / "fixtures" / "obs" / "tiny-source" / "hop-plants.txt"
+TINY_L3 = REPO / "tests" / "fixtures" / "obs" / "tiny-source" / "leftover3-pair.txt"
+TINY_SPEC = REPO / "tests" / "fixtures" / "obs" / "tiny-source" / "leftover-spec.txt"
 COMMITTED = REPO / "config" / "obs"
 
 sys.path.insert(0, str(PIPELINES))
@@ -58,9 +58,22 @@ class CatalogPins(unittest.TestCase):
         loaded = catalog.load_catalog(COMMITTED)
         self.assertEqual(loaded.catalog_id, "obs-plants-v1")
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 631)
+        self.assertEqual(len(loaded.plants), 191)
         self.assertEqual(len(loaded.mills), 10)
         self.assertEqual(len(loaded.pair_plants()), 191)
+        self.assertEqual(loaded.meta["pair_counts"]["leftover_specs"], 440)
+        self.assertEqual(loaded.leftover_spec_index["total"], 440)
+        first_last = {
+            row["mill_id"]: (row["first"], row["last"])
+            for row in loaded.leftover_spec_index["mills"]
+        }
+        self.assertEqual(
+            first_last["obs_leftover9"],
+            (
+                "obs_leftover9:redpanda-metrics-path-drop-leftover",
+                "obs_leftover9:geode-pulse-bind-drop-leftover",
+            ),
+        )
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX], FACTORY)
 
     def test_fixture_catalog_is_three_plants(self):
@@ -154,10 +167,13 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(SOURCE_COMMIT, "4efb4b3db81efec46c341723087d801683f2051b")
 
     def test_package_tree_has_no_vendored_mill_scripts(self):
-        hits = list((PIPELINES / "obs").rglob("obs-mill*.py"))
-        hits.extend((PIPELINES / "obs").rglob("obs-loop*.py"))
-        hits.extend((PIPELINES / "obs").rglob("_gen_obs_leftover*.py"))
-        hits.extend((COMMITTED).rglob("*mill*.py"))
+        roots = (PIPELINES / "obs", COMMITTED, REPO / "tests" / "fixtures" / "obs")
+        hits = []
+        for root in roots:
+            hits.extend(root.rglob("obs-mill*.py"))
+            hits.extend(root.rglob("obs-loop*.py"))
+            hits.extend(root.rglob("_gen_obs_leftover*.py"))
+            hits.extend(root.rglob("obs_r385_leftover3_mill.py"))
         self.assertEqual(hits, [])
         names = tuple(
             sorted(path.name for path in (PIPELINES / "obs").iterdir() if path.suffix == ".py")
