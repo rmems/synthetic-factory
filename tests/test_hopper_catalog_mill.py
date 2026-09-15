@@ -47,7 +47,7 @@ class HopperMillCatalogLayoutTests(unittest.TestCase):
     def test_pairs_jsonl_is_one_object_per_line(self):
         payload = (DEFAULT_MILL_CATALOG_DIR / PAIRS_FILENAME).read_bytes()
         lines = payload.splitlines()
-        self.assertEqual(len(lines), 111)
+        self.assertEqual(len(lines), 114)
         for index, line in enumerate(lines, start=1):
             self.assertFalse(line.startswith(b" "), f"line {index} has leading whitespace")
             self.assertFalse(line.endswith(b"\r"), f"line {index} has CR")
@@ -57,9 +57,9 @@ class HopperMillCatalogLayoutTests(unittest.TestCase):
 
     def test_catalog_check_loads_committed_slice(self):
         meta = catalog_mill_check()
-        self.assertEqual(meta["n_pair_rows_committed"], 111)
-        self.assertEqual(meta["n_pair_rows_extracted"], 111)
-        self.assertEqual(len(meta["mills"]), 3)
+        self.assertEqual(meta["n_pair_rows_committed"], 114)
+        self.assertEqual(meta["n_pair_rows_extracted"], 114)
+        self.assertEqual(len(meta["mills"]), 4)
 
 
 class HopperMillNeverExec(unittest.TestCase):
@@ -113,12 +113,13 @@ class HopperMillReextractTests(unittest.TestCase):
         payload = (DEFAULT_MILL_CATALOG_DIR / PAIRS_FILENAME).read_bytes()
         self.assertEqual(meta["pairs_sha256"], sha256_bytes(payload))
 
-    def test_header_lists_three_mills_with_expected_counts(self):
+    def test_header_lists_mills_with_expected_counts(self):
         meta, _ = load_mill_catalog()
         by_id = {item["mill_id"]: item for item in meta["mills"]}
         self.assertEqual(by_id["ssl-mill-r35"]["n_rows"], 71)
         self.assertEqual(by_id["ssl-mill-r112"]["n_rows"], 20)
         self.assertEqual(by_id["ssl-mill-r132"]["n_rows"], 20)
+        self.assertEqual(by_id["ssl-mill-r132-lll"]["n_rows"], 3)
 
 
 if __name__ == "__main__":
