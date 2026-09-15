@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -246,16 +247,42 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertEqual(r728.first_slug, "cuda-graph-capture-unkeyed")
         self.assertEqual(r728.last_slug, "nbd-timeout-unkeyed")
         self.assertEqual(r728.banned_slugs, ("conll-coref-avg", "simpson-policy-mix"))
+        self.assertIsNone(r728.tables)
         r968 = CATALOG.mills["lef-mill-r968"]
         self.assertEqual(r968.n_rows, 554)
         self.assertEqual(r968.shape, SHAPE_STEMS)
         self.assertEqual(r968.first_slug, "tsc-offset-unkeyed")
         self.assertEqual(r968.last_slug, "iwd-roam-unkeyed")
         self.assertIsNone(r968.tables)
-        self.assertEqual(r968.stems[0], ("tsc-offset", "0", "200"))
+        self.assertIsNone(r968.stems)
+        self.assertEqual(r968.nums, lv.NUMS_FORMULA)
         self.assertEqual(CATALOG.slugs.n_rows, 2095)
         self.assertEqual(CATALOG.slugs.first_slug, "3pl-guess-c-vs-pct")
         self.assertEqual(CATALOG.slugs.last_slug, "zstd-window-cut")
+
+    def test_committed_header_omits_deferred_payloads(self):
+        header = json.loads(
+            (REPO / "pipelines" / "lef" / "CATALOG.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(header["slice_rows_file"], lv.ROWS_FILENAME)
+        self.assertEqual(header["slice_mill"], lv.SLICE_MILL_ID)
+        for mill_id, row in header["mills"].items():
+            self.assertNotIn("tables", row, mill_id)
+            self.assertNotIn("stems", row, mill_id)
+            self.assertNotIn("froms", row, mill_id)
+            self.assertNotIn("canons", row, mill_id)
+            self.assertNotIn("lims", row, mill_id)
+
+    def test_slice_rows_jsonl_is_compact(self):
+        path = REPO / "pipelines" / "lef" / lv.ROWS_FILENAME
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), 48)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            json.loads(line)
 
 
 class LefLegacyExtractTests(unittest.TestCase):
@@ -283,9 +310,14 @@ class LefLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            mills.append(
-                mill_summary(live, include_tables=source.kind == lv.KIND_TABLES)
-            )
+            if source.mill_id == lv.SLICE_MILL_ID:
+                for name in lv.TABLE_NAMES:
+                    self.assertEqual(
+                        tuple(tuple(row) for row in live["tables"][name]),
+                        committed.tables[name],
+                        source.mill_id,
+                    )
+            mills.append(mill_summary(live, include_tables=False))
         slugs_source = slug_sources()[0]
         slugs_text = subprocess.check_output(
             ["git", "show", f"{lv.LEGACY_REF}:{slugs_source.path}"],

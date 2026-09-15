@@ -36,9 +36,11 @@ from .vocabulary import (
     NUMS_FORMULA,
     PAIR_BUCKETS,
     PRESERVE_COMMIT,
+    ROWS_FILENAME,
     SHAPE_STEMS,
     SHAPE_TABLES,
     SLICE_ID,
+    SLICE_MILL_ID,
     TABLE_FIELDS,
     TABLE_NAMES,
 )
@@ -433,11 +435,13 @@ def mill_summary(record: Mapping[str, Any], *, include_tables: bool) -> dict[str
     if include_tables and record["shape"] == SHAPE_TABLES:
         summary["tables"] = jsonable(record["tables"])
     if record["shape"] == SHAPE_STEMS:
-        summary["stems"] = jsonable(record["stems"])
-        summary["froms"] = jsonable(record["froms"])
-        summary["canons"] = jsonable(record["canons"])
-        summary["lims"] = jsonable(record["lims"])
-        summary["nums"] = jsonable(record["nums"])
+        if include_tables:
+            summary["stems"] = jsonable(record["stems"])
+            summary["froms"] = jsonable(record["froms"])
+            summary["canons"] = jsonable(record["canons"])
+            summary["lims"] = jsonable(record["lims"])
+        if record.get("nums") is not None:
+            summary["nums"] = jsonable(record["nums"])
     return summary
 
 
@@ -453,6 +457,8 @@ def catalog_document(
         "factory": FACTORY,
         "generator": GENERATOR,
         "slice": SLICE_ID,
+        "slice_mill": SLICE_MILL_ID,
+        "slice_rows_file": ROWS_FILENAME,
         "n_mills": len(mills),
         "n_catalog_rows": catalog_rows,
         "n_table_rows": catalog_rows * len(TABLE_NAMES),
@@ -469,6 +475,11 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
 def catalog_json_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / CATALOG_FILENAME
+
+
+def rows_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / ROWS_FILENAME
 
 
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:

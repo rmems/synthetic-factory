@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
-from .catalog_extract import catalog_json_path
+from .catalog_extract import catalog_json_path, rows_jsonl_path
 from .sources import MILL_SOURCES, catalog_sources, slug_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
@@ -17,9 +18,12 @@ from .vocabulary import (
     KIND_STEMS,
     KIND_TABLES,
     PRESERVE_COMMIT,
+    ROWS_FILENAME,
     SHAPE_STEMS,
     SHAPE_TABLES,
     SLICE_ID,
+    SLICE_MILL_ID,
+    TABLE_FIELDS,
     TABLE_NAMES,
 )
 
@@ -89,7 +93,15 @@ def load_catalog(path=None) -> LefCatalog:
         raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
     if document.get("slice") != SLICE_ID:
         raise ValueError(f"{catalog_path} slice drifted from vocabulary")
+    if document.get("slice_mill") != SLICE_MILL_ID:
+        raise ValueError(f"{catalog_path} slice_mill drifted from vocabulary")
+    if document.get("slice_rows_file") != ROWS_FILENAME:
+        raise ValueError(f"{catalog_path} slice_rows_file drifted from vocabulary")
     mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    mills[SLICE_MILL_ID] = replace(
+        mills[SLICE_MILL_ID],
+        tables=_load_slice_tables(rows_jsonl_path(catalog_path.parent)),
+    )
     slugs = _slugs_from_row(document["slugs"])
     catalog = LefCatalog(
         schema=document["schema"],
@@ -150,6 +162,36 @@ def _tables_from_row(
     }
 
 
+def _load_slice_tables(path: Path) -> dict[str, tuple[tuple[Any, ...], ...]]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot load leftover slice {path}: {exc}") from exc
+    if "\r" in text or not text.endswith("\n"):
+        raise ValueError(f"{path.name} must be LF-framed jsonl")
+    buckets: dict[str, list[tuple[Any, ...]]] = {name: [] for name in TABLE_NAMES}
+    expected = 0
+    for index, line in enumerate(text.splitlines(), start=1):
+        if not line:
+            raise ValueError(f"{path.name}:{index} is empty")
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path.name}:{index} is not JSON: {exc}") from exc
+        if not isinstance(row, dict) or row.get("i") != expected:
+            raise ValueError(f"{path.name}:{index} index drifted from {expected}")
+        for name in TABLE_NAMES:
+            item = row.get(name)
+            expect = len(TABLE_FIELDS[name])
+            if not isinstance(item, list) or len(item) != expect:
+                raise ValueError(f"{path.name}:{index} {name} arity drifted")
+            buckets[name].append(tuple(item))
+        expected += 1
+    if expected < 1:
+        raise ValueError(f"{path.name} must contain at least one slice row")
+    return {name: tuple(rows) for name, rows in buckets.items()}
+
+
 def _slugs_from_row(row: Mapping[str, Any]) -> SlugListing:
     return SlugListing(
         mill_id=row["mill_id"],
@@ -194,21 +236,32 @@ def _bind_sources(catalog: LefCatalog) -> None:
             raise ValueError(f"{mill_id} n_table_rows does not match n_rows")
         if mill.n_rows * 3 != mill.n_pair_slots:
             raise ValueError(f"{mill_id} n_pair_slots does not match n_rows")
+        committed = mill_id == SLICE_MILL_ID
         if mill.shape == SHAPE_TABLES:
-            if mill.tables is None:
-                raise ValueError(f"{mill_id} six-tables mill omitted tables")
             if mill.kind != KIND_TABLES:
                 raise ValueError(f"{mill_id} tables shape must use kind=tables")
-            for name in TABLE_NAMES:
-                if len(mill.tables[name]) != mill.n_rows:
-                    raise ValueError(f"{mill_id} {name} width drifted from n_rows")
+            if committed:
+                if mill.tables is None:
+                    raise ValueError(f"{mill_id} committed slice omitted tables")
+                for name in TABLE_NAMES:
+                    if len(mill.tables[name]) != mill.n_rows:
+                        raise ValueError(f"{mill_id} {name} width drifted from n_rows")
+                if mill.tables["CACHE_OK"][0][0] != mill.first_slug:
+                    raise ValueError(f"{mill_id} first_slug drifted from slice rows")
+                if mill.tables["CACHE_OK"][-1][0] != mill.last_slug:
+                    raise ValueError(f"{mill_id} last_slug drifted from slice rows")
+            elif mill.tables is not None:
+                raise ValueError(f"{mill_id} is deferred; omit tables")
         if mill.shape == SHAPE_STEMS:
-            if mill.stems is None or len(mill.stems) != mill.n_rows:
-                raise ValueError(f"{mill_id} stems width drifted from n_rows")
             if mill.tables is not None:
                 raise ValueError(f"{mill_id} is the stems mill and must omit tables")
             if mill.kind != KIND_STEMS:
                 raise ValueError(f"{mill_id} stems shape must use kind=stems")
+            if committed:
+                if mill.stems is None or len(mill.stems) != mill.n_rows:
+                    raise ValueError(f"{mill_id} stems width drifted from n_rows")
+            elif mill.stems is not None:
+                raise ValueError(f"{mill_id} is deferred; omit stems")
         widths += mill.n_rows
     if catalog.n_catalog_rows != widths:
         raise ValueError("catalog n_catalog_rows drifted from mill widths")

@@ -20,6 +20,8 @@ DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "02d05373e4144ab609ec141b28fd4c52a4174f21"
 CATALOG_FILENAME = "CATALOG.json"
+ROWS_FILENAME = "rows.jsonl"
+SLICE_MILL_ID = "lef-mill-r629"
 PAIR_BUCKETS = 3
 
 KIND_TABLES = "tables"
