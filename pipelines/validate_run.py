@@ -29,6 +29,8 @@ if __package__:
     from . import validate_run_reward_total as _validate_run_reward_total
     from . import validate_run_thalamic as _validate_run_thalamic
     from . import validate_run_safety as _validate_run_safety
+    from . import validate_run_episode as _validate_run_episode
+    from . import validate_run_preference as _validate_run_preference
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
 else:
     import validate_run_spikes as _validate_run_spikes
@@ -37,6 +39,8 @@ else:
     import validate_run_reward_total as _validate_run_reward_total
     import validate_run_thalamic as _validate_run_thalamic
     import validate_run_safety as _validate_run_safety
+    import validate_run_episode as _validate_run_episode
+    import validate_run_preference as _validate_run_preference
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
 
 # Historical public compatibility surface. Explicit binding keeps these names
@@ -138,13 +142,6 @@ ALLOWED_SIM_OR_REAL = _validate_run_provenance.ALLOWED_SIM_OR_REAL
 # validate_run.REWARD_* (including mock.patch.object targets) unchanged.
 REWARD_NON_COMPONENT_KEYS = _validate_run_rewards.REWARD_NON_COMPONENT_KEYS
 REWARD_TOL = _validate_run_rewards.REWARD_TOL
-OBSERVABLE_BASIS_RE = re.compile(
-    r"\b(?:artifacts?|diagnos\w*|diff|errors?|evidence|fail\w*|fault|files?|found|goal|"
-    r"inspect\w*|locks?|logs?|manifest|observ\w*|plan|read|reflection|report\w*|"
-    r"request|requirement|results?|retr(?:y|ies|ied|ying)|schema|self-check|"
-    r"show\w*|status|tests?|tool (?:call|output|result)|verif\w*)\b",
-    re.IGNORECASE,
-)
 
 
 def reject_json_constant(value):
@@ -259,320 +256,28 @@ def check_thalamic(obj, where):
 SAFETY_CASE_TYPES = _validate_run_safety.SAFETY_CASE_TYPES
 SAFETY_CASE_DECISIONS = _validate_run_safety.SAFETY_CASE_DECISIONS
 SAFETY_CASE_SUCCESS = _validate_run_safety.SAFETY_CASE_SUCCESS
-HIDDEN_THOUGHT_KEYS = frozenset(
-    {"thought", "chain_of_thought", "scratch", "inner_monologue"}
-)
-
-
-def episode_like(obj):
-    """True when an object is a coding/agent episode rather than Thalamic."""
-    return (
-        isinstance(obj, dict)
-        and "steps" in obj
-        and not all(key in obj for key in THALAMIC_CORE_KEYS)
-    )
-
-
-# Compatibility alias for callers of the pre-split validator surface.
-_episode_like = episode_like
-
-
-def _hidden_thought_paths(value, path=""):
-    """Return every nested forbidden hidden-reasoning key and its path."""
-    found = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            child_path = f"{path}.{key}" if path else key
-            normalized_key = re.sub(
-                r"[^a-z0-9]+",
-                "_",
-                re.sub(
-                    r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)
-                ).casefold(),
-            ).strip("_")
-            if normalized_key in HIDDEN_THOUGHT_KEYS:
-                found.append((key, child_path))
-            found.extend(_hidden_thought_paths(item, child_path))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found.extend(_hidden_thought_paths(item, f"{path}[{index}]"))
-    return found
-
-
-def _staging_hidden_thought_errors(obj, where):
-    return [
-        f"{where}: hidden '{key}' is forbidden at {path}; use observable fields"
-        for key, path in _hidden_thought_paths(obj)
-    ]
-
-
-def _normalized_goal(value):
-    if not isinstance(value, str) or not value.strip():
-        return None
-    return " ".join(value.split())
-
-
-def _preference_side_context_anchors(value):
-    """Return observable file/API/criterion anchors from one preference side."""
-    anchors = set()
-    context_key_terms = (
-        "api",
-        "criterion",
-        "criteria",
-        "endpoint",
-        "file",
-        "path",
-        "repo",
-        "repository",
-        "resource",
-        "target",
-        "url",
-    )
-    artifact_re = re.compile(
-        r"https?://[^\s\"']+|"
-        r"(?:[a-z0-9_.-]+/)*[a-z0-9_.-]+\."
-        r"(?:csv|env|go|java|js|json|md|py|rs|sql|toml|ts|txt|ya?ml)|"
-        r"/(?:[a-z0-9_{}.-]+/)*[a-z0-9_{}.-]+",
-        re.IGNORECASE,
-    )
-
-    def normalized_artifact(artifact_text):
-        artifact = artifact_text.rstrip(".,;:").casefold()
-        if artifact.startswith(("http://", "https://")):
-            return artifact
-        return posixpath.normpath(artifact)
-
-    def walk(node, key=""):
-        if isinstance(node, dict):
-            for child_key, child in node.items():
-                walk(child, str(child_key).casefold())
-        elif isinstance(node, list):
-            for child in node:
-                walk(child, key)
-        elif isinstance(node, str):
-            normalized = " ".join(node.split()).casefold()
-            if key and any(term in key for term in context_key_terms):
-                anchors.add(f"field:{normalized}")
-            anchors.update(
-                f"artifact:{normalized_artifact(match.group(0))}"
-                for match in artifact_re.finditer(node)
-            )
-
-    walk(value)
-    return anchors
-
-
-def _staging_preference_goal_errors(obj, where):
-    """Require explicit or inherited agreement on one preference problem."""
-    chosen = obj.get("chosen")
-    rejected = obj.get("rejected")
-    raw_goals = {
-        "goal": obj.get("goal"),
-        "chosen.goal": chosen.get("goal") if isinstance(chosen, dict) else None,
-        "rejected.goal": rejected.get("goal") if isinstance(rejected, dict) else None,
-    }
-    normalized = {}
-    errors = []
-    for path, value in raw_goals.items():
-        if value is None:
-            continue
-        goal = _normalized_goal(value)
-        if goal is None:
-            errors.append(f"{where}: {path} must be a non-empty string when present")
-        else:
-            normalized[path] = goal
-    if not normalized:
-        return [f"{where}: preference needs a shared non-empty goal"]
-    if raw_goals["goal"] is None and (
-        "chosen.goal" not in normalized or "rejected.goal" not in normalized
-    ):
-        errors.append(
-            f"{where}: preference needs both side goals when no top-level goal is present"
-        )
-    if len(set(normalized.values())) > 1:
-        errors.append(f"{where}: top-level and side goals must describe the same problem")
-    if isinstance(chosen, dict) and isinstance(rejected, dict):
-        chosen_context = _preference_side_context_anchors(chosen)
-        rejected_context = _preference_side_context_anchors(rejected)
-        if (
-            chosen_context
-            and rejected_context
-            and chosen_context.isdisjoint(rejected_context)
-        ):
-            errors.append(
-                f"{where}: preference sides must share observable file, API, "
-                "target, or success-criterion context"
-            )
-    return errors
-
-
+_nonempty_text_field_errors = _validate_run_safety.nonempty_text_field_errors
 _require_reward = _validate_run_rewards.require_reward
-
-
 terminal_outcome_agrees = _validate_run_rewards.terminal_outcome_agrees
 
-
-def _staging_tool_turn_errors(turn, where):
-    """Validate an observable structured tool turn in staged agentic data."""
-    errors = []
-    basis = turn.get("decision_basis")
-    if not isinstance(basis, str) or not basis.strip():
-        errors.append(f"{where}: decision_basis must be a non-empty string")
-    elif OBSERVABLE_BASIS_RE.search(basis) is None:
-        errors.append(
-            f"{where}: decision_basis must cite observable plan, observation, "
-            "tool-result, file/test status, or request evidence"
-        )
-    tool_call = turn.get("tool_call")
-    if not isinstance(tool_call, dict):
-        errors.append(f"{where}: tool_call must be an object")
-    else:
-        if not isinstance(tool_call.get("name"), str) or not tool_call["name"].strip():
-            errors.append(f"{where}: tool_call.name must be a non-empty string")
-        if not isinstance(tool_call.get("args"), dict):
-            errors.append(f"{where}: tool_call.args must be an object")
-    observation = turn.get("observation")
-    if not isinstance(observation, str) or not observation.strip():
-        errors.append(f"{where}: observation must be a non-empty string")
-    return errors
-
-
-_nonempty_text_field_errors = _validate_run_safety.nonempty_text_field_errors
-
-
-def check_episode(
-    obj,
-    where,
-    require_goal=True,
-    forbid_hidden_thought=False,
-    enforce_terminal_outcome=False,
-):
-    errs = []
-    required = ("goal", "steps", "outcome", "reward") if require_goal else (
-        "steps",
-        "outcome",
-        "reward",
-    )
-    for key in required:
-        if key not in obj:
-            errs.append(f"{where}: episode missing '{key}'")
-    errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
-    errs += _require_reward(obj, where)
-    reward = obj.get("reward")
-    success = reward.get("success") if isinstance(reward, dict) else None
-    if (
-        enforce_terminal_outcome
-        and isinstance(success, bool)
-        and not terminal_outcome_agrees(obj.get("outcome"), success)
-    ):
-        errs.append(f"{where}: outcome must agree with reward.success")
-    steps = obj.get("steps")
-    if not isinstance(steps, list) or not steps:
-        errs.append(f"{where}: steps must be a non-empty array")
-    else:
-        for i, step in enumerate(steps):
-            if not isinstance(step, dict):
-                errs.append(f"{where} step {i}: must be an object")
-                continue
-            for key in ("tool_call", "observation"):
-                if key not in step:
-                    errs.append(f"{where} step {i}: missing '{key}'")
-            # Existing non-staged records may still use the legacy ``thought``
-            # field; retain the audit warning path for those historical runs.
-            # Transactional agentic publication always uses the strict branch
-            # below and rejects every hidden-reasoning key recursively.
-            if "decision_basis" not in step and (
-                forbid_hidden_thought or "thought" not in step
-            ):
-                errs.append(f"{where} step {i}: missing 'decision_basis'")
-            if forbid_hidden_thought:
-                errs += _staging_tool_turn_errors(step, f"{where} step {i}")
-    return errs
-
-
-def check_multi_agent(obj, where, factory_staging=False):
-    errs = []
-    for key in (
-        "goal",
-        "agents",
-        "transcript",
-        "disagreements",
-        "resolution",
-        "joint_outcome",
-        "reward",
-    ):
-        if key not in obj:
-            errs.append(f"{where}: multi_agent missing '{key}'")
-    errs += _nonempty_text_field_errors(obj, where, ("goal", "resolution", "joint_outcome"))
-    disagreements = obj.get("disagreements")
-    if (
-        not isinstance(disagreements, list)
-        or not disagreements
-        or any(
-            not isinstance(item, str) or not item.strip()
-            for item in disagreements
-        )
-    ):
-        errs.append(f"{where}: disagreements must be a non-empty array of strings")
-    agents = obj.get("agents")
-    roles = set()
-    mandates = set()
-    if not isinstance(agents, list) or len(agents) < 2:
-        errs.append(f"{where}: agents must be an array of at least 2 roles")
-    else:
-        if factory_staging and len(agents) > 4:
-            errs.append(f"{where}: coordination records allow at most 4 agents")
-        for i, agent in enumerate(agents):
-            role = agent.get("role") if isinstance(agent, dict) else None
-            if not isinstance(role, str) or not role.strip():
-                errs.append(f"{where}: agents[{i}] needs a non-empty role")
-            else:
-                roles.add(role.strip())
-            if factory_staging:
-                mandate = agent.get("mandate") if isinstance(agent, dict) else None
-                if not isinstance(mandate, str) or not mandate.strip():
-                    errs.append(f"{where}: agents[{i}] needs a non-empty mandate")
-                else:
-                    mandates.add(mandate.strip())
-        if len(roles) < 2:
-            errs.append(f"{where}: agents must declare at least two distinct roles")
-        if factory_staging and len(mandates) != len(agents):
-            errs.append(f"{where}: agents must declare distinct mandates")
-    transcript = obj.get("transcript")
-    if not isinstance(transcript, list) or not transcript:
-        errs.append(f"{where}: transcript must be a non-empty array")
-    else:
-        participating_roles = set()
-        for i, turn in enumerate(transcript):
-            if not isinstance(turn, dict):
-                errs.append(f"{where}: transcript[{i}] must be an object")
-                continue
-            speaker = turn.get("speaker")
-            if not isinstance(speaker, str) or not speaker.strip():
-                errs.append(f"{where}: transcript[{i}] missing speaker")
-            elif roles and speaker.strip() not in roles:
-                errs.append(
-                    f"{where}: transcript[{i}] speaker {speaker!r} is not a declared agent role"
-                )
-            else:
-                participating_roles.add(speaker.strip())
-            content = turn.get("content")
-            if not isinstance(content, str) or not content.strip():
-                errs.append(f"{where}: transcript[{i}] needs non-empty content")
-            if factory_staging and "tool_call" in turn:
-                errs += _staging_tool_turn_errors(turn, f"{where}: transcript[{i}]")
-        if roles and len(participating_roles) < 2:
-            errs.append(
-                f"{where}: transcript must include substantive turns from at least two declared roles"
-            )
-    errs += _require_reward(obj, where)
-    reward = obj.get("reward")
-    success = reward.get("success") if isinstance(reward, dict) else None
-    if isinstance(success, bool) and not terminal_outcome_agrees(
-        obj.get("joint_outcome"), success
-    ):
-        errs.append(f"{where}: joint_outcome must agree with reward.success")
-    return errs
+# Episode, tool-turn, hidden-reasoning and multi-agent rules live in
+# validate_run_episode; the preference-goal agreement rules live in
+# validate_run_preference. The facade rebinds both surfaces here so
+# coding_constants, training_audit, check_records, round_txn, and the CLI
+# tests keep resolving the historical validate_run names unchanged.
+HIDDEN_THOUGHT_KEYS = _validate_run_episode.HIDDEN_THOUGHT_KEYS
+OBSERVABLE_BASIS_RE = _validate_run_episode.OBSERVABLE_BASIS_RE
+episode_like = _validate_run_episode.episode_like
+# Compatibility alias for callers of the pre-split validator surface.
+_episode_like = episode_like
+_hidden_thought_paths = _validate_run_episode.hidden_thought_paths
+_staging_hidden_thought_errors = _validate_run_episode.staging_hidden_thought_errors
+_staging_tool_turn_errors = _validate_run_episode.staging_tool_turn_errors
+check_episode = _validate_run_episode.check_episode
+check_multi_agent = _validate_run_episode.check_multi_agent
+_normalized_goal = _validate_run_preference.normalized_goal
+_preference_side_context_anchors = _validate_run_preference.preference_side_context_anchors
+_staging_preference_goal_errors = _validate_run_preference.staging_preference_goal_errors
 
 
 def check_safety_case(obj, where, factory_staging=False):

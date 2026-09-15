@@ -930,6 +930,30 @@ def _package_validate_run_safety() -> ModuleType:
     return module
 
 
+def _direct_validate_run_episode() -> ModuleType:
+    import validate_run_episode as module
+
+    return module
+
+
+def _package_validate_run_episode() -> ModuleType:
+    import pipelines.validate_run_episode as module
+
+    return module
+
+
+def _direct_validate_run_preference() -> ModuleType:
+    import validate_run_preference as module
+
+    return module
+
+
+def _package_validate_run_preference() -> ModuleType:
+    import pipelines.validate_run_preference as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1132,6 +1156,8 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
     "round_txn_agentic_cascade": (_direct_round_txn_agentic_cascade, _package_round_txn_agentic_cascade),
     "validate_run_safety": (_direct_validate_run_safety, _package_validate_run_safety),
+    "validate_run_episode": (_direct_validate_run_episode, _package_validate_run_episode),
+    "validate_run_preference": (_direct_validate_run_preference, _package_validate_run_preference),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (

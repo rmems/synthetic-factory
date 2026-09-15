@@ -113,6 +113,8 @@ NEW_SPLIT_MODULES = (
     "round_txn_agentic_types",
     "round_txn_agentic_terms",
     "round_txn_agentic",
+    "validate_run_preference",
+    "validate_run_episode",
     "validate_run_safety",
     "operator_paths",
     "validate_run_rewards",
