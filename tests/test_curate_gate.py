@@ -1045,13 +1045,15 @@ class IntegrationTests(unittest.TestCase):
                 replacement.replace(path)
             return original_fstat(descriptor)
 
-        with mock.patch.object(
-            curate_gate_digest.os,
-            "fstat",
-            side_effect=replace_before_second_fstat,
+        with (
+            mock.patch.object(
+                curate_gate_digest.os,
+                "fstat",
+                side_effect=replace_before_second_fstat,
+            ),
+            self.assertRaisesRegex(curate_gate.GateError, "changed while"),
         ):
-            with self.assertRaisesRegex(curate_gate.GateError, "changed while"):
-                curate_gate._read_regular_file_snapshot(path, "lane output")
+            curate_gate._read_regular_file_snapshot(path, "lane output")
 
     def test_source_loader_rejects_a_path_replaced_during_read(self):
         source_run = self.root / "raw"
@@ -1069,13 +1071,15 @@ class IntegrationTests(unittest.TestCase):
                 replacement.replace(path)
             return original_fstat(descriptor)
 
-        with mock.patch.object(
-            curate_gate_digest.os,
-            "fstat",
-            side_effect=replace_before_second_fstat,
+        with (
+            mock.patch.object(
+                curate_gate_digest.os,
+                "fstat",
+                side_effect=replace_before_second_fstat,
+            ),
+            self.assertRaisesRegex(curate_gate.GateError, "changed while"),
         ):
-            with self.assertRaisesRegex(curate_gate.GateError, "changed while"):
-                curate_gate._load_source_records(source_run)
+            curate_gate._load_source_records(source_run)
 
     def test_lane_manifest_evidence_uses_the_authenticated_snapshot(self):
         fixture = GateFixture(self.root)

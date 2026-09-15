@@ -111,9 +111,11 @@ class DeclarationValidationTests(unittest.TestCase):
 
     def test_declaration_rejects_malformed_payloads(self):
         for payload, message in MALFORMED_DECLARATION_CASES:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(card_schema.CardSchemaError, message):
-                    card_schema.validate(payload, "example-trajectories")
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(card_schema.CardSchemaError, message),
+            ):
+                card_schema.validate(payload, "example-trajectories")
 
     def test_nested_features_validate_and_reject_bad_children(self):
         declaration = card_schema.validate(
@@ -150,11 +152,13 @@ class DeclarationValidationTests(unittest.TestCase):
 
     def test_declaration_path_rejects_a_traversing_dataset_name(self):
         for name in ("../escape", "Upper", "", "a/b"):
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(name=name),
+                self.assertRaisesRegex(
                     card_schema.CardSchemaError, "invalid Hub dataset name"
-                ):
-                    card_schema.declaration_path(name)
+                ),
+            ):
+                card_schema.declaration_path(name)
 
 
 if __name__ == "__main__":

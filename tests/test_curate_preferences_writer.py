@@ -158,37 +158,38 @@ class CuratePreferenceSource(unittest.TestCase):
             ("via-target", lambda outputs, external: external / "curated.jsonl"),
         )
         for name, destination_for in cases:
-            with self.subTest(name=name):
-                with tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
-                    source = root / "source.jsonl"
-                    write_jsonl(source, [pair(f"symlinked-raw-guard-{name}")])
-                    outputs = root / "outputs"
-                    external_raw = root / "mounted-raw"
-                    outside = root / "cleaned"
-                    outputs.mkdir()
-                    external_raw.mkdir()
-                    outside.mkdir()
-                    raw_root = outputs / "raw"
-                    raw_root.symlink_to(external_raw, target_is_directory=True)
-                    destination = destination_for(outputs, external_raw)
-                    run = curate_preferences.curate_source(source)
-                    with mock.patch.object(
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = root / "source.jsonl"
+                write_jsonl(source, [pair(f"symlinked-raw-guard-{name}")])
+                outputs = root / "outputs"
+                external_raw = root / "mounted-raw"
+                outside = root / "cleaned"
+                outputs.mkdir()
+                external_raw.mkdir()
+                outside.mkdir()
+                raw_root = outputs / "raw"
+                raw_root.symlink_to(external_raw, target_is_directory=True)
+                destination = destination_for(outputs, external_raw)
+                run = curate_preferences.curate_source(source)
+                with (
+                    mock.patch.object(
                         preference_model, "RAW_OUTPUT_ROOT", raw_root
-                    ):
-                        with self.assertRaisesRegex(
-                            curate_preferences.PreferenceCurationError,
-                            "immutable raw evidence",
-                        ):
-                            curate_preferences.write_run(
-                                run,
-                                source,
-                                destination,
-                                outside / "manifest.jsonl",
-                            )
-                    self.assertFalse(destination.exists())
-                    self.assertFalse((external_raw / "curated.jsonl").exists())
-                    self.assertEqual(list(outside.iterdir()), [])
+                    ),
+                    self.assertRaisesRegex(
+                        curate_preferences.PreferenceCurationError,
+                        "immutable raw evidence",
+                    ),
+                ):
+                    curate_preferences.write_run(
+                        run,
+                        source,
+                        destination,
+                        outside / "manifest.jsonl",
+                    )
+                self.assertFalse(destination.exists())
+                self.assertFalse((external_raw / "curated.jsonl").exists())
+                self.assertEqual(list(outside.iterdir()), [])
 
     def test_writer_refuses_alternate_alias_of_symlinked_outputs_raw(self):
         with tempfile.TemporaryDirectory() as td:
@@ -209,12 +210,14 @@ class CuratePreferenceSource(unittest.TestCase):
             run = curate_preferences.curate_source(source)
             output = outside / "curated.jsonl"
             manifest = alternate_alias / "manifest.jsonl"
-            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root),
+                self.assertRaisesRegex(
                     curate_preferences.PreferenceCurationError,
                     "immutable raw evidence",
-                ):
-                    curate_preferences.write_run(run, source, output, manifest)
+                ),
+            ):
+                curate_preferences.write_run(run, source, output, manifest)
 
             self.assertFalse(output.exists())
             self.assertFalse(manifest.exists())
@@ -236,25 +239,27 @@ class CuratePreferenceSource(unittest.TestCase):
             raw_run.mkdir(parents=True)
             destination = alias / "curated.jsonl"
             run = curate_preferences.curate_source(source)
-            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
-                with mock.patch.object(
+            with (
+                mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root),
+                mock.patch.object(
                     raw_tree_guard,
                     "_read_mountinfo",
                     return_value=(
                         (raw_root, raw_root, "8:2"),
                         (alias, raw_run, "8:2"),
                     ),
-                ):
-                    with self.assertRaisesRegex(
-                        curate_preferences.PreferenceCurationError,
-                        "immutable raw evidence",
-                    ):
-                        curate_preferences.write_run(
-                            run,
-                            source,
-                            destination,
-                            outside / "manifest.jsonl",
-                        )
+                ),
+                self.assertRaisesRegex(
+                    curate_preferences.PreferenceCurationError,
+                    "immutable raw evidence",
+                ),
+            ):
+                curate_preferences.write_run(
+                    run,
+                    source,
+                    destination,
+                    outside / "manifest.jsonl",
+                )
             self.assertFalse(destination.exists())
             self.assertEqual(list(outside.iterdir()), [])
 
@@ -290,20 +295,22 @@ class CuratePreferenceSource(unittest.TestCase):
                 (repo, Path("/project/repo"), "8:2"),
                 (alias, Path("/project/repo/outputs/raw/run"), "8:2"),
             )
-            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
-                with mock.patch.object(
+            with (
+                mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root),
+                mock.patch.object(
                     raw_tree_guard, "_read_mountinfo", return_value=mounts
-                ):
-                    with self.assertRaisesRegex(
-                        curate_preferences.PreferenceCurationError,
-                        "immutable raw evidence",
-                    ):
-                        curate_preferences.write_run(
-                            run,
-                            source,
-                            destination,
-                            outside / "manifest.jsonl",
-                        )
+                ),
+                self.assertRaisesRegex(
+                    curate_preferences.PreferenceCurationError,
+                    "immutable raw evidence",
+                ),
+            ):
+                curate_preferences.write_run(
+                    run,
+                    source,
+                    destination,
+                    outside / "manifest.jsonl",
+                )
             self.assertFalse(destination.exists())
             self.assertFalse((raw_run / "curated.jsonl").exists())
             self.assertEqual(list(outside.iterdir()), [])
@@ -333,19 +340,21 @@ class CuratePreferenceSource(unittest.TestCase):
                 parent.symlink_to(raw_root)
 
             run = curate_preferences.curate_source(source)
-            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
-                with mock.patch.object(
+            with (
+                mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root),
+                mock.patch.object(
                     preference_writer,
                     "_assert_new_destination",
                     swap_parent_after_preflight,
-                ):
-                    with self.assertRaises(curate_preferences.PreferenceCurationError):
-                        curate_preferences.write_run(
-                            run,
-                            source,
-                            destination,
-                            outside / "manifest.jsonl",
-                        )
+                ),
+                self.assertRaises(curate_preferences.PreferenceCurationError),
+            ):
+                curate_preferences.write_run(
+                    run,
+                    source,
+                    destination,
+                    outside / "manifest.jsonl",
+                )
             self.assertFalse((raw_root / "out.jsonl").exists())
             self.assertFalse((safe / "out.jsonl").exists())
             self.assertEqual(list(outside.iterdir()), [])
@@ -375,11 +384,13 @@ class CuratePreferenceSource(unittest.TestCase):
                 decoy.write_text("pre-existing evidence\n")
                 raise OSError("durability failure after both files were created")
 
-            with mock.patch.object(
-                preference_writer, "_fsync_parents", swap_parent_then_fail
+            with (
+                mock.patch.object(
+                    preference_writer, "_fsync_parents", swap_parent_then_fail
+                ),
+                self.assertRaises(OSError),
             ):
-                with self.assertRaises(OSError):
-                    curate_preferences.write_run(run, source, output, manifest)
+                curate_preferences.write_run(run, source, output, manifest)
 
             # Cleanup must remove what this invocation created, addressed
             # through the directory it was created in...
@@ -402,9 +413,11 @@ class CuratePreferenceSource(unittest.TestCase):
             def interrupt(*_args, **_kwargs):
                 raise KeyboardInterrupt
 
-            with mock.patch.object(preference_writer, "_fsync_parents", interrupt):
-                with self.assertRaises(KeyboardInterrupt):
-                    curate_preferences.write_run(run, source, output, manifest)
+            with (
+                mock.patch.object(preference_writer, "_fsync_parents", interrupt),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                curate_preferences.write_run(run, source, output, manifest)
 
             # A half-written transaction must not survive to block the retry.
             self.assertFalse(output.exists())

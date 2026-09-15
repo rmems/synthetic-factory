@@ -259,16 +259,18 @@ class ComposeSourceSnapshotRaces(unittest.TestCase):
                 [thalamic("factory-snapshot")],
             )
 
-            with mock.patch.object(
-                compose_curated,
-                "factory_identity_for_path",
-                side_effect=(("captured-factory", True), ("later-factory", True)),
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    compose_curated,
+                    "factory_identity_for_path",
+                    side_effect=(("captured-factory", True), ("later-factory", True)),
+                ),
+                self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "identity changed while capturing the source snapshot",
-                ):
-                    compose_curated.compose_run(source, root / "curated")
+                ),
+            ):
+                compose_curated.compose_run(source, root / "curated")
             self.assertFalse((root / "curated").exists())
 
 
