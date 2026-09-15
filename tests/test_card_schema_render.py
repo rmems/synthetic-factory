@@ -132,9 +132,8 @@ class YamlEmissionTests(unittest.TestCase):
         self.assertEqual(card_schema._yaml_scalar(True), "true")
         self.assertEqual(card_schema._yaml_scalar(7), "7")
         for value in ("a---b", "a\nb"):
-            with self.subTest(value=value):
-                with self.assertRaises(card_schema.CardSchemaError):
-                    card_schema._yaml_scalar(value)
+            with self.subTest(value=value), self.assertRaises(card_schema.CardSchemaError):
+                card_schema._yaml_scalar(value)
 
     def test_a_disclosure_only_declaration_emits_no_configs(self):
         declaration = card_schema.validate(

@@ -31,9 +31,11 @@ class TwoSidedSplitGuard(unittest.TestCase):
     def test_duplicate_row_identities_are_refused_at_every_fraction(self):
         rows = [ViewerRow("a/b.jsonl", 1, "{}"), ViewerRow("a/b.jsonl", 1, "{}")]
         for fraction in _FRACTIONS:
-            with self.subTest(eval_fraction=fraction):
-                with self.assertRaisesRegex(ExportError, "both split sides"):
-                    export_split.split_rows(rows, eval_fraction=fraction, salt="s")
+            with (
+                self.subTest(eval_fraction=fraction),
+                self.assertRaisesRegex(ExportError, "both split sides"),
+            ):
+                export_split.split_rows(rows, eval_fraction=fraction, salt="s")
 
     def test_distinct_row_identities_still_split_two_sided(self):
         rows = [ViewerRow("a/b.jsonl", 1, "{}"), ViewerRow("a/b.jsonl", 2, "{}")]

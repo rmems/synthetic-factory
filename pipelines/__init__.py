@@ -185,6 +185,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_identity_registry",
     "curate_identity_registry_fields",
     "curate_identity_registry_rows",
+    "curate_gate_promotion",
 ))
 
 

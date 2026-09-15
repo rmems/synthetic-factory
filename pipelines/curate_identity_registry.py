@@ -119,6 +119,19 @@ def _registry_rows(payload: Mapping[str, Any]) -> tuple[str, list[Any]]:
     return schema_version, factories
 
 
+def _parse_loaded_registry_row(raw_row: Any, index: int, schema_version: str) -> FactoryRow:
+    if _is_procedural_row(raw_row, schema_version):
+        return _parse_procedural_row(raw_row, index)
+    row_payload = _registry_row_for_validation(raw_row, index, schema_version)
+    return _parse_factory_row(row_payload, index)
+
+
+def _record_registry_row(by_path_id: dict[str, FactoryRow], row: FactoryRow) -> None:
+    if row.path_id in by_path_id:
+        raise IdentityCurationError(f"duplicate registry path_id: {row.path_id}")
+    by_path_id[row.path_id] = row
+
+
 def load_registry(path: Path | None = None) -> FactoryRegistry:
     """Load reviewed registry bytes. Pin = SHA-256 of those exact bytes."""
 
@@ -127,14 +140,9 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
     schema_version, factories = _registry_rows(payload)
     by_path_id: dict[str, FactoryRow] = {}
     for index, raw_row in enumerate(factories):
-        if _is_procedural_row(raw_row, schema_version):
-            row = _parse_procedural_row(raw_row, index)
-        else:
-            row_payload = _registry_row_for_validation(raw_row, index, schema_version)
-            row = _parse_factory_row(row_payload, index)
-        if row.path_id in by_path_id:
-            raise IdentityCurationError(f"duplicate registry path_id: {row.path_id}")
-        by_path_id[row.path_id] = row
+        _record_registry_row(
+            by_path_id, _parse_loaded_registry_row(raw_row, index, schema_version)
+        )
     return FactoryRegistry(
         schema_version=schema_version,
         sha256=_identity_checks.sha256_bytes(raw_bytes),

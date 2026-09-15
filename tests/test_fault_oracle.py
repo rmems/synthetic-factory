@@ -260,9 +260,11 @@ class OracleInjection(unittest.TestCase):
         class Undeclared(BenchReplay):
             oracle_run = None
 
-        with mock.patch.object(fault_scenario, "propose_scenarios", side_effect=AssertionError("drawn")):
-            with refusal(self, fv.FINDING_ORACLE_RUN_UNDECLARED, "oracle_run"):
-                fo.build_records(3, 1, oracle=Undeclared())
+        with (
+            mock.patch.object(fault_scenario, "propose_scenarios", side_effect=AssertionError("drawn")),
+            refusal(self, fv.FINDING_ORACLE_RUN_UNDECLARED, "oracle_run"),
+        ):
+            fo.build_records(3, 1, oracle=Undeclared())
         self.assertEqual(fo.describe()["oracle"]["run"], fv.ORACLE_RUN)
 
     def test_the_simulated_temperature_is_modelled_and_the_execution_readings_measured(self):

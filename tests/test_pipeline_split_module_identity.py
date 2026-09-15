@@ -112,6 +112,7 @@ NEW_SPLIT_MODULES = (
     "curate_identity_registry_rows",
     "curate_identity_registry",
     "curate_identity_json",
+    "curate_gate_promotion",
     "operator_paths",
     "validate_run_rewards",
     "validate_run_thalamic",
@@ -197,30 +198,7 @@ class SplitModuleIdentityContracts(unittest.TestCase):
                 direct["curate_gate"].GateError,
                 packaged["curate_gate"].GateError,
             )
-            self.assertIs(
-                direct["curate_identity"].FactoryRow,
-                packaged["curate_identity"].FactoryRow,
-            )
-            self.assertIs(
-                direct["curate_identity"].FactoryRow,
-                direct["curate_identity_registry"].FactoryRow,
-            )
-            self.assertIs(
-                direct["curate_identity_registry"].FactoryRow,
-                direct["curate_identity_registry_rows"].FactoryRow,
-            )
-            self.assertIs(
-                direct["curate_identity"].IdentityCurationError,
-                direct["curate_identity_json"].IdentityCurationError,
-            )
-            self.assertIs(
-                direct["curate_identity"].load_registry,
-                direct["curate_identity_registry"].load_registry,
-            )
-            self.assertIs(
-                direct["curate_identity"].default_registry,
-                direct["curate_identity_registry"].default_registry,
-            )
+            self._assert_identity_export_twins(direct, packaged)
             self.assertIs(
                 direct["round_txn"].TransactionError,
                 packaged["round_txn"].TransactionError,
@@ -229,6 +207,32 @@ class SplitModuleIdentityContracts(unittest.TestCase):
                 direct["validate_run"].check_line,
                 packaged["validate_run"].check_line,
             )
+
+    def _assert_identity_export_twins(self, direct, packaged) -> None:
+        self.assertIs(
+            direct["curate_identity"].FactoryRow,
+            packaged["curate_identity"].FactoryRow,
+        )
+        self.assertIs(
+            direct["curate_identity"].FactoryRow,
+            direct["curate_identity_registry"].FactoryRow,
+        )
+        self.assertIs(
+            direct["curate_identity_registry"].FactoryRow,
+            direct["curate_identity_registry_rows"].FactoryRow,
+        )
+        self.assertIs(
+            direct["curate_identity"].IdentityCurationError,
+            direct["curate_identity_json"].IdentityCurationError,
+        )
+        self.assertIs(
+            direct["curate_identity"].load_registry,
+            direct["curate_identity_registry"].load_registry,
+        )
+        self.assertIs(
+            direct["curate_identity"].default_registry,
+            direct["curate_identity_registry"].default_registry,
+        )
 
     def test_all_new_split_modules_retain_identity_direct_first(self):
         self._assert_new_split_module_identity("direct")
@@ -239,10 +243,12 @@ class SplitModuleIdentityContracts(unittest.TestCase):
     def test_run_support_modules_import_first_in_both_modes(self):
         for name in RUN_SUPPORT_MODULES:
             for first in ("direct", "package"):
-                with self.subTest(name=name, first=first):
-                    with isolated_pipeline_modules(NEW_SPLIT_MODULES):
-                        direct, packaged = _load_in_order((name,), first)
-                        self.assertIs(direct[name], packaged[name])
+                with (
+                    self.subTest(name=name, first=first),
+                    isolated_pipeline_modules(NEW_SPLIT_MODULES),
+                ):
+                    direct, packaged = _load_in_order((name,), first)
+                    self.assertIs(direct[name], packaged[name])
 
 
 if __name__ == "__main__":
