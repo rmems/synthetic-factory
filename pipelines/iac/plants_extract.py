@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""AST-extract compact Archive B plant identities from ``mill_plants.py``.
+"""AST-extract compact Archive B plant identities from ``mill_plants*.py``.
 
-Reads only ``PAIRS.append((_ok(...), _fail(...), label))`` triples. Does not
-import, compile, or exec ``scripts/infra_as_code_mill`` publishers.
+Reads only ``LIST.append((_ok(...), _fail(...), label))`` triples (``PAIRS``
+on ``mill_plants.py``, ``MORE`` on ``mill_plants_b.py``). Does not import,
+compile, or exec ``scripts/infra_as_code_mill`` publishers.
 """
 
 from __future__ import annotations
@@ -31,11 +32,32 @@ def extract_archive_b_plants(
 ) -> dict[str, Any]:
     """Structured extract for ``scripts/infra_as_code_mill/mill_plants.py``."""
 
+    return extract_ok_fail_label_plants(source, path=path, list_name="PAIRS")
+
+
+def extract_archive_b_more_plants(
+    source: str,
+    *,
+    path: str = "scripts/infra_as_code_mill/mill_plants_b.py",
+) -> dict[str, Any]:
+    """Structured extract for ``scripts/infra_as_code_mill/mill_plants_b.py``."""
+
+    return extract_ok_fail_label_plants(source, path=path, list_name="MORE")
+
+
+def extract_ok_fail_label_plants(
+    source: str,
+    *,
+    path: str,
+    list_name: str,
+) -> dict[str, Any]:
+    """Structured extract for ``LIST.append((_ok(...), _fail(...), label))`` triples."""
+
     payload = source.encode()
     tree = ast.parse(source, filename=path)
-    rows = _append_triples(tree)
+    rows = _append_triples(tree, list_name)
     if not rows:
-        raise ValueError(f"{path} has no PAIRS.append ok/fail/label triples")
+        raise ValueError(f"{path} has no {list_name}.append ok/fail/label triples")
     return {
         "path": path,
         "sha256": sha256_bytes(payload),
@@ -47,7 +69,7 @@ def extract_archive_b_plants(
     }
 
 
-def _append_triples(tree: ast.AST) -> list[dict[str, Any]]:
+def _append_triples(tree: ast.AST, list_name: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     index = 0
     for node in getattr(tree, "body", ()):
@@ -56,7 +78,7 @@ def _append_triples(tree: ast.AST) -> list[dict[str, Any]]:
         call = node.value
         if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
             continue
-        if not isinstance(call.func.value, ast.Name) or call.func.value.id != "PAIRS":
+        if not isinstance(call.func.value, ast.Name) or call.func.value.id != list_name:
             continue
         if len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
             continue
