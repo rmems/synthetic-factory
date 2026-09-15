@@ -256,8 +256,8 @@ class CommittedCatalog(unittest.TestCase):
         report = cat.catalog_check()
         self.assertEqual(loaded.catalog_id, "nelb-plants-v2")
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 102)
-        self.assertEqual(report["triples"], 34)
+        self.assertEqual(report["plants"], 159)
+        self.assertEqual(report["triples"], 53)
         self.assertEqual(report["first_round"], 1)
         self.assertIn(2, report["rounds"])
         r01 = cat.plants_for_round(1)
@@ -374,8 +374,8 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 102)
-        self.assertEqual(payload["triples"], 34)
+        self.assertEqual(payload["plants"], 159)
+        self.assertEqual(payload["triples"], 53)
 
     def test_generate_stdout_and_a_raw_refusal(self):
         code, out, err = invoke(["generate", "--round", "1"])
