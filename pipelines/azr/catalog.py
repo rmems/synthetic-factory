@@ -5,21 +5,29 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from .catalog_extract import catalog_json_path
+from .catalog_extract import (
+    catalog_json_path,
+    is_slice_mill,
+    load_pair_rows,
+    pair_identity,
+    pairs_jsonl_path,
+)
 from .sources import MILL_SOURCES, catalog_sources
 from .vocabulary import (
+    BULKY_MILL_ID,
+    BULKY_N_ROWS,
     CATALOG_SCHEMA_ID,
+    DEFERRED_PAIR_ROWS,
     FACTORY,
     GENERATOR,
-    N_SOURCES,
+    PAIRS_FILENAME,
     PRESERVE_COMMIT,
     SLICE_ID,
+    SLICE_MILL_ID,
 )
-
-SLICE_MILL = "azr-mill-r1181"
 
 
 @dataclass(frozen=True)
@@ -58,6 +66,12 @@ class AzrCatalog:
     def n_pair_rows(self) -> int:
         return sum(mill.n_rows for mill in self.mills.values())
 
+    @property
+    def n_deferred_pair_rows(self) -> int:
+        return sum(
+            mill.n_rows for mill_id, mill in self.mills.items() if not is_slice_mill(mill_id)
+        )
+
 
 def load_catalog(path=None) -> AzrCatalog:
     catalog_path = path if path is not None else catalog_json_path()
@@ -71,6 +85,8 @@ def load_catalog(path=None) -> AzrCatalog:
     if document.get("slice") != SLICE_ID:
         raise ValueError(f"{catalog_path} slice drifted from vocabulary")
     mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    _bind_header(mills)
+    mills = _overlay_deferred_pairs(mills, load_pair_rows(pairs_jsonl_path(catalog_path.parent)))
     catalog = AzrCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -108,25 +124,64 @@ def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
     )
 
 
-def _bind_sources(catalog: AzrCatalog) -> None:
+def _bind_header(mills: Mapping[str, MillCatalog]) -> None:
     expected = {source.mill_id: source for source in catalog_sources()}
-    if set(catalog.mills) != set(expected):
+    if set(mills) != set(expected):
         raise ValueError(
             "catalog mills drifted from sources: "
-            f"extra={sorted(set(catalog.mills) - set(expected))} "
-            f"missing={sorted(set(expected) - set(catalog.mills))}"
+            f"extra={sorted(set(mills) - set(expected))} "
+            f"missing={sorted(set(expected) - set(mills))}"
         )
-    if len(MILL_SOURCES) != N_SOURCES:
-        raise ValueError(f"expected {N_SOURCES} AZR sources, found {len(MILL_SOURCES)}")
-    slice_mill = catalog.mills[SLICE_MILL]
+    slice_mill = mills[SLICE_MILL_ID]
     if len(slice_mill.pairs) != slice_mill.n_rows:
         raise ValueError("r1181 slice n_rows does not match extracted pairs")
-    for mill_id, mill in catalog.mills.items():
+    for mill_id, mill in mills.items():
         source = expected[mill_id]
         if mill.path != source.path or mill.blob_sha != source.blob_sha:
             raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill_id != SLICE_MILL and mill.pairs:
+        if not is_slice_mill(mill_id) and mill.pairs:
             raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+
+
+def _overlay_deferred_pairs(
+    mills: Mapping[str, MillCatalog], rows: list[dict[str, Any]]
+) -> dict[str, MillCatalog]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(row["mill_id"], []).append(row)
+    if SLICE_MILL_ID in grouped:
+        raise ValueError(f"{PAIRS_FILENAME} must omit the r1181 first-slice mill")
+    out = dict(mills)
+    for mill_id, mill_rows in grouped.items():
+        if mill_id not in mills:
+            raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
+        expected_index = list(range(len(mill_rows)))
+        if [row["i"] for row in mill_rows] != expected_index:
+            raise ValueError(f"{mill_id} pair index drifted")
+        if any(row["path"] != mills[mill_id].path for row in mill_rows):
+            raise ValueError(f"{mill_id} path drifted from catalog")
+        out[mill_id] = replace(
+            mills[mill_id],
+            pairs=tuple(pair_identity(row) for row in mill_rows),
+        )
+    return out
+
+
+def _bind_sources(catalog: AzrCatalog) -> None:
+    if len(MILL_SOURCES) != 76:
+        raise ValueError(f"expected 76 AZR sources, found {len(MILL_SOURCES)}")
+    if catalog.n_deferred_pair_rows != DEFERRED_PAIR_ROWS:
+        raise ValueError("deferred pair width drifted from vocabulary")
+    bulky = catalog.mills[BULKY_MILL_ID]
+    if bulky.n_rows != BULKY_N_ROWS or len(bulky.pairs) != BULKY_N_ROWS:
+        raise ValueError("r1205 bulky width drifted from vocabulary")
+    for mill_id, mill in catalog.mills.items():
+        if len(mill.pairs) != mill.n_rows:
+            raise ValueError(f"{mill_id} n_rows does not match committed pair identities")
+        if mill.pairs[0]["success_slug"] != mill.first_slug:
+            raise ValueError(f"{mill_id} first_slug drifted from pair identities")
+        if mill.pairs[-1]["success_slug"] != mill.last_slug:
+            raise ValueError(f"{mill_id} last_slug drifted from pair identities")
 
 
 CATALOG = load_catalog()

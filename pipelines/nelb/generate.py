@@ -40,7 +40,7 @@ from ._contract import (
 BATCH_PREFIX = "batch-r"
 NOTES_PREFIX = "NOTES-r"
 MANIFEST_FILENAME = "MANIFEST.json"
-RUN_FORMAT = "nelb-r01-slice-run/1"
+RUN_FORMAT = "nelb-plants-run/2"
 
 __all__ = [
     "BATCH_PREFIX",
@@ -314,7 +314,7 @@ def notes_for(round_n: int, recs: list[dict[str, Any]], plants: tuple[cat.Plant,
         f"Linear: {LINEAR_ISSUE} · intended_use: {INTENDED_USE} · "
         f"project_training_policy: {PROJECT_TRAINING_POLICY}",
         "",
-        "Construction: compact bridge_pair from the AST-extracted r01 slice. "
+        "Construction: compact bridge_pair from the AST-extracted plant catalog. "
         "This CLI emits both trajectories into a brand-new destination and "
         "never writes outputs/raw/. No CUBA LIF loop is replayed.",
         "",

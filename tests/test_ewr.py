@@ -26,18 +26,26 @@ from ewr._contract import (  # noqa: E402
     GENERATOR,
     HANDOFF_STEPS,
     LEGACY_COMMIT,
+    LEGACY_MAPPING_MILL,
+    LEGACY_MAPPING_MILL_SHA256,
     LEGACY_MILL,
     LEGACY_MILL_SHA256,
     LEGACY_PLANTS,
     LEGACY_PLANTS_SHA256,
-    N_ROUNDS,
+    MAPPING_MILL_ID,
+    N_MAPPING_PAIRS,
+    N_PAIRS,
+    N_PLANT_PAIRS,
+    PAIRS_SHA256,
+    PLANTS_MILL_ID,
     START_ROUND,
     SUCCESS_STEPS,
 )
 from ewr.catalog import (  # noqa: E402
-    ast_extract_catalog,
+    ast_extract_catalog_rows,
+    ast_extract_mapping_pairs,
     ast_extract_mill_constants,
-    ast_extract_pairs,
+    ast_extract_plant_pairs,
     catalog_check,
     sha256_text,
 )
@@ -45,7 +53,14 @@ from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from raw_tree_guard import DEFAULT_RAW_OUTPUT_ROOT  # noqa: E402
 
 EWR_DIR = REPO / "pipelines" / "ewr"
-PACKAGE_FILES = ("__init__.py", "_contract.py", "catalog.py", "generate.py", "cli.py")
+PACKAGE_FILES = (
+    "__init__.py",
+    "_contract.py",
+    "catalog.py",
+    "catalog_ast.py",
+    "generate.py",
+    "cli.py",
+)
 
 
 def _legacy_source(relpath: str) -> str | None:
@@ -75,48 +90,76 @@ class EwrCatalogTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[FAMILY_PREFIX], FACTORY)
 
-    def test_catalog_check_pins_the_sixteen_leftover_pairs(self):
+    def test_catalog_check_pins_thirty_two_pairs(self):
         loaded = catalog_check(root=REPO)
         self.assertEqual(loaded.factory, FACTORY)
         self.assertEqual(loaded.generator, GENERATOR)
-        self.assertEqual(loaded.start_round, START_ROUND)
-        self.assertEqual(len(loaded.pairs), N_ROUNDS)
+        self.assertEqual(len(loaded.pairs), N_PLANT_PAIRS)
+        self.assertEqual(len(loaded.mapping_pairs), N_MAPPING_PAIRS)
+        self.assertEqual(loaded.pairs_sha256, PAIRS_SHA256)
         self.assertEqual(
             [pair.round_n for pair in loaded.pairs],
-            list(range(START_ROUND, START_ROUND + N_ROUNDS)),
+            list(range(START_ROUND, START_ROUND + N_PLANT_PAIRS)),
         )
-        self.assertEqual(loaded.source["plants_sha256"], LEGACY_PLANTS_SHA256)
-        self.assertEqual(loaded.source["mill_sha256"], LEGACY_MILL_SHA256)
+        self.assertEqual(
+            [pair.round_n for pair in loaded.mapping_pairs],
+            list(range(56, 56 + N_MAPPING_PAIRS)),
+        )
+        self.assertEqual(loaded.mills[0].mill_id, PLANTS_MILL_ID)
+        self.assertEqual(loaded.mills[1].mill_id, MAPPING_MILL_ID)
         self.assertEqual(loaded.source["commit"], LEGACY_COMMIT)
+
+    def test_pairs_jsonl_is_one_object_per_line(self):
+        pairs_path = REPO / "config" / "ewr" / "pairs.jsonl"
+        lines = pairs_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), N_PAIRS)
+        for line in lines:
+            self.assertFalse(line[:1].isspace())
+            self.assertIsInstance(json.loads(line), dict)
 
     def test_catalog_matches_legacy_ast_extract(self):
         plants = _legacy_source(LEGACY_PLANTS)
         mill = _legacy_source(LEGACY_MILL)
-        if plants is None or mill is None:
+        mapping_mill = _legacy_source(LEGACY_MAPPING_MILL)
+        if plants is None or mill is None or mapping_mill is None:
             self.skipTest("legacy-mill-lane ewr sources are not available")
         self.assertEqual(sha256_text(plants), LEGACY_PLANTS_SHA256)
         self.assertEqual(sha256_text(mill), LEGACY_MILL_SHA256)
-        extracted = ast_extract_catalog(plants, mill)
+        self.assertEqual(sha256_text(mapping_mill), LEGACY_MAPPING_MILL_SHA256)
+        extracted = ast_extract_catalog_rows(plants, mill, mapping_mill)
         loaded = catalog_check(root=REPO)
-        self.assertEqual(extracted["start_round"], loaded.start_round)
-        self.assertEqual(len(extracted["pairs"]), len(loaded.pairs))
+        self.assertEqual(len(extracted), N_PAIRS)
         self.assertEqual(
             ast_extract_mill_constants(mill),
-            {"FACTORY": FACTORY, "START": START_ROUND, "N": N_ROUNDS},
+            {"FACTORY": FACTORY, "START": START_ROUND, "N": N_PLANT_PAIRS},
         )
-        for index, pair in enumerate(loaded.pairs):
-            raw = extracted["pairs"][index]
-            self.assertEqual(raw["round"], pair.round_n)
-            self.assertEqual(raw["ok"]["slug"], pair.ok["slug"])
-            self.assertEqual(raw["bad"]["slug"], pair.bad["slug"])
-            self.assertEqual(dict(raw["ok"]), dict(pair.ok))
-            self.assertEqual(dict(raw["bad"]), dict(pair.bad))
-        self.assertEqual(len(ast_extract_pairs(plants)), N_ROUNDS)
+        self.assertEqual(len(ast_extract_plant_pairs(plants)), N_PLANT_PAIRS)
+        self.assertEqual(len(ast_extract_mapping_pairs(mapping_mill)), N_MAPPING_PAIRS)
+        pairs_path = REPO / "config" / "ewr" / "pairs.jsonl"
+        committed = [json.loads(line) for line in pairs_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(committed), len(extracted))
+        for index, (raw, expected) in enumerate(zip(committed, extracted, strict=True)):
+            self.assertEqual(raw["mill_id"], expected["mill_id"])
+            self.assertEqual(raw["round"], expected["round"])
+            if "ok" in expected:
+                self.assertEqual(raw["ok"]["slug"], expected["ok"]["slug"])
+                self.assertEqual(raw["bad"]["slug"], expected["bad"]["slug"])
+                pair = loaded.pairs[index]
+                self.assertEqual(dict(raw["ok"]), dict(pair.ok))
+                self.assertEqual(dict(raw["bad"]), dict(pair.bad))
+            else:
+                self.assertEqual(raw["mapping"]["slug"], expected["mapping"]["slug"])
+                mapping = loaded.mapping_pairs[index - N_PLANT_PAIRS]
+                self.assertEqual(dict(raw["mapping"]), dict(mapping.mapping))
+                self.assertEqual(raw["mapping"]["drop"], expected["mapping"]["drop"])
 
     def test_catalog_rejects_banned_r39_clones(self):
         loaded = catalog_check(root=REPO)
         joined = " ".join(
             f"{pair.ok['slug']} {pair.bad['slug']}" for pair in loaded.pairs
+        )
+        joined += " " + " ".join(
+            f"{pair.mapping['slug']} {pair.mapping['fail']}" for pair in loaded.mapping_pairs
         )
         self.assertNotIn("beehiiv", joined)
         self.assertNotIn("constant-contact", joined)
@@ -138,12 +181,12 @@ class EwrGenerateTests(unittest.TestCase):
         self.assertEqual(built.ok["meta"]["factory"], FACTORY)
         self.assertEqual(built.ok["meta"]["generator"], GENERATOR)
 
-    def test_every_catalog_pair_builds(self):
+    def test_every_plant_pair_builds(self):
         loaded = catalog_check(root=REPO)
         built = gen.build_catalog(loaded)
-        self.assertEqual(len(built), N_ROUNDS)
+        self.assertEqual(len(built), N_PLANT_PAIRS)
         ids = [item.ok["id"] for item in built] + [item.bad["id"] for item in built]
-        self.assertEqual(len(set(ids)), 2 * N_ROUNDS)
+        self.assertEqual(len(set(ids)), 2 * N_PLANT_PAIRS)
         self.assertTrue(all(item.ok["id"].startswith(f"ewr-r{item.round_n}-") for item in built))
 
     def test_generate_writes_a_new_tree_and_refuses_clobber(self):
@@ -178,7 +221,9 @@ class EwrCliTests(unittest.TestCase):
             code = cli.run(["catalog-check", "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(payload["pair_count"], N_ROUNDS)
+        self.assertEqual(payload["pair_count"], N_PLANT_PAIRS)
+        self.assertEqual(payload["mapping_pair_count"], N_MAPPING_PAIRS)
+        self.assertEqual(payload["total_pairs"], N_PAIRS)
         self.assertEqual(payload["factory"], FACTORY)
         self.assertEqual(stderr.getvalue(), "")
 

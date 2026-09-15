@@ -1,0 +1,85 @@
+{
+  "schema_id": "mill-usage-burst-plan/v1",
+  "family_prefix": "pbc",
+  "factory": "proto-breaking-change-factory",
+  "slice": "A",
+  "label": "pbc proto-breaking-change",
+  "run_label": "2026-08-19-agentic",
+  "quota_per_round": 2,
+  "mills": [
+    {
+      "id": "pbc_r701",
+      "source": "experiments/pbc-mill-r701.py",
+      "start_round": 701,
+      "n_rounds": 30,
+      "pair_count": 30,
+      "full_n_rounds": 30
+    },
+    {
+      "id": "pbc_r731",
+      "source": "experiments/pbc-mill-r731.py",
+      "start_round": 731,
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 20
+    },
+    {
+      "id": "pbc_r751",
+      "source": "experiments/pbc-mill-r751.py",
+      "start_round": 751,
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 20
+    },
+    {
+      "id": "pbc_r803",
+      "source": "experiments/pbc-mill-r803.py",
+      "start_round": 803,
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 16
+    },
+    {
+      "id": "pbc_r966",
+      "source": "experiments/pbc-mill-r966.py",
+      "start_round": 966,
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 8
+    },
+    {
+      "id": "pbc_r988",
+      "source": "experiments/pbc-mill-r988.py",
+      "start_round": 988,
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 349
+    },
+    {
+      "id": "pbc_r2535",
+      "source": "experiments/pbc-mill-r2535.py",
+      "start_round": 2535,
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 90
+    }
+  ],
+  "deferred_mills": [
+    {
+      "id": "pbc_r787",
+      "source": "experiments/pbc-mill-r787.py",
+      "start_round": 787,
+      "full_n_rounds": 175,
+      "reason": "fat mill; first slice commits r701 full extract only"
+    }
+  ],
+  "totals": {
+    "mills": 7,
+    "rounds": 36,
+    "pairs": 36,
+    "episodes": 72,
+    "full_pairs": 708,
+    "full_episodes": 1416,
+    "deferred_mills": 1
+  }
+}

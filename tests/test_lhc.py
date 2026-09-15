@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/lhc`` skeleton (no vendored mills)."""
+"""PR-a/PR-b: AST catalog extract, skeleton, and deferred ``pairs.jsonl``."""
 
 from __future__ import annotations
 
 import ast
+import json
 import shutil
 import subprocess  # nosec B404 -- git show of pinned legacy-mill-lane blobs only.
 import sys
@@ -16,7 +17,7 @@ _GIT = shutil.which("git")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from lhc.catalog import CATALOG, catalog_json_path, dumps_catalog  # noqa: E402
+from lhc.catalog import CATALOG, catalog_json_path, dumps_catalog, load_catalog  # noqa: E402
 from lhc.catalog_extract import (  # noqa: E402
     SHAPE_PAIRS_FN_PAIR,
     SHAPE_PAIRS_NAMED,
@@ -27,6 +28,12 @@ from lhc.catalog_extract import (  # noqa: E402
     extract_mill_catalog,
     is_slice_mill,
     mill_summary,
+)
+from lhc.catalog_extract_jsonl import (  # noqa: E402
+    deferred_pair_rows,
+    dumps_pairs_jsonl,
+    pair_identity,
+    pairs_jsonl_path,
 )
 from lhc.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from lhc.sources import MILL_SOURCES, catalog_sources  # noqa: E402
@@ -214,6 +221,7 @@ class LhcSkeletonTests(unittest.TestCase):
             "catalog_ast_literals.py",
             "catalog_extract.py",
             "catalog_extract_fn_pair.py",
+            "catalog_extract_jsonl.py",
             "catalog_extract_pairs.py",
             "catalog_extract_plants.py",
             "catalog.py",
@@ -293,12 +301,64 @@ class LhcSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["lhc-mill-w4bu-r4453"].shape, SHAPE_PLANTS_P_FN)
         self.assertEqual(CATALOG.mills["lhc-mill-w4da-r4946"].first_slug, "pr-fiona-layer-crs")
         self.assertEqual(CATALOG.mills["lhc-mill-w4gs-r5713"].n_rows, 8)
+        self.assertEqual(len(CATALOG.mills["lhc-mill-w4gs-r5713"].pairs), 8)
         self.assertEqual(CATALOG.mills["lhc-mill-lll-r4654"].n_rows, 16)
         self.assertEqual(
             CATALOG.mills["lhc-mill-lll-r4654"].first_slug,
             "protobuf-reserved-field-tombstone",
         )
-        self.assertFalse(CATALOG.mills["lhc-mill-w4gs-r5713"].pairs)
+        self.assertEqual(CATALOG.n_deferred_pair_rows, cv.DEFERRED_PAIR_ROWS)
+        lll = CATALOG.mills["lhc-mill-lll-r4654"]
+        self.assertEqual(len(lll.pairs), 16)
+        self.assertEqual(lll.pairs[0]["success_slug"], "protobuf-reserved-field-tombstone")
+        excluded = CATALOG.mills[cv.EXCLUDED_DEFERRED_MILL_ID]
+        self.assertEqual(excluded.n_rows, 24)
+        self.assertEqual(excluded.pairs, ())
+
+    def test_header_omits_deferred_pair_bodies(self):
+        header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        self.assertEqual(header["n_pair_rows"], 1326)
+        for mill_id, row in header["mills"].items():
+            if mill_id == cv.SLICE_MILL_ID:
+                self.assertEqual(len(row["pairs"]), 15)
+            else:
+                self.assertNotIn("pairs", row, mill_id)
+
+    def test_pairs_jsonl_stays_compact(self):
+        path = pairs_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.DEFERRED_PAIR_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        parsed = []
+        seen = set()
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(cv.PAIR_ROW_KEYS))
+            key = (row["mill_id"], row["success_slug"])
+            self.assertNotIn(key, seen)
+            seen.add(key)
+            parsed.append(row)
+        mill_ids = {row["mill_id"] for row in parsed}
+        self.assertNotIn(cv.SLICE_MILL_ID, mill_ids)
+        self.assertNotIn(cv.EXCLUDED_DEFERRED_MILL_ID, mill_ids)
+        self.assertIn("lhc-mill-lll-lang-r4750", mill_ids)
+        self.assertIn("lhc-mill-lll-r4688", mill_ids)
+
+    def test_loader_fails_closed_on_a_missing_pair_field(self):
+        header = catalog_json_path().read_text(encoding="utf-8")
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        del first["success_slug"]
+        lines[0] = json.dumps(first, separators=(",", ":"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(header, encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "keys differ"):
+                load_catalog(dest / "CATALOG.json")
 
 
 class LhcLegacyExtractTests(unittest.TestCase):
@@ -306,6 +366,7 @@ class LhcLegacyExtractTests(unittest.TestCase):
         if not _legacy_available():
             self.skipTest("origin/legacy-mill-lane is not fetched")
         mills = []
+        extracts = []
         for source in catalog_sources():
             text = _git_output("show", f"{cv.LEGACY_REF}:{source.path}")
             blob = _git_output("rev-parse", f"{cv.LEGACY_REF}:{source.path}").strip()
@@ -321,10 +382,23 @@ class LhcLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["path"], committed.path, source.mill_id)
             self.assertEqual(live["blob_sha"], committed.blob_sha, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
+            if source.mill_id == cv.EXCLUDED_DEFERRED_MILL_ID:
+                self.assertEqual(committed.pairs, ())
+            else:
+                self.assertEqual(
+                    [pair_identity(pair) for pair in live["pairs"]],
+                    list(committed.pairs),
+                    source.mill_id,
+                )
+            extracts.append(live)
             mills.append(mill_summary(live, include_pairs=is_slice_mill(source.mill_id)))
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_pairs_jsonl(deferred_pair_rows(extracts)),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
         )
 
     def test_git_show_is_the_only_legacy_read(self):

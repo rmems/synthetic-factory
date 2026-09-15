@@ -26,6 +26,10 @@ from hopper.plants import pairs_by_factory  # noqa: E402
 from kcl import catalog, cli, generate  # noqa: E402
 from kcl._contract import (  # noqa: E402
     CATALOG_SLICE,
+    FINDING_PLANT_IDENTITY_ONLY,
+    REPRESENTATIVE_BODY_COUNT,
+    ROW_KIND_IDENTITY,
+    ROW_KIND_REPRESENTATIVE,
     EXTRACT_METHOD,
     FACTORY,
     FAMILY_PREFIX,
@@ -100,9 +104,17 @@ class KclCatalogTests(unittest.TestCase):
         self.assertEqual(loaded.meta["full_plant_count"], FULL_PLANT_COUNT)
         self.assertEqual(loaded.meta["full_pair_count"], FULL_PAIR_COUNT)
         self.assertEqual(loaded.meta["full_row_count"], FULL_ROW_COUNT)
-        self.assertEqual(len(loaded.plants), 12)
+        self.assertEqual(len(loaded.plants), FULL_PLANT_COUNT)
+        self.assertEqual(
+            sum(1 for plant in loaded.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE),
+            REPRESENTATIVE_BODY_COUNT,
+        )
+        self.assertEqual(
+            sum(1 for plant in loaded.plants if plant.row_kind == ROW_KIND_IDENTITY),
+            FULL_PLANT_COUNT - REPRESENTATIVE_BODY_COUNT,
+        )
         self.assertEqual(len(loaded.mills), 11)
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 12)
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), FULL_PLANT_COUNT)
         self.assertEqual({plant.mill_id for plant in loaded.plants}, {item[0] for item in SOURCE_MILLS})
         self.assertEqual(loaded.meta["source"]["method"], EXTRACT_METHOD)
         self.assertEqual(loaded.meta["source"]["commit"], LEGACY_COMMIT)
@@ -132,6 +144,13 @@ class KclCatalogTests(unittest.TestCase):
             catalog.load_catalog(dest)
         self.assertEqual(caught.exception.code, FINDING_CATALOG_SHA256_MISMATCH)
 
+    def test_identity_plant_refuses_generation(self):
+        loaded = catalog.catalog_check(root=REPO)
+        identity = next(plant for plant in loaded.plants if plant.row_kind == ROW_KIND_IDENTITY)
+        with self.assertRaises(KclRefusal) as caught:
+            generate.build_pair(identity)
+        self.assertEqual(caught.exception.code, FINDING_PLANT_IDENTITY_ONLY)
+
     def test_unknown_plant_is_a_coded_refusal(self):
         loaded = catalog.load_catalog(FIXTURE)
         with self.assertRaises(KclRefusal) as caught:
@@ -151,12 +170,14 @@ class KclCatalogTests(unittest.TestCase):
             committed = loaded.mill_plants(mill_id)
             full_count = dict(FULL_MILL_COUNTS)[mill_id]
             self.assertEqual(len(extracted), full_count, mill_id)
-            self.assertLessEqual(len(committed), full_count, mill_id)
+            self.assertEqual(len(committed), full_count, mill_id)
             extracted_by_id = {row["plant_id"]: row for row in extracted}
             for plant in committed:
                 row = extracted_by_id[plant.plant_id]
                 self.assertEqual(row["slug"], plant.slug, plant.plant_id)
-                self.assertEqual(row["payload"]["field"], plant.payload["field"], plant.plant_id)
+                self.assertEqual(row["plant"], plant.plant, plant.plant_id)
+                if plant.row_kind == ROW_KIND_REPRESENTATIVE:
+                    self.assertEqual(row["payload"]["field"], plant.payload["field"], plant.plant_id)
             compared += 1
         self.assertEqual(compared, len(SOURCE_MILLS))
 
@@ -276,7 +297,7 @@ class KclCliTests(unittest.TestCase):
         code, stdout, stderr = invoke(["catalog-check", "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(stdout)
-        self.assertEqual(payload["plants"], 12)
+        self.assertEqual(payload["plants"], FULL_PLANT_COUNT)
         self.assertEqual(payload["full_plants"], FULL_PLANT_COUNT)
         self.assertEqual(payload["factory"], FACTORY)
         self.assertEqual(stderr, "")

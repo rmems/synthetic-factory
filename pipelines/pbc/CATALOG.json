@@ -1,0 +1,96 @@
+{
+  "catalog_id": "proto-breaking-change-v1",
+  "extract": {
+    "exec": false,
+    "full_episode_count": 1416,
+    "full_mill_count": 8,
+    "full_pair_count": 708,
+    "leftover_first_slug": "date-to-int32-poured",
+    "leftover_mill_id": "pbc_r1335",
+    "method": "ast.parse",
+    "deferred_mills": [
+      "pbc_r787"
+    ],
+    "slice": "r701-full-first-pair-others-r787-deferred",
+    "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "source_files": 9,
+    "source_ref": "legacy-mill-lane"
+  },
+  "factory": "proto-breaking-change-factory",
+  "family": "pbc",
+  "format": "pbc-catalog/1",
+  "generator": "grok-4.6",
+  "id_prefix": "pbc",
+  "mills": [
+    {
+      "first_bad_slug": "float-to-double-temp",
+      "first_ok_slug": "map-key-sfixed32-to-uint32",
+      "full_n_rounds": 30,
+      "mill_id": "pbc_r701",
+      "source": "experiments/pbc-mill-r701.py",
+      "start_round": 701
+    },
+    {
+      "first_bad_slug": "wrappers-int32-to-scalar",
+      "first_ok_slug": "map-key-fixed64-to-uint64",
+      "full_n_rounds": 20,
+      "mill_id": "pbc_r731",
+      "source": "experiments/pbc-mill-r731.py",
+      "start_round": 731
+    },
+    {
+      "first_bad_slug": "bool-to-int32-armed",
+      "first_ok_slug": "int32-to-uint32-tap",
+      "full_n_rounds": 20,
+      "mill_id": "pbc_r751",
+      "source": "experiments/pbc-mill-r751.py",
+      "start_round": 751
+    },
+    {
+      "first_bad_slug": "uint32-to-string-port",
+      "first_ok_slug": "int64-to-string-seq",
+      "full_n_rounds": 175,
+      "committed_pairs": 0,
+      "deferred": true,
+      "mill_id": "pbc_r787",
+      "source": "experiments/pbc-mill-r787.py",
+      "start_round": 787
+    },
+    {
+      "first_bad_slug": "parent-field-rename",
+      "first_ok_slug": "http-copy-parent-path",
+      "full_n_rounds": 16,
+      "mill_id": "pbc_r803",
+      "source": "experiments/pbc-mill-r803.py",
+      "start_round": 803
+    },
+    {
+      "first_bad_slug": "duration-to-nanos-int64",
+      "first_ok_slug": "timestamp-to-unix-seconds",
+      "full_n_rounds": 8,
+      "mill_id": "pbc_r966",
+      "source": "experiments/pbc-mill-r966.py",
+      "start_round": 966
+    },
+    {
+      "first_bad_slug": "int64-to-int32-seq",
+      "first_ok_slug": "int32-to-uint64-tap",
+      "full_n_rounds": 349,
+      "mill_id": "pbc_r988",
+      "source": "experiments/pbc-mill-r988.py",
+      "start_round": 988
+    },
+    {
+      "first_bad_slug": "proto2-optional-int32-to-timestamp",
+      "first_ok_slug": "proto2-required-int32-to-timestamp",
+      "full_n_rounds": 90,
+      "mill_id": "pbc_r2535",
+      "source": "experiments/pbc-mill-r2535.py",
+      "start_round": 2535
+    }
+  ],
+  "plants_filename": "plants.jsonl",
+  "plants_sha256": "47bff5d237f01a7d8bbfb2295e90e03aaf8ace2c1e828ec2568ba0f463147ada",
+  "quota": 2,
+  "row_count": 36
+}

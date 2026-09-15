@@ -2,9 +2,10 @@
 """Vocabulary for the ``lhc`` mill family (long-horizon-coding lane).
 
 The reviewed mill prefix ``lhc`` maps to ``long-horizon-coding-factory`` in
-``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts
-catalog identity from the 134 ``legacy-mill-lane`` scripts without
-vendoring ``lhc-mill*.py``.
+``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts catalog identity from the 134 ``legacy-mill-lane`` scripts
+without vendoring ``lhc-mill*.py``. PR-b lands the deferred compact pair
+identities as ``pairs.jsonl`` (``lhc-mill-w4cl-r4605`` stays in
+``pipelines/lhc_w4cl`` only).
 """
 
 from __future__ import annotations
@@ -21,7 +22,21 @@ DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 CATALOG_FILENAME = "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
 SOURCE_COUNT = 134
+DEFERRED_PAIR_ROWS = 1287
+EXCLUDED_DEFERRED_MILL_ID = "lhc-mill-w4cl-r4605"
+
+PAIR_IDENTITY_KEYS = (
+    "fail_key",
+    "fail_plant",
+    "fail_slug",
+    "success_key",
+    "success_plant",
+    "success_slug",
+    "title",
+)
+PAIR_ROW_KEYS = (*PAIR_IDENTITY_KEYS, "i", "mill_id", "path")
 
 BANNED = (
     "thought",

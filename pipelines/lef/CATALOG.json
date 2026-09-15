@@ -122,5 +122,20 @@
     "path": "experiments/.lef-used-slugs.txt",
     "sha256": "8aac454c599486e0cde49f2cac396034f46f96d8c51ad2bfe53744f3399f9509"
   },
+  "plants": {
+    "archive_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "blob_sha": "98bf17417e6d5e25651c48febf09248b1ecabd34",
+    "catalog_first": 613,
+    "first_ok_slug": "kappa-vs-geval-align",
+    "kind": "plants",
+    "last_ok_slug": "diff-sorted-truncate",
+    "mill_id": "lef-mill-plants-a",
+    "n_pairs": 8,
+    "path": "scripts/llm_eval_flakiness_mill/mill_plants.py",
+    "plants_file": "plants.jsonl",
+    "plants_sha256": "01cd1b2fc56edf289e5a6fe25feb5f9cc0af492defde0b89be6b72eee4b3eb61",
+    "shape": "ok-bad-pair",
+    "sha256": "12ab83069a86f8de5ee6c5036c56f22c4bc2ecc5c1efc66dc970fb662f1ad482"
+  },
   "source_ref": "origin/legacy-mill-lane"
 }

@@ -3,8 +3,8 @@
 
 A catalog directory holds ``CATALOG.json`` and ``plants.jsonl``. Historical
 mill scripts are read only as text through :func:`ast_extract_plants`. The
-committed catalog is a representative slice; mill ``plant_count`` values
-are the full leftover inventory.
+committed catalog pins every plant identity; twelve rows keep full bodies
+and the rest are compact identity lines without pair/plant metric bodies.
 """
 
 from __future__ import annotations
@@ -23,6 +23,10 @@ from ._contract import (
     CATALOG_FORMAT,
     CATALOG_SLICE,
     DEFAULT_CATALOG_ID,
+    FINDING_PLANT_IDENTITY_ONLY,
+    REPRESENTATIVE_BODY_COUNT,
+    ROW_KIND_IDENTITY,
+    ROW_KIND_REPRESENTATIVE,
     EXTRACT_METHOD,
     FACTORY,
     FULL_MILL_COUNTS,
@@ -91,6 +95,7 @@ class Plant:
     slug: str
     plant: str
     payload: Mapping[str, Any]
+    row_kind: str = ROW_KIND_REPRESENTATIVE
 
 
 @dataclass(frozen=True)
@@ -448,13 +453,41 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         f"{where}.plant_id must be {expected}",
     )
     shape = _require_text(row.get("shape"), f"{where}.shape", FINDING_PLANT_FIELD_INVALID)
-    payload_raw = row.get("payload")
-    refuse_when(not isinstance(payload_raw, dict), FINDING_PLANT_FIELD_INVALID, f"{where}.payload")
-    assert isinstance(payload_raw, dict)
     source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
     base_round = _require_int(
         row.get("base_round"), f"{where}.base_round", FINDING_PLANT_FIELD_INVALID, 1
     )
+    row_kind_raw = row.get("row_kind")
+    payload_raw = row.get("payload")
+    if row_kind_raw is None:
+        row_kind = ROW_KIND_REPRESENTATIVE
+    else:
+        row_kind = _require_text(row_kind_raw, f"{where}.row_kind", FINDING_PLANT_FIELD_INVALID)
+        refuse_when(
+            row_kind not in {ROW_KIND_REPRESENTATIVE, ROW_KIND_IDENTITY},
+            FINDING_PLANT_FIELD_INVALID,
+            f"{where}.row_kind",
+        )
+    if row_kind == ROW_KIND_IDENTITY:
+        refuse_when(
+            payload_raw is not None,
+            FINDING_PLANT_FIELD_INVALID,
+            f"{where}.payload must be omitted for identity rows",
+        )
+        plant_name = _require_text(row.get("plant"), f"{where}.plant", FINDING_PLANT_FIELD_MISSING)
+        return Plant(
+            plant_id=plant_id,
+            mill_id=mill_id,
+            source=source,
+            base_round=base_round,
+            shape=shape,
+            slug=slug,
+            plant=plant_name,
+            payload={},
+            row_kind=ROW_KIND_IDENTITY,
+        )
+    refuse_when(not isinstance(payload_raw, dict), FINDING_PLANT_FIELD_INVALID, f"{where}.payload")
+    assert isinstance(payload_raw, dict)
     if shape == SHAPE_PAIR:
         built = _pair_row(
             payload_raw,
@@ -483,12 +516,18 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         slug=slug,
         plant=built["plant"],
         payload=built["payload"],
+        row_kind=ROW_KIND_REPRESENTATIVE,
     )
 
 
 def spec_for(plant: Plant) -> dict[str, str]:
     """Return the leftover ``pair()`` spec used by generate."""
 
+    refuse_when(
+        plant.row_kind == ROW_KIND_IDENTITY,
+        FINDING_PLANT_IDENTITY_ONLY,
+        f"{plant.plant_id} is an identity pin without a pair body",
+    )
     if plant.shape == SHAPE_PAIR:
         return {key: str(plant.payload[key]) for key in PAIR_KEYS}
     if plant.shape == SHAPE_ROW:
@@ -586,11 +625,18 @@ def load_catalog(directory: Path | None = None, *, root: Path | None = None) -> 
         FINDING_CATALOG_FIELD_INVALID,
         f"plant_count {plant_count} exceeds full_plant_count {full_plant_count}",
     )
+    slice_name = meta.get("slice")
     if full_plant_count != plant_count:
         refuse_when(
-            meta.get("slice") != CATALOG_SLICE,
+            slice_name != "representative",
             FINDING_CATALOG_FIELD_INVALID,
             "a partial plants.jsonl must set slice=representative",
+        )
+    elif plant_count == full_plant_count and slice_name is not None:
+        refuse_when(
+            slice_name != CATALOG_SLICE,
+            FINDING_CATALOG_FIELD_INVALID,
+            f"a full identity catalog must set slice={CATALOG_SLICE}",
         )
     plants_sha256 = _require_text(meta.get("plants_sha256"), "plants_sha256", FINDING_CATALOG_FIELD_INVALID)
     mill_rows = meta.get("mills")
@@ -639,6 +685,13 @@ def load_catalog(directory: Path | None = None, *, root: Path | None = None) -> 
             FINDING_CATALOG_FIELD_INVALID,
             f"{mill.mill_id} committed {committed} outside 1..{mill.plant_count}",
         )
+    if plant_count == full_plant_count and meta.get("slice") == CATALOG_SLICE:
+        for mill in mills:
+            refuse_when(
+                by_mill[mill.mill_id] != mill.plant_count,
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{mill.mill_id} identity catalog missing plants",
+            )
     return Catalog(
         catalog_id=catalog_id,
         directory=catalog_dir,
@@ -672,6 +725,14 @@ def catalog_check(directory: Path | None = None, *, root: Path | None = None) ->
         "source mill order drifted from SOURCE_MILLS",
     )
     if catalog.catalog_id == DEFAULT_CATALOG_ID:
+        representative = sum(
+            1 for plant in catalog.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE
+        )
+        refuse_when(
+            representative != REPRESENTATIVE_BODY_COUNT,
+            FINDING_CATALOG_FIELD_INVALID,
+            "representative body count",
+        )
         refuse_first(
             (
                 (catalog.meta.get("slice") != CATALOG_SLICE, FINDING_CATALOG_FIELD_INVALID, "slice"),

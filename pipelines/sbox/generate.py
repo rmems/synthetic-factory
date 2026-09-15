@@ -234,6 +234,94 @@ def _list_elts(node: ast.AST) -> list[ast.AST] | None:
     return node.elts if isinstance(node, ast.List) else None
 
 
+def _family_neq_filter(node: ast.ListComp) -> str | None:
+    """``[r for r in _ROWS if r["family"] != "slug"]`` when the test is literal."""
+
+    if len(node.generators) != 1:
+        return None
+    if not isinstance(node.elt, ast.Name) or node.elt.id != "r":
+        return None
+    generator = node.generators[0]
+    if not isinstance(generator.target, ast.Name) or generator.target.id != "r":
+        return None
+    if not isinstance(generator.iter, ast.Name) or generator.iter.id != "_ROWS":
+        return None
+    if len(generator.ifs) != 1:
+        return None
+    test = generator.ifs[0]
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+        return None
+    if not isinstance(test.ops[0], ast.NotEq):
+        return None
+    left, right = test.left, test.comparators[0]
+    if not isinstance(left, ast.Subscript):
+        return None
+    if not isinstance(left.value, ast.Name) or left.value.id != "r":
+        return None
+    if not isinstance(left.slice, ast.Constant) or left.slice.value != "family":
+        return None
+    if not isinstance(right, ast.Constant) or not isinstance(right.value, str):
+        return None
+    return right.value
+
+
+def _identities_from_row_elts(
+    elts: list[ast.AST],
+    params: tuple[str, ...] | None,
+) -> list[dict[str, Any]]:
+    if not elts:
+        return []
+    first = elts[0]
+    if isinstance(first, ast.Call) and isinstance(first.func, ast.Name):
+        if first.func.id == "dict":
+            return [
+                _identity_keywords(elt, f"_ROWS[{index}]")
+                for index, elt in enumerate(elts)
+                if isinstance(elt, ast.Call)
+            ]
+        if first.func.id == "_row":
+            refuse_when(
+                params is None,
+                FINDING_AST_NOT_A_PLANT,
+                "_ROWS uses _row() but no def _row is in the module",
+            )
+            return [
+                _call_row(elt, params, f"_ROWS[{index}]")
+                for index, elt in enumerate(elts)
+                if isinstance(elt, ast.Call)
+            ]
+    if isinstance(first, ast.Dict):
+        return [
+            _identity_mapping(elt, f"_ROWS[{index}]")
+            for index, elt in enumerate(elts)
+            if isinstance(elt, ast.Dict)
+        ]
+    refuse(FINDING_AST_NOT_A_PLANT, "_ROWS list shape is not dict(), _row(), or dict literals")
+    return []
+
+
+def _rows_from_module(tree: ast.Module, params: tuple[str, ...] | None) -> list[dict[str, Any]] | None:
+    rows: list[dict[str, Any]] | None = None
+    for node in tree.body:
+        bound = _assigned_name(node)
+        if bound is None or bound[0] != "_ROWS":
+            continue
+        _name, value = bound
+        elts = _list_elts(value)
+        if elts is not None:
+            rows = _identities_from_row_elts(elts, params)
+            continue
+        if isinstance(value, ast.ListComp):
+            excluded = _family_neq_filter(value)
+            refuse_when(
+                excluded is None or rows is None,
+                FINDING_AST_NOT_A_PLANT,
+                "_ROWS filter is not a supported family exclusion",
+            )
+            rows = [row for row in rows if row["family"] != excluded]
+    return rows
+
+
 def plants_from_source(text: str) -> tuple[dict[str, Any], ...]:
     """AST-extract catalog identity rows from mill source text. Never exec."""
 
@@ -259,34 +347,9 @@ def plants_from_source(text: str) -> tuple[dict[str, Any], ...]:
             for index, elt in enumerate(elts)
         )
 
-    rows_node = assigned.get("_ROWS")
-    row_elts = _list_elts(rows_node) if rows_node is not None else None
-    if row_elts:
-        first = row_elts[0]
-        if isinstance(first, ast.Call) and isinstance(first.func, ast.Name):
-            if first.func.id == "dict":
-                return tuple(
-                    _identity_keywords(elt, f"_ROWS[{index}]")
-                    for index, elt in enumerate(row_elts)
-                    if isinstance(elt, ast.Call)
-                )
-            if first.func.id == "_row":
-                refuse_when(
-                    params is None,
-                    FINDING_AST_NOT_A_PLANT,
-                    "_ROWS uses _row() but no def _row is in the module",
-                )
-                return tuple(
-                    _call_row(elt, params, f"_ROWS[{index}]")
-                    for index, elt in enumerate(row_elts)
-                    if isinstance(elt, ast.Call)
-                )
-        if isinstance(first, ast.Dict):
-            return tuple(
-                _identity_mapping(elt, f"_ROWS[{index}]")
-                for index, elt in enumerate(row_elts)
-                if isinstance(elt, ast.Dict)
-            )
+    rows = _rows_from_module(tree, params)
+    if rows is not None:
+        return tuple(rows)
     refuse(FINDING_AST_NOT_A_PLANT, "source has no PLANTS dict list or _ROWS catalog")
 
 

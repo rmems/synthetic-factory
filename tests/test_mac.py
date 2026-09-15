@@ -97,11 +97,16 @@ def _module_uses_exec(path: Path) -> list[str]:
 
 class PackageShape(unittest.TestCase):
     def test_the_package_does_not_vendor_mac_mill_scripts(self):
-        names = {path.name for path in PACKAGE.iterdir() if path.suffix in {".py", ".json"}}
+        names = {
+            path.name
+            for path in PACKAGE.iterdir()
+            if path.suffix in {".py", ".json", ".jsonl"}
+        }
         self.assertEqual(
             names,
             {
                 "CATALOG.json",
+                "plants.jsonl",
                 "__init__.py",
                 "_contract.py",
                 "catalog.py",
@@ -170,61 +175,60 @@ class AstExtract(unittest.TestCase):
 
 
 class CommittedCatalog(unittest.TestCase):
-    def test_representative_slice_and_full_row_pins(self):
+    def test_full_identity_jsonl_and_source_pins(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
         self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 24)
+        self.assertEqual(len(loaded.plants), 1401)
         self.assertEqual(len(loaded.sources), 32)
+        self.assertEqual(loaded.extract.get("slice"), "full")
+        self.assertEqual(loaded.extract.get("deferred_rows"), 0)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 24)
+        self.assertEqual(report["plants"], 1401)
+        self.assertEqual(report["deferred_rows"], 0)
         self.assertEqual(report["full_row_count"], 1401)
         self.assertEqual(report["catalog_files"], 31)
         self.assertFalse(report["exec"])
         self.assertEqual(loaded.plants[0].slug, "wetphos-gypsum-vs-p2o5")
-        self.assertEqual(loaded.plants[8].slug, "maleic-butane-vs-conv")
-        self.assertEqual(loaded.plants[8].process, "maleic anhydride")
-        self.assertEqual(loaded.plants[8].metric, "conv")
-        self.assertEqual(loaded.plants[8].spike, "14 K")
-        self.assertEqual(loaded.plants[16].slug, "merge-queue-vs-rebase")
-        slugs = [plant.slug for plant in loaded.plants]
-        self.assertEqual(len(slugs), len(set(slugs)))
+        maleic = next(plant for plant in loaded.plants if plant.slug == "maleic-butane-vs-conv")
+        self.assertEqual(maleic.process, "maleic anhydride")
+        self.assertEqual(maleic.metric, "conv")
+        self.assertEqual(maleic.spike, "14 K")
+        self.assertTrue(any(plant.slug == "merge-queue-vs-rebase" for plant in loaded.plants))
+        keys = [f"{plant.source}:{plant.slug}" for plant in loaded.plants]
+        self.assertEqual(len(keys), len(set(keys)))
 
-    def test_leftover_sources_reextract_the_committed_identity_prefix(self):
+    def test_leftover_sources_reextract_the_committed_jsonl_rows(self):
         if not _legacy_available():
             self.skipTest("legacy-mill-lane mac mills are not in this environment")
-        leftover = subprocess.check_output(
-            ["git", "show", f"{SOURCE_COMMIT}:experiments/mac-mill-leftover-r3038.py"],
-            cwd=REPO,
-            text=True,
-        )
-        acid = subprocess.check_output(
-            ["git", "show", f"{SOURCE_COMMIT}:experiments/mac-mill-r3205.py"],
-            cwd=REPO,
-            text=True,
-        )
-        scen = subprocess.check_output(
-            ["git", "show", f"{SOURCE_COMMIT}:experiments/mac_r3267_leftover3_swcoord_mill.py"],
-            cwd=REPO,
-            text=True,
+        samples = (
+            ("experiments/mac-mill-leftover-r3038.py", "leftover-r3038"),
+            ("experiments/mac-mill-r3205.py", "r3205"),
+            ("experiments/mac_r3267_leftover3_swcoord_mill.py", "leftover3-scen"),
         )
         committed = cat.load_catalog().plants
-        self.assertEqual(
-            [row["slug"] for row in generate.plants_from_source(leftover)[:8]],
-            [plant.slug for plant in committed[:8]],
-        )
-        self.assertEqual(
-            [(row["slug"], row["spike"]) for row in generate.plants_from_source(acid)[:8]],
-            [(plant.slug, plant.spike) for plant in committed[8:16]],
-        )
-        self.assertEqual(
-            [row["slug"] for row in generate.plants_from_source(scen)[:8]],
-            [plant.slug for plant in committed[16:]],
-        )
-        self.assertEqual(len(generate.plants_from_source(leftover)), 40)
-        self.assertEqual(len(generate.plants_from_source(acid)), 92)
-        self.assertEqual(len(generate.plants_from_source(scen)), 16)
+        by_source: dict[str, list[cat.Plant]] = {}
+        for plant in committed:
+            by_source.setdefault(plant.source, []).append(plant)
+        for path, _label in samples:
+            text = subprocess.check_output(
+                ["git", "show", f"{SOURCE_COMMIT}:{path}"],
+                cwd=REPO,
+                text=True,
+            )
+            extracted = generate.plants_from_source(text)
+            pinned = by_source[path]
+            self.assertEqual(len(pinned), len(extracted))
+            for row, plant in zip(extracted, pinned, strict=True):
+                self.assertEqual(plant.slug, row["slug"])
+                self.assertEqual(plant.shape, row["shape"])
+                if row["shape"] == generate.SHAPE_A:
+                    self.assertEqual(plant.process, row["process"])
+                    self.assertEqual(plant.metric, row["metric"])
+                    self.assertEqual(plant.spike, row["spike"])
+                else:
+                    self.assertEqual(plant.goal, row["goal"])
 
 
 class Cli(unittest.TestCase):
@@ -233,7 +237,8 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 24)
+        self.assertEqual(payload["plants"], 1401)
+        self.assertEqual(payload["deferred_rows"], 0)
         self.assertEqual(payload["full_row_count"], 1401)
 
     def test_extract_json_from_a_p_snippet(self):
