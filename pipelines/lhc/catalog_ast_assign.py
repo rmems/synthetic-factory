@@ -33,10 +33,12 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
 def assignment_names(node: ast.stmt) -> tuple[str, ...]:
     ann = _ann_target_name(node)
     if ann is not None:
-        return (ann,)
-    if isinstance(node, ast.Assign):
-        return tuple(target.id for target in node.targets if isinstance(target, ast.Name))
-    return ()
+        names = [ann]
+    elif isinstance(node, ast.Assign):
+        names = [target.id for target in node.targets if isinstance(target, ast.Name)]
+    else:
+        names = []
+    return tuple(names)
 
 
 def tuple_target_names(node: ast.stmt) -> tuple[str, ...]:

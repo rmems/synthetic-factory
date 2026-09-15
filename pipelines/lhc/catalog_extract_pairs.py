@@ -71,17 +71,13 @@ def rows_record(shape: str, rows: list[dict[str, Any]], *, n_plants: int) -> dic
     }
 
 
-def _is_lhc_pairs_list(value: ast.AST | None) -> bool:
-    return isinstance(value, ast.List) and bool(value.elts)
-
-
 def _lhc_pairs_elts(node: ast.AST) -> list[ast.AST] | None:
     name, value = assignment_of(node)
     if name != "LHC_PAIRS":
         return None
-    if not _is_lhc_pairs_list(value):
-        return None
     if not isinstance(value, ast.List):
+        return None
+    if not value.elts:
         return None
     return value.elts
 
