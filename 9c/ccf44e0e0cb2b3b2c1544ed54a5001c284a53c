@@ -1,0 +1,34 @@
+pipelines/lef/vocabulary.py
+  s_64e619c3d9d590::t_c7a428ebe70acd 23-24
+pipelines/lef/catalog.py
+  s_64e619c3d9d590::t_54727a7037ec32 8-9,12,21,25-26
+  s_64e619c3d9d590::t_5533a2bcf3a734 165-194
+  s_64e619c3d9d590::t_409b05aad5d31c 96-99,101-104
+  s_64e619c3d9d590::t_3a6dfbb7b61a0b 239,243-254,260-264
+pipelines/lef/catalog_extract.py
+  s_64e619c3d9d590::t_5842d5bf3f2a7c 438-444
+  s_64e619c3d9d590::t_2255d5268bf325 39,43
+  s_64e619c3d9d590::t_fa9d2d7a913342 460-461
+  s_64e619c3d9d590::t_c898fcc2daeb22 480-484
+tests/test_lef.py
+  s_64e619c3d9d590::t_a0c28025e8c446 7
+  s_64e619c3d9d590::t_6b8ef946ea7abb 250,257-258,263,266,275-285
+  s_64e619c3d9d590::t_a7933500d3c755 264-265,267-274
+  s_64e619c3d9d590::t_76cc86bc5ea440 313-320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9cccf44e0e0cb2b3b2c1544ed54a5001c284a53c",
+  "prompts": {},
+  "sessions": {
+    "s_64e619c3d9d590": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4389f734-7da3-466f-aa76-f1c2ab09ff0c",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
