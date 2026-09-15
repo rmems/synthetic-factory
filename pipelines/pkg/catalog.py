@@ -2,8 +2,9 @@
 """PKG plant catalog: AST extract plus compact ``plants.jsonl``.
 
 ``plants_from_source`` walks legacy mill scripts as text (``ast.parse``
-only, ``exec: false``). The committed catalog is the ok/fail identity
-extract from ``origin/legacy-mill-lane`` (r163–r196 in this slice).
+only, ``exec: false``). The committed catalog is the ok/fail identity extract from
+``origin/legacy-mill-lane`` (r163–r196 plus r209–r315 and r316–r331 in
+this slice). Gaps between mills are intentional (other families / bans).
 Mill scripts, loop drivers, attest-wave / leftover3 / licrep mills, and
 the demoted r98–r162 digest/lock-yank twins are not vendored.
 """
@@ -58,7 +59,10 @@ OK_KINDS = frozenset({
     "nix_nar",
     "gpg_portal",
     "nuget_snupkg",
+    "ok_leftover",
+    "ok_attest",
 })
+_SPEC_CALL_NAMES = frozenset({"_ok", "_fail", "okd", "faild"})
 FAIL_KIND = "fail_leftover"
 ROLES = frozenset({"ok", "fail"})
 PLANT_FIELDS = (
@@ -194,9 +198,53 @@ def _module_pairs_list(tree: ast.Module) -> ast.List | None:
     return None
 
 
-def _pair_elts(tree: ast.Module) -> list[ast.Tuple]:
+def _append_kinds(add_fn: ast.FunctionDef) -> tuple[str, str] | None:
+    for stmt in add_fn.body:
+        if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+            continue
+        call = stmt.value
+        if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
+            continue
+        if not call.args or not isinstance(call.args[0], ast.Tuple):
+            continue
+        tup = call.args[0]
+        if len(tup.elts) != 4:
+            continue
+        return _kind_name(tup.elts[0]), _kind_name(tup.elts[2])
+    return None
+
+
+def _dynamic_pair_rows(fn: ast.FunctionDef) -> list[tuple[str, ast.AST, str, ast.AST]]:
+    add_fn = next(
+        (node for node in fn.body if isinstance(node, ast.FunctionDef) and node.name == "add"),
+        None,
+    )
+    refuse_when(add_fn is None, FINDING_AST_NOT_A_PLANT, "_pairs() has no nested add() helper")
+    kinds = _append_kinds(add_fn)
+    refuse_when(kinds is None, FINDING_AST_NOT_A_PLANT, "add() does not append a 4-tuple")
+    ok_kind, fail_kind = kinds
+    rows: list[tuple[str, ast.AST, str, ast.AST]] = []
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "add":
+            continue
+        refuse_when(
+            len(node.args) != 2,
+            FINDING_AST_NOT_A_PLANT,
+            "add() must take exactly two spec arguments",
+        )
+        rows.append((ok_kind, node.args[0], fail_kind, node.args[1]))
+    refuse_when(not rows, FINDING_AST_NOT_A_PLANT, "_pairs() add() catalog is empty")
+    return rows
+
+
+def _pair_elts(tree: ast.Module) -> list[ast.Tuple | tuple[str, ast.AST, str, ast.AST]]:
     fn = _pairs_function(tree)
     listed = _returned_list(fn) if fn is not None else None
+    if listed is None and fn is not None:
+        dynamic = _dynamic_pair_rows(fn)
+        return dynamic
     if listed is None:
         listed = _module_pairs_list(tree)
     refuse_when(listed is None, FINDING_AST_NOT_A_PLANT, "source has no _pairs() list")
@@ -212,15 +260,30 @@ def _pair_elts(tree: ast.Module) -> list[ast.Tuple]:
 
 
 def _spec_strings(node: ast.AST) -> dict[str, str]:
-    refuse_when(not isinstance(node, ast.Dict), FINDING_AST_NOT_A_PLANT, "spec must be a dict")
-    out: dict[str, str] = {}
-    for key_node, value_node in zip(node.keys, node.values):
-        if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
-            continue
-        resolved = _optional_literal(value_node)
-        if isinstance(resolved, str):
-            out[key_node.value] = resolved
-    return out
+    if isinstance(node, ast.Dict):
+        out: dict[str, str] = {}
+        for key_node, value_node in zip(node.keys, node.values):
+            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+                continue
+            resolved = _optional_literal(value_node)
+            if isinstance(resolved, str):
+                out[key_node.value] = resolved
+        return out
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        refuse_when(
+            node.func.id not in _SPEC_CALL_NAMES,
+            FINDING_AST_NOT_A_PLANT,
+            f"spec call must be one of {sorted(_SPEC_CALL_NAMES)}, got {node.func.id}",
+        )
+        out: dict[str, str] = {}
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                continue
+            resolved = _optional_literal(keyword.value)
+            if isinstance(resolved, str):
+                out[keyword.arg] = resolved
+        return out
+    refuse(FINDING_AST_NOT_A_PLANT, "spec must be a dict or _ok/_fail call")
 
 
 def _kind_name(node: ast.AST) -> str:
@@ -346,10 +409,15 @@ def plants_from_source(text: str, source_name: str = SOURCE_NAME) -> tuple[Plant
     ordered: list[Plant] = []
     for offset, elt in enumerate(_pair_elts(tree)):
         round_n = first + offset
-        ok_kind = _kind_name(elt.elts[0])
-        fail_kind = _kind_name(elt.elts[2])
-        ok_spec = _spec_strings(elt.elts[1])
-        fail_spec = _spec_strings(elt.elts[3])
+        if isinstance(elt, ast.Tuple):
+            ok_kind = _kind_name(elt.elts[0])
+            fail_kind = _kind_name(elt.elts[2])
+            ok_spec = _spec_strings(elt.elts[1])
+            fail_spec = _spec_strings(elt.elts[3])
+        else:
+            ok_kind, ok_node, fail_kind, fail_node = elt
+            ok_spec = _spec_strings(ok_node)
+            fail_spec = _spec_strings(fail_node)
         ordered.append(
             plant_from_mapping(
                 _draft(round_n, 1, "ok", ok_kind, ok_spec, source_name),

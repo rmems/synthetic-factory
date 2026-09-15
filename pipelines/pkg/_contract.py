@@ -29,7 +29,7 @@ GENERATOR = "grok-4.6"
 GEN = GENERATOR
 QUOTA_PER_ROUND = 2
 RECORD_KIND = "episode"
-CATALOG_ID = "pkg-r163-r196-v1"
+CATALOG_ID = "pkg-r163-r331-v1"
 CATALOG_FORMAT = "pkg-catalog/1"
 CATALOG_FILENAME = "CATALOG.json"
 PLANTS_FILENAME = "plants.jsonl"
@@ -39,6 +39,15 @@ SOURCE_PATH = "experiments/pkg-mill-r163.py"
 SOURCE_MILLS = (
     ("experiments/pkg-mill-r163.py", "pkg-mill-r163.py", 163, 180),
     ("experiments/pkg-mill-r181.py", "pkg-mill-r181.py", 181, 196),
+    ("experiments/pkg-mill-r209.py", "pkg-mill-r209.py", 209, 213),
+    ("experiments/pkg-mill-r223.py", "pkg-mill-r223.py", 223, 238),
+    ("experiments/pkg-mill-r239.py", "pkg-mill-r239.py", 239, 246),
+    ("experiments/pkg-mill-r247.py", "pkg-mill-r247.py", 247, 254),
+    ("experiments/pkg-mill-r275.py", "pkg-mill-r275.py", 275, 289),
+    ("experiments/pkg-mill-r290.py", "pkg-mill-r290.py", 290, 295),
+    ("experiments/pkg-mill-r296.py", "pkg-mill-r296.py", 296, 299),
+    ("experiments/pkg-mill-r300.py", "pkg-mill-r300.py", 300, 315),
+    ("experiments/pkg-mill-r316.py", "pkg-mill-r316.py", 316, 331),
 )
 INTENDED_USE = "research_only"
 PROJECT_TRAINING_POLICY = "blocked"
