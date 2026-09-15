@@ -74,8 +74,8 @@ class RightsClassifierTests(RightsPolicyTestCase):
             self.verification(),
         )
         for value in values:
-            with self.subTest(value=type(value).__name__), self.assertRaises(AttributeError):
-                value.__dict__
+            with self.subTest(value=type(value).__name__):
+                self.assertRaises(AttributeError, getattr, value, "__dict__")
 
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
