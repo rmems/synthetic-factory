@@ -32,6 +32,7 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
+    refuse,
     refuse_first,
     refuse_vendor_path,
     refuse_when,
@@ -76,7 +77,8 @@ def _walk_keys(value: Any) -> list[str]:
 
 def _refuse_banned(record: dict[str, Any]) -> None:
     hits = sorted(BANNED_KEYS.intersection(_walk_keys(record)))
-    refuse_when(bool(hits), FINDING_BANNED_KEY, f"record {record.get('id')!r} carries {hits[0]}")
+    if hits:
+        refuse(FINDING_BANNED_KEY, f"record {record.get('id')!r} carries {hits[0]}")
 
 
 def _clip(text: str) -> str:
