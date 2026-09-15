@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CRP r995 slice: ``crp-mill-r995`` compact JSONL catalog prefix."""
+"""CRP r995 slice: ``crp-mill-r995`` compact JSONL catalog (full)."""
 
 from __future__ import annotations
 
@@ -46,8 +46,7 @@ PACKAGE_PY = (
     "r995.py",
 )
 MILL_PLANTS = 1968
-PREFIX_PLANTS = 1728
-PREFIX_TRIPLES = PREFIX_PLANTS // 3
+FULL_TRIPLES = MILL_PLANTS // 3
 
 
 def invoke(argv):
@@ -64,21 +63,24 @@ class CatalogPins(unittest.TestCase):
         self.assertNotIn(b"\r", payload)
         self.assertTrue(text.endswith("\n"))
         lines = text.splitlines()
-        self.assertEqual(len(lines), PREFIX_PLANTS)
+        self.assertEqual(len(lines), MILL_PLANTS)
         digest = hashlib.sha256(payload).hexdigest()
         loaded = r995.load_catalog()
         report = r995.catalog_check()
         self.assertEqual(loaded.catalog_id, "crp-r995-v1")
-        self.assertEqual(report["plants"], PREFIX_PLANTS)
-        self.assertEqual(report["triples"], PREFIX_TRIPLES)
+        self.assertEqual(report["plants"], MILL_PLANTS)
+        self.assertEqual(report["triples"], FULL_TRIPLES)
         self.assertEqual(report["first_round"], 995)
-        self.assertEqual(report["last_round"], 1570)
+        self.assertEqual(report["last_round"], 1650)
         meta = json.loads((COMMITTED / "CATALOG-r995.json").read_text())
         self.assertEqual(digest, meta["plants_sha256"])
-        self.assertEqual(meta["slice"], "prefix")
+        self.assertEqual(meta["slice"], "full")
+        self.assertEqual(meta["plant_count"], MILL_PLANTS)
+        self.assertEqual(meta["wave_last_round"], 1650)
         self.assertEqual(loaded.plants[0].slug, "nocobase-collection-name-case")
         self.assertEqual(loaded.plants[0].noun, "reef1000")
-        self.assertEqual(loaded.plants[-1].slug, "cfenginex3-name-case")
+        self.assertEqual(loaded.plants[-1].slug, "soketi-path-toctou")
+        self.assertEqual(loaded.plants[-1].noun, "reef2967")
 
     def test_pin_mismatch_is_a_coded_refusal(self):
         root = Path(tempfile.mkdtemp(prefix="crp-r995-pin-"))
@@ -117,9 +119,9 @@ class AstExtract(unittest.TestCase):
         extracted = cat.plants_from_source(text)
         committed = r995.load_catalog().plants
         self.assertEqual(len(extracted), MILL_PLANTS)
-        self.assertEqual(len(committed), PREFIX_PLANTS)
+        self.assertEqual(len(committed), MILL_PLANTS)
         self.assertEqual(
-            [(plant.slug, plant.noun, plant.family) for plant in extracted[:len(committed)]],
+            [(plant.slug, plant.noun, plant.family) for plant in extracted],
             [(plant.slug, plant.noun, plant.family) for plant in committed],
         )
 
@@ -173,9 +175,18 @@ class Generate(unittest.TestCase):
         summary = generate.run(generate.RunRequest(994, out))
         self.assertEqual(summary["catalog_id"], "crp-r817-v1")
 
+    def test_round_1650_still_routes_to_r995(self):
+        out = self.root / "last"
+        summary = generate.run(generate.RunRequest(1650, out))
+        self.assertEqual(summary["catalog_id"], "crp-r995-v1")
+        self.assertEqual(summary["format"], "crp-r995-run/1")
+        plants = r995.plants_for_round(1650)
+        first = json.loads((out / "batch-r1650.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(first["id"], f"crp-r1650-{plants[0].slug}")
+
     def test_out_of_domain_r995_round_is_refused(self):
         with self.assertRaises(CrpRefusal) as ctx:
-            r995.plants_for_round(1571)
+            r995.plants_for_round(1651)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
 
 
@@ -185,7 +196,7 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["catalog_id"], "crp-r995-v1")
-        self.assertEqual(payload["plants"], PREFIX_PLANTS)
+        self.assertEqual(payload["plants"], MILL_PLANTS)
 
 
 if __name__ == "__main__":
