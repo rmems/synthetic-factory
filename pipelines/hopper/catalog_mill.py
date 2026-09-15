@@ -150,6 +150,8 @@ def ast_extract_mill_pairs(source: str, *, source_path: str) -> tuple[dict[str, 
         assert isinstance(item, ast.Tuple)
         ok = _side_tuple(item.elts[0], f"{source_path} PAIRS[{index}].ok")
         bad = _side_tuple(item.elts[1], f"{source_path} PAIRS[{index}].bad")
+        if ok["slug"].endswith("-handoff") and not bad["slug"].endswith("-handoff"):
+            ok, bad = bad, ok
         rows.append(
             {
                 "mill_id": mill_id,
