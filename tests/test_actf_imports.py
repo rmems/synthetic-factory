@@ -19,11 +19,14 @@ class InProcess(unittest.TestCase):
     def test_every_family_module_is_one_object_under_both_spellings(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
+        from actf import catalog as flat_catalog  # noqa: F401
+        from pipelines.actf import catalog as packaged_catalog  # noqa: F401
         from pipelines.actf import cli as packaged
         from pipelines.actf import vocabulary as packaged_cv
         from pipelines.actf import lineage, ast_scan, records, _contract  # noqa: F401
 
         self.assertIs(packaged, cli)
+        self.assertIs(flat_catalog, packaged_catalog)
         self.assertIs(packaged_cv.ActfRefusal, cv.ActfRefusal)
         for name in FAMILY_MODULES:
             with self.subTest(name=name):

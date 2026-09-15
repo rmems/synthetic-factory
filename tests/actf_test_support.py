@@ -9,7 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 FIXTURE_TREE = REPO / "tests" / "fixtures" / "actf" / "recovery-tree"
-FAMILY_MODULES = ("_contract", "vocabulary", "lineage", "ast_scan", "records", "cli")
+FAMILY_MODULES = ("_contract", "vocabulary", "lineage", "ast_scan", "records", "catalog", "cli")
 
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
