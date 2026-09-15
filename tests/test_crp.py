@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -171,6 +172,28 @@ class Generate(unittest.TestCase):
             generate.run(generate.RunRequest(729, raw))
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
+
+    def test_an_interrupt_during_the_write_removes_the_destination(self):
+        out = self.root / "run"
+
+        def interrupt(*_args, **_kwargs):
+            raise KeyboardInterrupt
+
+        with mock.patch.object(generate, "_fsync_destination", interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                generate.run(generate.RunRequest(729, out))
+        self.assertFalse(out.exists())
+        summary = generate.run(generate.RunRequest(729, out))
+        self.assertEqual(summary["records"], 3)
+
+    def test_batch_jsonl_uses_literal_lf_record_boundaries(self):
+        out = self.root / "run"
+        generate.run(generate.RunRequest(729, out))
+        payload = (out / "batch-r729.jsonl").read_bytes()
+        self.assertNotIn(b"\r", payload)
+        records = payload.split(b"\n")
+        self.assertEqual(records[-1], b"")
+        self.assertEqual(len(records) - 1, 3)
 
     def test_a_round_outside_the_leftover3_wave_is_refused(self):
         with self.assertRaises(CrpRefusal) as ctx:
