@@ -47,34 +47,22 @@ class IdentityTreeError(IdentityCurationError):
     """Raised when a cleaned tree is missing or mismatched identity sidecars."""
 
 
-def _reject_unpaired_surrogate_text(value: str, path: str) -> None:
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-        raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
-
-
-def _reject_unpaired_surrogates_mapping(value: Mapping[Any, Any], path: str) -> None:
-    for index, (key, item) in enumerate(value.items()):
-        if isinstance(key, str):
-            _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
-        _reject_unpaired_surrogates(item, f"{path}[{index}]")
-
-
-def _reject_unpaired_surrogates_list(value: list[Any], path: str) -> None:
-    for index, item in enumerate(value):
-        _reject_unpaired_surrogates(item, f"{path}[{index}]")
-
-
 def _reject_unpaired_surrogates(value: Any, path: str = "$") -> None:
     """Reject strings that cannot be represented as Unicode scalar-value text."""
 
     if isinstance(value, str):
-        _reject_unpaired_surrogate_text(value, path)
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
         return
     if isinstance(value, Mapping):
-        _reject_unpaired_surrogates_mapping(value, path)
+        for index, (key, item) in enumerate(value.items()):
+            if isinstance(key, str):
+                _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
+            _reject_unpaired_surrogates(item, f"{path}[{index}]")
         return
     if isinstance(value, list):
-        _reject_unpaired_surrogates_list(value, path)
+        for index, item in enumerate(value):
+            _reject_unpaired_surrogates(item, f"{path}[{index}]")
 
 
 def canonical_json(value: Any) -> str:
@@ -157,23 +145,15 @@ def _is_json_whitespace(value: str) -> bool:
     return bool(value) and all(character in " \t\r\n" for character in value)
 
 
-def _reject_training_ready_mapping(value: Mapping[Any, Any], path: str) -> None:
-    if value.get("training_ready"):
-        raise IdentityCurationError(f"{path} must not contain training_ready: true")
-    for key, item in value.items():
-        _reject_training_ready_true(item, f"{path}.{key}")
-
-
-def _reject_training_ready_list(value: list[Any], path: str) -> None:
-    for index, item in enumerate(value):
-        _reject_training_ready_true(item, f"{path}[{index}]")
-
-
 def _reject_training_ready_true(value: Any, path: str = "$") -> None:
     if isinstance(value, Mapping):
-        _reject_training_ready_mapping(value, path)
+        if value.get("training_ready"):
+            raise IdentityCurationError(f"{path} must not contain training_ready: true")
+        for key, item in value.items():
+            _reject_training_ready_true(item, f"{path}.{key}")
     elif isinstance(value, list):
-        _reject_training_ready_list(value, path)
+        for index, item in enumerate(value):
+            _reject_training_ready_true(item, f"{path}[{index}]")
 
 
 if __package__:
