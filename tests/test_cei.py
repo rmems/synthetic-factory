@@ -388,11 +388,15 @@ class AstExtract(unittest.TestCase):
             (SLICE3_R65_PATH, SLICE3_R65_MILL_ID, SLICE3_R65_ROUND),
             (SLICE3_R137_PATH, SLICE3_R137_MILL_ID, SLICE3_R137_ROUND),
         ):
-            text = subprocess.check_output(
-                ["git", "show", f"origin/legacy-mill-lane:{path}"],
-                cwd=REPO,
-                text=True,
-            )
+            try:
+                text = subprocess.check_output(
+                    ["git", "show", f"origin/legacy-mill-lane:{path}"],
+                    cwd=REPO,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                self.skipTest("origin/legacy-mill-lane is not fetched")
             self.assertNotIn("exec(", text)
             rows = catalog.plants_from_source(
                 text, mill_id=mill_id, source=path, base_round=base_round
@@ -403,11 +407,15 @@ class AstExtract(unittest.TestCase):
                 self.assertIn(slug, extracted_slugs)
 
     def test_committed_r42_catalog_matches_legacy_ast(self):
-        text = subprocess.check_output(
-            ["git", "show", f"origin/legacy-mill-lane:{SLICE3_R42_PATH}"],
-            cwd=REPO,
-            text=True,
-        )
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"origin/legacy-mill-lane:{SLICE3_R42_PATH}"],
+                cwd=REPO,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.skipTest("origin/legacy-mill-lane is not fetched")
         rows = catalog.plants_from_source(
             text, mill_id=SLICE3_R42_MILL_ID, source=SLICE3_R42_PATH, base_round=SLICE3_R42_ROUND
         )
