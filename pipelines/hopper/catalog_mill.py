@@ -49,6 +49,7 @@ MILL_SOURCE_PATHS = (
     "experiments/ssl-mill-r35.py",
     "experiments/ssl-mill-r112.py",
     "experiments/ssl-mill-r132.py",
+    "experiments/ssl-mill-r132-lll.py",
 )
 
 __all__ = [
