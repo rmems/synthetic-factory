@@ -5,6 +5,8 @@ import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -140,19 +142,23 @@ class CLI(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def test_catalog_check_generate_and_render(self):
-        self.assertEqual(cli.run(["catalog-check", "--catalog", str(FIXTURE_CATALOG), "--json"]), 0)
-        out = self.root / "run"
-        self.assertEqual(
-            cli.run([
-                "generate", "--catalog", str(FIXTURE_CATALOG), "--seed", str(SEED),
-                "--count", "1", "--out", str(out), "--produced-at", PINNED_AT, "--json",
-            ]),
-            0,
-        )
-        first = (out / generate.PAIRS_FILENAME).read_text().splitlines()[0]
-        record_id = load_strict_json(first)["id"]
-        self.assertEqual(cli.run(["render", str(out), record_id, "--json"]), 0)
-        self.assertEqual(cli.run(["render", str(out), "missing-id"]), 2)
+        sink = StringIO()
+        with redirect_stdout(sink), redirect_stderr(sink):
+            self.assertEqual(cli.run(["catalog-check", "--catalog", str(FIXTURE_CATALOG), "--json"]), 0)
+            out = self.root / "run"
+            self.assertEqual(
+                cli.run([
+                    "generate", "--catalog", str(FIXTURE_CATALOG), "--seed", str(SEED),
+                    "--count", "1", "--out", str(out), "--produced-at", PINNED_AT, "--json",
+                ]),
+                0,
+            )
+            first = (out / generate.PAIRS_FILENAME).read_text().splitlines()[0]
+            record_id = load_strict_json(first)["id"]
+            self.assertEqual(cli.run(["render", str(out), record_id, "--json"]), 0)
+            self.assertEqual(cli.run(["render", str(out), "missing-id"]), 2)
+        self.assertIn(cv.CATALOG_ID, sink.getvalue())
+        self.assertIn("RECORD_NOT_FOUND", sink.getvalue())
 
 
 if __name__ == "__main__":
