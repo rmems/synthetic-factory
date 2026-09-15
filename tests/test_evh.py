@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 from evh.catalog import CATALOG  # noqa: E402
 from evh.catalog_extract import (  # noqa: E402
+    PAIR_IDENTITY_KEYS,
     SHAPE_ADD_TABLES,
     SHAPE_FSTRING,
     SHAPE_PARAM,
@@ -322,7 +323,10 @@ class EvhSkeletonTests(unittest.TestCase):
         self.assertEqual(r801.first_slug, "ansrel-strict-canary-stale")
         self.assertEqual(r801.last_slug, "pytest-order-scope-module-canary-stale")
         self.assertEqual(len(r801.catalogs[0].pairs), 126)
-        self.assertEqual(r801.catalogs[0].pairs[0]["success_plant"], "restock-void-59")
+        first_pair = r801.catalogs[0].pairs[0]
+        self.assertEqual(first_pair["success_plant"], "restock-void-59")
+        self.assertEqual(tuple(first_pair), PAIR_IDENTITY_KEYS)
+        self.assertNotIn("first_ok", first_pair)
         self.assertEqual(CATALOG.mills["_gen_evh_plants_r927"].n_rows, 78)
         self.assertEqual(CATALOG.mills["_gen_evh_plants_r1161"].n_rows, 117)
         self.assertEqual(CATALOG.mills["_gen_evh_plants_r1357"].n_catalogs, 3)

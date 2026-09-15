@@ -52,6 +52,15 @@ _EMIT_FIELDS = (
     "start_round",
     "header",
 )
+PAIR_IDENTITY_KEYS = (
+    "fail_domain",
+    "fail_plant",
+    "fail_slug",
+    "kind",
+    "success_domain",
+    "success_plant",
+    "success_slug",
+)
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -557,7 +566,9 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
             if key in catalog:
                 item[key] = catalog[key]
         if include_pairs:
-            item["pairs"] = list(catalog.get("pairs") or ())
+            item["pairs"] = [
+                compact_pair_identity(pair) for pair in catalog.get("pairs") or ()
+            ]
         catalogs.append(item)
     return {
         "mill_id": record["mill_id"],
@@ -592,8 +603,43 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def compact_pair_identity(pair: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep r801 pair identity; drop leftover/first/fix metric bodies."""
+
+    return {key: pair[key] for key in PAIR_IDENTITY_KEYS}
+
+
 def dumps_catalog(document: Mapping[str, Any]) -> str:
-    return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    """Pretty-print the catalog; pair identities stay one object per line."""
+
+    return _encode(document, 0, key=None) + "\n"
+
+
+def _encode(value: Any, level: int, key: str | None) -> str:
+    pad = "  " * level
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        parts = [
+            f"{pad}  {json.dumps(item_key)}: {_encode(value[item_key], level + 1, item_key)}"
+            for item_key in sorted(value)
+        ]
+        return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        if key == "pairs":
+            lines = [
+                f"{pad}  "
+                + json.dumps(
+                    item, ensure_ascii=True, sort_keys=True, separators=(", ", ": ")
+                )
+                for item in value
+            ]
+            return "[\n" + ",\n".join(lines) + f"\n{pad}]"
+        lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
+        return "[\n" + ",\n".join(lines) + f"\n{pad}]"
+    return json.dumps(value, ensure_ascii=True)
 
 
 def catalog_json_path(package_dir: Path | None = None) -> Path:
