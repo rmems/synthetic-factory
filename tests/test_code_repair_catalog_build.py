@@ -60,7 +60,7 @@ class FixtureRebuild(unittest.TestCase):
 
 
 class DroppedTargets(unittest.TestCase):
-    """Real subprocess evidence: an original the builder cannot verify never becomes a row."""
+    """Builder notes unverifiable originals and keeps representable neighbours."""
 
     SPIN = (
         "def spin(n: int) -> int:\n    '''\n    >>> spin(3)\n    3\n    >>> spin(4)\n    4\n"
@@ -93,6 +93,40 @@ class DroppedTargets(unittest.TestCase):
         rows, notes, dropped = self._rows("maths/wrong.py", self.WRONG, "wrong", RUNNER)
         self.assertEqual([r["upstream"]["function"] for r in rows], ["abs_val"])
         self.assertEqual(notes, [{"code": cv.REASON_ORIGINAL_FAILS_PUBLIC, "program_id": dropped}])
+
+    def test_an_unrepresentable_neighbour_is_dropped_without_dropping_the_program(self):
+        """sylvester(n) for n past the doctest literal has a value whose repr raises (#200)."""
+
+        text = (
+            "def sylvester(n):\n"
+            "    '''\n"
+            "    >>> sylvester(8)\n"
+            "    113423713055421844361000443\n"
+            "    >>> sylvester(-1)\n"
+            "    Traceback (most recent call last):\n"
+            "        ...\n"
+            "    ValueError: n must be > 0\n"
+            "    '''\n"
+            "    if n < 1:\n"
+            "        raise ValueError('n must be > 0')\n"
+            "    if n >= 9:\n"
+            "        return 10 ** 5000\n"
+            "    term = product = 2\n"
+            "    for _ in range(n - 1):\n"
+            "        term = product + 1\n"
+            "        product *= term\n"
+            "    return term\n"
+        )
+        rows, notes, program_id = self._rows(
+            "maths/sylvester_sequence.py", text, "sylvester", RUNNER
+        )
+        self.assertEqual([r["upstream"]["function"] for r in rows], ["abs_val", "sylvester"])
+        self.assertEqual(notes, [])
+        self.assertEqual(program_id, rows[1]["program_id"])
+        cases = rows[1]["hidden"]["cases"]
+        self.assertTrue(cases)
+        self.assertIn({"args": "(8,)", "want": "113423713055421844361000443"}, cases)
+        self.assertNotIn("(9,)", [case["args"] for case in cases])
 
 
 class SelectionAndExtraction(unittest.TestCase):
