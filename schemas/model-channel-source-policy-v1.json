@@ -1,0 +1,323 @@
+{
+  "schema_version": "model-channel-source-policy-v1",
+  "policy_id": "model-channel-reviewed-source-v1",
+  "rows": [
+    {
+      "path_id": "nemotron-nano-4b-vllm-factory",
+      "generator": "nvidia-nemotron-3-nano-4b-bf16",
+      "generator_version": "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+      "model_revision": "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
+      "generation_surface": "local_vllm_openai_compatible",
+      "runtime_tag": "NVIDIA-Nemotron-3-Nano-4B-BF16",
+      "provider": "nvidia",
+      "channel": "local_vllm",
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "checkpoint": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+        "revision": "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
+        "license": "nvidia-nemotron-open-model-license",
+        "license_sha256": "efc52b8e24fb6a638a9214520399d93f2857ec555ae3222fed868a23484919d3"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "nemotron-lightning-30b-vllm-factory",
+      "generator": "nvidia-nemotron-3.5-lightning-30b",
+      "generator_version": "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+      "model_revision": "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
+      "generation_surface": "local_vllm_openai_compatible",
+      "runtime_tag": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+      "provider": "nvidia",
+      "channel": "local_vllm",
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "checkpoint": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+        "revision": "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
+        "license": "OpenMDW-1.1",
+        "license_sha256": "6359a600b1ac56b17e86ddf382ee517cdf448ecddefd1fb9c8147bf29c696dfe"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "muse-glimmer-30b-local-factory",
+      "generator": "muse-glimmer-30b",
+      "generator_version": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "meta-models/Muse-Glimmer-30B",
+      "model_revision": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+      "generation_surface": "local_vllm_openai_compatible",
+      "runtime_tag": "Muse-Glimmer-30B",
+      "provider": "meta",
+      "channel": "local_vllm",
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "checkpoint": "meta-models/Muse-Glimmer-30B",
+        "revision": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+        "license": "Apache-2.0",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "granite-4.2-30b-local-factory",
+      "generator": "ibm-granite-4.2-30b",
+      "generator_version": "9e668ce1c538387ef24d3644e9b0606647762636",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "ibm-granite/granite-4.2-30b",
+      "model_revision": "9e668ce1c538387ef24d3644e9b0606647762636",
+      "generation_surface": "local_vllm_openai_compatible",
+      "runtime_tag": "granite-4.2-30b",
+      "provider": "ibm",
+      "channel": "local_vllm",
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "checkpoint": "ibm-granite/granite-4.2-30b",
+        "revision": "9e668ce1c538387ef24d3644e9b0606647762636",
+        "license": "Apache-2.0",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "card_declaration_sha256": "c91e99bd86b73f37b20a785f30ab94bb2912d034ba930047ff9d1bf46c2847de"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "openrouter-deepseek-v4-pro-factory",
+      "generator": "openrouter-deepseek-v4-pro",
+      "generator_version": "deepseek/deepseek-v4-pro-0813",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "deepseek/deepseek-v4-pro-0813",
+      "model_revision": "72e1d3230f6c080a530b0a1d46f8eb4602340597",
+      "generation_surface": "openrouter_api",
+      "runtime_tag": "deepseek/deepseek-v4-pro-0813",
+      "provider": "deepseek",
+      "channel": "openrouter_api",
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "openrouter_model_id": "deepseek/deepseek-v4-pro-0813",
+        "huggingface_id": "deepseek-ai/DeepSeek-V4-Pro-0813",
+        "revision": "72e1d3230f6c080a530b0a1d46f8eb4602340597",
+        "license": "MIT",
+        "license_sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+        "openrouter_terms_sha256": "f6f24281ea7cd73fd0b288decc9febd8a187874a83d0659bc31ad8a113118dfb"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "openrouter-nemotron-3.5-lightning-factory",
+      "generator": "openrouter-nemotron-3.5-lightning",
+      "generator_version": "nvidia/nemotron-3.5-lightning",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "nvidia/nemotron-3.5-lightning",
+      "model_revision": "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
+      "generation_surface": "openrouter_api",
+      "runtime_tag": "nvidia/nemotron-3.5-lightning",
+      "provider": "nvidia",
+      "channel": "openrouter_api",
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "openrouter_model_id": "nvidia/nemotron-3.5-lightning",
+        "huggingface_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+        "revision": "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
+        "license": "OpenMDW-1.1",
+        "license_sha256": "6359a600b1ac56b17e86ddf382ee517cdf448ecddefd1fb9c8147bf29c696dfe",
+        "openrouter_terms_sha256": "f6f24281ea7cd73fd0b288decc9febd8a187874a83d0659bc31ad8a113118dfb"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "openrouter-kimi-k3-factory",
+      "generator": "openrouter-kimi-k3",
+      "generator_version": "moonshotai/kimi-k3",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "moonshotai/kimi-k3",
+      "model_revision": "f831ab66814297da540d832a5235f8e904f29d06",
+      "generation_surface": "openrouter_api",
+      "runtime_tag": "moonshotai/kimi-k3",
+      "provider": "moonshot",
+      "channel": "openrouter_api",
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "openrouter_model_id": "moonshotai/kimi-k3",
+        "huggingface_id": "moonshotai/Kimi-K3",
+        "revision": "f831ab66814297da540d832a5235f8e904f29d06",
+        "license": "kimi-k3",
+        "license_sha256": "20c797ce19af0c17de52c6afb144644768a591c521655f5ebf5712c9850f2887",
+        "openrouter_terms_sha256": "f6f24281ea7cd73fd0b288decc9febd8a187874a83d0659bc31ad8a113118dfb"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "openrouter-qwen3.8-flash-factory",
+      "generator": "openrouter-qwen3.8-flash",
+      "generator_version": "qwen/qwen3.8-flash",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "qwen/qwen3.8-flash",
+      "model_revision": "de4b8e4d43b917e7706784d8bb445c9af86a3540",
+      "generation_surface": "openrouter_api",
+      "runtime_tag": "qwen/qwen3.8-flash",
+      "provider": "alibaba",
+      "channel": "openrouter_api",
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "openrouter_model_id": "qwen/qwen3.8-flash",
+        "huggingface_id": "Qwen/Qwen3.8-Flash-Next",
+        "revision": "de4b8e4d43b917e7706784d8bb445c9af86a3540",
+        "license": "qwen-community-1.0",
+        "license_sha256": "a0dc422560841fd68e06d974907f8b4c709bca44a67daad2b528437bdf676c08",
+        "openrouter_terms_sha256": "f6f24281ea7cd73fd0b288decc9febd8a187874a83d0659bc31ad8a113118dfb"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "openrouter-phi-4-factory",
+      "generator": "openrouter-phi-4",
+      "generator_version": "microsoft/phi-4",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "microsoft/phi-4",
+      "model_revision": "2db69c1c3e91a05d2c64a3185acfbaf36f744e25",
+      "generation_surface": "openrouter_api",
+      "runtime_tag": "microsoft/phi-4",
+      "provider": "microsoft",
+      "channel": "openrouter_api",
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "openrouter_model_id": "microsoft/phi-4",
+        "huggingface_id": "microsoft/phi-4",
+        "revision": "2db69c1c3e91a05d2c64a3185acfbaf36f744e25",
+        "license": "MIT",
+        "license_sha256": "c49419617a6070bcb197cfe272f7007fdec3e790dbb529cb995473bd69c0bd51",
+        "openrouter_terms_sha256": "f6f24281ea7cd73fd0b288decc9febd8a187874a83d0659bc31ad8a113118dfb"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    }
+  ]
+}

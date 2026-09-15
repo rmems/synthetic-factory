@@ -1138,7 +1138,11 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
 
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
-        hosted = [row for row in payload["factories"] if row.get("source_type") != "procedural"]
+        hosted = [
+            row
+            for row in payload["factories"]
+            if row.get("source_type") not in {"procedural", "model_channel"}
+        ]
         expected_rights = {
             "fable-5": ("anthropic", "consumer"),
             "gpt-5.6-sol": ("openai", "consumer"),

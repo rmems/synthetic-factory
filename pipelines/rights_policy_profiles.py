@@ -26,6 +26,10 @@ EVIDENCE_STATUS_FIELDS = _rights_mapping.EVIDENCE_STATUS_FIELDS
 HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
 INTENDED_USES = _rights_mapping.INTENDED_USES
 MAPPING_VERSION = _rights_mapping.MAPPING_VERSION
+OPEN_WEIGHT_LOCAL_PROFILE_ID = _rights_mapping.OPEN_WEIGHT_LOCAL_PROFILE_ID
+OPENROUTER_DISTILLABLE_PROFILE_ID = (
+    _rights_mapping.OPENROUTER_DISTILLABLE_PROFILE_ID
+)
 POLICY_DOCUMENT_TYPE = _rights_mapping.POLICY_DOCUMENT_TYPE
 POLICY_VERSION = _rights_mapping.POLICY_VERSION
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
@@ -59,6 +63,8 @@ _INTENDED_USE_POLICY = {
 _REQUIRED_PROFILE_REASONS = {
     HOSTED_FRONTIER_PROFILE_ID: "HOSTED_FRONTIER_RESEARCH_ONLY",
     UNKNOWN_PROVENANCE_PROFILE_ID: "UNKNOWN_PROVENANCE",
+    OPEN_WEIGHT_LOCAL_PROFILE_ID: "OPEN_WEIGHT_LOCAL_CANDIDATE",
+    OPENROUTER_DISTILLABLE_PROFILE_ID: "OPENROUTER_DISTILLABLE_CANDIDATE",
 }
 _POLICY_LABEL = "rights policy"
 
@@ -259,6 +265,20 @@ def _validate_required_profile_semantics(
     )
     if unknown_verdict != ("research_only", "blocked"):
         raise policy_error(where, "unknown-provenance profile must fail closed")
+    for profile_id in (
+        OPEN_WEIGHT_LOCAL_PROFILE_ID,
+        OPENROUTER_DISTILLABLE_PROFILE_ID,
+    ):
+        candidate = profiles[profile_id]
+        candidate_verdict = (
+            candidate["intended_use"],
+            candidate["project_training_policy"],
+        )
+        if candidate_verdict != ("training_candidate", "allowed"):
+            raise policy_error(
+                where,
+                f"profile {profile_id!r} must be training_candidate/allowed",
+            )
 
 
 def _validate_profiles(

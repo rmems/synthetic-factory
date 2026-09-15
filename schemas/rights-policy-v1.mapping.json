@@ -7,13 +7,23 @@
       "anthropic",
       "meta",
       "openai",
-      "xai"
+      "xai",
+      "nvidia",
+      "ibm",
+      "deepseek",
+      "moonshot",
+      "alibaba",
+      "minimax",
+      "microsoft"
     ],
     "channels": [
       "consumer",
       "api",
       "enterprise",
-      "local"
+      "local",
+      "local_vllm",
+      "local_ollama",
+      "openrouter_api"
     ],
     "intended_use": [
       "research_only",
@@ -41,7 +51,9 @@
   },
   "required_profile_ids": [
     "hosted-frontier-research-only-v1",
-    "unknown-provenance-fail-closed-v1"
+    "unknown-provenance-fail-closed-v1",
+    "open-weight-local-candidate-v1",
+    "openrouter-distillable-candidate-v1"
   ],
   "reason_codes": [
     {
@@ -51,6 +63,14 @@
     {
       "id": "UNKNOWN_PROVENANCE",
       "description": "Provenance is insufficient to authorize any less restrictive project decision."
+    },
+    {
+      "id": "OPEN_WEIGHT_LOCAL_CANDIDATE",
+      "description": "Pinned local open-weight checkpoint on an isolated local runtime channel is a training candidate, not an automatic publish or training-ready claim."
+    },
+    {
+      "id": "OPENROUTER_DISTILLABLE_CANDIDATE",
+      "description": "OpenRouter distillable catalog membership is candidate evidence for that API channel only; generation-time snapshots and underlying terms still fail closed."
     }
   ],
   "profiles": [
@@ -82,6 +102,36 @@
       },
       "reason_codes": [
         "UNKNOWN_PROVENANCE"
+      ]
+    },
+    {
+      "id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "OPEN_WEIGHT_LOCAL_CANDIDATE"
+      ]
+    },
+    {
+      "id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "OPENROUTER_DISTILLABLE_CANDIDATE"
       ]
     }
   ],
@@ -147,18 +197,107 @@
       ]
     },
     {
+      "id": "HOSTED_CLOUD_OPEN_WEIGHT_VENDORS",
+      "providers": [
+        "nvidia",
+        "ibm",
+        "deepseek",
+        "moonshot",
+        "alibaba",
+        "minimax",
+        "microsoft"
+      ],
+      "channels": [
+        "consumer",
+        "api",
+        "enterprise"
+      ],
+      "rights_profile_id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "OPEN_WEIGHT_LOCAL_VLLM",
+      "providers": [
+        "nvidia",
+        "meta",
+        "ibm"
+      ],
+      "channels": [
+        "local_vllm"
+      ],
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "reason_codes": [
+        "OPEN_WEIGHT_LOCAL_CANDIDATE"
+      ]
+    },
+    {
+      "id": "OPEN_WEIGHT_LOCAL_OLLAMA",
+      "providers": [
+        "nvidia",
+        "meta",
+        "ibm"
+      ],
+      "channels": [
+        "local_ollama"
+      ],
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "reason_codes": [
+        "OPEN_WEIGHT_LOCAL_CANDIDATE"
+      ]
+    },
+    {
+      "id": "OPENROUTER_DISTILLABLE_API",
+      "providers": [
+        "nvidia",
+        "ibm",
+        "deepseek",
+        "moonshot",
+        "alibaba",
+        "minimax",
+        "microsoft",
+        "meta"
+      ],
+      "channels": [
+        "openrouter_api"
+      ],
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "reason_codes": [
+        "OPENROUTER_DISTILLABLE_CANDIDATE"
+      ]
+    },
+    {
       "id": "UNKNOWN_PROVENANCE_FAIL_CLOSED",
       "providers": [
         "anthropic",
         "meta",
         "openai",
-        "xai"
+        "xai",
+        "nvidia",
+        "ibm",
+        "deepseek",
+        "moonshot",
+        "alibaba",
+        "minimax",
+        "microsoft"
       ],
       "channels": [
         "consumer",
         "api",
         "enterprise",
-        "local"
+        "local",
+        "local_vllm",
+        "local_ollama",
+        "openrouter_api"
       ],
       "rights_profile_id": "unknown-provenance-fail-closed-v1",
       "intended_use": "research_only",
