@@ -1,0 +1,30 @@
+pipelines/trajectory_pair_gate.py
+  s_af31ed7264ce5b::t_64b2da2c3b3730 175-181
+tests/test_curate_trajectory_preferences.py
+  s_af31ed7264ce5b::t_515d00a2675799 312-319,323-331
+  s_af31ed7264ce5b::t_a85d48e3269661 320-322
+tests/test_export_split_guard.py
+  s_af31ed7264ce5b::t_6bd38b4878e4ee 1-50
+pipelines/export_split.py
+  s_af31ed7264ce5b::t_64b2da2c3b3730 111-115
+tests/test_fault_scenario.py
+  s_af31ed7264ce5b::t_64b2da2c3b3730 31-33
+tests/test_training_audit_framing.py
+  ai_agent 232
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "010d35582d458571d05da69d0d357d9f422e2012",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
