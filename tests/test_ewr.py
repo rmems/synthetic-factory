@@ -27,6 +27,9 @@ from ewr._contract import (  # noqa: E402
     HANDOFF_STEPS,
     LEGACY_COMMIT,
     LEGACY_MAPPING_MILL,
+    LEGACY_MAPPING_MILL_R59,
+    LEGACY_MAPPING_MILL_R75,
+    LEGACY_MAPPING_MILL_R91,
     LEGACY_MAPPING_MILL_SHA256,
     LEGACY_MILL,
     LEGACY_MILL_SHA256,
@@ -101,12 +104,15 @@ class EwrCatalogTests(unittest.TestCase):
             [pair.round_n for pair in loaded.pairs],
             list(range(START_ROUND, START_ROUND + N_PLANT_PAIRS)),
         )
-        self.assertEqual(
-            [pair.round_n for pair in loaded.mapping_pairs],
-            list(range(56, 56 + N_MAPPING_PAIRS)),
-        )
+        mapping_rounds = [pair.round_n for pair in loaded.mapping_pairs]
+        self.assertEqual(len(mapping_rounds), N_MAPPING_PAIRS)
+        self.assertEqual(mapping_rounds[:16], list(range(56, 72)))
+        self.assertEqual(mapping_rounds[16:19], [72, 73, 74])
+        self.assertEqual(mapping_rounds[19:35], list(range(75, 91)))
+        self.assertEqual(mapping_rounds[35:], list(range(91, 107)))
         self.assertEqual(loaded.mills[0].mill_id, PLANTS_MILL_ID)
         self.assertEqual(loaded.mills[1].mill_id, MAPPING_MILL_ID)
+        self.assertEqual(len(loaded.mills), 5)
         self.assertEqual(loaded.source["commit"], LEGACY_COMMIT)
 
     def test_pairs_jsonl_is_one_object_per_line(self):
@@ -120,13 +126,19 @@ class EwrCatalogTests(unittest.TestCase):
     def test_catalog_matches_legacy_ast_extract(self):
         plants = _legacy_source(LEGACY_PLANTS)
         mill = _legacy_source(LEGACY_MILL)
-        mapping_mill = _legacy_source(LEGACY_MAPPING_MILL)
-        if plants is None or mill is None or mapping_mill is None:
+        mapping_paths = (
+            LEGACY_MAPPING_MILL,
+            LEGACY_MAPPING_MILL_R59,
+            LEGACY_MAPPING_MILL_R75,
+            LEGACY_MAPPING_MILL_R91,
+        )
+        mapping_sources = {path: _legacy_source(path) for path in mapping_paths}
+        if plants is None or mill is None or any(mapping_sources[path] is None for path in mapping_paths):
             self.skipTest("legacy-mill-lane ewr sources are not available")
         self.assertEqual(sha256_text(plants), LEGACY_PLANTS_SHA256)
         self.assertEqual(sha256_text(mill), LEGACY_MILL_SHA256)
-        self.assertEqual(sha256_text(mapping_mill), LEGACY_MAPPING_MILL_SHA256)
-        extracted = ast_extract_catalog_rows(plants, mill, mapping_mill)
+        self.assertEqual(sha256_text(mapping_sources[LEGACY_MAPPING_MILL]), LEGACY_MAPPING_MILL_SHA256)
+        extracted = ast_extract_catalog_rows(plants, mill, mapping_sources)
         loaded = catalog_check(root=REPO)
         self.assertEqual(len(extracted), N_PAIRS)
         self.assertEqual(
@@ -134,7 +146,7 @@ class EwrCatalogTests(unittest.TestCase):
             {"FACTORY": FACTORY, "START": START_ROUND, "N": N_PLANT_PAIRS},
         )
         self.assertEqual(len(ast_extract_plant_pairs(plants)), N_PLANT_PAIRS)
-        self.assertEqual(len(ast_extract_mapping_pairs(mapping_mill)), N_MAPPING_PAIRS)
+        self.assertEqual(len(ast_extract_mapping_pairs(mapping_sources[LEGACY_MAPPING_MILL])), 16)
         pairs_path = REPO / "config" / "ewr" / "pairs.jsonl"
         committed = [json.loads(line) for line in pairs_path.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(len(committed), len(extracted))

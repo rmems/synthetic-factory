@@ -33,8 +33,8 @@ FACTORY = "email-webhook-retry-factory"
 GENERATOR = "grok-4.6"
 START_ROUND = 40
 N_PLANT_PAIRS = 16
-N_MAPPING_PAIRS = 16
-N_MILLS = 2
+N_MAPPING_PAIRS = 51
+N_MILLS = 5
 N_PAIRS = N_PLANT_PAIRS + N_MAPPING_PAIRS
 QUOTA_PER_ROUND = 2
 SUCCESS_STEPS = 16
@@ -45,13 +45,22 @@ LEGACY_LANE = "legacy-mill-lane"
 LEGACY_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 PLANTS_MILL_ID = "ewr-leftover3-r40"
 MAPPING_MILL_ID = "ewr-lll-r56"
+MAPPING_MILL_R59_ID = "ewr-lll-r59"
+MAPPING_MILL_R75_ID = "ewr-lll-r75"
+MAPPING_MILL_R91_ID = "ewr-lll-r91"
 LEGACY_PLANTS = "experiments/ewr_leftover3_plants.py"
 LEGACY_MILL = "experiments/ewr_leftover3_mill.py"
 LEGACY_MAPPING_MILL = "experiments/mill_leftover_leftover_leftover_r56.py"
+LEGACY_MAPPING_MILL_R59 = "experiments/mill_leftover_leftover_leftover_r59.py"
+LEGACY_MAPPING_MILL_R75 = "experiments/mill_leftover_leftover_leftover_r75.py"
+LEGACY_MAPPING_MILL_R91 = "experiments/mill_leftover_leftover_leftover_r91.py"
 LEGACY_PLANTS_SHA256 = "cfe8e4334c7ae6f0d592e262fafa34bd7da590b2a1f24d59100f82284ffcbd2a"
 LEGACY_MILL_SHA256 = "607ea5ed58611c410f8b7d5d5746c9d745588226e62646d77aa3b34676abfdbf"
 LEGACY_MAPPING_MILL_SHA256 = "38a1304441ecb930579fe3e3fc065e704c3f18db746170c103c3965769f84fb5"
-PAIRS_SHA256 = "851928c4c83b87f04beaa676e5d176704c59f31e6593ccb57cf38d5eaa3f3c2c"
+LEGACY_MAPPING_MILL_R59_SHA256 = "d112d255a1053f8a69fcc6247e029b45d894fe6831ca875867a2203e768129a9"
+LEGACY_MAPPING_MILL_R75_SHA256 = "946a1180d1d90690b60844bab4d6a176f45f53759085da7eddf8b78ff7d46d47"
+LEGACY_MAPPING_MILL_R91_SHA256 = "f81136f578a3ff1384e9fa7cf058afe24b416203ade1c22475920e3fc99d7a4c"
+PAIRS_SHA256 = "753f5746e4b7c82f28c9d2fbaaedd23ace89aadba839b435ff1b9bdb8af44df6"
 
 MAPPING_FIELDS = frozenset(
     {
@@ -131,6 +140,7 @@ class MillPin:
     plants_sha256: str | None
     catalog_first: int
     n_pairs: int
+    legacy_first: int | None = None
 
 
 MILL_SOURCES: tuple[MillPin, ...] = (
@@ -152,7 +162,41 @@ MILL_SOURCES: tuple[MillPin, ...] = (
         None,
         None,
         56,
-        N_MAPPING_PAIRS,
+        16,
+        56,
+    ),
+    MillPin(
+        MAPPING_MILL_R59_ID,
+        "mapping-v1",
+        LEGACY_MAPPING_MILL_R59,
+        LEGACY_MAPPING_MILL_R59_SHA256,
+        None,
+        None,
+        72,
+        3,
+        59,
+    ),
+    MillPin(
+        MAPPING_MILL_R75_ID,
+        "mapping-v1",
+        LEGACY_MAPPING_MILL_R75,
+        LEGACY_MAPPING_MILL_R75_SHA256,
+        None,
+        None,
+        75,
+        16,
+        75,
+    ),
+    MillPin(
+        MAPPING_MILL_R91_ID,
+        "mapping-v1",
+        LEGACY_MAPPING_MILL_R91,
+        LEGACY_MAPPING_MILL_R91_SHA256,
+        None,
+        None,
+        91,
+        16,
+        91,
     ),
 )
 
@@ -213,7 +257,16 @@ __all__ = [
     "LEGACY_COMMIT",
     "LEGACY_LANE",
     "LEGACY_MAPPING_MILL",
+    "LEGACY_MAPPING_MILL_R59",
+    "LEGACY_MAPPING_MILL_R59_SHA256",
+    "LEGACY_MAPPING_MILL_R75",
+    "LEGACY_MAPPING_MILL_R75_SHA256",
+    "LEGACY_MAPPING_MILL_R91",
+    "LEGACY_MAPPING_MILL_R91_SHA256",
     "LEGACY_MAPPING_MILL_SHA256",
+    "MAPPING_MILL_R59_ID",
+    "MAPPING_MILL_R75_ID",
+    "MAPPING_MILL_R91_ID",
     "LEGACY_MILL",
     "LEGACY_MILL_SHA256",
     "LEGACY_PLANTS",
