@@ -1,0 +1,20 @@
+{
+  "catalog_id": "maos-recover-v1",
+  "family": "maos",
+  "schema": "maos-plants-v1",
+  "factory": "multi-agent-ouroboros-swarm",
+  "generator": "grok-4.6",
+  "intended_use": "research_only",
+  "project_training_policy": "blocked",
+  "run": "2026-09-02-final-heavy",
+  "slice": "first",
+  "plants_filename": "plants.jsonl",
+  "plants_sha256": "766310936584df0c8b066886d4d8f6864c1f539de1396d518dd6fc2166d9f7e2",
+  "plants": 3,
+  "rounds": [14, 15, 16],
+  "quota_per_round": 1,
+  "source_ref": "origin/codex/recover-grok-01a06111",
+  "source_commit": "e5206e72fa829931162944648e1e180949baaf0b",
+  "source_tree": "recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path",
+  "note": "First MAOS slice. experiments/maos* is absent on origin/legacy-mill-lane and origin/codex/recover-grok-01a06111. Identities are AST-extracted from recovered /tmp/maos-r14, r15, and r16 exact builders (git show + ast.parse, exec: false). Mills and loops are not vendored. Compact rows only; rasters stay off this branch. Records stay research_only/blocked."
+}
