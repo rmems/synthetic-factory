@@ -342,132 +342,1140 @@
           "n_rows": 126,
           "offset": 320,
           "pairs": [
-            {"fail_domain": "cwhalstr-eval", "fail_plant": "flash-cut-59", "fail_slug": "halluc-strict-canary-stale", "kind": "metric", "success_domain": "cwansstr-eval", "success_plant": "restock-void-59", "success_slug": "ansrel-strict-canary-stale"},
-            {"fail_domain": "cwcrstr-eval", "fail_plant": "loyalty-cut-59", "fail_slug": "ctxrec-strict-canary-stale", "kind": "metric", "success_domain": "cwcpstr-eval", "success_plant": "gift-void-59", "success_slug": "ctxprec-strict-canary-stale"},
-            {"fail_domain": "cwkrstr-eval", "fail_plant": "membership-cut-59", "fail_slug": "knowret-strict-canary-stale", "kind": "metric", "success_domain": "cwcxlstr-eval", "success_plant": "tax-void-59", "success_slug": "ctxrel-strict-canary-stale"},
-            {"fail_domain": "cwbiastr-eval", "fail_plant": "chargeback-cut-59", "fail_slug": "bias-strict-canary-stale", "kind": "metric", "success_domain": "cwtoxstr-eval", "success_plant": "seat-void-59", "success_slug": "tox-strict-canary-stale"},
-            {"fail_domain": "cwpastr-eval", "fail_plant": "rain-cut-59", "fail_slug": "promalign-strict-canary-stale", "kind": "metric", "success_domain": "cwsumstr-eval", "success_plant": "dual-void-59", "success_slug": "summ-strict-canary-stale"},
-            {"fail_domain": "cwjcstr-eval", "fail_plant": "bundle-cut-59", "fail_slug": "jsoncorr-strict-canary-stale", "kind": "metric", "success_domain": "cwtcstr-eval", "success_plant": "promo-void-59", "success_slug": "toolcorr-strict-canary-stale"},
-            {"fail_domain": "cwrastr-eval", "fail_plant": "sla-cut-59", "fail_slug": "roleadh-strict-canary-stale", "kind": "metric", "success_domain": "cwacstr-eval", "success_plant": "cancel-void-59", "success_slug": "argcorr-strict-canary-stale"},
-            {"fail_domain": "cwcvrstr-eval", "fail_plant": "pickup-cut-59", "fail_slug": "convrel-strict-canary-stale", "kind": "metric", "success_domain": "cwccstr-eval", "success_plant": "after-void-59", "success_slug": "convcomp-strict-canary-stale"},
-            {"fail_domain": "cwpinstr-eval", "fail_plant": "inventory-cut-59", "fail_slug": "pinj-strict-canary-stale", "kind": "metric", "success_domain": "cwpiistr-eval", "success_plant": "warranty-void-59", "success_slug": "pii-strict-canary-stale"},
-            {"fail_domain": "cwvustr-eval", "fail_plant": "window-cut-59", "fail_slug": "vuln-strict-canary-stale", "kind": "metric", "success_domain": "cwjaistr-eval", "success_plant": "hold-void-59", "success_slug": "jail-strict-canary-stale"},
-            {"fail_domain": "cwdagstr-eval", "fail_plant": "flash-cut-60", "fail_slug": "dag-strict-canary-stale", "kind": "metric", "success_domain": "cwarstr2-eval", "success_plant": "restock-void-60", "success_slug": "arena-strict-canary-stale"},
-            {"fail_domain": "cwcgestr-eval", "fail_plant": "loyalty-cut-60", "fail_slug": "cgeval-strict-canary-stale", "kind": "metric", "success_domain": "cwgestr-eval", "success_plant": "gift-void-60", "success_slug": "geval-strict-canary-stale"},
-            {"fail_domain": "cwcgecnt-eval", "fail_plant": "membership-cut-60", "fail_slug": "cgeval-params-content-canary-stale", "kind": "metric", "success_domain": "cwgeact-eval", "success_plant": "tax-void-60", "success_slug": "geval-params-actual-canary-stale"},
-            {"fail_domain": "cwhalth-eval", "fail_plant": "chargeback-cut-60", "fail_slug": "halluc-reason-thresh-canary-stale", "kind": "metric", "success_domain": "cwansth-eval", "success_plant": "seat-void-60", "success_slug": "ansrel-reason-thresh-canary-stale"},
-            {"fail_domain": "cwcrrsn-eval", "fail_plant": "rain-cut-60", "fail_slug": "ctxrec-reason-canary-stale", "kind": "metric", "success_domain": "cwcprsn-eval", "success_plant": "dual-void-60", "success_slug": "ctxprec-reason-canary-stale"},
-            {"fail_domain": "cwjcschem-eval", "fail_plant": "bundle-cut-60", "fail_slug": "jsoncorr-schema-canary-stale", "kind": "metric", "success_domain": "cwtclex-eval", "success_plant": "promo-void-60", "success_slug": "toolcorr-exact-canary-stale"},
-            {"fail_domain": "cwpain-eval", "fail_plant": "sla-cut-60", "fail_slug": "promalign-instr-empty-canary-stale", "kind": "metric", "success_domain": "cwsumq-eval", "success_plant": "cancel-void-60", "success_slug": "summ-questions-empty-canary-stale"},
-            {"fail_domain": "cwcgoal-eval", "fail_plant": "pickup-cut-60", "fail_slug": "convcomp-goals-empty-canary-stale", "kind": "metric", "success_domain": "cwcwin1-eval", "success_plant": "after-void-60", "success_slug": "convrel-window1-canary-stale"},
-            {"fail_domain": "cwpient-eval", "fail_plant": "inventory-cut-60", "fail_slug": "pii-entities-empty-canary-stale", "kind": "metric", "success_domain": "cwronone-eval", "success_plant": "warranty-void-60", "success_slug": "roleadh-role-none-canary-stale"},
-            {"fail_domain": "cwvtyp-eval", "fail_plant": "window-cut-60", "fail_slug": "vuln-types-empty-canary-stale", "kind": "metric", "success_domain": "cwjatk-eval", "success_plant": "hold-void-60", "success_slug": "jail-attacks-empty-canary-stale"},
-            {"fail_domain": "cwfirew-eval", "fail_plant": "flash-cut-61", "fail_slug": "fireworks-model-canary-stale", "kind": "deepeval", "success_domain": "cwvertex-eval", "success_plant": "restock-void-61", "success_slug": "vertex-model-canary-stale"},
-            {"fail_domain": "cwortr-eval", "fail_plant": "loyalty-cut-61", "fail_slug": "openrouter-model-canary-stale", "kind": "deepeval", "success_domain": "cwperp-eval", "success_plant": "gift-void-61", "success_slug": "perplexity-model-canary-stale"},
-            {"fail_domain": "cwnvidia-eval", "fail_plant": "membership-cut-61", "fail_slug": "nvidia-model-canary-stale", "kind": "deepeval", "success_domain": "cwgrok-eval", "success_plant": "tax-void-61", "success_slug": "grok-model-canary-stale"},
-            {"fail_domain": "cwsnow-eval", "fail_plant": "chargeback-cut-61", "fail_slug": "snowflake-model-canary-stale", "kind": "deepeval", "success_domain": "cwdbx-eval", "success_plant": "seat-void-61", "success_slug": "databricks-model-canary-stale"},
-            {"fail_domain": "cwsage-eval", "fail_plant": "rain-cut-61", "fail_slug": "sagemaker-model-canary-stale", "kind": "deepeval", "success_domain": "cwwatson-eval", "success_plant": "dual-void-61", "success_slug": "watsonx-model-canary-stale"},
-            {"fail_domain": "cwlmst-eval", "fail_plant": "bundle-cut-61", "fail_slug": "lmstudio-model-canary-stale", "kind": "deepeval", "success_domain": "cwvllm-eval", "success_plant": "promo-void-61", "success_slug": "vllm-model-canary-stale"},
-            {"fail_domain": "cwcust-eval", "fail_plant": "sla-cut-61", "fail_slug": "customllm-model-canary-stale", "kind": "deepeval", "success_domain": "cwocomp-eval", "success_plant": "cancel-void-61", "success_slug": "openaicompat-model-canary-stale"},
-            {"fail_domain": "cwtogc-eval", "fail_plant": "pickup-cut-61", "fail_slug": "together-compat-canary-stale", "kind": "deepeval", "success_domain": "cwxai-eval", "success_plant": "after-void-61", "success_slug": "xai-model-canary-stale"},
-            {"fail_domain": "cwuser-eval", "fail_plant": "inventory-cut-61", "fail_slug": "gpt-user-canary-stale", "kind": "deepeval", "success_domain": "cwlogp-eval", "success_plant": "warranty-void-61", "success_slug": "gpt-logprobs-canary-stale"},
-            {"fail_domain": "cwbody-eval", "fail_plant": "window-cut-61", "fail_slug": "gpt-extra-body-canary-stale", "kind": "deepeval", "success_domain": "cwhdr-eval", "success_plant": "hold-void-61", "success_slug": "gpt-extra-headers-canary-stale"},
-            {"fail_domain": "cwverb-eval", "fail_plant": "flash-cut-62", "fail_slug": "gpt-verbosity-low-canary-stale", "kind": "deepeval", "success_domain": "cwreas-eval", "success_plant": "restock-void-62", "success_slug": "gpt-reasoning-low-canary-stale"},
-            {"fail_domain": "cwstore-eval", "fail_plant": "loyalty-cut-62", "fail_slug": "gpt-store-canary-stale", "kind": "deepeval", "success_domain": "cwflex-eval", "success_plant": "gift-void-62", "success_slug": "gpt-service-flex-canary-stale"},
-            {"fail_domain": "cwtooln-eval", "fail_plant": "membership-cut-62", "fail_slug": "gpt-tools-none-canary-stale", "kind": "deepeval", "success_domain": "cwresp-eval", "success_plant": "tax-void-62", "success_slug": "gpt-response-text-canary-stale"},
-            {"fail_domain": "cwshowi-eval", "fail_plant": "chargeback-cut-62", "fail_slug": "evaluate-show-indicator-canary-stale", "kind": "deepeval", "success_domain": "cwskmet-eval", "success_plant": "seat-void-62", "success_slug": "evaluate-skip-metrics-canary-stale"},
-            {"fail_domain": "cwevhp-eval", "fail_plant": "rain-cut-62", "fail_slug": "evaluate-hparams-canary-stale", "kind": "deepeval", "success_domain": "cwevalid-eval", "success_plant": "dual-void-62", "success_slug": "evaluate-id-canary-stale"},
-            {"fail_domain": "cwevemt-eval", "fail_plant": "bundle-cut-62", "fail_slug": "evaluate-empty-metrics-canary-stale", "kind": "deepeval", "success_domain": "cwevempty-eval", "success_plant": "promo-void-62", "success_slug": "evaluate-empty-cases-canary-stale"},
-            {"fail_domain": "cwdsjl-eval", "fail_plant": "sla-cut-62", "fail_slug": "dataset-from-jsonl-canary-stale", "kind": "deepeval", "success_domain": "cwdshf-eval", "success_plant": "cancel-void-62", "success_slug": "dataset-from-hf-canary-stale"},
-            {"fail_domain": "cwdsdict-eval", "fail_plant": "pickup-cut-62", "fail_slug": "dataset-from-dict-canary-stale", "kind": "deepeval", "success_domain": "cwdspd-eval", "success_plant": "after-void-62", "success_slug": "dataset-from-pandas-canary-stale"},
-            {"fail_domain": "cwdpush-eval", "fail_plant": "inventory-cut-62", "fail_slug": "dataset-push-canary-stale", "kind": "deepeval", "success_domain": "cwdalias-eval", "success_plant": "warranty-void-62", "success_slug": "dataset-alias-canary-stale"},
-            {"fail_domain": "cwgexp-eval", "fail_plant": "window-cut-62", "fail_slug": "golden-expected-none-canary-stale", "kind": "deepeval", "success_domain": "cwgname-eval", "success_plant": "hold-void-62", "success_slug": "golden-name-canary-stale"},
-            {"fail_domain": "cwgretr-eval", "fail_plant": "flash-cut-63", "fail_slug": "golden-retr-empty-canary-stale", "kind": "deepeval", "success_domain": "cwgctx-eval", "success_plant": "restock-void-63", "success_slug": "golden-ctx-empty-canary-stale"},
-            {"fail_domain": "cwsctx-eval", "fail_plant": "loyalty-cut-63", "fail_slug": "synth-from-ctx-canary-stale", "kind": "deepeval", "success_domain": "cwsdocs-eval", "success_plant": "gift-void-63", "success_slug": "synth-from-docs-canary-stale"},
-            {"fail_domain": "cwcsyn-eval", "fail_plant": "membership-cut-63", "fail_slug": "conv-synth-canary-stale", "kind": "deepeval", "success_domain": "cwsscr-eval", "success_plant": "tax-void-63", "success_slug": "synth-from-scratch-canary-stale"},
-            {"fail_domain": "cwameas-eval", "fail_plant": "chargeback-cut-63", "fail_slug": "metric-a-measure-hide-canary-stale", "kind": "deepeval", "success_domain": "cwmeas-eval", "success_plant": "seat-void-63", "success_slug": "metric-measure-hide-canary-stale"},
-            {"fail_domain": "cwrsnok-eval", "fail_plant": "rain-cut-63", "fail_slug": "metric-reason-ok-canary-stale", "kind": "deepeval", "success_domain": "cwerr1-eval", "success_plant": "dual-void-63", "success_slug": "metric-error-open-canary-stale"},
-            {"fail_domain": "cwasskip-eval", "fail_plant": "bundle-cut-63", "fail_slug": "assert-skip-missing-canary-stale", "kind": "deepeval", "success_domain": "cwasemt-eval", "success_plant": "promo-void-63", "success_slug": "assert-empty-metrics-canary-stale"},
-            {"fail_domain": "cwdvskip-eval", "fail_plant": "sla-cut-63", "fail_slug": "deepeval-run-skip-missing-canary-stale", "kind": "deepeval", "success_domain": "cwdvid-eval", "success_plant": "cancel-void-63", "success_slug": "deepeval-run-canary-id-stale"},
-            {"fail_domain": "cwdvm-eval", "fail_plant": "pickup-cut-63", "fail_slug": "deepeval-m-not-canary-stale", "kind": "deepeval", "success_domain": "cwdvk-eval", "success_plant": "after-void-63", "success_slug": "deepeval-k-not-canary-stale"},
-            {"fail_domain": "cwdvign-eval", "fail_plant": "inventory-cut-63", "fail_slug": "deepeval-ignore-errors-canary-stale", "kind": "deepeval", "success_domain": "cwdvdsp-eval", "success_plant": "warranty-void-63", "success_slug": "deepeval-display-none-canary-stale"},
-            {"fail_domain": "cwtele-eval", "fail_plant": "window-cut-63", "fail_slug": "telemetry-opt-in-canary-stale", "kind": "deepeval", "success_domain": "cwrfold-eval", "success_plant": "hold-void-63", "success_slug": "results-folder-canary-stale"},
-            {"fail_domain": "cwemb-eval", "fail_plant": "flash-cut-64", "fail_slug": "metric-embedder-canary-stale", "kind": "deepeval", "success_domain": "cwmevm-eval", "success_plant": "restock-void-64", "success_slug": "metric-eval-model-canary-stale"},
-            {"fail_domain": "cwlctxn-eval", "fail_plant": "loyalty-cut-64", "fail_slug": "llm-context-none-canary-stale", "kind": "deepeval", "success_domain": "cwlexp-eval", "success_plant": "gift-void-64", "success_slug": "llm-expected-blank-canary-stale"},
-            {"fail_domain": "cwltool-eval", "fail_plant": "membership-cut-64", "fail_slug": "llm-tools-empty-canary-stale", "kind": "deepeval", "success_domain": "cwlretr-eval", "success_plant": "tax-void-64", "success_slug": "llm-retr-blank-canary-stale"},
-            {"fail_domain": "cwcexp-eval", "fail_plant": "chargeback-cut-64", "fail_slug": "conv-expected-blank-canary-stale", "kind": "deepeval", "success_domain": "cwcturn-eval", "success_plant": "seat-void-64", "success_slug": "conv-turns-empty-canary-stale"},
-            {"fail_domain": "cwvid-eval", "fail_plant": "rain-cut-64", "fail_slug": "mllm-video-none-canary-stale", "kind": "deepeval", "success_domain": "cwimg-eval", "success_plant": "dual-void-64", "success_slug": "mllm-image-none-canary-stale"},
-            {"fail_domain": "cwtcall-eval", "fail_plant": "bundle-cut-64", "fail_slug": "toolcall-params-empty-canary-stale", "kind": "deepeval", "success_domain": "cwturne-eval", "success_plant": "promo-void-64", "success_slug": "turn-expected-unused-canary-stale"},
-            {"fail_domain": "cwspan-eval", "fail_plant": "sla-cut-64", "fail_slug": "span-output-none-canary-stale", "kind": "deepeval", "success_domain": "cwobs-eval", "success_plant": "cancel-void-64", "success_slug": "observe-canary-stale"},
-            {"fail_domain": "cwaloop-eval", "fail_plant": "pickup-cut-64", "fail_slug": "pytest-asyncio-loop-func-canary-stale", "kind": "pytest", "success_domain": "cwasyn-eval", "success_plant": "after-void-64", "success_slug": "pytest-asyncio-auto-canary-stale"},
-            {"fail_domain": "cwfault-eval", "fail_plant": "inventory-cut-64", "fail_slug": "pytest-faulthandler-2s-canary-stale", "kind": "pytest", "success_domain": "cwatest-eval", "success_plant": "warranty-void-64", "success_slug": "pytest-asyncio-test-func-canary-stale"},
-            {"fail_domain": "cwjux1-eval", "fail_plant": "window-cut-64", "fail_slug": "pytest-junit-xunit1-canary-stale", "kind": "pytest", "success_domain": "cwcons-eval", "success_plant": "hold-void-64", "success_slug": "pytest-console-classic-canary-stale"},
-            {"fail_domain": "cwjupass-eval", "fail_plant": "flash-cut-65", "fail_slug": "pytest-junit-passlog-off-canary-stale", "kind": "pytest", "success_domain": "cwjulog-eval", "success_plant": "restock-void-65", "success_slug": "pytest-junit-log-no-canary-stale"},
-            {"fail_domain": "cwtmpn-eval", "fail_plant": "loyalty-cut-65", "fail_slug": "pytest-tmp-policy-none-canary-stale", "kind": "pytest", "success_domain": "cwtmp0-eval", "success_plant": "gift-void-65", "success_slug": "pytest-tmp-retain0-canary-stale"},
-            {"fail_domain": "cwxfl-eval", "fail_plant": "membership-cut-65", "fail_slug": "pytest-xfail-loose-canary-stale", "kind": "pytest", "success_domain": "cweps-eval", "success_plant": "tax-void-65", "success_slug": "pytest-empty-param-skip-canary-stale"},
-            {"fail_domain": "cwlogoff-eval", "fail_plant": "chargeback-cut-65", "fail_slug": "pytest-log-cli-off-canary-stale", "kind": "pytest", "success_domain": "cwfwarn-eval", "success_plant": "seat-void-65", "success_slug": "pytest-filterwarnings-ignore-canary-stale"},
-            {"fail_domain": "cwloglv-eval", "fail_plant": "rain-cut-65", "fail_slug": "pytest-log-level-crit-canary-stale", "kind": "pytest", "success_domain": "cwlogc-eval", "success_plant": "dual-void-65", "success_slug": "pytest-log-cli-crit-canary-stale"},
-            {"fail_domain": "cwpfn-eval", "fail_plant": "bundle-cut-65", "fail_slug": "pytest-python-functions-test-canary-stale", "kind": "pytest", "success_domain": "cwpcls-eval", "success_plant": "promo-void-65", "success_slug": "pytest-python-classes-test-canary-stale"},
-            {"fail_domain": "cwreqp-eval", "fail_plant": "sla-cut-65", "fail_slug": "pytest-required-plugins-canary-stale", "kind": "pytest", "success_domain": "cwminv-eval", "success_plant": "cancel-void-65", "success_slug": "pytest-minversion-6-canary-stale"},
-            {"fail_domain": "cwenvj-eval", "fail_plant": "pickup-cut-65", "fail_slug": "pytest-env-canary-judge-stale", "kind": "pytest", "success_domain": "cwns-eval", "success_plant": "after-void-65", "success_slug": "pytest-namespace-off-canary-stale"},
-            {"fail_domain": "cwdjset-eval", "fail_plant": "inventory-cut-65", "fail_slug": "pytest-django-settings-canary-stale", "kind": "pytest", "success_domain": "cwenvf-eval", "success_plant": "warranty-void-65", "success_slug": "pytest-envfile-canary-stale"},
-            {"fail_domain": "cwsconf-eval", "fail_plant": "window-cut-65", "fail_slug": "pytest-strict-config-canary-stale", "kind": "plugin", "success_domain": "cwsmark-eval", "success_plant": "hold-void-65", "success_slug": "pytest-strict-markers-canary-stale"},
-            {"fail_domain": "cwrn-eval", "fail_plant": "flash-cut-66", "fail_slug": "pytest-rn-canary-stale", "kind": "plugin", "success_domain": "cwra-eval", "success_plant": "restock-void-66", "success_slug": "pytest-ra-canary-stale"},
-            {"fail_domain": "cwkdup-eval", "fail_plant": "loyalty-cut-66", "fail_slug": "pytest-keepdupes-canary-stale", "kind": "plugin", "success_domain": "cwccoll-eval", "success_plant": "gift-void-66", "success_slug": "pytest-continue-collect-canary-stale"},
-            {"fail_domain": "cwpdbcls-eval", "fail_plant": "membership-cut-66", "fail_slug": "pytest-pdbcls-canary-stale", "kind": "plugin", "success_domain": "cwlof-eval", "success_plant": "tax-void-66", "success_slug": "pytest-looponfail-canary-stale"},
-            {"fail_domain": "cwsetups-eval", "fail_plant": "chargeback-cut-66", "fail_slug": "pytest-setup-show-canary-stale", "kind": "plugin", "success_domain": "cwtrcfg-eval", "success_plant": "seat-void-66", "success_slug": "pytest-trace-config-canary-stale"},
-            {"fail_domain": "cwdwarn-eval", "fail_plant": "rain-cut-66", "fail_slug": "pytest-disable-warnings-canary-stale", "kind": "plugin", "success_domain": "cwwign-eval", "success_plant": "dual-void-66", "success_slug": "pytest-w-ignore-canary-stale"},
-            {"fail_domain": "cwcapn-eval", "fail_plant": "bundle-cut-66", "fail_slug": "pytest-capture-no-canary-stale", "kind": "plugin", "success_domain": "cwpyw-eval", "success_plant": "promo-void-66", "success_slug": "pytest-pywarnings-ignore-canary-stale"},
-            {"fail_domain": "cwovpf-eval", "fail_plant": "sla-cut-66", "fail_slug": "pytest-override-pythonfiles-canary-stale", "kind": "plugin", "success_domain": "cwbtmp-eval", "success_plant": "cancel-void-66", "success_slug": "pytest-basetemp-canary-stale"},
-            {"fail_domain": "cwrdb-eval", "fail_plant": "pickup-cut-66", "fail_slug": "pytest-reuse-db-canary-stale", "kind": "plugin", "success_domain": "cwds-eval", "success_plant": "after-void-66", "success_slug": "pytest-ds-canary-stale"},
-            {"fail_domain": "cwdchr-eval", "fail_plant": "inventory-cut-66", "fail_slug": "pytest-driver-chrome-canary-stale", "kind": "plugin", "success_domain": "cwchrom-eval", "success_plant": "warranty-void-66", "success_slug": "pytest-browser-chromium-canary-stale"},
-            {"fail_domain": "cwvideo-eval", "fail_plant": "window-cut-66", "fail_slug": "pytest-video-on-canary-stale", "kind": "plugin", "success_domain": "cwtrace-eval", "success_plant": "hold-void-66", "success_slug": "pytest-tracing-on-canary-stale"},
-            {"fail_domain": "cwslow-eval", "fail_plant": "flash-cut-67", "fail_slug": "pytest-slowmo-canary-stale", "kind": "plugin", "success_domain": "cwscreen-eval", "success_plant": "restock-void-67", "success_slug": "pytest-screenshot-on-canary-stale"},
-            {"fail_domain": "cwbencho-eval", "fail_plant": "loyalty-cut-67", "fail_slug": "pytest-benchmark-only-canary-stale", "kind": "plugin", "success_domain": "cwbenchd-eval", "success_plant": "gift-void-67", "success_slug": "pytest-benchmark-disable-canary-stale"},
-            {"fail_domain": "cwddir-eval", "fail_plant": "membership-cut-67", "fail_slug": "pytest-datadir-canary-stale", "kind": "plugin", "success_domain": "cwsnap-eval", "success_plant": "tax-void-67", "success_slug": "pytest-snapshot-update-canary-stale"},
-            {"fail_domain": "cwmock-eval", "fail_plant": "chargeback-cut-67", "fail_slug": "pytest-mock-standalone-canary-stale", "kind": "plugin", "success_domain": "cwfreeze-eval", "success_plant": "seat-void-67", "success_slug": "pytest-frozen-time-canary-stale"},
-            {"fail_domain": "cwdeadf-eval", "fail_plant": "rain-cut-67", "fail_slug": "pytest-dead-fixtures-canary-stale", "kind": "plugin", "success_domain": "cwtg-eval", "success_plant": "dual-void-67", "success_slug": "pytest-typeguard-canary-stale"},
-            {"fail_domain": "cwincr-eval", "fail_plant": "bundle-cut-67", "fail_slug": "pytest-incremental-canary-stale", "kind": "plugin", "success_domain": "cwtgrp-eval", "success_plant": "promo-void-67", "success_slug": "pytest-test-group-canary-stale"},
-            {"fail_domain": "cwcucum-eval", "fail_plant": "sla-cut-67", "fail_slug": "pytest-cucumberjson-canary-stale", "kind": "plugin", "success_domain": "cwbdd-eval", "success_plant": "cancel-void-67", "success_slug": "pytest-bdd-canary-stale"},
-            {"fail_domain": "cwfeat-eval", "fail_plant": "pickup-cut-67", "fail_slug": "pytest-feature-canary-stale", "kind": "plugin", "success_domain": "cwgher-eval", "success_plant": "after-void-67", "success_slug": "pytest-gherkin-canary-stale"},
-            {"fail_domain": "cwaio-eval", "fail_plant": "inventory-cut-67", "fail_slug": "pytest-aiohttp-uvloop-canary-stale", "kind": "plugin", "success_domain": "cwtrio-eval", "success_plant": "warranty-void-67", "success_slug": "pytest-trio-mode-canary-stale"},
-            {"fail_domain": "cwsplint-eval", "fail_plant": "window-cut-67", "fail_slug": "pytest-splinter-chrome-canary-stale", "kind": "plugin", "success_domain": "cwqt-eval", "success_plant": "hold-void-67", "success_slug": "pytest-qt-pyqt5-canary-stale"},
-            {"fail_domain": "cwcheck-eval", "fail_plant": "flash-cut-68", "fail_slug": "pytest-check-plugin-canary-stale", "kind": "plugin", "success_domain": "cwsub-eval", "success_plant": "restock-void-68", "success_slug": "pytest-subtests-canary-stale"},
-            {"fail_domain": "cwcases-eval", "fail_plant": "loyalty-cut-68", "fail_slug": "pytest-cases-plugin-canary-stale", "kind": "plugin", "success_domain": "cwlazy-eval", "success_plant": "gift-void-68", "success_slug": "pytest-lazy-fixture-canary-stale"},
-            {"fail_domain": "cwtldr-eval", "fail_plant": "membership-cut-68", "fail_slug": "pytest-tldr-canary-stale", "kind": "plugin", "success_domain": "cwsugar-eval", "success_plant": "tax-void-68", "success_slug": "pytest-sugar-canary-stale"},
-            {"fail_domain": "cwclar-eval", "fail_plant": "chargeback-cut-68", "fail_slug": "pytest-clarity-canary-stale", "kind": "plugin", "success_domain": "cwpretty-eval", "success_plant": "seat-void-68", "success_slug": "pytest-pretty-canary-stale"},
-            {"fail_domain": "cwdtenv-eval", "fail_plant": "rain-cut-68", "fail_slug": "pytest-dotenv-canary-stale", "kind": "plugin", "success_domain": "cwenvopt-eval", "success_plant": "dual-void-68", "success_slug": "pytest-envfile-opt-canary-stale"},
-            {"fail_domain": "cwimplib-eval", "fail_plant": "bundle-cut-68", "fail_slug": "pytest-importlib-canary-stale", "kind": "plugin", "success_domain": "cwtodbg-eval", "success_plant": "promo-void-68", "success_slug": "pytest-timeout-disable-debugger-canary-stale"},
-            {"fail_domain": "cwdoct-eval", "fail_plant": "sla-cut-68", "fail_slug": "pytest-doctest-canary-stale", "kind": "plugin", "success_domain": "cwpyarg-eval", "success_plant": "cancel-void-68", "success_slug": "pytest-pyargs-canary-stale"},
-            {"fail_domain": "cwmd-eval", "fail_plant": "pickup-cut-68", "fail_slug": "pytest-md-canary-stale", "kind": "plugin", "success_domain": "cwjuxml-eval", "success_plant": "after-void-68", "success_slug": "pytest-junitxml-canary-stale"},
-            {"fail_domain": "cwrlog-eval", "fail_plant": "inventory-cut-68", "fail_slug": "pytest-reportlog-canary-stale", "kind": "plugin", "success_domain": "cwcsv-eval", "success_plant": "warranty-void-68", "success_slug": "pytest-csv-canary-stale"},
-            {"fail_domain": "cwburl-eval", "fail_plant": "window-cut-68", "fail_slug": "pytest-base-url-canary-stale", "kind": "plugin", "success_domain": "cwvars-eval", "success_plant": "hold-void-68", "success_slug": "pytest-variables-canary-stale"},
-            {"fail_domain": "cwnocov-eval", "fail_plant": "flash-cut-69", "fail_slug": "pytest-no-cov-canary-stale", "kind": "plugin", "success_domain": "cwmeta-eval", "success_plant": "restock-void-69", "success_slug": "pytest-metadata-canary-stale"},
-            {"fail_domain": "cwjsonc-eval", "fail_plant": "loyalty-cut-69", "fail_slug": "pytest-jsonreport-canary-stale", "kind": "plugin", "success_domain": "cwhtmlc-eval", "success_plant": "gift-void-69", "success_slug": "pytest-html-canary-stale"},
-            {"fail_domain": "cwmf7-eval", "fail_plant": "membership-cut-69", "fail_slug": "pytest-maxfail-7-canary-stale", "kind": "plugin", "success_domain": "cwcov35-eval", "success_plant": "tax-void-69", "success_slug": "pytest-cov-failunder-35-canary-stale"},
-            {"fail_domain": "cwrr7-eval", "fail_plant": "chargeback-cut-69", "fail_slug": "pytest-reruns-7-canary-stale", "kind": "plugin", "success_domain": "cwtout3-eval", "success_plant": "seat-void-69", "success_slug": "pytest-timeout-3s-canary-stale"},
-            {"fail_domain": "cwspl7-eval", "fail_plant": "rain-cut-69", "fail_slug": "pytest-splits-7-canary-stale", "kind": "plugin", "success_domain": "cwcnt7-eval", "success_plant": "dual-void-69", "success_slug": "pytest-count-7-canary-stale"},
-            {"fail_domain": "cwdesc-eval", "fail_plant": "bundle-cut-69", "fail_slug": "pytest-deselect-canary-stale", "kind": "plugin", "success_domain": "cwignc-eval", "success_plant": "promo-void-69", "success_slug": "pytest-ignore-canary-stale"},
-            {"fail_domain": "cwmnot-eval", "fail_plant": "sla-cut-69", "fail_slug": "pytest-m-not-canary-stale", "kind": "plugin", "success_domain": "cwknot-eval", "success_plant": "cancel-void-69", "success_slug": "pytest-k-not-canary-stale"},
-            {"fail_domain": "cwqq-eval", "fail_plant": "pickup-cut-69", "fail_slug": "pytest-qq-nosummary-canary-stale", "kind": "plugin", "success_domain": "cwvneg-eval", "success_plant": "after-void-69", "success_slug": "pytest-verbosity-neg2-canary-stale"},
-            {"fail_domain": "cwdbg-eval", "fail_plant": "inventory-cut-69", "fail_slug": "pytest-debug-canary-stale", "kind": "plugin", "success_domain": "cwdur0-eval", "success_plant": "warranty-void-69", "success_slug": "pytest-durations-min0-canary-stale"},
-            {"fail_domain": "cwhi-eval", "fail_plant": "window-cut-69", "fail_slug": "pytest-code-highlight-off-canary-stale", "kind": "plugin", "success_domain": "cwcol-eval", "success_plant": "hold-void-69", "success_slug": "pytest-color-no-canary-stale"},
-            {"fail_domain": "cwscout-eval", "fail_plant": "flash-cut-70", "fail_slug": "pytest-show-capture-stdout-canary-stale", "kind": "plugin", "success_domain": "cwtbl-eval", "success_plant": "restock-void-70", "success_slug": "pytest-tb-line-only-canary-stale"},
-            {"fail_domain": "cwldis-eval", "fail_plant": "loyalty-cut-70", "fail_slug": "pytest-log-disable-canary-stale", "kind": "plugin", "success_domain": "cwaspl-eval", "success_plant": "gift-void-70", "success_slug": "pytest-assert-plain-canary-stale"},
-            {"fail_domain": "cwnowarn-eval", "fail_plant": "membership-cut-70", "fail_slug": "pytest-p-no-warnings-canary-stale", "kind": "plugin", "success_domain": "cwnolog-eval", "success_plant": "tax-void-70", "success_slug": "pytest-p-no-logging-canary-stale"},
-            {"fail_domain": "cwdautoload-eval", "fail_plant": "chargeback-cut-70", "fail_slug": "pytest-disable-plugin-autoload-canary-stale", "kind": "plugin", "success_domain": "cwnocp-eval", "success_plant": "seat-void-70", "success_slug": "pytest-p-no-cacheprovider-canary-stale"},
-            {"fail_domain": "cwccut-eval", "fail_plant": "rain-cut-70", "fail_slug": "pytest-confcutdir-canary-stale", "kind": "plugin", "success_domain": "cwroot-eval", "success_plant": "dual-void-70", "success_slug": "pytest-rootdir-canary-stale"},
-            {"fail_domain": "cwnocf-eval", "fail_plant": "bundle-cut-70", "fail_slug": "pytest-noconftest-canary-stale", "kind": "plugin", "success_domain": "cwovtp-eval", "success_plant": "promo-void-70", "success_slug": "pytest-override-testpaths-canary-stale"},
-            {"fail_domain": "cwff-eval", "fail_plant": "sla-cut-70", "fail_slug": "pytest-ff-canary-stale", "kind": "plugin", "success_domain": "cwlf-eval", "success_plant": "cancel-void-70", "success_slug": "pytest-lf-canary-stale"},
-            {"fail_domain": "cwnf-eval", "fail_plant": "pickup-cut-70", "fail_slug": "pytest-nf-canary-stale", "kind": "plugin", "success_domain": "cwsw-eval", "success_plant": "after-void-70", "success_slug": "pytest-sw-canary-stale"},
-            {"fail_domain": "cwrev-eval", "fail_plant": "inventory-cut-70", "fail_slug": "pytest-reverse-canary-stale", "kind": "plugin", "success_domain": "cwinsta-eval", "success_plant": "warranty-void-70", "success_slug": "pytest-instafail-canary-stale"},
-            {"fail_domain": "cwpdb-eval", "fail_plant": "window-cut-70", "fail_slug": "pytest-pdb-canary-stale", "kind": "plugin", "success_domain": "cwrxf-eval", "success_plant": "hold-void-70", "success_slug": "pytest-runxfail-canary-stale"},
-            {"fail_domain": "cwsloc-eval", "fail_plant": "flash-cut-71", "fail_slug": "pytest-showlocals-canary-stale", "kind": "plugin", "success_domain": "cwftr-eval", "success_plant": "restock-void-71", "success_slug": "pytest-full-trace-canary-stale"},
-            {"fail_domain": "cwcsh-eval", "fail_plant": "loyalty-cut-71", "fail_slug": "pytest-cache-show-canary-stale", "kind": "plugin", "success_domain": "cwpaste-eval", "success_plant": "gift-void-71", "success_slug": "pytest-pastebin-canary-stale"},
-            {"fail_domain": "cwfxt-eval", "fail_plant": "membership-cut-71", "fail_slug": "pytest-fixtures-per-test-canary-stale", "kind": "plugin", "success_domain": "cwsetupo-eval", "success_plant": "tax-void-71", "success_slug": "pytest-setup-only-canary-stale"},
-            {"fail_domain": "cwtosig-eval", "fail_plant": "chargeback-cut-71", "fail_slug": "pytest-timeout-method-signal-canary-stale", "kind": "plugin", "success_domain": "cwtofn-eval", "success_plant": "seat-void-71", "success_slug": "pytest-timeout-func-only-canary-stale"},
-            {"fail_domain": "cwtmon-eval", "fail_plant": "rain-cut-71", "fail_slug": "pytest-testmon-canary-stale", "kind": "plugin", "success_domain": "cwpick-eval", "success_plant": "dual-void-71", "success_slug": "pytest-picked-mode-canary-stale"},
-            {"fail_domain": "cwdep-eval", "fail_plant": "bundle-cut-71", "fail_slug": "pytest-dependency-canary-stale", "kind": "plugin", "success_domain": "cword-eval", "success_plant": "promo-void-71", "success_slug": "pytest-order-scope-module-canary-stale"}
+            {
+              "fail_domain": "cwhalstr-eval",
+              "fail_plant": "flash-cut-59",
+              "fail_slug": "halluc-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwansstr-eval",
+              "success_plant": "restock-void-59",
+              "success_slug": "ansrel-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwcrstr-eval",
+              "fail_plant": "loyalty-cut-59",
+              "fail_slug": "ctxrec-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwcpstr-eval",
+              "success_plant": "gift-void-59",
+              "success_slug": "ctxprec-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwkrstr-eval",
+              "fail_plant": "membership-cut-59",
+              "fail_slug": "knowret-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwcxlstr-eval",
+              "success_plant": "tax-void-59",
+              "success_slug": "ctxrel-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwbiastr-eval",
+              "fail_plant": "chargeback-cut-59",
+              "fail_slug": "bias-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwtoxstr-eval",
+              "success_plant": "seat-void-59",
+              "success_slug": "tox-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwpastr-eval",
+              "fail_plant": "rain-cut-59",
+              "fail_slug": "promalign-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwsumstr-eval",
+              "success_plant": "dual-void-59",
+              "success_slug": "summ-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwjcstr-eval",
+              "fail_plant": "bundle-cut-59",
+              "fail_slug": "jsoncorr-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwtcstr-eval",
+              "success_plant": "promo-void-59",
+              "success_slug": "toolcorr-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwrastr-eval",
+              "fail_plant": "sla-cut-59",
+              "fail_slug": "roleadh-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwacstr-eval",
+              "success_plant": "cancel-void-59",
+              "success_slug": "argcorr-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwcvrstr-eval",
+              "fail_plant": "pickup-cut-59",
+              "fail_slug": "convrel-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwccstr-eval",
+              "success_plant": "after-void-59",
+              "success_slug": "convcomp-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwpinstr-eval",
+              "fail_plant": "inventory-cut-59",
+              "fail_slug": "pinj-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwpiistr-eval",
+              "success_plant": "warranty-void-59",
+              "success_slug": "pii-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwvustr-eval",
+              "fail_plant": "window-cut-59",
+              "fail_slug": "vuln-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwjaistr-eval",
+              "success_plant": "hold-void-59",
+              "success_slug": "jail-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwdagstr-eval",
+              "fail_plant": "flash-cut-60",
+              "fail_slug": "dag-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwarstr2-eval",
+              "success_plant": "restock-void-60",
+              "success_slug": "arena-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwcgestr-eval",
+              "fail_plant": "loyalty-cut-60",
+              "fail_slug": "cgeval-strict-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwgestr-eval",
+              "success_plant": "gift-void-60",
+              "success_slug": "geval-strict-canary-stale"
+            },
+            {
+              "fail_domain": "cwcgecnt-eval",
+              "fail_plant": "membership-cut-60",
+              "fail_slug": "cgeval-params-content-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwgeact-eval",
+              "success_plant": "tax-void-60",
+              "success_slug": "geval-params-actual-canary-stale"
+            },
+            {
+              "fail_domain": "cwhalth-eval",
+              "fail_plant": "chargeback-cut-60",
+              "fail_slug": "halluc-reason-thresh-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwansth-eval",
+              "success_plant": "seat-void-60",
+              "success_slug": "ansrel-reason-thresh-canary-stale"
+            },
+            {
+              "fail_domain": "cwcrrsn-eval",
+              "fail_plant": "rain-cut-60",
+              "fail_slug": "ctxrec-reason-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwcprsn-eval",
+              "success_plant": "dual-void-60",
+              "success_slug": "ctxprec-reason-canary-stale"
+            },
+            {
+              "fail_domain": "cwjcschem-eval",
+              "fail_plant": "bundle-cut-60",
+              "fail_slug": "jsoncorr-schema-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwtclex-eval",
+              "success_plant": "promo-void-60",
+              "success_slug": "toolcorr-exact-canary-stale"
+            },
+            {
+              "fail_domain": "cwpain-eval",
+              "fail_plant": "sla-cut-60",
+              "fail_slug": "promalign-instr-empty-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwsumq-eval",
+              "success_plant": "cancel-void-60",
+              "success_slug": "summ-questions-empty-canary-stale"
+            },
+            {
+              "fail_domain": "cwcgoal-eval",
+              "fail_plant": "pickup-cut-60",
+              "fail_slug": "convcomp-goals-empty-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwcwin1-eval",
+              "success_plant": "after-void-60",
+              "success_slug": "convrel-window1-canary-stale"
+            },
+            {
+              "fail_domain": "cwpient-eval",
+              "fail_plant": "inventory-cut-60",
+              "fail_slug": "pii-entities-empty-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwronone-eval",
+              "success_plant": "warranty-void-60",
+              "success_slug": "roleadh-role-none-canary-stale"
+            },
+            {
+              "fail_domain": "cwvtyp-eval",
+              "fail_plant": "window-cut-60",
+              "fail_slug": "vuln-types-empty-canary-stale",
+              "kind": "metric",
+              "success_domain": "cwjatk-eval",
+              "success_plant": "hold-void-60",
+              "success_slug": "jail-attacks-empty-canary-stale"
+            },
+            {
+              "fail_domain": "cwfirew-eval",
+              "fail_plant": "flash-cut-61",
+              "fail_slug": "fireworks-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwvertex-eval",
+              "success_plant": "restock-void-61",
+              "success_slug": "vertex-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwortr-eval",
+              "fail_plant": "loyalty-cut-61",
+              "fail_slug": "openrouter-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwperp-eval",
+              "success_plant": "gift-void-61",
+              "success_slug": "perplexity-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwnvidia-eval",
+              "fail_plant": "membership-cut-61",
+              "fail_slug": "nvidia-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwgrok-eval",
+              "success_plant": "tax-void-61",
+              "success_slug": "grok-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwsnow-eval",
+              "fail_plant": "chargeback-cut-61",
+              "fail_slug": "snowflake-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdbx-eval",
+              "success_plant": "seat-void-61",
+              "success_slug": "databricks-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwsage-eval",
+              "fail_plant": "rain-cut-61",
+              "fail_slug": "sagemaker-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwwatson-eval",
+              "success_plant": "dual-void-61",
+              "success_slug": "watsonx-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwlmst-eval",
+              "fail_plant": "bundle-cut-61",
+              "fail_slug": "lmstudio-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwvllm-eval",
+              "success_plant": "promo-void-61",
+              "success_slug": "vllm-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwcust-eval",
+              "fail_plant": "sla-cut-61",
+              "fail_slug": "customllm-model-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwocomp-eval",
+              "success_plant": "cancel-void-61",
+              "success_slug": "openaicompat-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwtogc-eval",
+              "fail_plant": "pickup-cut-61",
+              "fail_slug": "together-compat-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwxai-eval",
+              "success_plant": "after-void-61",
+              "success_slug": "xai-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwuser-eval",
+              "fail_plant": "inventory-cut-61",
+              "fail_slug": "gpt-user-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwlogp-eval",
+              "success_plant": "warranty-void-61",
+              "success_slug": "gpt-logprobs-canary-stale"
+            },
+            {
+              "fail_domain": "cwbody-eval",
+              "fail_plant": "window-cut-61",
+              "fail_slug": "gpt-extra-body-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwhdr-eval",
+              "success_plant": "hold-void-61",
+              "success_slug": "gpt-extra-headers-canary-stale"
+            },
+            {
+              "fail_domain": "cwverb-eval",
+              "fail_plant": "flash-cut-62",
+              "fail_slug": "gpt-verbosity-low-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwreas-eval",
+              "success_plant": "restock-void-62",
+              "success_slug": "gpt-reasoning-low-canary-stale"
+            },
+            {
+              "fail_domain": "cwstore-eval",
+              "fail_plant": "loyalty-cut-62",
+              "fail_slug": "gpt-store-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwflex-eval",
+              "success_plant": "gift-void-62",
+              "success_slug": "gpt-service-flex-canary-stale"
+            },
+            {
+              "fail_domain": "cwtooln-eval",
+              "fail_plant": "membership-cut-62",
+              "fail_slug": "gpt-tools-none-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwresp-eval",
+              "success_plant": "tax-void-62",
+              "success_slug": "gpt-response-text-canary-stale"
+            },
+            {
+              "fail_domain": "cwshowi-eval",
+              "fail_plant": "chargeback-cut-62",
+              "fail_slug": "evaluate-show-indicator-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwskmet-eval",
+              "success_plant": "seat-void-62",
+              "success_slug": "evaluate-skip-metrics-canary-stale"
+            },
+            {
+              "fail_domain": "cwevhp-eval",
+              "fail_plant": "rain-cut-62",
+              "fail_slug": "evaluate-hparams-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwevalid-eval",
+              "success_plant": "dual-void-62",
+              "success_slug": "evaluate-id-canary-stale"
+            },
+            {
+              "fail_domain": "cwevemt-eval",
+              "fail_plant": "bundle-cut-62",
+              "fail_slug": "evaluate-empty-metrics-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwevempty-eval",
+              "success_plant": "promo-void-62",
+              "success_slug": "evaluate-empty-cases-canary-stale"
+            },
+            {
+              "fail_domain": "cwdsjl-eval",
+              "fail_plant": "sla-cut-62",
+              "fail_slug": "dataset-from-jsonl-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdshf-eval",
+              "success_plant": "cancel-void-62",
+              "success_slug": "dataset-from-hf-canary-stale"
+            },
+            {
+              "fail_domain": "cwdsdict-eval",
+              "fail_plant": "pickup-cut-62",
+              "fail_slug": "dataset-from-dict-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdspd-eval",
+              "success_plant": "after-void-62",
+              "success_slug": "dataset-from-pandas-canary-stale"
+            },
+            {
+              "fail_domain": "cwdpush-eval",
+              "fail_plant": "inventory-cut-62",
+              "fail_slug": "dataset-push-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdalias-eval",
+              "success_plant": "warranty-void-62",
+              "success_slug": "dataset-alias-canary-stale"
+            },
+            {
+              "fail_domain": "cwgexp-eval",
+              "fail_plant": "window-cut-62",
+              "fail_slug": "golden-expected-none-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwgname-eval",
+              "success_plant": "hold-void-62",
+              "success_slug": "golden-name-canary-stale"
+            },
+            {
+              "fail_domain": "cwgretr-eval",
+              "fail_plant": "flash-cut-63",
+              "fail_slug": "golden-retr-empty-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwgctx-eval",
+              "success_plant": "restock-void-63",
+              "success_slug": "golden-ctx-empty-canary-stale"
+            },
+            {
+              "fail_domain": "cwsctx-eval",
+              "fail_plant": "loyalty-cut-63",
+              "fail_slug": "synth-from-ctx-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwsdocs-eval",
+              "success_plant": "gift-void-63",
+              "success_slug": "synth-from-docs-canary-stale"
+            },
+            {
+              "fail_domain": "cwcsyn-eval",
+              "fail_plant": "membership-cut-63",
+              "fail_slug": "conv-synth-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwsscr-eval",
+              "success_plant": "tax-void-63",
+              "success_slug": "synth-from-scratch-canary-stale"
+            },
+            {
+              "fail_domain": "cwameas-eval",
+              "fail_plant": "chargeback-cut-63",
+              "fail_slug": "metric-a-measure-hide-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwmeas-eval",
+              "success_plant": "seat-void-63",
+              "success_slug": "metric-measure-hide-canary-stale"
+            },
+            {
+              "fail_domain": "cwrsnok-eval",
+              "fail_plant": "rain-cut-63",
+              "fail_slug": "metric-reason-ok-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwerr1-eval",
+              "success_plant": "dual-void-63",
+              "success_slug": "metric-error-open-canary-stale"
+            },
+            {
+              "fail_domain": "cwasskip-eval",
+              "fail_plant": "bundle-cut-63",
+              "fail_slug": "assert-skip-missing-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwasemt-eval",
+              "success_plant": "promo-void-63",
+              "success_slug": "assert-empty-metrics-canary-stale"
+            },
+            {
+              "fail_domain": "cwdvskip-eval",
+              "fail_plant": "sla-cut-63",
+              "fail_slug": "deepeval-run-skip-missing-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdvid-eval",
+              "success_plant": "cancel-void-63",
+              "success_slug": "deepeval-run-canary-id-stale"
+            },
+            {
+              "fail_domain": "cwdvm-eval",
+              "fail_plant": "pickup-cut-63",
+              "fail_slug": "deepeval-m-not-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdvk-eval",
+              "success_plant": "after-void-63",
+              "success_slug": "deepeval-k-not-canary-stale"
+            },
+            {
+              "fail_domain": "cwdvign-eval",
+              "fail_plant": "inventory-cut-63",
+              "fail_slug": "deepeval-ignore-errors-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwdvdsp-eval",
+              "success_plant": "warranty-void-63",
+              "success_slug": "deepeval-display-none-canary-stale"
+            },
+            {
+              "fail_domain": "cwtele-eval",
+              "fail_plant": "window-cut-63",
+              "fail_slug": "telemetry-opt-in-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwrfold-eval",
+              "success_plant": "hold-void-63",
+              "success_slug": "results-folder-canary-stale"
+            },
+            {
+              "fail_domain": "cwemb-eval",
+              "fail_plant": "flash-cut-64",
+              "fail_slug": "metric-embedder-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwmevm-eval",
+              "success_plant": "restock-void-64",
+              "success_slug": "metric-eval-model-canary-stale"
+            },
+            {
+              "fail_domain": "cwlctxn-eval",
+              "fail_plant": "loyalty-cut-64",
+              "fail_slug": "llm-context-none-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwlexp-eval",
+              "success_plant": "gift-void-64",
+              "success_slug": "llm-expected-blank-canary-stale"
+            },
+            {
+              "fail_domain": "cwltool-eval",
+              "fail_plant": "membership-cut-64",
+              "fail_slug": "llm-tools-empty-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwlretr-eval",
+              "success_plant": "tax-void-64",
+              "success_slug": "llm-retr-blank-canary-stale"
+            },
+            {
+              "fail_domain": "cwcexp-eval",
+              "fail_plant": "chargeback-cut-64",
+              "fail_slug": "conv-expected-blank-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwcturn-eval",
+              "success_plant": "seat-void-64",
+              "success_slug": "conv-turns-empty-canary-stale"
+            },
+            {
+              "fail_domain": "cwvid-eval",
+              "fail_plant": "rain-cut-64",
+              "fail_slug": "mllm-video-none-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwimg-eval",
+              "success_plant": "dual-void-64",
+              "success_slug": "mllm-image-none-canary-stale"
+            },
+            {
+              "fail_domain": "cwtcall-eval",
+              "fail_plant": "bundle-cut-64",
+              "fail_slug": "toolcall-params-empty-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwturne-eval",
+              "success_plant": "promo-void-64",
+              "success_slug": "turn-expected-unused-canary-stale"
+            },
+            {
+              "fail_domain": "cwspan-eval",
+              "fail_plant": "sla-cut-64",
+              "fail_slug": "span-output-none-canary-stale",
+              "kind": "deepeval",
+              "success_domain": "cwobs-eval",
+              "success_plant": "cancel-void-64",
+              "success_slug": "observe-canary-stale"
+            },
+            {
+              "fail_domain": "cwaloop-eval",
+              "fail_plant": "pickup-cut-64",
+              "fail_slug": "pytest-asyncio-loop-func-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwasyn-eval",
+              "success_plant": "after-void-64",
+              "success_slug": "pytest-asyncio-auto-canary-stale"
+            },
+            {
+              "fail_domain": "cwfault-eval",
+              "fail_plant": "inventory-cut-64",
+              "fail_slug": "pytest-faulthandler-2s-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwatest-eval",
+              "success_plant": "warranty-void-64",
+              "success_slug": "pytest-asyncio-test-func-canary-stale"
+            },
+            {
+              "fail_domain": "cwjux1-eval",
+              "fail_plant": "window-cut-64",
+              "fail_slug": "pytest-junit-xunit1-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwcons-eval",
+              "success_plant": "hold-void-64",
+              "success_slug": "pytest-console-classic-canary-stale"
+            },
+            {
+              "fail_domain": "cwjupass-eval",
+              "fail_plant": "flash-cut-65",
+              "fail_slug": "pytest-junit-passlog-off-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwjulog-eval",
+              "success_plant": "restock-void-65",
+              "success_slug": "pytest-junit-log-no-canary-stale"
+            },
+            {
+              "fail_domain": "cwtmpn-eval",
+              "fail_plant": "loyalty-cut-65",
+              "fail_slug": "pytest-tmp-policy-none-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwtmp0-eval",
+              "success_plant": "gift-void-65",
+              "success_slug": "pytest-tmp-retain0-canary-stale"
+            },
+            {
+              "fail_domain": "cwxfl-eval",
+              "fail_plant": "membership-cut-65",
+              "fail_slug": "pytest-xfail-loose-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cweps-eval",
+              "success_plant": "tax-void-65",
+              "success_slug": "pytest-empty-param-skip-canary-stale"
+            },
+            {
+              "fail_domain": "cwlogoff-eval",
+              "fail_plant": "chargeback-cut-65",
+              "fail_slug": "pytest-log-cli-off-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwfwarn-eval",
+              "success_plant": "seat-void-65",
+              "success_slug": "pytest-filterwarnings-ignore-canary-stale"
+            },
+            {
+              "fail_domain": "cwloglv-eval",
+              "fail_plant": "rain-cut-65",
+              "fail_slug": "pytest-log-level-crit-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwlogc-eval",
+              "success_plant": "dual-void-65",
+              "success_slug": "pytest-log-cli-crit-canary-stale"
+            },
+            {
+              "fail_domain": "cwpfn-eval",
+              "fail_plant": "bundle-cut-65",
+              "fail_slug": "pytest-python-functions-test-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwpcls-eval",
+              "success_plant": "promo-void-65",
+              "success_slug": "pytest-python-classes-test-canary-stale"
+            },
+            {
+              "fail_domain": "cwreqp-eval",
+              "fail_plant": "sla-cut-65",
+              "fail_slug": "pytest-required-plugins-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwminv-eval",
+              "success_plant": "cancel-void-65",
+              "success_slug": "pytest-minversion-6-canary-stale"
+            },
+            {
+              "fail_domain": "cwenvj-eval",
+              "fail_plant": "pickup-cut-65",
+              "fail_slug": "pytest-env-canary-judge-stale",
+              "kind": "pytest",
+              "success_domain": "cwns-eval",
+              "success_plant": "after-void-65",
+              "success_slug": "pytest-namespace-off-canary-stale"
+            },
+            {
+              "fail_domain": "cwdjset-eval",
+              "fail_plant": "inventory-cut-65",
+              "fail_slug": "pytest-django-settings-canary-stale",
+              "kind": "pytest",
+              "success_domain": "cwenvf-eval",
+              "success_plant": "warranty-void-65",
+              "success_slug": "pytest-envfile-canary-stale"
+            },
+            {
+              "fail_domain": "cwsconf-eval",
+              "fail_plant": "window-cut-65",
+              "fail_slug": "pytest-strict-config-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwsmark-eval",
+              "success_plant": "hold-void-65",
+              "success_slug": "pytest-strict-markers-canary-stale"
+            },
+            {
+              "fail_domain": "cwrn-eval",
+              "fail_plant": "flash-cut-66",
+              "fail_slug": "pytest-rn-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwra-eval",
+              "success_plant": "restock-void-66",
+              "success_slug": "pytest-ra-canary-stale"
+            },
+            {
+              "fail_domain": "cwkdup-eval",
+              "fail_plant": "loyalty-cut-66",
+              "fail_slug": "pytest-keepdupes-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwccoll-eval",
+              "success_plant": "gift-void-66",
+              "success_slug": "pytest-continue-collect-canary-stale"
+            },
+            {
+              "fail_domain": "cwpdbcls-eval",
+              "fail_plant": "membership-cut-66",
+              "fail_slug": "pytest-pdbcls-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwlof-eval",
+              "success_plant": "tax-void-66",
+              "success_slug": "pytest-looponfail-canary-stale"
+            },
+            {
+              "fail_domain": "cwsetups-eval",
+              "fail_plant": "chargeback-cut-66",
+              "fail_slug": "pytest-setup-show-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtrcfg-eval",
+              "success_plant": "seat-void-66",
+              "success_slug": "pytest-trace-config-canary-stale"
+            },
+            {
+              "fail_domain": "cwdwarn-eval",
+              "fail_plant": "rain-cut-66",
+              "fail_slug": "pytest-disable-warnings-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwwign-eval",
+              "success_plant": "dual-void-66",
+              "success_slug": "pytest-w-ignore-canary-stale"
+            },
+            {
+              "fail_domain": "cwcapn-eval",
+              "fail_plant": "bundle-cut-66",
+              "fail_slug": "pytest-capture-no-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwpyw-eval",
+              "success_plant": "promo-void-66",
+              "success_slug": "pytest-pywarnings-ignore-canary-stale"
+            },
+            {
+              "fail_domain": "cwovpf-eval",
+              "fail_plant": "sla-cut-66",
+              "fail_slug": "pytest-override-pythonfiles-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwbtmp-eval",
+              "success_plant": "cancel-void-66",
+              "success_slug": "pytest-basetemp-canary-stale"
+            },
+            {
+              "fail_domain": "cwrdb-eval",
+              "fail_plant": "pickup-cut-66",
+              "fail_slug": "pytest-reuse-db-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwds-eval",
+              "success_plant": "after-void-66",
+              "success_slug": "pytest-ds-canary-stale"
+            },
+            {
+              "fail_domain": "cwdchr-eval",
+              "fail_plant": "inventory-cut-66",
+              "fail_slug": "pytest-driver-chrome-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwchrom-eval",
+              "success_plant": "warranty-void-66",
+              "success_slug": "pytest-browser-chromium-canary-stale"
+            },
+            {
+              "fail_domain": "cwvideo-eval",
+              "fail_plant": "window-cut-66",
+              "fail_slug": "pytest-video-on-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtrace-eval",
+              "success_plant": "hold-void-66",
+              "success_slug": "pytest-tracing-on-canary-stale"
+            },
+            {
+              "fail_domain": "cwslow-eval",
+              "fail_plant": "flash-cut-67",
+              "fail_slug": "pytest-slowmo-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwscreen-eval",
+              "success_plant": "restock-void-67",
+              "success_slug": "pytest-screenshot-on-canary-stale"
+            },
+            {
+              "fail_domain": "cwbencho-eval",
+              "fail_plant": "loyalty-cut-67",
+              "fail_slug": "pytest-benchmark-only-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwbenchd-eval",
+              "success_plant": "gift-void-67",
+              "success_slug": "pytest-benchmark-disable-canary-stale"
+            },
+            {
+              "fail_domain": "cwddir-eval",
+              "fail_plant": "membership-cut-67",
+              "fail_slug": "pytest-datadir-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwsnap-eval",
+              "success_plant": "tax-void-67",
+              "success_slug": "pytest-snapshot-update-canary-stale"
+            },
+            {
+              "fail_domain": "cwmock-eval",
+              "fail_plant": "chargeback-cut-67",
+              "fail_slug": "pytest-mock-standalone-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwfreeze-eval",
+              "success_plant": "seat-void-67",
+              "success_slug": "pytest-frozen-time-canary-stale"
+            },
+            {
+              "fail_domain": "cwdeadf-eval",
+              "fail_plant": "rain-cut-67",
+              "fail_slug": "pytest-dead-fixtures-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtg-eval",
+              "success_plant": "dual-void-67",
+              "success_slug": "pytest-typeguard-canary-stale"
+            },
+            {
+              "fail_domain": "cwincr-eval",
+              "fail_plant": "bundle-cut-67",
+              "fail_slug": "pytest-incremental-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtgrp-eval",
+              "success_plant": "promo-void-67",
+              "success_slug": "pytest-test-group-canary-stale"
+            },
+            {
+              "fail_domain": "cwcucum-eval",
+              "fail_plant": "sla-cut-67",
+              "fail_slug": "pytest-cucumberjson-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwbdd-eval",
+              "success_plant": "cancel-void-67",
+              "success_slug": "pytest-bdd-canary-stale"
+            },
+            {
+              "fail_domain": "cwfeat-eval",
+              "fail_plant": "pickup-cut-67",
+              "fail_slug": "pytest-feature-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwgher-eval",
+              "success_plant": "after-void-67",
+              "success_slug": "pytest-gherkin-canary-stale"
+            },
+            {
+              "fail_domain": "cwaio-eval",
+              "fail_plant": "inventory-cut-67",
+              "fail_slug": "pytest-aiohttp-uvloop-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtrio-eval",
+              "success_plant": "warranty-void-67",
+              "success_slug": "pytest-trio-mode-canary-stale"
+            },
+            {
+              "fail_domain": "cwsplint-eval",
+              "fail_plant": "window-cut-67",
+              "fail_slug": "pytest-splinter-chrome-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwqt-eval",
+              "success_plant": "hold-void-67",
+              "success_slug": "pytest-qt-pyqt5-canary-stale"
+            },
+            {
+              "fail_domain": "cwcheck-eval",
+              "fail_plant": "flash-cut-68",
+              "fail_slug": "pytest-check-plugin-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwsub-eval",
+              "success_plant": "restock-void-68",
+              "success_slug": "pytest-subtests-canary-stale"
+            },
+            {
+              "fail_domain": "cwcases-eval",
+              "fail_plant": "loyalty-cut-68",
+              "fail_slug": "pytest-cases-plugin-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwlazy-eval",
+              "success_plant": "gift-void-68",
+              "success_slug": "pytest-lazy-fixture-canary-stale"
+            },
+            {
+              "fail_domain": "cwtldr-eval",
+              "fail_plant": "membership-cut-68",
+              "fail_slug": "pytest-tldr-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwsugar-eval",
+              "success_plant": "tax-void-68",
+              "success_slug": "pytest-sugar-canary-stale"
+            },
+            {
+              "fail_domain": "cwclar-eval",
+              "fail_plant": "chargeback-cut-68",
+              "fail_slug": "pytest-clarity-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwpretty-eval",
+              "success_plant": "seat-void-68",
+              "success_slug": "pytest-pretty-canary-stale"
+            },
+            {
+              "fail_domain": "cwdtenv-eval",
+              "fail_plant": "rain-cut-68",
+              "fail_slug": "pytest-dotenv-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwenvopt-eval",
+              "success_plant": "dual-void-68",
+              "success_slug": "pytest-envfile-opt-canary-stale"
+            },
+            {
+              "fail_domain": "cwimplib-eval",
+              "fail_plant": "bundle-cut-68",
+              "fail_slug": "pytest-importlib-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtodbg-eval",
+              "success_plant": "promo-void-68",
+              "success_slug": "pytest-timeout-disable-debugger-canary-stale"
+            },
+            {
+              "fail_domain": "cwdoct-eval",
+              "fail_plant": "sla-cut-68",
+              "fail_slug": "pytest-doctest-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwpyarg-eval",
+              "success_plant": "cancel-void-68",
+              "success_slug": "pytest-pyargs-canary-stale"
+            },
+            {
+              "fail_domain": "cwmd-eval",
+              "fail_plant": "pickup-cut-68",
+              "fail_slug": "pytest-md-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwjuxml-eval",
+              "success_plant": "after-void-68",
+              "success_slug": "pytest-junitxml-canary-stale"
+            },
+            {
+              "fail_domain": "cwrlog-eval",
+              "fail_plant": "inventory-cut-68",
+              "fail_slug": "pytest-reportlog-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwcsv-eval",
+              "success_plant": "warranty-void-68",
+              "success_slug": "pytest-csv-canary-stale"
+            },
+            {
+              "fail_domain": "cwburl-eval",
+              "fail_plant": "window-cut-68",
+              "fail_slug": "pytest-base-url-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwvars-eval",
+              "success_plant": "hold-void-68",
+              "success_slug": "pytest-variables-canary-stale"
+            },
+            {
+              "fail_domain": "cwnocov-eval",
+              "fail_plant": "flash-cut-69",
+              "fail_slug": "pytest-no-cov-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwmeta-eval",
+              "success_plant": "restock-void-69",
+              "success_slug": "pytest-metadata-canary-stale"
+            },
+            {
+              "fail_domain": "cwjsonc-eval",
+              "fail_plant": "loyalty-cut-69",
+              "fail_slug": "pytest-jsonreport-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwhtmlc-eval",
+              "success_plant": "gift-void-69",
+              "success_slug": "pytest-html-canary-stale"
+            },
+            {
+              "fail_domain": "cwmf7-eval",
+              "fail_plant": "membership-cut-69",
+              "fail_slug": "pytest-maxfail-7-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwcov35-eval",
+              "success_plant": "tax-void-69",
+              "success_slug": "pytest-cov-failunder-35-canary-stale"
+            },
+            {
+              "fail_domain": "cwrr7-eval",
+              "fail_plant": "chargeback-cut-69",
+              "fail_slug": "pytest-reruns-7-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtout3-eval",
+              "success_plant": "seat-void-69",
+              "success_slug": "pytest-timeout-3s-canary-stale"
+            },
+            {
+              "fail_domain": "cwspl7-eval",
+              "fail_plant": "rain-cut-69",
+              "fail_slug": "pytest-splits-7-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwcnt7-eval",
+              "success_plant": "dual-void-69",
+              "success_slug": "pytest-count-7-canary-stale"
+            },
+            {
+              "fail_domain": "cwdesc-eval",
+              "fail_plant": "bundle-cut-69",
+              "fail_slug": "pytest-deselect-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwignc-eval",
+              "success_plant": "promo-void-69",
+              "success_slug": "pytest-ignore-canary-stale"
+            },
+            {
+              "fail_domain": "cwmnot-eval",
+              "fail_plant": "sla-cut-69",
+              "fail_slug": "pytest-m-not-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwknot-eval",
+              "success_plant": "cancel-void-69",
+              "success_slug": "pytest-k-not-canary-stale"
+            },
+            {
+              "fail_domain": "cwqq-eval",
+              "fail_plant": "pickup-cut-69",
+              "fail_slug": "pytest-qq-nosummary-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwvneg-eval",
+              "success_plant": "after-void-69",
+              "success_slug": "pytest-verbosity-neg2-canary-stale"
+            },
+            {
+              "fail_domain": "cwdbg-eval",
+              "fail_plant": "inventory-cut-69",
+              "fail_slug": "pytest-debug-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwdur0-eval",
+              "success_plant": "warranty-void-69",
+              "success_slug": "pytest-durations-min0-canary-stale"
+            },
+            {
+              "fail_domain": "cwhi-eval",
+              "fail_plant": "window-cut-69",
+              "fail_slug": "pytest-code-highlight-off-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwcol-eval",
+              "success_plant": "hold-void-69",
+              "success_slug": "pytest-color-no-canary-stale"
+            },
+            {
+              "fail_domain": "cwscout-eval",
+              "fail_plant": "flash-cut-70",
+              "fail_slug": "pytest-show-capture-stdout-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtbl-eval",
+              "success_plant": "restock-void-70",
+              "success_slug": "pytest-tb-line-only-canary-stale"
+            },
+            {
+              "fail_domain": "cwldis-eval",
+              "fail_plant": "loyalty-cut-70",
+              "fail_slug": "pytest-log-disable-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwaspl-eval",
+              "success_plant": "gift-void-70",
+              "success_slug": "pytest-assert-plain-canary-stale"
+            },
+            {
+              "fail_domain": "cwnowarn-eval",
+              "fail_plant": "membership-cut-70",
+              "fail_slug": "pytest-p-no-warnings-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwnolog-eval",
+              "success_plant": "tax-void-70",
+              "success_slug": "pytest-p-no-logging-canary-stale"
+            },
+            {
+              "fail_domain": "cwdautoload-eval",
+              "fail_plant": "chargeback-cut-70",
+              "fail_slug": "pytest-disable-plugin-autoload-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwnocp-eval",
+              "success_plant": "seat-void-70",
+              "success_slug": "pytest-p-no-cacheprovider-canary-stale"
+            },
+            {
+              "fail_domain": "cwccut-eval",
+              "fail_plant": "rain-cut-70",
+              "fail_slug": "pytest-confcutdir-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwroot-eval",
+              "success_plant": "dual-void-70",
+              "success_slug": "pytest-rootdir-canary-stale"
+            },
+            {
+              "fail_domain": "cwnocf-eval",
+              "fail_plant": "bundle-cut-70",
+              "fail_slug": "pytest-noconftest-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwovtp-eval",
+              "success_plant": "promo-void-70",
+              "success_slug": "pytest-override-testpaths-canary-stale"
+            },
+            {
+              "fail_domain": "cwff-eval",
+              "fail_plant": "sla-cut-70",
+              "fail_slug": "pytest-ff-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwlf-eval",
+              "success_plant": "cancel-void-70",
+              "success_slug": "pytest-lf-canary-stale"
+            },
+            {
+              "fail_domain": "cwnf-eval",
+              "fail_plant": "pickup-cut-70",
+              "fail_slug": "pytest-nf-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwsw-eval",
+              "success_plant": "after-void-70",
+              "success_slug": "pytest-sw-canary-stale"
+            },
+            {
+              "fail_domain": "cwrev-eval",
+              "fail_plant": "inventory-cut-70",
+              "fail_slug": "pytest-reverse-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwinsta-eval",
+              "success_plant": "warranty-void-70",
+              "success_slug": "pytest-instafail-canary-stale"
+            },
+            {
+              "fail_domain": "cwpdb-eval",
+              "fail_plant": "window-cut-70",
+              "fail_slug": "pytest-pdb-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwrxf-eval",
+              "success_plant": "hold-void-70",
+              "success_slug": "pytest-runxfail-canary-stale"
+            },
+            {
+              "fail_domain": "cwsloc-eval",
+              "fail_plant": "flash-cut-71",
+              "fail_slug": "pytest-showlocals-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwftr-eval",
+              "success_plant": "restock-void-71",
+              "success_slug": "pytest-full-trace-canary-stale"
+            },
+            {
+              "fail_domain": "cwcsh-eval",
+              "fail_plant": "loyalty-cut-71",
+              "fail_slug": "pytest-cache-show-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwpaste-eval",
+              "success_plant": "gift-void-71",
+              "success_slug": "pytest-pastebin-canary-stale"
+            },
+            {
+              "fail_domain": "cwfxt-eval",
+              "fail_plant": "membership-cut-71",
+              "fail_slug": "pytest-fixtures-per-test-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwsetupo-eval",
+              "success_plant": "tax-void-71",
+              "success_slug": "pytest-setup-only-canary-stale"
+            },
+            {
+              "fail_domain": "cwtosig-eval",
+              "fail_plant": "chargeback-cut-71",
+              "fail_slug": "pytest-timeout-method-signal-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwtofn-eval",
+              "success_plant": "seat-void-71",
+              "success_slug": "pytest-timeout-func-only-canary-stale"
+            },
+            {
+              "fail_domain": "cwtmon-eval",
+              "fail_plant": "rain-cut-71",
+              "fail_slug": "pytest-testmon-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cwpick-eval",
+              "success_plant": "dual-void-71",
+              "success_slug": "pytest-picked-mode-canary-stale"
+            },
+            {
+              "fail_domain": "cwdep-eval",
+              "fail_plant": "bundle-cut-71",
+              "fail_slug": "pytest-dependency-canary-stale",
+              "kind": "plugin",
+              "success_domain": "cword-eval",
+              "success_plant": "promo-void-71",
+              "success_slug": "pytest-order-scope-module-canary-stale"
+            }
           ],
           "shape": "catalog-add-tables",
           "start_round": 801,
@@ -519,5 +1527,301 @@
   "preserve_commit": "66deb037890ec2b8177c3a07542bf623924037bb",
   "schema": "evh-catalog-extract/v1",
   "slice": "r801",
-  "source_ref": "origin/legacy-mill-lane"
+  "source_ref": "origin/legacy-mill-lane",
+  "archive_d": {
+    "blob_sha": "6ee994f52e10b85c3009947388f262f0e5cb0f96",
+    "first_ok_slug": "knowledge-retention-last3-n79u",
+    "last_ok_slug": "role-adherence-system-only-x89e",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 6,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_c.py",
+    "plants_filename": "leftover-plants-c.jsonl",
+    "plants_sha256": "b3ab495c2ebd9d67fc3b6d2c0c8b0f62245ad609e44ab5bcea03f97856ee4a7c",
+    "sha256": "888dfa58328f103c94eb312409c89ec901a1c8f995cdbfb561263cfed0a78ee3"
+  },
+  "archive_e": {
+    "blob_sha": "62bc6876d979d2c39ede8490f6ba31592dc8db55",
+    "first_ok_slug": "bazel-action-omit-goldens-z91g",
+    "last_ok_slug": "zipkin-64bit-span-join-f97m",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 4,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_d.py",
+    "plants_filename": "leftover-plants-d.jsonl",
+    "plants_sha256": "9554d101049b05f811b4c4ef77be48b99002a688a3d7c74480d125789810d383",
+    "sha256": "c5f31bd8358a18d30473ac837acff8d95421db02e0b507066f8281d2fbcd54dc"
+  },
+  "archive_f": {
+    "blob_sha": "50c47f4c5f3fc31c82c465de09967cc75823c060",
+    "first_ok_slug": "buf-format-proto-score-swap-h99o",
+    "last_ok_slug": "clearml-output-uri-stale-v13c",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 8,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_e.py",
+    "plants_filename": "leftover-plants-e.jsonl",
+    "plants_sha256": "fdc5c725703068092d83c7a91bc615732c12047eacb898b24ee87d5db65c87dc",
+    "sha256": "6708ce940943c1a65aed9afee2b054a1a1147d3afdb7a27847967bdd513851c9"
+  },
+  "archive_g": {
+    "blob_sha": "0e1968b14e6eb654d72e5c3e3448b13bd0eb98b0",
+    "first_ok_slug": "justfile-legacy-recipe-x15e",
+    "last_ok_slug": "hydra-defaults-old-d47k",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 17,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_f.py",
+    "plants_filename": "leftover-plants-f.jsonl",
+    "plants_sha256": "8c3d4693da05ee32f9cd0c7718cd06843196b3eaf968c247b8c9780f28031b17",
+    "sha256": "ab6bd80fa1678517add1eb58b0e97ed6bee6c653b78dba4bea4dc6cd585a92fb"
+  },
+  "archive_h": {
+    "blob_sha": "e1e9fe4e167589ebdc93ce00d538b33bc5c82aeb",
+    "first_ok_slug": "vault-judge-kv-stale-f49m",
+    "last_ok_slug": "skaffold-render-omit-p85w",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 19,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_g.py",
+    "plants_filename": "leftover-plants-g.jsonl",
+    "plants_sha256": "3cb1ada439e9453710227e517cd0f28df8a89fbfeb14657ed5c34188ed0e7cd8",
+    "sha256": "1dc084e426924287d1a2312d90fc6699b56ff937be21270983b2ff29d3d4c481"
+  },
+  "archive_i": {
+    "blob_sha": "5234b704c7900e1cb8370bfcb38e138dd8101c97",
+    "first_ok_slug": "podman-image-latest-r87y",
+    "last_ok_slug": "hatch-env-stale-l33s",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 24,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_h.py",
+    "plants_filename": "leftover-plants-h.jsonl",
+    "plants_sha256": "d0cdc516b10aaa8e2c38ea609df33c9073b7fae95621384b258f4aae966bb795",
+    "sha256": "46f9b4fa1bc77b7321fbb31de66b6c6156f7474e204d1ec85df3f2fbfc9d81df"
+  },
+  "archive_j": {
+    "blob_sha": "d949f7e36fee070c34743b1a964f56f95a924aea",
+    "first_ok_slug": "ant-eval-target-legacy-n35u",
+    "last_ok_slug": "kind-node-image-stale-r65y",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 16,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_i.py",
+    "plants_filename": "leftover-plants-i.jsonl",
+    "plants_sha256": "c6cf3e697981dc1277fd7fddc0aff54fd1e89777854bb9a6390e2a6b1009b11c",
+    "sha256": "d39139296cb259452b62599b801d65fa63bfdbf7aa91ab273e30cb2823e51901"
+  },
+  "archive_k": {
+    "blob_sha": "fbb139c8232ef185068eb54bbf897eaec8a630d6",
+    "first_ok_slug": "minikube-iso-stale-t67a",
+    "last_ok_slug": "env0-template-stale-x97e",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 16,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_j.py",
+    "plants_filename": "leftover-plants-j.jsonl",
+    "plants_sha256": "e4b629ae9a3aecb01e716263b1f4e4dc1f51a490b33dde600467cbf5dcaded66",
+    "sha256": "aaca4714e23f2cd09f8b3f9cdb774140cd5fd54e8da484b3adb0579fd2ad8323"
+  },
+  "archive_l": {
+    "blob_sha": "e554a1c995f2f02ce6239baf1e9ecb2feb3efd6c",
+    "first_ok_slug": "cfn-changeset-stale-z99g",
+    "last_ok_slug": "rundeck-job-stale-b27i",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 15,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_k.py",
+    "plants_filename": "leftover-plants-k.jsonl",
+    "plants_sha256": "3ecd4bec963daeb27b9220adec538cf7e9fa27d1bf63faaf5d893a21ef7a9b72",
+    "sha256": "876e752d7d661a0f18441e43fe7c669718ad7527f2c382bf50db485e95f61079"
+  },
+  "archive_m": {
+    "blob_sha": "90b32ee2e671ee924842888d2b3aaddd311765e4",
+    "first_ok_slug": "opa-bundle-stale-d29k",
+    "last_ok_slug": "boundary-target-stale-z51g",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 12,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_l.py",
+    "plants_filename": "leftover-plants-l.jsonl",
+    "plants_sha256": "32dcda50d854aa7721601a10b61809cc336219f29f0453f31509e2764bd37056",
+    "sha256": "ccb8fed9000ba09eff8d5b5bd3a1ce707ff1582e3bdd1d8b8590ef8da88a070b"
+  },
+  "archive_n": {
+    "blob_sha": "5dcb67e6036ad80ab45a6f27359dfa6ff06e9609",
+    "first_ok_slug": "consultpl-src-stale-b53i",
+    "last_ok_slug": "capi-template-stale-l63s",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 6,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_m.py",
+    "plants_filename": "leftover-plants-m.jsonl",
+    "plants_sha256": "9e8548c30788e7758814efbc3327d99344626f14cf5554da2cb2471e9173a907",
+    "sha256": "05c14918fcfad8cb6aaea4a3ec7454e4f9b401d588013761363412a143f8ae15"
+  },
+  "archive_o": {
+    "blob_sha": "2f8f32892af75f4a943815165c26a0945ae04da6",
+    "first_ok_slug": "rancher-cluster-stale-n65u",
+    "last_ok_slug": "kops-cluster-stale-t71a",
+    "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "n_pairs": 4,
+    "path": "scripts/eval_harness_unique_mill/mill_plants_n.py",
+    "plants_filename": "leftover-plants-n.jsonl",
+    "plants_sha256": "c8b65f0b0f84de3e3880da28d9888c4b3436da197898f8eb23aff494ca8bb72b",
+    "sha256": "c48bd5d7742d8ea06a6c32a5a742b13238866f25149073ac6a3104a406927bb6"
+  },
+  "deferred_leftover_mills": [
+    {
+      "blob_sha": "a2fb06d7abae4f69fb21abee50b64676f554543d",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_aa.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "80fce7ba7381a52802af634d22f0cf68a8941258",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ab.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "f8a7612374207fda382e459796f466be86604e2f",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ac.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "0fd1dc54baa56e3cfee985dbbc0b2fd3d40c069e",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ad.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "1a6883ae7b4a1bf0aa8ac0dfcb1c68eca3ffcb9e",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ae.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "e4c9988eca8f7a39839836a8db55b6b40eb5654a",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_af.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "b2f2602eebe7901cd186a2d810b0d642b084c05a",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ag.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "eb120140f90f54e88d51b47aa38958c4ed42a916",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ah.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "e235f3ed7d8d3b1b955cc0c826b1f99f6a0eafb7",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ai.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "8d6608b146430b6f744f1f9f2111faab4a65c879",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_aj.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "751ffe291852ee54f44a3e6c9bf3683f1ee0a11a",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ak.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "f7cd2b82818d755f509e6150362618b50a279944",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_al.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "11b43f568e9baf032cebb63fa33b04d526b2d123",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_am.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "47df023c85aeccdaafb1277e01a2b980260f8e32",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_an.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "cf46be0c1ac91b883734a7ff09b846db0c88a8b8",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_ao.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "f45c137c86a075e4f0fcaa542eb3e5911d00d788",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_o.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "48aea039f31669e8a14f82689321207a0bc8f42a",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_p.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "8d2b5d870fab891edcc753991cc33d86657da82e",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_q.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "b1c1a26b662cd44793f304df442165a38ccb60de",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_r.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "e768ebebcd836d9a460f5cd6b72ee7b0aaddb63c",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_s.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "38703054e04e6f0d256ba9bef3ec1a78fc2f2018",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_t.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "e2e6c738ccc11e1db6a28feba8283b7f22e6c51f",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_u.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "058bacd0a477bdd71db0c44cf6dd81f4e9e0a01c",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_v.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "ed970f8503620ef8a27a87cd9337e59dc40e3115",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_w.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "4208953b387fd037c470b7daf4fd11217aec1c87",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_x.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "f63fe9d34d386b50084f61e99aa410404f9061e6",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_y.py",
+      "reason": "generate-only"
+    },
+    {
+      "blob_sha": "01d8248f60f31a1c787fa9d16654ecf37b3f3fd7",
+      "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "path": "scripts/eval_harness_unique_mill/mill_plants_z.py",
+      "reason": "generate-only"
+    }
+  ]
 }

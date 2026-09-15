@@ -125,3 +125,11 @@ def leftover_plants_jsonl_path(package_dir: Path | None = None) -> Path:
 def leftover_plants_b_jsonl_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / LEFTOVER_PLANTS_B_FILENAME
+
+
+def leftover_plants_letter_jsonl_path(
+    letter: str,
+    package_dir: Path | None = None,
+) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / f"leftover-plants-{letter}.jsonl"
