@@ -199,7 +199,15 @@ class LhcSkeletonTests(unittest.TestCase):
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "lhc"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "catalog_extract_fn_pair.py",
+            "catalog_extract_pairs.py",
+            "catalog_extract_plants.py",
+            "catalog.py",
+            "identity.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
 

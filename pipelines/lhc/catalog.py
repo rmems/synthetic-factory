@@ -60,17 +60,25 @@ class LhcCatalog:
         return sum(mill.n_plants for mill in self.mills.values())
 
 
+_IDENTITY_KEYS = (
+    ("schema", CATALOG_SCHEMA_ID),
+    ("preserve_commit", PRESERVE_COMMIT),
+    ("factory", FACTORY),
+    ("generator", GENERATOR),
+    ("slice", SLICE_ID),
+)
+
+
+def _require_identity(document: Mapping[str, Any], catalog_path: Path) -> None:
+    for key, expected in _IDENTITY_KEYS:
+        if document.get(key) != expected:
+            raise ValueError(f"{catalog_path} {key} drifted from vocabulary")
+
+
 def load_catalog(path=None) -> LhcCatalog:
     catalog_path = path if path is not None else catalog_json_path()
     document = json.loads(catalog_path.read_text(encoding="utf-8"))
-    if document.get("schema") != CATALOG_SCHEMA_ID:
-        raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
-    if document.get("preserve_commit") != PRESERVE_COMMIT:
-        raise ValueError(f"{catalog_path} preserve_commit drifted from vocabulary")
-    if document.get("factory") != FACTORY or document.get("generator") != GENERATOR:
-        raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
-    if document.get("slice") != SLICE_ID:
-        raise ValueError(f"{catalog_path} slice drifted from vocabulary")
+    _require_identity(document, catalog_path)
     expected = {source.mill_id: source for source in catalog_sources()}
     mills = {
         mill_id: _mill_from_row(mill_id, row, expected[mill_id])
@@ -111,25 +119,35 @@ def _mill_from_row(
     )
 
 
-def _bind_sources(catalog: LhcCatalog) -> None:
-    expected = {source.mill_id: source for source in catalog_sources()}
-    if set(catalog.mills) != set(expected):
-        raise ValueError(
-            "catalog mills drifted from sources: "
-            f"extra={sorted(set(catalog.mills) - set(expected))} "
-            f"missing={sorted(set(expected) - set(catalog.mills))}"
-        )
-    if len(MILL_SOURCES) != SOURCE_COUNT:
-        raise ValueError(f"expected {SOURCE_COUNT} LHC sources, found {len(MILL_SOURCES)}")
+def _require_mill_ids(catalog: LhcCatalog, expected: Mapping[str, MillSource]) -> None:
+    extra = sorted(set(catalog.mills) - set(expected))
+    missing = sorted(set(expected) - set(catalog.mills))
+    if extra or missing:
+        raise ValueError(f"catalog mills drifted from sources: extra={extra} missing={missing}")
+
+
+def _require_slice_pairs(catalog: LhcCatalog) -> None:
     slice_mill = catalog.mills[SLICE_MILL_ID]
     if len(slice_mill.pairs) != slice_mill.n_rows:
         raise ValueError("w4x-r4358 slice n_rows does not match extracted pairs")
+
+
+def _require_pins(catalog: LhcCatalog, expected: Mapping[str, MillSource]) -> None:
     for mill_id, mill in catalog.mills.items():
         source = expected[mill_id]
         if mill.path != source.path or mill.blob_sha != source.blob_sha:
             raise ValueError(f"{mill_id} pin disagrees with sources.py")
         if mill_id != SLICE_MILL_ID and mill.pairs:
             raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+
+
+def _bind_sources(catalog: LhcCatalog) -> None:
+    expected = {source.mill_id: source for source in catalog_sources()}
+    _require_mill_ids(catalog, expected)
+    if len(MILL_SOURCES) != SOURCE_COUNT:
+        raise ValueError(f"expected {SOURCE_COUNT} LHC sources, found {len(MILL_SOURCES)}")
+    _require_slice_pairs(catalog)
+    _require_pins(catalog, expected)
 
 
 def catalog_json_path(package_dir: Path | None = None) -> Path:
