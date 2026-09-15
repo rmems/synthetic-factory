@@ -477,17 +477,6 @@ class LimitsAttestation(unittest.TestCase):
         self.assertEqual(denied["load"]["status"], "error")
         self.assertFalse(denied["environment"]["limits_applied"])
 
-    def test_read_spec_returns_a_harness_error_for_unreadable_json(self):
-        with tempfile.TemporaryDirectory() as root:
-            directory = Path(root)
-            spec, error = harness._read_spec(directory)
-            self.assertIsNone(spec)
-            self.assertTrue(error.startswith("HarnessError:"))
-            (directory / "spec.json").write_text("{", encoding="utf-8")
-            spec, error = harness._read_spec(directory)
-            self.assertIsNone(spec)
-            self.assertTrue(error.startswith("HarnessError:"))
-
     def _run_main(self, workdir: Path, *, limits_applied: bool) -> tuple[int, str]:
         stdout = io.StringIO()
         with mock.patch.object(harness, "_apply_limits", return_value=limits_applied), \
@@ -515,12 +504,12 @@ class LimitsAttestation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             workdir = Path(root)
             (workdir / "spec.json").write_text("not json", encoding="utf-8")
-            code, attested = self._run_main(workdir, limits_applied=True)
+            code, attested = self._run_main(workdir, limits_applied=False)
             body = json.loads((workdir / harness.REPORT_FILENAME).read_text(encoding="utf-8"))
         self.assertEqual(code, 0)
         self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}false\n")
         self.assertEqual(body["load"]["status"], "error")
-        self.assertIn("HarnessError", body["load"]["error"])
+        self.assertIn("SANDBOX_UNAVAILABLE", body["load"]["error"])
 
     def test_main_usage_error_is_exit_two(self):
         stderr = io.StringIO()

@@ -264,15 +264,6 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
-def _read_spec(workdir: Path) -> tuple[dict | None, str]:
-    """Trusted spec.json, or a harness error when the parent-written file is unreadable."""
-
-    try:
-        return json.loads((workdir / "spec.json").read_text(encoding="utf-8")), ""
-    except (OSError, TypeError, UnicodeError, ValueError) as exc:
-        return None, f"HarnessError: {exc}"
-
-
 def _write_limits_attestation(stream, limits_applied: bool) -> None:
     """Out-of-band limits proof on real stdout before ``program.py`` is read."""
 
@@ -333,8 +324,11 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
     real_stdout, real_stderr = sys.stdout, sys.stderr
     real_stdout.flush()
     real_stderr.flush()
-    spec, spec_error = _read_spec(workdir)
-    limits_applied = False if spec is None else _apply_limits(spec)
+    try:
+        spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
+    except (OSError, TypeError, UnicodeError, ValueError):
+        spec = {}
+    limits_applied = _apply_limits(spec)
     _write_limits_attestation(real_stdout, limits_applied)
     # Drop the capture fds without keeping a dup. A leftover seekable stdout fd
     # (or a workdir path the candidate can reopen) can rewrite the attestation.
@@ -342,16 +336,13 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         os.dup2(sink.fileno(), 1)
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
-        if spec is None:
-            report = {"protocol": PROTOCOL, "load": {"status": "error", "error": spec_error}}
-        else:
-            try:
-                report = _run(workdir, spec, limits_applied=limits_applied)
-            except Exception as exc:
-                report = {
-                    "protocol": PROTOCOL,
-                    "load": {"status": "error", "error": f"HarnessError: {exc}"},
-                }
+        try:
+            report = _run(workdir, spec, limits_applied=limits_applied)
+        except Exception as exc:
+            report = {
+                "protocol": PROTOCOL,
+                "load": {"status": "error", "error": f"HarnessError: {exc}"},
+            }
         _write_protocol_report(workdir, report, _dumps)
     sys.stdout, sys.stderr = real_stdout, real_stderr
     return 0

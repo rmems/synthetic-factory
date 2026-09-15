@@ -28,8 +28,9 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from . import harness_report as _harness_report
 from . import vocabulary as cv
-from ._contract import bind_import_twin, load_strict_json
+from ._contract import bind_import_twin
 
 HARNESS_FILENAME = "_harness.py"
 HARNESS_PATH = Path(__file__).with_name(HARNESS_FILENAME)
@@ -39,8 +40,8 @@ FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
-LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
-REPORT_FILENAME = "report.json"
+LIMITS_ATTESTATION_PREFIX = _harness_report.LIMITS_ATTESTATION_PREFIX
+REPORT_FILENAME = _harness_report.REPORT_FILENAME
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
@@ -227,41 +228,8 @@ def _harness_error(detail: str) -> PhaseReport:
     return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
 
 
-_ATTESTATION_PREFIX = LIMITS_ATTESTATION_PREFIX.encode()
-_ATTESTATION_BY_TOKEN = {
-    str(True).lower().encode(): True,
-    str(False).lower().encode(): False,
-}
-
-
-def _limits_attested(stdout: bytes) -> bool | str:
-    """Authoritative limits flag from the first stdout line, or why there is none."""
-
-    line, newline, _rest = stdout.partition(b"\n")
-    if not stdout:
-        return "empty stdout"
-    if not newline or not line.startswith(_ATTESTATION_PREFIX):
-        return "missing limits attestation line"
-    applied = _ATTESTATION_BY_TOKEN.get(line[len(_ATTESTATION_PREFIX):].strip())
-    return "limits attestation malformed" if applied is None else applied
-
-
-def _parsed_report(returncode: int, stdout: bytes, body: bytes) -> dict[str, Any] | str:
-    """The protocol object the child wrote, or the reason there is none."""
-
-    if returncode != 0:
-        return f"exit status {returncode}"
-    attested = _limits_attested(stdout)
-    if not isinstance(attested, bool):
-        return attested
-    try:
-        parsed = load_strict_json(body.decode("utf-8"))
-    except ValueError as exc:
-        return f"report unreadable: {exc}"
-    if not isinstance(parsed, dict) or parsed.get("protocol") != cv.HARNESS_PROTOCOL:
-        return "report is not the protocol"
-    parsed["_limits_attested"] = attested
-    return parsed
+_limits_attested = _harness_report.limits_attested
+_parsed_report = _harness_report.parsed_report
 
 
 def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -> PhaseReport:
