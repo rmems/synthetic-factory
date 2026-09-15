@@ -1,0 +1,22 @@
+pipelines/curate_gate.py
+  s_c5f44e4588bc4d::t_f9fbf08d5cfeec 564
+  s_c5f44e4588bc4d::t_00c24f7765f5da 621,623-629
+pipelines/curate_gate_promotion.py
+  s_c5f44e4588bc4d::t_2f760ca826217f 4-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6c2b63160571a076e6ae83f137295d6256edfb8e",
+  "prompts": {},
+  "sessions": {
+    "s_c5f44e4588bc4d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fd0614f3-677f-4e2f-b902-8eb027d06b17",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
