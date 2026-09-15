@@ -264,6 +264,13 @@ class NextRoundFunnel(_FunnelCase):
             confined = next_round._confined_path(self.parser, SimpleNamespace(path=td))
         self.assertEqual(confined, Path(os.path.realpath(td)))
 
+    def test_a_missing_path_is_refused_as_empty(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            next_round._confined_path(self.parser, SimpleNamespace(path=None))
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("path: the path is empty", stderr.getvalue())
+
     def test_parse_args_still_returns_the_namespace(self):
         args = next_round.parse_args(["--allocate", "3", "some-dir"])
         self.assertEqual(args.path, "some-dir")

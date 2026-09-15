@@ -60,12 +60,29 @@ class Confinement(unittest.TestCase):
         self.assertTrue(_under_root("/opt/factory/input.jsonl", "/"))
         self.assertTrue(_under_root("/opt/factory/input.jsonl", "/opt/factory/"))
         self.assertFalse(_under_root("/etc/passwd", "/opt/factory"))
+        self.assertFalse(_under_root("/opt/factory/input.jsonl", "factory"))
         with mock.patch(
             "pipelines.operator_paths.operator_roots", return_value=("/",)
         ):
             self.assertEqual(
                 operator_path(candidate, argument="input"),
                 Path(os.path.realpath(candidate)),
+            )
+
+    def test_non_pathlike_values_and_unsupported_kinds_are_refused(self):
+        with self.assertRaises(argparse.ArgumentTypeError) as raised:
+            operator_path(object(), argument="input")
+        self.assertEqual(str(raised.exception), "input: the path is empty")
+        with self.assertRaises(argparse.ArgumentTypeError) as raised:
+            operator_path(".", argument="input", kind="alias")
+        self.assertEqual(str(raised.exception), "input: the path kind is not supported")
+
+    def test_bytes_paths_under_an_operator_root_still_resolve(self):
+        with tempfile.TemporaryDirectory() as td:
+            encoded = os.fsencode(os.path.join(td, "input.jsonl"))
+            self.assertEqual(
+                operator_path(encoded, argument="input"),
+                Path(os.path.realpath(os.fsdecode(encoded))),
             )
 
     def test_empty_paths_are_refused(self):
@@ -96,6 +113,26 @@ class LeafSafety(unittest.TestCase):
             with self.assertRaises(argparse.ArgumentTypeError) as raised:
                 operator_path(link, argument="input")
             self.assertEqual(str(raised.exception), "input: the path is a dangling symlink")
+
+    def test_an_unreadable_leaf_is_refused(self):
+        with tempfile.TemporaryDirectory() as td:
+            leaf = Path(td) / "sealed"
+            leaf.write_text("keep\n", encoding="utf-8")
+            real_lstat = os.lstat
+            hits = {"n": 0}
+
+            def lstat(path, *args, **kwargs):
+                target = os.fsdecode(os.fspath(path))
+                if os.path.normpath(target) == os.path.normpath(leaf):
+                    hits["n"] += 1
+                    if hits["n"] >= 2:
+                        raise OSError("cannot inspect")
+                return real_lstat(path, *args, **kwargs)
+
+            with mock.patch("pipelines.operator_paths.os.lstat", side_effect=lstat):
+                with self.assertRaises(argparse.ArgumentTypeError) as raised:
+                    operator_path(leaf, argument="input")
+            self.assertEqual(str(raised.exception), "input: the path cannot be inspected")
 
     def test_fifo_and_device_leaves_are_refused(self):
         with tempfile.TemporaryDirectory() as td:

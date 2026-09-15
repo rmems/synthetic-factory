@@ -2172,10 +2172,11 @@ def _confined_factory_dir(parser, args):
     ``staging_dir`` string a reservation persists stays byte-identical to the
     one ``publish`` and ``abort`` compare it against.
     """
-    factory_dir = confine(parser, args.factory_dir, argument="factory_dir")
-    if factory_dir is None:
-        parser.error("factory_dir: the path is empty")
-    return factory_dir
+    return confine(
+        parser,
+        args.factory_dir if args.factory_dir is not None else "",
+        argument="factory_dir",
+    )
 
 
 def main(argv=None):

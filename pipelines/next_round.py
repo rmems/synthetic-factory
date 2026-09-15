@@ -223,10 +223,7 @@ def _confined_path(parser, args):
     still refreshes ``NEXT_ROUND.json`` in place -- the documented exception to
     "write only to new destinations" -- now under the confined root.
     """
-    path = confine(parser, args.path, argument="path")
-    if path is None:
-        parser.error("path: the path is empty")
-    return path
+    return confine(parser, args.path if args.path is not None else "", argument="path")
 
 
 def main(argv=None):
