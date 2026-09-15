@@ -14,8 +14,9 @@ import tempfile
 import unittest
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError
 from pathlib import Path
+
+from rights_test_support import SpoofedString
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -318,9 +319,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_decision_is_immutable(self):
         decision = self.classify()
 
-        # Frozen slotted dataclasses raise either exception across supported
-        # Python releases when assigning a delegated attribute.
-        with self.assertRaises((FrozenInstanceError, TypeError)):
+        with self.assertRaises((AttributeError, TypeError)):
             decision.project_training_policy = "allowed"
         with self.assertRaises(TypeError):
             decision.public_payload["project_training_policy"] = "allowed"
@@ -500,6 +499,57 @@ class RightsPolicyTests(RightsPolicyTestCase):
         ):
             rights_policy.validate_rights_policy(document)
 
+    def test_direct_policy_validation_rejects_spoofed_closed_vocabulary_strings(self):
+        profile_use = mutable_policy_document()
+        profile_use["profiles"][0]["intended_use"] = SpoofedString(
+            "training_candidate", "research_only"
+        )
+        profile_policy = mutable_policy_document()
+        profile_policy["profiles"][0]["project_training_policy"] = SpoofedString(
+            "allowed", "blocked"
+        )
+        profile_status = mutable_policy_document()
+        profile_status["profiles"][0]["evidence_statuses"][
+            "provider_training_status"
+        ] = SpoofedString("allowed", "unresolved")
+        rule_use = mutable_policy_document()
+        rule_use["rules"][0]["intended_use"] = SpoofedString(
+            "training_candidate", rule_use["rules"][0]["intended_use"]
+        )
+        rule_policy = mutable_policy_document()
+        rule_policy["rules"][0]["project_training_policy"] = SpoofedString(
+            "allowed", rule_policy["rules"][0]["project_training_policy"]
+        )
+        rule_profile = mutable_policy_document()
+        original_profile = rule_profile["rules"][0]["rights_profile_id"]
+        rule_profile["rules"][0]["rights_profile_id"] = SpoofedString(
+            "other-profile", original_profile
+        )
+        cases = (
+            ("profile intended_use", profile_use),
+            ("profile project_training_policy", profile_policy),
+            ("profile evidence status", profile_status),
+            ("rule intended_use", rule_use),
+            ("rule project_training_policy", rule_policy),
+            ("rule rights_profile_id", rule_profile),
+        )
+        for label, document in cases:
+            with self.subTest(field=label):
+                with self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_policy.validate_rights_policy(document)
+
+        serialized = mutable_policy_document()
+        serialized["profiles"][0]["intended_use"] = SpoofedString(
+            "training_candidate", "research_only"
+        )
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "inconsistent intended_use and project policy",
+        ):
+            rights_policy.load_rights_policy_bytes(
+                json.dumps(serialized).encode("utf-8")
+            )
+
     def test_policy_validation_rejects_profile_or_rule_verdict_drift(self):
         inconsistent_profile = mutable_policy_document()
         inconsistent_profile["profiles"][1]["project_training_policy"] = "allowed"
@@ -571,6 +621,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 rights_policy.load_rights_policy(missing)
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(Path(directory))
+
 
 class RightsPolicyAvailabilityTests(unittest.TestCase):
     def test_rights_policy_runtime_exists(self):

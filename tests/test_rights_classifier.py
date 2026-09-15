@@ -25,41 +25,56 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
-    def test_uninitialized_decision_attribute_lookup_terminates(self):
-        decision = rights_classifier.RightsDecision.__new__(
-            rights_classifier.RightsDecision
-        )
-        self.assertTrue(callable(getattr(decision, "__setstate__")))
-        for name in ("route", "authorization", "bindings"):
-            with self.subTest(name=name), self.assertRaises(AttributeError):
-                getattr(decision, name)
+    def test_incomplete_decision_construction_fails(self):
+        with self.assertRaises(TypeError):
+            rights_classifier.RightsDecision()
 
         classified = self.classify()
         self.assertEqual(copy.deepcopy(classified), classified)
 
-    def test_initialized_decision_state_cannot_be_restored(self):
+    def test_classified_decision_graph_rejects_base_object_mutation(self):
         decision = self.classify()
         verification = self.verification()
+        promoted = decision.authorization._replace(
+            intended_use="training_candidate",
+            project_training_policy="allowed",
+        )
+        attempts = (
+            (decision, "authorization", promoted),
+            (decision.route, "provider", "xai"),
+            (decision.bindings, "rights_policy_sha256", "sha256:" + "0" * 64),
+            (verification, "expected_route", decision.route),
+        )
+        for target, field, replacement in attempts:
+            original = object.__getattribute__(target, field)
+            try:
+                with self.subTest(target=type(target).__name__, field=field):
+                    with self.assertRaises((AttributeError, TypeError)):
+                        object.__setattr__(target, field, replacement)
+            finally:
+                if object.__getattribute__(target, field) != original:
+                    object.__setattr__(target, field, original)
+
+        payload = decision.to_public_payload()
+        self.assertEqual(
+            (payload["intended_use"], payload["project_training_policy"]),
+            ("research_only", "blocked"),
+        )
+        self.assertEqual(copy.deepcopy(decision), decision)
+        self.assertEqual(copy.deepcopy(verification), verification)
+
+    def test_classified_values_have_no_writable_instance_dict(self):
+        decision = self.classify()
         values = (
             decision,
             decision.route,
             decision.bindings,
-            verification,
+            self.verification(),
         )
-
         for value in values:
-            state = [
-                object.__getattribute__(value, name)
-                for name in type(value).__slots__
-            ]
-            with (
-                self.subTest(value=type(value).__name__),
-                self.assertRaisesRegex(TypeError, "initialized"),
-            ):
-                value.__setstate__(state)
-
-        self.assertEqual(copy.deepcopy(decision), decision)
-        self.assertEqual(copy.deepcopy(verification), verification)
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaises(AttributeError):
+                    value.__dict__
 
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
