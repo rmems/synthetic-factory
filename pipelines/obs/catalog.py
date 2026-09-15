@@ -3,8 +3,8 @@
 
 A catalog directory holds ``CATALOG.json`` plus three jsonl members
 (hop plants, leftover3 pairs, leftover-spec rows). Load verifies each
-digest and every required field before a plant is trusted. Historical
-mill scripts are read only as text through :func:`plants_from_source`.
+digest and field before a plant is trusted. Mill scripts are text only
+via :func:`plants_from_source`.
 """
 
 from __future__ import annotations
@@ -167,7 +167,6 @@ __all__ = [
     "sha256_bytes",
 ]
 
-
 @dataclass(frozen=True)
 class Plant:
     """One observability plant: hop pair, leftover3 pair, or leftover spec."""
@@ -180,7 +179,6 @@ class Plant:
     slug: str
     payload: Mapping[str, Any]
 
-
 @dataclass(frozen=True)
 class Mill:
     mill_id: str
@@ -188,7 +186,6 @@ class Mill:
     source: str
     plant_count: int
     shape: str
-
 
 @dataclass(frozen=True)
 class Catalog:
@@ -217,14 +214,11 @@ class Catalog:
             item for item in self.plants if item.shape in {SHAPE_HOP, SHAPE_LEFTOVER3}
         )
 
-
 def default_catalog_dir() -> Path:
     return repo_root() / "config" / "obs"
 
-
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
 
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. Other calls refuse."""
@@ -248,7 +242,6 @@ def _const_eval(node: ast.AST) -> Any:
         f"plant source is not a constant ({type(node).__name__})",
     )
 
-
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
         target = node.targets[0]
@@ -259,7 +252,6 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
             return node.target.id, node.value
     return None
 
-
 def _require_text(value: Any, where: str, code: str, *, strip: bool = True) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ObsRefusal(code, f"{where} must be a non-empty string")
@@ -267,12 +259,10 @@ def _require_text(value: Any, where: str, code: str, *, strip: bool = True) -> s
         raise ObsRefusal(code, f"{where} must be a stripped string")
     return value
 
-
 def _require_int(value: Any, where: str, code: str, minimum: int = 0) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
         raise ObsRefusal(code, f"{where} must be an int >= {minimum}")
     return value
-
 
 def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
     """Reconstruct r401 ``_kind_bits`` from extracted constants. Never exec."""
@@ -403,7 +393,6 @@ def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
     }
     return dict(zip(_KIND_BIT_KEYS, rows.get(kind, rows["am"])))
 
-
 def _apply_hop_defaults(row: dict[str, Any]) -> dict[str, Any]:
     kind = _require_text(row.get("kind"), "P().kind", FINDING_SOURCE_NOT_PARSEABLE)
     svc = _require_text(row.get("svc"), "P().svc", FINDING_SOURCE_NOT_PARSEABLE)
@@ -419,7 +408,6 @@ def _apply_hop_defaults(row: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("lfalse_file", f"{kind}/{ldash}.false.yaml")
     out.setdefault("novel", 73)
     return out
-
 
 def _expand_r401(args: list[Any], kind_ns: Mapping[str, Any]) -> dict[str, Any]:
     if len(args) != len(R401_ARG_NAMES):
@@ -452,7 +440,6 @@ def _expand_r401(args: list[Any], kind_ns: Mapping[str, Any]) -> dict[str, Any]:
     )
     return expanded
 
-
 def _eval_plant_node(node: ast.AST, kind_ns: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Dict):
         return _const_eval(node)
@@ -472,7 +459,6 @@ def _eval_plant_node(node: ast.AST, kind_ns: Mapping[str, Any]) -> Any:
         f"plant source is not a constant ({type(node).__name__})",
     )
 
-
 def _literal_names(mill_id: str) -> tuple[str, ...]:
     if mill_id == "obs_leftover14":
         return ("L14",)
@@ -483,7 +469,6 @@ def _literal_names(mill_id: str) -> tuple[str, ...]:
     if mill_id.startswith("obs_leftover"):
         return ("SPECS",)
     return ("PAIRS",)
-
 
 def _source_assignments(tree: ast.AST) -> tuple[dict[str, ast.AST], Any, Mapping[str, Any]]:
     found: dict[str, ast.AST] = {}
@@ -501,7 +486,6 @@ def _source_assignments(tree: ast.AST) -> tuple[dict[str, ast.AST], Any, Mapping
         elif name in {"PAIRS", "SPECS", "L14", "L15", "L16"}:
             found[name] = value
     return found, inferred_base, kind_ns
-
 
 def plants_from_source(
     text: str,
@@ -546,7 +530,6 @@ def plants_from_source(
         kind_ns=kind_ns,
     )
 
-
 def _rows_from_nodes(
     nodes: list[ast.AST],
     *,
@@ -584,7 +567,6 @@ def _rows_from_nodes(
         )
     return tuple(rows)
 
-
 def _pair_from_raw(
     raw: Any,
     *,
@@ -614,7 +596,6 @@ def _pair_from_raw(
         if key not in row:
             row[key] = value
     return row
-
 
 def _spec_from_raw(
     raw: Any,
@@ -656,7 +637,6 @@ def _spec_from_raw(
             row[key] = value
     return row
 
-
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
     if not isinstance(mapping, dict):
         raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where} must be an object")
@@ -668,7 +648,6 @@ def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -
     if not isinstance(value, kinds):
         raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.{key} has the wrong type")
     return value
-
 
 def _plant_from_row(row: Any, where: str) -> Plant:
     if not isinstance(row, dict):
@@ -709,7 +688,6 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         payload=payload,
     )
 
-
 def _mill_from_row(row: Any, where: str) -> Mill:
     mill_id = _require_text(
         _field(row, "mill_id", str, where), f"{where}.mill_id", FINDING_CATALOG_FIELD_INVALID
@@ -738,7 +716,6 @@ def _mill_from_row(row: Any, where: str) -> Mill:
         ),
     )
 
-
 def _leftover_spec_index(rows: tuple[Any, ...]) -> Mapping[str, Any] | None:
     if (
         len(rows) == 1
@@ -747,7 +724,6 @@ def _leftover_spec_index(rows: tuple[Any, ...]) -> Mapping[str, Any] | None:
     ):
         return rows[0]
     return None
-
 
 def _read_jsonl(path: Path) -> tuple[Any, ...]:
     try:
@@ -768,7 +744,6 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
             ) from exc
     return tuple(rows)
 
-
 def _registry_factory_ids() -> set[str]:
     path = repo_root() / "config" / "FACTORY-REGISTRY.json"
     try:
@@ -785,7 +760,6 @@ def _registry_factory_ids() -> set[str]:
         for row in factories
         if isinstance(row, dict) and isinstance(row.get("path_id"), str)
     }
-
 
 def _load_member_rows(
     catalog_dir: Path, files: Mapping[str, Any], digests: Mapping[str, Any]
@@ -824,7 +798,6 @@ def _load_member_rows(
         rows.extend(member_rows)
     return rows, spec_index
 
-
 def _refuse_spec_index_count(meta: Mapping[str, Any], spec_index: Mapping[str, Any] | None) -> None:
     if spec_index is None:
         return
@@ -838,7 +811,6 @@ def _refuse_spec_index_count(meta: Mapping[str, Any], spec_index: Mapping[str, A
             f"index total is {total}",
         )
 
-
 def _refuse_duplicate_plants(plants: tuple[Plant, ...]) -> None:
     seen: set[str] = set()
     for plant in plants:
@@ -846,14 +818,12 @@ def _refuse_duplicate_plants(plants: tuple[Plant, ...]) -> None:
             raise ObsRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
         seen.add(plant.plant_id)
 
-
 def _refuse_count(mill: Mill, actual: int) -> None:
     if actual != mill.plant_count:
         raise ObsRefusal(
             FINDING_CATALOG_FIELD_INVALID,
             f"{mill.mill_id} plant_count {mill.plant_count} != {actual}",
         )
-
 
 def _refuse_mill_pins(
     mills: tuple[Mill, ...],
@@ -909,7 +879,6 @@ def _refuse_mill_pins(
                 FINDING_CATALOG_FIELD_INVALID,
                 f"{mill.mill_id} leftover-spec index does not match mill pin",
             )
-
 
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
@@ -989,12 +958,9 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         leftover_spec_index=spec_index,
     )
 
-
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
     """Load the catalog. An invalid catalog is a refusal, not a finding list."""
-
     load_catalog(directory)
     return []
-
 
 bind_import_twin(__name__)
