@@ -119,16 +119,17 @@ def _legacy_source(relpath: str) -> str | None:
 
 
 class CatalogLoading(unittest.TestCase):
-    def test_committed_catalog_loads_representative_slice(self):
+    def test_committed_catalog_loads_full_slice(self):
         loaded = catalog.load_catalog(COMMITTED)
         self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.factory, FACTORY)
         self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[PREFIX])
         self.assertEqual(loaded.meta["slice"], CATALOG_SLICE)
         self.assertEqual(loaded.meta["full_plant_count"], FULL_PLANT_COUNT)
-        self.assertEqual(len(loaded.plants), 23)
+        self.assertEqual(loaded.meta["plant_count"], FULL_PLANT_COUNT)
+        self.assertEqual(len(loaded.plants), FULL_PLANT_COUNT)
         self.assertEqual(len(loaded.mills), 8)
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 23)
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), FULL_PLANT_COUNT)
         legacy = [plant for plant in loaded.plants if plant.shape == SHAPE_LEGACY]
         self.assertEqual(len(legacy), 16)
         self.assertEqual([plant.slug for plant in legacy], list(EXPECTED_SLUGS))
@@ -242,14 +243,14 @@ class AstExtract(unittest.TestCase):
             full = dict(FULL_MILL_COUNTS)[mill_id]
             self.assertEqual(len(extracted), full, rel)
             committed = [plant for plant in loaded.plants if plant.mill_id == mill_id]
-            self.assertGreaterEqual(len(committed), 1)
-            first = extracted[0]
-            self.assertEqual(committed[-1 if mill_id != "lrd_r157" else 0].slug, first["slug"])
-            if shape == SHAPE_LEGACY:
-                self.assertEqual(committed[0].shape, SHAPE_LEGACY)
-            else:
-                self.assertEqual(committed[-1].shape, shape)
-                self.assertIsInstance(committed[-1].payload, dict)
+            self.assertEqual(len(committed), full, rel)
+            for row, plant in zip(extracted, committed, strict=True):
+                self.assertEqual(row["slug"], plant.slug)
+                self.assertEqual(row["shape"], plant.shape)
+                if shape == SHAPE_LEGACY:
+                    self.assertEqual(row["field"], plant.field)
+                else:
+                    self.assertIsInstance(plant.payload, dict)
             compared += 1
         self.assertEqual(compared, len(SOURCE_MILLS))
 

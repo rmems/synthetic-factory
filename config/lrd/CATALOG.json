@@ -62,11 +62,11 @@
       "source": "experiments/lrd-mill-r116.py"
     }
   ],
-  "plant_count": 23,
-  "plants_sha256": "0b39cb450972106d7f0ac14fd3b767c9139dc16807bfe2c8725b97949bf7922a",
+  "plant_count": 118,
+  "plants_sha256": "685023039b45c65c5b8b4a248428e0a9b3e0b2a724c32acb5dea0bd05a733c7a",
   "quota_per_round": 2,
   "record_kind": "episode",
-  "slice": "representative",
+  "slice": "full",
   "source": {
     "commit": "813f93f1969c1c4421e5663492e9663739efa642",
     "excluded": {
