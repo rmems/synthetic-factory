@@ -27,12 +27,14 @@ from .catalog_ast import (
 from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
+    DEFERRED_PAIR_KEYS,
     FACTORY,
     GENERATOR,
     KIND_FAST,
     KIND_LOOP,
     KIND_PAIRS,
     LEGACY_REF,
+    PAIRS_FILENAME,
     PRESERVE_COMMIT,
     SLICE_ID,
     SLICE_MILL_ID,
@@ -237,6 +239,7 @@ def _tails_record(tree: ast.AST) -> dict[str, Any] | None:
     last_success_tail = tails[-2]
     first_slug = None
     last_slug = None
+    scanners = scanners or []
     if scanners:
         first_slug = _tail_slug(scanners, tails, 0)
         last_slug = _tail_slug(scanners, tails, len(tails) - 2)
@@ -249,13 +252,36 @@ def _tails_record(tree: ast.AST) -> dict[str, Any] | None:
         "last_success_tail": last_success_tail,
         "first_slug": first_slug,
         "last_slug": last_slug,
-        "scanners": scanners or [],
-        "pairs": [],
+        "scanners": scanners,
+        "tails": tails,
+        "pairs": tail_pair_rows(scanners, tails),
     }
 
 
 def _tail_slug(scanners: list[str], tails: list[str], index: int) -> str:
     return f"{scanners[index % len(scanners)]}-{tails[index]}-leftover"
+
+
+def tail_pair_rows(scanners: list[str], tails: list[str]) -> list[dict[str, Any]]:
+    """Pair successive generated leftover plants; does not exec the mill."""
+
+    if not scanners or len(tails) < 2:
+        return []
+    n_rows = len(tails) // 2
+    rows = []
+    for index in range(n_rows):
+        success_index = index * 2
+        fail_index = success_index + 1
+        success = {
+            "scanner": scanners[success_index % len(scanners)],
+            "slug": _tail_slug(scanners, tails, success_index),
+        }
+        fail = {
+            "scanner": scanners[fail_index % len(scanners)],
+            "slug": _tail_slug(scanners, tails, fail_index),
+        }
+        rows.append(_pair_row(success, fail))
+    return rows
 
 
 def _is_dict_pair(node: ast.AST) -> bool:
@@ -404,10 +430,71 @@ def catalog_json_path(package_dir: Path | None = None) -> Path:
     return root / CATALOG_FILENAME
 
 
+def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / PAIRS_FILENAME
+
+
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
     destination = path if path is not None else catalog_json_path()
     destination.write_text(dumps_catalog(document), encoding="utf-8")
     return destination
+
+
+def compact_deferred_pair(record: Mapping[str, Any], pair: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "fail_scanner": pair["fail_scanner"],
+        "fail_slug": pair["fail_slug"],
+        "mill_id": record["mill_id"],
+        "path": record["path"],
+        "success_scanner": pair["success_scanner"],
+        "success_slug": pair["success_slug"],
+    }
+
+
+def dumps_pairs_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    """One compact object per deferred pair. Trailing newline. No CR."""
+
+    lines = [
+        json.dumps(
+            {key: row[key] for key in DEFERRED_PAIR_KEYS},
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        for row in rows
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_pairs_jsonl(rows: list[Mapping[str, Any]], path: Path | None = None) -> Path:
+    destination = path if path is not None else pairs_jsonl_path()
+    destination.write_text(dumps_pairs_jsonl(rows), encoding="utf-8")
+    return destination
+
+
+def deferred_pair_rows(
+    records: list[dict[str, Any]],
+    *,
+    expected_rows: int | None = None,
+) -> list[dict[str, Any]]:
+    """Compact pair bodies for every mill except the committed r181 slice."""
+
+    scanners = inherited_scanners(records)
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("kind") != KIND_PAIRS or record["mill_id"] == SLICE_MILL_ID:
+            continue
+        filled = apply_inherited_scanners(record, scanners)
+        pairs = list(filled.get("pairs") or ())
+        if len(pairs) != filled["n_rows"]:
+            raise ValueError(
+                f"{filled['mill_id']} deferred pairs {len(pairs)} != n_rows {filled['n_rows']}"
+            )
+        rows.extend(compact_deferred_pair(filled, pair) for pair in pairs)
+    if expected_rows is not None and len(rows) != expected_rows:
+        raise ValueError(f"deferred pair rows {len(rows)} != pin {expected_rows}")
+    return rows
 
 
 def apply_inherited_scanners(
@@ -416,18 +503,31 @@ def apply_inherited_scanners(
 ) -> dict[str, Any]:
     """Fill tails slugs from a parent mill's AST-extracted ``SCAN`` keys."""
 
-    if record.get("shape") != SHAPE_TAILS or record.get("first_slug"):
-        return record
-    first_tail = record.get("first_tail")
-    last_success_tail = record.get("last_success_tail")
-    n_tails = record.get("n_tails")
-    if not scanners or not isinstance(first_tail, str) or not isinstance(n_tails, int):
+    if record.get("shape") != SHAPE_TAILS:
         return record
     updated = dict(record)
-    updated["first_slug"] = f"{scanners[0]}-{first_tail}-leftover"
-    if isinstance(last_success_tail, str) and n_tails >= 2:
-        last_index = n_tails - 2
-        updated["last_slug"] = (
-            f"{scanners[last_index % len(scanners)]}-{last_success_tail}-leftover"
-        )
-    return updated
+    if not record.get("first_slug"):
+        first_tail = record.get("first_tail")
+        last_success_tail = record.get("last_success_tail")
+        n_tails = record.get("n_tails")
+        if scanners and isinstance(first_tail, str) and isinstance(n_tails, int):
+            updated["first_slug"] = f"{scanners[0]}-{first_tail}-leftover"
+            if isinstance(last_success_tail, str) and n_tails >= 2:
+                last_index = n_tails - 2
+                updated["last_slug"] = (
+                    f"{scanners[last_index % len(scanners)]}-{last_success_tail}-leftover"
+                )
+    tails = record.get("tails")
+    local = record.get("scanners")
+    if isinstance(local, list) and local:
+        chosen = [str(item) for item in local]
+    else:
+        chosen = list(scanners)
+    if (
+        chosen
+        and isinstance(tails, list)
+        and len(tails) >= 2
+        and not updated.get("pairs")
+    ):
+        updated["pairs"] = tail_pair_rows(chosen, [str(item) for item in tails])
+    return updated if updated != record else record

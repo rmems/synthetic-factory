@@ -5,18 +5,23 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
-from .catalog_extract import catalog_json_path
+from .catalog_extract import catalog_json_path, pairs_jsonl_path, sha256_bytes
 from .sources import MILL_SOURCES, assert_source_count, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
+    DEFERRED_PAIR_KEYS,
+    DEFERRED_PAIR_ROWS,
     FACTORY,
     GENERATOR,
+    PAIRS_SHA256,
     PRESERVE_COMMIT,
     SLICE_ID,
     SLICE_MILL_ID,
+    SLICE_PAIR_ROWS,
     SOURCE_FILE_COUNT,
 )
 
@@ -57,9 +62,18 @@ class SsrCatalog:
     def n_pair_rows(self) -> int:
         return sum(mill.n_rows for mill in self.mills.values())
 
+    @property
+    def deferred_pairs(self) -> tuple[Mapping[str, Any], ...]:
+        rows: list[Mapping[str, Any]] = []
+        for mill_id, mill in self.mills.items():
+            if mill_id != SLICE_MILL_ID:
+                rows.extend(mill.pairs)
+        return tuple(rows)
+
 
 def load_catalog(path=None) -> SsrCatalog:
     catalog_path = path if path is not None else catalog_json_path()
+    catalog_path = Path(catalog_path)
     document = json.loads(catalog_path.read_text(encoding="utf-8"))
     if document.get("schema") != CATALOG_SCHEMA_ID:
         raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
@@ -76,7 +90,32 @@ def load_catalog(path=None) -> SsrCatalog:
         raise ValueError(f"{catalog_path} extract.method must be ast.parse")
     if extract.get("source_files") != SOURCE_FILE_COUNT:
         raise ValueError(f"{catalog_path} extract.source_files drifted")
-    mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    grouped = _load_deferred_pairs(pairs_jsonl_path(catalog_path.parent))
+    mills = {}
+    for mill_id, row in document["mills"].items():
+        mill = _mill_from_row(row)
+        if mill_id == SLICE_MILL_ID:
+            if row.get("pairs") is None or len(mill.pairs) != SLICE_PAIR_ROWS:
+                raise ValueError("r181 slice must keep its 16 compact identities")
+        else:
+            if row.get("pairs"):
+                raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+            attached = grouped.pop(mill_id, ())
+            if len(attached) != mill.n_rows:
+                raise ValueError(
+                    f"{mill_id} deferred pairs {len(attached)} != n_rows {mill.n_rows}"
+                )
+            if attached:
+                first = attached[0]["success_slug"]
+                last = attached[-1]["success_slug"]
+                if first != mill.first_slug or last != mill.last_slug:
+                    raise ValueError(f"{mill_id} deferred first/last slug drifted")
+                if any(pair["path"] != mill.path for pair in attached):
+                    raise ValueError(f"{mill_id} deferred path drifted")
+            mill = replace(mill, pairs=attached)
+        mills[mill_id] = mill
+    if grouped:
+        raise ValueError(f"pairs.jsonl names unknown mills: {sorted(grouped)}")
     catalog = SsrCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -88,6 +127,46 @@ def load_catalog(path=None) -> SsrCatalog:
     )
     _bind_sources(catalog)
     return catalog
+
+
+def _load_deferred_pairs(path: Path) -> dict[str, tuple[Mapping[str, Any], ...]]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot load SSR deferred pairs {path}: {exc}") from exc
+    if "\r" in text or not text.endswith("\n"):
+        raise ValueError(f"{path.name} must be LF-framed jsonl")
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for index, line in enumerate(text.splitlines(), start=1):
+        if not line or line.startswith((" ", "\t")):
+            raise ValueError(f"{path.name}:{index} is not a compact JSONL record")
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path.name}:{index} is not JSON: {exc}") from exc
+        pair = _deferred_pair(raw, index)
+        grouped.setdefault(pair["mill_id"], []).append(pair)
+    total = sum(len(rows) for rows in grouped.values())
+    if total != DEFERRED_PAIR_ROWS:
+        raise ValueError(f"{path.name} has {total} rows, expected {DEFERRED_PAIR_ROWS}")
+    if SLICE_MILL_ID in grouped:
+        raise ValueError("pairs.jsonl must omit the committed r181 slice")
+    digest = sha256_bytes(text.encode())
+    if PAIRS_SHA256 and digest != PAIRS_SHA256:
+        raise ValueError(f"{path.name} sha256 drifted from vocabulary")
+    return {mill_id: tuple(rows) for mill_id, rows in grouped.items()}
+
+
+def _deferred_pair(raw: Any, index: int) -> dict[str, str]:
+    if not isinstance(raw, dict) or set(raw) != set(DEFERRED_PAIR_KEYS):
+        raise ValueError(f"pairs.jsonl:{index} keys drifted from deferred pair schema")
+    pair = {}
+    for key in DEFERRED_PAIR_KEYS:
+        value = raw[key]
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"pairs.jsonl:{index}.{key} must be a non-empty string")
+        pair[key] = value
+    return pair
 
 
 def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
@@ -125,14 +204,20 @@ def _bind_sources(catalog: SsrCatalog) -> None:
     if len(MILL_SOURCES) != SOURCE_FILE_COUNT:
         raise ValueError(f"expected {SOURCE_FILE_COUNT} SSR sources")
     slice_mill = catalog.mills[SLICE_MILL_ID]
-    if len(slice_mill.pairs) != slice_mill.n_rows:
+    if len(slice_mill.pairs) != slice_mill.n_rows or slice_mill.n_rows != SLICE_PAIR_ROWS:
         raise ValueError("r181 slice n_rows does not match extracted pairs")
+    deferred = 0
     for mill_id, mill in catalog.mills.items():
         source = expected[mill_id]
         if mill.path != source.path or mill.blob_sha != source.blob_sha:
             raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill_id != SLICE_MILL_ID and mill.pairs:
-            raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+        if mill_id == SLICE_MILL_ID:
+            continue
+        if len(mill.pairs) != mill.n_rows:
+            raise ValueError(f"{mill_id} deferred n_rows does not match attached pairs")
+        deferred += len(mill.pairs)
+    if deferred != DEFERRED_PAIR_ROWS:
+        raise ValueError(f"deferred pair rows {deferred} != pin {DEFERRED_PAIR_ROWS}")
 
 
 CATALOG = load_catalog()
