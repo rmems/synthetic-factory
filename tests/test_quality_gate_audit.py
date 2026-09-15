@@ -279,9 +279,12 @@ class MixEnforcement(unittest.TestCase):
 class CuratedManifest(unittest.TestCase):
     def run_cli(self, argv):
         """Run the CLI quietly and return its exit code."""
-        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            with self.assertRaises(SystemExit) as caught:
-                quality_gate.main(argv)
+        with (
+            redirect_stdout(StringIO()),
+            redirect_stderr(StringIO()),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            quality_gate.main(argv)
         return caught.exception.code
 
     def test_manifest_carries_mix_ratio_and_duplicate_report(self):

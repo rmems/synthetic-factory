@@ -47,9 +47,9 @@ class PublisherFactoryMetadata(unittest.TestCase):
             with (
                 mock.patch.object(publisher, "FACTORY_ROOT", root),
                 mock.patch.object(publisher, "META", {}),
+                self.assertRaisesRegex(SystemExit, "missing META"),
             ):
-                with self.assertRaisesRegex(SystemExit, "missing META"):
-                    publisher.factories()
+                publisher.factories()
 
         with self.assertRaisesRegex(SystemExit, "banned tag"):
             publisher._factory_tags(
@@ -58,13 +58,15 @@ class PublisherFactoryMetadata(unittest.TestCase):
 
     def test_factory_hub_rejects_issue_43_name_drift(self):
         slug = "email-webhook-retry-factory"
-        with mock.patch.dict(
-            publisher.leftover_mill.PUBLISHED_HUB_NAME,
-            {slug: "wrong-hub"},
-            clear=True,
+        with (
+            mock.patch.dict(
+                publisher.leftover_mill.PUBLISHED_HUB_NAME,
+                {slug: "wrong-hub"},
+                clear=True,
+            ),
+            self.assertRaisesRegex(SystemExit, "hub name drift"),
         ):
-            with self.assertRaisesRegex(SystemExit, "hub name drift"):
-                publisher._factory_hub(slug)
+            publisher._factory_hub(slug)
 
 
 if __name__ == "__main__":

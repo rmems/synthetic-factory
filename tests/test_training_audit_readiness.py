@@ -38,13 +38,15 @@ class TrainingAuditReadinessReport(unittest.TestCase):
     def assert_facade_seam_reached(self, seam, action):
         """Require one facade patch to be resolved by the supplied action."""
         message = f"{seam} reached"
-        with mock.patch.object(
-            training_audit,
-            seam,
-            side_effect=FacadeSeamReached(message),
+        with (
+            mock.patch.object(
+                training_audit,
+                seam,
+                side_effect=FacadeSeamReached(message),
+            ),
+            self.assertRaisesRegex(FacadeSeamReached, message),
         ):
-            with self.assertRaisesRegex(FacadeSeamReached, message):
-                action()
+            action()
 
     def test_pinned_reader_resolves_facade_opener_at_call_time(self):
         with tempfile.TemporaryDirectory() as td:
@@ -219,13 +221,15 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                     write(factory / "late.jsonl", [thalamic("late")])
                 return payload
 
-            with mock.patch.object(
-                training_audit,
-                "_read_pinned_member",
-                side_effect=read_then_add,
+            with (
+                mock.patch.object(
+                    training_audit,
+                    "_read_pinned_member",
+                    side_effect=read_then_add,
+                ),
+                self.assertRaisesRegex(ValueError, "member set changed"),
             ):
-                with self.assertRaisesRegex(ValueError, "member set changed"):
-                    training_audit.audit_run(root)
+                training_audit.audit_run(root)
 
     def test_pinned_member_read_refuses_an_aliased_parent_directory(self):
         """Every parent component is descriptor-pinned with no symlink following."""

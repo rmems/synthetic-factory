@@ -80,12 +80,11 @@ REFACTORED_FACADES = (  # qlty-ignore(qlty:similar-code): unrelated name declara
 class PipelinesPackageImports(unittest.TestCase):
     def test_existing_facades_import_cleanly_from_the_package(self):
         for name in ("compose_curated", "compose_destination", "training_audit"):
-            with self.subTest(name=name):
-                with clean_package_imports():
-                    self.assertNotIn(str(PIPELINES), sys.path)
-                    module = pipeline_import_catalog.load_package(name)
-                    self.assertEqual(module.__name__, f"pipelines.{name}")
-                    self.assertNotIn(str(PIPELINES), sys.path)
+            with self.subTest(name=name), clean_package_imports():
+                self.assertNotIn(str(PIPELINES), sys.path)
+                module = pipeline_import_catalog.load_package(name)
+                self.assertEqual(module.__name__, f"pipelines.{name}")
+                self.assertNotIn(str(PIPELINES), sys.path)
 
     def test_export_contract_and_viewer_import_from_a_clean_package(self):
         """Package consumers need the export contract without CLI-path leakage."""

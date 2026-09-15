@@ -215,10 +215,12 @@ class SplitModuleIdentityContracts(unittest.TestCase):
     def test_run_support_modules_import_first_in_both_modes(self):
         for name in RUN_SUPPORT_MODULES:
             for first in ("direct", "package"):
-                with self.subTest(name=name, first=first):
-                    with isolated_pipeline_modules(NEW_SPLIT_MODULES):
-                        direct, packaged = _load_in_order((name,), first)
-                        self.assertIs(direct[name], packaged[name])
+                with (
+                    self.subTest(name=name, first=first),
+                    isolated_pipeline_modules(NEW_SPLIT_MODULES),
+                ):
+                    direct, packaged = _load_in_order((name,), first)
+                    self.assertIs(direct[name], packaged[name])
 
 
 if __name__ == "__main__":
