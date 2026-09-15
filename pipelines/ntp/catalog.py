@@ -8,12 +8,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .catalog_extract import catalog_json_path
+from .catalog_extract import catalog_json_path, leftover_jsonl_path, mills_jsonl_path
 from .sources import MILL_SOURCES, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
     GENERATOR,
+    LEFTOVER_FILENAME,
+    MILLS_FILENAME,
     PRESERVE_COMMIT,
     SLICE_ID,
     SLICE_MILL_ID,
@@ -59,6 +61,7 @@ class NtpCatalog:
 
 def load_catalog(path=None) -> NtpCatalog:
     catalog_path = path if path is not None else catalog_json_path()
+    package_dir = catalog_path.parent
     document = json.loads(catalog_path.read_text(encoding="utf-8"))
     if document.get("schema") != CATALOG_SCHEMA_ID:
         raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
@@ -68,7 +71,21 @@ def load_catalog(path=None) -> NtpCatalog:
         raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
     if document.get("slice") != SLICE_ID:
         raise ValueError(f"{catalog_path} slice drifted from vocabulary")
-    mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    if document.get("mills_filename") != MILLS_FILENAME:
+        raise ValueError(f"{catalog_path} mills_filename drifted from vocabulary")
+    if document.get("leftover_filename") != LEFTOVER_FILENAME:
+        raise ValueError(f"{catalog_path} leftover_filename drifted from vocabulary")
+    if "mills" in document:
+        raise ValueError(f"{catalog_path} must keep mill rows in {MILLS_FILENAME}")
+    mill_rows = _load_jsonl(mills_jsonl_path(package_dir))
+    leftover_rows = _load_jsonl(leftover_jsonl_path(package_dir))
+    success, leftover = _slice_themes(leftover_rows)
+    mills = {}
+    for row in mill_rows:
+        mill_id = row["mill_id"]
+        if mill_id == SLICE_MILL_ID:
+            row = {**row, "success": success, "leftover": leftover}
+        mills[mill_id] = _mill_from_row(row)
     catalog = NtpCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -80,6 +97,41 @@ def load_catalog(path=None) -> NtpCatalog:
     )
     _bind_sources(catalog)
     return catalog
+
+
+def _load_jsonl(path) -> list[dict[str, Any]]:
+    text = path.read_text(encoding="utf-8")
+    if "\r" in text or not text.endswith("\n"):
+        raise ValueError(f"{path.name} must be LF-framed jsonl")
+    rows: list[dict[str, Any]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        if not line:
+            raise ValueError(f"{path.name}:{index} is empty")
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise ValueError(f"{path.name}:{index} must be a JSON object")
+        rows.append(row)
+    if not rows:
+        raise ValueError(f"{path.name} must contain at least one row")
+    return rows
+
+
+def _slice_themes(
+    leftover_rows: list[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    success: list[dict[str, Any]] = []
+    leftover: list[dict[str, Any]] = []
+    for index, row in enumerate(leftover_rows):
+        kind = row.get("kind")
+        identity = {key: value for key, value in row.items() if key != "kind"}
+        if kind == "success":
+            success.append(identity)
+            continue
+        if kind == "leftover":
+            leftover.append(identity)
+            continue
+        raise ValueError(f"{LEFTOVER_FILENAME}:{index + 1} kind is not success or leftover")
+    return success, leftover
 
 
 def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:

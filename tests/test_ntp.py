@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -22,11 +23,15 @@ from ntp.catalog_extract import (  # noqa: E402
     catalog_document,
     catalog_json_path,
     dumps_catalog,
+    dumps_jsonl,
     extract_chain_bounds,
     extract_companion_path,
     extract_mill_catalog,
     is_slice_mill,
+    leftover_jsonl_path,
     mill_summary,
+    mills_jsonl_path,
+    split_catalog,
 )
 from ntp.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from ntp.sources import (  # noqa: E402
@@ -280,6 +285,22 @@ class NtpSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["ntp-mill-unique-llll"].catalog_first, 1719)
         self.assertEqual(CATALOG.mills["ntp-mill-unique-llll34"].n_rows, 32)
 
+    def test_catalog_files_stay_compact(self):
+        header = catalog_json_path().read_text(encoding="utf-8")
+        mills = mills_jsonl_path().read_text(encoding="utf-8")
+        leftover = leftover_jsonl_path().read_text(encoding="utf-8")
+        self.assertNotIn('"success"', header)
+        self.assertNotIn('"mills":', header)
+        self.assertLessEqual(len(header.splitlines()), 16)
+        self.assertEqual(len(mills.splitlines()), 38)
+        self.assertEqual(len(leftover.splitlines()), 130)
+        for text in (mills, leftover):
+            self.assertTrue(text.endswith("\n"))
+            self.assertNotIn("\r", text)
+            for line in text.splitlines():
+                self.assertFalse(line.startswith((" ", "\t")))
+                json.loads(line)
+
 
 class NtpLegacyExtractTests(unittest.TestCase):
     def test_committed_catalog_matches_live_ast_extract(self):
@@ -309,10 +330,19 @@ class NtpLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
             mills.append(mill_summary(live, include_themes=is_slice_mill(source.mill_id)))
+        header, mill_rows, leftover_rows = split_catalog(catalog_document(mills))
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
         )
+        self.assertEqual(dumps_jsonl(mill_rows), mills_jsonl_path().read_text(encoding="utf-8"))
+        self.assertEqual(
+            dumps_jsonl(leftover_rows),
+            leftover_jsonl_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(header["n_pair_rows"], 1625)
+        self.assertEqual(len(mill_rows), 38)
+        self.assertEqual(len(leftover_rows), 130)
 
     def test_loop_and_gen_scripts_name_companion_mills(self):
         if not _legacy_available():

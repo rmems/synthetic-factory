@@ -21,6 +21,8 @@ DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "ffd8e849694818083c5cf3dbadfba5872294c5f1"
 CATALOG_FILENAME = "CATALOG.json"
+MILLS_FILENAME = "mills.jsonl"
+LEFTOVER_FILENAME = "leftover.jsonl"
 PLANT_PREFIX = "folio-"
 
 BANNED = (

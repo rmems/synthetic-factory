@@ -36,6 +36,8 @@ from .vocabulary import (
     GENERATOR,
     KIND_PAIRS,
     LEGACY_REF,
+    LEFTOVER_FILENAME,
+    MILLS_FILENAME,
     PLANT_PREFIX,
     PRESERVE_COMMIT,
     SLICE_ID,
@@ -296,12 +298,43 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "slice": SLICE_ID,
         "n_mills": len(mills),
         "n_pair_rows": pair_rows,
+        "mills_filename": MILLS_FILENAME,
+        "leftover_filename": LEFTOVER_FILENAME,
         "mills": {mill["mill_id"]: mill for mill in mills},
     }
 
 
+def split_catalog(
+    document: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Header plus compact mill / leftover-slice rows (rlb #252 layout)."""
+
+    mill_rows: list[dict[str, Any]] = []
+    leftover_rows: list[dict[str, Any]] = []
+    mills = document["mills"]
+    for mill_id in sorted(mills):
+        mill = mills[mill_id]
+        mill_rows.append({key: mill[key] for key in mill if key not in ("success", "leftover")})
+        if not is_slice_mill(mill_id):
+            continue
+        leftover_rows.extend({**row, "kind": "success"} for row in mill.get("success") or ())
+        leftover_rows.extend({**row, "kind": "leftover"} for row in mill.get("leftover") or ())
+    header = {key: document[key] for key in document if key != "mills"}
+    header["mills_filename"] = MILLS_FILENAME
+    header["leftover_filename"] = LEFTOVER_FILENAME
+    return header, mill_rows, leftover_rows
+
+
 def dumps_catalog(document: Mapping[str, Any]) -> str:
-    return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    header, _, _ = split_catalog(document)
+    return json.dumps(header, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    return "".join(
+        json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
+        for row in rows
+    )
 
 
 def catalog_json_path(package_dir: Path | None = None) -> Path:
@@ -309,9 +342,26 @@ def catalog_json_path(package_dir: Path | None = None) -> Path:
     return root / CATALOG_FILENAME
 
 
+def mills_jsonl_path(package_dir: Path | None = None) -> Path:
+    return catalog_json_path(package_dir).with_name(MILLS_FILENAME)
+
+
+def leftover_jsonl_path(package_dir: Path | None = None) -> Path:
+    return catalog_json_path(package_dir).with_name(LEFTOVER_FILENAME)
+
+
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
     destination = path if path is not None else catalog_json_path()
-    destination.write_text(dumps_catalog(document), encoding="utf-8")
+    header, mill_rows, leftover_rows = split_catalog(document)
+    destination.write_text(
+        json.dumps(header, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    mills_jsonl_path(destination.parent).write_text(dumps_jsonl(mill_rows), encoding="utf-8")
+    leftover_jsonl_path(destination.parent).write_text(
+        dumps_jsonl(leftover_rows),
+        encoding="utf-8",
+    )
     return destination
 
 
