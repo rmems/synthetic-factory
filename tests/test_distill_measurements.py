@@ -580,10 +580,22 @@ class BackingShelterNothingBeneath(unittest.TestCase):
         self.assertEqual(self.claims(record), [])
 
 
-class IntegerCounts(unittest.TestCase):
-    """Executed-check counts are integers (Greptile on #195); older counts keep their domain (#199)."""
+COUNT_INTEGER_QUANTITIES = frozenset(
+    {
+        "context_switches",
+        "healthy_channel_count",
+        "dropped_event_count",
+        "repeats",
+        "passed_check_count",
+        "failed_check_count",
+    }
+)
 
-    def test_a_fractional_check_count_is_refused_by_the_builder_and_found_by_the_check(self):
+
+class IntegerCounts(unittest.TestCase):
+    """Every count quantity rejects fractional values at build time and in checks."""
+
+    def test_a_fractional_count_is_refused_by_the_builder_and_found_by_the_check(self):
         for quantity in sorted(oc.INTEGER_QUANTITIES):
             with self.subTest(quantity=quantity):
                 with self.assertRaises(oc.ContractError):
@@ -600,9 +612,21 @@ class IntegerCounts(unittest.TestCase):
                 record["result"]["measurements"] = [reading]
                 self.assertEqual(oc.check_measurements(record, "x"), [])
 
-    def test_the_older_count_quantities_keep_their_historical_domain(self):
-        self.assertFalse(oc.INTEGER_QUANTITIES & {"healthy_channel_count", "dropped_event_count", "repeats"})
+    def test_every_count_quantity_is_in_the_integer_domain(self):
+        self.assertEqual(oc.INTEGER_QUANTITIES, COUNT_INTEGER_QUANTITIES)
         self.assertTrue(oc.INTEGER_QUANTITIES.issubset(oc.NON_NEGATIVE_QUANTITIES))
+
+    def test_a_fractional_count_is_a_finding_for_every_integer_quantity(self):
+        for quantity in sorted(oc.INTEGER_QUANTITIES):
+            with self.subTest(quantity=quantity):
+                record = minimal_record()
+                record["result"]["measurements"] = [
+                    oc.new_measurement(quantity, 2, "python_subprocess_harness")
+                ]
+                record["result"]["measurements"][0]["value"] = 1.5
+                findings = oc.check_measurements(record, "x")
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("must be an integer", findings[0])
 
 
 if __name__ == "__main__":
