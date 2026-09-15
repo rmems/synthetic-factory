@@ -19,7 +19,6 @@ if __package__:
     from .curate_identity_json import IdentityCurationError
     from .record_kind import PREFERENCE_SIDE_KINDS, SUPPORTED_RECORD_KINDS
     from .rights_mapping import (
-        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
     )
@@ -35,7 +34,6 @@ else:
     from curate_identity_json import IdentityCurationError
     from record_kind import PREFERENCE_SIDE_KINDS, SUPPORTED_RECORD_KINDS
     from rights_mapping import (
-        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
     )
@@ -165,11 +163,6 @@ _RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
         "project_training_policy",
         _in_vocabulary(PROJECT_TRAINING_POLICIES),
         "factories[{index}] has unknown project_training_policy",
-    ),
-    FieldRule(
-        "rights_profile_id",
-        HOSTED_FRONTIER_PROFILE_ID.__eq__,
-        f"factories[{{index}}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}",
     ),
 )
 

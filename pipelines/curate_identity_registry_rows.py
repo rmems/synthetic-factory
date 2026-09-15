@@ -19,11 +19,16 @@ if __package__:
 
     _assert_direct_sibling("curate_identity_registry_rows")
     from . import curate_identity_json as _identity_json
+    from . import curate_identity_registry_evidence as _evidence
     from . import curate_identity_registry_fields as _fields
     from .rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
+        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
         HOSTED_FRONTIER_PROFILE_ID,
+        NEMOTRON_PLACEHOLDER_PROFILE_ID,
+        PROCEDURAL_PROFILE_ID,
+        SIMULATOR_PROFILE_ID,
     )
     from .rights_policy import (
         PROVIDERS,
@@ -35,11 +40,16 @@ else:
         "curate_identity_registry_rows"
     )
     import curate_identity_json as _identity_json
+    import curate_identity_registry_evidence as _evidence
     import curate_identity_registry_fields as _fields
     from rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
+        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
         HOSTED_FRONTIER_PROFILE_ID,
+        NEMOTRON_PLACEHOLDER_PROFILE_ID,
+        PROCEDURAL_PROFILE_ID,
+        SIMULATOR_PROFILE_ID,
     )
     from rights_policy import (
         PROVIDERS,
@@ -85,10 +95,22 @@ _REQUIRED_ROW_FIELDS = (
 
 _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
     {
-        ("fable-5", "fable-5"): ("anthropic", "consumer"),
-        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer"),
-        ("grok-4.6", "grok-4.6"): ("xai", "consumer"),
-        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api"),
+        ("fable-5", "fable-5"): ("anthropic", "consumer", HOSTED_FRONTIER_PROFILE_ID),
+        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer", HOSTED_FRONTIER_PROFILE_ID),
+        ("grok-4.6", "grok-4.6"): ("xai", "consumer", HOSTED_FRONTIER_PROFILE_ID),
+        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api", HOSTED_FRONTIER_PROFILE_ID),
+        ("procedural-attested", "1"): ("procedural", "local", PROCEDURAL_PROFILE_ID),
+        ("relay-reflex-simulator", "1"): ("simulator", "local", SIMULATOR_PROFILE_ID),
+        ("deepseek-placeholder", "pending-terms"): (
+            "deepseek",
+            "api",
+            DEEPSEEK_PLACEHOLDER_PROFILE_ID,
+        ),
+        ("nemotron-placeholder", "pending-terms"): (
+            "nemotron",
+            "api",
+            NEMOTRON_PLACEHOLDER_PROFILE_ID,
+        ),
     }
 )
 if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
@@ -120,6 +142,10 @@ class FactoryRow(NamedTuple):
     catalog_id: str | None = None
     catalog_sha256: str | None = None
     programs_sha256: str | None = None
+    catalog_authorship: str | None = None
+    generator_source_digest: str | None = None
+    commit_sha: str | None = None
+    module_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +163,7 @@ _PATH_RULES = _fields._PATH_RULES
 _RIGHTS_VOCABULARY_RULES = _fields._RIGHTS_VOCABULARY_RULES
 _SHAPE_RULES = _fields._SHAPE_RULES
 _PREFERENCE_SIDE_RULES = _fields._PREFERENCE_SIDE_RULES
+_require_profile_evidence = _evidence._require_profile_evidence
 
 
 def _is_normalized_token(value: Any) -> bool:
@@ -168,7 +195,7 @@ def _legacy_generator_identity(
     return _generator_identity(raw, index)
 
 
-def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str]:
+def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str, str]:
     expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(identity)
     if expected_assignment is None:
         raise IdentityCurationError(
@@ -178,18 +205,19 @@ def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, st
 
 
 def _require_reviewed_provider_channel(
-    raw: Mapping[str, Any], expected_assignment: tuple[str, str], index: int
+    raw: Mapping[str, Any], expected_assignment: tuple[str, str, str], index: int
 ) -> None:
-    if (raw["provider"], raw["channel"]) != expected_assignment:
+    actual = (raw["provider"], raw["channel"], raw["rights_profile_id"])
+    if actual != expected_assignment:
         raise IdentityCurationError(
             f"factories[{index}] generator/provider/channel assignment is not reviewed"
         )
 
 
 def _require_reviewed_authorization(
-    raw: Mapping[str, Any], expected_assignment: tuple[str, str], index: int
+    raw: Mapping[str, Any], expected_assignment: tuple[str, str, str], index: int
 ) -> None:
-    authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, raw["rights_profile_id"]))
+    authorization = RIGHTS_AUTHORIZATIONS.get(expected_assignment)
     if authorization is None:
         raise IdentityCurationError(
             f"factories[{index}] rights fields are not authorized by loaded policy"
@@ -211,6 +239,7 @@ def _require_reviewed_rights(
     expected_assignment = _reviewed_assignment(identity, index)
     _require_reviewed_provider_channel(raw, expected_assignment, index)
     _require_reviewed_authorization(raw, expected_assignment, index)
+    _require_profile_evidence(raw, index)
 
 
 def _require_kind_contracts(raw: Mapping[str, Any], kinds: frozenset[str], index: int) -> None:
@@ -259,6 +288,10 @@ def _hosted_factory_row(raw: Mapping[str, Any], identity: tuple[str, str]) -> Fa
         allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
         provenance_contract_by_kind={str(key): str(value) for key, value in contracts.items()},
         preference_side_kinds=frozenset(raw.get("preference_side_kinds") or ()),
+        catalog_authorship=raw.get("catalog_authorship"),
+        generator_source_digest=raw.get("generator_source_digest"),
+        commit_sha=raw.get("commit_sha"),
+        module_digest=raw.get("module_digest"),
     )
 
 
@@ -283,14 +316,19 @@ def _legacy_reviewed_authorization(
     generator: str, generator_version: str, index: int
 ):
     expected_assignment = _reviewed_assignment((generator, generator_version), index)
+    provider, channel, profile_id = expected_assignment
+    if profile_id != HOSTED_FRONTIER_PROFILE_ID:
+        raise IdentityCurationError(
+            f"factories[{index}] v0.1 rows cannot carry non-hosted rights profiles"
+        )
     authorization = RIGHTS_AUTHORIZATIONS.get(
-        (*expected_assignment, HOSTED_FRONTIER_PROFILE_ID)
+        (provider, channel, HOSTED_FRONTIER_PROFILE_ID)
     )
     if authorization is None:
         raise IdentityCurationError(
             f"factories[{index}] reviewed rights assignment is not authorized by policy"
         )
-    return expected_assignment, authorization
+    return (provider, channel), authorization
 
 
 def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:

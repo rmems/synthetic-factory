@@ -1139,18 +1139,23 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
         hosted = [row for row in payload["factories"] if row.get("source_type") != "procedural"]
+        frontier = [
+            row
+            for row in hosted
+            if row.get("rights_profile_id") == "hosted-frontier-research-only-v1"
+        ]
         expected_rights = {
             "fable-5": ("anthropic", "consumer"),
             "gpt-5.6-sol": ("openai", "consumer"),
             "grok-4.6": ("xai", "consumer"),
             "muse-spark-1.2": ("meta", "api"),
         }
-        self.assertEqual(len(hosted), 51)
+        self.assertEqual(len(frontier), 51)
         self.assertEqual(
-            {row["generator"] for row in hosted},
+            {row["generator"] for row in frontier},
             set(expected_rights),
         )
-        for row in hosted:
+        for row in frontier:
             self.assertNotIn("training_ready", row)
             self.assertIsNone(row["publication_target"])
             self.assertEqual(row["training_ready_policy"], "never")

@@ -174,7 +174,16 @@ class RightsPolicyTests(RightsPolicyTestCase):
         )
         self.assertEqual(
             set(document["vocabularies"]["providers"]),
-            {"anthropic", "meta", "openai", "xai"},
+            {
+                "anthropic",
+                "meta",
+                "openai",
+                "xai",
+                "procedural",
+                "simulator",
+                "deepseek",
+                "nemotron",
+            },
         )
         self.assertEqual(
             set(document["vocabularies"]["channels"]),
@@ -430,7 +439,8 @@ class RightsPolicyTests(RightsPolicyTestCase):
         )
         hosted_profile["reason_codes"].append("UNKNOWN_PROVENANCE")
         for rule in document["rules"]:
-            rule["reason_codes"].append("UNKNOWN_PROVENANCE")
+            if rule["rights_profile_id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID:
+                rule["reason_codes"].append("UNKNOWN_PROVENANCE")
 
         checks = (
             ("object validation", lambda: rights_policy.validate_rights_policy(document)),
@@ -571,6 +581,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 rights_policy.load_rights_policy(missing)
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(Path(directory))
+
 
 class RightsPolicyAvailabilityTests(unittest.TestCase):
     def test_rights_policy_runtime_exists(self):

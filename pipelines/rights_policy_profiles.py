@@ -10,12 +10,16 @@ if __package__:
 
     _assert_direct_sibling("rights_policy_profiles")
     from . import rights_mapping as _rights_mapping
+    from . import rights_policy_placeholders as _placeholders
+    from . import rights_policy_semantics as _semantics
     from . import rights_policy_validation as _rights_policy_validation
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "rights_policy_profiles"
     )
     import rights_mapping as _rights_mapping
+    import rights_policy_placeholders as _placeholders
+    import rights_policy_semantics as _semantics
     import rights_policy_validation as _rights_policy_validation
 
 
@@ -23,14 +27,12 @@ CANONICAL_PROVIDERS = _rights_mapping.CANONICAL_PROVIDERS
 CHANNELS = _rights_mapping.CHANNELS
 EVIDENCE_STATUSES = _rights_mapping.EVIDENCE_STATUSES
 EVIDENCE_STATUS_FIELDS = _rights_mapping.EVIDENCE_STATUS_FIELDS
-HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
 INTENDED_USES = _rights_mapping.INTENDED_USES
 MAPPING_VERSION = _rights_mapping.MAPPING_VERSION
 POLICY_DOCUMENT_TYPE = _rights_mapping.POLICY_DOCUMENT_TYPE
 POLICY_VERSION = _rights_mapping.POLICY_VERSION
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
-UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
 policy_error = _rights_mapping.policy_error
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_unique_strings = _rights_mapping.require_unique_strings
@@ -55,10 +57,6 @@ _PROFILE_FIELDS = frozenset({
 _INTENDED_USE_POLICY = {
     "research_only": "blocked",
     "training_candidate": "allowed",
-}
-_REQUIRED_PROFILE_REASONS = {
-    HOSTED_FRONTIER_PROFILE_ID: "HOSTED_FRONTIER_RESEARCH_ONLY",
-    UNKNOWN_PROVENANCE_PROFILE_ID: "UNKNOWN_PROVENANCE",
 }
 _POLICY_LABEL = "rights policy"
 
@@ -148,6 +146,7 @@ def _validate_profile(
     _validate_profile_decision(profile, profile_id, where)
     _validate_profile_statuses(profile, profile_id, where)
     _validate_profile_reasons(profile, profile_id, reason_ids, where)
+    _placeholders.validate_placeholder_unblock(profile, profile_id, where)
 
 
 def _validate_profile_decision(profile: dict, profile_id: str, where: str) -> None:
@@ -214,6 +213,23 @@ def _validate_profile_reasons(
         raise policy_error(where, f"profile {profile_id!r} cites unknown reasons {unknown}")
 
 
+def _profile_fields_for(profile_id: str) -> frozenset[str]:
+    return _PROFILE_FIELDS | _placeholders.extra_profile_fields(profile_id)
+
+
+def _checked_profile_entry(entry: object, index: int, where: str) -> str:
+    if not isinstance(entry, dict):
+        raise policy_error(where, f"profiles[{index}] must be an object")
+    profile_id = require_nonempty_string(entry.get("id"), "id", where=where)
+    expected_fields = _profile_fields_for(profile_id)
+    if set(entry) != expected_fields:
+        raise policy_error(
+            where,
+            f"profiles[{index}] fields must be exactly {sorted(expected_fields)}",
+        )
+    return profile_id
+
+
 def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
     required_ids = require_unique_strings(
         document.get("required_profile_ids"), "required_profile_ids", where=where
@@ -223,42 +239,18 @@ def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
             where,
             f"required_profile_ids must be exactly {sorted(REQUIRED_PROFILE_IDS)}",
         )
-    profile_ids = _catalogue_ids(
-        document.get("profiles"), "profiles", _PROFILE_FIELDS, where
-    )
-    if set(profile_ids) != set(required_ids):
+    profiles_raw = document.get("profiles")
+    if not isinstance(profiles_raw, list) or not profiles_raw:
+        raise policy_error(where, "profiles must be a nonempty list")
+    identifiers = [
+        _checked_profile_entry(entry, index, where)
+        for index, entry in enumerate(profiles_raw)
+    ]
+    if len(identifiers) != len(set(identifiers)):
+        raise policy_error(where, "duplicate profiles id")
+    if set(identifiers) != set(required_ids):
         raise policy_error(where, "profiles must declare every required profile id exactly")
-    return {profile["id"]: profile for profile in document["profiles"]}
-
-
-def _validate_required_profile_semantics(
-    profiles: dict[str, dict], where: str
-) -> None:
-    for profile_id, defining_reason in _REQUIRED_PROFILE_REASONS.items():
-        if defining_reason not in profiles[profile_id]["reason_codes"]:
-            raise policy_error(
-                where,
-                f"profile {profile_id!r} is missing its required defining reason "
-                f"{defining_reason!r}",
-            )
-    hosted = profiles[HOSTED_FRONTIER_PROFILE_ID]
-    hosted_verdict = (
-        hosted["intended_use"],
-        hosted["project_training_policy"],
-        set(hosted["evidence_statuses"].values()),
-    )
-    if hosted_verdict != ("research_only", "blocked", {"unresolved"}):
-        raise policy_error(
-            where,
-            "hosted-frontier profile must be research_only/blocked with all statuses unresolved",
-        )
-    unknown = profiles[UNKNOWN_PROVENANCE_PROFILE_ID]
-    unknown_verdict = (
-        unknown["intended_use"],
-        unknown["project_training_policy"],
-    )
-    if unknown_verdict != ("research_only", "blocked"):
-        raise policy_error(where, "unknown-provenance profile must fail closed")
+    return {profile["id"]: profile for profile in profiles_raw}
 
 
 def _validate_profiles(
@@ -269,7 +261,8 @@ def _validate_profiles(
     profiles = _profiles_by_id(document, where)
     for profile in profiles.values():
         _validate_profile(profile, reason_ids, where)
-    _validate_required_profile_semantics(profiles, where)
+    _semantics.validate_required_profile_semantics(profiles, where)
+    _placeholders.require_placeholder_verdicts(profiles, where)
     return profiles
 
 
