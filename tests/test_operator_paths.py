@@ -9,8 +9,16 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from pipelines.operator_paths import KIND_DESTINATION, confine, confine_named, operator_path, operator_roots
+from pipelines.operator_paths import (
+    KIND_DESTINATION,
+    _under_root,
+    confine,
+    confine_named,
+    operator_path,
+    operator_roots,
+)
 from scripts import operator_paths as scripts_operator_paths
 
 
@@ -46,6 +54,19 @@ class Confinement(unittest.TestCase):
             str(raised.exception),
             "input: the path lies outside the working, home and temp trees",
         )
+
+    def test_a_filesystem_root_operator_root_accepts_absolute_paths(self):
+        candidate = os.path.join(os.getcwd(), "input.jsonl")
+        self.assertTrue(_under_root("/opt/factory/input.jsonl", "/"))
+        self.assertTrue(_under_root("/opt/factory/input.jsonl", "/opt/factory/"))
+        self.assertFalse(_under_root("/etc/passwd", "/opt/factory"))
+        with mock.patch(
+            "pipelines.operator_paths.operator_roots", return_value=("/",)
+        ):
+            self.assertEqual(
+                operator_path(candidate, argument="input"),
+                Path(os.path.realpath(candidate)),
+            )
 
     def test_empty_paths_are_refused(self):
         for candidate in ("", "   ", "\n"):

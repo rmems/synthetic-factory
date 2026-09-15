@@ -94,7 +94,10 @@ def _refuse_leaf(typed: Path, argument: str | None) -> None:
 
 
 def _under_root(resolved: str, root: str) -> bool:
-    root = root.rstrip(os.sep)
+    # Keep "/": rstrip(os.sep) would turn it into "" and commonpath would raise.
+    stripped = root.rstrip(os.sep)
+    if stripped:
+        root = stripped
     try:
         return os.path.commonpath([resolved, root]) == root
     except ValueError:
@@ -145,8 +148,7 @@ def confine(
     try:
         return operator_path(value, argument=argument, kind=kind)
     except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
-    raise AssertionError("argparse.ArgumentParser.error returns")
+        return parser.error(str(exc))
 
 
 def confine_named(
