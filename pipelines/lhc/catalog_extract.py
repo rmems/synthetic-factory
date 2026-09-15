@@ -78,19 +78,17 @@ def _scan_module_literals(tree: ast.AST) -> dict[str, Any]:
 
 def _stamp_source(
     record: dict[str, Any],
-    *,
-    path: str,
-    blob_sha: str,
-    digest: str,
     constants: Mapping[str, Any],
+    pin: Mapping[str, str],
 ) -> dict[str, Any]:
+    path = pin["path"]
     first = constants.get("CATALOG_FIRST")
     if not isinstance(first, int):
         first = _round_suffix(path)
     record["mill_id"] = Path(path).stem
     record["path"] = path
-    record["blob_sha"] = blob_sha
-    record["sha256"] = digest
+    record["blob_sha"] = pin["blob_sha"]
+    record["sha256"] = pin["digest"]
     record["kind"] = KIND_PAIRS
     record["catalog_first"] = first
     record["generator"] = constants.get("GEN", GENERATOR)
@@ -112,13 +110,12 @@ def extract_mill_catalog(
     tree = ast.parse(source, filename=path)
     constants = _scan_module_literals(tree)
     record = _extract_shape(tree, path=path)
-    return _stamp_source(
-        record,
-        path=path,
-        blob_sha=blob_sha,
-        digest=sha256_bytes(source.encode()),
-        constants=constants,
-    )
+    pin = {
+        "path": path,
+        "blob_sha": blob_sha,
+        "digest": sha256_bytes(source.encode()),
+    }
+    return _stamp_source(record, constants, pin)
 
 
 def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:

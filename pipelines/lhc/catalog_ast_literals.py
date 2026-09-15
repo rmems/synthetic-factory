@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Resolve AST literals for the LHC catalog extract.
 
-``literal_value`` is a single match walker. It never executes source.
+``literal_value`` dispatches by node type. It never executes source.
 """
 
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 UNSET = object()
@@ -52,36 +52,62 @@ def _dict(node: ast.Dict, env: Mapping[str, Any]) -> Any:
     return out
 
 
+def _constant(node: ast.Constant, _env: Mapping[str, Any]) -> Any:
+    return node.value
+
+
+def _name(node: ast.Name, env: Mapping[str, Any]) -> Any:
+    return env[node.id] if node.id in env else UNSET
+
+
+def _tuple_literal(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
+    items = _items(node.elts, env)
+    return UNSET if items is UNSET else tuple(items)
+
+
+def _list_literal(node: ast.List, env: Mapping[str, Any]) -> Any:
+    items = _items(node.elts, env)
+    return UNSET if items is UNSET else list(items)
+
+
+def _set_literal(node: ast.Set, env: Mapping[str, Any]) -> Any:
+    items = _items(node.elts, env)
+    return UNSET if items is UNSET else set(items)
+
+
+def _unary(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.USub):
+        return UNSET
+    number = literal_value(node.operand, env)
+    return -number if isinstance(number, (int, float)) else UNSET
+
+
+def _add(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.Add):
+        return UNSET
+    first = literal_value(node.left, env)
+    second = literal_value(node.right, env)
+    concat = isinstance(first, str) and isinstance(second, str)
+    return first + second if concat else UNSET
+
+
+_HANDLERS: dict[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]] = {
+    ast.Constant: _constant,
+    ast.Name: _name,
+    ast.Tuple: _tuple_literal,
+    ast.List: _list_literal,
+    ast.Set: _set_literal,
+    ast.Dict: _dict,
+    ast.JoinedStr: _joined,
+    ast.UnaryOp: _unary,
+    ast.BinOp: _add,
+}
+
+
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
-    bindings = env or {}
-    match node:
-        case ast.Constant(value=value):
-            return value
-        case ast.Name(id=name) if name in bindings:
-            return bindings[name]
-        case ast.Tuple(elts=elts):
-            items = _items(elts, bindings)
-            return UNSET if items is UNSET else tuple(items)
-        case ast.List(elts=elts):
-            items = _items(elts, bindings)
-            return UNSET if items is UNSET else list(items)
-        case ast.Set(elts=elts):
-            items = _items(elts, bindings)
-            return UNSET if items is UNSET else set(items)
-        case ast.Dict():
-            return _dict(node, bindings)
-        case ast.JoinedStr():
-            return _joined(node, bindings)
-        case ast.UnaryOp(op=ast.USub(), operand=inner):
-            number = literal_value(inner, bindings)
-            return -number if isinstance(number, (int, float)) else UNSET
-        case ast.BinOp(op=ast.Add(), left=left, right=right):
-            first = literal_value(left, bindings)
-            second = literal_value(right, bindings)
-            if isinstance(first, str) and isinstance(second, str):
-                return first + second
-            return UNSET
-        case _:
-            return UNSET
+    handler = _HANDLERS.get(type(node))
+    if handler is None:
+        return UNSET
+    return handler(node, env or {})
