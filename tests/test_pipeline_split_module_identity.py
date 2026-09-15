@@ -79,6 +79,7 @@ NEW_SPLIT_MODULES = (
     "raw_tree_guard",
     "preference_context",
     "reward_mapping",
+    "reward_parse",
     "reward_policy",
     "training_audit_record",
     "training_audit_reasoning",
@@ -178,6 +179,10 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             )
             self.assertIs(
                 direct["reward_mapping"].RewardOntologyError,
+                packaged["reward_mapping"].RewardOntologyError,
+            )
+            self.assertIs(
+                direct["reward_parse"].RewardOntologyError,
                 packaged["reward_mapping"].RewardOntologyError,
             )
             self.assertIs(
