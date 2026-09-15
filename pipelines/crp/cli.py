@@ -16,6 +16,7 @@ from typing import Any
 
 from . import catalog as cat
 from . import generate
+from . import r432 as r432_cat
 from ._contract import bind_import_twin, dumps_exact_json, envelope
 
 __all__ = ["build_parser", "run"]
@@ -27,13 +28,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = commands.add_parser(
         "catalog-check",
-        help="every leftover3 row has noun; slugs and families are unique",
+        help="every leftover3 or r432 row has noun; slugs and families are unique",
     )
     check.add_argument("--json", action="store_true")
+    check.add_argument(
+        "--wave",
+        choices=("leftover3", "r432"),
+        default="leftover3",
+        help="leftover3 (r729) is the default; r432 is the compact JSONL slice",
+    )
 
     gen = commands.add_parser(
         "generate",
-        help="one leftover3 triple into a new destination (never raw)",
+        help="one leftover3 or r432 triple into a new destination (never raw)",
     )
     gen.add_argument("--round", type=int, required=True)
     gen.add_argument("--out", type=Path, required=True)
@@ -51,7 +58,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
 
 
 def _catalog_check(args: argparse.Namespace) -> int:
-    report = cat.catalog_check()
+    report = r432_cat.catalog_check() if args.wave == "r432" else cat.catalog_check()
     text = (
         f"catalog-check ok: {report['plants']} plants "
         f"({report['triples']} triples, {report['nouns']} nouns) "
