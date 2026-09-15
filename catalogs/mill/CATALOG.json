@@ -1,0 +1,19 @@
+{
+  "catalog_id": "mill-identity-bind-v1",
+  "extraction": {
+    "commit": "120b5b2e340dc7016a41cbd4c0425a0fd4c5b625",
+    "fields": "public ESP webhook identity and event field names; leftover mill scripts discarded",
+    "method": "ast.parse",
+    "never": [
+      "exec",
+      "import"
+    ],
+    "ref": "origin/legacy-mill-lane",
+    "source_count": 4
+  },
+  "family": "mill",
+  "format": "mill-catalog/1",
+  "plant_count": 60,
+  "plants_filename": "plants.jsonl",
+  "plants_sha256": "0374885b79e80174281b3c08fd6daf522a439d4b5b87ac5786e9d195914faa34"
+}

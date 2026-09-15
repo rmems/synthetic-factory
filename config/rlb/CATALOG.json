@@ -1,0 +1,47 @@
+{
+  "schema_version": "rlb-case-catalog-v1",
+  "family": "rlb",
+  "factory": "rate-limit-backoff-factory",
+  "generator": "grok-4.6",
+  "source_branch": "origin/legacy-mill-lane",
+  "source_commit": "5c0d98a161e5b3f5df89042fd23dfa872b6bac5b",
+  "extraction": "AST literals only; legacy modules were never imported or executed",
+  "catalogs": [
+    {
+      "source_path": "experiments/rlb_leftover3_mill.py",
+      "source_format": "helper-v1",
+      "source_blob_sha1": "0c5849e3fa3aff254e6088f797330d24e6de5c9e",
+      "source_sha256": "9a8385e5aeb33d722ca9371c72532e157f7e9cf2e5f0cf87fc84b9f4a07c17d2",
+      "source_lines": 1120,
+      "start_round": 82,
+      "end_round": 97
+    },
+    {
+      "source_path": "experiments/rlb_r98_leftover3_mill.py",
+      "source_format": "mapping-v1",
+      "source_blob_sha1": "357a0a113389063b5b3e4192d633da69265c2ad9",
+      "source_sha256": "537e88cb1defbb1680065878db346c84d156fb0b5b07f9fb5bb5f958d94cde32",
+      "source_lines": 745,
+      "start_round": 98,
+      "end_round": 113
+    },
+    {
+      "source_path": "experiments/rlb_r114_leftover3_mill.py",
+      "source_format": "mapping-v2",
+      "source_blob_sha1": "8c0de1c544c6022227eadaf836f7d8fac0ddb85b",
+      "source_sha256": "5ff569d7863446d58be133ecfa974a30570eddabff1fbd0dfc2f4c6d09c5163c",
+      "source_lines": 741,
+      "start_round": 119,
+      "end_round": 134
+    },
+    {
+      "source_path": "experiments/rlb-mill-lll-r141.py",
+      "source_format": "helper-v2",
+      "source_blob_sha1": "70523e27577fab5a1486b2ec49092a030cd58128",
+      "source_sha256": "3de87e900098a33c7b10562654048c1c991ab8d2db82020de1a6cd3bdc7947be",
+      "source_lines": 1129,
+      "start_round": 141,
+      "end_round": 156
+    }
+  ]
+}

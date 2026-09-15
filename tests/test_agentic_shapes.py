@@ -1203,6 +1203,31 @@ class AgenticShapes(unittest.TestCase):
             errors,
         )
 
+    def test_cascade_negative_fault_step_returns_errors_not_index_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-neg-step-{index}") for index in range(2)
+            ]
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[0]["error_introduced"]["step"] = -100
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any(
+                "error_introduced.step must name a non-final step at least 2" in error
+                for error in errors
+            ),
+            errors,
+        )
+        self.assertTrue(any("cascade needs" in error for error in errors), errors)
+
     def test_cascade_declared_fault_rejects_negated_designated_step(self):
         for introduced_text in (
             "Confirmed no stale-lock was created",

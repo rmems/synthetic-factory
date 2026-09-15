@@ -1,0 +1,80 @@
+{
+  "catalog_id": "hopper-plants-v1",
+  "family": "hopper",
+  "schema": "hopper-plants-v1",
+  "generator": "grok-4.6",
+  "intended_use": "research_only",
+  "project_training_policy": "blocked",
+  "run": "2026-08-19-agentic",
+  "plants_filename": "plants.jsonl",
+  "plants_sha256": "18e433356713871a4fcd02448afd3bf419e89e5fb36f4a93badc0cdeee2f5528",
+  "plants": 152,
+  "pairs": 76,
+  "waves": ["g46", "g46b", "g46c", "g46d"],
+  "prefixes": {
+    "csv-excel-ingest-factory": "cei",
+    "email-webhook-retry-factory": "ewr",
+    "feature-flag-debug-factory": "ffd",
+    "log-redaction-factory": "lrd",
+    "queue-backpressure-factory": "qbp",
+    "rate-limit-backoff-factory": "rlb",
+    "search-index-rebuild-factory": "sir",
+    "ssl-cert-rotation-factory": "ssl",
+    "websocket-reconnect-factory": "wsr"
+  },
+  "cycle": [
+    "rate-limit-backoff-factory",
+    "queue-backpressure-factory",
+    "csv-excel-ingest-factory",
+    "websocket-reconnect-factory",
+    "email-webhook-retry-factory",
+    "feature-flag-debug-factory",
+    "search-index-rebuild-factory",
+    "log-redaction-factory",
+    "ssl-cert-rotation-factory"
+  ],
+  "starts": {
+    "g46": {
+      "csv-excel-ingest-factory": 32,
+      "email-webhook-retry-factory": 31,
+      "feature-flag-debug-factory": 32,
+      "queue-backpressure-factory": 32,
+      "rate-limit-backoff-factory": 53,
+      "search-index-rebuild-factory": 28,
+      "ssl-cert-rotation-factory": 27,
+      "websocket-reconnect-factory": 32
+    },
+    "g46b": {
+      "csv-excel-ingest-factory": 35,
+      "email-webhook-retry-factory": 34,
+      "feature-flag-debug-factory": 35,
+      "log-redaction-factory": 46,
+      "queue-backpressure-factory": 35,
+      "rate-limit-backoff-factory": 56,
+      "search-index-rebuild-factory": 31,
+      "websocket-reconnect-factory": 35
+    },
+    "g46c": {
+      "csv-excel-ingest-factory": 37,
+      "email-webhook-retry-factory": 36,
+      "feature-flag-debug-factory": 37,
+      "log-redaction-factory": 51,
+      "queue-backpressure-factory": 37,
+      "rate-limit-backoff-factory": 58,
+      "search-index-rebuild-factory": 49,
+      "websocket-reconnect-factory": 37
+    },
+    "g46d": {
+      "csv-excel-ingest-factory": 39,
+      "email-webhook-retry-factory": 38,
+      "feature-flag-debug-factory": 39,
+      "log-redaction-factory": 65,
+      "queue-backpressure-factory": 39,
+      "rate-limit-backoff-factory": 80,
+      "search-index-rebuild-factory": 51,
+      "ssl-cert-rotation-factory": 106,
+      "websocket-reconnect-factory": 39
+    }
+  },
+  "note": "Deterministic replay of 76 published Q=2 pairs (152 plants, waves g46/g46b/g46c/g46d). Reward numbers are constants, not measurements. Plant content is grok-4.6-authored; records stay research_only/blocked. START values are archived first-attempt frontiers; published_round on each plant is the landed batch."
+}
