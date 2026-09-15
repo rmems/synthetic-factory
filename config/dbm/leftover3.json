@@ -1,0 +1,17 @@
+{
+  "schema_id": "dbm-leftover3/v1",
+  "family_prefix": "dbm",
+  "factory": "db-migration-repair-factory",
+  "generator": "grok-4.6",
+  "start_round": 1260,
+  "n_pairs": 17,
+  "quota_per_round": 2,
+  "source": {
+    "lane": "legacy-mill-lane",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "mill": "experiments/unique_dbm_leftover3_mill.py",
+    "mill_sha256": "a435d7c9d5340ad1065b9821476736e04238e6aa4b29e720a64b6dc57a607631"
+  },
+  "plants_file": "leftover3-plants.jsonl",
+  "plants_sha256": "2dc1fa2232190750604ec5de84c3031e27b1284d95685e8cf91c5f17b74d9b70"
+}

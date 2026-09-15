@@ -24,14 +24,12 @@ import argparse
 import copy
 import hashlib
 import json
-import math
 import os
 import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from types import MappingProxyType
 from typing import Any, Iterable, Mapping, NamedTuple
 
 if __package__:
@@ -40,8 +38,10 @@ if __package__:
     _assert_direct_sibling("curate_identity")
     from . import curate_identity_output as _identity_output
     from . import curate_identity_checks as _identity_checks
+    from . import curate_identity_json as _identity_json
+    from . import curate_identity_registry as _identity_registry
     from . import curate_identity_stages as _identity_stages
-    from .exact_json import ExactJSONFloat, dumps_exact_json
+    from .curate_identity_registry import FactoryRow, FactoryRegistry
     from .operator_paths import operator_path
     from .record_kind import (
         PREFERENCE_SIDE_KINDS,
@@ -57,27 +57,16 @@ if __package__:
         check_spike_order,
         check_thalamic,
     )
-    from .rights_mapping import (
-        CANONICAL_PROVIDERS,
-        CHANNELS,
-        HOSTED_FRONTIER_PROFILE_ID,
-        INTENDED_USES,
-        PROJECT_TRAINING_POLICIES,
-    )
-    from .rights_policy import (
-        PROVIDERS,
-        RIGHTS_AUTHORIZATIONS,
-        RIGHTS_CHANNELS,
-        RIGHTS_PROFILE_IDS,
-    )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity"
     )
     import curate_identity_output as _identity_output
     import curate_identity_checks as _identity_checks
+    import curate_identity_json as _identity_json
+    import curate_identity_registry as _identity_registry
     import curate_identity_stages as _identity_stages
-    from exact_json import ExactJSONFloat, dumps_exact_json
+    from curate_identity_registry import FactoryRow, FactoryRegistry
     from operator_paths import operator_path
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
@@ -92,19 +81,6 @@ else:
         check_safety_case,
         check_spike_order,
         check_thalamic,
-    )
-    from rights_mapping import (
-        CANONICAL_PROVIDERS,
-        CHANNELS,
-        HOSTED_FRONTIER_PROFILE_ID,
-        INTENDED_USES,
-        PROJECT_TRAINING_POLICIES,
-    )
-    from rights_policy import (
-        PROVIDERS,
-        RIGHTS_AUTHORIZATIONS,
-        RIGHTS_CHANNELS,
-        RIGHTS_PROFILE_IDS,
     )
 
 TRANSFORM_NAME = "curate_identity"
@@ -128,47 +104,33 @@ HIL_RE = re.compile(r"\bhil\b", re.IGNORECASE)
 # simulation and must not be read as a real-world deployment claim.
 REAL_WORLD_RE = re.compile(r"^(?:real|live)(?![\w-])", re.IGNORECASE)
 
-FACTORY_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "FACTORY-REGISTRY.json"
 FACTORY_REGISTRY_SIDECAR = "FACTORY-REGISTRY.json"
 IDENTITY_MANIFEST_SIDECAR = "IDENTITY-MANIFEST.json"
-REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
-HOSTED_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
-LEGACY_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.1"
-SUPPORTED_REGISTRY_SCHEMA_VERSIONS = frozenset(
-    {LEGACY_REGISTRY_SCHEMA_VERSION, HOSTED_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
-)
-_RIGHTS_ROW_FIELDS = (
-    "provider",
-    "channel",
-    "rights_profile_id",
-    "intended_use",
-    "project_training_policy",
-)
-
-_REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
-    {
-        ("fable-5", "fable-5"): ("anthropic", "consumer"),
-        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer"),
-        ("grok-4.6", "grok-4.6"): ("xai", "consumer"),
-        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api"),
-    }
-)
-if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
-    raise RuntimeError("loaded rights policy vocabulary drifted from sealed mapping")
-
-_DEFAULT_REGISTRY: FactoryRegistry | None = None
+FACTORY_REGISTRY_PATH = _identity_registry.FACTORY_REGISTRY_PATH
+REGISTRY_SCHEMA_VERSION = _identity_registry.REGISTRY_SCHEMA_VERSION
+HOSTED_REGISTRY_SCHEMA_VERSION = _identity_registry.HOSTED_REGISTRY_SCHEMA_VERSION
+LEGACY_REGISTRY_SCHEMA_VERSION = _identity_registry.LEGACY_REGISTRY_SCHEMA_VERSION
+SUPPORTED_REGISTRY_SCHEMA_VERSIONS = _identity_registry.SUPPORTED_REGISTRY_SCHEMA_VERSIONS
+_RIGHTS_ROW_FIELDS = _identity_registry._RIGHTS_ROW_FIELDS
+_REVIEWED_GENERATOR_RIGHTS = _identity_registry._REVIEWED_GENERATOR_RIGHTS
+CANONICAL_PROVIDERS = _identity_registry.CANONICAL_PROVIDERS
+CHANNELS = _identity_registry.CHANNELS
+HOSTED_FRONTIER_PROFILE_ID = _identity_registry.HOSTED_FRONTIER_PROFILE_ID
+INTENDED_USES = _identity_registry.INTENDED_USES
+PROJECT_TRAINING_POLICIES = _identity_registry.PROJECT_TRAINING_POLICIES
+PROVIDERS = _identity_registry.PROVIDERS
+RIGHTS_AUTHORIZATIONS = _identity_registry.RIGHTS_AUTHORIZATIONS
+RIGHTS_CHANNELS = _identity_registry.RIGHTS_CHANNELS
+RIGHTS_PROFILE_IDS = _identity_registry.RIGHTS_PROFILE_IDS
+# Facade-owned process cache: publication-boundary tests patch this name.
+# Copy a sibling cache that default_registry already populated so load-once
+# survives importing the facade second.
+_DEFAULT_REGISTRY = _identity_registry._DEFAULT_REGISTRY
 
 
-class IdentityCurationError(ValueError):
-    """Base class for caller-contract and batch-integrity failures."""
-
-
-class CanonicalIdCollision(IdentityCurationError):
-    """Raised when two retained source records resolve to one canonical ID."""
-
-
-class IdentityTreeError(IdentityCurationError):
-    """Raised when a cleaned tree is missing or mismatched identity sidecars."""
+IdentityCurationError = _identity_json.IdentityCurationError
+CanonicalIdCollision = _identity_json.CanonicalIdCollision
+IdentityTreeError = _identity_json.IdentityTreeError
 
 
 @dataclass(frozen=True)
@@ -224,490 +186,29 @@ class _ManifestReplay:
     result: CurationResult
 
 
-class FactoryRow(NamedTuple):
-    path_id: str
-    payload_factory: str
-    generator: str
-    generator_version: str
-    provider: str | None
-    channel: str | None
-    rights_profile_id: str
-    intended_use: str
-    project_training_policy: str
-    record_kinds: frozenset[str]
-    identity_authoritative: bool
-    publication_target: str | None
-    training_ready_policy: str
-    allowed_curation_lanes: tuple[str, ...]
-    provenance_contract_by_kind: Mapping[str, str]
-    preference_side_kinds: frozenset[str] = frozenset()
-    source_type: str = "hosted"
-    generator_ownership: str | None = None
-    generation_method: str | None = None
-    source_license_evidence: Mapping[str, str] | None = None
-    procedural_policy_sha256: str | None = None
-    catalog_id: str | None = None
-    catalog_sha256: str | None = None
-    programs_sha256: str | None = None
+_reject_unpaired_surrogates = _identity_json._reject_unpaired_surrogates
+canonical_json = _identity_json.canonical_json
+sha256_json = _identity_json.sha256_json
+ExactJSONFloat = _identity_json.ExactJSONFloat
+dumps_exact_json = _identity_json.dumps_exact_json
+_canonical_json_equal = _identity_json._canonical_json_equal
+_require_canonical_json_equal = _identity_json._require_canonical_json_equal
+_reject_json_constant = _identity_json._reject_json_constant
+parse_finite_json_float = _identity_json.parse_finite_json_float
+reject_duplicate_object_keys = _identity_json.reject_duplicate_object_keys
+_strict_json_loads = _identity_json._strict_json_loads
+_is_json_whitespace = _identity_json._is_json_whitespace
+_reject_training_ready_true = _identity_json._reject_training_ready_true
 
-
-@dataclass(frozen=True)
-class FactoryRegistry:
-    """Reviewed factory table plus the exact bytes that pin a cleaned tree."""
-
-    schema_version: str
-    sha256: str
-    raw_bytes: bytes
-    by_path_id: Mapping[str, FactoryRow]
-
-
-def _reject_unpaired_surrogates(value: Any, path: str = "$") -> None:
-    """Reject strings that cannot be represented as Unicode scalar-value text."""
-
-    if isinstance(value, str):
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-            raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
-        return
-    if isinstance(value, Mapping):
-        for index, (key, item) in enumerate(value.items()):
-            if isinstance(key, str):
-                _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
-        return
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
-
-
-def canonical_json(value: Any) -> str:
-    """Serialize JSON data byte-stably for hashes, tests, and output sidecars."""
-
-    try:
-        _reject_unpaired_surrogates(value)
-        payload = dumps_exact_json(value) if classify_kind(value) == "code_repair" else json.dumps(
-            value,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        # Keep the public serializer's promise byte-stable: callers must never
-        # receive text that fails only when a downstream hash or writer encodes it.
-        payload.encode("utf-8")
-        return payload
-    except (TypeError, ValueError, UnicodeError) as exc:
-        raise IdentityCurationError(f"record is not canonical JSON data: {exc}") from exc
-
-
-def sha256_json(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
-
-
-def _canonical_json_equal(left: Any, right: Any) -> bool:
-    """Compare JSON values without Python's bool/int/float equivalence."""
-
-    return canonical_json(left) == canonical_json(right)
-
-
-def _require_canonical_json_equal(actual: Any, expected: Any, where: str) -> None:
-    try:
-        equal = _canonical_json_equal(actual, expected)
-    except IdentityCurationError as exc:
-        raise IdentityTreeError(f"{where} is not canonical JSON data: {exc}") from exc
-    if not equal:
-        raise IdentityTreeError(f"{where} does not match the hash-verified source replay")
-
-
-def _reject_json_constant(value: str) -> None:
-    raise ValueError(f"non-standard JSON numeric constant {value}")
-
-
-def parse_finite_json_float(value: str) -> float:
-    parsed = float(value)
-    if not math.isfinite(parsed):
-        raise ValueError(f"JSON numeric literal is not finitely representable: {value}")
-    return parsed
-
-
-def reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    value: dict[str, Any] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError(f"duplicate JSON object key {key!r}")
-        value[key] = item
-    return value
-
-
-def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
-    """Decode strict JSON; procedural records retain exact source decimal tokens."""
-
-    value = json.loads(
-        payload,
-        object_pairs_hook=reject_duplicate_object_keys,
-        parse_constant=_reject_json_constant,
-        parse_float=ExactJSONFloat if exact else parse_finite_json_float,
-    )
-    if not exact and classify_kind(value) == "code_repair":
-        return _strict_json_loads(payload, exact=True)
-    _reject_unpaired_surrogates(value)
-    return value
-
-
-def _is_json_whitespace(value: str) -> bool:
-    """Return whether non-empty text contains only RFC 8259 JSON whitespace."""
-
-    return bool(value) and all(character in " \t\r\n" for character in value)
-
-
-def _reject_training_ready_true(value: Any, path: str = "$") -> None:
-    if isinstance(value, Mapping):
-        if value.get("training_ready"):
-            raise IdentityCurationError(f"{path} must not contain training_ready: true")
-        for key, item in value.items():
-            _reject_training_ready_true(item, f"{path}.{key}")
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_training_ready_true(item, f"{path}[{index}]")
-
-
-def _generator_identity(raw: Mapping[str, Any], index: int) -> tuple[str, str]:
-    values: list[str] = []
-    for field in ("generator", "generator_version"):
-        value = raw[field]
-        if (
-            not isinstance(value, str)
-            or not value.strip()
-            or value != value.strip()
-        ):
-            raise IdentityCurationError(
-                f"factories[{index}].{field} must be a non-empty normalized string"
-            )
-        values.append(value)
-    return values[0], values[1]
-
-
-def _legacy_generator_identity(
-    raw: Mapping[str, Any], index: int
-) -> tuple[str, str]:
-    missing = [
-        field for field in ("generator", "generator_version") if field not in raw
-    ]
-    if missing:
-        raise IdentityCurationError(
-            f"factories[{index}] missing fields: {missing}"
-        )
-    return _generator_identity(raw, index)
-
-
-def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
-    if not isinstance(raw, Mapping):
-        raise IdentityCurationError(f"factories[{index}] must be an object")
-    required = (
-        "path_id",
-        "payload_factory",
-        "generator",
-        "generator_version",
-        *_RIGHTS_ROW_FIELDS,
-        "record_kinds",
-        "identity_authoritative",
-        "publication_target",
-        "training_ready_policy",
-        "allowed_curation_lanes",
-        "provenance_contract_by_kind",
-    )
-    missing = [key for key in required if key not in raw]
-    if missing:
-        raise IdentityCurationError(f"factories[{index}] missing fields: {missing}")
-    path_id = raw["path_id"]
-    payload_factory = raw["payload_factory"]
-    if not isinstance(path_id, str) or not path_id.strip():
-        raise IdentityCurationError(f"factories[{index}].path_id must be a string")
-    if (
-        path_id != path_id.strip()
-        or path_id in {".", ".."}
-        or "/" in path_id
-        or "\\" in path_id
-        or "\x00" in path_id
-        or PurePosixPath(path_id).parts != (path_id,)
-    ):
-        raise IdentityCurationError(
-            f"factories[{index}].path_id must be exactly one normalized directory component"
-        )
-    if not isinstance(payload_factory, str) or not payload_factory.strip():
-        raise IdentityCurationError(f"factories[{index}].payload_factory must be a string")
-    generator, generator_version = _generator_identity(raw, index)
-    provider = raw["provider"]
-    channel = raw["channel"]
-    profile_id = raw["rights_profile_id"]
-    intended_use = raw["intended_use"]
-    project_training_policy = raw["project_training_policy"]
-    rights_vocabularies = (
-        ("provider", provider, PROVIDERS),
-        ("channel", channel, RIGHTS_CHANNELS),
-        ("rights_profile_id", profile_id, RIGHTS_PROFILE_IDS),
-        ("intended_use", intended_use, INTENDED_USES),
-        (
-            "project_training_policy",
-            project_training_policy,
-            PROJECT_TRAINING_POLICIES,
-        ),
-    )
-    for field, value, vocabulary in rights_vocabularies:
-        if not isinstance(value, str) or value not in vocabulary:
-            raise IdentityCurationError(f"factories[{index}] has unknown {field}")
-    if profile_id != HOSTED_FRONTIER_PROFILE_ID:
-        raise IdentityCurationError(
-            f"factories[{index}].rights_profile_id must be "
-            f"{HOSTED_FRONTIER_PROFILE_ID}"
-        )
-    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
-        (generator, generator_version)
-    )
-    if expected_assignment is None:
-        raise IdentityCurationError(
-            f"factories[{index}] has unknown reviewed (generator, generator_version)"
-        )
-    if (provider, channel) != expected_assignment:
-        raise IdentityCurationError(
-            f"factories[{index}] generator/provider/channel assignment is not reviewed"
-        )
-    authorization = RIGHTS_AUTHORIZATIONS.get((provider, channel, profile_id))
-    if authorization is None:
-        raise IdentityCurationError(
-            f"factories[{index}] rights fields are not authorized by loaded policy"
-        )
-    if (
-        intended_use != authorization.intended_use
-        or project_training_policy != authorization.project_training_policy
-    ):
-        raise IdentityCurationError(
-            f"factories[{index}] rights fields drift from loaded policy"
-        )
-    kinds_raw = raw["record_kinds"]
-    if not isinstance(kinds_raw, list) or not kinds_raw:
-        raise IdentityCurationError(f"factories[{index}].record_kinds must be a non-empty list")
-    if not all(isinstance(kind, str) and kind for kind in kinds_raw):
-        raise IdentityCurationError(f"factories[{index}].record_kinds must be strings")
-    if len(kinds_raw) != len(set(kinds_raw)):
-        raise IdentityCurationError(f"factories[{index}].record_kinds must not contain duplicates")
-    unsupported_kinds = sorted(set(kinds_raw) - SUPPORTED_RECORD_KINDS)
-    if unsupported_kinds:
-        raise IdentityCurationError(
-            f"factories[{index}].record_kinds contains unsupported kinds: {unsupported_kinds}"
-        )
-    kinds = frozenset(kinds_raw)
-    if not isinstance(raw["identity_authoritative"], bool):
-        raise IdentityCurationError(f"factories[{index}].identity_authoritative must be a boolean")
-    publication_target = raw["publication_target"]
-    if publication_target is not None and not isinstance(publication_target, str):
-        raise IdentityCurationError(
-            f"factories[{index}].publication_target must be null or a string"
-        )
-    policy = raw["training_ready_policy"]
-    if policy not in {"never", "compose_eligible"}:
-        raise IdentityCurationError(
-            f"factories[{index}].training_ready_policy must be never or compose_eligible"
-        )
-    lanes = raw["allowed_curation_lanes"]
-    if not isinstance(lanes, list) or not all(isinstance(item, str) for item in lanes):
-        raise IdentityCurationError(
-            f"factories[{index}].allowed_curation_lanes must be a list of strings"
-        )
-    contracts = raw["provenance_contract_by_kind"]
-    if not isinstance(contracts, Mapping):
-        raise IdentityCurationError(
-            f"factories[{index}].provenance_contract_by_kind must be an object"
-        )
-    for kind in kinds:
-        contract = contracts.get(kind)
-        if contract not in ALLOWED_CONTRACTS:
-            raise IdentityCurationError(
-                f"factories[{index}] missing allowed provenance_contract for {kind}"
-            )
-        if contract == CONTRACT_SHAPE_DESIGNED and not raw["identity_authoritative"]:
-            raise IdentityCurationError(
-                f"factories[{index}] synthetic_shape_implies_designed requires "
-                "identity_authoritative"
-            )
-    preference_kinds_raw = raw.get("preference_side_kinds")
-    if "preference" in kinds:
-        if not isinstance(preference_kinds_raw, list) or not preference_kinds_raw:
-            raise IdentityCurationError(
-                f"factories[{index}].preference_side_kinds must be a non-empty list"
-            )
-        if not all(isinstance(kind, str) for kind in preference_kinds_raw):
-            raise IdentityCurationError(f"factories[{index}].preference_side_kinds must be strings")
-        if len(preference_kinds_raw) != len(set(preference_kinds_raw)):
-            raise IdentityCurationError(
-                f"factories[{index}].preference_side_kinds must not contain duplicates"
-            )
-        unsupported_side_kinds = sorted(set(preference_kinds_raw) - PREFERENCE_SIDE_KINDS)
-        if unsupported_side_kinds:
-            raise IdentityCurationError(
-                f"factories[{index}].preference_side_kinds contains unsupported "
-                f"kinds: {unsupported_side_kinds}"
-            )
-    elif preference_kinds_raw is not None:
-        raise IdentityCurationError(
-            f"factories[{index}].preference_side_kinds requires preference authority"
-        )
-    return FactoryRow(
-        path_id=path_id,
-        payload_factory=payload_factory,
-        generator=generator,
-        generator_version=generator_version,
-        provider=provider,
-        channel=channel,
-        rights_profile_id=profile_id,
-        intended_use=intended_use,
-        project_training_policy=project_training_policy,
-        record_kinds=kinds,
-        identity_authoritative=raw["identity_authoritative"],
-        publication_target=publication_target,
-        training_ready_policy=policy,
-        allowed_curation_lanes=tuple(lanes),
-        provenance_contract_by_kind={str(key): str(value) for key, value in contracts.items()},
-        preference_side_kinds=frozenset(preference_kinds_raw or ()),
-    )
-
-
-def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:
-    if not isinstance(raw, Mapping):
-        raise IdentityCurationError(f"factories[{index}] must be an object")
-    unexpected = [field for field in _RIGHTS_ROW_FIELDS if field in raw]
-    if unexpected:
-        raise IdentityCurationError(
-            f"factories[{index}] v0.1 rows must not declare rights fields: {unexpected}"
-        )
-    generator, generator_version = _legacy_generator_identity(raw, index)
-    expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(
-        (generator, generator_version)
-    )
-    if expected_assignment is None:
-        raise IdentityCurationError(
-            f"factories[{index}] has unknown reviewed (generator, generator_version)"
-        )
-    profile_id = HOSTED_FRONTIER_PROFILE_ID
-    authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, profile_id))
-    if authorization is None:
-        raise IdentityCurationError(
-            f"factories[{index}] reviewed rights assignment is not authorized by policy"
-        )
-    augmented = dict(raw)
-    augmented.update(
-        provider=expected_assignment[0],
-        channel=expected_assignment[1],
-        rights_profile_id=profile_id,
-        intended_use=authorization.intended_use,
-        project_training_policy=authorization.project_training_policy,
-    )
-    return augmented
-
-
-def _is_procedural_row(raw: Any, schema_version: str) -> bool:
-    if schema_version != REGISTRY_SCHEMA_VERSION:
-        return False
-    return isinstance(raw, Mapping) and raw.get("source_type") == "procedural"
-
-
-def _registry_row_for_validation(
-    raw: Any, index: int, schema_version: str
-) -> Any:
-    if __package__:
-        from .code_repair.source_policy import claims_procedural_route
-    else:
-        from code_repair.source_policy import claims_procedural_route
-    if claims_procedural_route(raw):
-        raise IdentityCurationError(f"factories[{index}] procedural fields require v0.3 route")
-    if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
-        return _legacy_registry_row(raw, index)
-    return raw
-
-
-def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
-    if __package__:
-        from .code_repair.source_policy import POLICY, SourcePolicyError, validate_registry_row
-    else:
-        from code_repair.source_policy import POLICY, SourcePolicyError, validate_registry_row
-    try:
-        validate_registry_row(raw)
-    except SourcePolicyError as exc:
-        raise IdentityCurationError(f"factories[{index}]: {exc}") from exc
-    return FactoryRow(
-        path_id=raw["path_id"], payload_factory=raw["payload_factory"],
-        generator=raw["generator"], generator_version=raw["generator_version"],
-        provider=None, channel=None, rights_profile_id=POLICY["policy_id"],
-        intended_use=raw["intended_use"], project_training_policy=raw["project_training_policy"],
-        record_kinds=frozenset(raw["record_kinds"]), identity_authoritative=True,
-        publication_target=None, training_ready_policy=raw["training_ready_policy"],
-        allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
-        provenance_contract_by_kind=MappingProxyType(dict(raw["provenance_contract_by_kind"])),
-        source_type="procedural", generator_ownership=raw["generator_ownership"],
-        generation_method=raw["generation_method"],
-        source_license_evidence=MappingProxyType(dict(raw["source_license_evidence"])),
-        procedural_policy_sha256=raw["procedural_policy_sha256"], catalog_id=raw["catalog_id"],
-        catalog_sha256=raw["catalog_sha256"], programs_sha256=raw["programs_sha256"],
-    )
-
-
-def load_registry(path: Path | None = None) -> FactoryRegistry:
-    """Load reviewed registry bytes. Pin = SHA-256 of those exact bytes."""
-
-    registry_path = Path(FACTORY_REGISTRY_PATH if path is None else path)
-    try:
-        raw_bytes = registry_path.read_bytes()
-    except OSError as exc:
-        raise IdentityCurationError(
-            f"factory registry is unreadable: {registry_path}: {exc}"
-        ) from exc
-    try:
-        payload = _strict_json_loads(raw_bytes.decode("utf-8"))
-    except ValueError as exc:
-        raise IdentityCurationError(
-            f"factory registry is not UTF-8 JSON: {registry_path}: {exc}"
-        ) from exc
-    if not isinstance(payload, Mapping):
-        raise IdentityCurationError("factory registry must be a JSON object")
-    _reject_training_ready_true(payload)
-    schema_version = payload.get("schema_version")
-    if (
-        not isinstance(schema_version, str)
-        or schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS
-    ):
-        raise IdentityCurationError(
-            "factory registry schema_version must be one of "
-            f"{sorted(SUPPORTED_REGISTRY_SCHEMA_VERSIONS)}"
-        )
-    if payload.get("lookup_key") != "path_id":
-        raise IdentityCurationError("factory registry lookup_key must be path_id")
-    factories = payload.get("factories")
-    if not isinstance(factories, list) or not factories:
-        raise IdentityCurationError("factory registry factories must be a non-empty list")
-    by_path_id: dict[str, FactoryRow] = {}
-    for index, raw_row in enumerate(factories):
-        if _is_procedural_row(raw_row, schema_version):
-            row = _parse_procedural_row(raw_row, index)
-        else:
-            row_payload = _registry_row_for_validation(raw_row, index, schema_version)
-            row = _parse_factory_row(row_payload, index)
-        if row.path_id in by_path_id:
-            raise IdentityCurationError(f"duplicate registry path_id: {row.path_id}")
-        by_path_id[row.path_id] = row
-    return FactoryRegistry(
-        schema_version=schema_version,
-        sha256=sha256_bytes(raw_bytes),
-        raw_bytes=raw_bytes,
-        by_path_id=by_path_id,
-    )
-
-
-def default_registry() -> FactoryRegistry:
-    """Return the committed reviewed registry, loaded once per process."""
-
-    global _DEFAULT_REGISTRY
-    if _DEFAULT_REGISTRY is None:
-        _DEFAULT_REGISTRY = load_registry(FACTORY_REGISTRY_PATH)
-    return _DEFAULT_REGISTRY
+_generator_identity = _identity_registry._generator_identity
+_legacy_generator_identity = _identity_registry._legacy_generator_identity
+_parse_factory_row = _identity_registry._parse_factory_row
+_legacy_registry_row = _identity_registry._legacy_registry_row
+_is_procedural_row = _identity_registry._is_procedural_row
+_registry_row_for_validation = _identity_registry._registry_row_for_validation
+_parse_procedural_row = _identity_registry._parse_procedural_row
+load_registry = _identity_registry.load_registry
+default_registry = _identity_registry.default_registry
 
 
 def _normalize_source_path(value: str) -> tuple[str, str]:
