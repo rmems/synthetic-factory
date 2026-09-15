@@ -584,6 +584,7 @@ def write_round(out_dir: Path, built: BuiltPair) -> tuple[Path, Path]:
     batch.write_text(
         dumps_exact_json(built.ok) + "\n" + dumps_exact_json(built.bad) + "\n",
         encoding="utf-8",
+        newline="",
     )
     notes.write_text(built.notes, encoding="utf-8")
     return batch, notes
