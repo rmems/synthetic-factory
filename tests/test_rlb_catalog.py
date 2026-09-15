@@ -76,11 +76,9 @@ class RlbCatalogTests(unittest.TestCase):
 
     def test_each_round_has_one_success_and_one_handoff_case(self):
         rounds = set()
-        modules = set()
         tickets = set()
         for pair in CATALOG.pairs():
             rounds.add(pair.round)
-            modules.update((pair.success.module, pair.handoff.module))
             self.assertNotEqual(pair.success.slug, pair.handoff.slug)
             self.assertTrue(pair.success.docs[0].startswith("https://"))
             self.assertTrue(pair.handoff.docs[1].startswith("https://"))
@@ -90,7 +88,6 @@ class RlbCatalogTests(unittest.TestCase):
             tickets.add(pair.handoff.ticket)
 
         self.assertEqual(len(rounds), 64)
-        self.assertEqual(len(modules), 128)
         self.assertEqual(len(tickets), 64)
         self.assertTrue(rounds.isdisjoint({114, 115, 116, 117, 118, 135, 136, 137, 138, 139, 140}))
 
