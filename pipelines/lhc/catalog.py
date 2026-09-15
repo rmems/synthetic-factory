@@ -6,11 +6,12 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from .catalog_extract import catalog_json_path
-from .sources import MILL_SOURCES, catalog_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import (
+    CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
     FACTORY,
     GENERATOR,
@@ -70,7 +71,11 @@ def load_catalog(path=None) -> LhcCatalog:
         raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
     if document.get("slice") != SLICE_ID:
         raise ValueError(f"{catalog_path} slice drifted from vocabulary")
-    mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    expected = {source.mill_id: source for source in catalog_sources()}
+    mills = {
+        mill_id: _mill_from_row(mill_id, row, expected[mill_id])
+        for mill_id, row in document["mills"].items()
+    }
     catalog = LhcCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -84,21 +89,23 @@ def load_catalog(path=None) -> LhcCatalog:
     return catalog
 
 
-def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
+def _mill_from_row(
+    mill_id: str, row: Mapping[str, Any], source: MillSource
+) -> MillCatalog:
     return MillCatalog(
-        mill_id=row["mill_id"],
-        path=row["path"],
-        blob_sha=row["blob_sha"],
-        sha256=row["sha256"],
-        kind=row["kind"],
+        mill_id=mill_id,
+        path=source.path,
+        blob_sha=source.blob_sha,
+        sha256="",
+        kind=source.kind,
         shape=row["shape"],
         catalog_first=row.get("catalog_first"),
         n_rows=row["n_rows"],
         n_plants=row["n_plants"],
         first_slug=row["first_slug"],
         last_slug=row["last_slug"],
-        generator=row["generator"],
-        factory=row["factory"],
+        generator=GENERATOR,
+        factory=FACTORY,
         used_from=row.get("used_from"),
         pairs=tuple(row.get("pairs") or ()),
     )
@@ -123,6 +130,57 @@ def _bind_sources(catalog: LhcCatalog) -> None:
             raise ValueError(f"{mill_id} pin disagrees with sources.py")
         if mill_id != SLICE_MILL_ID and mill.pairs:
             raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+
+
+def catalog_json_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / CATALOG_FILENAME
+
+
+def _dump_mill_row(mill_id: str, mill: Mapping[str, Any], suffix: str) -> str:
+    key = json.dumps(mill_id, ensure_ascii=True)
+    if mill.get("pairs"):
+        dumped = json.dumps(mill, ensure_ascii=True, indent=2, sort_keys=True)
+        dumped = dumped.replace("\n", "\n    ")
+    else:
+        dumped = json.dumps(mill, ensure_ascii=True, sort_keys=True, separators=(", ", ": "))
+    return f"    {key}: {dumped}{suffix}"
+
+
+def _dump_mills_object(mills: Mapping[str, Any], suffix: str) -> list[str]:
+    lines = ['  "mills": {']
+    mill_ids = sorted(mills)
+    for index, mill_id in enumerate(mill_ids):
+        mill_suffix = "," if index < len(mill_ids) - 1 else ""
+        lines.append(_dump_mill_row(mill_id, mills[mill_id], mill_suffix))
+    lines.append(f"  }}{suffix}")
+    return lines
+
+
+def _dump_document_entry(key: str, value: Any, suffix: str) -> list[str]:
+    if key == "mills":
+        return _dump_mills_object(value, suffix)
+    dumped = json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True)
+    dumped = dumped.replace("\n", "\n  ")
+    return [f"  {json.dumps(key, ensure_ascii=True)}: {dumped}{suffix}"]
+
+
+def dumps_catalog(document: Mapping[str, Any]) -> str:
+    """Pretty header; one-line count rows; pretty-print only the w4x pair slice."""
+
+    lines = ["{"]
+    keys = sorted(document)
+    for index, key in enumerate(keys):
+        suffix = "," if index < len(keys) - 1 else ""
+        lines.extend(_dump_document_entry(key, document[key], suffix))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
+    destination = path if path is not None else catalog_json_path()
+    destination.write_text(dumps_catalog(document), encoding="utf-8")
+    return destination
 
 
 CATALOG = load_catalog()

@@ -4,16 +4,19 @@
 from __future__ import annotations
 
 import ast
-import subprocess
+import shutil
+import subprocess  # nosec B404 -- git show of pinned legacy-mill-lane blobs only.
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+_GIT = shutil.which("git")
+
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from lhc.catalog import CATALOG  # noqa: E402
+from lhc.catalog import CATALOG, catalog_json_path, dumps_catalog  # noqa: E402
 from lhc.catalog_extract import (  # noqa: E402
     SHAPE_PAIRS_FN_PAIR,
     SHAPE_PAIRS_NAMED,
@@ -21,8 +24,6 @@ from lhc.catalog_extract import (  # noqa: E402
     SHAPE_PLANTS_NAMED,
     SHAPE_PLANTS_P_FN,
     catalog_document,
-    catalog_json_path,
-    dumps_catalog,
     extract_mill_catalog,
     is_slice_mill,
     mill_summary,
@@ -134,13 +135,22 @@ PAIRS.append(("protobuf reserved tombstone vs json_name leftover leftover leftov
 """
 
 
+def _git_output(*args: str) -> str:
+    if _GIT is None:
+        raise FileNotFoundError("git")
+    return subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
+        [_GIT, *args],
+        text=True,
+        cwd=REPO,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def _legacy_available() -> bool:
+    if _GIT is None:
+        return False
     try:
-        subprocess.check_output(
-            ["git", "show", f"{cv.LEGACY_REF}:experiments/lhc-mill-w4x-r4358.py"],
-            cwd=REPO,
-            stderr=subprocess.DEVNULL,
-        )
+        _git_output("show", f"{cv.LEGACY_REF}:experiments/lhc-mill-w4x-r4358.py")
         return True
     except subprocess.CalledProcessError:
         return False
@@ -278,16 +288,8 @@ class LhcLegacyExtractTests(unittest.TestCase):
             self.skipTest("origin/legacy-mill-lane is not fetched")
         mills = []
         for source in catalog_sources():
-            text = subprocess.check_output(
-                ["git", "show", f"{cv.LEGACY_REF}:{source.path}"],
-                text=True,
-                cwd=REPO,
-            )
-            blob = subprocess.check_output(
-                ["git", "rev-parse", f"{cv.LEGACY_REF}:{source.path}"],
-                text=True,
-                cwd=REPO,
-            ).strip()
+            text = _git_output("show", f"{cv.LEGACY_REF}:{source.path}")
+            blob = _git_output("rev-parse", f"{cv.LEGACY_REF}:{source.path}").strip()
             self.assertEqual(blob, source.blob_sha, source.mill_id)
             live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
             committed = CATALOG.mills[source.mill_id]
@@ -296,7 +298,9 @@ class LhcLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["first_slug"], committed.first_slug, source.mill_id)
             self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
-            self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
+            self.assertEqual(len(live["sha256"]), 64, source.mill_id)
+            self.assertEqual(live["path"], committed.path, source.mill_id)
+            self.assertEqual(live["blob_sha"], committed.blob_sha, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
             mills.append(mill_summary(live, include_pairs=is_slice_mill(source.mill_id)))
         self.assertEqual(

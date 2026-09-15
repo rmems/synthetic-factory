@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -27,7 +26,6 @@ from .catalog_ast import (
     tuple_target_names,
 )
 from .vocabulary import (
-    CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
     FACTORY,
     GENERATOR,
@@ -318,6 +316,53 @@ def _resolve_side(
     return None
 
 
+def _is_empty_pairs_assign(node: ast.AST) -> bool:
+    name, value = assignment_of(node)
+    return name == "PAIRS" and isinstance(value, ast.List) and not value.elts
+
+
+def _fn_pair_bind(node: ast.AST) -> list[Any] | None:
+    """``fa, fb = fn_pair(...)`` literals, or ``UNSET`` when the bind is malformed."""
+
+    if tuple_target_names(node) != ("fa", "fb") or not isinstance(node, ast.Assign):
+        return None
+    if call_name(node.value) != "fn_pair":
+        return UNSET
+    args = call_positional_literals(node.value)
+    if args is None or len(args) < 4:
+        return UNSET
+    if not all(isinstance(item, str) for item in args[:4]):
+        return UNSET
+    return args
+
+
+def _pairs_append_row(node: ast.AST, pending: list[Any] | None) -> dict[str, Any] | None:
+    """``PAIRS.append((title, fa, fb, ...))`` identity, or ``UNSET`` if malformed."""
+
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return None
+    call = node.value
+    if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
+        return None
+    if name_id(call.func.value) != "PAIRS":
+        return None
+    if pending is None or len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
+        return UNSET
+    title = literal_value(call.args[0].elts[0]) if call.args[0].elts else UNSET
+    if not isinstance(title, str):
+        return UNSET
+    return {
+        "title": title,
+        "success_key": pending[2],
+        "fail_key": pending[3],
+        "success_slug": pending[0],
+        "fail_slug": pending[1],
+        "success_plant": pending[2],
+        "fail_plant": pending[3],
+        "_left_kind": "fn_pair",
+    }
+
+
 def _fn_pair_appends(tree: ast.AST) -> list[dict[str, Any]] | None:
     """``fa, fb = fn_pair(...)`` followed by ``PAIRS.append((title, fa, fb, ...))``."""
 
@@ -325,45 +370,21 @@ def _fn_pair_appends(tree: ast.AST) -> list[dict[str, Any]] | None:
     rows: list[dict[str, Any]] = []
     saw_empty = False
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name == "PAIRS" and isinstance(value, ast.List) and not value.elts:
+        if _is_empty_pairs_assign(node):
             saw_empty = True
             continue
-        targets = tuple_target_names(node)
-        if targets == ("fa", "fb") and isinstance(node, ast.Assign):
-            if call_name(node.value) != "fn_pair":
-                return None
-            args = call_positional_literals(node.value)
-            if args is None or len(args) < 4:
-                return None
-            if not all(isinstance(item, str) for item in args[:4]):
-                return None
-            pending = args
-            continue
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-            continue
-        call = node.value
-        if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
-            continue
-        if name_id(call.func.value) != "PAIRS":
-            continue
-        if pending is None or len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
+        bind = _fn_pair_bind(node)
+        if bind is UNSET:
             return None
-        title = literal_value(call.args[0].elts[0]) if call.args[0].elts else UNSET
-        if not isinstance(title, str):
+        if bind is not None:
+            pending = bind
+            continue
+        row = _pairs_append_row(node, pending)
+        if row is UNSET:
             return None
-        rows.append(
-            {
-                "title": title,
-                "success_key": pending[2],
-                "fail_key": pending[3],
-                "success_slug": pending[0],
-                "fail_slug": pending[1],
-                "success_plant": pending[2],
-                "fail_plant": pending[3],
-                "_left_kind": "fn_pair",
-            }
-        )
+        if row is None:
+            continue
+        rows.append(row)
         pending = None
     if not saw_empty or not rows:
         return None
@@ -382,26 +403,21 @@ def _rows_record(shape: str, rows: list[dict[str, Any]], *, n_plants: int) -> di
     }
 
 
-def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str, Any]:
-    """Catalog mill row: identity plus optional compact pair list."""
+_COUNT_FIELDS = (
+    "catalog_first",
+    "first_slug",
+    "last_slug",
+    "n_plants",
+    "n_rows",
+    "shape",
+)
 
-    summary = {
-        "mill_id": record["mill_id"],
-        "path": record["path"],
-        "blob_sha": record["blob_sha"],
-        "sha256": record["sha256"],
-        "kind": record["kind"],
-        "shape": record["shape"],
-        "catalog_first": record["catalog_first"],
-        "n_rows": record["n_rows"],
-        "n_plants": record["n_plants"],
-        "first_slug": record["first_slug"],
-        "last_slug": record["last_slug"],
-        "generator": record["generator"],
-        "factory": record["factory"],
-    }
-    if "used_from" in record:
-        summary["used_from"] = record["used_from"]
+
+def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str, Any]:
+    """Count row plus optional w4x pair identities. Pins live in ``sources``."""
+
+    summary = {"mill_id": record["mill_id"]}
+    summary.update({field: record[field] for field in _COUNT_FIELDS})
     if include_pairs:
         summary["pairs"] = list(record.get("pairs") or ())
     return summary
@@ -410,6 +426,11 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
 def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills)
     plant_rows = sum(mill["n_plants"] for mill in mills)
+    table = {}
+    for mill in mills:
+        table[mill["mill_id"]] = {
+            key: value for key, value in mill.items() if key != "mill_id"
+        }
     return {
         "schema": CATALOG_SCHEMA_ID,
         "source_ref": LEGACY_REF,
@@ -420,23 +441,8 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "n_mills": len(mills),
         "n_pair_rows": pair_rows,
         "n_plant_rows": plant_rows,
-        "mills": {mill["mill_id"]: mill for mill in mills},
+        "mills": table,
     }
-
-
-def dumps_catalog(document: Mapping[str, Any]) -> str:
-    return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
-
-
-def catalog_json_path(package_dir: Path | None = None) -> Path:
-    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
-    return root / CATALOG_FILENAME
-
-
-def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
-    destination = path if path is not None else catalog_json_path()
-    destination.write_text(dumps_catalog(document), encoding="utf-8")
-    return destination
 
 
 def is_slice_mill(mill_id: str) -> bool:
