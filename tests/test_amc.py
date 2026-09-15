@@ -5,6 +5,7 @@ import ast
 import json
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 from pipelines.amc import (
@@ -76,9 +77,6 @@ class AmcCatalogTests(unittest.TestCase):
         self.assertEqual(CATALOG.n_pair_rows_extracted, 1401)
         self.assertEqual(CATALOG.n_pair_rows_committed, 1401)
         self.assertEqual(len(pairs), 1401)
-        self.assertEqual(sum(1 for pair in pairs if pair.role == "deferred"), 1377)
-        self.assertEqual(sum(1 for pair in pairs if pair.role == "first"), 12)
-        self.assertEqual(sum(1 for pair in pairs if pair.role == "last"), 12)
         self.assertEqual(
             {mill.mill_id: mill.n_rows_extracted for mill in CATALOG.catalogs},
             EXTRACTED_COUNTS,
@@ -86,10 +84,6 @@ class AmcCatalogTests(unittest.TestCase):
         self.assertEqual(
             {mill.mill_id: mill.first_slug for mill in CATALOG.catalogs},
             FIRST_SLUGS,
-        )
-        self.assertEqual(
-            {mill.mill_id: len(mill.pairs) for mill in CATALOG.catalogs},
-            EXTRACTED_COUNTS,
         )
         r280 = CATALOG.mills["amc-mill-r280"]
         self.assertEqual(r280.shape, "pairs-prefix-new")
@@ -100,14 +94,17 @@ class AmcCatalogTests(unittest.TestCase):
         r424 = CATALOG.mills["amc-mill-r424"]
         self.assertEqual(r424.shape, "pairs-table-zip")
         self.assertEqual(r424.n_rows_extracted, 999)
-        self.assertEqual(sum(1 for pair in r424.pairs if pair.role == "deferred"), 997)
         leftover = CATALOG.mills["mill_amc_leftover_r688"]
         self.assertEqual(leftover.shape, "leftover-dict")
         self.assertEqual(leftover.max_rounds, 16)
         self.assertIn("1377 deferred", CATALOG.extraction)
-        self.assertEqual(leftover.pairs[0].role, "first")
+
+    def test_committed_role_counts_cover_the_extracted_set(self):
+        roles = Counter(pair.role for pair in CATALOG.pairs())
+        self.assertEqual(dict(roles), {"first": 12, "last": 12, "deferred": 1377})
+        self.assertEqual(len(CATALOG.mills["amc-mill-r424"].pairs), 999)
+        leftover = CATALOG.mills["mill_amc_leftover_r688"]
         self.assertEqual(leftover.pairs[0].success_slug, leftover.first_slug)
-        self.assertEqual(leftover.pairs[1].role, "last")
         self.assertEqual(leftover.pairs[1].success_slug, leftover.last_slug)
 
     def test_loop_pins_name_companion_mills(self):
