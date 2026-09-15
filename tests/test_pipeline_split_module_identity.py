@@ -108,6 +108,7 @@ NEW_SPLIT_MODULES = (
     "round_txn",
     "validate_run",
     "validate_run_provenance",
+    "curate_gate_promotion",
     "operator_paths",
     "validate_run_rewards",
     "validate_run_thalamic",

@@ -104,7 +104,6 @@ neither ever writes into ``outputs/raw/``.
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import shutil
 import sys
@@ -133,11 +132,13 @@ if __package__:
     from . import curate_gate_merge as _merge
     from . import curate_gate_paths as _paths
     from . import curate_gate_plan as _plan
+    from . import curate_gate_promotion as _promotion
     from . import curate_gate_records as _records
     from . import curate_gate_review as _review
     from . import curate_gate_reward as _reward
     from . import curate_gate_reward_sidecars as _reward_sidecars
     from . import training_audit
+    from .operator_paths import operator_path
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate"
@@ -158,11 +159,13 @@ else:
     import curate_gate_merge as _merge  # noqa: E402
     import curate_gate_paths as _paths  # noqa: E402
     import curate_gate_plan as _plan  # noqa: E402
+    import curate_gate_promotion as _promotion  # noqa: E402
     import curate_gate_records as _records  # noqa: E402
     import curate_gate_review as _review  # noqa: E402
     import curate_gate_reward as _reward  # noqa: E402
     import curate_gate_reward_sidecars as _reward_sidecars  # noqa: E402
     import training_audit  # noqa: E402
+    from operator_paths import operator_path  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # shared contract, re-exported so every ``curate_gate.X`` call site still works
@@ -402,6 +405,14 @@ def run_gates(
 # ---------------------------------------------------------------------------
 
 
+class IntegrateInputs(NamedTuple):
+    """The confined ``integrate`` arguments; no sink reads ``args`` again."""
+
+    plan: Path
+    cleaned_out: Path
+    per_stratum: int
+
+
 class _Integration(NamedTuple):
     """What one staged integration produced, for the summary printed after it."""
 
@@ -507,18 +518,18 @@ def _integrate_summary(destination: Path, staging: _Integration) -> dict[str, An
     }
 
 
-def cmd_integrate(args: argparse.Namespace) -> int:
-    if args.per_stratum < 1:
+def cmd_integrate(inputs: IntegrateInputs) -> int:
+    if inputs.per_stratum < 1:
         raise GateError("--per-stratum must be at least 1")
-    plan = load_plan(Path(args.plan))
-    destination = _integrate_destination(plan, Path(args.cleaned_out))
+    plan = load_plan(inputs.plan)
+    destination = _integrate_destination(plan, inputs.cleaned_out)
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(
         tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
     )
     staged = stage_root / "tree"
     try:
-        staging = _integrate_evidence(plan, staged, destination, args.per_stratum)
+        staging = _integrate_evidence(plan, staged, destination, inputs.per_stratum)
         _publish_integration(staged, destination, staging)
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
@@ -527,428 +538,112 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     return 0 if staging.gate_result["training_ready"] else 1
 
 
-def _promotion_outputs(curated: Path) -> list[dict[str, Any]]:
-    entries = []
-    for path in sorted(curated.rglob("*")):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(curated).as_posix()
-        if relative in {MANIFEST_FILENAME, SAMPLE_FILENAME, REVIEW_FILENAME}:
-            continue
-        entries.append(
-            {
-                "path": relative,
-                "sha256": file_sha256(path),
-                "bytes": path.stat().st_size,
-            }
-        )
-    return entries
+# ---------------------------------------------------------------------------
+# promotion of a reviewed cleaned destination (curate_gate_promotion)
+# ---------------------------------------------------------------------------
+
+PromotionTools = _promotion.PromotionTools
+PromotionPaths = _promotion.PromotionPaths
+_promotion_outputs = _promotion.promotion_outputs
+_PromotionSources = _promotion._PromotionSources
+_promotion_inputs = _promotion._promotion_inputs
+_snapshot_one = _promotion._snapshot_one
+_snapshot_corpus_records = _promotion._snapshot_corpus_records
+_snapshot_review = _promotion._snapshot_review
+_snapshot_reviewed_tree = _promotion.snapshot_reviewed_tree
+_PromotionEvidence = _promotion.PromotionEvidence
+_PromotedTree = _promotion.PromotedTree
+_PromotionOutcome = _promotion.PromotionOutcome
+_staged_evidence = _promotion.staged_evidence
+_lane_evidence_sections = _promotion._lane_evidence_sections
+_final_promotion_manifest = _promotion._final_promotion_manifest
+_promote_staged = _promotion.promote_staged
+_refused_promotion = _promotion.refused_promotion
 
 
-class _PromotionSources(NamedTuple):
-    """Every file a promotion copies, in the order it copies them."""
-
-    corpus: list[Path]
-    governance: list[Path]
-    ordered: list[Path]
-
-
-def _promotion_inputs(cleaned: Path) -> _PromotionSources:
-    corpus_paths = jsonl_paths(cleaned)
-    if not corpus_paths:
-        raise GateError(f"no JSONL corpus files under {cleaned}")
-    governance = cleaned / GOVERNANCE_DIRNAME
-    if not governance.is_dir():
-        raise GateError(f"cleaned corpus is missing {GOVERNANCE_DIRNAME} evidence")
-    governance_paths = [path for path in sorted(governance.rglob("*")) if path.is_file()]
-    control_paths = [cleaned / MANIFEST_FILENAME, cleaned / SAMPLE_FILENAME]
-    for control in control_paths:
-        if not control.is_file():
-            raise GateError(f"cleaned corpus is missing promotion control file: {control}")
-    return _PromotionSources(
-        corpus_paths,
-        governance_paths,
-        [*corpus_paths, *governance_paths, *control_paths],
+def _promotion_tools():
+    """The seams a promotion publishes through, read from this live namespace."""
+    return PromotionTools(
+        run_gates, _rename_noreplace, _promotion_outputs, training_audit.canonical_blob
     )
 
 
-def _snapshot_one(source: Path, cleaned: Path, destination: Path) -> tuple[bytes, dict[str, Any]]:
-    """Copy one confined file into the staging tree and record its bytes."""
-    relative = source.relative_to(cleaned)
-    payload = _snapshot_bytes(source, cleaned, "cleaned promotion input")
-    target = destination / relative
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(payload)
-    return payload, {
-        "path": relative.as_posix(),
-        "sha256": sha256_hex(payload),
-        "bytes": len(payload),
-    }
+class PromoteInputs(NamedTuple):
+    """The confined ``promote`` arguments; no sink reads ``args`` again."""
+
+    cleaned: Path
+    review: Path
+    curated_out: Path
 
 
-def _snapshot_corpus_records(payload: bytes, source: Path) -> int:
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise GateError(f"cannot snapshot invalid UTF-8 JSONL {source}: {exc}") from exc
-    return sum(1 for line in _lf_lines(text) if line.strip())
-
-
-def _snapshot_review(review_path: Path, destination: Path) -> dict[str, Any]:
-    review_payload = _snapshot_bytes(review_path, review_path.parent, "review evidence")
-    (destination / REVIEW_FILENAME).write_bytes(review_payload)
-    return {
-        "path": REVIEW_FILENAME,
-        "source_path": str(review_path),
-        "sha256": sha256_hex(review_payload),
-        "bytes": len(review_payload),
-    }
-
-
-def _snapshot_reviewed_tree(
-    cleaned: Path,
-    review_path: Path,
-    destination: Path,
-) -> dict[str, Any]:
-    """Capture once, then validate and publish only these staged bytes.
-
-    No source file is read again after this function returns.  Cross-file
-    digests and all gates are evaluated on ``destination``, which is renamed
-    directly into place after successful validation.
-    """
-    sources = _promotion_inputs(cleaned)
-    corpus_paths = sources.corpus
-
-    destination.mkdir(parents=True)
-    entries: list[dict[str, Any]] = []
-    records = 0
-    for source in sources.ordered:
-        payload, entry = _snapshot_one(source, cleaned, destination)
-        entries.append(entry)
-        if source in corpus_paths:
-            records += _snapshot_corpus_records(payload, source)
-
-    review_entry = _snapshot_review(review_path, destination)
-    entries.append({key: value for key, value in review_entry.items() if key != "source_path"})
-
-    by_path = {entry["path"]: entry for entry in entries}
-    governance_entries = [
-        entry for entry in entries if Path(entry["path"]).parts[0] == GOVERNANCE_DIRNAME
-    ]
-    return {
-        "files": len(corpus_paths),
-        "records": records,
-        "resorted": 0,
-        "governance_files": len(sources.governance),
-        "inputs": entries,
-        "review": review_entry,
-        "integration_manifest": by_path[MANIFEST_FILENAME],
-        "review_sample": by_path[SAMPLE_FILENAME],
-        "governance": governance_entries,
-    }
-
-
-class _PromotionEvidence(NamedTuple):
-    """The staged integration evidence one promotion is replayed against."""
-
-    manifest: dict[str, Any]
-    sample: dict[str, Any]
-    review: Any
-    digest: str
-    evidence_digest: str
-    bindings: list[dict[str, Any]]
-
-
-class _PromotedTree(NamedTuple):
-    """The digest and output listing the published tree must still match."""
-
-    digest: str
-    outputs: list[dict[str, Any]]
-
-
-class _PromotionOutcome(NamedTuple):
-    """A promotion's exit status and the JSON summary printed for it."""
-
-    status: int
-    summary: dict[str, Any]
-
-
-def _promotion_destinations(args: argparse.Namespace) -> tuple[Path, Path, Path]:
+def _promotion_destinations(inputs: PromoteInputs) -> tuple[Path, Path, Path]:
     """Resolve and refuse the three promotion paths before anything is staged."""
-    cleaned = Path(args.cleaned).resolve()
-    curated = _assert_new_destination(
-        Path(args.curated_out),
-        "curated destination",
-        RAW_OUTPUT_ROOT,
-    )
+    cleaned = inputs.cleaned.resolve()
+    curated = _assert_new_destination(inputs.curated_out, "curated destination", RAW_OUTPUT_ROOT)
     if not cleaned.is_dir():
         raise GateError(f"not a directory: {cleaned}")
     _assert_disjoint_trees(cleaned, curated)
-    review_path = Path(args.review).resolve()
+    review_path = inputs.review.resolve()
     if not review_path.is_file():
         raise GateError(f"review evidence is missing: {review_path}")
     return cleaned, curated, review_path
 
 
-def _staged_evidence(staged: Path) -> _PromotionEvidence:
-    """Read the captured manifest, sample and review; nothing is read twice."""
-    manifest_path = staged / MANIFEST_FILENAME
-    sample_path = staged / SAMPLE_FILENAME
-    manifest = _load_json(manifest_path)
-    if not isinstance(manifest, dict):
-        raise GateError(f"{manifest_path}: manifest must be a JSON object")
-    sample = _load_json(sample_path)
-    if not isinstance(sample, dict) or not isinstance(sample.get("items"), list):
-        raise GateError(f"{sample_path}: review sample must be an object with an 'items' list")
-    review = _load_json(staged / REVIEW_FILENAME)
-
-    digest = corpus_digest(staged)
-    evidence_digest = manifest.get("evidence_digest")
-    if not isinstance(evidence_digest, str) or not evidence_digest.startswith("sha256:"):
-        raise GateError(f"{manifest_path}: evidence_digest must be a SHA-256")
-    _normalized_sha256(evidence_digest, f"{manifest_path}: evidence_digest")
-    bindings = _normalize_record_bindings(manifest.get("record_bindings"))
-    return _PromotionEvidence(manifest, sample, review, digest, evidence_digest, bindings)
-
-
-def _regate_staged(
-    staged: Path,
-    evidence: _PromotionEvidence,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Rebuild every lane decision from the sealed bytes, then re-run the gates."""
-    retained_source_keys = {
-        (binding["source_path"], binding["source_line"]) for binding in evidence.bindings
-    }
-    source_record_sha256_by_key = {
-        (binding["source_path"], binding["source_line"]): binding["source_record_sha256"]
-        for binding in evidence.bindings
-    }
-    evidence_lanes, rebuilt_lane_manifests = verify_lane_evidence(
-        staged,
-        evidence.manifest,
-        RetentionView(retained_source_keys, source_record_sha256_by_key),
-    )
-    gate_result = run_gates(
-        staged,
-        record_bindings=evidence.bindings,
-        prepared_lanes=evidence_lanes,
-        lane_manifests=rebuilt_lane_manifests,
-    )
-    return gate_result, rebuilt_lane_manifests
-
-
-def _expected_review_sample(
-    staged: Path,
-    evidence: _PromotionEvidence,
-    rebuilt_lane_manifests: dict[str, Any],
-    cleaned: Path,
-) -> dict[str, Any]:
-    """Re-derive the sample the recorded ``per_stratum`` must have produced."""
-    manifest_path = staged / MANIFEST_FILENAME
-    sampling = evidence.manifest.get("review_sampling")
-    if not isinstance(sampling, dict):
-        raise GateError(f"{manifest_path}: review_sampling must be an object")
-    per_stratum = sampling.get("per_stratum")
-    if not isinstance(per_stratum, int) or isinstance(per_stratum, bool) or per_stratum < 1:
-        raise GateError(f"{manifest_path}: review_sampling.per_stratum must be at least 1")
-    expected_sample = build_sample(
-        staged,
-        per_stratum,
-        rebuilt_lane_manifests["review_candidates"],
-        evidence_digest=evidence.evidence_digest,
-    )
-    expected_sample["cleaned_dir"] = str(cleaned)
-    return expected_sample
-
-
-def _lane_evidence_sections(rebuilt_lane_manifests: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "exclusions": rebuilt_lane_manifests["exclusions"],
-        "quarantines": rebuilt_lane_manifests["quarantines"],
-        "repairs": rebuilt_lane_manifests["repairs"],
-        "identity_mappings": rebuilt_lane_manifests["identity_mappings"],
-        "review_candidates": rebuilt_lane_manifests["review_candidates"],
-        "exclusion_reason_codes": rebuilt_lane_manifests["reason_codes"],
-        "lanes_without_record_manifest": [],
-    }
-
-
-def _promotion_review_blockers(
-    evidence: _PromotionEvidence,
-    expected_sample: dict[str, Any],
-    rebuilt_lane_manifests: dict[str, Any],
-    cleaned: Path,
-) -> tuple[list[str], dict[str, Any]]:
-    """Bind the supplied verdicts to the corpus, the manifest and the sample."""
-    review_blockers, review_summary = check_review(
-        expected_sample,
-        evidence.review,
-        evidence.digest,
-        evidence.evidence_digest,
-    )
-    manifest = evidence.manifest
-    if manifest_evidence_digest(manifest) != evidence.evidence_digest:
-        review_blockers.append("INTEGRATION_EVIDENCE_MISMATCH")
-    if manifest.get("cleaned_dir") != str(cleaned):
-        review_blockers.append("CLEANED_DESTINATION_MISMATCH")
-    evidence_sections = _lane_evidence_sections(rebuilt_lane_manifests)
-    if any(manifest.get(key) != value for key, value in evidence_sections.items()):
-        review_blockers.append("LANE_EVIDENCE_SUMMARY_MISMATCH")
-    expected_sample_hash = sha256_hex(
-        training_audit.canonical_blob(expected_sample).encode("utf-8")
-    )
-    if manifest["review_sampling"].get("sample_sha256") != expected_sample_hash:
-        review_blockers.append("SAMPLE_MANIFEST_MISMATCH")
-    if evidence.sample.get("corpus_digest") != evidence.digest:
-        review_blockers.append("SAMPLE_CORPUS_MISMATCH")
-    if evidence.sample != expected_sample:
-        review_blockers.append("SAMPLE_SELECTION_MISMATCH")
-    return review_blockers, review_summary
-
-
-def _final_promotion_manifest(
-    evidence: _PromotionEvidence,
-    gate_result: dict[str, Any],
-    review_summary: dict[str, Any],
-) -> dict[str, Any]:
-    final_manifest = copy.deepcopy(evidence.manifest)
-    final_manifest["corpus_digest"] = evidence.digest
-    final_manifest["gates"] = gate_result["gates"]
-    counts = final_manifest.get("counts")
-    if not isinstance(counts, dict):
-        counts = {}
-    counts.update(_corpus_counts(gate_result["audit"]))
-    final_manifest["counts"] = counts
-    final_manifest["review"] = review_summary
-    final_manifest["training_ready"] = gate_result["training_ready"]
-    final_manifest["blockers"] = []
-    return final_manifest
-
-
-def _promotion_record(
-    staged: Path,
-    promotion: dict[str, Any],
-    evidence: _PromotionEvidence,
-    curated: Path,
-) -> tuple[_PromotedTree, dict[str, Any]]:
-    promoted_digest = corpus_digest(staged)
-    if promoted_digest != evidence.digest:
-        raise GateError("staged corpus changed after validation")
-    promoted_outputs = _promotion_outputs(staged)
-    governance_outputs = [
-        entry
-        for entry in promoted_outputs
-        if Path(entry["path"]).parts[0] == GOVERNANCE_DIRNAME
-    ]
-    record = {
-        "curated_dir": str(curated),
-        "promoter": "pipelines/curate_gate.py immutable-staged-snapshot",
-        "files": promotion["files"],
-        "records": promotion["records"],
-        "resorted": promotion["resorted"],
-        "governance_files": promotion["governance_files"],
-        "outputs": promoted_outputs,
-        "corpus_digest": promoted_digest,
-        "evidence_digest": evidence.evidence_digest,
-        "integration_manifest_sha256": promotion["integration_manifest"]["sha256"],
-        "review_sample_sha256": promotion["review_sample"]["sha256"],
-        "review_sha256": promotion["review"]["sha256"],
-        "governance_evidence_digest": "sha256:" + record_sha256(governance_outputs),
-    }
-    return _PromotedTree(promoted_digest, promoted_outputs), record
-
-
-def _publish_promotion(
-    staged: Path,
-    curated: Path,
-    promotion: dict[str, Any],
-    tree: _PromotedTree,
-) -> None:
-    """Publish only bytes that have not moved since they were validated."""
-    expected_tree = _tree_snapshot(staged)
-    if file_sha256(staged / SAMPLE_FILENAME) != promotion["review_sample"]["sha256"]:
-        raise GateError("staged review sample changed after validation")
-    if file_sha256(staged / REVIEW_FILENAME) != promotion["review"]["sha256"]:
-        raise GateError("staged review evidence changed after validation")
-    if corpus_digest(staged) != tree.digest:
-        raise GateError("staged corpus changed after final promotion validation")
-    if _promotion_outputs(staged) != tree.outputs:
-        raise GateError("staged promotion outputs changed after final validation")
-    _rename_noreplace(staged, curated, "curated destination", expected_tree)
-
-
-def _promote_staged(
-    staged: Path,
-    cleaned: Path,
-    curated: Path,
-    review_path: Path,
-) -> _PromotionOutcome:
-    # Capture the corpus, governance evidence, integration controls, and
-    # supplied review exactly once.  Everything below reads only ``staged``.
-    promotion = _snapshot_reviewed_tree(cleaned, review_path, staged)
-    evidence = _staged_evidence(staged)
-    gate_result, rebuilt_lane_manifests = _regate_staged(staged, evidence)
-    expected_sample = _expected_review_sample(staged, evidence, rebuilt_lane_manifests, cleaned)
-    review_blockers, review_summary = _promotion_review_blockers(
-        evidence,
-        expected_sample,
-        rebuilt_lane_manifests,
-        cleaned,
-    )
-
-    blockers = list(dict.fromkeys([*gate_result["blockers"], *review_blockers]))
-    if blockers:
-        return _refused_promotion(cleaned, curated, blockers)
-
-    review_summary["review_sha256"] = promotion["review"]["sha256"]
-    final_manifest = _final_promotion_manifest(evidence, gate_result, review_summary)
-    tree, record = _promotion_record(staged, promotion, evidence, curated)
-    final_manifest["promotion"] = record
-
-    # The final manifest replaces its captured integration predecessor;
-    # corpus, governance, sample, and review bytes are never recopied.
-    _write_json(staged / MANIFEST_FILENAME, final_manifest)
-    _publish_promotion(staged, curated, promotion, tree)
-    return _PromotionOutcome(
-        0,
-        {
-            "promoted": True,
-            "cleaned": str(cleaned),
-            "curated_out": str(curated),
-            "corpus_digest": record["corpus_digest"],
-            "files": promotion["files"],
-            "records": promotion["records"],
-            "reviewer": review_summary.get("reviewer"),
-            "manifest": str(curated / MANIFEST_FILENAME),
-        },
-    )
-
-
-def _refused_promotion(cleaned: Path, curated: Path, blockers: list[str]) -> _PromotionOutcome:
-    return _PromotionOutcome(
-        1,
-        {
-            "promoted": False,
-            "cleaned": str(cleaned),
-            "curated_out": str(curated),
-            "blockers": blockers,
-            "manifest": str(cleaned / MANIFEST_FILENAME),
-        },
-    )
-
-
-def cmd_promote(args: argparse.Namespace) -> int:
-    cleaned, curated, review_path = _promotion_destinations(args)
+def cmd_promote(inputs: PromoteInputs) -> int:
+    cleaned, curated, review_path = _promotion_destinations(inputs)
     curated.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(tempfile.mkdtemp(prefix=f".{curated.name}.staging-", dir=curated.parent))
     staged = stage_root / "tree"
     try:
-        outcome = _promote_staged(staged, cleaned, curated, review_path)
+        outcome = _promote_staged(
+            PromotionPaths(staged, cleaned, curated, review_path), _promotion_tools()
+        )
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
 
     print(json.dumps(outcome.summary, indent=2))
     return outcome.status
+
+
+# ---------------------------------------------------------------------------
+# command line: operator paths are confined right after parsing
+# ---------------------------------------------------------------------------
+
+
+def _confined_path(value: str) -> Path:
+    try:
+        return operator_path(value)
+    except argparse.ArgumentTypeError as exc:
+        raise GateError(f"{value}: {exc}") from exc
+
+
+def _confined_destination(value: str, label: str) -> Path:
+    """Refuse a destination typed as a symlink, then confine it.
+
+    Confinement resolves through the symlink, which would let a dangling
+    destination publish through to its target. Existing non-symlink
+    destinations stay for the disjoint and overwrite checks that follow.
+    """
+    typed = Path(value)
+    if typed.is_symlink():
+        _assert_new_destination(typed, label, RAW_OUTPUT_ROOT)
+    return _confined_path(value)
+
+
+def _integrate_inputs(args: argparse.Namespace) -> IntegrateInputs:
+    return IntegrateInputs(
+        _confined_path(args.plan),
+        _confined_destination(args.cleaned_out, _CLEANED_LABEL),
+        args.per_stratum,
+    )
+
+
+def _promote_inputs(args: argparse.Namespace) -> PromoteInputs:
+    return PromoteInputs(
+        _confined_path(args.cleaned),
+        _confined_path(args.review),
+        _confined_destination(args.curated_out, "curated destination"),
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -974,7 +669,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_PER_STRATUM,
         help=f"records sampled per stratum (default {DEFAULT_PER_STRATUM})",
     )
-    integrate.set_defaults(handler=cmd_integrate)
+    integrate.set_defaults(handler=cmd_integrate, inputs=_integrate_inputs)
 
     promote_cmd = sub.add_parser(
         "promote",
@@ -987,7 +682,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     promote_cmd.add_argument(
         "--curated-out", required=True, help="brand-new curated destination (must not exist)"
     )
-    promote_cmd.set_defaults(handler=cmd_promote)
+    promote_cmd.set_defaults(handler=cmd_promote, inputs=_promote_inputs)
 
     return parser.parse_args(argv)
 
@@ -995,7 +690,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        return args.handler(args)
+        return args.handler(args.inputs(args))
     except GateError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
