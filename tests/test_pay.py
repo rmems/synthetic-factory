@@ -14,12 +14,17 @@ REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 PACKAGE = PIPELINES / "pay"
 SOURCE_PATH = "scripts/payment_idempotency_mill/mill_plants.py"
+DEFERRED_B = "scripts/payment_idempotency_mill/mill_plants_b.py"
+DEFERRED_G = "scripts/payment_idempotency_mill/mill_plants_g.py"
 SESSION_COMMIT = "e5206e72fa829931162944648e1e180949baaf0b"
 BYTES_REF = "origin/legacy-mill-lane"
+COMMITTED_ARCHIVE_B_PAIRS = 21
+DEFERRED_SOURCE_COUNT = 11
 
 sys.path.insert(0, str(PIPELINES))
 
 from pay import archive_b_catalog as cat  # noqa: E402
+from pay import archive_b_deferred as deferred  # noqa: E402
 from pay import archive_b_extract as extract  # noqa: E402
 from pay import pairs as slice_a  # noqa: E402
 from pay._contract import (  # noqa: E402
@@ -80,16 +85,21 @@ def _archive_b_source_text() -> str | None:
 
 
 class ArchiveBCatalogTests(unittest.TestCase):
-    def test_committed_catalog_loads_two_pairs(self):
+    def test_committed_catalog_loads_archive_b_pairs(self):
         loaded = cat.load_archive_b_catalog(PACKAGE)
         self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.meta["factory"], FACTORY)
         self.assertEqual(loaded.meta["generator"], GENERATOR)
-        self.assertEqual(len(loaded.pairs), 2)
+        self.assertEqual(len(loaded.pairs), COMMITTED_ARCHIVE_B_PAIRS)
         self.assertEqual(loaded.pairs[0].ok_slug, "worldpay-ntf-vs-inquiry")
         self.assertEqual(loaded.pairs[0].fail_slug, "nuvei-dmn-vs-getstatus")
         self.assertEqual(loaded.pairs[1].ok_slug, "rapyd-completed-vs-retrieve")
         self.assertEqual(loaded.pairs[1].fail_slug, "gocardless-mandate-vs-payment")
+        self.assertEqual(loaded.pairs[2].ok_slug, "plaid-transfer-vs-webhook")
+        self.assertEqual(loaded.pairs[-1].ok_slug, "forter-preauth-vs-capture")
+        extract_meta = loaded.meta["extract"]
+        self.assertEqual(extract_meta["committed_pairs"], COMMITTED_ARCHIVE_B_PAIRS)
+        self.assertEqual(len(deferred.deferred_sources()), DEFERRED_SOURCE_COUNT)
 
     def test_archive_b_slugs_do_not_overlap_slice_a(self):
         loaded = cat.load_archive_b_catalog(PACKAGE)
@@ -120,13 +130,31 @@ class AstExtractTests(unittest.TestCase):
             self.skipTest("mill_plants.py not available via git show in this checkout")
         extracted = extract.pairs_from_source(text)
         loaded = cat.load_archive_b_catalog(PACKAGE)
-        self.assertEqual(len(extracted), len(loaded.pairs))
-        for index, pair in enumerate(loaded.pairs):
+        self.assertEqual(len(extracted), 2)
+        for index, pair in enumerate(loaded.pairs[:2]):
             self.assertEqual(extracted[index]["ok"]["slug"], pair.ok_slug)
             self.assertEqual(extracted[index]["fail"]["slug"], pair.fail_slug)
 
+    def test_deferred_git_show_extract_matches_committed_tail(self):
+        try:
+            b_text = deferred.git_show_deferred_source(DEFERRED_B)
+            g_text = deferred.git_show_deferred_source(DEFERRED_G)
+        except Exception:
+            self.skipTest("deferred mill_plants sources not available via git show")
+        b_rows = extract.pairs_from_chained_source(b_text, source=DEFERRED_B, expected_rows=5)
+        g_rows = extract.pairs_from_chained_source(g_text, source=DEFERRED_G, expected_rows=1)
+        loaded = cat.load_archive_b_catalog(PACKAGE)
+        self.assertEqual(b_rows[0]["ok"]["slug"], loaded.pairs[2].ok_slug)
+        self.assertEqual(g_rows[0]["ok"]["slug"], loaded.pairs[-1].ok_slug)
+        self.assertEqual(len(deferred.deferred_sources()), DEFERRED_SOURCE_COUNT)
+
     def test_extract_modules_do_not_call_exec(self):
-        for name in ("archive_b_extract.py", "archive_b_catalog.py", "_contract.py"):
+        for name in (
+            "archive_b_extract.py",
+            "archive_b_catalog.py",
+            "archive_b_deferred.py",
+            "_contract.py",
+        ):
             path = PACKAGE / name
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):

@@ -18,8 +18,9 @@ from ._contract import (
 )
 
 SIDE_REQUIRED = ("slug",)
+_APPEND_LISTS = frozenset({"PAIRS", "MORE"})
 
-__all__ = ["pairs_from_source"]
+__all__ = ["pairs_from_chained_source", "pairs_from_source"]
 
 
 def _const_eval(node: ast.AST) -> Any:
@@ -69,6 +70,85 @@ def _validate_side(
         )
 
 
+def _pair_from_tuple(pair: Any, *, source: str, index: int) -> dict[str, Any]:
+    refuse_when(
+        not isinstance(pair, tuple) or len(pair) != 2,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} pair[{index}] expects (ok, fail) tuple",
+    )
+    ok, fail = pair
+    refuse_when(
+        not isinstance(ok, dict) or not isinstance(fail, dict),
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} pair[{index}] sides must be dicts",
+    )
+    _validate_side(ok, role="ok", index=index, source=source)
+    _validate_side(fail, role="fail", index=index, source=source)
+    return {"ok": ok, "fail": fail}
+
+
+def _pair_from_append_call(call: ast.Call, *, source: str, index: int) -> dict[str, Any] | None:
+    if not (isinstance(call.func, ast.Attribute) and call.func.attr == "append"):
+        return None
+    if not (isinstance(call.func.value, ast.Name) and call.func.value.id in _APPEND_LISTS):
+        return None
+    refuse_when(
+        len(call.args) != 1,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} {call.func.value.id}.append must take one tuple argument",
+    )
+    return _pair_from_tuple(_const_eval(call.args[0]), source=source, index=index)
+
+
+def _pair_from_pair_call(call: ast.Call, *, source: str, index: int) -> dict[str, Any] | None:
+    if not (isinstance(call.func, ast.Name) and call.func.id == "pair"):
+        return None
+    refuse_when(
+        len(call.args) != 2,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} pair() expects two arguments",
+    )
+    ok = _const_eval(call.args[0])
+    fail = _const_eval(call.args[1])
+    _validate_side(ok, role="ok", index=index, source=source)
+    _validate_side(fail, role="fail", index=index, source=source)
+    return {"ok": ok, "fail": fail}
+
+
+def pairs_from_chained_source(
+    text: str,
+    *,
+    source: str,
+    expected_rows: int,
+) -> tuple[dict[str, Any], ...]:
+    """Extract literal ``MORE``/``PAIRS`` appends and top-level ``pair()`` calls."""
+
+    refuse_when(expected_rows < 1, FINDING_AST_NOT_A_PAIR, f"{source} expected_rows must be positive")
+    try:
+        tree = ast.parse(text, filename=source)
+    except SyntaxError as exc:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}")
+    rows: list[dict[str, Any]] = []
+    for node in tree.body:
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        row = _pair_from_append_call(call, source=source, index=len(rows))
+        if row is None:
+            row = _pair_from_pair_call(call, source=source, index=len(rows))
+        if row is None:
+            continue
+        rows.append(row)
+        if len(rows) >= expected_rows:
+            break
+    refuse_when(
+        len(rows) != expected_rows,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} extracted {len(rows)} pairs, expected {expected_rows}",
+    )
+    return tuple(rows)
+
+
 def pairs_from_source(text: str, *, source: str = SOURCE_PATH) -> tuple[dict[str, Any], ...]:
     """Return ``({"ok": ..., "fail": ...}, ...)`` from ``PAIRS.append`` calls."""
 
@@ -85,26 +165,7 @@ def pairs_from_source(text: str, *, source: str = SOURCE_PATH) -> tuple[dict[str
             continue
         if not (isinstance(call.func.value, ast.Name) and call.func.value.id == "PAIRS"):
             continue
-        refuse_when(
-            len(call.args) != 1,
-            FINDING_AST_NOT_A_PAIR,
-            f"{source} PAIRS.append must take one tuple argument",
-        )
-        pair = _const_eval(call.args[0])
-        refuse_when(
-            not isinstance(pair, tuple) or len(pair) != 2,
-            FINDING_AST_NOT_A_PAIR,
-            f"{source} PAIRS.append expects (ok, fail) tuple",
-        )
-        ok, fail = pair
-        refuse_when(
-            not isinstance(ok, dict) or not isinstance(fail, dict),
-            FINDING_AST_NOT_A_PAIR,
-            f"{source} PAIRS.append sides must be dicts",
-        )
-        _validate_side(ok, role="ok", index=len(rows), source=source)
-        _validate_side(fail, role="fail", index=len(rows), source=source)
-        rows.append({"ok": ok, "fail": fail})
+        rows.append(_pair_from_append_call(call, source=source, index=len(rows)))
     refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS.append rows")
     return tuple(rows)
 
