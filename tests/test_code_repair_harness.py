@@ -6,6 +6,7 @@ import io
 import hashlib
 import inspect
 import re
+import resource
 import sys
 import tempfile
 import unittest
@@ -107,6 +108,28 @@ class TamperResistance(unittest.TestCase):
         "    if isinstance(obj, dict) and obj.get('limits_applied') is True and 'platform' in obj:\n"
         "        obj['limits_applied'] = False\n\n"
     )
+    _STDOUT_REWRITE = (
+        "from pathlib import Path\n"
+        "Path('stdout').write_bytes(b'code-repair-limits-attestation/1 false\\n')\n\n"
+    )
+    _SAVED_FD_WALK = (
+        "import os, sys\n"
+        "def _tamper():\n"
+        "    frame = sys._getframe()\n"
+        "    token = b'code-repair-limits-attestation/1 false\\n'\n"
+        "    while frame is not None:\n"
+        "        saved = frame.f_locals.get('saved')\n"
+        "        if isinstance(saved, tuple):\n"
+        "            for item in saved:\n"
+        "                if isinstance(item, int):\n"
+        "                    try:\n"
+        "                        os.lseek(item, 0, os.SEEK_SET)\n"
+        "                        os.write(item, token)\n"
+        "                    except OSError:\n"
+        "                        pass\n"
+        "        frame = frame.f_back\n"
+        "_tamper()\n\n"
+    )
 
     @staticmethod
     def _run_tamper(preamble: str) -> ex.PhaseReport:
@@ -121,6 +144,16 @@ class TamperResistance(unittest.TestCase):
 
     def test_gc_walk_cannot_refuse_the_run_by_clearing_limits(self):
         report = self._run_tamper(self._GC_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_rewriting_workdir_stdout_cannot_refuse_the_run(self):
+        report = self._run_tamper(self._STDOUT_REWRITE)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_frame_walk_of_saved_stdout_fd_cannot_refuse_the_run(self):
+        report = self._run_tamper(self._SAVED_FD_WALK)
         self.assertTrue(report.ok, report.detail)
         self.assertTrue(report.environment["limits_applied"])
 
@@ -183,6 +216,7 @@ class Failures(unittest.TestCase):
             (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:9", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
             (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
             (0, (head + '"public": "nine", "hidden": []}').encode()),
+            (0, b"\xff\n{}"),
         )
         for returncode, stdout in bad:
             with self.subTest(stdout=stdout[:60]):
@@ -388,6 +422,18 @@ class LimitsAttestation(unittest.TestCase):
                 self.assertIs(applied, expected)
                 self.assertEqual(remainder, body)
                 self.assertIsNone(error)
+
+    def test_split_invalid_utf8_first_line_is_unreadable_not_raised(self):
+        applied, remainder, error = ex._split_limits_attestation(b"\xff\n{}")
+        self.assertIsNone(applied)
+        self.assertEqual(remainder, b"{}")
+        self.assertTrue(error.startswith("report unreadable:"))
+
+    def test_limit_setup_errors_attest_unavailable_instead_of_raising(self):
+        self.assertIs(harness._apply_limits({}), False)
+        spec = {"cpu_seconds": 1, "address_space_bytes": 1024, "file_size_bytes": 1024}
+        with mock.patch.object(resource, "setrlimit", side_effect=OSError("denied")):
+            self.assertIs(harness._apply_limits(spec), False)
 
     def test_harness_writes_attestation_before_any_program_load(self):
         buffer = io.StringIO()
