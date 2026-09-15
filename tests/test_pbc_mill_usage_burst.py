@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PBC mill-usage-burst catalog (proto-breaking-change), slice B minus deferred r787."""
+"""PBC mill-usage-burst catalog (proto-breaking-change), slice C full extract."""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ _EXPECTED_MILL_ROWS = {
     "pbc_r701": 30,
     "pbc_r731": 20,
     "pbc_r751": 20,
+    "pbc_r787": 175,
     "pbc_r803": 16,
     "pbc_r966": 8,
     "pbc_r988": 349,
@@ -45,9 +46,9 @@ class PbcIdentityTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[_contract.FAMILY], _contract.FACTORY)
         self.assertEqual(_contract.REVIEWED_HOME, _contract.FACTORY_NAME)
-        self.assertEqual(_contract.SLICE_PAIR_COUNT, 533)
+        self.assertEqual(_contract.SLICE_PAIR_COUNT, 708)
         self.assertEqual(_contract.FULL_PAIR_COUNT, 708)
-        self.assertEqual(_contract.DEFERRED_MILL_IDS, frozenset({"pbc_r787"}))
+        self.assertEqual(_contract.DEFERRED_MILL_IDS, frozenset())
 
     def test_refuse_vendor_paths_fails_closed(self):
         with self.assertRaises(SystemExit) as caught:
@@ -56,12 +57,12 @@ class PbcIdentityTests(unittest.TestCase):
 
 
 class PbcCatalogTests(unittest.TestCase):
-    def test_plan_loads_slice_b_counts(self):
+    def test_plan_loads_slice_c_counts(self):
         plan = catalog.load_mill_usage_burst_plan(repo_root=REPO)
-        self.assertEqual(plan.slice, "B")
+        self.assertEqual(plan.slice, "C")
         self.assertEqual(
             plan.counts(),
-            {"mills": 7, "rounds": 533, "pairs": 533, "episodes": 1066},
+            {"mills": 8, "rounds": 708, "pairs": 708, "episodes": 1416},
         )
         self.assertEqual(
             [mill.mill_id for mill in plan.mills],
@@ -69,31 +70,29 @@ class PbcCatalogTests(unittest.TestCase):
                 "pbc_r701",
                 "pbc_r731",
                 "pbc_r751",
+                "pbc_r787",
                 "pbc_r803",
                 "pbc_r966",
                 "pbc_r988",
                 "pbc_r2535",
             ],
         )
-        self.assertNotIn("pbc_r787", [mill.mill_id for mill in plan.mills])
         self.assertNotIn(_contract.LEFTOVER_MILL_ID, [mill.mill_id for mill in plan.mills])
 
     def test_catalog_committed_pair_counts(self):
         loaded = catalog.load_catalog()
-        self.assertEqual(len(loaded.pairs), 533)
+        self.assertEqual(len(loaded.pairs), 708)
         by_mill = Counter(pair.mill_id for pair in loaded.pairs)
         self.assertEqual(dict(by_mill), _EXPECTED_MILL_ROWS)
         first = loaded.mill("pbc_r701")
         self.assertEqual(first.ok["slug"], "map-key-sfixed32-to-uint32")
         self.assertEqual(first.bad["slug"], "float-to-double-temp")
+        r787 = loaded.mill("pbc_r787")
+        self.assertEqual(r787.ok["slug"], "int64-to-string-seq")
+        self.assertEqual(r787.bad["slug"], "uint32-to-string-port")
         self.assertEqual(loaded.header["extract"]["leftover_first_slug"], "date-to-int32-poured")
-        self.assertEqual(loaded.header["extract"]["deferred_mills"], ["pbc_r787"])
+        self.assertEqual(loaded.header["extract"]["deferred_mills"], [])
         self.assertFalse(loaded.header["extract"]["exec"])
-        with self.assertRaises(KeyError):
-            loaded.mill("pbc_r787")
-        deferred = next(m for m in loaded.mills if m.mill_id == "pbc_r787")
-        self.assertEqual(deferred.pair_count, 0)
-        self.assertEqual(deferred.full_n_rounds, 175)
 
     def test_no_vendored_pbc_mill_scripts(self):
         hits = [

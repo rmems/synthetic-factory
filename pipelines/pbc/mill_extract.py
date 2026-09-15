@@ -26,6 +26,7 @@ MILL_SOURCES: tuple[tuple[str, str, int, str], ...] = (
     ("pbc_r701", "experiments/pbc-mill-r701.py", 701, "pairs"),
     ("pbc_r731", "experiments/pbc-mill-r731.py", 731, "pairs"),
     ("pbc_r751", "experiments/pbc-mill-r751.py", 751, "pairs"),
+    ("pbc_r787", "experiments/pbc-mill-r787.py", 787, "pairs"),
     ("pbc_r803", "experiments/pbc-mill-r803.py", 803, "pairs"),
     ("pbc_r966", "experiments/pbc-mill-r966.py", 966, "pairs"),
     ("pbc_r988", "experiments/pbc-mill-r988.py", 988, "raw988"),
@@ -77,29 +78,83 @@ def _legacy_text(path: str) -> str:
     raise FileNotFoundError(f"git show failed for {path} at {SOURCE_REF} and {LEGACY}")
 
 
-def _const(node: ast.AST, where: str) -> Any:
+def _const(node: ast.AST, where: str, *, env: dict[str, Any] | None = None) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
+    if isinstance(node, ast.Name):
+        if env is not None and node.id in env:
+            return env[node.id]
+        raise ValueError(f"{where}: not a constant literal")
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _const(node.left, where, env=env)
+        right = _const(node.right, where, env=env)
+        if isinstance(left, str) and isinstance(right, str):
+            return left + right
+        raise ValueError(f"{where}: not a constant literal")
     if isinstance(node, ast.Tuple):
-        return tuple(_const(elt, where) for elt in node.elts)
+        return tuple(_const(elt, where, env=env) for elt in node.elts)
     if isinstance(node, ast.List):
-        return [_const(elt, where) for elt in node.elts]
+        return [_const(elt, where, env=env) for elt in node.elts]
     if isinstance(node, ast.Set):
-        return {_const(elt, where) for elt in node.elts}
+        return {_const(elt, where, env=env) for elt in node.elts}
     raise ValueError(f"{where}: not a constant literal")
 
 
-def _plant_from_call(node: ast.Call, where: str) -> dict[str, Any]:
-    if node.args:
-        raise ValueError(f"{where}: plant()/ty() must use keywords only")
+def _string_constant_env(tree: ast.Module) -> dict[str, Any]:
+    env: dict[str, Any] = {}
+    for node in tree.body:
+        name: str | None = None
+        value: ast.AST | None = None
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    name = target.id
+                    value = node.value
+                    break
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name = node.target.id
+            value = node.value
+        if name is None or value is None:
+            continue
+        try:
+            env[name] = _const(value, name, env=env)
+        except ValueError:
+            continue
+    return env
+
+
+_TY_POS = (
+    "slug",
+    "short",
+    "told",
+    "tnew",
+    "field",
+    "num",
+    "wold",
+    "wnew",
+    "lang",
+    "ticket",
+    "vs",
+    "avoid",
+)
+
+
+def _plant_from_call(node: ast.Call, where: str, *, env: dict[str, Any] | None = None) -> dict[str, Any]:
     func = node.func
     if not isinstance(func, ast.Name) or func.id not in {"plant", "ty"}:
         raise ValueError(f"{where}: expected plant() or ty()")
     kwargs: dict[str, Any] = {}
+    if func.id == "ty" and node.args:
+        for index, arg in enumerate(node.args):
+            if index >= len(_TY_POS):
+                raise ValueError(f"{where}: too many positional args for ty()")
+            kwargs[_TY_POS[index]] = _const(arg, f"{where}.{_TY_POS[index]}", env=env)
+    elif node.args:
+        raise ValueError(f"{where}: plant()/ty() must use keywords only")
     for kw in node.keywords:
         if kw.arg is None:
             raise ValueError(f"{where}: invalid **kwargs")
-        kwargs[kw.arg] = _const(kw.value, f"{where}.{kw.arg}")
+        kwargs[kw.arg] = _const(kw.value, f"{where}.{kw.arg}", env=env)
     if func.id == "ty":
         return _ty(**kwargs)
     return gen.plant(**kwargs)
@@ -183,6 +238,7 @@ def _named_constant(tree: ast.Module, name: str) -> Any:
 
 def extract_pairs_list(source: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     tree = ast.parse(source)
+    env = _string_constant_env(tree)
     payload = _pairs_node(tree)
     if not isinstance(payload, (ast.List, ast.Tuple)):
         raise ValueError("PAIRS must be list or tuple")
@@ -190,8 +246,8 @@ def extract_pairs_list(source: str) -> list[tuple[dict[str, Any], dict[str, Any]
     for index, item in enumerate(payload.elts):
         if not isinstance(item, (ast.Tuple, ast.List)) or len(item.elts) != 2:
             raise ValueError(f"PAIRS[{index}] must be (ok, bad)")
-        ok = _plant_from_call(item.elts[0], f"PAIRS[{index}].ok")
-        bad = _plant_from_call(item.elts[1], f"PAIRS[{index}].bad")
+        ok = _plant_from_call(item.elts[0], f"PAIRS[{index}].ok", env=env)
+        bad = _plant_from_call(item.elts[1], f"PAIRS[{index}].bad", env=env)
         pairs.append((ok, bad))
     return pairs
 
@@ -453,7 +509,7 @@ def build_plants_jsonl() -> str:
             rows.append(
                 pair_row(mill_id, catalog_first, len(pairs), ok, bad, catalog_first + offset)
             )
-    expected = 533
+    expected = 708
     if len(rows) != expected:
         raise SystemExit(f"expected {expected} catalog rows, got {len(rows)}: {counts}")
     lines = [json.dumps(row, separators=(",", ":"), ensure_ascii=False) for row in rows]
