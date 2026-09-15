@@ -16,6 +16,7 @@ RUN apt-get update \
         curl \
         git \
         sudo \
+        bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # python:*-slim has no ubuntu user; Cloud agents clone with git and escalate with sudo.
