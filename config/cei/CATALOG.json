@@ -1,0 +1,26 @@
+{
+  "catalog_id": "cei-pairs-v1",
+  "factory": "csv-excel-ingest-factory",
+  "format": "cei-catalog/1",
+  "mill_prefix": "cei",
+  "mills": [
+    {
+      "base_round": 81,
+      "mill_id": "cei_r81",
+      "plant_count": 39,
+      "source": "experiments/cei-mill-r81.py"
+    }
+  ],
+  "plant_count": 39,
+  "plants_sha256": "4f8cd699063d8f9c6c1b24e217a38be8e2e818a3be1f21bb53efb7ca583edde4",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "cf63f18e63ca9469246145c1eec9388199d60b47",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/cei-mill-r81.py"
+    ]
+  }
+}
