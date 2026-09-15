@@ -124,7 +124,11 @@ NEW_SPLIT_MODULES = (
     "validate_run_outcomes",
     "validate_run_reward_total",
     "validate_run_episode",
+    "validate_run_episode_turns",
     "validate_run_multi_agent",
+    "validate_run_multi_agent_roster",
+    "validate_run_preference",
+    "validate_run_preference_context",
     "validate_run_routes",
     "validate_run_cli",
 )
@@ -219,6 +223,10 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["validate_run_episode"].check_episode,
                 packaged["validate_run_episode"].check_episode,
+            )
+            self.assertIs(
+                direct["validate_run_preference"].staging_preference_goal_errors,
+                packaged["validate_run_preference"].staging_preference_goal_errors,
             )
             self.assertIs(
                 direct["validate_run_routes"].check_line,

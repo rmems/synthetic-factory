@@ -302,12 +302,15 @@ def check_episode(
     enforce_terminal_outcome=False,
 ):
     """Compatibility facade for episode validation (see validate_run_episode)."""
-    return _validate_run_episode.check_episode(
-        obj,
-        where,
+    options = _validate_run_episode.EpisodeOptions(
         require_goal=require_goal,
         forbid_hidden_thought=forbid_hidden_thought,
         enforce_terminal_outcome=enforce_terminal_outcome,
+    )
+    return _validate_run_episode.check_episode(
+        obj,
+        where,
+        options=options,
         hooks=_episode_hooks(),
     )
 

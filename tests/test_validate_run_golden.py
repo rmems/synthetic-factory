@@ -33,7 +33,8 @@ def _read_expected(case):
     )
 
 
-def _assert_result(test, result, expected_stdout, expected_stderr, expected_exit):
+def _assert_result(test, result, expected):
+    expected_stdout, expected_stderr, expected_exit = expected
     test.assertEqual(result.returncode, expected_exit, result.stderr)
     test.assertEqual(result.stdout, expected_stdout)
     test.assertEqual(result.stderr, expected_stderr)
@@ -47,7 +48,7 @@ class ValidateRunGoldenReports(unittest.TestCase):
             run_dir.mkdir()
             shutil.copy(GOLDEN / case / "records.jsonl", run_dir / "records.jsonl")
             result = invoker(str(run_dir))
-        _assert_result(self, result, *expected)
+        _assert_result(self, result, expected)
 
     def test_direct_cli_matches_golden_reports(self):
         for case in SINGLE_CASES:
@@ -57,7 +58,7 @@ class ValidateRunGoldenReports(unittest.TestCase):
     def test_direct_cli_matches_mini_run_golden(self):
         expected = _read_expected("mini-run")
         result = _invoke(str(MINI_RUN))
-        _assert_result(self, result, *expected)
+        _assert_result(self, result, expected)
 
     def test_package_module_cli_matches_direct_cli(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -78,7 +79,7 @@ class ValidateRunGoldenReports(unittest.TestCase):
             run_dir.mkdir()
             shutil.copy(GOLDEN / "reward" / "records.jsonl", run_dir / "records.jsonl")
             result = _invoke_module(str(run_dir))
-        _assert_result(self, result, *expected)
+        _assert_result(self, result, expected)
 
 
 class ValidateRunGoldenFixturesExist(unittest.TestCase):
