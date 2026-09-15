@@ -1,0 +1,26 @@
+pipelines/validate_run_safety.py
+  s_0376781a4206a3::t_2393e7e2f714a3 262-280
+  s_0376781a4206a3::t_75d7863df93e70 448,450,452,459
+  s_0376781a4206a3::t_8ce38eaf06e6da 426,429,433
+  s_0376781a4206a3::t_fde8bb9dd50540 471,473,476
+pipelines/validate_run.py
+  s_0376781a4206a3::t_0c96ca9bd68156 579-590
+tests/test_validate_run_invariants.py
+  s_0376781a4206a3::t_8606bef389fe6f 339-360
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a69ed571776328e8c20e46a8299e647282f25d10",
+  "prompts": {},
+  "sessions": {
+    "s_0376781a4206a3": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "541629e3-72d6-4b80-be72-547926576436",
+        "model": "cursor-grok-4.6-xhigh"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
