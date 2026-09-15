@@ -1,0 +1,101 @@
+{
+  "catalog_id": "obs-plants-v1",
+  "digests": {
+    "hop_plants_sha256": "e7cfd07715ec26d3144542764dde5c86e528a07c79e2551a4028a92fa45b4532",
+    "leftover3_pairs_sha256": "d2510ca3d9ac067e305cc0ab7dfa27043668f71672347fb0d6b3600aecca421b",
+    "leftover_specs_sha256": "2e7c9bb90947c99703583f56a7bce431a4593ebfa35fbae3db1c86bdb7241f6b"
+  },
+  "factory": "observability-debug-factory",
+  "files": {
+    "hop_plants": "hop-plants.jsonl",
+    "leftover3_pairs": "leftover3-pairs.jsonl",
+    "leftover_specs": "leftover-specs.jsonl"
+  },
+  "format": "obs-catalog/1",
+  "mill_prefix": "obs",
+  "mills": [
+    {
+      "base_round": 245,
+      "mill_id": "obs_r245",
+      "plant_count": 4,
+      "shape": "hop",
+      "source": "experiments/obs-mill-r245.py"
+    },
+    {
+      "base_round": 293,
+      "mill_id": "obs_r293",
+      "plant_count": 48,
+      "shape": "hop",
+      "source": "experiments/obs-mill-plants-r293.py"
+    },
+    {
+      "base_round": 341,
+      "mill_id": "obs_r341",
+      "plant_count": 24,
+      "shape": "hop",
+      "source": "experiments/obs-mill-plants-r341.py"
+    },
+    {
+      "base_round": 401,
+      "mill_id": "obs_r401",
+      "plant_count": 99,
+      "shape": "hop",
+      "source": "experiments/obs-mill-plants-r401.py"
+    },
+    {
+      "base_round": 385,
+      "mill_id": "obs_r385",
+      "plant_count": 16,
+      "shape": "leftover3",
+      "source": "experiments/obs_r385_leftover3_mill.py"
+    },
+    {
+      "base_round": 964,
+      "mill_id": "obs_leftover9",
+      "plant_count": 88,
+      "shape": "leftover_spec",
+      "source": "experiments/_gen_obs_leftover9.py"
+    },
+    {
+      "base_round": 1052,
+      "mill_id": "obs_leftover10",
+      "plant_count": 88,
+      "shape": "leftover_spec",
+      "source": "experiments/_gen_obs_leftover10.py"
+    },
+    {
+      "base_round": 1260,
+      "mill_id": "obs_leftover14",
+      "plant_count": 88,
+      "shape": "leftover_spec",
+      "source": "experiments/_gen_obs_leftover14.py"
+    },
+    {
+      "base_round": 1348,
+      "mill_id": "obs_leftover15",
+      "plant_count": 88,
+      "shape": "leftover_spec",
+      "source": "experiments/_gen_obs_leftover14.py"
+    },
+    {
+      "base_round": 1436,
+      "mill_id": "obs_leftover16",
+      "plant_count": 88,
+      "shape": "leftover_spec",
+      "source": "experiments/_gen_obs_leftover16.py"
+    }
+  ],
+  "pair_counts": {
+    "hop": 175,
+    "leftover3": 16,
+    "leftover_specs": 440
+  },
+  "plant_count": 191,
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "4efb4b3db81efec46c341723087d801683f2051b",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane"
+  }
+}
