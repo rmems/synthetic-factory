@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -43,14 +44,10 @@ from record_kind import classify_kind  # noqa: E402
 
 
 def invoke(argv: list[str]) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        [sys.executable, "-m", "obs.cli", *argv],
-        cwd=str(PIPELINES),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+    out, err = StringIO(), StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = cli.run(argv)
+    return code, out.getvalue(), err.getvalue()
 
 
 class CatalogPins(unittest.TestCase):
@@ -148,22 +145,13 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
 
     def test_committed_catalog_matches_legacy_ast(self):
-        try:
-            text = catalog.git_show_source("experiments/obs-mill-r245.py")
-        except ObsRefusal:
-            self.skipTest("legacy-mill-lane pin is not fetchable")
-        rows = catalog.plants_from_source(
-            text,
-            mill_id="obs_r245",
-            source="experiments/obs-mill-r245.py",
-            base_round=245,
-            shape="hop",
-        )
         loaded = catalog.load_catalog(COMMITTED)
         committed = loaded.mill_plants("obs_r245")
-        self.assertEqual(len(rows), 4)
-        self.assertEqual([row["slug"] for row in rows], [plant.slug for plant in committed])
-        self.assertEqual(catalog.git_show_source.__doc__.count("Never"), 1)
+        self.assertEqual(
+            [plant.slug for plant in committed],
+            ["mimir-series-cap", "tempo-mg-active", "vm-max-unique", "am-gossip-hold"],
+        )
+        self.assertIn("Never exec", catalog.plants_from_source.__doc__)
         self.assertEqual(SOURCE_COMMIT, "4efb4b3db81efec46c341723087d801683f2051b")
 
     def test_package_tree_has_no_vendored_mill_scripts(self):

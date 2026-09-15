@@ -156,7 +156,7 @@ def success_episode(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, An
         ),
         _step(
             3,
-            f"Observation: dashboard empty (step 2). Confirm source still healthy.",
+            "Observation: dashboard empty (step 2). Confirm source still healthy.",
             "bash",
             {"command": f"kubectl -n obs logs deploy/{s['svc']} --tail=20 | wc -l"},
             "source still emitting; Grafana is the leftover lie",

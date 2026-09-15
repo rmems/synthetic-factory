@@ -12,7 +12,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,13 +42,12 @@ from ._contract import (
     SHAPE_HOP,
     SHAPE_LEFTOVER3,
     SHAPE_LEFTOVER_SPEC,
-    SOURCE_COMMIT,
     bind_import_twin,
     load_strict_json,
     repo_root,
 )
 
-MILL_ID_RE = re.compile(r"^obs_(?:r[0-9]+|leftover(?:3|[0-9]+))$")
+MILL_ID_RE = re.compile(r"^obs_(?:r\d+|leftover\d+)$")
 SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 HOP_REQUIRED = (
@@ -144,6 +142,8 @@ DEFAULT_KIND_NS = {
     "am": ("monitoring", "alertmanager"),
 }
 SPEC_INDEX_KIND = "obs-leftover-spec-index/1"
+PROM_QUERY_PATH = "/api/v1/query"
+_CH_WHERE = "SELECT count() FROM otel.traces WHERE service="
 _KIND_BIT_KEYS = (
     "query",
     "lquery",
@@ -162,7 +162,6 @@ __all__ = [
     "Plant",
     "catalog_check",
     "default_catalog_dir",
-    "git_show_source",
     "load_catalog",
     "plants_from_source",
     "sha256_bytes",
@@ -225,23 +224,6 @@ def default_catalog_dir() -> Path:
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
-
-def git_show_source(path: str, commit: str = SOURCE_COMMIT) -> str:
-    """Read mill source as text. Never import or exec the script."""
-
-    proc = subprocess.run(
-        ["git", "show", f"{commit}:{path}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise ObsRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"git show {commit}:{path} failed: {proc.stderr.strip() or proc.returncode}",
-        )
-    return proc.stdout
 
 
 def _const_eval(node: ast.AST) -> Any:
@@ -322,7 +304,7 @@ def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
         "prom": (
             f'http_requests_total{{job="{svc}"}}',
             f'http_requests_total{{job="{lsvc}"}}',
-            "/api/v1/query",
+            PROM_QUERY_PATH,
             f'{{"status":"error","error":"prom {fail_val}"}}',
             f"prom {fail_val}",
             '{"status":"success","data":{"result":[{"value":[1,"7"]}]}}',
@@ -366,7 +348,7 @@ def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
         "thanos": (
             f'http_requests_total{{job="{svc}"}}',
             f'http_requests_total{{job="{lsvc}"}}',
-            "/api/v1/query",
+            PROM_QUERY_PATH,
             f'{{"status":"error","error":"thanos {fail_val}"}}',
             f"thanos {fail_val}",
             '{"status":"success","data":{"result":[{"value":[1,"4"]}]}}',
@@ -388,7 +370,7 @@ def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
         "vm": (
             f'http_requests_total{{job="{svc}"}}',
             f'http_requests_total{{job="{lsvc}"}}',
-            "/api/v1/query",
+            PROM_QUERY_PATH,
             f'{{"status":"error","error":"vm {fail_val}"}}',
             f"vm {fail_val}",
             '{"status":"success","data":{"result":[{"value":[1,"8"]}]}}',
@@ -397,17 +379,14 @@ def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
             "OK",
         ),
         "ch": (
-            f"SELECT count() FROM otel.traces WHERE service='{svc}'",
-            f"SELECT count() FROM otel.traces WHERE service='{lsvc}'",
+            f"{_CH_WHERE}'{svc}'",
+            f"{_CH_WHERE}'{lsvc}'",
             "/",
             "0\n",
             f"ch {fail_val}",
             "88\n",
             '{"name":"SQL"}',
-            (
-                "clickhouse-client -q \"SELECT count() FROM otel.traces "
-                f"WHERE service='{svc}' SETTINGS max_result_rows=100\""
-            ),
+            f"clickhouse-client -q \"{_CH_WHERE}'{svc}' SETTINGS max_result_rows=100\"",
             "88",
         ),
         "am": (
@@ -506,6 +485,24 @@ def _literal_names(mill_id: str) -> tuple[str, ...]:
     return ("PAIRS",)
 
 
+def _source_assignments(tree: ast.AST) -> tuple[dict[str, ast.AST], Any, Mapping[str, Any]]:
+    found: dict[str, ast.AST] = {}
+    inferred_base: Any = None
+    kind_ns: Mapping[str, Any] = DEFAULT_KIND_NS
+    for node in tree.body:
+        assigned = _assigned_name(node)
+        if assigned is None:
+            continue
+        name, value = assigned
+        if name == "CATALOG_FIRST":
+            inferred_base = _const_eval(value)
+        elif name == "KIND_NS":
+            kind_ns = _const_eval(value)
+        elif name in {"PAIRS", "SPECS", "L14", "L15", "L16"}:
+            found[name] = value
+    return found, inferred_base, kind_ns
+
+
 def plants_from_source(
     text: str,
     *,
@@ -523,20 +520,7 @@ def plants_from_source(
         raise ObsRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
         ) from exc
-    found: dict[str, ast.AST] = {}
-    inferred_base: Any = None
-    kind_ns: Mapping[str, Any] = DEFAULT_KIND_NS
-    for node in tree.body:
-        assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name == "CATALOG_FIRST":
-            inferred_base = _const_eval(value)
-        elif name == "KIND_NS":
-            kind_ns = _const_eval(value)
-        elif name in {"PAIRS", "SPECS", "L14", "L15", "L16"}:
-            found[name] = value
+    found, inferred_base, kind_ns = _source_assignments(tree)
     wanted = _literal_names(mill_id)
     raw_name = next((name for name in wanted if name in found), None)
     if raw_name is None:
@@ -552,31 +536,52 @@ def plants_from_source(
         base = int(digits) if digits else 1
     base = _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
     resolved_shape = shape or (SHAPE_LEFTOVER_SPEC if raw_name != "PAIRS" else SHAPE_HOP)
+    return _rows_from_nodes(
+        raw_node.elts,
+        mill_id=mill_id,
+        source=source,
+        base_round=base,
+        shape=resolved_shape,
+        family=family,
+        kind_ns=kind_ns,
+    )
+
+
+def _rows_from_nodes(
+    nodes: list[ast.AST],
+    *,
+    mill_id: str,
+    source: str,
+    base_round: int,
+    shape: str,
+    family: str | None,
+    kind_ns: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
     rows: list[dict[str, Any]] = []
-    for index, node in enumerate(raw_node.elts):
+    for index, node in enumerate(nodes):
         raw = _eval_plant_node(node, kind_ns)
-        if resolved_shape == SHAPE_LEFTOVER_SPEC:
+        if shape == SHAPE_LEFTOVER_SPEC:
             rows.append(
                 _spec_from_raw(
                     raw,
                     mill_id=mill_id,
                     source=source,
-                    base_round=base,
+                    base_round=base_round,
                     index=index,
                     family=family or mill_id.removeprefix("obs_"),
                 )
             )
-        else:
-            rows.append(
-                _pair_from_raw(
-                    raw,
-                    mill_id=mill_id,
-                    source=source,
-                    base_round=base,
-                    index=index,
-                    shape=resolved_shape,
-                )
+            continue
+        rows.append(
+            _pair_from_raw(
+                raw,
+                mill_id=mill_id,
+                source=source,
+                base_round=base_round,
+                index=index,
+                shape=shape,
             )
+        )
     return tuple(rows)
 
 
@@ -782,6 +787,130 @@ def _registry_factory_ids() -> set[str]:
     }
 
 
+def _load_member_rows(
+    catalog_dir: Path, files: Mapping[str, Any], digests: Mapping[str, Any]
+) -> tuple[list[Any], Mapping[str, Any] | None]:
+    members = (
+        (HOP_FILENAME, "hop_plants_sha256", "hop_plants"),
+        (LEFTOVER3_FILENAME, "leftover3_pairs_sha256", "leftover3_pairs"),
+        (LEFTOVER_SPECS_FILENAME, "leftover_specs_sha256", "leftover_specs"),
+    )
+    rows: list[Any] = []
+    spec_index: Mapping[str, Any] | None = None
+    for filename, digest_key, file_key in members:
+        expected_name = _field(files, file_key, str, f"{CATALOG_FILENAME}.files")
+        if expected_name != filename:
+            raise ObsRefusal(
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{CATALOG_FILENAME}.files.{file_key} must be {filename}",
+            )
+        path = catalog_dir / filename
+        try:
+            payload = path.read_bytes()
+        except OSError as exc:
+            raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{path} is missing") from exc
+        digest = sha256_bytes(payload)
+        pinned = _field(digests, digest_key, str, f"{CATALOG_FILENAME}.digests")
+        if digest != pinned:
+            raise ObsRefusal(
+                FINDING_CATALOG_SHA256_MISMATCH,
+                f"{filename} digest {digest} != catalog pin {pinned}",
+            )
+        member_rows = _read_jsonl(path)
+        if filename == LEFTOVER_SPECS_FILENAME:
+            spec_index = _leftover_spec_index(member_rows)
+            if spec_index is not None:
+                continue
+        rows.extend(member_rows)
+    return rows, spec_index
+
+
+def _refuse_spec_index_count(meta: Mapping[str, Any], spec_index: Mapping[str, Any] | None) -> None:
+    if spec_index is None:
+        return
+    pair_counts = _field(meta, "pair_counts", dict, CATALOG_FILENAME)
+    leftover_specs = _field(pair_counts, "leftover_specs", int, f"{CATALOG_FILENAME}.pair_counts")
+    total = _field(spec_index, "total", int, f"{LEFTOVER_SPECS_FILENAME}.total")
+    if leftover_specs != total:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.pair_counts.leftover_specs is {leftover_specs}, "
+            f"index total is {total}",
+        )
+
+
+def _refuse_duplicate_plants(plants: tuple[Plant, ...]) -> None:
+    seen: set[str] = set()
+    for plant in plants:
+        if plant.plant_id in seen:
+            raise ObsRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
+        seen.add(plant.plant_id)
+
+
+def _refuse_count(mill: Mill, actual: int) -> None:
+    if actual != mill.plant_count:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{mill.mill_id} plant_count {mill.plant_count} != {actual}",
+        )
+
+
+def _refuse_mill_pins(
+    mills: tuple[Mill, ...],
+    plants: tuple[Plant, ...],
+    spec_index: Mapping[str, Any] | None,
+) -> None:
+    by_mill: dict[str, int] = {}
+    for plant in plants:
+        by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
+    mill_ids = {mill.mill_id for mill in mills}
+    spec_mill_ids = {mill.mill_id for mill in mills if mill.shape == SHAPE_LEFTOVER_SPEC}
+    expected = mill_ids if spec_index is None else mill_ids - spec_mill_ids
+    if expected != set(by_mill):
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
+        )
+    if spec_index is None:
+        for mill in mills:
+            _refuse_count(mill, by_mill[mill.mill_id])
+        return
+    indexed_rows = _field(spec_index, "mills", list, f"{LEFTOVER_SPECS_FILENAME}.mills")
+    indexed = {
+        _require_text(
+            _field(row, "mill_id", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
+            f"{LEFTOVER_SPECS_FILENAME}.mills.mill_id",
+            FINDING_CATALOG_FIELD_INVALID,
+        ): row
+        for row in indexed_rows
+    }
+    if set(indexed) != spec_mill_ids:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            "leftover-spec index mills do not match catalog leftover_spec mills",
+        )
+    for mill in mills:
+        if mill.shape != SHAPE_LEFTOVER_SPEC:
+            _refuse_count(mill, by_mill[mill.mill_id])
+            continue
+        pin = indexed[mill.mill_id]
+        count = _field(pin, "count", int, f"{LEFTOVER_SPECS_FILENAME}.mills")
+        first = _require_text(
+            _field(pin, "first", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
+            f"{LEFTOVER_SPECS_FILENAME}.mills.first",
+            FINDING_CATALOG_FIELD_INVALID,
+        )
+        last = _require_text(
+            _field(pin, "last", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
+            f"{LEFTOVER_SPECS_FILENAME}.mills.last",
+            FINDING_CATALOG_FIELD_INVALID,
+        )
+        if count != mill.plant_count or not first or not last:
+            raise ObsRefusal(
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{mill.mill_id} leftover-spec index does not match mill pin",
+            )
+
+
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
@@ -838,136 +967,18 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     )
     files = _field(meta, "files", dict, CATALOG_FILENAME)
     digests = _field(meta, "digests", dict, CATALOG_FILENAME)
-    members = (
-        (HOP_FILENAME, "hop_plants_sha256", "hop_plants"),
-        (LEFTOVER3_FILENAME, "leftover3_pairs_sha256", "leftover3_pairs"),
-        (LEFTOVER_SPECS_FILENAME, "leftover_specs_sha256", "leftover_specs"),
-    )
-    rows: list[Any] = []
-    spec_index: Mapping[str, Any] | None = None
-    for filename, digest_key, file_key in members:
-        expected_name = _field(files, file_key, str, f"{CATALOG_FILENAME}.files")
-        if expected_name != filename:
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{CATALOG_FILENAME}.files.{file_key} must be {filename}",
-            )
-        path = catalog_dir / filename
-        try:
-            payload = path.read_bytes()
-        except OSError as exc:
-            raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{path} is missing") from exc
-        digest = sha256_bytes(payload)
-        pinned = _field(digests, digest_key, str, f"{CATALOG_FILENAME}.digests")
-        if digest != pinned:
-            raise ObsRefusal(
-                FINDING_CATALOG_SHA256_MISMATCH,
-                f"{filename} digest {digest} != catalog pin {pinned}",
-            )
-        member_rows = _read_jsonl(path)
-        if filename == LEFTOVER_SPECS_FILENAME:
-            spec_index = _leftover_spec_index(member_rows)
-            if spec_index is not None:
-                continue
-        rows.extend(member_rows)
+    rows, spec_index = _load_member_rows(catalog_dir, files, digests)
     if factory not in _registry_factory_ids():
         raise ObsRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
-    if spec_index is not None:
-        pair_counts = _field(meta, "pair_counts", dict, CATALOG_FILENAME)
-        leftover_specs = _field(
-            pair_counts, "leftover_specs", int, f"{CATALOG_FILENAME}.pair_counts"
-        )
-        total = _field(spec_index, "total", int, f"{LEFTOVER_SPECS_FILENAME}.total")
-        if leftover_specs != total:
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{CATALOG_FILENAME}.pair_counts.leftover_specs is {leftover_specs}, "
-                f"index total is {total}",
-            )
+    _refuse_spec_index_count(meta, spec_index)
     if len(rows) != plant_count:
         raise ObsRefusal(
             FINDING_CATALOG_FIELD_INVALID,
             f"{CATALOG_FILENAME}.plant_count is {plant_count}, files have {len(rows)}",
         )
     plants = tuple(_plant_from_row(row, f"plants:{i}") for i, row in enumerate(rows, start=1))
-    seen: set[str] = set()
-    for plant in plants:
-        if plant.plant_id in seen:
-            raise ObsRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
-        seen.add(plant.plant_id)
-    by_mill: dict[str, int] = {}
-    for plant in plants:
-        by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    mill_ids = {mill.mill_id for mill in mills}
-    spec_mill_ids = {mill.mill_id for mill in mills if mill.shape == SHAPE_LEFTOVER_SPEC}
-    if spec_index is None:
-        if mill_ids != set(by_mill):
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-            )
-        for mill in mills:
-            if by_mill[mill.mill_id] != mill.plant_count:
-                raise ObsRefusal(
-                    FINDING_CATALOG_FIELD_INVALID,
-                    f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
-                )
-    else:
-        if mill_ids - spec_mill_ids != set(by_mill):
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-            )
-        indexed_rows = _field(spec_index, "mills", list, f"{LEFTOVER_SPECS_FILENAME}.mills")
-        indexed = {
-            _require_text(
-                _field(row, "mill_id", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
-                f"{LEFTOVER_SPECS_FILENAME}.mills.mill_id",
-                FINDING_CATALOG_FIELD_INVALID,
-            ): row
-            for row in indexed_rows
-        }
-        if set(indexed) != spec_mill_ids:
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                "leftover-spec index mills do not match catalog leftover_spec mills",
-            )
-        for mill in mills:
-            if mill.shape == SHAPE_LEFTOVER_SPEC:
-                count = _field(
-                    indexed[mill.mill_id],
-                    "count",
-                    int,
-                    f"{LEFTOVER_SPECS_FILENAME}.mills",
-                )
-                first = _require_text(
-                    _field(
-                        indexed[mill.mill_id],
-                        "first",
-                        str,
-                        f"{LEFTOVER_SPECS_FILENAME}.mills",
-                    ),
-                    f"{LEFTOVER_SPECS_FILENAME}.mills.first",
-                    FINDING_CATALOG_FIELD_INVALID,
-                )
-                last = _require_text(
-                    _field(
-                        indexed[mill.mill_id],
-                        "last",
-                        str,
-                        f"{LEFTOVER_SPECS_FILENAME}.mills",
-                    ),
-                    f"{LEFTOVER_SPECS_FILENAME}.mills.last",
-                    FINDING_CATALOG_FIELD_INVALID,
-                )
-                if count != mill.plant_count or not first or not last:
-                    raise ObsRefusal(
-                        FINDING_CATALOG_FIELD_INVALID,
-                        f"{mill.mill_id} leftover-spec index does not match mill pin",
-                    )
-            elif by_mill[mill.mill_id] != mill.plant_count:
-                raise ObsRefusal(
-                    FINDING_CATALOG_FIELD_INVALID,
-                    f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
-                )
+    _refuse_duplicate_plants(plants)
+    _refuse_mill_pins(mills, plants, spec_index)
     return Catalog(
         catalog_id=catalog_id,
         directory=catalog_dir,
