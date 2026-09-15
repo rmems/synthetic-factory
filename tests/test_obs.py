@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -55,21 +56,19 @@ class CatalogPins(unittest.TestCase):
         loaded = catalog.load_catalog(COMMITTED)
         self.assertEqual(loaded.catalog_id, "obs-plants-v1")
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 191)
+        self.assertEqual(len(loaded.plants), 631)
         self.assertEqual(len(loaded.mills), 10)
         self.assertEqual(len(loaded.pair_plants()), 191)
         self.assertEqual(loaded.meta["pair_counts"]["leftover_specs"], 440)
-        self.assertEqual(loaded.leftover_spec_index["total"], 440)
-        first_last = {
-            row["mill_id"]: (row["first"], row["last"])
-            for row in loaded.leftover_spec_index["mills"]
-        }
+        self.assertIsNone(loaded.leftover_spec_index)
+        spec_plants = [plant for plant in loaded.plants if plant.shape == "leftover_spec"]
+        self.assertEqual(len(spec_plants), 440)
+        by_mill: dict[str, list[str]] = {}
+        for plant in spec_plants:
+            by_mill.setdefault(plant.mill_id, []).append(plant.slug)
         self.assertEqual(
-            first_last["obs_leftover9"],
-            (
-                "obs_leftover9:redpanda-metrics-path-drop-leftover",
-                "obs_leftover9:geode-pulse-bind-drop-leftover",
-            ),
+            (by_mill["obs_leftover9"][0], by_mill["obs_leftover9"][-1]),
+            ("redpanda-metrics-path-drop-leftover", "geode-pulse-bind-drop-leftover"),
         )
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX], FACTORY)
 
@@ -152,7 +151,31 @@ class AstExtract(unittest.TestCase):
             ["mimir-series-cap", "tempo-mg-active", "vm-max-unique", "am-gossip-hold"],
         )
         self.assertIn("Never exec", catalog.plants_from_source.__doc__)
-        self.assertEqual(SOURCE_COMMIT, "4efb4b3db81efec46c341723087d801683f2051b")
+        self.assertEqual(SOURCE_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
+
+    def test_committed_leftover_specs_match_legacy_ast(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        for mill in loaded.mills:
+            if mill.shape != "leftover_spec":
+                continue
+            text = subprocess.check_output(
+                ["git", "show", f"{SOURCE_COMMIT}:{mill.source}"],
+                text=True,
+            )
+            family = mill.mill_id.removeprefix("obs_")
+            extracted = catalog.plants_from_source(
+                text,
+                mill_id=mill.mill_id,
+                source=mill.source,
+                base_round=mill.base_round,
+                shape=mill.shape,
+                family=family,
+            )
+            committed = loaded.mill_plants(mill.mill_id)
+            self.assertEqual(
+                [plant.payload for plant in committed],
+                list(extracted),
+            )
 
     def test_package_tree_has_no_vendored_mill_scripts(self):
         roots = (PIPELINES / "obs", COMMITTED, REPO / "tests" / "fixtures" / "obs")
