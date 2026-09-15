@@ -11,6 +11,7 @@ Usage: python3 pipelines/check_records.py [--strict] <run_dir>
 """
 
 import argparse
+import importlib
 import json
 import math
 import re
@@ -24,6 +25,7 @@ if __package__:
         exact_fraction,
         parse_finite_json_float as _parse_exact_json_float,
     )
+    from .oracle_grounded import parity_contract
     from .validate_run import (
         ALLOWED_SIM_OR_REAL,
         BRIDGE_SPIKE_EVENT_KEYS,
@@ -45,6 +47,7 @@ else:
         exact_fraction,
         parse_finite_json_float as _parse_exact_json_float,
     )
+    from oracle_grounded import parity_contract
     from validate_run import (
         ALLOWED_SIM_OR_REAL,
         BRIDGE_SPIKE_EVENT_KEYS,
@@ -516,6 +519,63 @@ def check_provenance_publish(obj, where):
     return out
 
 
+# Each parity kind is validated by the family module of the same name.
+_PARITY_VALIDATOR_MODULES = {
+    "hardware_parity": "hardware_parity",
+    "nir_equivalence": "nir_equivalence",
+}
+
+
+def _family_module(name):
+    """Load a family validator lazily, in whichever mode this module loaded.
+
+    ``pipelines/`` is on ``sys.path`` only under the direct CLI convention;
+    as ``pipelines.check_records`` (the form ``round_txn`` imports) the
+    sibling has to be resolved through the package.
+    """
+    if __package__:
+        return importlib.import_module(f"{__package__}.{name}")
+    return importlib.import_module(name)
+
+
+def _family_record_view(obj):
+    """The record exactly as the family readers decode it.
+
+    ``check_jsonl`` decodes every non-integer number as an
+    ``exact_json.ExactJSONFloat`` so the exact-JSON contract can be held over
+    the whole record. The family validators compare evidence type-strictly
+    (``strict_json_equal``, ``type(value) is float``) against catalog entries
+    and re-derived measurements that are plain floats, so the deep layer hands
+    them the same tokens decoded through the families' own parse hooks: what
+    ``hardware_parity.py validate`` reads from the line itself.
+    """
+    return json.loads(
+        dumps_exact_json(obj, ensure_ascii=False, sort_keys=False),
+        parse_constant=parity_contract.reject_json_constant,
+        parse_float=parity_contract.reject_nonfinite_float,
+    )
+
+
+def check_parity_record(obj, kind, where):
+    """Deep layer for the oracle-grounded parity families.
+
+    The family validators re-derive every parity number from the record's own
+    traces, re-simulate the in-repo oracles, and for NIR re-execute the
+    interpreters outright, so a fabricated result cannot pass. All of that is
+    far too expensive for the shape layer, which is why it lives here.
+    """
+    module_name = _PARITY_VALIDATOR_MODULES.get(kind)
+    if module_name is None:
+        # No silent fallthrough: an unrouted kind must be loud, not validated
+        # by whichever validator happened to be last.
+        return [f"{where}: no parity validator for record_kind {kind!r}"]
+    try:
+        record = _family_record_view(obj)
+    except (ValueError, RecursionError) as exc:
+        return [f"{where}: record cannot be re-read as exact JSON for the {kind} validator: {exc}"]
+    return _family_module(module_name).validate_record(record, where)
+
+
 def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     """True when a walked ``spike_events`` key is reward-component narration.
 
@@ -537,11 +597,54 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     )
 
 
-def _record_spike_errors(obj, where, kind, reward_component_entries):
-    """Validate each real spike stream against its enclosing clock."""
+def _nir_owned_streams(oracle):
+    """Canonical NIR evidence streams: ``oracle.runtimes[*].outputs.spike_events``."""
+    runtimes = oracle.get("runtimes")
+    for entry in runtimes if isinstance(runtimes, list) else ():
+        outputs = entry.get("outputs") if isinstance(entry, dict) else None
+        if isinstance(outputs, dict) and "spike_events" in outputs:
+            yield outputs["spike_events"]
+
+
+def _hardware_owned_streams(oracle):
+    """Canonical hardware evidence streams: ``oracle.deployment/software.spike_events``."""
+    for side in ("deployment", "software"):
+        block = oracle.get(side)
+        if isinstance(block, dict) and "spike_events" in block:
+            yield block["spike_events"]
+
+
+def _parity_family_owned_streams(obj, kind):
+    """Stream objects whose validity the parity family validator owns.
+
+    NIR runtime outputs and hardware capture sides carry ``spike_events``
+    in family-specific shapes (discrete steps, integer channel/neuron ids)
+    that the family validators check against a re-execution. Returned by
+    identity so a literal key elsewhere in the record cannot claim the
+    exemption by name.
+    """
+    oracle = obj.get("oracle") if isinstance(obj, dict) else None
+    if not isinstance(oracle, dict):
+        return ()
+    if kind == "nir_equivalence":
+        return tuple(_nir_owned_streams(oracle))
+    return tuple(_hardware_owned_streams(oracle))
+
+
+def _record_spike_errors(obj, where, kind, reward_component_entries, family_owned=()):
+    """Validate each real spike stream against its enclosing clock.
+
+    ``family_owned`` holds the stream objects (compared by identity, like the
+    reward-narrative owner guard) whose validity a family validator already
+    owns; they are skipped here so one malformed canonical stream is not
+    reported twice with different wording, and so family evidence shapes are
+    not misjudged against the generic event contract.
+    """
 
     errors = []
     for path, events, owner in _walk_key_owners(obj, "spike_events"):
+        if any(events is owned for owned in family_owned):
+            continue
         if _is_reward_narrative_spike_events(owner, events, reward_component_entries):
             continue
         bridge_root = kind == "bridge_pair" and path == "spike_events"
@@ -596,13 +699,22 @@ def _legacy_episode_warnings(obj, kind, where):
     return warnings
 
 
+def _record_stream_and_reward_findings(obj, where, kind, family_owned=()):
+    """Deep pass over every spike stream and reward component in ``obj``."""
+
+    reward_component_entries = list(walk_key(obj, "reward_components"))
+    errors = _record_spike_errors(
+        obj, where, kind, reward_component_entries, family_owned=family_owned
+    )
+    reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
+    errors.extend(reward_errors)
+    return errors, warnings
+
+
 def _record_mapping_findings(obj, where, kind):
     """Validate nested streams, rewards, provenance, and legacy evidence."""
 
-    reward_component_entries = list(walk_key(obj, "reward_components"))
-    errors = _record_spike_errors(obj, where, kind, reward_component_entries)
-    reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
-    errors.extend(reward_errors)
+    errors, warnings = _record_stream_and_reward_findings(obj, where, kind)
     warnings.extend(_record_provenance_warnings(obj, kind, where))
     errors.extend(check_provenance_publish(obj, where))
     warnings.extend(_legacy_episode_warnings(obj, kind, where))
@@ -616,6 +728,45 @@ def check_record(obj, where, factory_staging=False):
     if kind == "code_repair":
         # The shared pure validator owns this envelope, including its deep hashes.
         return errors, warnings, kind, canonical_record_id(obj)
+
+    if kind in ("hardware_parity", "nir_equivalence"):
+        # The family validator is the deep check for these kinds. Record id
+        # still flows through so cross-file duplicate detection covers them.
+        # The family validators assume the shared envelope members have the
+        # shapes enforced above.  Running them after a shape failure both adds
+        # noise and lets one truthy malformed member raise deep in a helper,
+        # aborting diagnostics for the rest of the JSONL file.
+        if not shape_errs:
+            deep = check_parity_record(obj, kind, where)
+            errors.extend(error for error in deep if error not in errors)
+        # The repository-wide deep passes still run: both schemas allow
+        # additional properties, and the family validators inspect only their
+        # canonical evidence locations. Without this pass a parity record
+        # would be the one place in the factory where a buried malformed
+        # spike stream or reward component survives the deep publish check.
+        # Canonical family streams are exempt by identity -- their validity
+        # (and their family-specific event shapes) belong to the validator
+        # above, so nothing is reported twice.
+        if isinstance(obj, dict):
+            stream_errors, stream_warnings = _record_stream_and_reward_findings(
+                obj,
+                where,
+                kind,
+                family_owned=_parity_family_owned_streams(obj, kind),
+            )
+            errors.extend(error for error in stream_errors if error not in errors)
+            warnings.extend(stream_warnings)
+        # The publish-time provenance scan is repository-wide and owns every
+        # nested 'real' claim. Skipping it for these kinds would make a parity
+        # record the one place in the factory where a buried real-world claim
+        # is allowed through.
+        errors.extend(
+            error for error in check_provenance_publish(obj, where) if error not in errors
+        )
+        record_id = canonical_record_id(obj)
+        if record_id is None:
+            warnings.append(f"{where}: missing canonical record id")
+        return errors, warnings, kind, record_id
 
     if isinstance(obj, dict):
         mapping_errors, mapping_warnings = _record_mapping_findings(obj, where, kind)

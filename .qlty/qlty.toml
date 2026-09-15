@@ -102,3 +102,18 @@ mode = "block"
 [[plugin]]
 name = "zizmor"
 mode = "block"
+
+# trufflehog's Lob detector matches `test_` followed by 35 characters, which is
+# also exactly the shape of a Python test method name: every hit it reports in
+# this repository is a `def test_...` line, never a credential. Renaming tests
+# to sidestep a regex would make the names worse and would not stop the next
+# 40-character one, so the detector is scoped off the test tree instead. Every
+# other trufflehog detector still runs here, and all of Lob still runs over
+# `pipelines/`, `scripts/` and `config/`.
+#
+# `[[ignore]]` is deprecated in favour of `[[exclude]]`, but `[[exclude]]` in
+# qlty 0.644.0 takes only `plugins`, which would turn off secret scanning for
+# the whole test tree. Move this across when `[[exclude]]` accepts `rules`.
+[[ignore]]
+rules = ["trufflehog:Lob"]
+file_patterns = ["tests/**"]
