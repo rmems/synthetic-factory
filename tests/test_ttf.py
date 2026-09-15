@@ -59,6 +59,54 @@ PACKAGE_FILES = (
     "cli.py",
 )
 CATALOG_FILES = ("CATALOG.json", "plants.jsonl")
+
+
+def _ensure_git_commit(commit: str) -> None:
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO,
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+    subprocess.run(
+        ["git", "fetch", "--depth=1", "origin", commit],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _git_show_blob(spec: str, *, commit: str) -> bytes:
+    try:
+        return subprocess.check_output(["git", "show", spec], cwd=REPO)
+    except subprocess.CalledProcessError:
+        _ensure_git_commit(commit)
+        return subprocess.check_output(["git", "show", spec], cwd=REPO)
+
+
+def _git_ls_tree_names(treeish: str, path: str, *, commit: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "ls-tree", "-r", "--name-only", treeish, path],
+            text=True,
+            cwd=REPO,
+        )
+    except subprocess.CalledProcessError:
+        _ensure_git_commit(commit)
+        return subprocess.check_output(
+            ["git", "ls-tree", "-r", "--name-only", treeish, path],
+            text=True,
+            cwd=REPO,
+        )
+
+
+def setUpModule():
+    for pinned in (SOURCE_COMMIT, LEGACY_COMMIT):
+        _ensure_git_commit(pinned)
+
+
 SNIPPET = """
 FACTORY = "thalamic-trajectory-factory"
 REC_011 = {
@@ -174,11 +222,7 @@ class Contract(unittest.TestCase):
         self.assertEqual(LEGACY_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
 
     def test_legacy_mill_lane_has_no_experiments_ttf_mills(self):
-        listing = subprocess.check_output(
-            ["git", "ls-tree", "-r", "--name-only", LEGACY_COMMIT, "experiments/"],
-            text=True,
-            cwd=REPO,
-        )
+        listing = _git_ls_tree_names(LEGACY_COMMIT, "experiments/", commit=LEGACY_COMMIT)
         self.assertFalse(any("ttf" in line.lower() for line in listing.splitlines()))
 
 
@@ -258,7 +302,7 @@ class RecoverReplay(unittest.TestCase):
         prefix = f"{SOURCE_TREE}/"
         for slice_id, source_file, relpath, sha256, _original in SOURCE_CATALOGS:
             path = f"{SOURCE_COMMIT}:{prefix}{relpath}"
-            blob = subprocess.check_output(["git", "show", path], cwd=REPO)
+            blob = _git_show_blob(path, commit=SOURCE_COMMIT)
             self.assertEqual(__import__("hashlib").sha256(blob).hexdigest(), sha256)
             extracted = cat.plants_from_source(blob.decode("utf-8"), source_file)
             committed = cat.plants_for_slice(slice_id)
