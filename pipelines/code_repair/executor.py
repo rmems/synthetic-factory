@@ -222,6 +222,14 @@ def _harness_error(detail: str) -> PhaseReport:
     return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
 
 
+_LIMITS_ATTESTED = True
+_LIMITS_NOT_ATTESTED = False
+_ATTESTATION_BY_TOKEN = {
+    str(_LIMITS_ATTESTED).lower(): _LIMITS_ATTESTED,
+    str(_LIMITS_NOT_ATTESTED).lower(): _LIMITS_NOT_ATTESTED,
+}
+
+
 def _split_limits_attestation(stdout: bytes) -> tuple[bool | None, bytes, str | None]:
     """The first stdout line is authoritative for limits; the remainder is the JSON report."""
 
@@ -234,12 +242,10 @@ def _split_limits_attestation(stdout: bytes) -> tuple[bool | None, bytes, str | 
     remainder = stdout[newline + 1 :]
     if not line.startswith(LIMITS_ATTESTATION_PREFIX):
         return None, remainder, "missing limits attestation line"
-    token = line[len(LIMITS_ATTESTATION_PREFIX) :].strip()
-    if token == "true":
-        return True, remainder, None
-    if token == "false":
-        return False, remainder, None
-    return None, remainder, "limits attestation malformed"
+    applied = _ATTESTATION_BY_TOKEN.get(line[len(LIMITS_ATTESTATION_PREFIX) :].strip())
+    if applied is None:
+        return None, remainder, "limits attestation malformed"
+    return applied, remainder, None
 
 
 def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:

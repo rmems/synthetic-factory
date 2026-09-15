@@ -218,9 +218,11 @@ def _agree(got: str, want: str, spec: dict) -> bool:
         left, right = float(got), float(want)
     except ValueError:
         return False
-    if not math.isfinite(left) or not math.isfinite(right):
-        return False
-    return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
+    return (
+        math.isfinite(left)
+        and math.isfinite(right)
+        and math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
+    )
 
 
 def _run_case(target, index: int, case: dict, spec: dict, workdir: str = "") -> dict:
@@ -262,8 +264,7 @@ def _with_isolated_main(action):
 def _write_limits_attestation(stream, limits_applied: bool) -> None:
     """Out-of-band limits proof on real stdout before ``program.py`` is read."""
 
-    token = "true" if limits_applied else "false"
-    stream.write(f"{LIMITS_ATTESTATION_PREFIX}{token}\n")
+    stream.write(f"{LIMITS_ATTESTATION_PREFIX}{str(limits_applied).lower()}\n")
     stream.flush()
 
 

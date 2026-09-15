@@ -2,6 +2,7 @@
 """The sandboxed child and its parent: real subprocess evidence (no fakes here)."""
 
 import doctest
+import io
 import hashlib
 import inspect
 import re
@@ -107,7 +108,8 @@ class TamperResistance(unittest.TestCase):
         "        obj['limits_applied'] = False\n\n"
     )
 
-    def _run_tamper(self, preamble: str) -> ex.PhaseReport:
+    @staticmethod
+    def _run_tamper(preamble: str) -> ex.PhaseReport:
         module = preamble + "def f(n):\n    return n\n"
         job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
         return RUNNER.run(job)
@@ -358,6 +360,44 @@ class InProcessHarnessBehavior(unittest.TestCase):
         self.assertEqual(mismatch, {"id": "hidden:2", "status": "fail", "kind": "value_mismatch"})
         self.assertEqual(visible_error["got"], "RuntimeError: visible")
         self.assertEqual(hidden_error, {"id": "hidden:4", "status": "error", "kind": "exception"})
+
+
+class LimitsAttestation(unittest.TestCase):
+    """Issue #213 / PR #233: out-of-band attestation parse and write paths."""
+
+    def test_split_rejects_empty_missing_and_malformed_attestation(self):
+        cases = (
+            (b"", None, b"", "empty stdout"),
+            (b"no-newline", None, b"no-newline", "missing limits attestation line"),
+            (b'{"protocol": "x"}\n', None, b'', "missing limits attestation line"),
+            (f"{ex.LIMITS_ATTESTATION_PREFIX}yes\n{{}}".encode(), None, b"{}", "limits attestation malformed"),
+        )
+        for stdout, applied, remainder, detail in cases:
+            with self.subTest(stdout=stdout[:40]):
+                got_applied, got_remainder, error = ex._split_limits_attestation(stdout)
+                self.assertIs(got_applied, applied)
+                self.assertEqual(got_remainder, remainder)
+                self.assertEqual(error, detail)
+
+    def test_split_accepts_true_and_false_tokens(self):
+        body = b'{"protocol": "code-repair-harness/2"}'
+        for token, expected in ((str(True).lower(), True), (str(False).lower(), False)):
+            with self.subTest(token=token):
+                stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}{token}\n".encode() + body
+                applied, remainder, error = ex._split_limits_attestation(stdout)
+                self.assertIs(applied, expected)
+                self.assertEqual(remainder, body)
+                self.assertIsNone(error)
+
+    def test_harness_writes_attestation_before_any_program_load(self):
+        buffer = io.StringIO()
+        harness._write_limits_attestation(buffer, True)
+        harness._write_limits_attestation(buffer, False)
+        self.assertEqual(
+            buffer.getvalue(),
+            f"{harness.LIMITS_ATTESTATION_PREFIX}{str(True).lower()}\n"
+            f"{harness.LIMITS_ATTESTATION_PREFIX}{str(False).lower()}\n",
+        )
 
 
 if __name__ == "__main__":
