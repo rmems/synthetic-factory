@@ -19,7 +19,7 @@ import copy
 import json
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -106,14 +106,22 @@ def _json_pointer(parts: Sequence[str | int]) -> str:
     return "/" + "/".join(tokens)
 
 
+class MergeScope(NamedTuple):
+    """Which source record, which lane, and where inside the record we are."""
+
+    source_key: tuple[str, int]
+    transform: str
+    path: tuple[str | int, ...] = ()
+
+    def at(self, part: str | int) -> "MergeScope":
+        return self._replace(path=(*self.path, part))
+
+
 def _merge_lane_delta(
     baseline: Any,
     current: Any,
     lane_value: Any,
-    *,
-    source_key: tuple[str, int],
-    transform: str,
-    path: tuple[str | int, ...] = (),
+    scope: MergeScope,
 ) -> Any:
     """Apply one independently produced lane delta to the composed record.
 
@@ -129,31 +137,17 @@ def _merge_lane_delta(
         return copy.deepcopy(current)
 
     if all(isinstance(value, dict) for value in (baseline, current, lane_value)):
-        return _merge_object_delta(
-            baseline,
-            current,
-            lane_value,
-            source_key=source_key,
-            transform=transform,
-            path=path,
-        )
+        return _merge_object_delta(baseline, current, lane_value, scope)
 
     if all(isinstance(value, list) for value in (baseline, current, lane_value)) and (
         len(baseline) == len(current) == len(lane_value)
     ):
-        return _merge_sequence_delta(
-            baseline,
-            current,
-            lane_value,
-            source_key=source_key,
-            transform=transform,
-            path=path,
-        )
+        return _merge_sequence_delta(baseline, current, lane_value, scope)
 
-    source_path, source_line = source_key
+    source_path, source_line = scope.source_key
     raise GateError(
-        f"lane {transform!r} conflicts with an earlier lane at "
-        f"{source_path}:{source_line}{_json_pointer(path)}"
+        f"lane {scope.transform!r} conflicts with an earlier lane at "
+        f"{source_path}:{source_line}{_json_pointer(scope.path)}"
     )
 
 
@@ -161,21 +155,11 @@ def _merge_sequence_delta(
     baseline: list[Any],
     current: list[Any],
     lane_value: list[Any],
-    *,
-    source_key: tuple[str, int],
-    transform: str,
-    path: tuple[str | int, ...],
+    scope: MergeScope,
 ) -> list[Any]:
     """Merge three equal-length lists position by position."""
     return [
-        _merge_lane_delta(
-            base_child,
-            current[index],
-            lane_value[index],
-            source_key=source_key,
-            transform=transform,
-            path=(*path, index),
-        )
+        _merge_lane_delta(base_child, current[index], lane_value[index], scope.at(index))
         for index, base_child in enumerate(baseline)
     ]
 
@@ -184,10 +168,7 @@ def _merge_object_delta(
     baseline: dict[str, Any],
     current: dict[str, Any],
     lane_value: dict[str, Any],
-    *,
-    source_key: tuple[str, int],
-    transform: str,
-    path: tuple[str | int, ...],
+    scope: MergeScope,
 ) -> dict[str, Any]:
     """Merge three objects member by member; members the lane left alone stay composed."""
     merged = copy.deepcopy(current)
@@ -197,14 +178,7 @@ def _merge_object_delta(
         if _same_json(base_child, lane_child):
             continue
         current_child = current.get(key, _MISSING)
-        result = _merge_lane_delta(
-            base_child,
-            current_child,
-            lane_child,
-            source_key=source_key,
-            transform=transform,
-            path=(*path, key),
-        )
+        result = _merge_lane_delta(base_child, current_child, lane_child, scope.at(key))
         if result is _MISSING:
             merged.pop(key, None)
         else:

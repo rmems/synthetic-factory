@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -54,6 +54,7 @@ _normalized_sha256 = _digest._normalized_sha256
 _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 _logical_source_path = _paths._logical_source_path
 collect_lane_manifests = _manifests.collect_lane_manifests
+RetentionView = _manifests.RetentionView
 _manifest_entries = _manifests._manifest_entries
 _normalize_entry = _manifests._normalize_entry
 _evidence_file = _evidence._evidence_file
@@ -177,14 +178,22 @@ def _verify_lane_artifact(
     return artifact_path, expected_sha, artifact_bytes, documents, catalog
 
 
+class _GovernanceTally(NamedTuple):
+    """Every sealed governance file the manifest must account for, exactly."""
+
+    files: set[str]
+    outputs: list[dict[str, Any]]
+
+
 def _verify_lane_artifacts(
     cleaned: Path,
-    index: int,
     evidence: dict[str, Any],
     lane: dict[str, Any],
-    expected_files: set[str],
-    expected_governance_outputs: list[dict[str, Any]],
+    tally: _GovernanceTally,
 ) -> None:
+    index = lane["order"]
+    expected_files = tally.files
+    expected_governance_outputs = tally.outputs
     artifacts = evidence.get("artifacts", [])
     if not isinstance(artifacts, list):
         raise GateError(f"lane_evidence[{index}].artifacts must be a list")
@@ -216,10 +225,11 @@ def _verify_lane_evidence_row(
     cleaned: Path,
     index: int,
     evidence: Any,
-    expected_files: set[str],
-    expected_governance_outputs: list[dict[str, Any]],
+    tally: _GovernanceTally,
 ) -> tuple[dict[str, Any], tuple[Any, Any]]:
     """Rebuild one lane from its sealed manifest, entries and artifacts."""
+    expected_files = tally.files
+    expected_governance_outputs = tally.outputs
     if not isinstance(evidence, dict):
         raise GateError(f"lane_evidence[{index}] must be an object")
     order = evidence.get("lane_order")
@@ -256,9 +266,7 @@ def _verify_lane_evidence_row(
     if manifest_format not in {"json", "jsonl"}:
         raise GateError(f"lane_evidence[{index}].manifest has invalid format metadata")
     entries = _verify_lane_entries(lane, manifest_path, manifest_payload, manifest_format)
-    _verify_lane_artifacts(
-        cleaned, index, evidence, lane, expected_files, expected_governance_outputs
-    )
+    _verify_lane_artifacts(cleaned, evidence, lane, tally)
     return {**lane, "entries": entries}, (bead, transform)
 
 
@@ -337,22 +345,21 @@ def _restore_identity_attestations(
 def verify_lane_evidence(
     cleaned: Path,
     manifest: dict[str, Any],
-    retained_source_keys: set[tuple[str, int]] | None = None,
-    source_record_sha256_by_key: dict[tuple[str, int], str] | None = None,
+    view: RetentionView = RetentionView(),
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Rebuild lane decisions only from the sealed copies in ``cleaned``."""
+    retained_source_keys = view.retained_source_keys
     raw_evidence = manifest.get("lane_evidence")
     if not isinstance(raw_evidence, list) or len(raw_evidence) != len(REQUIRED_LANES):
         raise GateError("curation manifest needs evidence for all six lanes")
 
-    expected_files: set[str] = set()
-    expected_governance_outputs: list[dict[str, Any]] = []
+    tally = _GovernanceTally(set(), [])
+    expected_files = tally.files
+    expected_governance_outputs = tally.outputs
     prepared: list[dict[str, Any]] = []
     declared: list[tuple[Any, Any]] = []
     for index, evidence in enumerate(raw_evidence, 1):
-        lane, contract = _verify_lane_evidence_row(
-            cleaned, index, evidence, expected_files, expected_governance_outputs
-        )
+        lane, contract = _verify_lane_evidence_row(cleaned, index, evidence, tally)
         prepared.append(lane)
         declared.append(contract)
 
@@ -366,8 +373,8 @@ def verify_lane_evidence(
     _restore_identity_attestations(prepared, attestations, retained_source_keys)
     return prepared, collect_lane_manifests(
         prepared,
-        retained_source_keys,
-        source_record_sha256_by_key,
+        view.retained_source_keys,
+        view.source_record_sha256_by_key,
     )
 
 

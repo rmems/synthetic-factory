@@ -23,7 +23,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -204,13 +204,32 @@ class _LaneManifestFold:
         }
 
 
-def _entry_view(
-    entry: dict[str, Any],
-    source_key: Any,
-    retained_source_keys: set[tuple[str, int]] | None,
-    source_record_sha256_by_key: dict[tuple[str, int], str] | None,
-) -> dict[str, Any]:
+class RetentionView(NamedTuple):
+    """What survived composition, and each surviving source record's digest.
+
+    Both are ``None`` during integration, when every declared source is still
+    in play; promotion supplies them from the authenticated bindings.
+    """
+
+    retained_source_keys: set[tuple[str, int]] | None = None
+    source_record_sha256_by_key: dict[tuple[str, int], str] | None = None
+
+    def retains(self, source_key: Any) -> bool:
+        return self.retained_source_keys is None or source_key in self.retained_source_keys
+
+
+class _NormalizedEntry(NamedTuple):
+    """One manifest entry after normalisation, with its action already lowered."""
+
+    normalized: dict[str, Any]
+    lowered: str
+    source_key: Any
+
+
+def _entry_view(entry: dict[str, Any], source_key: Any, view: RetentionView) -> dict[str, Any]:
     """The public entry with ``content_changed`` resolved against retention."""
+    retained_source_keys = view.retained_source_keys
+    source_record_sha256_by_key = view.source_record_sha256_by_key
     normalized = _public_manifest_entry(entry)
     if retained_source_keys is not None and source_key not in retained_source_keys:
         # ``content_changed`` is derived from a source record that is
@@ -232,12 +251,11 @@ def _entry_view(
 
 def _classify_entry(
     fold: _LaneManifestFold,
-    normalized: dict[str, Any],
-    lowered: str,
-    source_key: Any,
-    retained_source_keys: set[tuple[str, int]] | None,
+    row: _NormalizedEntry,
+    view: RetentionView,
 ) -> None:
     """Route one normalized entry into the disposition and review buckets."""
+    normalized, lowered, source_key = row
     if lowered in EXCLUSION_ACTIONS:
         fold.exclusions.append(normalized)
         fold.review_candidates.append(normalized)
@@ -249,10 +267,8 @@ def _classify_entry(
     elif lowered in REPAIR_ACTIONS:
         fold.repairs.append(normalized)
         fold.review_candidates.append(normalized)
-    elif (
-        lowered in RETAIN_ACTIONS
-        and normalized.get("content_changed")
-        and (retained_source_keys is None or source_key in retained_source_keys)
+    elif lowered in RETAIN_ACTIONS and normalized.get("content_changed") and view.retains(
+        source_key
     ):
         derived = copy.deepcopy(normalized)
         derived["review_action"] = "changed"
@@ -260,27 +276,20 @@ def _classify_entry(
         fold.review_candidates.append(derived)
 
 
-def _fold_lane(
-    fold: _LaneManifestFold,
-    lane: dict[str, Any],
-    retained_source_keys: set[tuple[str, int]] | None,
-    source_record_sha256_by_key: dict[tuple[str, int], str] | None,
-) -> None:
+def _fold_lane(fold: _LaneManifestFold, lane: dict[str, Any], view: RetentionView) -> None:
     counts: Counter[str] = Counter()
     for entry in lane["entries"]:
         source_key = entry.get("_source_key")
-        normalized = _entry_view(
-            entry, source_key, retained_source_keys, source_record_sha256_by_key
-        )
+        normalized = _entry_view(entry, source_key, view)
         action = normalized["action"]
         key = str(action) if action is not None else "unspecified"
         counts[key] += 1
         lowered = key.strip().lower()
-        _classify_entry(fold, normalized, lowered, source_key, retained_source_keys)
+        _classify_entry(fold, _NormalizedEntry(normalized, lowered, source_key), view)
         if (
             lane["transform"] == "curate_identity"
             and lowered == "retained"
-            and (retained_source_keys is None or source_key in retained_source_keys)
+            and view.retains(source_key)
         ):
             normalized["source_originals_sha256"] = _normalized_sha256(
                 entry.get("_source_originals_sha256"),
@@ -298,7 +307,11 @@ def collect_lane_manifests(
     """Fold every lane's record-level manifest into exclusions and counts."""
     fold = _LaneManifestFold()
     for lane in prepared_lanes:
-        _fold_lane(fold, lane, retained_source_keys, source_record_sha256_by_key)
+        _fold_lane(
+            fold,
+            lane,
+            RetentionView(retained_source_keys, source_record_sha256_by_key),
+        )
     return fold.result()
 
 
