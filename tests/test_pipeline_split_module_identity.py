@@ -109,6 +109,7 @@ NEW_SPLIT_MODULES = (
     "validate_run",
     "validate_run_provenance",
     "curate_identity_registry_fields",
+    "curate_identity_registry_rows",
     "curate_identity_registry",
     "curate_identity_json",
     "operator_paths",
@@ -199,6 +200,26 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["curate_identity"].FactoryRow,
                 packaged["curate_identity"].FactoryRow,
+            )
+            self.assertIs(
+                direct["curate_identity"].FactoryRow,
+                direct["curate_identity_registry"].FactoryRow,
+            )
+            self.assertIs(
+                direct["curate_identity_registry"].FactoryRow,
+                direct["curate_identity_registry_rows"].FactoryRow,
+            )
+            self.assertIs(
+                direct["curate_identity"].IdentityCurationError,
+                direct["curate_identity_json"].IdentityCurationError,
+            )
+            self.assertIs(
+                direct["curate_identity"].load_registry,
+                direct["curate_identity_registry"].load_registry,
+            )
+            self.assertIs(
+                direct["curate_identity"].default_registry,
+                direct["curate_identity_registry"].default_registry,
             )
             self.assertIs(
                 direct["round_txn"].TransactionError,

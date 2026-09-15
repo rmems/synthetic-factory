@@ -73,15 +73,20 @@ def _is_nonblank_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _has_path_separator_or_nul(value: str) -> bool:
+    return "/" in value or "\\" in value or "\x00" in value
+
+
+def _is_single_posix_part(value: str) -> bool:
+    return PurePosixPath(value).parts == (value,)
+
+
 def _is_directory_component(value: str) -> bool:
-    return (
-        value == value.strip()
-        and value not in {".", ".."}
-        and "/" not in value
-        and "\\" not in value
-        and "\x00" not in value
-        and PurePosixPath(value).parts == (value,)
-    )
+    if value != value.strip() or value in {".", ".."}:
+        return False
+    if _has_path_separator_or_nul(value):
+        return False
+    return _is_single_posix_part(value)
 
 
 def _in_vocabulary(vocabulary: Any) -> Callable[[Any], bool]:

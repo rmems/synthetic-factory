@@ -113,7 +113,8 @@ LEGACY_REGISTRY_SCHEMA_VERSION = _identity_registry.LEGACY_REGISTRY_SCHEMA_VERSI
 SUPPORTED_REGISTRY_SCHEMA_VERSIONS = _identity_registry.SUPPORTED_REGISTRY_SCHEMA_VERSIONS
 _RIGHTS_ROW_FIELDS = _identity_registry._RIGHTS_ROW_FIELDS
 _REVIEWED_GENERATOR_RIGHTS = _identity_registry._REVIEWED_GENERATOR_RIGHTS
-_DEFAULT_REGISTRY = _identity_registry._DEFAULT_REGISTRY
+# Facade-owned process cache: publication-boundary tests patch this name.
+_DEFAULT_REGISTRY = None
 
 
 IdentityCurationError = _identity_json.IdentityCurationError

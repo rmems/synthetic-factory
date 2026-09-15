@@ -894,6 +894,18 @@ def _package_curate_identity_registry_fields() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_registry_rows() -> ModuleType:
+    import curate_identity_registry_rows as module
+
+    return module
+
+
+def _package_curate_identity_registry_rows() -> ModuleType:
+    import pipelines.curate_identity_registry_rows as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1093,6 +1105,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_identity_json": (_direct_curate_identity_json, _package_curate_identity_json),
     "curate_identity_registry": (_direct_curate_identity_registry, _package_curate_identity_registry),
     "curate_identity_registry_fields": (_direct_curate_identity_registry_fields, _package_curate_identity_registry_fields),
+    "curate_identity_registry_rows": (
+        _direct_curate_identity_registry_rows,
+        _package_curate_identity_registry_rows,
+    ),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (

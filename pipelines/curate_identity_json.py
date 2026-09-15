@@ -47,22 +47,34 @@ class IdentityTreeError(IdentityCurationError):
     """Raised when a cleaned tree is missing or mismatched identity sidecars."""
 
 
+def _reject_unpaired_surrogate_text(value: str, path: str) -> None:
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
+
+
+def _reject_unpaired_surrogates_mapping(value: Mapping[Any, Any], path: str) -> None:
+    for index, (key, item) in enumerate(value.items()):
+        if isinstance(key, str):
+            _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
+        _reject_unpaired_surrogates(item, f"{path}[{index}]")
+
+
+def _reject_unpaired_surrogates_list(value: list[Any], path: str) -> None:
+    for index, item in enumerate(value):
+        _reject_unpaired_surrogates(item, f"{path}[{index}]")
+
+
 def _reject_unpaired_surrogates(value: Any, path: str = "$") -> None:
     """Reject strings that cannot be represented as Unicode scalar-value text."""
 
     if isinstance(value, str):
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-            raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
+        _reject_unpaired_surrogate_text(value, path)
         return
     if isinstance(value, Mapping):
-        for index, (key, item) in enumerate(value.items()):
-            if isinstance(key, str):
-                _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
+        _reject_unpaired_surrogates_mapping(value, path)
         return
     if isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
+        _reject_unpaired_surrogates_list(value, path)
 
 
 def canonical_json(value: Any) -> str:
@@ -81,7 +93,7 @@ def canonical_json(value: Any) -> str:
         # receive text that fails only when a downstream hash or writer encodes it.
         payload.encode("utf-8")
         return payload
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (TypeError, ValueError) as exc:
         raise IdentityCurationError(f"record is not canonical JSON data: {exc}") from exc
 
 
@@ -145,15 +157,23 @@ def _is_json_whitespace(value: str) -> bool:
     return bool(value) and all(character in " \t\r\n" for character in value)
 
 
+def _reject_training_ready_mapping(value: Mapping[Any, Any], path: str) -> None:
+    if value.get("training_ready"):
+        raise IdentityCurationError(f"{path} must not contain training_ready: true")
+    for key, item in value.items():
+        _reject_training_ready_true(item, f"{path}.{key}")
+
+
+def _reject_training_ready_list(value: list[Any], path: str) -> None:
+    for index, item in enumerate(value):
+        _reject_training_ready_true(item, f"{path}[{index}]")
+
+
 def _reject_training_ready_true(value: Any, path: str = "$") -> None:
     if isinstance(value, Mapping):
-        if value.get("training_ready"):
-            raise IdentityCurationError(f"{path} must not contain training_ready: true")
-        for key, item in value.items():
-            _reject_training_ready_true(item, f"{path}.{key}")
+        _reject_training_ready_mapping(value, path)
     elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_training_ready_true(item, f"{path}[{index}]")
+        _reject_training_ready_list(value, path)
 
 
 if __package__:

@@ -1639,6 +1639,11 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
 
 
 class TestIdentityWriterExcludeAndPin(unittest.TestCase):
+    def test_facade_default_registry_cache_is_the_injection_seam(self):
+        fake = mock.Mock(name="reviewed-registry")
+        with mock.patch.object(identity, "_DEFAULT_REGISTRY", fake):
+            self.assertIs(identity.default_registry(), fake)
+
     def test_registry_rejects_training_ready_and_invalid_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "missing.json"

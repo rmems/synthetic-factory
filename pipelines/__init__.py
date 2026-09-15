@@ -184,6 +184,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_identity_json",
     "curate_identity_registry",
     "curate_identity_registry_fields",
+    "curate_identity_registry_rows",
 ))
 
 
