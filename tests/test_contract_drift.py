@@ -60,11 +60,25 @@ class Extract(unittest.TestCase):
         self.assertEqual(host["catalog_id"], "r3")
         self.assertEqual(host["fetch1"], "https://spec.example/oas#host")
         kinds = {item["kind"]: item for item in payload["sources"]}
-        self.assertEqual(kinds["loop"]["loop_mills"], ["acm-mill-r1.py"])
+        self.assertNotIn("loop", kinds)
+        self.assertEqual(kinds["mill"]["path"], "acm-pairs-r1.py")
+        self.assertEqual(kinds["mill"]["loop_mills"], [])
         self.assertEqual(payload["extract"]["method"], "ast.parse")
         self.assertFalse(payload["extract"]["exec"])
         self.assertIn("w131", payload["bans"]["slug_needles"])
         self.assertIn("thought", payload["bans"]["blob_keys"])
+
+    def test_loop_mill_names_are_extracted_from_a_temp_tree(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "acm-loop-r1.py").write_text(
+                'LEGACY_MILL = "acm-mill-r1.py"\n',
+                encoding="utf-8",
+            )
+            payload = catalog_extract.extract_tree(root)
+        kinds = {item["kind"]: item for item in payload["sources"]}
+        self.assertEqual(kinds["loop"]["loop_mills"], ["acm-mill-r1.py"])
+        self.assertEqual(payload["row_count"], 0)
 
     def test_write_refuses_an_existing_destination_and_vendor_names(self):
         payload = catalog_extract.extract_tree(FIXTURE)
@@ -91,6 +105,9 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(payload["row_count"], len(payload["rows"]))
         self.assertEqual(payload["extract"]["source_commit"], identity.SOURCE_COMMIT)
         self.assertFalse(payload["extract"]["exec"])
+        loops = [item for item in payload["sources"] if item["kind"] == "loop"]
+        self.assertGreater(len(loops), 0)
+        self.assertTrue(any(item["loop_mills"] for item in loops))
 
     def test_repository_does_not_vendor_acm_mill_scripts(self):
         check.check_tree_has_no_vendor(REPO)
@@ -98,6 +115,8 @@ class CommittedCatalog(unittest.TestCase):
         check.check_tree_has_no_vendor(package)
         catalogs = REPO / "catalogs" / identity.CATALOG_ID
         check.check_tree_has_no_vendor(catalogs)
+        self.assertEqual(list((REPO / "tests").rglob("acm-loop-*.py")), [])
+        self.assertFalse((FIXTURE / "acm-loop-r1.py").exists())
 
 
 if __name__ == "__main__":
