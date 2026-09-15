@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PR-b: compact r1326 theme identities on the PR-a NTP catalog skeleton."""
+"""NTP catalog: leftover slice, r1326 themes, and orch/llll pair identities."""
 
 from __future__ import annotations
 
@@ -27,12 +27,15 @@ from ntp.catalog_extract import (  # noqa: E402
     extract_chain_bounds,
     extract_companion_path,
     extract_mill_catalog,
+    is_pair_mill,
     is_slice_mill,
     is_theme_mill,
     leftover_jsonl_path,
+    pairs_jsonl_path,
     mill_summary,
     mills_jsonl_path,
     split_catalog,
+    split_pair_rows,
     split_theme_rows,
     themes_jsonl_path,
 )
@@ -134,11 +137,13 @@ class NtpSkeletonTests(unittest.TestCase):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[nv.FAMILY_PREFIX], nv.FACTORY)
         self.assertEqual(nv.FACTORY, "notebook-to-pipeline-factory")
         self.assertEqual(nv.GENERATOR, "grok-4.6")
-        self.assertEqual(nv.PRESERVE_COMMIT, "ffd8e849694818083c5cf3dbadfba5872294c5f1")
+        self.assertEqual(nv.PRESERVE_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
         self.assertEqual(nv.SLICE_ID, "leftover")
         self.assertEqual(nv.THEME_MILL_ID, "ntp-mill-r1326")
         self.assertEqual(nv.THEMES_FILENAME, "themes.jsonl")
+        self.assertEqual(nv.PAIRS_FILENAME, "pairs.jsonl")
         self.assertEqual(nv.THEME_MILL_IDS, frozenset({nv.THEME_MILL_ID}))
+        self.assertEqual(len(nv.PAIR_MILL_IDS), 36)
 
     def test_eighty_four_sources_split_into_mills_loops_gens_and_chains(self):
         self.assertEqual(len(MILL_SOURCES), 84)
@@ -218,6 +223,13 @@ class NtpSkeletonTests(unittest.TestCase):
         self.assertFalse(is_theme_mill(nv.SLICE_MILL_ID))
         self.assertFalse(is_theme_mill("ntp-mill-orch-leftover3"))
         self.assertFalse(is_slice_mill("ntp-mill-r1326"))
+
+    def test_pair_mills_cover_orch_lll_llll(self):
+        self.assertTrue(is_pair_mill("ntp-mill-orch-leftover3"))
+        self.assertTrue(is_pair_mill("ntp-mill-unique-lll"))
+        self.assertTrue(is_pair_mill("ntp-mill-unique-llll34"))
+        self.assertFalse(is_pair_mill(nv.SLICE_MILL_ID))
+        self.assertFalse(is_pair_mill(nv.THEME_MILL_ID))
 
     def test_split_theme_rows_keep_mill_id(self):
         extracted = extract_mill_catalog(
@@ -314,26 +326,32 @@ class NtpSkeletonTests(unittest.TestCase):
         orch = CATALOG.mills["ntp-mill-orch-leftover3"]
         self.assertEqual(orch.n_rows, 16)
         self.assertEqual(orch.catalog_first, 1558)
-        self.assertFalse(orch.success)
-        self.assertFalse(orch.leftover)
+        self.assertEqual(len(orch.success), 16)
+        self.assertEqual(len(orch.leftover), 16)
+        self.assertEqual(orch.success[0]["slug"], orch.first_slug)
         self.assertEqual(CATALOG.mills["ntp-mill-unique-llll"].catalog_first, 1719)
-        self.assertEqual(CATALOG.mills["ntp-mill-unique-llll34"].n_rows, 32)
-        self.assertFalse(CATALOG.mills["ntp-mill-unique-llll34"].success)
+        llll34 = CATALOG.mills["ntp-mill-unique-llll34"]
+        self.assertEqual(llll34.n_rows, 32)
+        self.assertEqual(len(llll34.success), 32)
+        self.assertEqual(len(llll34.leftover), 32)
 
     def test_catalog_files_stay_compact(self):
         header = catalog_json_path().read_text(encoding="utf-8")
         mills = mills_jsonl_path().read_text(encoding="utf-8")
         leftover = leftover_jsonl_path().read_text(encoding="utf-8")
         themes = themes_jsonl_path().read_text(encoding="utf-8")
+        pairs = pairs_jsonl_path().read_text(encoding="utf-8")
         self.assertNotIn('"success"', header)
         self.assertNotIn('"mills":', header)
         self.assertIn('"themes_filename"', header)
-        self.assertLessEqual(len(header.splitlines()), 16)
+        self.assertIn('"pairs_filename"', header)
+        self.assertLessEqual(len(header.splitlines()), 20)
         self.assertEqual(len(mills.splitlines()), 38)
         self.assertEqual(len(leftover.splitlines()), 130)
         self.assertEqual(len(themes.splitlines()), 890)
+        self.assertEqual(len(pairs.splitlines()), 2240)
         self.assertNotIn('"mill_id"', leftover)
-        for text in (mills, leftover, themes):
+        for text in (mills, leftover, themes, pairs):
             self.assertTrue(text.endswith("\n"))
             self.assertNotIn("\r", text)
             for line in text.splitlines():
@@ -342,6 +360,10 @@ class NtpSkeletonTests(unittest.TestCase):
         for line in themes.splitlines():
             row = json.loads(line)
             self.assertEqual(row["mill_id"], nv.THEME_MILL_ID)
+            self.assertIn(row["kind"], ("success", "leftover"))
+        for line in pairs.splitlines():
+            row = json.loads(line)
+            self.assertIn(row["mill_id"], nv.PAIR_MILL_IDS)
             self.assertIn(row["kind"], ("success", "leftover"))
 
 
@@ -376,12 +398,14 @@ class NtpLegacyExtractTests(unittest.TestCase):
                 mill_summary(
                     live,
                     include_themes=is_slice_mill(source.mill_id)
-                    or is_theme_mill(source.mill_id),
+                    or is_theme_mill(source.mill_id)
+                    or is_pair_mill(source.mill_id),
                 )
             )
         document = catalog_document(mills)
         header, mill_rows, leftover_rows = split_catalog(document)
         theme_rows = split_theme_rows(document)
+        pair_rows = split_pair_rows(document)
         self.assertEqual(
             dumps_catalog(document),
             catalog_json_path().read_text(encoding="utf-8"),
@@ -395,11 +419,17 @@ class NtpLegacyExtractTests(unittest.TestCase):
             dumps_jsonl(theme_rows),
             themes_jsonl_path().read_text(encoding="utf-8"),
         )
+        self.assertEqual(
+            dumps_jsonl(pair_rows),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
+        )
         self.assertEqual(header["n_pair_rows"], 1625)
         self.assertEqual(header["themes_filename"], nv.THEMES_FILENAME)
+        self.assertEqual(header["pairs_filename"], nv.PAIRS_FILENAME)
         self.assertEqual(len(mill_rows), 38)
         self.assertEqual(len(leftover_rows), 130)
         self.assertEqual(len(theme_rows), 890)
+        self.assertEqual(len(pair_rows), 2240)
         self.assertEqual(theme_rows[0]["slug"], "kubeflow-pipeline-run-as-dest")
         self.assertEqual(theme_rows[445]["slug"], "altair-vl-json-leftover")
 
