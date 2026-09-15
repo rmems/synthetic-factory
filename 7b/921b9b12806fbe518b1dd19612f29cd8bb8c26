@@ -1,0 +1,32 @@
+pipelines/validate_run.py
+  s_0376781a4206a3::t_e836f11d195415 44
+  s_0376781a4206a3::t_008c38b6e8a374 265-270,280
+  s_0376781a4206a3::t_4e075fc184b972 33
+pipelines/validate_run_episode.py
+  s_0376781a4206a3::t_559dd146c3fe66 2-9
+pipelines/__init__.py
+  s_0376781a4206a3::t_9585b3dd395942 191
+tests/test_pipeline_split_module_identity.py
+  s_0376781a4206a3::t_d1c3388979f0f1 118
+pipelines/validate_run_multi_agent.py
+  s_0376781a4206a3::t_b5d5944297ff6d 1-178
+tests/pipeline_import_catalog_foundation.py
+  s_0376781a4206a3::t_f81fafb81e37c1 1173-1176
+  s_0376781a4206a3::t_bf580b10cf9c16 957-968
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7b921b9b12806fbe518b1dd19612f29cd8bb8c26",
+  "prompts": {},
+  "sessions": {
+    "s_0376781a4206a3": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "541629e3-72d6-4b80-be72-547926576436",
+        "model": "cursor-grok-4.6-xhigh"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
