@@ -201,6 +201,9 @@ class LhcSkeletonTests(unittest.TestCase):
         hits = []
         for name in (
             "catalog_ast.py",
+            "catalog_ast_assign.py",
+            "catalog_ast_calls.py",
+            "catalog_ast_literals.py",
             "catalog_extract.py",
             "catalog_extract_fn_pair.py",
             "catalog_extract_pairs.py",
