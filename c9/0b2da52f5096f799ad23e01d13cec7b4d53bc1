@@ -1,0 +1,33 @@
+pipelines/acm/catalog.py
+  s_9b397b2e33dafa::t_b8145246e65eb3 1-270
+pipelines/acm/cli.py
+  s_9b397b2e33dafa::t_f2b7feda3a4fb9 17,23
+  s_9b397b2e33dafa::t_4a83e11cd86279 35,40,50-51
+  s_9b397b2e33dafa::t_79819ecf340885 56-57
+  s_9b397b2e33dafa::t_ef000026a0481b 1-16,18-22,24-34,36-39,41-49,52-55
+pipelines/acm/__init__.py
+  s_9b397b2e33dafa::t_3d80dcabe5380c 1-45
+tests/test_contract_drift.py
+  s_9b397b2e33dafa::t_e2683dc4d81477 14-16,23-30,34,40-41,78,84,87-89,93,95,101,104,106,110-112,115-117,120-121
+pipelines/acm/_contract.py
+  s_9b397b2e33dafa::t_f0a2dffa2ff7f5 1-81
+pipelines/acm/generate.py
+  s_9b397b2e33dafa::t_4ebce7fafef4a5 75
+  s_9b397b2e33dafa::t_39425749f8d83e 1-74,76-437
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c90b2da52f5096f799ad23e01d13cec7b4d53bc1",
+  "prompts": {},
+  "sessions": {
+    "s_9b397b2e33dafa": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ae586a94-908f-408c-8945-a2dc4bfa3f55",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
