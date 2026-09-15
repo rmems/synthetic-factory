@@ -186,7 +186,7 @@ def load_catalog(directory: Path | None = None) -> PbcCatalog:
     rows = _read_jsonl(plants_path)
     pairs = tuple(_pair_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, 1))
     if len(pairs) != SLICE_PAIR_COUNT or len(pairs) != header.get("row_count"):
-        raise PlanValidationError("first-slice row_count drifted")
+        raise PlanValidationError("committed row_count drifted")
     extract_deferred = extract.get("deferred_mills")
     if extract_deferred != sorted(DEFERRED_MILL_IDS):
         raise PlanValidationError("extract.deferred_mills drifted")
@@ -230,7 +230,7 @@ def load_catalog(directory: Path | None = None) -> PbcCatalog:
             )
         )
         if first.ok["slug"] != raw["first_ok_slug"] or first.bad["slug"] != raw["first_bad_slug"]:
-            raise PlanValidationError(f"{mill_id} first-slice slugs drifted")
+            raise PlanValidationError(f"{mill_id} first-pair slugs drifted")
         if first.full_n_rounds != raw["full_n_rounds"]:
             raise PlanValidationError(f"{mill_id} full_n_rounds drifted")
     return PbcCatalog(
@@ -340,7 +340,7 @@ def load_mill_usage_burst_plan(
             if plan_mill.n_rounds != cat_mill.n_rounds or plan_mill.pair_count != cat_mill.pair_count:
                 raise PlanValidationError(f"{plan_mill.mill_id} committed pair counts drifted")
         if plan.counts()["pairs"] != SLICE_PAIR_COUNT:
-            raise PlanValidationError("plan first-slice pair count drifted")
+            raise PlanValidationError("plan committed pair count drifted")
     return plan
 
 

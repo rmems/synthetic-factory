@@ -11,7 +11,7 @@
     "deferred_mills": [
       "pbc_r787"
     ],
-    "slice": "r701-full-first-pair-others-r787-deferred",
+    "slice": "full-minus-r787-deferred",
     "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
     "source_files": 9,
     "source_ref": "legacy-mill-lane"
@@ -90,7 +90,7 @@
     }
   ],
   "plants_filename": "plants.jsonl",
-  "plants_sha256": "47bff5d237f01a7d8bbfb2295e90e03aaf8ace2c1e828ec2568ba0f463147ada",
+  "plants_sha256": "c8fea4c3dee72a02db424f3dedbfa3cbdf51c0c7ae87678055d107851c624081",
   "quota": 2,
-  "row_count": 36
+  "row_count": 533
 }

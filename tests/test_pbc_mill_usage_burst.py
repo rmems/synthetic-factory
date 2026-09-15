@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""First-slice PBC mill-usage-burst catalog (proto-breaking-change)."""
+"""PBC mill-usage-burst catalog (proto-breaking-change), slice B minus deferred r787."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -16,6 +18,7 @@ from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from pbc import _contract  # noqa: E402
 from pbc import catalog  # noqa: E402
 from pbc import generate  # noqa: E402
+from pbc import mill_extract  # noqa: E402
 
 _LEGACY = "origin/legacy-mill-lane"
 _FIRST_SLUGS = {
@@ -27,13 +30,22 @@ _FIRST_SLUGS = {
     "pbc-mill-r966.py": "timestamp-to-unix-seconds",
     "pbc-mill-r988.py": "int32-to-uint64-tap",
 }
+_EXPECTED_MILL_ROWS = {
+    "pbc_r701": 30,
+    "pbc_r731": 20,
+    "pbc_r751": 20,
+    "pbc_r803": 16,
+    "pbc_r966": 8,
+    "pbc_r988": 349,
+    "pbc_r2535": 90,
+}
 
 
 class PbcIdentityTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[_contract.FAMILY], _contract.FACTORY)
         self.assertEqual(_contract.REVIEWED_HOME, _contract.FACTORY_NAME)
-        self.assertEqual(_contract.SLICE_PAIR_COUNT, 36)
+        self.assertEqual(_contract.SLICE_PAIR_COUNT, 533)
         self.assertEqual(_contract.FULL_PAIR_COUNT, 708)
         self.assertEqual(_contract.DEFERRED_MILL_IDS, frozenset({"pbc_r787"}))
 
@@ -44,12 +56,12 @@ class PbcIdentityTests(unittest.TestCase):
 
 
 class PbcCatalogTests(unittest.TestCase):
-    def test_plan_loads_first_slice_counts(self):
+    def test_plan_loads_slice_b_counts(self):
         plan = catalog.load_mill_usage_burst_plan(repo_root=REPO)
-        self.assertEqual(plan.slice, "A")
+        self.assertEqual(plan.slice, "B")
         self.assertEqual(
             plan.counts(),
-            {"mills": 7, "rounds": 36, "pairs": 36, "episodes": 72},
+            {"mills": 7, "rounds": 533, "pairs": 533, "episodes": 1066},
         )
         self.assertEqual(
             [mill.mill_id for mill in plan.mills],
@@ -66,11 +78,11 @@ class PbcCatalogTests(unittest.TestCase):
         self.assertNotIn("pbc_r787", [mill.mill_id for mill in plan.mills])
         self.assertNotIn(_contract.LEFTOVER_MILL_ID, [mill.mill_id for mill in plan.mills])
 
-    def test_catalog_pins_first_pair_slugs(self):
+    def test_catalog_committed_pair_counts(self):
         loaded = catalog.load_catalog()
-        self.assertEqual(len(loaded.pairs), 36)
-        r701 = [pair for pair in loaded.pairs if pair.mill_id == "pbc_r701"]
-        self.assertEqual(len(r701), 30)
+        self.assertEqual(len(loaded.pairs), 533)
+        by_mill = Counter(pair.mill_id for pair in loaded.pairs)
+        self.assertEqual(dict(by_mill), _EXPECTED_MILL_ROWS)
         first = loaded.mill("pbc_r701")
         self.assertEqual(first.ok["slug"], "map-key-sfixed32-to-uint32")
         self.assertEqual(first.bad["slug"], "float-to-double-temp")
@@ -165,6 +177,21 @@ class PbcAstExtractTests(unittest.TestCase):
                     cwd=REPO,
                 )
                 self.assertEqual(generate.first_slugs_from_source(text)[0], slug)
+
+    def test_mill_extract_matches_committed_jsonl(self):
+        probe = subprocess.run(
+            ["git", "rev-parse", "--verify", _LEGACY],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+        )
+        if probe.returncode != 0:
+            self.skipTest("origin/legacy-mill-lane is not available")
+        rebuilt = mill_extract.build_plants_jsonl()
+        committed = (REPO / "pipelines/pbc/plants.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(rebuilt, committed)
+        rows = [json.loads(line) for line in committed.splitlines()]
+        self.assertEqual(len(rows), _contract.SLICE_PAIR_COUNT)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for the PBC mill-usage-burst first-slice catalog (read-only)."""
+"""CLI for the PBC mill-usage-burst catalog (read-only)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ else:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pbc_cli.py", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    plan = sub.add_parser("plan", help="load and print first-slice mill-usage-burst counts")
+    plan = sub.add_parser("plan", help="load and print mill-usage-burst counts")
     plan.add_argument("--plan", type=Path, default=None)
     plan.add_argument("--json", action="store_true")
     sub.add_parser("catalog", help="load CATALOG.json + plants.jsonl and print pin counts")
@@ -63,7 +63,7 @@ def run(argv: list[str] | None = None) -> int:
             counts = payload["counts"]
             print(
                 f"slice {loaded.slice} {loaded.label}: "
-                f"{counts['mills']} mills, {counts['rounds']} first-slice rounds, "
+                f"{counts['mills']} mills, {counts['rounds']} committed rounds, "
                 f"{counts['episodes']} episodes"
             )
         return 0

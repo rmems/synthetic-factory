@@ -22,19 +22,19 @@ QUOTA = 2
 CATALOG_ID = "proto-breaking-change-v1"
 CATALOG_FORMAT = "pbc-catalog/1"
 PLAN_SCHEMA_ID = "mill-usage-burst-plan/v1"
-PLAN_SLICE = "A"
+PLAN_SLICE = "B"
 SOURCE_REF = "legacy-mill-lane"
 SOURCE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 VENDOR_PREFIX = "pbc-mill-"
-DEFAULT_PLAN_PATH = "config/mill-usage-burst-plan.pbc-a.json"
+DEFAULT_PLAN_PATH = "config/mill-usage-burst-plan.pbc-b.json"
 DEFAULT_RUN_LABEL = "2026-08-19-agentic"
-# Full extract on legacy-mill-lane. This PR commits a first-slice catalog.
+# Full extract on legacy-mill-lane. Slice B commits all mills except deferred r787.
 FULL_MILL_COUNT = 8
 FULL_PAIR_COUNT = 708
 FULL_EPISODE_COUNT = 1416
 LEFTOVER_MILL_ID = "pbc_r1335"
 LEFTOVER_FIRST_SLUG = "date-to-int32-poured"
-SLICE_PAIR_COUNT = 36
+SLICE_PAIR_COUNT = 533
 DEFERRED_MILL_IDS = frozenset({"pbc_r787"})
 
 REVIEWED_HOME = REVIEWED_MILL_PREFIX_HOMES[FAMILY]
