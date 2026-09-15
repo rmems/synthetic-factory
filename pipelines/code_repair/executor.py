@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 # Required only for the fixed no-shell harness subprocess below.
@@ -39,6 +40,8 @@ FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
+LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
+REPORT_FILENAME = "report.json"
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
@@ -119,6 +122,13 @@ def _bounded(path: Path) -> bytes:
         return handle.read(MAX_OUTPUT_BYTES + 1)
 
 
+def _bounded_fd(fd: int) -> bytes:
+    """At most ``MAX_OUTPUT_BYTES`` from an already-open capture fd; seek to the start first."""
+
+    os.lseek(fd, 0, os.SEEK_SET)
+    return os.read(fd, MAX_OUTPUT_BYTES + 1)
+
+
 def _utf8_compatible_source(text: str) -> None:
     """Refuse a coding cookie that conflicts with the UTF-8 write/import path."""
 
@@ -182,11 +192,11 @@ class Executor:
             shutil.rmtree(workdir, ignore_errors=True)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
-        """One child run; its output goes to files in the workdir, never to an unbounded pipe.
+        """One child run; attestation is an unlinked tempfile, JSON a workdir report file.
 
-        The child's file-size limit caps what it can write there, and the parent reads back at
+        The child's file-size limit caps the report file, and the parent reads back at
         most ``MAX_OUTPUT_BYTES`` of each stream, so a child that streams forever cannot grow
-        the factory process.
+        the factory process. Attestation is not a workdir path the candidate can reopen.
         """
 
         # This pilot runs reviewed pinned code only. Resource limits do not isolate host
@@ -194,20 +204,23 @@ class Executor:
         argv = [sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir)]
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
-        stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
+        stderr_path = workdir / "stderr"
+        report_path = workdir / REPORT_FILENAME
         try:
-            with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
+            with tempfile.TemporaryFile() as out, stderr_path.open("wb") as err:
                 # The reviewed argv is fixed and never enables a shell.
                 completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
                     argv, cwd=workdir, env=CHILD_ENV, stdout=out, stderr=err,
                     timeout=self.timeout_s, check=False,
                 )
+                stdout = _bounded_fd(out.fileno())
         except subprocess.TimeoutExpired:
             entry.update(timed_out=True, stderr_tail=_tail(_bounded(stderr_path)))
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            report = _parse_report(job, completed.returncode, _bounded(stdout_path))
+            body = _bounded(report_path) if report_path.is_file() else b""
+            report = _parse_report(job, completed.returncode, stdout + body)
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)
         return report
@@ -221,17 +234,50 @@ def _harness_error(detail: str) -> PhaseReport:
     return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
 
 
+_LIMITS_ATTESTED = True
+_LIMITS_NOT_ATTESTED = False
+_ATTESTATION_BY_TOKEN = {
+    str(_LIMITS_ATTESTED).lower(): _LIMITS_ATTESTED,
+    str(_LIMITS_NOT_ATTESTED).lower(): _LIMITS_NOT_ATTESTED,
+}
+
+
+def _split_limits_attestation(stdout: bytes) -> tuple[bool | None, bytes, str | None]:
+    """The first stdout line is authoritative for limits; the remainder is the JSON report."""
+
+    if not stdout:
+        return None, b"", "empty stdout"
+    newline = stdout.find(b"\n")
+    if newline < 0:
+        return None, stdout, "missing limits attestation line"
+    remainder = stdout[newline + 1 :]
+    try:
+        line = stdout[:newline].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return None, remainder, f"report unreadable: {exc}"
+    if not line.startswith(LIMITS_ATTESTATION_PREFIX):
+        return None, remainder, "missing limits attestation line"
+    applied = _ATTESTATION_BY_TOKEN.get(line[len(LIMITS_ATTESTATION_PREFIX) :].strip())
+    if applied is None:
+        return None, remainder, "limits attestation malformed"
+    return applied, remainder, None
+
+
 def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
     """The protocol object the child wrote, or the reason there is none."""
 
     if returncode != 0:
         return f"exit status {returncode}"
+    limits_applied, json_bytes, attestation_error = _split_limits_attestation(stdout)
+    if attestation_error is not None:
+        return attestation_error
     try:
-        parsed = load_strict_json(stdout.decode("utf-8"))
+        parsed = load_strict_json(json_bytes.decode("utf-8"))
     except ValueError as exc:
         return f"report unreadable: {exc}"
     if not isinstance(parsed, dict) or parsed.get("protocol") != cv.HARNESS_PROTOCOL:
         return "report is not the protocol"
+    parsed["_limits_attested"] = limits_applied
     return parsed
 
 
@@ -245,9 +291,11 @@ def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
     parsed = _parsed_report(returncode, stdout)
     if isinstance(parsed, str):
         return _harness_error(parsed)
-    environment = _object(parsed, "environment")
-    if environment.get("limits_applied") is not True:
+    limits_attested = parsed.pop("_limits_attested", None)
+    if limits_attested is not True:
         return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    environment = _object(parsed, "environment")
+    environment = {**environment, "limits_applied": True}
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = _scrub_detail(str(load.get("error") or "load failed"))

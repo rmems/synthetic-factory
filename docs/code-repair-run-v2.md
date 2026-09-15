@@ -24,6 +24,10 @@ Draw conservation is `count = records + sum(skips except MUTATION_NO_SITES)`.
 
 Every stored phase includes the executed `module_sha256` and `limits_applied`,
 alongside `status`, `load_ok`, public and hidden rows, and the row digest `sha256`.
+The harness emits `code-repair-harness/2` reports. Before `program.py` is read it
+writes one out-of-band attestation line on stdout (`code-repair-limits-attestation/1`);
+the parent treats that line as authoritative for `limits_applied`, not the in-band
+`environment` field the candidate shares an interpreter with.
 Rows preserve their bounded `got` text and `truncated` flag as well as the full
 observation `got_sha256`. The digest of the complete phase map binds these fields.
 The new `original_repeat` phase executes the same original source in a fresh
