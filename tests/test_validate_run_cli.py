@@ -133,9 +133,12 @@ class ValidateRunWriteFlag(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
 
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                with self.assertRaises(SystemExit) as raised:
-                    validate_run.main([str(run_dir)])
+            with (
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                validate_run.main([str(run_dir)])
 
             self.assertEqual(raised.exception.code, 0, stderr.getvalue())
             self.assertEqual(json.loads(stdout.getvalue()), EXPECTED_TOTALS)
@@ -158,9 +161,12 @@ class ValidateRunWriteFlag(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
 
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                with self.assertRaises(SystemExit) as raised:
-                    validate_run.main([str(run_dir)])
+            with (
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                validate_run.main([str(run_dir)])
 
         self.assertEqual(raised.exception.code, 1, stderr.getvalue())
         self.assertIn("JSON parse error", stderr.getvalue())

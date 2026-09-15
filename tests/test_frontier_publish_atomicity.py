@@ -32,9 +32,11 @@ class FrontierPublishAtomicity(FrontierGateTestCaseMixin, unittest.TestCase):
                 order.append(args[1])
                 return real_link(*args, **kwargs)
 
-            with mock.patch.object(round_txn, "execution_gate", gate_recorder):
-                with mock.patch.object(round_txn.os, "link", side_effect=link_recorder):
-                    round_txn.publish(factory, 1, reservation["token"])
+            with (
+                mock.patch.object(round_txn, "execution_gate", gate_recorder),
+                mock.patch.object(round_txn.os, "link", side_effect=link_recorder),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(order[0], "gate")
             self.assertTrue(
@@ -53,13 +55,15 @@ class FrontierPublishAtomicity(FrontierGateTestCaseMixin, unittest.TestCase):
             reservation = round_txn.reserve(factory, 1, 1)
             self.stage(reservation, [thalamic("gate-order-blocked", observable=False)])
 
-            with mock.patch.object(
-                round_txn.os,
-                "link",
-                side_effect=AssertionError("commit point reached"),
-            ) as link:
-                with self.assertRaises(round_txn.TransactionError) as raised:
-                    round_txn.publish(factory, 1, reservation["token"])
+            with (
+                mock.patch.object(
+                    round_txn.os,
+                    "link",
+                    side_effect=AssertionError("commit point reached"),
+                ) as link,
+                self.assertRaises(round_txn.TransactionError) as raised,
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
             link.assert_not_called()
             self.assertIn("cannot verify", str(raised.exception))
