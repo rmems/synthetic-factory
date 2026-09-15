@@ -26,7 +26,7 @@ reviewers.
 ## Generator lanes and rights
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
-(`factory-registry-v0.2`), keyed by exact `path_id` and `payload_factory`,
+(`factory-registry-v0.3`), keyed by exact `path_id` and `payload_factory`,
 that names its generator, provider/channel assignment, and rights profile
 (the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
@@ -44,17 +44,20 @@ are two lanes:
   evidence is in place): registry-registered procedural generators with fresh
   human-authored or permissively sourced catalogs ([#175], epic [#169]);
   deterministic in-repo simulators admitted as authoritative oracles ([#171],
-  epic [#76]); DeepSeek / Nemotron lanes only after their terms snapshots are
-  pinned ([#170], [#163]).
+  epic [#76]); pinned local open-weight generators on `local_vllm` (Nemotron 3
+  Nano 4B first, then Lightning / Muse Glimmer / Granite specialists) and
+  OpenRouter models only when generation-time `distillable=true` catalog
+  membership plus underlying terms snapshots are pinned ([#186], [#170],
+  [#163]). A rights decision for one channel never unblocks another: local
+  vLLM ≠ local Ollama ≠ OpenRouter ≠ NIM/watsonx/hosted API.
 
-Today the identity lane (`pipelines/curate_identity.py`) enforces the policy
-when it loads the registry; wiring the same gate into compose, export, and
-promotion is [#167]. `training_ready` in an audit, `COMPOSE.json`, or
-`provenance.json` is the structural and quality verdict only — it never means
-training-eligible, which is `project_training_policy: allowed`, and no
-registry row carries that value yet. The contract every new generator must
-meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
-preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
+`training_ready` in an audit, `COMPOSE.json`, or `provenance.json` is the
+structural and quality verdict only — it never means training-eligible, which
+is `project_training_policy: allowed`. Hosted frontier rows stay blocked. The
+procedural repair factory and the reviewed model-channel rows carry `allowed`
+as channel eligibility, not a publish or training-ready claim. The contract
+every new generator must meet is the "Generator rule" (formerly `AGENTS.md`,
+retired in [#184]; preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Public dataset family
 
@@ -124,7 +127,7 @@ same unit tests and operator smoke check.
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
-- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required.
+- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a hosted generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py` (defined in `pipelines/curate_identity_registry_rows.py`); both reviews are required. Model-channel rows must also match `schemas/model-channel-source-policy-v1.json` exactly.
 - `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 

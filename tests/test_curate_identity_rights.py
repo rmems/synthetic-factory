@@ -50,8 +50,11 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
             registry = json.loads(registry_path.read_text(encoding="utf-8"))
             registry["schema_version"] = "factory-registry-v0.1"
-            registry["factories"] = [row for row in registry["factories"]
-                                     if row.get("source_type") != "procedural"]
+            registry["factories"] = [
+                row
+                for row in registry["factories"]
+                if row.get("source_type") not in {"procedural", "model_channel"}
+            ]
             rights_fields = (
                 "provider",
                 "channel",

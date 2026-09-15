@@ -89,9 +89,10 @@ class ProceduralRegistryTests(unittest.TestCase):
     def test_hosted_rows_keep_blocked_policy(self):
         rows = ci.load_registry().by_path_id.values()
         for row in rows:
-            if row.path_id != "python-function-repair-factory":
-                self.assertEqual((row.intended_use, row.project_training_policy),
-                                 ("research_only", "blocked"))
+            if row.source_type in {"procedural", "model_channel"}:
+                continue
+            self.assertEqual((row.intended_use, row.project_training_policy),
+                             ("research_only", "blocked"))
 
     def test_self_consistent_changed_policy_is_not_an_authority(self):
         value = json.loads(policy.POLICY_PATH.read_text())

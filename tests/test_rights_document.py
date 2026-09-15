@@ -208,7 +208,19 @@ class RightsDocumentTests(unittest.TestCase):
 
         self.assertEqual(
             set(rights_document.PROVIDER_ALIASES.values()),
-            {"anthropic", "meta", "openai", "xai"},
+            {
+                "anthropic",
+                "meta",
+                "openai",
+                "xai",
+                "nvidia",
+                "ibm",
+                "deepseek",
+                "moonshot",
+                "alibaba",
+                "minimax",
+                "microsoft",
+            },
         )
         self.assertEqual(
             len(rights_document.PROVIDER_ALIASES),

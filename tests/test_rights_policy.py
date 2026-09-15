@@ -174,11 +174,31 @@ class RightsPolicyTests(RightsPolicyTestCase):
         )
         self.assertEqual(
             set(document["vocabularies"]["providers"]),
-            {"anthropic", "meta", "openai", "xai"},
+            {
+                "anthropic",
+                "meta",
+                "openai",
+                "xai",
+                "nvidia",
+                "ibm",
+                "deepseek",
+                "moonshot",
+                "alibaba",
+                "minimax",
+                "microsoft",
+            },
         )
         self.assertEqual(
             set(document["vocabularies"]["channels"]),
-            {"consumer", "api", "enterprise", "local"},
+            {
+                "consumer",
+                "api",
+                "enterprise",
+                "local",
+                "local_vllm",
+                "local_ollama",
+                "openrouter_api",
+            },
         )
         self.assertEqual(
             document["evidence_status_fields"],
@@ -430,7 +450,8 @@ class RightsPolicyTests(RightsPolicyTestCase):
         )
         hosted_profile["reason_codes"].append("UNKNOWN_PROVENANCE")
         for rule in document["rules"]:
-            rule["reason_codes"].append("UNKNOWN_PROVENANCE")
+            if rule["rights_profile_id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID:
+                rule["reason_codes"].append("UNKNOWN_PROVENANCE")
 
         checks = (
             ("object validation", lambda: rights_policy.validate_rights_policy(document)),

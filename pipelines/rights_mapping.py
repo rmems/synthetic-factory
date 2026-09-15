@@ -34,8 +34,28 @@ MAPPING_PATH = (
 )
 MAX_RIGHTS_JSON_BYTES = 1024 * 1024
 
-CANONICAL_PROVIDERS = frozenset({"anthropic", "meta", "openai", "xai"})
-CHANNELS = frozenset({"consumer", "api", "enterprise", "local"})
+CANONICAL_PROVIDERS = frozenset({
+    "anthropic",
+    "meta",
+    "openai",
+    "xai",
+    "nvidia",
+    "ibm",
+    "deepseek",
+    "moonshot",
+    "alibaba",
+    "minimax",
+    "microsoft",
+})
+CHANNELS = frozenset({
+    "consumer",
+    "api",
+    "enterprise",
+    "local",
+    "local_vllm",
+    "local_ollama",
+    "openrouter_api",
+})
 INTENDED_USES = frozenset({"research_only", "training_candidate"})
 PROJECT_TRAINING_POLICIES = frozenset({"blocked", "allowed"})
 EVIDENCE_STATUSES = frozenset({"allowed", "restricted", "unresolved"})
@@ -49,8 +69,15 @@ EVIDENCE_STATUS_FIELDS = (
 
 HOSTED_FRONTIER_PROFILE_ID = "hosted-frontier-research-only-v1"
 UNKNOWN_PROVENANCE_PROFILE_ID = "unknown-provenance-fail-closed-v1"
+OPEN_WEIGHT_LOCAL_PROFILE_ID = "open-weight-local-candidate-v1"
+OPENROUTER_DISTILLABLE_PROFILE_ID = "openrouter-distillable-candidate-v1"
 REQUIRED_PROFILE_IDS = frozenset(
-    {HOSTED_FRONTIER_PROFILE_ID, UNKNOWN_PROVENANCE_PROFILE_ID}
+    {
+        HOSTED_FRONTIER_PROFILE_ID,
+        UNKNOWN_PROVENANCE_PROFILE_ID,
+        OPEN_WEIGHT_LOCAL_PROFILE_ID,
+        OPENROUTER_DISTILLABLE_PROFILE_ID,
+    }
 )
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
