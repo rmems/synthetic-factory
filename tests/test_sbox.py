@@ -128,11 +128,16 @@ def _module_uses_exec(path: Path) -> list[str]:
 
 class PackageShape(unittest.TestCase):
     def test_the_package_does_not_vendor_sbox_mill_scripts(self):
-        names = {path.name for path in PACKAGE.iterdir() if path.suffix in {".py", ".json"}}
+        names = {
+            path.name
+            for path in PACKAGE.iterdir()
+            if path.suffix in {".py", ".json", ".jsonl"}
+        }
         self.assertEqual(
             names,
             {
                 "CATALOG.json",
+                "plants.jsonl",
                 "__init__.py",
                 "_contract.py",
                 "catalog.py",
@@ -199,6 +204,24 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(plants[0]["inc"], 7236)
         self.assertEqual(plants[0]["proc"], "payments-memcached")
 
+    def test_plants_from_source_applies_a_literal_rows_family_filter(self):
+        snippet = """
+def _row(family, dump, miss_dump, secret, pin, pin_path, pin_needle, grep_hit,
+         distinct, ext, miss_ext, live_bin, inc, over_slug, miss_slug, proc, allow, rotate):
+    return dict(family=family, inc=inc, over_slug=over_slug, miss_slug=miss_slug, proc=proc)
+
+_ROWS = [
+    _row("leftover-keep", "d", "m", "s", "p", "pp", "pn", "g", "d", "e", "me", "lb", 1,
+         "over-a", "miss-a", "proc-a", "allow", "rot"),
+    _row("leftover-drop", "d", "m", "s", "p", "pp", "pn", "g", "d", "e", "me", "lb", 2,
+         "over-b", "miss-b", "proc-b", "allow", "rot"),
+]
+_ROWS = [r for r in _ROWS if r["family"] != "leftover-drop"]
+"""
+        plants = generate.plants_from_source(snippet)
+        self.assertEqual(len(plants), 1)
+        self.assertEqual(plants[0]["family"], "leftover-keep")
+
     def test_a_runtime_plant_without_family_is_refused(self):
         with self.assertRaises(SboxRefusal) as ctx:
             generate.plants_from_source(
@@ -214,16 +237,17 @@ class AstExtract(unittest.TestCase):
 
 
 class CommittedCatalog(unittest.TestCase):
-    def test_representative_slice_and_full_row_pins(self):
+    def test_jsonl_slice_and_full_row_pins(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
         self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 32)
+        self.assertEqual(len(loaded.plants), 1411)
         self.assertEqual(len(loaded.sources), 65)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 32)
+        self.assertEqual(report["plants"], 1411)
         self.assertEqual(report["full_row_count"], 2678)
+        self.assertEqual(report["deferred_row_count"], 1267)
         self.assertEqual(report["catalog_files"], 57)
         self.assertFalse(report["exec"])
         self.assertEqual(loaded.plants[0].family, "bpftrace-kprobe-write")
@@ -232,8 +256,20 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(loaded.plants[16].inc, 4900)
         self.assertEqual(loaded.plants[24].family, "leftover-memcached-dump")
         self.assertEqual(loaded.plants[24].inc, 7236)
-        families = [plant.family for plant in loaded.plants]
+        families = [f"{plant.source}:{plant.family}" for plant in loaded.plants]
         self.assertEqual(len(families), len(set(families)))
+
+    def test_plants_jsonl_is_one_compact_object_per_line(self):
+        payload = (PACKAGE / "plants.jsonl").read_text(encoding="utf-8")
+        self.assertTrue(payload.endswith("\n"))
+        self.assertNotIn("\r", payload)
+        lines = payload.split("\n")
+        if lines[-1] == "":
+            lines = lines[:-1]
+        self.assertEqual(len(lines), 1411)
+        for index, line in enumerate(lines, 1):
+            self.assertEqual(line, line.strip(), f"line {index} has leading whitespace")
+            self.assertTrue(line.startswith("{"), f"line {index} is not an object")
 
     def test_r359_source_reextracts_the_committed_runtime_rows(self):
         if not _legacy_available():
@@ -274,7 +310,7 @@ class CommittedCatalog(unittest.TestCase):
         )
         self.assertEqual(
             [(row["family"], row["inc"]) for row in first_twelve],
-            [(plant.family, plant.inc) for plant in committed[24:]],
+            [(plant.family, plant.inc) for plant in committed[24:32]],
         )
         self.assertEqual(len(generate.plants_from_source(leftover)), 30)
         self.assertEqual(len(generate.plants_from_source(leftover12)), 31)
@@ -286,8 +322,9 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 32)
+        self.assertEqual(payload["plants"], 1411)
         self.assertEqual(payload["full_row_count"], 2678)
+        self.assertEqual(payload["deferred_row_count"], 1267)
 
     def test_extract_json_from_a_runtime_snippet(self):
         handle = tempfile.NamedTemporaryFile(
