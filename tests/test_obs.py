@@ -51,6 +51,15 @@ def invoke(argv: list[str]) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
+def _legacy_source(relpath: str) -> str | None:
+    for spec in (f"{SOURCE_COMMIT}:{relpath}", f"origin/legacy-mill-lane:{relpath}"):
+        try:
+            return subprocess.check_output(["git", "show", spec], text=True, cwd=REPO)
+        except subprocess.CalledProcessError:
+            continue
+    return None
+
+
 class CatalogPins(unittest.TestCase):
     def test_committed_catalog_loads_and_matches_registry(self):
         loaded = catalog.load_catalog(COMMITTED)
@@ -155,13 +164,14 @@ class AstExtract(unittest.TestCase):
 
     def test_committed_leftover_specs_match_legacy_ast(self):
         loaded = catalog.load_catalog(COMMITTED)
-        for mill in loaded.mills:
-            if mill.shape != "leftover_spec":
-                continue
-            text = subprocess.check_output(
-                ["git", "show", f"{SOURCE_COMMIT}:{mill.source}"],
-                text=True,
-            )
+        spec_mills = [mill for mill in loaded.mills if mill.shape == "leftover_spec"]
+        probe = _legacy_source(spec_mills[0].source) if spec_mills else None
+        if probe is None:
+            self.skipTest("legacy-mill-lane obs leftover-spec sources are not available")
+        for mill in spec_mills:
+            text = _legacy_source(mill.source)
+            if text is None:
+                self.fail(f"legacy source missing for {mill.source}")
             family = mill.mill_id.removeprefix("obs_")
             extracted = catalog.plants_from_source(
                 text,
