@@ -1,0 +1,19 @@
+pipelines/obs/catalog.py
+  s_bc4a35b0f26a02::t_ce20976b355e6f 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b46e1fefc58a64cad71683bfd3fc8d133fe40ae5",
+  "prompts": {},
+  "sessions": {
+    "s_bc4a35b0f26a02": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b0a359b2-d0fc-413c-97e9-2d3273ff92dd",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
