@@ -1,0 +1,51 @@
+pipelines/curate_gate.py
+  s_af31ed7264ce5b::t_b5040c037787f9 11-15
+  s_af31ed7264ce5b::t_8d55bd293e585f 16-18
+  ai_agent 19-22,118,123,131,141,146,154,291-293,298-299,301-304,306-307,332
+  s_af31ed7264ce5b::t_48a30a374fa8a2 23-27,107,125,132,148,155,310-312,322-323,327,330-331,333-337
+  s_af31ed7264ce5b::t_8a5dff48c8709d 103-106,108-109,114,116-117,124,126-127
+  s_af31ed7264ce5b::t_645f25097b1e8a 110-113,128-129,138,144-145,147,149-150,152-153,156-185,192,195-207,209-211,213-223,233
+  s_af31ed7264ce5b::t_74595a04c111e0 115,119-122,136,139-140,142-143
+  s_af31ed7264ce5b::t_7a1f6efd0f1170 130,151
+  s_af31ed7264ce5b::t_be0089c513e9bd 252-253,256-260,262-263,274-279,287-289
+  s_af31ed7264ce5b::t_4ecab584a1231c 464-472
+pipelines/curate_gate_review.py
+  s_af31ed7264ce5b::t_3670ec5882c536 1-38,40-51,53,56-408
+  s_af31ed7264ce5b::t_48a30a374fa8a2 39,52,54-55
+tests/pipeline_import_catalog_foundation.py
+  s_af31ed7264ce5b::t_7faf9ef3dc2a47 129-140,681
+  s_af31ed7264ce5b::t_30a4b04b78395e 141-188,730-736
+  s_af31ed7264ce5b::t_a0d5772f725bde 189-224,809-812,825-832,881-892
+  ai_agent 225-260,917-927
+  s_af31ed7264ce5b::t_48a30a374fa8a2 273-296,933-939
+  s_af31ed7264ce5b::t_e2d56d7d763f9b 645-656,740
+pipelines/curate_gate_identity_mapping.py
+  s_af31ed7264ce5b::t_5b55993ea80938 1-78,80-159,161-163,165-194,196-210,212-266
+  s_af31ed7264ce5b::t_48a30a374fa8a2 79,160,164,195,211
+tests/test_pipeline_split_module_identity.py
+  s_af31ed7264ce5b::t_add249fc5987e7 87,161-172,185-190
+  s_af31ed7264ce5b::t_30a4b04b78395e 88-91
+  s_af31ed7264ce5b::t_a0d5772f725bde 92-94
+  ai_agent 95-97
+  s_af31ed7264ce5b::t_48a30a374fa8a2 99-100
+pipelines/curate_gate_identity_gate.py
+  s_af31ed7264ce5b::t_cf47c14dfec364 1-11,17-51,55-289,306-307
+  s_af31ed7264ce5b::t_48a30a374fa8a2 12-16,290-303
+  s_af31ed7264ce5b::t_874e43b2a3fc74 52-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30c206c4a20d8335bd8667fd14e67ec2320d86fc",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
