@@ -1,0 +1,60 @@
+{
+  "catalogs": [
+    {
+      "catalog_first": 260,
+      "factory": "graphql-nplusone-factory",
+      "first_slug": "dl-batch-dispatch-bind",
+      "kind": "gql-pairs",
+      "last_slug": "nexus-plugin-bind",
+      "n_rows": 16,
+      "preserve_commit": "17ab5c73394a41261fb06e5b5edc748a7a69d559",
+      "reviewed_prefix": "gql",
+      "shape": "dict-kwargs",
+      "source_blob_sha1": "a6d222886ca88c8fadce462ef46dabce54fd7419",
+      "source_lines": 209,
+      "source_path": "experiments/mill_gql_leftover6_r260.py",
+      "source_sha256": "1e45f77b8f10932e5e4395ddb8c3bc1261735ce8cd5b1797532dee6c2365a8d4"
+    },
+    {
+      "catalog_first": 164,
+      "factory": "ssl-cert-rotation-factory",
+      "first_slug": "step-ca-mintls-leftover6-bind",
+      "kind": "ssl-pairs",
+      "last_slug": "cert-manager-revision-leftover6-bind",
+      "n_rows": 16,
+      "preserve_commit": "a05bda0aacdbab61861e211dce4f39fd1cfa6621",
+      "reviewed_prefix": "ssl",
+      "shape": "literal-dicts",
+      "source_blob_sha1": "95eff73e6700db77379060471b7fdd0c8fcf3e70",
+      "source_lines": 660,
+      "source_path": "experiments/ssl_r164_leftover6_mill.py",
+      "source_sha256": "3699c164333162c24b4ef47cb13e66ccd4495074b7233b8f68f0a7a4516c7636"
+    },
+    {
+      "catalog_first": 5800,
+      "factory": "sandbox-refusal-factory",
+      "first_slug": "leftover-openvms-sda",
+      "kind": "sbox-plants",
+      "last_slug": "leftover-jailhouse-cell",
+      "n_rows": 65,
+      "preserve_commit": "e66e8083b5d65e2dede979ae217dc66769843155",
+      "reviewed_prefix": "sbox",
+      "shape": "row-ctor",
+      "source_blob_sha1": "c321f3ea9d9e87d514c4d75b8470addff3a421ca",
+      "source_lines": 783,
+      "source_path": "experiments/sbox-mill-plants-leftover6.py",
+      "source_sha256": "017d2f7b12c39bd566671d4f48af0dd485c65a59e55e9a0249dbecc22a0ca273"
+    }
+  ],
+  "extraction": "AST literals only; leftover6 mills were never imported or executed",
+  "family": "leftover6",
+  "generator": "grok-4.6",
+  "n_pair_rows_committed": 32,
+  "n_pair_rows_extracted": 32,
+  "n_plant_rows_committed": 65,
+  "n_plant_rows_extracted": 65,
+  "schema_version": "leftover6-catalog-extract/v1",
+  "slice": "full",
+  "source_branch": "origin/legacy-mill-lane",
+  "source_commit": "813f93f1969c1c4421e5663492e9663739efa642"
+}
