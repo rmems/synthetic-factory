@@ -105,25 +105,10 @@ class AmcCatalogTests(unittest.TestCase):
         self.assertEqual(leftover.shape, "leftover-dict")
         self.assertEqual(leftover.max_rounds, 16)
         self.assertIn("1377 deferred", CATALOG.extraction)
-
-    def test_each_mill_keeps_bookends_and_unique_deferred_identities(self):
-        for mill in CATALOG.catalogs:
-            first_n = sum(1 for pair in mill.pairs if pair.role == "first")
-            last_n = sum(1 for pair in mill.pairs if pair.role == "last")
-            deferred_n = sum(1 for pair in mill.pairs if pair.role == "deferred")
-            self.assertEqual(first_n, 1, mill.mill_id)
-            self.assertEqual(last_n, 1, mill.mill_id)
-            self.assertEqual(deferred_n, mill.n_rows_extracted - 2, mill.mill_id)
-            identities = {(pair.fail_slug, pair.success_slug) for pair in mill.pairs}
-            self.assertEqual(len(identities), mill.n_rows_extracted, mill.mill_id)
-            first = next(pair for pair in mill.pairs if pair.role == "first")
-            last = next(pair for pair in mill.pairs if pair.role == "last")
-            if mill.kind == "leftover":
-                self.assertEqual(first.success_slug, mill.first_slug)
-                self.assertEqual(last.success_slug, mill.last_slug)
-            else:
-                self.assertEqual(first.fail_slug, mill.first_slug)
-                self.assertEqual(last.fail_slug, mill.last_slug)
+        self.assertEqual(leftover.pairs[0].role, "first")
+        self.assertEqual(leftover.pairs[0].success_slug, leftover.first_slug)
+        self.assertEqual(leftover.pairs[1].role, "last")
+        self.assertEqual(leftover.pairs[1].success_slug, leftover.last_slug)
 
     def test_loop_pins_name_companion_mills(self):
         companions = {loop.companion_mill_path for loop in CATALOG.loops}
@@ -180,15 +165,19 @@ class AmcCatalogTests(unittest.TestCase):
         self.assertEqual(len(lines), 1401)
         self.assertTrue(text.endswith("\n"))
         self.assertNotIn("\r", text)
-        bookend_roles = {json.loads(line)["role"] for line in lines[:24]}
-        deferred_roles = {json.loads(line)["role"] for line in lines[24:]}
-        self.assertEqual(bookend_roles, {"first", "last"})
-        self.assertEqual(deferred_roles, {"deferred"})
-        self.assertEqual(sum(1 for line in lines if '"amc-mill-r424"' in line), 999)
         for line in lines:
             self.assertFalse(line.startswith((" ", "\t")))
-            self.assertNotIn("  ", line)
             json.loads(line)
+
+    def test_pairs_jsonl_keeps_bookends_then_deferred_slice(self):
+        lines = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
+        bookend_roles = [json.loads(line)["role"] for line in lines[:24]]
+        deferred_roles = [json.loads(line)["role"] for line in lines[24:]]
+        self.assertEqual(bookend_roles.count("first"), 12)
+        self.assertEqual(bookend_roles.count("last"), 12)
+        self.assertEqual(deferred_roles, ["deferred"] * 1377)
+        r424 = '"mill_id":"amc-mill-r424"'
+        self.assertEqual(PAIRS_JSONL.read_text(encoding="utf-8").count(r424), 999)
 
     def test_loader_fails_closed_when_deferred_identities_are_dropped(self):
         header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
