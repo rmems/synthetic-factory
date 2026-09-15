@@ -1,0 +1,20 @@
+tests/ffd_test_support.py
+  s_e65e0af3388b20::t_83d6812243aeab 36-44
+  s_e65e0af3388b20::t_6187152c0b1430 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "947418d91209bba20fa235068adf0e949c2511b4",
+  "prompts": {},
+  "sessions": {
+    "s_e65e0af3388b20": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "6768a067-a37e-47c5-8055-dbea15b69f6f",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
