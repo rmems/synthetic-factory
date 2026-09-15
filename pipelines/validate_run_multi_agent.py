@@ -66,6 +66,12 @@ def _disagreement_errors(obj, where):
     return []
 
 
+def _undeclared_speaker(role, roles):
+    if not roles:
+        return False
+    return role not in roles
+
+
 def _speaker_errors(turn, label, roles):
     speaker = turn.get("speaker")
     if not isinstance(speaker, str):
@@ -73,9 +79,8 @@ def _speaker_errors(turn, label, roles):
     role = speaker.strip()
     if not role:
         return [f"{label} missing speaker"], None
-    if roles:
-        if role not in roles:
-            return [f"{label} speaker {speaker!r} is not a declared agent role"], None
+    if _undeclared_speaker(role, roles):
+        return [f"{label} speaker {speaker!r} is not a declared agent role"], None
     return [], role
 
 
