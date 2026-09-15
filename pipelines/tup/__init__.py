@@ -1,4 +1,4 @@
-"""TUP first slice: pinned r1349 inspect-vs-destroy catalog.
+"""TUP pinned inspect-vs-destroy catalog (legacy-mill-lane AST extract).
 
 ``experiments/tup-mill-r1349.py`` on ``legacy-mill-lane`` is parse input
 only (``git show`` + ``ast.parse``, never ``exec``). This package loads
