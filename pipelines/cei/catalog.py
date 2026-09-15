@@ -59,6 +59,7 @@ from ._contract import (
     QUOTA_PER_ROUND,
     RECORD_KIND,
     SHAPE_OK_BAD,
+    SLICE3_SOURCES,
     SOURCE_ROUND,
     S_BAD_ARG_NAMES,
     S_OK_ARG_NAMES,
@@ -406,6 +407,9 @@ def _source_filename(source: str) -> str:
 def _refuse_loop_or_foreign_leftover3(text: str, source: str) -> None:
     """Refuse hop-loop and leftover leftover leftover leftover3 exec/import."""
 
+    normalized = source.replace("\\", "/")
+    if normalized in SLICE3_SOURCES:
+        return
     name = _source_filename(source)
     if any(marker in name for marker in LOOP_NAME_MARKERS):
         raise CeiRefusal(FINDING_LOOP_REFUSED, f"{source} is a hop-loop, not a catalog")
@@ -441,6 +445,15 @@ def _is_s_pair(node: ast.AST) -> bool:
         and len(node.elts) == 2
         and _is_named_call(node.elts[0], LEFTOVER3_CALL)
         and _is_named_call(node.elts[1], LEFTOVER3_CALL)
+    )
+
+
+def _is_dict_leftover3_pair(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Tuple)
+        and len(node.elts) == 2
+        and isinstance(node.elts[0], ast.Dict)
+        and isinstance(node.elts[1], ast.Dict)
     )
 
 
@@ -485,6 +498,8 @@ def plants_from_source(
         )
     if _is_s_pair(raw_pairs.elts[0]):
         return _plants_from_s_calls(raw_pairs, mill_id=mill_id, source=source, base=base)
+    if _is_dict_leftover3_pair(raw_pairs.elts[0]):
+        return _plants_from_dict_leftover3(raw_pairs, mill_id=mill_id, source=source, base=base)
     rows = []
     seen_slugs: set[str] = set()
     seen_mods: set[str] = set()
@@ -592,6 +607,62 @@ def _plants_from_s_calls(
                 "bad": bad,
             }
         )
+    return tuple(rows)
+
+
+def _plants_from_dict_leftover3(
+    raw_pairs: ast.List,
+    *,
+    mill_id: str,
+    source: str,
+    base: int,
+) -> tuple[dict[str, Any], ...]:
+    rows = []
+    seen_slugs: set[str] = set()
+    seen_mods: set[str] = set()
+    seen_tickets: set[str] = set()
+    kept_index = 0
+    for raw in raw_pairs.elts:
+        if not _is_dict_leftover3_pair(raw):
+            raise CeiRefusal(
+                FINDING_SOURCE_NOT_PARSEABLE,
+                f"{source} PAIRS[{kept_index}] is not a leftover leftover leftover dict tuple",
+            )
+        ok_raw = _const_eval(raw.elts[0])
+        bad_raw = _const_eval(raw.elts[1])
+        if ok_raw.get("slug") in LEFTOVER3_BANNED_SLUGS or bad_raw.get("slug") in LEFTOVER3_BANNED_SLUGS:
+            continue
+        ok = expand_leftover3(ok_raw, ticket_required=False)
+        bad = expand_leftover3(bad_raw, ticket_required=True)
+        _refuse_leftover3_slug(ok["slug"], f"{source} PAIRS.ok")
+        _refuse_leftover3_slug(bad["slug"], f"{source} PAIRS.bad")
+        for slug in (ok["slug"], bad["slug"]):
+            if slug in seen_slugs:
+                raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
+            seen_slugs.add(slug)
+        for mod in (ok["mod"], bad["mod"]):
+            if mod in seen_mods:
+                raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate mod {mod}")
+            seen_mods.add(mod)
+        ticket = bad["ticket"]
+        if ticket in seen_tickets:
+            raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate ticket {ticket}")
+        seen_tickets.add(ticket)
+        rows.append(
+            {
+                "plant_id": f"{mill_id}:{ok['slug']}",
+                "mill_id": mill_id,
+                "source": source,
+                "base_round": base,
+                "index": kept_index,
+                "shape": LEFTOVER3_SHAPE,
+                "ok": ok,
+                "bad": bad,
+            }
+        )
+        kept_index += 1
+    if not rows:
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no committable leftover dict pairs")
     return tuple(rows)
 
 

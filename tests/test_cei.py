@@ -40,6 +40,15 @@ from cei._contract import (  # noqa: E402
     SHAPE_OK_BAD,
     SOURCE_COMMIT,
     SOURCE_MILL_ID,
+    SLICE3_R137_MILL_ID,
+    SLICE3_R137_PATH,
+    SLICE3_R137_ROUND,
+    SLICE3_R42_MILL_ID,
+    SLICE3_R42_PATH,
+    SLICE3_R42_ROUND,
+    SLICE3_R65_MILL_ID,
+    SLICE3_R65_PATH,
+    SLICE3_R65_ROUND,
     SOURCE_PATH,
     SOURCE_ROUND,
     CeiRefusal,
@@ -87,6 +96,46 @@ EXPECTED_OK_SLUGS = (
     "xlsx-customxml-vs-sheet",
     "csv-quoting-none-vs-min",
     "xlsx-vml-vs-comment",
+)
+EXPECTED_R42_OK_SLUGS = (
+    "parquet-footer-vs-drop",
+    "avro-sync-vs-drop",
+    "hdf5-attr-vs-drop",
+    "stata-dta-cache-vs-drop",
+    "numbers-iwa-vs-drop",
+    "csv-dialect-cache-vs-drop",
+    "arrow-ipc-vs-drop",
+)
+EXPECTED_R65_OK_SLUGS = (
+    "xlsb-pivotcache-vs-drop",
+    "mdb-system-vs-drop",
+    "jsonl-jsonschema-vs-drop",
+    "xmlss-styles-vs-drop",
+    "lotus-wk1-fmt-vs-drop",
+    "fst-hash-vs-drop",
+    "lance-manifest-vs-drop",
+    "xlsx-sharedstrings-vs-drop",
+    "csv-crlf-vs-drop",
+    "feather-footer-vs-drop",
+    "iceberg-manifest-list-vs-drop",
+    "csv-comment-header-vs-drop",
+)
+EXPECTED_R137_OK_SLUGS = (
+    "matlab-mat-vs-drop",
+    "lance-frag-vs-drop",
+    "grib2-idx-vs-drop",
+    "gpkg-rtree-vs-drop",
+    "topojson-arcs-vs-drop",
+    "kmz-overlay-vs-drop",
+    "geotiff-overviews-vs-drop",
+    "xltm-macrosheet-vs-drop",
+    "sylk-format-vs-drop",
+    "wq1-cell-vs-drop",
+    "psv-header-vs-drop",
+    "ini-section-vs-drop",
+    "msgpack-ext-vs-drop",
+    "bson-oid-vs-drop",
+    "capnp-schema-vs-drop",
 )
 EXPECTED_R48_OK_SLUGS = (
     "parquet-columnindex-vs-drop",
@@ -195,37 +244,67 @@ def invoke(argv):
 
 
 class CatalogLoading(unittest.TestCase):
-    def test_committed_catalog_loads_r81_and_r48_ast_extracted_pairs(self):
+    def test_committed_catalog_loads_r81_r48_and_slice3_ast_extracted_pairs(self):
         loaded = catalog.load_catalog(COMMITTED)
         self.assertEqual(loaded.catalog_id, "cei-pairs-v1")
         self.assertEqual(loaded.factory, FACTORY)
         self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
-        self.assertEqual(len(loaded.plants), 55)
-        self.assertEqual(len(loaded.mills), 2)
+        self.assertEqual(len(loaded.plants), 89)
+        self.assertEqual(len(loaded.mills), 5)
         r81 = [plant for plant in loaded.plants if plant.mill_id == SOURCE_MILL_ID]
         r48 = [plant for plant in loaded.plants if plant.mill_id == LEFTOVER3_MILL_ID]
+        r42 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R42_MILL_ID]
+        r65 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R65_MILL_ID]
+        r137 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R137_MILL_ID]
         self.assertEqual(len(r81), 39)
         self.assertEqual(len(r48), 16)
+        self.assertEqual(len(r42), 7)
+        self.assertEqual(len(r65), 12)
+        self.assertEqual(len(r137), 15)
         self.assertEqual([plant.ok.slug for plant in r81], list(EXPECTED_OK_SLUGS))
         self.assertEqual([plant.ok.slug for plant in r48], list(EXPECTED_R48_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r42], list(EXPECTED_R42_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r65], list(EXPECTED_R65_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r137], list(EXPECTED_R137_OK_SLUGS))
         self.assertEqual({plant.shape for plant in r81}, {SHAPE_OK_BAD})
-        self.assertEqual({plant.shape for plant in r48}, {LEFTOVER3_SHAPE})
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 55)
+        self.assertEqual(
+            {plant.shape for plant in r48 + r42 + r65 + r137},
+            {LEFTOVER3_SHAPE},
+        )
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 89)
         slugs = [plant.ok.slug for plant in loaded.plants] + [
             plant.bad.slug for plant in loaded.plants
         ]
-        self.assertEqual(len(set(slugs)), 110)
+        self.assertEqual(len(set(slugs)), 178)
         self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
         self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
-        self.assertEqual(loaded.meta["source"]["scripts"], [SOURCE_PATH, LEFTOVER3_PATH])
+        self.assertEqual(
+            loaded.meta["source"]["scripts"],
+            [
+                SOURCE_PATH,
+                LEFTOVER3_PATH,
+                SLICE3_R42_PATH,
+                SLICE3_R65_PATH,
+                SLICE3_R137_PATH,
+            ],
+        )
         self.assertEqual(loaded.mills[0].mill_id, SOURCE_MILL_ID)
         self.assertEqual(loaded.mills[0].base_round, SOURCE_ROUND)
         self.assertEqual(loaded.mills[1].mill_id, LEFTOVER3_MILL_ID)
         self.assertEqual(loaded.mills[1].base_round, LEFTOVER3_ROUND)
+        self.assertEqual(loaded.mills[2].mill_id, SLICE3_R42_MILL_ID)
+        self.assertEqual(loaded.mills[2].base_round, SLICE3_R42_ROUND)
+        self.assertEqual(loaded.mills[3].mill_id, SLICE3_R65_MILL_ID)
+        self.assertEqual(loaded.mills[3].base_round, SLICE3_R65_ROUND)
+        self.assertEqual(loaded.mills[4].mill_id, SLICE3_R137_MILL_ID)
+        self.assertEqual(loaded.mills[4].base_round, SLICE3_R137_ROUND)
         self.assertEqual(loaded.plants[0].bad.ticket, "DBF-MEMO-81")
         self.assertEqual(r81[-1].ok.slug, "xlsx-vml-vs-comment")
         self.assertEqual(r48[0].bad.ticket, "ORC-BLOOM-16")
         self.assertEqual(r48[-1].ok.slug, "csv-utf16le-vs-drop")
+        self.assertEqual(r42[0].ok.slug, "parquet-footer-vs-drop")
+        self.assertEqual(r65[-1].ok.slug, "csv-comment-header-vs-drop")
+        self.assertEqual(r137[-1].ok.slug, "capnp-schema-vs-drop")
 
     def test_fixture_catalog_is_one_pair(self):
         loaded = catalog.load_catalog(FIXTURE)
@@ -287,24 +366,70 @@ class AstExtract(unittest.TestCase):
         self.assertNotIn("exec(", TINY_LEFTOVER3_SOURCE)
         self.assertNotIn("hop_unreserved", TINY_LEFTOVER3_SOURCE)
 
-    def test_plants_from_source_refuses_hop_loop_and_leftover3_importers(self):
+    def test_plants_from_source_refuses_hop_loop_and_foreign_leftover3_importers(self):
         with self.assertRaises(CeiRefusal) as caught:
             catalog.plants_from_source("PAIRS = []\n", mill_id="cei_r81", source="cei-loop-r81.py")
         self.assertEqual(caught.exception.code, FINDING_LOOP_REFUSED)
         with self.assertRaises(CeiRefusal) as caught:
             catalog.plants_from_source(
-                "from cei_r48_mill import S\nPAIRS = []\n",
-                mill_id="cei_r65",
-                source="experiments/cei_r65_leftover3_mill.py",
-            )
-        self.assertEqual(caught.exception.code, FINDING_LEFTOVER3_EXEC)
-        with self.assertRaises(CeiRefusal) as caught:
-            catalog.plants_from_source(
                 "from cei_r48_mill import S, success_ep, fail_ep, notes\nPAIRS = []\n",
                 mill_id="cei_r65",
-                source="experiments/cei_foreign.py",
+                source="experiments/cei_foreign_leftover3_mill.py",
             )
         self.assertEqual(caught.exception.code, FINDING_LEFTOVER3_EXEC)
+
+    @staticmethod
+    def _committed_ok_slugs(mill_id: str) -> list[str]:
+        loaded = catalog.load_catalog(COMMITTED)
+        return [plant.ok.slug for plant in loaded.plants if plant.mill_id == mill_id]
+
+    def test_slice3_leftover3_mills_parse_without_exec(self):
+        for path, mill_id, base_round in (
+            (SLICE3_R65_PATH, SLICE3_R65_MILL_ID, SLICE3_R65_ROUND),
+            (SLICE3_R137_PATH, SLICE3_R137_MILL_ID, SLICE3_R137_ROUND),
+        ):
+            try:
+                text = subprocess.check_output(
+                    ["git", "show", f"origin/legacy-mill-lane:{path}"],
+                    cwd=REPO,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                self.skipTest("origin/legacy-mill-lane is not fetched")
+            self.assertNotIn("exec(", text)
+            rows = catalog.plants_from_source(
+                text, mill_id=mill_id, source=path, base_round=base_round
+            )
+            self.assertGreaterEqual(len(rows), 12)
+            extracted_slugs = {row["ok"]["slug"] for row in rows}
+            for slug in self._committed_ok_slugs(mill_id):
+                self.assertIn(slug, extracted_slugs)
+
+    def test_committed_r42_catalog_matches_legacy_ast(self):
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"origin/legacy-mill-lane:{SLICE3_R42_PATH}"],
+                cwd=REPO,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        rows = catalog.plants_from_source(
+            text, mill_id=SLICE3_R42_MILL_ID, source=SLICE3_R42_PATH, base_round=SLICE3_R42_ROUND
+        )
+        r42 = [
+            plant
+            for plant in catalog.load_catalog(COMMITTED).plants
+            if plant.mill_id == SLICE3_R42_MILL_ID
+        ]
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(r42), 7)
+        for row, plant in zip(rows, r42, strict=True):
+            self.assertEqual(row["ok"]["slug"], plant.ok.slug)
+            self.assertEqual(row["bad"]["slug"], plant.bad.slug)
+            self.assertEqual(row["bad"]["ticket"], plant.bad.ticket)
 
     def test_committed_catalog_matches_legacy_ast(self):
         try:
