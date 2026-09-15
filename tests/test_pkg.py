@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """The cleaned ``pkg`` family home under ``pipelines/pkg/``.
 
-``experiments/pkg-mill-r163.py`` on ``origin/legacy-mill-lane`` was
-AST-extracted. These tests pin identity, catalog fidelity, and episode
-shape without publishing a raw round and without importing a mill or loop
-module. The demoted r98–r162 digest/lock-yank twins stay out.
+``experiments/pkg-mill-r163.py`` and ``experiments/pkg-mill-r181.py`` on
+``origin/legacy-mill-lane`` were AST-extracted into compact
+``pipelines/pkg/plants.jsonl``. These tests pin identity, catalog
+fidelity, and episode shape without publishing a raw round and without
+importing a mill or loop module. Demoted digest/lock-yank twins,
+attest-wave, leftover3, licrep, and pkgs mills stay out.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from mill_signals import mill_prefix  # noqa: E402
 from pkg import catalog as cat  # noqa: E402
 from pkg import cli, generate  # noqa: E402
 from pkg._contract import (  # noqa: E402
+    CATALOG_ID,
     FACTORY,
     FAMILY_PREFIX,
     FINDING_DESTINATION_EXISTS,
@@ -36,8 +39,10 @@ from pkg._contract import (  # noqa: E402
     FINDING_ROUND_OUT_OF_DOMAIN,
     FINDING_VENDOR_PATH,
     GENERATOR,
+    PLANTS_FILENAME,
     QUOTA_PER_ROUND,
     SOURCE_COMMIT,
+    SOURCE_MILLS,
     SOURCE_PATH,
     SOURCE_REF,
     PkgRefusal,
@@ -126,9 +131,17 @@ class Contract(unittest.TestCase):
         self.assertEqual(FAMILY_PREFIX, "pkg")
         self.assertEqual(GENERATOR, "grok-4.6")
         self.assertEqual(QUOTA_PER_ROUND, 2)
+        self.assertEqual(CATALOG_ID, "pkg-r163-r196-v1")
         self.assertEqual(SOURCE_REF, "origin/legacy-mill-lane")
         self.assertEqual(SOURCE_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
         self.assertEqual(SOURCE_PATH, "experiments/pkg-mill-r163.py")
+        self.assertEqual(
+            SOURCE_MILLS,
+            (
+                ("experiments/pkg-mill-r163.py", "pkg-mill-r163.py", 163, 180),
+                ("experiments/pkg-mill-r181.py", "pkg-mill-r181.py", 181, 196),
+            ),
+        )
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[FAMILY_PREFIX], FACTORY)
 
 
@@ -148,49 +161,72 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(plants[1].role, "fail")
         self.assertEqual(plants[1].goal, "Publish 2.4.1 with OIDC provenance.")
 
-    def test_legacy_r163_reextracts_when_the_archive_is_fetched(self):
+    def test_legacy_sources_reextract_when_the_archive_is_fetched(self):
         try:
-            text = subprocess.check_output(
-                ["git", "show", f"{SOURCE_REF}:{SOURCE_PATH}"],
+            subprocess.check_output(
+                ["git", "rev-parse", SOURCE_REF],
                 cwd=REPO,
-                text=True,
                 stderr=subprocess.DEVNULL,
             )
         except (subprocess.CalledProcessError, FileNotFoundError):
             self.skipTest("origin/legacy-mill-lane is not fetched")
-        extracted = cat.plants_from_source(text, "pkg-mill-r163.py")
         committed = cat.load_catalog().plants
-        self.assertEqual(len(extracted), 36)
-        self.assertEqual(
-            [(plant.record_id, plant.slug, plant.kind, plant.role) for plant in extracted],
-            [(plant.record_id, plant.slug, plant.kind, plant.role) for plant in committed],
-        )
+        for path, source_name, first_round, last_round in SOURCE_MILLS:
+            text = subprocess.check_output(
+                ["git", "show", f"{SOURCE_COMMIT}:{path}"],
+                cwd=REPO,
+                text=True,
+            )
+            extracted = cat.plants_from_source(text, source_name)
+            slice_plants = tuple(
+                plant for plant in committed if plant.source_name == source_name
+            )
+            self.assertEqual(len(extracted), len(slice_plants))
+            self.assertEqual(
+                [(plant.record_id, plant.slug, plant.kind, plant.role) for plant in extracted],
+                [
+                    (plant.record_id, plant.slug, plant.kind, plant.role)
+                    for plant in slice_plants
+                ],
+            )
+            rounds = {plant.source_round for plant in extracted}
+            self.assertEqual(min(rounds), first_round)
+            self.assertEqual(max(rounds), last_round)
 
 
 class CommittedCatalog(unittest.TestCase):
-    def test_catalog_is_a_two_stride_from_r163(self):
+    def test_compact_jsonl_pins_the_committed_plants(self):
+        catalog_dir = PKG_DIR
+        self.assertTrue((catalog_dir / PLANTS_FILENAME).is_file())
+        loaded = cat.load_catalog()
+        self.assertEqual(len(loaded.plants), 68)
+
+    def test_catalog_is_a_two_stride_through_r196(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
-        self.assertEqual(loaded.catalog_id, "pkg-r163-v1")
+        self.assertEqual(loaded.catalog_id, "pkg-r163-r196-v1")
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 36)
-        self.assertEqual(report["pairs"], 18)
+        self.assertEqual(report["plants"], 68)
+        self.assertEqual(report["pairs"], 34)
         self.assertEqual(report["first_round"], 163)
-        self.assertEqual(report["last_round"], 180)
-        self.assertEqual(cat.WAVE_ROUNDS, tuple(range(163, 181)))
+        self.assertEqual(report["last_round"], 196)
+        self.assertEqual(cat.WAVE_ROUNDS, tuple(range(163, 197)))
         pair = cat.plants_for_round(163)
         self.assertEqual(len(pair), 2)
         self.assertEqual(pair[0].record_id, "pkg-r163-cosign-reusable-workflow-san")
         self.assertEqual(pair[1].record_id, "pkg-r163-npm-oidc-id-token-missing")
         slugs = [plant.slug for plant in loaded.plants]
-        self.assertEqual(len(set(slugs)), 36)
+        self.assertEqual(len(set(slugs)), 68)
         blob = " ".join(slugs)
         self.assertNotIn("digest-vs-git", blob)
         self.assertNotIn("lock-yank", blob)
 
-    def test_a_round_outside_the_first_slice_is_refused(self):
+    def test_a_round_outside_the_committed_catalog_is_refused(self):
         with self.assertRaises(PkgRefusal) as ctx:
             cat.plants_for_round(98)
+        self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+        with self.assertRaises(PkgRefusal) as ctx:
+            cat.plants_for_round(209)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
         with self.assertRaises(PkgRefusal) as ctx:
             cat.plants_for_round(True)  # type: ignore[arg-type]
@@ -274,7 +310,7 @@ class Cli(unittest.TestCase):
     def test_catalog_lists_plants(self):
         code, out, err = invoke(["catalog"])
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("pkg-r163-v1", out)
+        self.assertIn("pkg-r163-r196-v1", out)
         self.assertIn("pkg-r163-cosign-reusable-workflow-san", out)
 
     def test_catalog_check_json(self):
@@ -282,8 +318,8 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 36)
-        self.assertEqual(payload["pairs"], 18)
+        self.assertEqual(payload["plants"], 68)
+        self.assertEqual(payload["pairs"], 34)
 
     def test_generate_stdout_and_a_raw_refusal(self):
         code, out, err = invoke(["generate", "--round", "163"])
