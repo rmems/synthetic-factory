@@ -1,0 +1,35 @@
+pipelines/pbc/catalog.py
+  s_6162a09b91409a::t_0f81c1b36d77d4 1-316
+pipelines/pbc/cli.py
+  s_6162a09b91409a::t_0887054c152091 2,12-13,17-18,24,27,35-36,48-55,57,66,70-88,98-99
+pipelines/pbc/generate.py
+  s_6162a09b91409a::t_8f4330648cd03d 1-10,12-262,271-329
+  s_6162a09b91409a::t_7243749fe2751b 11
+  s_6162a09b91409a::t_708c8f3fa6b33f 263-270
+pipelines/pbc/_contract.py
+  s_6162a09b91409a::t_dd81342fbcf2df 1-83
+tests/test_pbc_mill_usage_burst.py
+  s_6162a09b91409a::t_c3c18ced30138c 2,8,16-18,21-37,39-42,45-47,51,54,66-75,84-89,92-94,101-104,107,112-116,118-140,142-158
+config/mill-usage-burst-plan.pbc-a.json
+  s_6162a09b91409a::t_62862fcc45b07d 12,14-16,20,22-24,28,30-32,36,38-40,44,46-48,52,54-56,60,62-64,68,70-72,77-81
+pipelines/pbc/CATALOG.json
+  s_6162a09b91409a::t_a600d0b696c175 1-91
+pipelines/pbc/__init__.py
+  s_6162a09b91409a::t_a59b4391e850cb 1,3-22,25-35,37,40,43-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "571382d109f510abc81e6bfde522f843eb8d3229",
+  "prompts": {},
+  "sessions": {
+    "s_6162a09b91409a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c8f5b641-e01d-407a-ac4a-2aef22082338",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
