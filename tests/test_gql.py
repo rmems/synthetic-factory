@@ -25,6 +25,7 @@ from gql._contract import (  # noqa: E402
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
+    FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FINDING_USAGE,
@@ -179,6 +180,15 @@ class AstExtract(unittest.TestCase):
         with self.assertRaises(GqlRefusal) as caught:
             catalog.plants_from_source(source, mill_id="gql_r0001", source="bad.py")
         self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+
+    def test_plants_from_source_refuses_a_banned_slug_when_source_declares_it(self):
+        source = TINY_SOURCE.replace(
+            "CATALOG_FIRST = 7",
+            "CATALOG_FIRST = 7\nBANNED = ('tiny-leftover-bind',)",
+        )
+        with self.assertRaises(GqlRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="gql_r0211", source="banned.py")
+        self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
 
     def test_package_tree_has_no_vendored_or_loop_mills(self):
         tree = PIPELINES / "gql"

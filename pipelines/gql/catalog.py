@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 from ._contract import (
-    BANNED_SLUG_TOKENS,
     CATALOG_FILENAME,
     CATALOG_FORMAT,
     FACTORY,
@@ -222,13 +221,6 @@ def _require_int(value: Any, where: str, code: str, minimum: int = 0) -> int:
     return value
 
 
-def _refuse_banned_slug(slug: str, where: str) -> None:
-    lowered = slug.lower()
-    for token in BANNED_SLUG_TOKENS:
-        if token in lowered:
-            raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} carries banned token {token}")
-
-
 def _side_dict(raw: Any, keys: tuple[str, ...], where: str) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not an object")
@@ -244,7 +236,6 @@ def _side_dict(raw: Any, keys: tuple[str, ...], where: str) -> dict[str, Any]:
         out[key] = _require_text(
             value, f"{where}.{key}", FINDING_PLANT_FIELD_MISSING, strip=False
         )
-    _refuse_banned_slug(str(out["slug"]), f"{where}.slug")
     return out
 
 
@@ -329,6 +320,7 @@ def plants_from_source(
         ) from exc
     found: dict[str, ast.AST] = {}
     inferred_base: Any = None
+    banned_node: ast.AST | None = None
     for node in tree.body:
         assigned = _assigned_name(node)
         if assigned is None:
@@ -338,6 +330,8 @@ def plants_from_source(
             found[name] = value
         elif name in {"BASE", "CATALOG_FIRST"}:
             inferred_base = _const_eval(value)
+        elif name == "BANNED":
+            banned_node = value
     # EXTRA before a computed PAIRS binding; never follow unused-pair loops.
     if "EXTRA" in found:
         raw_plants = _const_eval(found["EXTRA"])
@@ -371,6 +365,20 @@ def plants_from_source(
             rows.append(
                 _surface_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
             )
+    if banned_node is not None:
+        banned = _const_eval(banned_node)
+        if not isinstance(banned, (list, tuple)):
+            raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} BANNED is not a list")
+        tokens = {str(token).lower() for token in banned}
+        for row in rows:
+            for side_name in ("ok", "bad"):
+                slug = str(row[side_name]["slug"]).lower()
+                for token in tokens:
+                    if token in slug:
+                        raise GqlRefusal(
+                            FINDING_PLANT_FIELD_INVALID,
+                            f"{source} {side_name}.slug carries banned token {token}",
+                        )
     return tuple(rows)
 
 
