@@ -30,6 +30,7 @@ if __package__:
     from . import validate_run_thalamic as _validate_run_thalamic
     from . import validate_run_safety as _validate_run_safety
     from . import validate_run_episode as _validate_run_episode
+    from . import validate_run_multi_agent as _validate_run_multi_agent
     from . import validate_run_preference as _validate_run_preference
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
 else:
@@ -40,6 +41,7 @@ else:
     import validate_run_thalamic as _validate_run_thalamic
     import validate_run_safety as _validate_run_safety
     import validate_run_episode as _validate_run_episode
+    import validate_run_multi_agent as _validate_run_multi_agent
     import validate_run_preference as _validate_run_preference
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
 
@@ -260,11 +262,12 @@ _nonempty_text_field_errors = _validate_run_safety.nonempty_text_field_errors
 _require_reward = _validate_run_rewards.require_reward
 terminal_outcome_agrees = _validate_run_rewards.terminal_outcome_agrees
 
-# Episode, tool-turn, hidden-reasoning and multi-agent rules live in
-# validate_run_episode; the preference-goal agreement rules live in
-# validate_run_preference. The facade rebinds both surfaces here so
-# coding_constants, training_audit, check_records, round_txn, and the CLI
-# tests keep resolving the historical validate_run names unchanged.
+# Episode, tool-turn and hidden-reasoning rules live in validate_run_episode;
+# multi-agent coordination records live in validate_run_multi_agent; the
+# preference-goal agreement rules live in validate_run_preference. The
+# facade rebinds those surfaces here so coding_constants, training_audit,
+# check_records, round_txn, and the CLI tests keep resolving the historical
+# validate_run names unchanged.
 HIDDEN_THOUGHT_KEYS = _validate_run_episode.HIDDEN_THOUGHT_KEYS
 OBSERVABLE_BASIS_RE = _validate_run_episode.OBSERVABLE_BASIS_RE
 episode_like = _validate_run_episode.episode_like
@@ -274,7 +277,7 @@ _hidden_thought_paths = _validate_run_episode.hidden_thought_paths
 _staging_hidden_thought_errors = _validate_run_episode.staging_hidden_thought_errors
 _staging_tool_turn_errors = _validate_run_episode.staging_tool_turn_errors
 check_episode = _validate_run_episode.check_episode
-check_multi_agent = _validate_run_episode.check_multi_agent
+check_multi_agent = _validate_run_multi_agent.check_multi_agent
 _normalized_goal = _validate_run_preference.normalized_goal
 _preference_side_context_anchors = _validate_run_preference.preference_side_context_anchors
 _staging_preference_goal_errors = _validate_run_preference.staging_preference_goal_errors

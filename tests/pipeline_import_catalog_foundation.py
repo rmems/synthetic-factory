@@ -954,6 +954,18 @@ def _package_validate_run_preference() -> ModuleType:
     return module
 
 
+def _direct_validate_run_multi_agent() -> ModuleType:
+    import validate_run_multi_agent as module
+
+    return module
+
+
+def _package_validate_run_multi_agent() -> ModuleType:
+    import pipelines.validate_run_multi_agent as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1158,6 +1170,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "validate_run_safety": (_direct_validate_run_safety, _package_validate_run_safety),
     "validate_run_episode": (_direct_validate_run_episode, _package_validate_run_episode),
     "validate_run_preference": (_direct_validate_run_preference, _package_validate_run_preference),
+    "validate_run_multi_agent": (
+        _direct_validate_run_multi_agent,
+        _package_validate_run_multi_agent,
+    ),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (

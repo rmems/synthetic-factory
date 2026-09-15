@@ -115,6 +115,7 @@ NEW_SPLIT_MODULES = (
     "round_txn_agentic",
     "validate_run_preference",
     "validate_run_episode",
+    "validate_run_multi_agent",
     "validate_run_safety",
     "operator_paths",
     "validate_run_rewards",
