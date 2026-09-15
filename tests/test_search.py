@@ -15,17 +15,25 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 from leftover_mill import PUBLISHED_FACTORY_MIX  # noqa: E402
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
-from search.catalog import CATALOG  # noqa: E402
+from search.catalog import CATALOG, R72  # noqa: E402
 from search.catalog_extract import (  # noqa: E402
     SHAPE_PAIR_6TUPLES,
     catalog_document,
     catalog_json_path,
     dumps_catalog,
+    dumps_pair_jsonl,
+    extract_home_mill_catalog,
     extract_mill_catalog,
     mill_summary,
+    r72_jsonl_path,
 )
-from search.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
-from search.sources import MILL_SOURCES, catalog_sources  # noqa: E402
+from search.identity import (  # noqa: E402
+    is_vendor_filename,
+    leftover_marker_in,
+    refuse_cataloged_leftover_mill,
+    refuse_vendor_paths,
+)
+from search.sources import MILL_SOURCES, R72_SOURCE, catalog_sources, source_by_id  # noqa: E402
 from search import vocabulary as cv  # noqa: E402
 
 _LEFTOVER_SNIPPET = """
@@ -57,6 +65,21 @@ PAIRS: list[tuple] = [
 ]
 """
 
+_R72_SNIPPET = """
+'''search-index-rebuild mill r72+. Unique leftover engines.'''
+CATALOG_FIRST = 72
+PAIRS = [
+    (
+        ("orama-rebuild", "Orama", "rm data", "persist + swap",
+         "Persist then swap Orama data; do not rm the live dir.",
+         "https://docs.oramasearch.com/"),
+        ("mini-search-handoff", "MiniSearch", "new MiniSearch", "replace leftover",
+         "Ticket is replaceIndex; nightly still constructs a new MiniSearch.",
+         "https://lucaong.github.io/minisearch/"),
+    ),
+]
+"""
+
 _PUBLISHER_NAMES = frozenset(
     {
         "build_success",
@@ -69,14 +92,10 @@ _PUBLISHER_NAMES = frozenset(
 )
 
 
-def _legacy_available() -> bool:
+def _legacy_available(path: str = cv.R72_PATH) -> bool:
     try:
         subprocess.check_output(
-            [
-                "git",
-                "show",
-                "origin/legacy-mill-lane:experiments/search_index_rebuild_leftover3_mill.py",
-            ],
+            ["git", "show", f"{cv.LEGACY_REF}:{path}"],
             cwd=REPO,
             stderr=subprocess.DEVNULL,
         )
@@ -149,11 +168,20 @@ class SearchSkeletonTests(unittest.TestCase):
         self.assertTrue(is_vendor_filename("sir-loop-leftover3-r72.py"))
         self.assertTrue(is_vendor_filename("sir_r108_leftover3d_mill.py"))
         self.assertFalse(is_vendor_filename("sir-mill-r31.py"))
+        self.assertFalse(is_vendor_filename("sir-mill-r72.py"))
         self.assertFalse(is_vendor_filename("catalog_extract.py"))
         with self.assertRaises(SystemExit):
             refuse_vendor_paths(
                 [Path("experiments/search_index_rebuild_leftover3_mill.py")]
             )
+        with self.assertRaises(SystemExit):
+            refuse_cataloged_leftover_mill(
+                "experiments/search_index_rebuild_leftover_lll_mill.py"
+            )
+        with self.assertRaises(SystemExit):
+            refuse_cataloged_leftover_mill("experiments/sir-mill-leftover3-r72.py")
+        self.assertTrue(leftover_marker_in("meili-swap-leftover3c-rebuild"))
+        self.assertFalse(leftover_marker_in("orama-rebuild"))
 
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "search"
@@ -294,12 +322,126 @@ class SearchLegacyExtractTests(unittest.TestCase):
         )
 
     def test_git_show_is_the_only_legacy_read(self):
-        if not _legacy_available():
+        leftover_path = "experiments/search_index_rebuild_leftover3_mill.py"
+        if not _legacy_available(leftover_path):
             self.skipTest("origin/legacy-mill-lane is not fetched")
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)
             refuse_vendor_paths(dest.rglob("*") if dest.exists() else ())
             self.assertEqual(list(dest.glob("search_index_rebuild*.py")), [])
+
+
+class SearchR72Tests(unittest.TestCase):
+    def test_r72_source_is_not_a_leftover_catalog_row(self):
+        self.assertEqual(len(MILL_SOURCES), 2)
+        self.assertEqual(len(catalog_sources()), 2)
+        self.assertNotIn(R72_SOURCE.mill_id, [src.mill_id for src in catalog_sources()])
+        self.assertEqual(source_by_id("sir-mill-r72"), R72_SOURCE)
+        self.assertEqual(R72_SOURCE.path, cv.R72_PATH)
+        self.assertEqual(R72_SOURCE.catalog_first, 72)
+        self.assertEqual(R72_SOURCE.n_hops, 0)
+        self.assertEqual(R72_SOURCE.kind, cv.KIND_HOME_PAIRS)
+        self.assertEqual(R72_SOURCE.blob_sha, cv.R72_BLOB_SHA)
+        self.assertEqual(cv.R72_PRESERVE_COMMIT, "854c59b31eb9bde983f79c8a1adf3b40d04100a9")
+
+    def test_r72_mill_script_is_not_vendored(self):
+        self.assertFalse((REPO / "experiments" / "sir-mill-r72.py").exists())
+        self.assertFalse((REPO / "pipelines" / "search" / "sir-mill-r72.py").exists())
+        self.assertFalse((REPO / "experiments" / "sir-mill-leftover3-r72.py").exists())
+        self.assertTrue((REPO / "pipelines" / "search" / "r72.jsonl").is_file())
+
+    def test_extractor_reads_home_pairs_without_hops(self):
+        extracted = extract_home_mill_catalog(_R72_SNIPPET, path=cv.R72_PATH)
+        self.assertEqual(extracted["shape"], SHAPE_PAIR_6TUPLES)
+        self.assertEqual(extracted["kind"], cv.KIND_HOME_PAIRS)
+        self.assertEqual(extracted["catalog_first"], 72)
+        self.assertEqual(extracted["n_rows"], 1)
+        self.assertEqual(extracted["n_hops"], 0)
+        self.assertEqual(extracted["hops"], [])
+        self.assertEqual(extracted["first_slug"], "orama-rebuild")
+        self.assertEqual(extracted["pairs"][0]["fail_slug"], "mini-search-handoff")
+        self.assertEqual(extracted["pairs"][0]["round"], 72)
+        self.assertEqual(extracted["pairs"][0]["mill_id"], "sir-mill-r72")
+        self.assertTrue(extracted["pairs"][0]["fail_handoff"])
+        line = dumps_pair_jsonl(extracted["pairs"]).splitlines()[0]
+        self.assertNotIn(": ", line)
+        self.assertNotIn(", ", line)
+
+    def test_home_extractor_refuses_cataloged_leftover_mills(self):
+        with self.assertRaises(SystemExit):
+            extract_home_mill_catalog(
+                _LEFTOVER_SNIPPET,
+                path="experiments/search_index_rebuild_leftover3_mill.py",
+            )
+        with self.assertRaises(SystemExit):
+            extract_home_mill_catalog(
+                _LEFTOVER_SNIPPET,
+                path="experiments/sir-mill-leftover3-r72.py",
+            )
+
+    def test_home_extractor_refuses_leftover_slugs_and_hops(self):
+        leftover_slug = (
+            'CATALOG_FIRST = 72\n'
+            "PAIRS = [(\n"
+            '  ("meili-swap-leftover3c-rebuild", "Meili", "drop", "swap", "t", "https://x"),\n'
+            '  ("meili-drop-leftover3c-handoff", "Meili", "drop", "nightly", "t", "https://x"),\n'
+            ")]\n"
+        )
+        with self.assertRaises(ValueError) as slug_err:
+            extract_home_mill_catalog(leftover_slug, path=cv.R72_PATH)
+        self.assertIn("leftover3/lll already cataloged", str(slug_err.exception))
+        hopped = (
+            'CATALOG_FIRST = 72\n'
+            'HOP = ["email-webhook-retry-factory"]\n'
+            "PAIRS = [(\n"
+            '  ("orama-rebuild", "Orama", "rm data", "persist + swap", "t", "https://x"),\n'
+            '  ("mini-search-handoff", "MiniSearch", "new", "leftover", "t", "https://x"),\n'
+            ")]\n"
+        )
+        with self.assertRaises(ValueError) as hop_err:
+            extract_home_mill_catalog(hopped, path=cv.R72_PATH)
+        self.assertIn("HOP destinations", str(hop_err.exception))
+
+    def test_committed_r72_jsonl_counts(self):
+        self.assertEqual(R72.n_rows, 20)
+        self.assertEqual(R72.catalog_first, 72)
+        self.assertEqual(R72.first_slug, "orama-rebuild")
+        self.assertEqual(R72.last_slug, "bleve-scorch-rebuild")
+        self.assertEqual(R72.slice, "sir-mill-r72")
+        self.assertEqual(R72.mill_id, "sir-mill-r72")
+        self.assertEqual(R72.kind, cv.KIND_HOME_PAIRS)
+        self.assertEqual(len(R72.pairs), 20)
+        self.assertEqual(R72.pairs[0]["round"], 72)
+        self.assertEqual(R72.pairs[-1]["round"], 91)
+        slugs = [row["success_slug"] for row in R72.pairs]
+        slugs.extend(row["fail_slug"] for row in R72.pairs)
+        self.assertEqual(len(set(slugs)), 40)
+        self.assertFalse(any(leftover_marker_in(slug) for slug in slugs))
+        self.assertEqual(CATALOG.n_pair_rows, 32)
+        self.assertEqual(len(CATALOG.mills), 2)
+
+    def test_committed_r72_matches_live_ast_extract(self):
+        if not _legacy_available(cv.R72_PATH):
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            ["git", "show", f"{cv.LEGACY_REF}:{cv.R72_PATH}"],
+            text=True,
+            cwd=REPO,
+        )
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{cv.LEGACY_REF}:{cv.R72_PATH}"],
+            text=True,
+            cwd=REPO,
+        ).strip()
+        self.assertEqual(blob, cv.R72_BLOB_SHA)
+        live = extract_home_mill_catalog(text, path=cv.R72_PATH, blob_sha=blob)
+        self.assertEqual(live["sha256"], cv.R72_SHA256)
+        self.assertEqual(live["n_rows"], R72.n_rows)
+        self.assertEqual(live["first_slug"], R72.first_slug)
+        self.assertEqual(live["last_slug"], R72.last_slug)
+        self.assertEqual(live["catalog_first"], R72.catalog_first)
+        self.assertEqual(live["n_hops"], 0)
+        self.assertEqual(dumps_pair_jsonl(live["pairs"]), r72_jsonl_path().read_text())
 
 
 if __name__ == "__main__":

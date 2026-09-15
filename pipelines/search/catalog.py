@@ -8,9 +8,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .catalog_extract import catalog_json_path
-from .sources import MILL_SOURCES, catalog_sources
-from .vocabulary import CATALOG_SCHEMA_ID, FACTORY, GENERATOR, PRESERVE_COMMIT, SLICE_ID
+from .catalog_extract import catalog_json_path, load_r72_rows, r72_jsonl_path
+from .sources import MILL_SOURCES, R72_SOURCE, catalog_sources
+from .vocabulary import (
+    CATALOG_SCHEMA_ID,
+    FACTORY,
+    GENERATOR,
+    KIND_HOME_PAIRS,
+    PRESERVE_COMMIT,
+    R72_CATALOG_FIRST,
+    R72_FIRST_SLUG,
+    R72_LAST_SLUG,
+    R72_MILL_ID,
+    R72_N_ROWS,
+    R72_PATH,
+    R72_SLICE_ID,
+    SLICE_ID,
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +65,20 @@ class SearchCatalog:
     @property
     def hops(self) -> frozenset[str]:
         return frozenset(hop for mill in self.mills.values() for hop in mill.hops)
+
+
+@dataclass(frozen=True)
+class HomeMillCatalog:
+    mill_id: str
+    path: str
+    blob_sha: str
+    kind: str
+    catalog_first: int
+    n_rows: int
+    first_slug: str
+    last_slug: str
+    slice: str
+    pairs: tuple[Mapping[str, Any], ...]
 
 
 def load_catalog(path=None) -> SearchCatalog:
@@ -123,4 +151,39 @@ def _bind_sources(catalog: SearchCatalog) -> None:
             raise ValueError(f"{mill_id} pair rows do not match n_rows")
 
 
+def load_r72(path=None) -> HomeMillCatalog:
+    jsonl_path = path if path is not None else r72_jsonl_path()
+    rows = load_r72_rows(jsonl_path)
+    if len(rows) != R72_N_ROWS:
+        raise ValueError(f"{jsonl_path} expected {R72_N_ROWS} rows, found {len(rows)}")
+    first = rows[0]["success_slug"]
+    last = rows[-1]["success_slug"]
+    if first != R72_FIRST_SLUG or last != R72_LAST_SLUG:
+        raise ValueError(f"{jsonl_path} first/last slugs drifted: {first} / {last}")
+    for offset, row in enumerate(rows):
+        expected_round = R72_CATALOG_FIRST + offset
+        if row.get("round") != expected_round:
+            raise ValueError(f"{jsonl_path} row {offset} round drifted from {expected_round}")
+    source = R72_SOURCE
+    if source.mill_id != R72_MILL_ID or source.path != R72_PATH:
+        raise ValueError("r72 source pin drifted from vocabulary")
+    if source.catalog_first != R72_CATALOG_FIRST or source.n_hops != 0:
+        raise ValueError("r72 source window drifted from vocabulary")
+    if source.kind != KIND_HOME_PAIRS:
+        raise ValueError("r72 source kind is not home-pairs")
+    return HomeMillCatalog(
+        mill_id=R72_MILL_ID,
+        path=R72_PATH,
+        blob_sha=source.blob_sha,
+        kind=KIND_HOME_PAIRS,
+        catalog_first=R72_CATALOG_FIRST,
+        n_rows=len(rows),
+        first_slug=first,
+        last_slug=last,
+        slice=R72_SLICE_ID,
+        pairs=tuple(rows),
+    )
+
+
 CATALOG = load_catalog()
+R72 = load_r72()
