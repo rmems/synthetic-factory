@@ -1,0 +1,32 @@
+pipelines/lhc/catalog_ast_assign.py
+  s_91f051c29b7c2f::t_c78ef526e1013d 1-53
+pipelines/lhc/catalog_ast_calls.py
+  s_91f051c29b7c2f::t_ad3b32ba98c33b 42,46,48,50
+  s_91f051c29b7c2f::t_94a906b7875dc0 19-28,31,33
+  s_91f051c29b7c2f::t_995004e08c993f 75-86,94-96,98,102-105,111,113
+  s_91f051c29b7c2f::t_d7be4e00fa6cdd 1-18,29-30,32,34-41,43-45,47,49,51-74,87-93,97,99-101,106-110,112
+tests/test_lhc.py
+  s_91f051c29b7c2f::t_efac0d98126c42 206
+  s_91f051c29b7c2f::t_a136932bea7642 204-205
+pipelines/lhc/catalog_ast_literals.py
+  s_91f051c29b7c2f::t_9c93a2f967629d 1-112
+pipelines/lhc/catalog_ast.py
+  s_91f051c29b7c2f::t_e5f03f32508b16 19-33
+  s_91f051c29b7c2f::t_cebab8b02feaef 2,5,10-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30f0e2cd88ad9638571a78ecc771a9ade5d4b48d",
+  "prompts": {},
+  "sessions": {
+    "s_91f051c29b7c2f": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "526d0f34-bf06-448c-bd8a-bc7c866e8981",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
