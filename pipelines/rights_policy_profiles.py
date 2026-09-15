@@ -21,17 +21,24 @@ else:
 
 CANONICAL_PROVIDERS = _rights_mapping.CANONICAL_PROVIDERS
 CHANNELS = _rights_mapping.CHANNELS
+DEEPSEEK_PLACEHOLDER_PROFILE_ID = _rights_mapping.DEEPSEEK_PLACEHOLDER_PROFILE_ID
 EVIDENCE_STATUSES = _rights_mapping.EVIDENCE_STATUSES
 EVIDENCE_STATUS_FIELDS = _rights_mapping.EVIDENCE_STATUS_FIELDS
 HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
 INTENDED_USES = _rights_mapping.INTENDED_USES
 MAPPING_VERSION = _rights_mapping.MAPPING_VERSION
+NEMOTRON_PLACEHOLDER_PROFILE_ID = _rights_mapping.NEMOTRON_PLACEHOLDER_PROFILE_ID
+PLACEHOLDER_PROFILE_IDS = _rights_mapping.PLACEHOLDER_PROFILE_IDS
 POLICY_DOCUMENT_TYPE = _rights_mapping.POLICY_DOCUMENT_TYPE
 POLICY_VERSION = _rights_mapping.POLICY_VERSION
+PROCEDURAL_PROFILE_ID = _rights_mapping.PROCEDURAL_PROFILE_ID
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
+SIMULATOR_PROFILE_ID = _rights_mapping.SIMULATOR_PROFILE_ID
+UNBLOCK_TERMS_SNAPSHOT_FIELD = _rights_mapping.UNBLOCK_TERMS_SNAPSHOT_FIELD
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
 policy_error = _rights_mapping.policy_error
+require_hash = _rights_mapping.require_hash
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_unique_strings = _rights_mapping.require_unique_strings
 _catalogue_ids = _rights_policy_validation._catalogue_ids
@@ -59,7 +66,14 @@ _INTENDED_USE_POLICY = {
 _REQUIRED_PROFILE_REASONS = {
     HOSTED_FRONTIER_PROFILE_ID: "HOSTED_FRONTIER_RESEARCH_ONLY",
     UNKNOWN_PROVENANCE_PROFILE_ID: "UNKNOWN_PROVENANCE",
+    PROCEDURAL_PROFILE_ID: "PROCEDURAL_ATTESTED_LOCAL",
+    SIMULATOR_PROFILE_ID: "SIMULATOR_ORACLE_PINNED",
+    DEEPSEEK_PLACEHOLDER_PROFILE_ID: "DEEPSEEK_TERMS_SNAPSHOT_PENDING",
+    NEMOTRON_PLACEHOLDER_PROFILE_ID: "NEMOTRON_TERMS_SNAPSHOT_PENDING",
 }
+_TRAINING_CANDIDATE_PROFILE_IDS = frozenset(
+    {PROCEDURAL_PROFILE_ID, SIMULATOR_PROFILE_ID}
+)
 _POLICY_LABEL = "rights policy"
 
 
@@ -148,6 +162,7 @@ def _validate_profile(
     _validate_profile_decision(profile, profile_id, where)
     _validate_profile_statuses(profile, profile_id, where)
     _validate_profile_reasons(profile, profile_id, reason_ids, where)
+    _validate_placeholder_unblock(profile, profile_id, where)
 
 
 def _validate_profile_decision(profile: dict, profile_id: str, where: str) -> None:
@@ -214,6 +229,12 @@ def _validate_profile_reasons(
         raise policy_error(where, f"profile {profile_id!r} cites unknown reasons {unknown}")
 
 
+def _profile_fields_for(profile_id: str) -> frozenset[str]:
+    if profile_id in PLACEHOLDER_PROFILE_IDS:
+        return _PROFILE_FIELDS | {UNBLOCK_TERMS_SNAPSHOT_FIELD}
+    return _PROFILE_FIELDS
+
+
 def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
     required_ids = require_unique_strings(
         document.get("required_profile_ids"), "required_profile_ids", where=where
@@ -223,12 +244,26 @@ def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
             where,
             f"required_profile_ids must be exactly {sorted(REQUIRED_PROFILE_IDS)}",
         )
-    profile_ids = _catalogue_ids(
-        document.get("profiles"), "profiles", _PROFILE_FIELDS, where
-    )
-    if set(profile_ids) != set(required_ids):
+    profiles_raw = document.get("profiles")
+    if not isinstance(profiles_raw, list) or not profiles_raw:
+        raise policy_error(where, "profiles must be a nonempty list")
+    identifiers: list[str] = []
+    for index, entry in enumerate(profiles_raw):
+        if not isinstance(entry, dict):
+            raise policy_error(where, f"profiles[{index}] must be an object")
+        profile_id = require_nonempty_string(entry.get("id"), "id", where=where)
+        expected_fields = _profile_fields_for(profile_id)
+        if set(entry) != expected_fields:
+            raise policy_error(
+                where,
+                f"profiles[{index}] fields must be exactly {sorted(expected_fields)}",
+            )
+        identifiers.append(profile_id)
+    if len(identifiers) != len(set(identifiers)):
+        raise policy_error(where, "duplicate profiles id")
+    if set(identifiers) != set(required_ids):
         raise policy_error(where, "profiles must declare every required profile id exactly")
-    return {profile["id"]: profile for profile in document["profiles"]}
+    return {profile["id"]: profile for profile in profiles_raw}
 
 
 def _validate_required_profile_semantics(
@@ -259,6 +294,34 @@ def _validate_required_profile_semantics(
     )
     if unknown_verdict != ("research_only", "blocked"):
         raise policy_error(where, "unknown-provenance profile must fail closed")
+    for profile_id in _TRAINING_CANDIDATE_PROFILE_IDS:
+        candidate = profiles[profile_id]
+        candidate_verdict = (candidate["intended_use"], candidate["project_training_policy"])
+        if candidate_verdict != ("training_candidate", "allowed"):
+            raise policy_error(
+                where,
+                f"profile {profile_id!r} must be training_candidate/allowed",
+            )
+    for profile_id in PLACEHOLDER_PROFILE_IDS:
+        placeholder = profiles[profile_id]
+        placeholder_verdict = (
+            placeholder["intended_use"],
+            placeholder["project_training_policy"],
+        )
+        if placeholder_verdict != ("research_only", "blocked"):
+            raise policy_error(
+                where,
+                f"profile {profile_id!r} must remain a blocked terms placeholder",
+            )
+
+
+def _validate_placeholder_unblock(profile: dict, profile_id: str, where: str) -> None:
+    if profile_id not in PLACEHOLDER_PROFILE_IDS:
+        return
+    value = profile.get(UNBLOCK_TERMS_SNAPSHOT_FIELD)
+    if value is None:
+        return
+    require_hash(value, UNBLOCK_TERMS_SNAPSHOT_FIELD, where=where)
 
 
 def _validate_profiles(

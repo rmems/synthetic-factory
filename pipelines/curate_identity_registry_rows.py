@@ -9,6 +9,7 @@ loads bytes and pins the resulting table.
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -23,7 +24,12 @@ if __package__:
     from .rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
+        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
         HOSTED_FRONTIER_PROFILE_ID,
+        NEMOTRON_PLACEHOLDER_PROFILE_ID,
+        PROCEDURAL_PROFILE_ID,
+        SHA256_RE,
+        SIMULATOR_PROFILE_ID,
     )
     from .rights_policy import (
         PROVIDERS,
@@ -39,7 +45,12 @@ else:
     from rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
+        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
         HOSTED_FRONTIER_PROFILE_ID,
+        NEMOTRON_PLACEHOLDER_PROFILE_ID,
+        PROCEDURAL_PROFILE_ID,
+        SHA256_RE,
+        SIMULATOR_PROFILE_ID,
     )
     from rights_policy import (
         PROVIDERS,
@@ -85,10 +96,22 @@ _REQUIRED_ROW_FIELDS = (
 
 _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
     {
-        ("fable-5", "fable-5"): ("anthropic", "consumer"),
-        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer"),
-        ("grok-4.6", "grok-4.6"): ("xai", "consumer"),
-        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api"),
+        ("fable-5", "fable-5"): ("anthropic", "consumer", HOSTED_FRONTIER_PROFILE_ID),
+        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer", HOSTED_FRONTIER_PROFILE_ID),
+        ("grok-4.6", "grok-4.6"): ("xai", "consumer", HOSTED_FRONTIER_PROFILE_ID),
+        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api", HOSTED_FRONTIER_PROFILE_ID),
+        ("procedural-attested", "1"): ("procedural", "local", PROCEDURAL_PROFILE_ID),
+        ("relay-reflex-simulator", "1"): ("simulator", "local", SIMULATOR_PROFILE_ID),
+        ("deepseek-placeholder", "pending-terms"): (
+            "deepseek",
+            "api",
+            DEEPSEEK_PLACEHOLDER_PROFILE_ID,
+        ),
+        ("nemotron-placeholder", "pending-terms"): (
+            "nemotron",
+            "api",
+            NEMOTRON_PLACEHOLDER_PROFILE_ID,
+        ),
     }
 )
 if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
@@ -120,6 +143,10 @@ class FactoryRow(NamedTuple):
     catalog_id: str | None = None
     catalog_sha256: str | None = None
     programs_sha256: str | None = None
+    catalog_authorship: str | None = None
+    generator_source_digest: str | None = None
+    commit_sha: str | None = None
+    module_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -168,7 +195,19 @@ def _legacy_generator_identity(
     return _generator_identity(raw, index)
 
 
-def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str]:
+_GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+CATALOG_AUTHORSHIP_VALUES = frozenset(
+    {"human-authored", "permissive-upstream-license"}
+)
+_PROFILE_EVIDENCE_FIELDS = (
+    "catalog_authorship",
+    "generator_source_digest",
+    "commit_sha",
+    "module_digest",
+)
+
+
+def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str, str]:
     expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(identity)
     if expected_assignment is None:
         raise IdentityCurationError(
@@ -178,18 +217,19 @@ def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, st
 
 
 def _require_reviewed_provider_channel(
-    raw: Mapping[str, Any], expected_assignment: tuple[str, str], index: int
+    raw: Mapping[str, Any], expected_assignment: tuple[str, str, str], index: int
 ) -> None:
-    if (raw["provider"], raw["channel"]) != expected_assignment:
+    actual = (raw["provider"], raw["channel"], raw["rights_profile_id"])
+    if actual != expected_assignment:
         raise IdentityCurationError(
             f"factories[{index}] generator/provider/channel assignment is not reviewed"
         )
 
 
 def _require_reviewed_authorization(
-    raw: Mapping[str, Any], expected_assignment: tuple[str, str], index: int
+    raw: Mapping[str, Any], expected_assignment: tuple[str, str, str], index: int
 ) -> None:
-    authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, raw["rights_profile_id"]))
+    authorization = RIGHTS_AUTHORIZATIONS.get(expected_assignment)
     if authorization is None:
         raise IdentityCurationError(
             f"factories[{index}] rights fields are not authorized by loaded policy"
@@ -203,6 +243,67 @@ def _require_reviewed_authorization(
         )
 
 
+def _require_prefixed_digest(raw: Mapping[str, Any], field: str, index: int) -> str:
+    value = raw.get(field)
+    if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
+        raise IdentityCurationError(
+            f"factories[{index}].{field} must be lowercase sha256:<64 hex>"
+        )
+    return value
+
+
+def _require_catalog_authorship(raw: Mapping[str, Any], index: int) -> str:
+    value = raw.get("catalog_authorship")
+    if value not in CATALOG_AUTHORSHIP_VALUES:
+        raise IdentityCurationError(
+            f"factories[{index}] procedural rows require catalog_authorship "
+            f"{sorted(CATALOG_AUTHORSHIP_VALUES)}"
+        )
+    return value
+
+
+def _require_commit_sha(raw: Mapping[str, Any], index: int) -> str:
+    value = raw.get("commit_sha")
+    if not isinstance(value, str) or _GIT_COMMIT_RE.fullmatch(value) is None:
+        raise IdentityCurationError(
+            f"factories[{index}].commit_sha must be a 40-character lowercase git SHA"
+        )
+    return value
+
+
+def _require_no_profile_evidence(raw: Mapping[str, Any], index: int) -> None:
+    unexpected = [field for field in _PROFILE_EVIDENCE_FIELDS if field in raw]
+    if unexpected:
+        raise IdentityCurationError(
+            f"factories[{index}] unexpected rights evidence fields: {unexpected}"
+        )
+
+
+def _require_profile_evidence(raw: Mapping[str, Any], index: int) -> None:
+    profile_id = raw["rights_profile_id"]
+    if profile_id == PROCEDURAL_PROFILE_ID:
+        _require_catalog_authorship(raw, index)
+        _require_prefixed_digest(raw, "generator_source_digest", index)
+        unexpected = [field for field in ("commit_sha", "module_digest") if field in raw]
+        if unexpected:
+            raise IdentityCurationError(
+                f"factories[{index}] unexpected rights evidence fields: {unexpected}"
+            )
+        return
+    if profile_id == SIMULATOR_PROFILE_ID:
+        _require_commit_sha(raw, index)
+        _require_prefixed_digest(raw, "module_digest", index)
+        unexpected = [
+            field for field in ("catalog_authorship", "generator_source_digest") if field in raw
+        ]
+        if unexpected:
+            raise IdentityCurationError(
+                f"factories[{index}] unexpected rights evidence fields: {unexpected}"
+            )
+        return
+    _require_no_profile_evidence(raw, index)
+
+
 def _require_reviewed_rights(
     raw: Mapping[str, Any], identity: tuple[str, str], index: int
 ) -> None:
@@ -211,6 +312,7 @@ def _require_reviewed_rights(
     expected_assignment = _reviewed_assignment(identity, index)
     _require_reviewed_provider_channel(raw, expected_assignment, index)
     _require_reviewed_authorization(raw, expected_assignment, index)
+    _require_profile_evidence(raw, index)
 
 
 def _require_kind_contracts(raw: Mapping[str, Any], kinds: frozenset[str], index: int) -> None:
@@ -259,6 +361,10 @@ def _hosted_factory_row(raw: Mapping[str, Any], identity: tuple[str, str]) -> Fa
         allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
         provenance_contract_by_kind={str(key): str(value) for key, value in contracts.items()},
         preference_side_kinds=frozenset(raw.get("preference_side_kinds") or ()),
+        catalog_authorship=raw.get("catalog_authorship"),
+        generator_source_digest=raw.get("generator_source_digest"),
+        commit_sha=raw.get("commit_sha"),
+        module_digest=raw.get("module_digest"),
     )
 
 
@@ -283,14 +389,19 @@ def _legacy_reviewed_authorization(
     generator: str, generator_version: str, index: int
 ):
     expected_assignment = _reviewed_assignment((generator, generator_version), index)
+    provider, channel, profile_id = expected_assignment
+    if profile_id != HOSTED_FRONTIER_PROFILE_ID:
+        raise IdentityCurationError(
+            f"factories[{index}] v0.1 rows cannot carry non-hosted rights profiles"
+        )
     authorization = RIGHTS_AUTHORIZATIONS.get(
-        (*expected_assignment, HOSTED_FRONTIER_PROFILE_ID)
+        (provider, channel, HOSTED_FRONTIER_PROFILE_ID)
     )
     if authorization is None:
         raise IdentityCurationError(
             f"factories[{index}] reviewed rights assignment is not authorized by policy"
         )
-    return expected_assignment, authorization
+    return (provider, channel), authorization
 
 
 def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:

@@ -74,8 +74,12 @@ class ProceduralRegistryTests(unittest.TestCase):
                          ("procedural_policy_sha256", "0" * 64),
                          ("identity_authoritative", 1)):
             with self.subTest(key=key), self.assertRaises(ci.IdentityCurationError):
-                self.load_changed(lambda value, key=key, bad=bad:
-                                  value["factories"][-1].update({key: bad}))
+                def change(value, key=key, bad=bad):
+                    procedural = next(
+                        row for row in value["factories"] if row.get("source_type") == "procedural"
+                    )
+                    procedural.update({key: bad})
+                self.load_changed(change)
 
     def test_old_schema_refuses_procedural_fields_on_hosted_row(self):
         for version in ("factory-registry-v0.1", "factory-registry-v0.2"):
@@ -87,11 +91,22 @@ class ProceduralRegistryTests(unittest.TestCase):
                 self.load_changed(change)
 
     def test_hosted_rows_keep_blocked_policy(self):
+        allowed_paths = {
+            "python-function-repair-factory",
+            "fault-recovery-simulator-factory",
+        }
         rows = ci.load_registry().by_path_id.values()
         for row in rows:
-            if row.path_id != "python-function-repair-factory":
-                self.assertEqual((row.intended_use, row.project_training_policy),
-                                 ("research_only", "blocked"))
+            if row.path_id in allowed_paths:
+                self.assertEqual(
+                    (row.intended_use, row.project_training_policy),
+                    ("training_candidate", "allowed"),
+                )
+                continue
+            self.assertEqual(
+                (row.intended_use, row.project_training_policy),
+                ("research_only", "blocked"),
+            )
 
     def test_self_consistent_changed_policy_is_not_an_authority(self):
         value = json.loads(policy.POLICY_PATH.read_text())

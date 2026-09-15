@@ -17,6 +17,7 @@ if __package__:
         EVIDENCE_STATUSES,
         EVIDENCE_STATUS_FIELDS,
         HOSTED_FRONTIER_PROFILE_ID,
+        HOSTED_FRONTIER_PROVIDERS,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
         RightsPolicyError,
@@ -38,6 +39,7 @@ else:
         EVIDENCE_STATUSES,
         EVIDENCE_STATUS_FIELDS,
         HOSTED_FRONTIER_PROFILE_ID,
+        HOSTED_FRONTIER_PROVIDERS,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
         RightsPolicyError,
@@ -107,12 +109,16 @@ PROVIDER_ALIASES = MappingProxyType(
         "Meta": "meta",
     }
 )
+if not HOSTED_FRONTIER_PROVIDERS <= CANONICAL_PROVIDERS:
+    raise RightsPolicyError(
+        "hosted-frontier providers must be a subset of the canonical provider vocabulary"
+    )
 if (
-    len(PROVIDER_ALIASES) != len(CANONICAL_PROVIDERS)
-    or frozenset(PROVIDER_ALIASES.values()) != CANONICAL_PROVIDERS
+    len(PROVIDER_ALIASES) != len(HOSTED_FRONTIER_PROVIDERS)
+    or frozenset(PROVIDER_ALIASES.values()) != HOSTED_FRONTIER_PROVIDERS
 ):
     raise RightsPolicyError(
-        "public provider aliases must cover the canonical provider vocabulary exactly"
+        "public provider aliases must cover the hosted-frontier provider vocabulary exactly"
     )
 
 _DATASET_ID_RE = re.compile(

@@ -22,6 +22,7 @@ else:
 CANONICAL_PROVIDERS = _rights_mapping.CANONICAL_PROVIDERS
 CHANNELS = _rights_mapping.CHANNELS
 HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
+HOSTED_FRONTIER_PROVIDERS = _rights_mapping.HOSTED_FRONTIER_PROVIDERS
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
 policy_error = _rights_mapping.policy_error
@@ -163,7 +164,7 @@ def _require_exact_providers(coverage: _RuleCoverage, where: str) -> None:
 
 
 def _require_hosted_providers(coverage: _RuleCoverage, where: str) -> None:
-    if coverage.hosted_providers != set(CANONICAL_PROVIDERS):
+    if coverage.hosted_providers != set(HOSTED_FRONTIER_PROVIDERS):
         raise policy_error(where, "hosted rules do not provide canonical provider coverage")
 
 
