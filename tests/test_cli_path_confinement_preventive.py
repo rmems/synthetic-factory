@@ -266,8 +266,9 @@ class NextRoundFunnel(_FunnelCase):
 
     def test_a_missing_path_is_refused_as_empty(self):
         stderr = io.StringIO()
+        args = SimpleNamespace(path=None)
         with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
-            next_round._confined_path(self.parser, SimpleNamespace(path=None))
+            next_round._confined_path(self.parser, args)
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("path: the path is empty", stderr.getvalue())
 
