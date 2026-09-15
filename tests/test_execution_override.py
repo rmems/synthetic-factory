@@ -48,9 +48,8 @@ class ExecutionOverrideReason(unittest.TestCase):
             True,
             "x" * (round_txn.EXECUTION_OVERRIDE_MAX_CHARS + 1),
         ):
-            with self.subTest(rejected=rejected):
-                with self.assertRaises(round_txn.TransactionError):
-                    round_txn.normalized_execution_override(rejected)
+            with self.subTest(rejected=rejected), self.assertRaises(round_txn.TransactionError):
+                round_txn.normalized_execution_override(rejected)
 
     def test_recorded_override_rejects_non_canonical_markers(self):
         reason = "hil replay rig offline"
@@ -75,9 +74,8 @@ class ExecutionOverrideReason(unittest.TestCase):
             },
         )
         for manifest in cases:
-            with self.subTest(manifest=manifest):
-                with self.assertRaises(round_txn.TransactionError):
-                    round_txn.recorded_execution_override(manifest)
+            with self.subTest(manifest=manifest), self.assertRaises(round_txn.TransactionError):
+                round_txn.recorded_execution_override(manifest)
         self.assertEqual(
             round_txn.recorded_execution_override(
                 {"execution_verification": {"override": valid_override}}
@@ -139,9 +137,8 @@ class ExecutionOverrideReason(unittest.TestCase):
             execution_summary(override=waived),
         )
         for summary in rejected:
-            with self.subTest(summary=summary):
-                with self.assertRaises(round_txn.TransactionError):
-                    round_txn.validated_execution_verification_summary(summary)
+            with self.subTest(summary=summary), self.assertRaises(round_txn.TransactionError):
+                round_txn.validated_execution_verification_summary(summary)
 
         # verified+inconclusive != total is a counts-key mismatch on the object
         mismatched = execution_summary()
@@ -227,15 +224,17 @@ class ExecutionOverrideReason(unittest.TestCase):
             )
             recorded = execution_summary(verified=1)
             recorded["semantics_version"] = 1
-            with mock.patch.object(round_txn, "EXECUTION_VERIFIER_SEMANTICS_VERSION", 2):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(round_txn, "EXECUTION_VERIFIER_SEMANTICS_VERSION", 2),
+                self.assertRaisesRegex(
                     round_txn.TransactionError,
                     "execution verification total does not match committed records",
-                ):
-                    round_txn.validate_completed_execution_verification(
-                        batch,
-                        {"execution_verification": recorded, "records": 3},
-                    )
+                ),
+            ):
+                round_txn.validate_completed_execution_verification(
+                    batch,
+                    {"execution_verification": recorded, "records": 3},
+                )
 
     def test_replace_json_atomically_rejects_unsafe_markers(self):
         with tempfile.TemporaryDirectory() as td:

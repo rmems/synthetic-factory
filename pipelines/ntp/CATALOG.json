@@ -1,0 +1,12 @@
+{
+  "factory": "notebook-to-pipeline-factory",
+  "generator": "grok-4.6",
+  "leftover_filename": "leftover.jsonl",
+  "mills_filename": "mills.jsonl",
+  "n_mills": 38,
+  "n_pair_rows": 1625,
+  "preserve_commit": "ffd8e849694818083c5cf3dbadfba5872294c5f1",
+  "schema": "ntp-catalog-extract/v1",
+  "slice": "leftover",
+  "source_ref": "origin/legacy-mill-lane"
+}

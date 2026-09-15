@@ -7,7 +7,7 @@ import re
 import sys
 from collections.abc import Mapping
 from datetime import date
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -200,18 +200,29 @@ def optional_hash(value: object, field: str, where: str) -> str | None:
     return require_hash(value, field, where=where)
 
 
+def exact_string_or_none(value: Any) -> str | None:
+    """The value when it is a built-in string, else ``None``.
+
+    The value-returning form of ``is_exact_string``, for callers that go on to
+    use the string they checked rather than the raw field.
+    """
+
+    return value if is_exact_string(value) else None
+
+
 def provider_alias(
     value: object,
     aliases: Mapping[str, str],
     where: str,
 ) -> tuple[str, str]:
     """Resolve one exact reviewed public provider alias."""
-    if not is_exact_string(value):
+    name = exact_string_or_none(value)
+    if name is None:
         raise policy_error(where, "unknown public provider")
-    canonical = aliases.get(value)
+    canonical = aliases.get(name)
     if canonical is None:
         raise policy_error(where, f"unknown public provider {value!r}")
-    return value, canonical
+    return name, canonical
 
 
 if __package__:

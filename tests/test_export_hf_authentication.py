@@ -260,16 +260,18 @@ class CalibrationAuthentication(unittest.TestCase):
                 )
                 return snapshot
 
-            with mock.patch.object(
-                export_replay,
-                "_replay_source_lines",
-                side_effect=replay_then_rewrite,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    export_replay,
+                    "_replay_source_lines",
+                    side_effect=replay_then_rewrite,
+                ),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "calibration evidence changed during source replay",
-                ):
-                    export_hf.export_run(curated, root / "export")
+                ),
+            ):
+                export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
 
@@ -350,18 +352,22 @@ class CalibrationPayloadLoading(unittest.TestCase):
 class StrictExportJsonLoading(unittest.TestCase):
     def test_overflowed_json_numbers_are_refused(self):
         for literal in ("1e9999", "-1e9999"):
-            with self.subTest(literal=literal):
-                with self.assertRaisesRegex(export_hf.ExportError, "non-finite"):
-                    export_hf._loads_json(f'{{"value":{literal}}}', "payload")
+            with (
+                self.subTest(literal=literal),
+                self.assertRaisesRegex(export_hf.ExportError, "non-finite"),
+            ):
+                export_hf._loads_json(f'{{"value":{literal}}}', "payload")
 
     def test_deep_json_is_wrapped_as_an_export_error(self):
-        with mock.patch.object(
-            export_contract.json,
-            "loads",
-            side_effect=RecursionError("decoder recursion limit"),
+        with (
+            mock.patch.object(
+                export_contract.json,
+                "loads",
+                side_effect=RecursionError("decoder recursion limit"),
+            ),
+            self.assertRaisesRegex(export_hf.ExportError, "invalid JSON"),
         ):
-            with self.assertRaisesRegex(export_hf.ExportError, "invalid JSON"):
-                export_hf._loads_json("[]", "payload")
+            export_hf._loads_json("[]", "payload")
 
     def test_duplicate_object_keys_are_rejected_at_every_depth(self):
         """Authenticated JSON must have one unambiguous value per key."""
@@ -370,12 +376,14 @@ class StrictExportJsonLoading(unittest.TestCase):
             '{"action":"bogus","action":"retained"}',
             '{"entry":{"action":"bogus","action":"retained"}}',
         ):
-            with self.subTest(payload=payload):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "duplicate JSON object key 'action'",
-                ):
-                    export_hf._loads_json(payload, "authenticated evidence")
+                ),
+            ):
+                export_hf._loads_json(payload, "authenticated evidence")
 
 
 if __name__ == "__main__":

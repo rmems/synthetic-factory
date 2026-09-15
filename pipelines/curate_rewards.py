@@ -45,6 +45,7 @@ import shutil
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import NamedTuple
 
 # Re-export the historical curate_rewards surface for tests and curate_gate.
 # Every binding is a static import (not a dynamic getattr loop) so linters and
@@ -52,6 +53,7 @@ from pathlib import Path
 # declares the re-exported surface.
 if __package__:
     from .exact_json import dumps_exact_json, parse_finite_json_float
+    from .operator_paths import operator_path
     from .reward_calibration import _entry_calibrations
     from .reward_document import (
         canonical_magnitudes,
@@ -139,6 +141,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from exact_json import dumps_exact_json, parse_finite_json_float
+    from operator_paths import operator_path
     from reward_calibration import _entry_calibrations
     from reward_document import (
         canonical_magnitudes,
@@ -757,7 +760,7 @@ def convert_run(
     }
 
 
-def parse_args(argv=None):
+def _build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -797,40 +800,78 @@ def parse_args(argv=None):
     run.add_argument("input")
     run.add_argument("output")
     run.add_argument("--units-migration")
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv=None):
+    return _build_parser().parse_args(argv)
+
+
+class Inputs(NamedTuple):
+    """The operator's paths, each confined to the working, home and temp trees.
+
+    ``--source-path`` is a label written into records, not a filesystem path,
+    so it stays on the parsed namespace.
+    """
+
+    input: Path | None
+    output: Path | None
+    sidecars: Path | None
+    manifest: Path | None
+    units_migration: Path | None
+    inputs: tuple[Path, ...]
+
+
+def _inputs(parser, args):
+    """Confine every path argument right after parsing; sinks never read ``args`` again."""
+
+    def optional(name):
+        value = getattr(args, name, None)
+        return None if value is None else operator_path(value)
+
+    try:
+        return Inputs(
+            optional("input"), optional("output"), optional("sidecars"),
+            optional("manifest"), optional("units_migration"),
+            tuple(operator_path(value) for value in getattr(args, "inputs", None) or ()),
+        )
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    paths = _inputs(parser, args)
     try:
-        migration = getattr(args, "units_migration", None)
+        migration = paths.units_migration
         calibration_catalog = load_units_migration(migration) if migration else None
         if args.command == "census":
-            summary = census_jsonl(args.inputs, scope_keys=args.scope_keys)
+            summary = census_jsonl(paths.inputs, scope_keys=args.scope_keys)
             if not args.tables:
                 summary.pop("component_keys", None)
                 summary.pop("shapes", None)
         elif args.command == "classify":
             summary = classify_jsonl(
-                args.input,
+                paths.input,
                 source_path=args.source_path,
                 calibration_catalog=calibration_catalog,
             )
         elif args.command == "convert":
             summary = convert_jsonl(
-                args.input,
-                args.output,
-                args.sidecars,
+                paths.input,
+                paths.output,
+                paths.sidecars,
                 source_path=args.source_path,
                 calibration_catalog=calibration_catalog,
-                manifest_path=args.manifest,
+                manifest_path=paths.manifest,
             )
         else:
             summary = convert_run(
-                args.input,
-                args.output,
+                paths.input,
+                paths.output,
                 calibration_catalog=calibration_catalog,
-                units_migration=args.units_migration,
+                units_migration=paths.units_migration,
             )
     except (OSError, RewardOntologyError) as exc:
         print(f"error: {exc}", file=sys.stderr)

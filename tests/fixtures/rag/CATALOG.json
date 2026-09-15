@@ -1,0 +1,26 @@
+{
+  "catalog_id": "rag-fixture-v1",
+  "factory": "rag-retrieval-debug-factory",
+  "format": "rag-catalog/1",
+  "mill_prefix": "rag",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "rag_r0001",
+      "plant_count": 1,
+      "source": "tests/fixtures/rag/plants.jsonl"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "9d9fa07d406f37fc7ccfe29f68e03da2c54806276827fd918f991141796e7bcc",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": null,
+    "method": "git-show+ast.parse",
+    "ref": "fixture",
+    "scripts": [
+      "tests/fixtures/rag/plants.jsonl"
+    ]
+  }
+}

@@ -120,12 +120,14 @@ class ComposeRunAdapterContracts(unittest.TestCase):
 
     def test_invalid_factory_roots_are_refused_before_coordinate_publication(self):
         for factory in (".", "..", "/factory", "factory/nested"):
-            with self.subTest(factory=factory):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(factory=factory),
+                self.assertRaisesRegex(
                     compose_curated_run.ComposeError,
                     "invalid factory identity for published source coordinate",
-                ):
-                    compose_curated_run._published_source_coordinate("batch-r01.jsonl", factory)
+                ),
+            ):
+                compose_curated_run._published_source_coordinate("batch-r01.jsonl", factory)
 
 
 if __name__ == "__main__":

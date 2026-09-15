@@ -1,0 +1,33 @@
+{
+  "catalog_id": "msd-plants-v1",
+  "factory": "mcp-tool-schema-drift-factory",
+  "format": "msd-catalog/1",
+  "mill_prefix": "msd",
+  "mills": [
+    {
+      "base_round": 430,
+      "mill_id": "msd_r430",
+      "plant_count": 60,
+      "source": "experiments/msd-leftover-mill-r430.py"
+    },
+    {
+      "base_round": 747,
+      "mill_id": "msd_r747",
+      "plant_count": 32,
+      "source": "experiments/msd_r747_leftover3_mill.py"
+    }
+  ],
+  "plant_count": 92,
+  "plants_sha256": "582fd2f06923bcd7f268725a3b4a015423a7e3df72aeb61ccab3a69afb09e8e4",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/msd-leftover-mill-r430.py",
+      "experiments/msd_r747_leftover3_mill.py"
+    ]
+  }
+}

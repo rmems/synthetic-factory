@@ -15,7 +15,7 @@ python -m pip install coverage==7.15.4
 ```
 
 Do not put tokens in this file, shell history, or command output. GitHub reads
-`CODECOV_TOKEN` and `QODANA_TOKEN` from repository secrets.
+`CODECOV_TOKEN` from repository secrets; Qodana needs none (see below).
 
 ## Required Python gates
 
@@ -60,9 +60,10 @@ qodana scan \
   -e QODANA_PYTHON_PATH=/opt/miniconda3/bin/python3
 ```
 
-The repository workflow uses the licensed `qodana-python` linter and its
-`QODANA_TOKEN`; the token-free community image is only the local equivalent for
-Python inspections. Qodana's separate sanity preflight is disabled because it
+The repository workflow runs the same free `qodana-python-community` linter
+(#209 dropped the licensed `qodana-python` linter and its `QODANA_TOKEN` when the
+Ultimate Plus licence expired), so this local run is the CI gate, not an
+approximation of it. Qodana's separate sanity preflight is disabled because it
 ignores the path exclusions for the repository's tested runtime imports and
 suspends before producing useful results; the normal Python inspection profile
 remains enabled. A newer local CLI may warn that its version differs from the

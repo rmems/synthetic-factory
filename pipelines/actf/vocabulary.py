@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""Declared identity, findings, and reasons for the ACTF burst-corpus-B family.
+
+Constants only plus the coded refusal helpers. Recovered Grok generators stay
+on ``origin/codex/recover-grok-01a06111``; this package never vendors them.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from ._contract import bind_import_twin, refusals
+
+FAMILY = "actf"
+CORPUS = "burst-corpus-b"
+RECOVERY_SESSION = "01a06111-1b84-7250-aec4-9d120db6c1a4"
+FACTORY = "agentic-coding-trajectory-factory"
+GENERATOR_NAME = "grok-actf-generator"
+GENERATOR_VERSION = "recovered"
+GENERATOR_KIND = "recovered_temporary_python"
+RECORD_ID_PREFIX = "actf"
+RECORD_KIND = "actf_ast_extraction_v1"
+LANGUAGE = "python"
+SOURCE_KIND = "recovered_grok_session_temporary_python"
+LINEAGE_PREFIX = "actf-"
+BY_ORIGINAL_PATH = "recovered_sources/by-original-path"
+PATH_JSON_NAME = "path.json"
+VERSIONS_DIR = "versions"
+FRAGMENTS_DIR = "fragments"
+
+CLASSIFICATION_EXACT = "exact"
+CLASSIFICATION_HIGH_CONFIDENCE = "high-confidence"
+CLASSIFICATION_PARTIAL = "partial"
+CLASSIFICATION_UNRECOVERABLE = "unrecoverable"
+CLASSIFICATIONS = (
+    CLASSIFICATION_EXACT,
+    CLASSIFICATION_HIGH_CONFIDENCE,
+    CLASSIFICATION_PARTIAL,
+    CLASSIFICATION_UNRECOVERABLE,
+)
+CLASSIFICATION_SET = frozenset(CLASSIFICATIONS)
+
+SYNTAX_OK = "ok"
+SYNTAX_ERROR = "syntax_error"
+SYNTAX_STATUSES = (SYNTAX_OK, SYNTAX_ERROR)
+
+FINDING_FILE_WRITE = "FILE_WRITE"
+FINDING_PROCESS_EXECUTION = "PROCESS_EXECUTION"
+FINDING_DYNAMIC_IMPORT = "DYNAMIC_IMPORT"
+FINDING_DYNAMIC_CODE = "DYNAMIC_CODE"
+FINDING_DELETE = "DELETE"
+FINDING_RECURSIVE_DELETE = "RECURSIVE_DELETE"
+FINDING_SENSITIVE_IMPORT = "SENSITIVE_IMPORT"
+FINDING_RAW_DATASET_PATH_REFERENCE = "RAW_DATASET_PATH_REFERENCE"
+FINDING_RAW_DATASET_MUTATION = "RAW_DATASET_MUTATION"
+FINDING_NETWORK_COMMAND_REFERENCE = "NETWORK_COMMAND_REFERENCE"
+FINDING_SHELL_RECURSIVE_DELETE_REFERENCE = "SHELL_RECURSIVE_DELETE_REFERENCE"
+FINDING_PATH_JSON_INVALID = "PATH_JSON_INVALID"
+FINDING_PATH_KEY_MISMATCH = "PATH_KEY_MISMATCH"
+FINDING_UNKNOWN_CLASSIFICATION = "UNKNOWN_CLASSIFICATION"
+FINDING_VERSION_COUNT_MISMATCH = "VERSION_COUNT_MISMATCH"
+FINDING_RECOVERY_ROOT_UNDER_RAW = "RECOVERY_ROOT_UNDER_RAW"
+FINDING_RECOVERY_ROOT_MISSING = "RECOVERY_ROOT_MISSING"
+FINDING_LINEAGE_DIR_INVALID = "LINEAGE_DIR_INVALID"
+FINDING_VENDOR_PATH = "VENDOR_PATH"
+
+FINDING_CODES = (
+    FINDING_FILE_WRITE,
+    FINDING_PROCESS_EXECUTION,
+    FINDING_DYNAMIC_IMPORT,
+    FINDING_DYNAMIC_CODE,
+    FINDING_DELETE,
+    FINDING_RECURSIVE_DELETE,
+    FINDING_SENSITIVE_IMPORT,
+    FINDING_RAW_DATASET_PATH_REFERENCE,
+    FINDING_RAW_DATASET_MUTATION,
+    FINDING_NETWORK_COMMAND_REFERENCE,
+    FINDING_SHELL_RECURSIVE_DELETE_REFERENCE,
+    FINDING_PATH_JSON_INVALID,
+    FINDING_PATH_KEY_MISMATCH,
+    FINDING_UNKNOWN_CLASSIFICATION,
+    FINDING_VERSION_COUNT_MISMATCH,
+    FINDING_RECOVERY_ROOT_UNDER_RAW,
+    FINDING_RECOVERY_ROOT_MISSING,
+    FINDING_LINEAGE_DIR_INVALID,
+    FINDING_VENDOR_PATH,
+)
+FINDING_CODE_SET = frozenset(FINDING_CODES)
+
+REASON_SYNTAX_ERROR = "actf.syntax_error"
+REASON_UNRECOVERABLE_LINEAGE = "actf.unrecoverable_lineage"
+REASON_EMPTY_SOURCE = "actf.empty_source"
+REASON_SOURCE_UNREADABLE = "actf.source_unreadable"
+REASON_CODES = (
+    REASON_SYNTAX_ERROR,
+    REASON_UNRECOVERABLE_LINEAGE,
+    REASON_EMPTY_SOURCE,
+    REASON_SOURCE_UNREADABLE,
+)
+REASON_CODE_SET = frozenset(REASON_CODES)
+
+VENDOR_NAME_NEEDLES = ("actf-mill",)
+
+
+class ActfRefusal(refusals.CodedRefusal):
+    """The family's coded refusal: ``str`` is always ``CODE: prose``."""
+
+    CODES = FINDING_CODE_SET
+
+
+refuse, refuse_when, refuse_first = refusals.helpers(ActfRefusal)
+shown = refusals.shown
+
+
+def refuse_vendor_destination(path: Path) -> None:
+    """Fail closed if a caller names a vendored ACTF mill script."""
+
+    name = path.name.lower()
+    text = str(path).replace("\\", "/").lower()
+    holds = (
+        name.endswith("mill.py")
+        or any(needle in name for needle in VENDOR_NAME_NEEDLES)
+        or any(f"/{needle}" in text for needle in VENDOR_NAME_NEEDLES)
+    )
+    refuse_when(
+        holds,
+        FINDING_VENDOR_PATH,
+        f"refusing vendored mill destination {shown(str(path))}",
+    )
+
+
+__all__ = [
+    "ActfRefusal",
+    "BY_ORIGINAL_PATH",
+    "CLASSIFICATIONS",
+    "CLASSIFICATION_EXACT",
+    "CLASSIFICATION_HIGH_CONFIDENCE",
+    "CLASSIFICATION_PARTIAL",
+    "CLASSIFICATION_SET",
+    "CLASSIFICATION_UNRECOVERABLE",
+    "CORPUS",
+    "FACTORY",
+    "FAMILY",
+    "FINDING_CODES",
+    "FINDING_CODE_SET",
+    "FINDING_DELETE",
+    "FINDING_DYNAMIC_CODE",
+    "FINDING_DYNAMIC_IMPORT",
+    "FINDING_FILE_WRITE",
+    "FINDING_LINEAGE_DIR_INVALID",
+    "FINDING_NETWORK_COMMAND_REFERENCE",
+    "FINDING_PATH_JSON_INVALID",
+    "FINDING_PATH_KEY_MISMATCH",
+    "FINDING_PROCESS_EXECUTION",
+    "FINDING_RAW_DATASET_MUTATION",
+    "FINDING_RAW_DATASET_PATH_REFERENCE",
+    "FINDING_RECOVERY_ROOT_MISSING",
+    "FINDING_RECOVERY_ROOT_UNDER_RAW",
+    "FINDING_RECURSIVE_DELETE",
+    "FINDING_SENSITIVE_IMPORT",
+    "FINDING_SHELL_RECURSIVE_DELETE_REFERENCE",
+    "FINDING_UNKNOWN_CLASSIFICATION",
+    "FINDING_VENDOR_PATH",
+    "FINDING_VERSION_COUNT_MISMATCH",
+    "FRAGMENTS_DIR",
+    "GENERATOR_KIND",
+    "GENERATOR_NAME",
+    "GENERATOR_VERSION",
+    "LANGUAGE",
+    "LINEAGE_PREFIX",
+    "PATH_JSON_NAME",
+    "REASON_CODES",
+    "REASON_CODE_SET",
+    "REASON_EMPTY_SOURCE",
+    "REASON_SOURCE_UNREADABLE",
+    "REASON_SYNTAX_ERROR",
+    "REASON_UNRECOVERABLE_LINEAGE",
+    "RECORD_ID_PREFIX",
+    "RECORD_KIND",
+    "RECOVERY_SESSION",
+    "SOURCE_KIND",
+    "SYNTAX_ERROR",
+    "SYNTAX_OK",
+    "SYNTAX_STATUSES",
+    "VENDOR_NAME_NEEDLES",
+    "VERSIONS_DIR",
+    "refuse",
+    "refuse_first",
+    "refuse_vendor_destination",
+    "refuse_when",
+    "shown",
+]
+
+
+bind_import_twin(__name__)

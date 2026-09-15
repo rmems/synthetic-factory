@@ -92,6 +92,69 @@ from quality_gate_audit import (  # noqa: E402
 )
 
 
+# This module is the stable import facade for the split quality-gate
+# implementation: ``__all__`` declares that surface, including the private
+# helpers the split deliberately kept reachable as ``quality_gate.<name>``.
+__all__ = [
+    "AuditOptions",
+    "DEFAULT_EMBEDDING_THRESHOLD",
+    "DEFAULT_MAX_EMBEDDING_PAIRS",
+    "DEFAULT_MIX_TOLERANCE",
+    "DEFAULT_TARGET_SYNTHETIC_RATIO",
+    "EMBEDDING_CANDIDATE_SKETCH",
+    "EMBEDDING_ENCODER",
+    "EMBEDDING_LSH_BANDS",
+    "EMBEDDING_MINHASH_SLOTS",
+    "EMBEDDING_MIN_THRESHOLD",
+    "EMBEDDING_SKETCH_LEVELS",
+    "MAX_ERROR_EXAMPLES",
+    "MixPolicy",
+    "REAL_KINDS",
+    "SYNTHETIC_KINDS",
+    "_BIGRAM_SEP",
+    "_CANONICAL_ID_KEYS",
+    "_GAP_SEP",
+    "_IDENTITY_FIELDS",
+    "_ORDER_MARK",
+    "_PATH_SEP",
+    "_PREFERENCE_WRAPPER_FIELDS",
+    "_SEMANTIC_BOOKKEEPING_PARENTS",
+    "_SEMANTIC_PROMOTION_BOOKKEEPING_KEYS",
+    "_SEMANTIC_ROOT_BOOKKEEPING_KEYS",
+    "_SKETCH_SEP",
+    "_Union",
+    "_candidate_pairs",
+    "_cosine",
+    "_element_digest",
+    "_embedding_duplicates",
+    "_graphemes",
+    "_leaf_words",
+    "_minhash_signature",
+    "_owner_provenance_kind",
+    "_path_child",
+    "_preference_identity_side",
+    "_record_provenance_kind",
+    "_state_provenance_kind",
+    "_string_units",
+    "_tfidf_vector",
+    "_uses_unsegmented_script",
+    "_where",
+    "_without_canonical_ids",
+    "audit_run",
+    "candidate_sketch_features",
+    "canonical_blob",
+    "dedup_view",
+    "embedding_tokens",
+    "exact_identity_view",
+    "main",
+    "record_hash",
+    "semantic_similarity_view",
+    "validate_embedding_threshold",
+    "validate_manifest_target",
+    "write_manifest",
+]
+
+
 def _build_parser():
     parser = argparse.ArgumentParser(
         description="Quality gate — dedup + mix enforcement"

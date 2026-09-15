@@ -208,6 +208,23 @@ def _step_evidence_binding_violations(
     return violations
 
 
+def _positive_int_or_none(value: Any) -> int | None:
+    """The value when it is an exact positive JSON integer, else ``None``.
+
+    The value-returning form of ``_is_positive_int``: the caller keeps the
+    checked integer rather than re-reading the raw field, so the index it
+    compares and subscripts with is the one the guard admitted.
+    """
+
+    return value if _is_positive_int(value) else None
+
+
+def _nonnegative_int_or_none(value: Any) -> int | None:
+    """The value when it is an exact non-negative JSON integer, else ``None``."""
+
+    return value if _is_nonnegative_int(value) else None
+
+
 def _one_retained_step_binding(
     entry: Any,
     steps: list[Any],
@@ -217,10 +234,11 @@ def _one_retained_step_binding(
         return []
     if entry.get("action") not in {"migrated", "retained"}:
         return []
-    output_index = entry.get("output_step_index")
-    if not _is_positive_int(output_index):
+    declared_index = entry.get("output_step_index")
+    output_index = _positive_int_or_none(declared_index)
+    if output_index is None:
         return [
-            f"record {index}: output step index {output_index!r} is out of range"
+            f"record {index}: output step index {declared_index!r} is out of range"
         ]
     if output_index > len(steps):
         return [
@@ -283,8 +301,8 @@ def _record_manifest_binding_violations(
 def _nonnegative_count_slice(counts: dict[str, Any]) -> dict[str, int]:
     sliced: dict[str, int] = {}
     for key in ("source", "retained", "migrated", "excluded"):
-        value = counts.get(key)
-        if _is_nonnegative_int(value):
+        value = _nonnegative_int_or_none(counts.get(key))
+        if value is not None:
             sliced[key] = value
     return sliced
 

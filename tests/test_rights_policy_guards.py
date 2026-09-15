@@ -54,9 +54,11 @@ class RightsPolicyGuardTests(unittest.TestCase):
             HostileNonTupleSlots,
         )
         for incompatible in incompatible_classes:
-            with self.subTest(incompatible=incompatible.__name__):
-                with self.assertRaisesRegex(TypeError, "frozen slotted dataclass"):
-                    rights_policy.protect_frozen_slots(incompatible)
+            with (
+                self.subTest(incompatible=incompatible.__name__),
+                self.assertRaisesRegex(TypeError, "frozen slotted dataclass"),
+            ):
+                rights_policy.protect_frozen_slots(incompatible)
 
     def test_loaded_policy_tree_is_immutable(self):
         original_version = rights_policy.RIGHTS_POLICY["mapping_version"]
@@ -105,9 +107,11 @@ class RightsPolicyGuardTests(unittest.TestCase):
         for target, field, replacement in attempts:
             original = object.__getattribute__(target, field)
             try:
-                with self.subTest(target=type(target).__name__, field=field):
-                    with self.assertRaises((AttributeError, TypeError)):
-                        object.__setattr__(target, field, replacement)
+                with (
+                    self.subTest(target=type(target).__name__, field=field),
+                    self.assertRaises((AttributeError, TypeError)),
+                ):
+                    object.__setattr__(target, field, replacement)
             finally:
                 if object.__getattribute__(target, field) != original:
                     object.__setattr__(target, field, original)
@@ -147,12 +151,14 @@ class RightsPolicyGuardTests(unittest.TestCase):
         ):
             document = mutable_policy_document()
             document["rules"][0][field] = value
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     f"unknown {field}",
-                ):
-                    rights_policy.validate_rights_policy(document)
+                ),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_requires_every_declared_profile(self):
         document = mutable_policy_document()
@@ -176,12 +182,14 @@ class RightsPolicyGuardTests(unittest.TestCase):
         for required_profile_ids in cases:
             document = mutable_policy_document()
             document["required_profile_ids"] = required_profile_ids
-            with self.subTest(required_profile_ids=required_profile_ids):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(required_profile_ids=required_profile_ids),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     "required_profile_ids must be a unique nonempty list of strings",
-                ):
-                    rights_policy.validate_rights_policy(document)
+                ),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_extra_shape_and_invariant_drift(self):
         cases = (
@@ -196,9 +204,8 @@ class RightsPolicyGuardTests(unittest.TestCase):
         for index, mutate in enumerate(cases):
             document = mutable_policy_document()
             mutate(document)
-            with self.subTest(case=index):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.validate_rights_policy(document)
+            with self.subTest(case=index), self.assertRaises(rights_policy.RightsPolicyError):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_byte_loader_rejects_payloads_over_the_explicit_limit(self):
         payload = b" " * (rights_policy.MAX_RIGHTS_JSON_BYTES + 1)

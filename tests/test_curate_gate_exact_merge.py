@@ -32,8 +32,7 @@ class ExactMergeTests(unittest.TestCase):
                 baseline,
                 current,
                 lane_value,
-                source_key=("source.jsonl", 7),
-                transform="spike",
+                curate_gate.MergeScope(("source.jsonl", 7), "spike"),
             )
 
     def test_same_json_keeps_json_number_types_distinct(self):
