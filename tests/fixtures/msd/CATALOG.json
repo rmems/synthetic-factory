@@ -1,0 +1,26 @@
+{
+  "catalog_id": "msd-fixture-v1",
+  "factory": "mcp-tool-schema-drift-factory",
+  "format": "msd-catalog/1",
+  "mill_prefix": "msd",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "msd_r0001",
+      "plant_count": 1,
+      "source": "tests/fixtures/msd/plants.jsonl"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "8147a38b245bbe4cd363a8a60f0b0e7e80aa1cc283a7d7f8c10f0a3f61c78ac6",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": null,
+    "method": "git-show+ast.parse",
+    "ref": "fixture",
+    "scripts": [
+      "tests/fixtures/msd/plants.jsonl"
+    ]
+  }
+}
