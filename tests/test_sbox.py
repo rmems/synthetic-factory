@@ -242,20 +242,20 @@ class CommittedCatalog(unittest.TestCase):
         report = cat.catalog_check()
         self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(len(loaded.plants), 2404)
+        self.assertEqual(len(loaded.plants), 2612)
         self.assertEqual(len(loaded.sources), 65)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 2404)
+        self.assertEqual(report["plants"], 2612)
         self.assertEqual(report["full_row_count"], 2678)
-        self.assertEqual(report["deferred_row_count"], 274)
+        self.assertEqual(report["deferred_row_count"], 66)
         self.assertEqual(report["catalog_files"], 57)
         self.assertFalse(report["exec"])
         self.assertEqual(loaded.plants[0].family, "bpftrace-kprobe-write")
         self.assertEqual(loaded.plants[0].ok, "bpftrace-kprobe-write-ticket-refuse")
         self.assertEqual(loaded.plants[16].family, "leftover-bpftool-map")
         self.assertEqual(loaded.plants[16].inc, 4900)
-        self.assertEqual(loaded.plants[24].family, "leftover-memcached-dump")
-        self.assertEqual(loaded.plants[24].inc, 7236)
+        self.assertEqual(loaded.plants[46].family, "leftover-memcached-dump")
+        self.assertEqual(loaded.plants[46].inc, 7236)
         families = [f"{plant.source}:{plant.family}" for plant in loaded.plants]
         self.assertEqual(len(families), len(set(families)))
 
@@ -266,7 +266,7 @@ class CommittedCatalog(unittest.TestCase):
         lines = payload.split("\n")
         if lines[-1] == "":
             lines = lines[:-1]
-        self.assertEqual(len(lines), 2404)
+        self.assertEqual(len(lines), 2612)
         for index, line in enumerate(lines, 1):
             self.assertEqual(line, line.strip(), f"line {index} has leading whitespace")
             self.assertTrue(line.startswith("{"), f"line {index} is not an object")
@@ -280,7 +280,11 @@ class CommittedCatalog(unittest.TestCase):
             text=True,
         )
         extracted = generate.plants_from_source(text)
-        committed = [plant for plant in cat.load_catalog().plants if plant.shape == "runtime-dump"]
+        committed = [
+            plant
+            for plant in cat.load_catalog().plants
+            if plant.source == "experiments/sbox-mill-r359.py"
+        ]
         self.assertEqual(len(extracted), 16)
         self.assertEqual(len(committed), 16)
         self.assertEqual(
@@ -301,19 +305,25 @@ class CommittedCatalog(unittest.TestCase):
             cwd=REPO,
             text=True,
         )
-        first_leftover = generate.plants_from_source(leftover)[:8]
-        first_twelve = generate.plants_from_source(leftover12)[:8]
         committed = cat.load_catalog().plants
+        leftover_committed = [
+            plant for plant in committed if plant.source == "experiments/sbox-mill-plants-leftover.py"
+        ]
+        twelve_committed = [
+            plant
+            for plant in committed
+            if plant.source == "experiments/sbox-mill-plants-leftover12.py"
+        ]
         self.assertEqual(
-            [(row["family"], row["inc"]) for row in first_leftover],
-            [(plant.family, plant.inc) for plant in committed[16:24]],
+            [(row["family"], row["inc"]) for row in generate.plants_from_source(leftover)],
+            [(plant.family, plant.inc) for plant in leftover_committed],
         )
         self.assertEqual(
-            [(row["family"], row["inc"]) for row in first_twelve],
-            [(plant.family, plant.inc) for plant in committed[24:32]],
+            [(row["family"], row["inc"]) for row in generate.plants_from_source(leftover12)],
+            [(plant.family, plant.inc) for plant in twelve_committed],
         )
-        self.assertEqual(len(generate.plants_from_source(leftover)), 30)
-        self.assertEqual(len(generate.plants_from_source(leftover12)), 31)
+        self.assertEqual(len(leftover_committed), 30)
+        self.assertEqual(len(twelve_committed), 31)
 
 
 class Cli(unittest.TestCase):
@@ -322,9 +332,9 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 2404)
+        self.assertEqual(payload["plants"], 2612)
         self.assertEqual(payload["full_row_count"], 2678)
-        self.assertEqual(payload["deferred_row_count"], 274)
+        self.assertEqual(payload["deferred_row_count"], 66)
 
     def test_extract_json_from_a_runtime_snippet(self):
         handle = tempfile.NamedTemporaryFile(

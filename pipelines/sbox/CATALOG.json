@@ -17,22 +17,13 @@
   },
   "extract": {
     "slice": "jsonl",
-    "committed_rows": 2404,
+    "committed_rows": 2612,
     "full_row_count": 2678,
     "full_source_files": 65,
     "catalog_files": 57,
-    "deferred_row_count": 274,
+    "deferred_row_count": 66,
     "deferred_catalog_paths": [
-      "experiments/sbox-mill-plants-leftover.py",
-      "experiments/sbox-mill-plants-leftover12.py",
-      "experiments/sbox-mill-plants-leftover2.py",
-      "experiments/sbox-mill-plants-leftover3.py",
-      "experiments/sbox-mill-plants-leftover4.py",
-      "experiments/sbox-mill-plants-leftover5.py",
-      "experiments/sbox-mill-plants-leftover6.py",
-      "experiments/sbox-mill-plants-r375.py",
-      "experiments/sbox-mill-plants-r391.py",
-      "experiments/sbox-mill-plants-r588.py"
+      "experiments/sbox-mill-plants-leftover6.py"
     ],
     "hold_catalog_paths": [
       "experiments/sbox-mill-plants-leftover6.py"
@@ -86,7 +77,14 @@
       "experiments/sbox-mill-plants-leftover9.py",
       "experiments/sbox-mill-plants-r406.py",
       "experiments/sbox-mill-plants-r473.py",
-      "experiments/sbox-mill-r359.py"
+      "experiments/sbox-mill-r359.py",
+      "experiments/sbox-mill-plants-leftover2.py",
+      "experiments/sbox-mill-plants-leftover3.py",
+      "experiments/sbox-mill-plants-leftover4.py",
+      "experiments/sbox-mill-plants-leftover5.py",
+      "experiments/sbox-mill-plants-r375.py",
+      "experiments/sbox-mill-plants-r391.py",
+      "experiments/sbox-mill-plants-r588.py"
     ]
   },
   "sources": [
@@ -673,5 +671,5 @@
     }
   ],
   "plants_filename": "plants.jsonl",
-  "plants_sha256": "32b56cbc929664200f62e7b2d495b4f28ddf6ca4341c7202ab31914ed6344add"
+  "plants_sha256": "c94b508b9f46dc212e3feda8723c83665764ce4b24be77901605affb8120a9e6"
 }
