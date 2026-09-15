@@ -9,6 +9,7 @@ from ._contract import bind_import_twin, load_strict_json
 
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
 REPORT_FILENAME = "report.json"
+REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 _ATTESTATION_PREFIX = LIMITS_ATTESTATION_PREFIX.encode()
 _ATTESTATION_BY_TOKEN = {
     str(True).lower().encode(): True,

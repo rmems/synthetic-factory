@@ -7,7 +7,7 @@ module through ``importlib``; runs the target function's doctest examples once
 in order (they may carry state) through a ``DocTestRunner`` whose report hooks
 record one row per example; evaluates the pinned hidden cases; writes an
 out-of-band limits attestation line on real stdout before ``program.py`` is
-read; then writes one JSON object to a workdir report file. It exits 0
+read; then writes one JSON object to an inherited unlinked report fd. It exits 0
 whatever the program did: failures are rows, never exit codes, and any
 internal error is reported in ``load``.
 """
@@ -15,6 +15,7 @@ internal error is reported in ``load``.
 from __future__ import annotations
 
 import ast
+import atexit
 import doctest
 import hashlib
 import importlib.util
@@ -31,6 +32,7 @@ from pathlib import Path
 PROTOCOL = "code-repair-harness/2"
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
 REPORT_FILENAME = "report.json"
+REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
 MAX_CAPTURE_CHARS = 65_536
@@ -271,13 +273,28 @@ def _write_limits_attestation(stream, limits_applied: bool) -> None:
     stream.flush()
 
 
-def _write_protocol_report(workdir: Path, report: dict, dumps) -> None:
-    """JSON report on a workdir file, never on the attestation capture fd."""
+def _clear_exit_handlers() -> None:
+    """Drop candidate atexit callbacks so they cannot rewrite the report after we write it."""
 
-    (workdir / REPORT_FILENAME).write_text(
-        dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True),
-        encoding="utf-8",
-    )
+    clearer = getattr(atexit, "_clear", None)
+    if clearer is not None:
+        clearer()
+
+
+def _write_protocol_report(workdir: Path, report: dict, dumps) -> None:
+    """JSON report on the inherited capture fd, falling back to a workdir file in tests."""
+
+    _clear_exit_handlers()
+    payload = dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True)
+    raw = os.environ.get(REPORT_FD_ENV, "")
+    if not raw:
+        (workdir / REPORT_FILENAME).write_text(payload, encoding="utf-8")
+        return
+    fd = int(raw)
+    data = payload.encode("utf-8")
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, data)
+    os.ftruncate(fd, len(data))
 
 
 def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:

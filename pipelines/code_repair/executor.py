@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 # Required only for the fixed no-shell harness subprocess below.
@@ -42,6 +43,7 @@ STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
 LIMITS_ATTESTATION_PREFIX = _harness_report.LIMITS_ATTESTATION_PREFIX
 REPORT_FILENAME = _harness_report.REPORT_FILENAME
+REPORT_FD_ENV = _harness_report.REPORT_FD_ENV
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
@@ -185,11 +187,12 @@ class Executor:
             shutil.rmtree(workdir, ignore_errors=True)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
-        """One child run; attestation is an unlinked tempfile, JSON a workdir report file.
+        """One child run; attestation and JSON are unlinked tempfiles, not workdir paths.
 
-        The child's file-size limit caps the report file, and the parent reads back at
-        most ``MAX_OUTPUT_BYTES`` of each stream, so a child that streams forever cannot
-        grow the factory process. Attestation is not a workdir path the candidate can reopen.
+        The child's file-size limit caps stderr, and the parent reads back at most
+        ``MAX_OUTPUT_BYTES`` of each capture, so a child that streams forever cannot
+        grow the factory process. Neither capture is a workdir path the candidate can
+        reopen; atexit handlers are cleared before the JSON is written.
         """
 
         # This pilot runs reviewed pinned code only. Resource limits do not isolate host
@@ -198,22 +201,27 @@ class Executor:
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
         stderr_path = workdir / "stderr"
-        report_path = workdir / REPORT_FILENAME
+        env = dict(CHILD_ENV)
         try:
-            with tempfile.TemporaryFile() as out, stderr_path.open("wb") as err:
+            with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as report_file, \
+                    stderr_path.open("wb") as err:
+                report_fd = report_file.fileno()
+                os.set_inheritable(report_fd, True)
+                env[REPORT_FD_ENV] = str(report_fd)
                 # The reviewed argv is fixed and never enables a shell.
                 completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-                    argv, cwd=workdir, env=CHILD_ENV, stdout=out, stderr=err,
-                    timeout=self.timeout_s, check=False,
+                    argv, cwd=workdir, env=env, stdout=out, stderr=err,
+                    timeout=self.timeout_s, check=False, pass_fds=(report_fd,),
                 )
                 out.seek(0)
                 stdout = out.read(MAX_OUTPUT_BYTES + 1)
+                report_file.seek(0)
+                body = report_file.read(MAX_OUTPUT_BYTES + 1)
         except subprocess.TimeoutExpired:
             entry.update(timed_out=True, stderr_tail=_tail(_bounded(stderr_path)))
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            body = _bounded(report_path) if report_path.is_file() else b""
             report = _parse_report(job, completed.returncode, stdout, body)
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)

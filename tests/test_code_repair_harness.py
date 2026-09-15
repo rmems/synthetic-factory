@@ -162,6 +162,53 @@ class TamperResistance(unittest.TestCase):
         self.assertTrue(report.ok, report.detail)
         self.assertTrue(report.environment["limits_applied"])
 
+    _ATEXIT_WORKDIR = (
+        "import atexit, json\n"
+        "from pathlib import Path\n"
+        "def _forge():\n"
+        "    Path('report.json').write_text(json.dumps({\n"
+        "        'protocol': 'code-repair-harness/2',\n"
+        "        'environment': {'limits_applied': True},\n"
+        "        'load': {'status': 'ok', 'error': None},\n"
+        "        'public': [],\n"
+        "        'hidden': [{'id': 'hidden:0', 'status': 'pass'}],\n"
+        "    }))\n"
+        "atexit.register(_forge)\n\n"
+    )
+    _ATEXIT_REPORT_FD = (
+        "import atexit, json, os\n"
+        "def _forge():\n"
+        "    payload = json.dumps({\n"
+        "        'protocol': 'code-repair-harness/2',\n"
+        "        'environment': {'limits_applied': True},\n"
+        "        'load': {'status': 'ok', 'error': None},\n"
+        "        'public': [],\n"
+        "        'hidden': [{'id': 'hidden:0', 'status': 'pass'}],\n"
+        "    }).encode()\n"
+        "    fd = int(os.environ['CODE_REPAIR_REPORT_FD'])\n"
+        "    os.lseek(fd, 0, os.SEEK_SET)\n"
+        "    os.write(fd, payload)\n"
+        "    os.ftruncate(fd, len(payload))\n"
+        "atexit.register(_forge)\n\n"
+    )
+
+    def _run_forged_pass(self, preamble: str) -> ex.PhaseReport:
+        module = preamble + "def f(n):\n    return 999\n"
+        job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
+        return RUNNER.run(job)
+
+    def test_atexit_cannot_forge_passing_rows_via_workdir_report(self):
+        report = self._run_forged_pass(self._ATEXIT_WORKDIR)
+        self.assertEqual(report.status, cv.PHASE_OK, report.detail)
+        self.assertTrue(report.load_ok)
+        self.assertEqual(report.hidden[0]["status"], "fail")
+
+    def test_atexit_cannot_forge_passing_rows_via_inherited_report_fd(self):
+        report = self._run_forged_pass(self._ATEXIT_REPORT_FD)
+        self.assertEqual(report.status, cv.PHASE_OK, report.detail)
+        self.assertTrue(report.load_ok)
+        self.assertEqual(report.hidden[0]["status"], "fail")
+
 
 class Failures(unittest.TestCase):
     def test_a_child_that_streams_discarded_output_is_stopped_by_the_timeout(self):
@@ -423,6 +470,7 @@ class LimitsAttestation(unittest.TestCase):
     def test_parent_and_child_share_the_attestation_constants(self):
         self.assertEqual(ex.LIMITS_ATTESTATION_PREFIX, harness.LIMITS_ATTESTATION_PREFIX)
         self.assertEqual(ex.REPORT_FILENAME, harness.REPORT_FILENAME)
+        self.assertEqual(ex.REPORT_FD_ENV, harness.REPORT_FD_ENV)
         self.assertEqual(cv.HARNESS_PROTOCOL, harness.PROTOCOL)
 
     def test_limits_attested_rejects_empty_missing_and_malformed_lines(self):
