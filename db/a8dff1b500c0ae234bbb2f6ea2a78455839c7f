@@ -1,0 +1,23 @@
+pipelines/amc/__init__.py
+  s_363044dbb51d5e::t_71cd910a020d5a 1,3-22,25,27-28,30,32-40,42,45
+tests/test_amc.py
+  s_363044dbb51d5e::t_a5ba4f26814d2a 2,5-6,10-22,24-63,65-78,80-81,83-109,113,115,121,125-171
+pipelines/amc/catalog.py
+  s_363044dbb51d5e::t_d00d16fe25b658 2,7-8,13-34,36-103,108,110-111,114-115,118,122-130,134-136,139-147,150-267,269-272,275-292,294-308,310-320,324-376,378-412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dba8dff1b500c0ae234bbb2f6ea2a78455839c7f",
+  "prompts": {},
+  "sessions": {
+    "s_363044dbb51d5e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "780d5d2f-af53-43f9-bfe5-fdb3c44232e4",
+        "model": "cursor-grok-4.6-xhigh-fast"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
