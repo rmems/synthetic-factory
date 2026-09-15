@@ -1,0 +1,40 @@
+{
+  "schema_id": "ewr-catalog/v2",
+  "family_prefix": "ewr",
+  "factory": "email-webhook-retry-factory",
+  "generator": "grok-4.6",
+  "quota_per_round": 2,
+  "n_mills": 2,
+  "n_pairs": 32,
+  "n_plant_pairs": 16,
+  "n_mapping_pairs": 16,
+  "pairs_filename": "pairs.jsonl",
+  "pairs_sha256": "851928c4c83b87f04beaa676e5d176704c59f31e6593ccb57cf38d5eaa3f3c2c",
+  "extraction": "AST literals only; legacy modules were never imported or executed",
+  "source": {
+    "lane": "legacy-mill-lane",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642"
+  },
+  "mills": [
+    {
+      "mill_id": "ewr-leftover3-r40",
+      "source_format": "plants-v1",
+      "path": "experiments/ewr_leftover3_mill.py",
+      "sha256": "607ea5ed58611c410f8b7d5d5746c9d745588226e62646d77aa3b34676abfdbf",
+      "plants": "experiments/ewr_leftover3_plants.py",
+      "plants_sha256": "cfe8e4334c7ae6f0d592e262fafa34bd7da590b2a1f24d59100f82284ffcbd2a",
+      "catalog_first": 40,
+      "n_pairs": 16
+    },
+    {
+      "mill_id": "ewr-lll-r56",
+      "source_format": "mapping-v1",
+      "path": "experiments/mill_leftover_leftover_leftover_r56.py",
+      "sha256": "38a1304441ecb930579fe3e3fc065e704c3f18db746170c103c3965769f84fb5",
+      "catalog_first": 56,
+      "n_pairs": 16,
+      "first_slug": "pm-serverid-bind",
+      "last_slug": "fb-msgid-bind"
+    }
+  ]
+}
