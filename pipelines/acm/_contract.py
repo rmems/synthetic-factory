@@ -33,12 +33,19 @@ CATALOG_FORMAT = "acm-catalog/1"
 SOURCE_REF = "legacy-mill-lane"
 SOURCE_COMMIT = "6d5ed0c1cac87618a05fab37f2e59bebca0a6031"
 VENDOR_PREFIX = "acm-mill-"
+LOOP_PREFIX = "acm-loop-"
+ROWS_FILENAME = "rows.jsonl"
 # Wrap-mill cartesian leftovers. Historical plant needles stay in the catalog
 # bans table but must not convict a later distinct slug that happens to overlap.
 WRAP_NEEDLES = ("w131", "422-vs-400", "207-multistatus")
-# Full extract on legacy-mill-lane. This PR commits a representative slice.
+# Full extract on legacy-mill-lane. #255 committed 8 representative rows;
+# this slice commits the remaining 1044 as compact rows.jsonl.
 FULL_ROW_COUNT = 1052
 FULL_SOURCE_FILES = 95
+REPRESENTATIVE_ROW_COUNT = 8
+DEFERRED_ROW_COUNT = 1044
+if REPRESENTATIVE_ROW_COUNT + DEFERRED_ROW_COUNT != FULL_ROW_COUNT:
+    raise ImportError("representative plus deferred ACM rows must total 1052")
 
 REVIEWED_HOME = REVIEWED_MILL_PREFIX_HOMES[FAMILY]
 if REVIEWED_HOME != FACTORY_NAME:
@@ -49,17 +56,20 @@ if REVIEWED_HOME != FACTORY_NAME:
 
 
 def refuse_vendor_paths(paths: Iterable[Path | str]) -> None:
-    """Fail closed if any path would vendor an ``acm-mill*.py`` script."""
+    """Fail closed if any path would vendor an ``acm-mill*`` or ``acm-loop*`` script."""
 
     for raw in paths:
         name = Path(raw).name
-        if name.startswith(VENDOR_PREFIX) and name.endswith(".py"):
+        if not name.endswith(".py"):
+            continue
+        if name.startswith(VENDOR_PREFIX) or name.startswith(LOOP_PREFIX):
             raise SystemExit(f"refusing to vendor {name}")
 
 
 __all__ = [
     "CATALOG_FORMAT",
     "CATALOG_ID",
+    "DEFERRED_ROW_COUNT",
     "FACTORY",
     "FACTORY_NAME",
     "FAMILY",
@@ -67,8 +77,11 @@ __all__ = [
     "FULL_SOURCE_FILES",
     "GENERATOR",
     "ID_PREFIX",
+    "LOOP_PREFIX",
     "QUOTA",
+    "REPRESENTATIVE_ROW_COUNT",
     "REVIEWED_HOME",
+    "ROWS_FILENAME",
     "SOURCE_COMMIT",
     "SOURCE_REF",
     "STEPS",

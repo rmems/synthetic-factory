@@ -22,6 +22,9 @@
   },
   "catalog_id": "api-contract-migration-v1",
   "extract": {
+    "deferred_row_count": 1044,
+    "deferred_rows": "rows.jsonl",
+    "deferred_rows_sha256": "6d3f0343fe6b3fc8ec6b9d9c9f28bbb56510f6cce35cc3a42d95c221ea1142c0",
     "exec": false,
     "full_row_count": 1052,
     "full_source_files": 95,
