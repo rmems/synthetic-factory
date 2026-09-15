@@ -352,7 +352,9 @@ def _mill(raw: Any, context: str, grouped: dict[str, list[CompactPair]]) -> Mill
     return MillCatalog(
         source_path=source_path,
         mill_id=mill_id,
-        source_blob_sha1=_text(row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1),
+        source_blob_sha1=_text(
+            row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1
+        ),
         source_sha256=_text(row["source_sha256"], f"{context}.source_sha256", pattern=_SHA256),
         kind=kind,
         shape=_text(row["shape"], f"{context}.shape"),
@@ -373,7 +375,9 @@ def _loop(raw: Any, context: str) -> LoopSource:
     return LoopSource(
         mill_id=_text(row["mill_id"], f"{context}.mill_id"),
         source_path=_text(row["source_path"], f"{context}.source_path"),
-        source_blob_sha1=_text(row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1),
+        source_blob_sha1=_text(
+            row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1
+        ),
         companion_mill_path=_text(row["companion_mill_path"], f"{context}.companion_mill_path"),
     )
 
