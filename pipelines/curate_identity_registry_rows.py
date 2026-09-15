@@ -48,6 +48,9 @@ else:
     )
 
 IdentityCurationError = _identity_json.IdentityCurationError
+INTENDED_USES = _fields.INTENDED_USES
+PROJECT_TRAINING_POLICIES = _fields.PROJECT_TRAINING_POLICIES
+RIGHTS_PROFILE_IDS = _fields.RIGHTS_PROFILE_IDS
 
 CONTRACT_REQUIRE_STATE = "require_state_claim"
 CONTRACT_SHAPE_DESIGNED = "synthetic_shape_implies_designed"

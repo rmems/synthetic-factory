@@ -113,8 +113,19 @@ LEGACY_REGISTRY_SCHEMA_VERSION = _identity_registry.LEGACY_REGISTRY_SCHEMA_VERSI
 SUPPORTED_REGISTRY_SCHEMA_VERSIONS = _identity_registry.SUPPORTED_REGISTRY_SCHEMA_VERSIONS
 _RIGHTS_ROW_FIELDS = _identity_registry._RIGHTS_ROW_FIELDS
 _REVIEWED_GENERATOR_RIGHTS = _identity_registry._REVIEWED_GENERATOR_RIGHTS
+CANONICAL_PROVIDERS = _identity_registry.CANONICAL_PROVIDERS
+CHANNELS = _identity_registry.CHANNELS
+HOSTED_FRONTIER_PROFILE_ID = _identity_registry.HOSTED_FRONTIER_PROFILE_ID
+INTENDED_USES = _identity_registry.INTENDED_USES
+PROJECT_TRAINING_POLICIES = _identity_registry.PROJECT_TRAINING_POLICIES
+PROVIDERS = _identity_registry.PROVIDERS
+RIGHTS_AUTHORIZATIONS = _identity_registry.RIGHTS_AUTHORIZATIONS
+RIGHTS_CHANNELS = _identity_registry.RIGHTS_CHANNELS
+RIGHTS_PROFILE_IDS = _identity_registry.RIGHTS_PROFILE_IDS
 # Facade-owned process cache: publication-boundary tests patch this name.
-_DEFAULT_REGISTRY = None
+# Copy a sibling cache that default_registry already populated so load-once
+# survives importing the facade second.
+_DEFAULT_REGISTRY = _identity_registry._DEFAULT_REGISTRY
 
 
 IdentityCurationError = _identity_json.IdentityCurationError
@@ -178,6 +189,8 @@ class _ManifestReplay:
 _reject_unpaired_surrogates = _identity_json._reject_unpaired_surrogates
 canonical_json = _identity_json.canonical_json
 sha256_json = _identity_json.sha256_json
+ExactJSONFloat = _identity_json.ExactJSONFloat
+dumps_exact_json = _identity_json.dumps_exact_json
 _canonical_json_equal = _identity_json._canonical_json_equal
 _require_canonical_json_equal = _identity_json._require_canonical_json_equal
 _reject_json_constant = _identity_json._reject_json_constant

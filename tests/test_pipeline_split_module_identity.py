@@ -237,12 +237,33 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             direct["curate_identity"].default_registry,
             direct["curate_identity_registry"].default_registry,
         )
+        self.assertIs(
+            direct["curate_identity"].ExactJSONFloat,
+            direct["curate_identity_json"].ExactJSONFloat,
+        )
+        self.assertIs(
+            direct["curate_identity"].dumps_exact_json,
+            direct["curate_identity_json"].dumps_exact_json,
+        )
+        self.assertIs(
+            direct["curate_identity"].PROVIDERS,
+            direct["curate_identity_registry"].PROVIDERS,
+        )
 
     def test_all_new_split_modules_retain_identity_direct_first(self):
         self._assert_new_split_module_identity("direct")
 
     def test_all_new_split_modules_retain_identity_package_first(self):
         self._assert_new_split_module_identity("package")
+
+    def test_facade_adopts_sibling_registry_cache_when_imported_second(self):
+        with isolated_pipeline_modules(NEW_SPLIT_MODULES):
+            with direct_pipeline_path():
+                registry = pipeline_import_catalog.load_direct("curate_identity_registry")
+                loaded = registry.default_registry()
+                identity = pipeline_import_catalog.load_direct("curate_identity")
+            self.assertIs(identity._DEFAULT_REGISTRY, loaded)
+            self.assertIs(identity.default_registry(), loaded)
 
     def test_run_support_modules_import_first_in_both_modes(self):
         for name in RUN_SUPPORT_MODULES:
