@@ -135,13 +135,16 @@ def _call_values(node: ast.Call) -> dict[str, Any] | None:
     return values
 
 
-def _keel_noun_base(node: ast.AST) -> int | None:
-    """Parse ``f\"keel{800 + i}\"`` from a ``_p`` noun positional in a ``_RAW`` expand loop."""
+def _indexed_noun_base(node: ast.AST) -> tuple[str, int] | None:
+    """Parse ``f\"{{prefix}}{{base + i}}\"`` from a ``_p`` noun in a ``_RAW`` expand loop."""
 
     if not isinstance(node, ast.JoinedStr) or len(node.values) != 2:
         return None
-    prefix, formatted = node.values
-    if not isinstance(prefix, ast.Constant) or prefix.value != "keel":
+    prefix_node, formatted = node.values
+    if not isinstance(prefix_node, ast.Constant) or not isinstance(prefix_node.value, str):
+        return None
+    prefix = prefix_node.value
+    if prefix not in {"keel", "atoll"}:
         return None
     if not isinstance(formatted, ast.FormattedValue):
         return None
@@ -149,7 +152,7 @@ def _keel_noun_base(node: ast.AST) -> int | None:
     if isinstance(inner, ast.BinOp) and isinstance(inner.op, ast.Add):
         if isinstance(inner.left, ast.Constant) and isinstance(inner.left.value, int):
             if isinstance(inner.right, ast.Name) and inner.right.id == "i":
-                return inner.left.value
+                return prefix, inner.left.value
     return None
 
 
@@ -178,7 +181,7 @@ def _raw_rows_from_tree(tree: ast.AST) -> list[tuple[Any, ...]] | None:
     return None
 
 
-def _raw_noun_base_from_tree(tree: ast.AST) -> int | None:
+def _raw_noun_base_from_tree(tree: ast.AST) -> tuple[str, int] | None:
     for node in tree.body:
         if not isinstance(node, ast.For):
             continue
@@ -208,20 +211,25 @@ def _raw_noun_base_from_tree(tree: ast.AST) -> int | None:
                 and len(plant_call.args) >= 3
             ):
                 continue
-            base = _keel_noun_base(plant_call.args[2])
-            if base is not None:
-                return base
+            indexed = _indexed_noun_base(plant_call.args[2])
+            if indexed is not None:
+                return indexed
     return None
 
 
 def _plants_from_raw_enumerate(tree: ast.AST) -> tuple[Plant, ...] | None:
-    """Expand literal ``_RAW`` rows using the pinned ``keel{{base + i}}`` loop shape."""
+    """Expand literal ``_RAW`` rows using the pinned ``{{prefix}}{{base + i}}`` loop shape."""
 
     rows = _raw_rows_from_tree(tree)
     if rows is None:
         return None
-    base = _raw_noun_base_from_tree(tree)
-    refuse_when(base is None, FINDING_AST_NOT_A_PLANT, "_RAW expand loop has no keel{{base + i}} noun")
+    indexed = _raw_noun_base_from_tree(tree)
+    refuse_when(
+        indexed is None,
+        FINDING_AST_NOT_A_PLANT,
+        "_RAW expand loop has no indexed {{prefix}}{{base + i}} noun",
+    )
+    prefix, base = indexed
     ordered: list[Plant] = []
     for index, row in enumerate(rows):
         refuse_when(
@@ -257,7 +265,7 @@ def _plants_from_raw_enumerate(tree: ast.AST) -> tuple[Plant, ...] | None:
         mapping = {
             "family": family,
             "slug": family,
-            "noun": f"keel{base + index}",
+            "noun": f"{prefix}{base + index}",
             "title": title,
             "core": core,
             "boot": boot,
