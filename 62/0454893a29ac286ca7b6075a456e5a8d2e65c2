@@ -1,0 +1,21 @@
+tests/test_agentic_shapes.py
+  s_89b67de53a7e48::t_1747f126486bf9 1206-1230
+pipelines/round_txn_agentic_cascade.py
+  s_89b67de53a7e48::t_96c213e50ee5b5 219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "620454893a29ac286ca7b6075a456e5a8d2e65c2",
+  "prompts": {},
+  "sessions": {
+    "s_89b67de53a7e48": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "60c0b5ca-bb7b-4355-bc29-37403a81547d",
+        "model": "cursor-grok-4.6-xhigh"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
