@@ -450,7 +450,8 @@ class RightsPolicyTests(RightsPolicyTestCase):
         )
         hosted_profile["reason_codes"].append("UNKNOWN_PROVENANCE")
         for rule in document["rules"]:
-            rule["reason_codes"].append("UNKNOWN_PROVENANCE")
+            if rule["rights_profile_id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID:
+                rule["reason_codes"].append("UNKNOWN_PROVENANCE")
 
         checks = (
             ("object validation", lambda: rights_policy.validate_rights_policy(document)),

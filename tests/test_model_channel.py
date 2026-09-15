@@ -158,7 +158,7 @@ class ModelChannelPolicyTests(unittest.TestCase):
         )
         self.assertNotIn(
             "minimax/minimax-m3",
-            {row.model_id for row in policy.reviewed_rows()},
+            {row["model_id"] for row in policy.reviewed_rows()},
         )
 
     def test_openrouter_snapshot_membership_is_the_authority(self):
