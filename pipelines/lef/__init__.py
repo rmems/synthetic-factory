@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """llm-eval-flakiness mill family (``lef``): AST catalog extract and package skeleton.
 
-PR-a. Catalog rows are extracted from ``origin/legacy-mill-lane`` mill sources
-via :mod:`lef.catalog_extract`. The mill publishers themselves are not
-vendored and are never executed.
+Catalog rows are extracted from ``origin/legacy-mill-lane`` mill sources via
+:mod:`lef.catalog_extract`. The mill publishers themselves are not vendored
+and are never executed. ``rows.jsonl`` holds the r629 + r728 + r968 tables.
 """
 
 from . import vocabulary

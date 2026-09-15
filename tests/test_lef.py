@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/lef`` skeleton (no vendored mills)."""
+"""lef catalog extract: full r629+r728+r968 slice, no vendored mills."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from lef.catalog_extract import (  # noqa: E402
     catalog_document,
     catalog_json_path,
     dumps_catalog,
+    dumps_rows,
     extract_companion_path,
     extract_mill_catalog,
     extract_nums_formula,
@@ -234,8 +235,9 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.n_catalog_rows, 682)
         self.assertEqual(CATALOG.n_pair_slots, 2046)
         self.assertEqual(CATALOG.n_table_rows, 4092)
-        self.assertEqual(CATALOG.slice, "r629")
+        self.assertEqual(CATALOG.slice, "full")
         self.assertEqual(CATALOG.preserve_commit, lv.PRESERVE_COMMIT)
+        self.assertEqual(tuple(CATALOG.mills), lv.COMMITTED_MILL_IDS)
         r629 = CATALOG.mills["lef-mill-r629"]
         self.assertEqual(r629.n_rows, 48)
         self.assertEqual(r629.catalog_first, 629)
@@ -247,13 +249,17 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertEqual(r728.first_slug, "cuda-graph-capture-unkeyed")
         self.assertEqual(r728.last_slug, "nbd-timeout-unkeyed")
         self.assertEqual(r728.banned_slugs, ("conll-coref-avg", "simpson-policy-mix"))
-        self.assertIsNone(r728.tables)
+        self.assertEqual(len(r728.tables["CACHE_OK"]), 80)
+        self.assertEqual(r728.tables["CACHE_OK"][0][0], r728.first_slug)
+        self.assertEqual(r728.tables["CACHE_OK"][-1][0], r728.last_slug)
         r968 = CATALOG.mills["lef-mill-r968"]
         self.assertEqual(r968.n_rows, 554)
         self.assertEqual(r968.shape, SHAPE_STEMS)
         self.assertEqual(r968.first_slug, "tsc-offset-unkeyed")
         self.assertEqual(r968.last_slug, "iwd-roam-unkeyed")
-        self.assertIsNone(r968.tables)
+        self.assertEqual(len(r968.tables["CACHE_OK"]), 554)
+        self.assertEqual(r968.tables["CACHE_OK"][0][0], r968.first_slug)
+        self.assertEqual(r968.tables["CACHE_OK"][-1][0], r968.last_slug)
         self.assertIsNone(r968.stems)
         self.assertEqual(r968.nums, lv.NUMS_FORMULA)
         self.assertEqual(CATALOG.slugs.n_rows, 2095)
@@ -277,12 +283,33 @@ class LefSkeletonTests(unittest.TestCase):
         path = REPO / "pipelines" / "lef" / lv.ROWS_FILENAME
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
-        self.assertEqual(len(lines), 48)
+        self.assertEqual(len(lines), lv.COMMITTED_ROW_COUNT)
+        self.assertEqual(len(lines), 48 + 80 + 554)
         self.assertTrue(text.endswith("\n"))
         self.assertNotIn("\r", text)
+        parsed = []
         for line in lines:
             self.assertFalse(line.startswith((" ", "\t")))
-            json.loads(line)
+            parsed.append(json.loads(line))
+        self.assertEqual(parsed[0]["i"], 0)
+        self.assertEqual(parsed[-1]["i"], lv.COMMITTED_ROW_COUNT - 1)
+        self.assertEqual(parsed[0]["CACHE_OK"][0], "azure-api-version-unkeyed")
+        self.assertEqual(parsed[47]["CACHE_OK"][0], "candidate-count-unkeyed")
+        self.assertEqual(parsed[48]["CACHE_OK"][0], "cuda-graph-capture-unkeyed")
+        self.assertEqual(parsed[127]["CACHE_OK"][0], "nbd-timeout-unkeyed")
+        self.assertEqual(parsed[128]["CACHE_OK"][0], "tsc-offset-unkeyed")
+        self.assertEqual(parsed[681]["CACHE_OK"][0], "iwd-roam-unkeyed")
+
+    def test_dumps_rows_rebuilds_committed_jsonl(self):
+        path = REPO / "pipelines" / "lef" / lv.ROWS_FILENAME
+        start = 0
+        chunks = []
+        for mill_id in lv.COMMITTED_MILL_IDS:
+            mill = CATALOG.mills[mill_id]
+            chunks.append(dumps_rows(mill.tables, start_index=start))
+            start += mill.n_rows
+        self.assertEqual("".join(chunks), path.read_text(encoding="utf-8"))
+        self.assertEqual(start, lv.COMMITTED_ROW_COUNT)
 
 
 class LefLegacyExtractTests(unittest.TestCase):
@@ -310,13 +337,12 @@ class LefLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            if source.mill_id == lv.SLICE_MILL_ID:
-                for name in lv.TABLE_NAMES:
-                    self.assertEqual(
-                        tuple(tuple(row) for row in live["tables"][name]),
-                        committed.tables[name],
-                        source.mill_id,
-                    )
+            for name in lv.TABLE_NAMES:
+                self.assertEqual(
+                    tuple(tuple(row) for row in live["tables"][name]),
+                    committed.tables[name],
+                    source.mill_id,
+                )
             mills.append(mill_summary(live, include_tables=False))
         slugs_source = slug_sources()[0]
         slugs_text = subprocess.check_output(

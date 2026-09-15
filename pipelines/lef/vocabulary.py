@@ -2,9 +2,10 @@
 """Vocabulary for the ``lef`` mill family (llm-eval-flakiness lane).
 
 The reviewed mill prefix ``lef`` maps to ``llm-eval-flakiness-factory`` in
-``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts the
+``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracted the
 six flake-class catalogs from the 7 ``legacy-mill-lane`` scripts without
-vendoring ``lef-mill*.py`` and without executing a publisher.
+vendoring ``lef-mill*.py`` and without executing a publisher. The second
+slice commits the deferred r728 and r968 table rows into ``rows.jsonl``.
 """
 
 from __future__ import annotations
@@ -15,13 +16,15 @@ GENERATOR = "grok-4.6"
 RECORD_ID_PREFIX = FAMILY_PREFIX
 QUOTA_PER_ROUND = 2
 CATALOG_SCHEMA_ID = "lef-catalog-extract/v1"
-SLICE_ID = "r629"
+SLICE_ID = "full"
 DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "02d05373e4144ab609ec141b28fd4c52a4174f21"
 CATALOG_FILENAME = "CATALOG.json"
 ROWS_FILENAME = "rows.jsonl"
 SLICE_MILL_ID = "lef-mill-r629"
+COMMITTED_MILL_IDS = ("lef-mill-r629", "lef-mill-r728", "lef-mill-r968")
+COMMITTED_ROW_COUNT = 682
 PAIR_BUCKETS = 3
 
 KIND_TABLES = "tables"

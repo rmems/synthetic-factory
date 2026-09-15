@@ -109,7 +109,7 @@
   "n_table_rows": 4092,
   "preserve_commit": "02d05373e4144ab609ec141b28fd4c52a4174f21",
   "schema": "lef-catalog-extract/v1",
-  "slice": "r629",
+  "slice": "full",
   "slice_mill": "lef-mill-r629",
   "slice_rows_file": "rows.jsonl",
   "slugs": {
