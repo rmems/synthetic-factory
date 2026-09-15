@@ -358,6 +358,18 @@
   "n_pair_rows": 1986,
   "preserve_commit": "51bc810cd2cdd753e97b1ae737d5fa5b00b92478",
   "schema": "iac-catalog-extract/v1",
-  "slice": "r609",
-  "source_ref": "origin/legacy-mill-lane"
+  "slice": "mill_plants",
+  "source_ref": "origin/legacy-mill-lane",
+  "archive_b": {
+    "blob_sha": "af10345ae8103af86c05e58355559c5bcd795a8b",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "first_slug": "ansible-skip-if-unused",
+    "last_slug": "tf-already-used-address",
+    "n_plants": 8,
+    "path": "scripts/infra_as_code_mill/mill_plants.py",
+    "ref": "origin/legacy-mill-lane",
+    "sha256": "d2d60f15dafbb666299f1be1f2df7bcdc60aafd9dfc2fda17310f97273f0c585",
+    "shape": "ok-fail-label"
+  },
+  "plants_sha256": "7d09efb34705757abef1a38be171d6e748234be838ccbef46a1d2045258405fb"
 }
