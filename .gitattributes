@@ -1,0 +1,2 @@
+# oracle.module_digest hashes these bytes; a CRLF checkout must not change it.
+pipelines/oracle_grounded/*.py text eol=lf
