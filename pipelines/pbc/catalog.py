@@ -15,6 +15,7 @@ from ._contract import (
     CATALOG_FORMAT,
     CATALOG_ID,
     DEFAULT_PLAN_PATH,
+    DEFERRED_MILL_IDS,
     FACTORY,
     FAMILY,
     FULL_EPISODE_COUNT,
@@ -186,26 +187,51 @@ def load_catalog(directory: Path | None = None) -> PbcCatalog:
     pairs = tuple(_pair_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, 1))
     if len(pairs) != SLICE_PAIR_COUNT or len(pairs) != header.get("row_count"):
         raise PlanValidationError("first-slice row_count drifted")
+    extract_deferred = extract.get("deferred_mills")
+    if extract_deferred != sorted(DEFERRED_MILL_IDS):
+        raise PlanValidationError("extract.deferred_mills drifted")
+    by_mill: dict[str, list[PlantPair]] = {}
+    for pair in pairs:
+        by_mill.setdefault(pair.mill_id, []).append(pair)
     mill_rows = header.get("mills")
     if not isinstance(mill_rows, list) or len(mill_rows) != FULL_MILL_COUNT:
         raise PlanValidationError("catalog mills must list the eight burst mills")
     mills = []
     for raw in mill_rows:
         mill_id = raw["mill_id"]
-        pair = next(item for item in pairs if item.mill_id == mill_id)
+        deferred = bool(raw.get("deferred")) or mill_id in DEFERRED_MILL_IDS
+        if deferred:
+            if by_mill.get(mill_id):
+                raise PlanValidationError(f"{mill_id} is deferred but has committed pairs")
+            mills.append(
+                MillBurstSpec(
+                    mill_id=mill_id,
+                    source=str(raw["source"]),
+                    start_round=int(raw["start_round"]),
+                    n_rounds=0,
+                    pair_count=0,
+                    full_n_rounds=int(raw["full_n_rounds"]),
+                )
+            )
+            continue
+        mill_pairs = by_mill.get(mill_id)
+        if not mill_pairs:
+            raise PlanValidationError(f"{mill_id} has no committed pairs")
+        first = mill_pairs[0]
+        n_committed = len(mill_pairs)
         mills.append(
             MillBurstSpec(
                 mill_id=mill_id,
                 source=str(raw["source"]),
                 start_round=int(raw["start_round"]),
-                n_rounds=1,
-                pair_count=1,
+                n_rounds=n_committed,
+                pair_count=n_committed,
                 full_n_rounds=int(raw["full_n_rounds"]),
             )
         )
-        if pair.ok["slug"] != raw["first_ok_slug"] or pair.bad["slug"] != raw["first_bad_slug"]:
+        if first.ok["slug"] != raw["first_ok_slug"] or first.bad["slug"] != raw["first_bad_slug"]:
             raise PlanValidationError(f"{mill_id} first-slice slugs drifted")
-        if pair.full_n_rounds != raw["full_n_rounds"]:
+        if first.full_n_rounds != raw["full_n_rounds"]:
             raise PlanValidationError(f"{mill_id} full_n_rounds drifted")
     return PbcCatalog(
         catalog_id=CATALOG_ID,
@@ -256,10 +282,12 @@ def load_mill_usage_burst_plan(
     mills = []
     for entry in mills_raw:
         mill_id = _require_str(entry.get("id"), "mills[].id")
+        if mill_id in DEFERRED_MILL_IDS:
+            raise PlanValidationError(f"{mill_id} must be listed under deferred_mills, not mills")
         n_rounds = _require_int(entry.get("n_rounds"), "mills[].n_rounds")
         pair_count = _require_int(entry.get("pair_count"), "mills[].pair_count")
-        if n_rounds != 1 or pair_count != 1:
-            raise PlanValidationError(f"{mill_id}: first-slice n_rounds/pair_count must be 1")
+        if n_rounds < 1 or pair_count != n_rounds:
+            raise PlanValidationError(f"{mill_id}: pair_count must equal n_rounds")
         mills.append(
             MillBurstSpec(
                 mill_id=mill_id,
@@ -270,6 +298,17 @@ def load_mill_usage_burst_plan(
                 full_n_rounds=_require_int(entry.get("full_n_rounds"), "mills[].full_n_rounds"),
             )
         )
+    deferred_raw = raw.get("deferred_mills")
+    if not isinstance(deferred_raw, list):
+        raise PlanValidationError("deferred_mills must be a list")
+    deferred_ids = []
+    for entry in deferred_raw:
+        mill_id = _require_str(entry.get("id"), "deferred_mills[].id")
+        if mill_id not in DEFERRED_MILL_IDS:
+            raise PlanValidationError(f"unexpected deferred mill {mill_id!r}")
+        deferred_ids.append(mill_id)
+    if set(deferred_ids) != set(DEFERRED_MILL_IDS):
+        raise PlanValidationError("deferred_mills must cover every deferred catalog mill")
     plan = MillUsageBurstPlan(
         path=plan_path,
         family_prefix=FAMILY,
@@ -285,15 +324,21 @@ def load_mill_usage_burst_plan(
         for key, value in plan.counts().items():
             if totals.get(key) != value:
                 raise PlanValidationError(f"totals.{key} is {totals.get(key)!r}, expected {value}")
+        if totals.get("deferred_mills") != len(DEFERRED_MILL_IDS):
+            raise PlanValidationError("totals.deferred_mills drifted")
         if totals.get("full_pairs") != FULL_PAIR_COUNT:
             raise PlanValidationError("totals.full_pairs drifted from the full extract")
         if totals.get("full_episodes") != FULL_EPISODE_COUNT:
             raise PlanValidationError("totals.full_episodes drifted from the full extract")
     if validate_plants:
         loaded = load_catalog()
+        active_loaded = [m for m in loaded.mills if m.mill_id not in DEFERRED_MILL_IDS]
         ids = [m.mill_id for m in plan.mills]
-        if ids != [m.mill_id for m in loaded.mills]:
-            raise PlanValidationError("plan mill order drifted from CATALOG.json")
+        if ids != [m.mill_id for m in active_loaded]:
+            raise PlanValidationError("plan mill order drifted from committed CATALOG mills")
+        for plan_mill, cat_mill in zip(plan.mills, active_loaded, strict=True):
+            if plan_mill.n_rounds != cat_mill.n_rounds or plan_mill.pair_count != cat_mill.pair_count:
+                raise PlanValidationError(f"{plan_mill.mill_id} committed pair counts drifted")
         if plan.counts()["pairs"] != SLICE_PAIR_COUNT:
             raise PlanValidationError("plan first-slice pair count drifted")
     return plan

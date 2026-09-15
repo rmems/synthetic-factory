@@ -33,8 +33,9 @@ class PbcIdentityTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[_contract.FAMILY], _contract.FACTORY)
         self.assertEqual(_contract.REVIEWED_HOME, _contract.FACTORY_NAME)
-        self.assertEqual(_contract.SLICE_PAIR_COUNT, 8)
+        self.assertEqual(_contract.SLICE_PAIR_COUNT, 36)
         self.assertEqual(_contract.FULL_PAIR_COUNT, 708)
+        self.assertEqual(_contract.DEFERRED_MILL_IDS, frozenset({"pbc_r787"}))
 
     def test_refuse_vendor_paths_fails_closed(self):
         with self.assertRaises(SystemExit) as caught:
@@ -48,7 +49,7 @@ class PbcCatalogTests(unittest.TestCase):
         self.assertEqual(plan.slice, "A")
         self.assertEqual(
             plan.counts(),
-            {"mills": 8, "rounds": 8, "pairs": 8, "episodes": 16},
+            {"mills": 7, "rounds": 36, "pairs": 36, "episodes": 72},
         )
         self.assertEqual(
             [mill.mill_id for mill in plan.mills],
@@ -56,23 +57,31 @@ class PbcCatalogTests(unittest.TestCase):
                 "pbc_r701",
                 "pbc_r731",
                 "pbc_r751",
-                "pbc_r787",
                 "pbc_r803",
                 "pbc_r966",
                 "pbc_r988",
                 "pbc_r2535",
             ],
         )
+        self.assertNotIn("pbc_r787", [mill.mill_id for mill in plan.mills])
         self.assertNotIn(_contract.LEFTOVER_MILL_ID, [mill.mill_id for mill in plan.mills])
 
     def test_catalog_pins_first_pair_slugs(self):
         loaded = catalog.load_catalog()
-        self.assertEqual(len(loaded.pairs), 8)
+        self.assertEqual(len(loaded.pairs), 36)
+        r701 = [pair for pair in loaded.pairs if pair.mill_id == "pbc_r701"]
+        self.assertEqual(len(r701), 30)
         first = loaded.mill("pbc_r701")
         self.assertEqual(first.ok["slug"], "map-key-sfixed32-to-uint32")
         self.assertEqual(first.bad["slug"], "float-to-double-temp")
         self.assertEqual(loaded.header["extract"]["leftover_first_slug"], "date-to-int32-poured")
+        self.assertEqual(loaded.header["extract"]["deferred_mills"], ["pbc_r787"])
         self.assertFalse(loaded.header["extract"]["exec"])
+        with self.assertRaises(KeyError):
+            loaded.mill("pbc_r787")
+        deferred = next(m for m in loaded.mills if m.mill_id == "pbc_r787")
+        self.assertEqual(deferred.pair_count, 0)
+        self.assertEqual(deferred.full_n_rounds, 175)
 
     def test_no_vendored_pbc_mill_scripts(self):
         hits = [

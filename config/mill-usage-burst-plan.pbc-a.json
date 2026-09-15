@@ -11,8 +11,8 @@
       "id": "pbc_r701",
       "source": "experiments/pbc-mill-r701.py",
       "start_round": 701,
-      "n_rounds": 1,
-      "pair_count": 1,
+      "n_rounds": 30,
+      "pair_count": 30,
       "full_n_rounds": 30
     },
     {
@@ -30,14 +30,6 @@
       "n_rounds": 1,
       "pair_count": 1,
       "full_n_rounds": 20
-    },
-    {
-      "id": "pbc_r787",
-      "source": "experiments/pbc-mill-r787.py",
-      "start_round": 787,
-      "n_rounds": 1,
-      "pair_count": 1,
-      "full_n_rounds": 175
     },
     {
       "id": "pbc_r803",
@@ -72,12 +64,22 @@
       "full_n_rounds": 90
     }
   ],
+  "deferred_mills": [
+    {
+      "id": "pbc_r787",
+      "source": "experiments/pbc-mill-r787.py",
+      "start_round": 787,
+      "full_n_rounds": 175,
+      "reason": "fat mill; first slice commits r701 full extract only"
+    }
+  ],
   "totals": {
-    "mills": 8,
-    "rounds": 8,
-    "pairs": 8,
-    "episodes": 16,
+    "mills": 7,
+    "rounds": 36,
+    "pairs": 36,
+    "episodes": 72,
     "full_pairs": 708,
-    "full_episodes": 1416
+    "full_episodes": 1416,
+    "deferred_mills": 1
   }
 }
