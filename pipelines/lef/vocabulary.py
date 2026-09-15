@@ -6,6 +6,8 @@ The reviewed mill prefix ``lef`` maps to ``llm-eval-flakiness-factory`` in
 six flake-class catalogs from the 7 ``legacy-mill-lane`` scripts without
 vendoring ``lef-mill*.py`` and without executing a publisher. The second
 slice commits the deferred r728 and r968 table rows into ``rows.jsonl``.
+The third slice AST-extracts Archive B ``mill_plants.py`` (r613–r620) into
+``plants.jsonl`` without vendoring ``scripts/llm_eval_flakiness_mill/*``.
 """
 
 from __future__ import annotations
@@ -27,10 +29,21 @@ COMMITTED_MILL_IDS = ("lef-mill-r629", "lef-mill-r728", "lef-mill-r968")
 COMMITTED_ROW_COUNT = 682
 PAIR_BUCKETS = 3
 
+ARCHIVE_B_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+PLANTS_SOURCE_PATH = "scripts/llm_eval_flakiness_mill/mill_plants.py"
+PLANTS_MILL_ID = "lef-mill-plants-a"
+PLANTS_CATALOG_FIRST = 613
+PLANTS_PAIR_COUNT = 8
+PLANTS_FILENAME = "plants.jsonl"
+PLANTS_BLOB_SHA = "98bf17417e6d5e25651c48febf09248b1ecabd34"
+OK_CALL = "_ok"
+BAD_CALL = "_bad"
+
 KIND_TABLES = "tables"
 KIND_STEMS = "stems"
 KIND_LOOP = "loop"
 KIND_SLUGS = "slugs"
+KIND_PLANTS = "plants"
 
 SHAPE_TABLES = "six-tables"
 SHAPE_STEMS = "stems"
@@ -122,6 +135,10 @@ VENDOR_PREFIXES = ("lef-mill-", "lef-loop-")
 FORBIDDEN_MILL_GLOBS = (
     "lef-mill*.py",
     "lef-loop*.py",
+    "mill_plants.py",
+    "mill_plants_*.py",
+    "mill_gen.py",
+    "mill.py",
 )
 SLUGS_FILENAME = ".lef-used-slugs.txt"
 CATALOG_ASSIGNMENT_NAMES = frozenset(

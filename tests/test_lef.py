@@ -15,6 +15,13 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from lef.catalog import CATALOG  # noqa: E402
+from lef.plants_extract import (  # noqa: E402
+    dumps_plants_jsonl,
+    extract_mill_plants_record,
+    extract_plant_pairs,
+    plants_jsonl_path,
+    sha256_bytes as plants_sha256_bytes,
+)
 from lef.catalog_extract import (  # noqa: E402
     SHAPE_STEMS,
     SHAPE_TABLES,
@@ -32,8 +39,10 @@ from lef.catalog_extract import (  # noqa: E402
 from lef.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from lef.sources import (  # noqa: E402
     MILL_SOURCES,
+    PLANT_SOURCE,
     catalog_sources,
     loop_sources,
+    plant_sources,
     slug_sources,
 )
 from lef import vocabulary as lv  # noqa: E402
@@ -177,17 +186,70 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertTrue(is_vendor_filename("lef-mill-r629.py"))
         self.assertTrue(is_vendor_filename("lef-loop-r629.py"))
         self.assertTrue(is_vendor_filename(".lef-used-slugs.txt"))
+        self.assertTrue(is_vendor_filename("mill_plants.py"))
+        self.assertTrue(is_vendor_filename("mill_plants_b.py"))
         self.assertFalse(is_vendor_filename("catalog_extract.py"))
+        self.assertFalse(is_vendor_filename("plants.jsonl"))
         self.assertFalse(is_vendor_filename("leftover_mill.py"))
         with self.assertRaises(SystemExit):
             refuse_vendor_paths([Path("experiments/lef-mill-r629.py")])
+        with self.assertRaises(SystemExit):
+            refuse_vendor_paths(
+                [Path("scripts/llm_eval_flakiness_mill/mill_plants.py")]
+            )
 
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "lef"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "catalog.py",
+            "identity.py",
+            "plants_extract.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
+
+    def test_archive_b_plant_source_pin(self):
+        self.assertEqual(len(plant_sources()), 1)
+        self.assertEqual(PLANT_SOURCE.mill_id, lv.PLANTS_MILL_ID)
+        self.assertEqual(PLANT_SOURCE.path, lv.PLANTS_SOURCE_PATH)
+        self.assertEqual(PLANT_SOURCE.blob_sha, lv.PLANTS_BLOB_SHA)
+
+    def test_committed_plants_catalog(self):
+        self.assertIsNotNone(CATALOG.plants)
+        plants = CATALOG.plants
+        assert plants is not None
+        self.assertEqual(plants.n_pairs, lv.PLANTS_PAIR_COUNT)
+        self.assertEqual(plants.catalog_first, lv.PLANTS_CATALOG_FIRST)
+        self.assertEqual(plants.first_ok_slug, "kappa-vs-geval-align")
+        self.assertEqual(plants.last_ok_slug, "diff-sorted-truncate")
+        self.assertEqual(plants.archive_commit, lv.ARCHIVE_B_COMMIT)
+        self.assertEqual(len(plants.pairs), lv.PLANTS_PAIR_COUNT)
+        self.assertTrue(plants.pairs[0].ok["success"])
+        self.assertFalse(plants.pairs[0].bad["success"])
+
+    def test_plants_jsonl_is_compact(self):
+        path = plants_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), lv.PLANTS_PAIR_COUNT)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            json.loads(line)
+
+    def test_dumps_plants_rebuilds_committed_jsonl(self):
+        path = plants_jsonl_path()
+        rebuilt = dumps_plants_jsonl(
+            [{"ok": pair.ok, "bad": pair.bad} for pair in CATALOG.plants.pairs],  # type: ignore[union-attr]
+            mill_id=lv.PLANTS_MILL_ID,
+            source=lv.PLANTS_SOURCE_PATH,
+            base_round=lv.PLANTS_CATALOG_FIRST,
+        )
+        self.assertEqual(rebuilt, path.read_text(encoding="utf-8"))
 
     def test_extractor_reads_tables_and_augassign(self):
         extracted = extract_mill_catalog(
@@ -357,9 +419,14 @@ class LefLegacyExtractTests(unittest.TestCase):
         )
         self.assertEqual(slugs["n_rows"], CATALOG.slugs.n_rows)
         self.assertEqual(slugs["sha256"], CATALOG.slugs.sha256)
+        committed_header = json.loads(
+            catalog_json_path().read_text(encoding="utf-8")
+        )
+        committed_header.pop("plants", None)
         self.assertEqual(
             dumps_catalog(catalog_document(mills, slugs=slugs)),
-            catalog_json_path().read_text(encoding="utf-8"),
+            json.dumps(committed_header, ensure_ascii=True, indent=2, sort_keys=True)
+            + "\n",
         )
 
     def test_loop_scripts_name_companion_mills(self):
@@ -401,6 +468,51 @@ class LefLegacyExtractTests(unittest.TestCase):
             dest = Path(tmp)
             refuse_vendor_paths(dest.rglob("*") if dest.exists() else ())
             self.assertEqual(list(dest.glob("lef-mill*.py")), [])
+
+    def test_archive_b_plants_match_live_ast_extract(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            ["git", "show", f"{lv.ARCHIVE_B_COMMIT}:{lv.PLANTS_SOURCE_PATH}"],
+            text=True,
+            cwd=REPO,
+        )
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{lv.ARCHIVE_B_COMMIT}:{lv.PLANTS_SOURCE_PATH}"],
+            text=True,
+            cwd=REPO,
+        ).strip()
+        self.assertEqual(blob, PLANT_SOURCE.blob_sha)
+        live_pairs = extract_plant_pairs(text, path=lv.PLANTS_SOURCE_PATH)
+        self.assertEqual(len(live_pairs), lv.PLANTS_PAIR_COUNT)
+        record = extract_mill_plants_record(
+            text,
+            path=lv.PLANTS_SOURCE_PATH,
+            blob_sha=blob,
+            archive_commit=lv.ARCHIVE_B_COMMIT,
+            mill_id=lv.PLANTS_MILL_ID,
+            catalog_first=lv.PLANTS_CATALOG_FIRST,
+        )
+        committed = CATALOG.plants
+        assert committed is not None
+        self.assertEqual(record["n_pairs"], committed.n_pairs)
+        self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
+        self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
+        self.assertEqual(record["sha256"], committed.sha256)
+        live_jsonl = dumps_plants_jsonl(
+            live_pairs,
+            mill_id=lv.PLANTS_MILL_ID,
+            source=lv.PLANTS_SOURCE_PATH,
+            base_round=lv.PLANTS_CATALOG_FIRST,
+        )
+        self.assertEqual(
+            plants_sha256_bytes(live_jsonl.encode()),
+            committed.plants_sha256,
+        )
+        self.assertEqual(
+            live_jsonl,
+            plants_jsonl_path().read_text(encoding="utf-8"),
+        )
 
 
 if __name__ == "__main__":

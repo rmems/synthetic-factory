@@ -11,7 +11,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .vocabulary import KIND_LOOP, KIND_SLUGS, KIND_STEMS, KIND_TABLES
+from .vocabulary import (
+    ARCHIVE_B_COMMIT,
+    KIND_LOOP,
+    KIND_PLANTS,
+    KIND_SLUGS,
+    KIND_STEMS,
+    KIND_TABLES,
+    PLANTS_BLOB_SHA,
+    PLANTS_MILL_ID,
+    PLANTS_SOURCE_PATH,
+)
 
 
 @dataclass(frozen=True)
@@ -86,6 +96,22 @@ def loop_sources() -> tuple[MillSource, ...]:
 
 def slug_sources() -> tuple[MillSource, ...]:
     return tuple(source for source in MILL_SOURCES if source.kind == KIND_SLUGS)
+
+
+PLANT_SOURCE = MillSource(
+    PLANTS_MILL_ID,
+    PLANTS_SOURCE_PATH,
+    PLANTS_BLOB_SHA,
+    KIND_PLANTS,
+)
+
+
+def plant_sources() -> tuple[MillSource, ...]:
+    return (PLANT_SOURCE,)
+
+
+def archive_b_ref() -> str:
+    return ARCHIVE_B_COMMIT
 
 
 def source_by_id(mill_id: str) -> MillSource:
