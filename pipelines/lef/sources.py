@@ -19,6 +19,9 @@ from .vocabulary import (
     KIND_STEMS,
     KIND_TABLES,
     PLANTS_BLOB_SHA,
+    PLANTS_B_BLOB_SHA,
+    PLANTS_B_MILL_ID,
+    PLANTS_B_SOURCE_PATH,
     PLANTS_MILL_ID,
     PLANTS_SOURCE_PATH,
 )
@@ -105,9 +108,16 @@ PLANT_SOURCE = MillSource(
     KIND_PLANTS,
 )
 
+PLANT_B_SOURCE = MillSource(
+    PLANTS_B_MILL_ID,
+    PLANTS_B_SOURCE_PATH,
+    PLANTS_B_BLOB_SHA,
+    KIND_PLANTS,
+)
+
 
 def plant_sources() -> tuple[MillSource, ...]:
-    return (PLANT_SOURCE,)
+    return (PLANT_SOURCE, PLANT_B_SOURCE)
 
 
 def archive_b_ref() -> str:

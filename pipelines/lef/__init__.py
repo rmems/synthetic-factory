@@ -5,6 +5,7 @@ Catalog rows are extracted from ``origin/legacy-mill-lane`` mill sources via
 :mod:`lef.catalog_extract`. The mill publishers themselves are not vendored
 and are never executed. ``rows.jsonl`` holds the r629 + r728 + r968 tables.
 ``plants.jsonl`` holds Archive B ``mill_plants.py`` pairs (r613–r620).
+``plants_b.jsonl`` holds ``mill_plants_b.py`` pairs (r621–r628).
 """
 
 from . import vocabulary
