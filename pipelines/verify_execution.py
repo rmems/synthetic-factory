@@ -62,7 +62,7 @@ except ImportError:  # pragma: no cover - publish imports from the repo tree
     check_safety_case = None
 
 
-from operator_paths import operator_path  # noqa: E402
+from operator_paths import confine  # noqa: E402
 from verify_execution_shapes import (  # noqa: E402
     verify_record_execution,
 )
@@ -238,13 +238,11 @@ def _confined(parser, args):
     no sink below reads ``args`` for a path again.
     """
 
-    def optional(value):
-        return None if value is None else operator_path(value)
-
-    try:
-        return optional(args.run_dir), optional(args.record), optional(args.batch)
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    return (
+        confine(parser, args.run_dir, argument="run_dir"),
+        confine(parser, args.record, argument="--record"),
+        confine(parser, args.batch, argument="--batch"),
+    )
 
 
 def main(argv=None):
