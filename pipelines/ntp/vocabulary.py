@@ -4,7 +4,8 @@
 The reviewed mill prefix ``ntp`` maps to ``notebook-to-pipeline-factory`` in
 ``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts
 catalog identity from the 84 ``legacy-mill-lane`` scripts without
-vendoring ``ntp-mill*.py``.
+vendoring ``ntp-mill*.py``. PR-b lands compact r1326 theme identities in
+``themes.jsonl``; remaining pair bodies stay deferred.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ PRESERVE_COMMIT = "ffd8e849694818083c5cf3dbadfba5872294c5f1"
 CATALOG_FILENAME = "CATALOG.json"
 MILLS_FILENAME = "mills.jsonl"
 LEFTOVER_FILENAME = "leftover.jsonl"
+THEMES_FILENAME = "themes.jsonl"
+THEME_MILL_ID = "ntp-mill-r1326"
+THEME_MILL_IDS = frozenset({THEME_MILL_ID})
 PLANT_PREFIX = "folio-"
 
 BANNED = (

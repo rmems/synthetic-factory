@@ -8,5 +8,6 @@
   "preserve_commit": "ffd8e849694818083c5cf3dbadfba5872294c5f1",
   "schema": "ntp-catalog-extract/v1",
   "slice": "leftover",
-  "source_ref": "origin/legacy-mill-lane"
+  "source_ref": "origin/legacy-mill-lane",
+  "themes_filename": "themes.jsonl"
 }
