@@ -127,6 +127,18 @@ class Failures(unittest.TestCase):
         self.assertEqual(report.hidden[0]["status"], cv.ROW_ERROR)
         self.assertNotIn("got", report.hidden[0])
 
+    def test_an_unrepresentable_return_value_is_one_error_row_and_the_report_stays_ok(self):
+        module = (
+            "class Bad:\n"
+            "    def __repr__(self):\n"
+            "        raise ValueError('nope')\n\n\n"
+            "def f():\n    return Bad()\n"
+        )
+        report = RUNNER.run(ex.Job("repr:test", module, "f", ({"args": "()", "want": None},), False))
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.hidden[0]["status"], cv.ROW_ERROR)
+        self.assertIn("ValueError: nope", report.hidden[0]["got"])
+
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
         head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
@@ -311,11 +323,22 @@ class InProcessHarnessBehavior(unittest.TestCase):
             4, {"args": "()", "want": "0"}, spec,
         )
 
+        class _BadRepr:
+            def __repr__(self):
+                raise ValueError("nope")
+
+        unrepresentable = harness._run_case(
+            lambda: _BadRepr(), 5, {"args": "()", "want": "0"}, spec,
+        )
+
         self.assertEqual((observed["status"], observed["got"]), ("observed", "3"))
         self.assertEqual((matched["status"], matched["kind"], matched["got"]), ("pass", "ok", "3"))
         self.assertEqual(mismatch, {"id": "hidden:2", "status": "fail", "kind": "value_mismatch"})
         self.assertEqual(visible_error["got"], "RuntimeError: visible")
         self.assertEqual(hidden_error, {"id": "hidden:4", "status": "error", "kind": "exception"})
+        self.assertEqual(
+            unrepresentable, {"id": "hidden:5", "status": "error", "kind": "unrepresentable"},
+        )
 
 
 if __name__ == "__main__":

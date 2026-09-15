@@ -226,12 +226,18 @@ def _run_case(target, index: int, case: dict, spec: dict, workdir: str = "") -> 
 
     try:
         result = target(*ast.literal_eval(case["args"]))
-        got = _scrub_workdir(repr(result), workdir)
     except Exception as exc:  # the program under test may raise anything
         detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
         if case["want"] is None:
             return _row("hidden", index, "error", detail)
         return {**_row("hidden", index, "error"), "kind": "exception"}
+    try:
+        got = _scrub_workdir(repr(result), workdir)
+    except Exception as exc:  # repr may fail on huge ints or hostile __repr__
+        detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
+        if case["want"] is None:
+            return _row("hidden", index, "error", detail)
+        return {**_row("hidden", index, "error"), "kind": "unrepresentable"}
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
     if _agree(got, case["want"], spec):
