@@ -189,6 +189,18 @@ class LeafSafety(unittest.TestCase):
             self.assertEqual(confined, Path(os.path.realpath(root / "new.jsonl")))
             self.assertFalse(fresh.exists())
 
+    def test_dotdot_through_a_symlink_parent_still_refuses_the_real_leaf(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as outside:
+            targetdir = Path(outside) / "targetdir"
+            targetdir.mkdir()
+            fifo = _fifo(Path(outside) / "named-pipe")
+            (Path(td) / "symdir").symlink_to(targetdir)
+            spelling = Path(td) / "symdir" / ".." / fifo.name
+            self.assertFalse(os.path.lexists(os.path.normpath(spelling)))
+            with self.assertRaises(argparse.ArgumentTypeError) as raised:
+                operator_path(spelling, argument="input")
+            self.assertEqual(str(raised.exception), "input: the path is a special file")
+
     def test_a_new_destination_under_temp_still_resolves(self):
         with tempfile.TemporaryDirectory() as td:
             destination = Path(td) / "new.jsonl"

@@ -76,22 +76,33 @@ def _is_special_file(mode: int) -> bool:
     return any(check(mode) for check in _SPECIAL_MODES)
 
 
-def _refuse_leaf(typed: Path, argument: str | None) -> None:
-    """Refuse a typed leaf that is a symlink or a special file, before realpath.
+def _inspectable_leaf(text: str) -> Path:
+    """The leaf ``realpath`` binds, without following a final symlink.
 
-    ``typed`` must already be lexically normalized: ``lstat`` cannot walk a
-    missing component before ``..``, but ``realpath`` still collapses that
-    spelling onto the real leaf.
+    Kernel ``lstat`` of the typed spelling fails closed when a component
+    before ``..`` is missing, but ``os.path.realpath`` still pops that
+    spelling onto the real leaf. Lexical ``normpath`` pops ``..`` without
+    walking a symlink parent, so resolve the parent first, then inspect the
+    joined name.
     """
 
-    if typed.is_symlink():
-        if typed.exists():
+    parent, name = os.path.split(text)
+    if not name or name in (os.curdir, os.pardir):
+        return Path(text)
+    return Path(os.path.join(os.path.realpath(parent), name))
+
+
+def _refuse_leaf(leaf: Path, argument: str | None) -> None:
+    """Refuse a leaf that is a symlink or a special file, before following it."""
+
+    if leaf.is_symlink():
+        if leaf.exists():
             _refuse(argument, "the path is a symlink")
         _refuse(argument, "the path is a dangling symlink")
-    if not os.path.lexists(typed):
+    if not os.path.lexists(leaf):
         return
     try:
-        mode = os.lstat(typed).st_mode
+        mode = os.lstat(leaf).st_mode
     except OSError:
         _refuse(argument, "the path cannot be inspected")
     if _is_special_file(mode):
@@ -129,12 +140,12 @@ def operator_path(
     if kind not in {KIND_PATH, KIND_DESTINATION}:
         _refuse(argument, "the path kind is not supported")
     text = _text_of(value, argument)
-    typed = Path(os.path.normpath(text))
-    _refuse_leaf(typed, argument)
-    resolved = os.path.realpath(str(typed))
+    leaf = _inspectable_leaf(text)
+    _refuse_leaf(leaf, argument)
+    resolved = os.path.realpath(text)
     if not _inside_operator_trees(resolved):
         _refuse(argument, _OUTSIDE)
-    if kind == KIND_DESTINATION and os.path.lexists(typed):
+    if kind == KIND_DESTINATION and os.path.lexists(leaf):
         _refuse(argument, "the destination already exists")
     return Path(resolved)
 
