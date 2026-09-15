@@ -1,39 +1,45 @@
-#!/usr/bin/env python3
-"""Agent-memory-compaction mill family (``amc``): AST catalog extract.
+"""Clean, read-only catalog for the extracted agent-memory-compaction mill family."""
 
-PR-a. Catalog rows are extracted from ``origin/legacy-mill-lane`` mill sources
-via :mod:`amc.catalog_extract`. The mill publishers themselves are not
-vendored and are never executed.
-"""
-
-from . import vocabulary
-from .catalog import CATALOG, AmcCatalog, MillCatalog, load_catalog
-from .catalog_extract import (
-    compose_family,
-    extract_companion_path,
-    extract_mill_catalog,
-    zip_table_pairs,
+from .catalog import (
+    CATALOG,
+    CATALOG_DIR,
+    CATALOG_PATH,
+    FACTORY,
+    FAMILY,
+    FAMILY_PREFIX,
+    FORBIDDEN_MILL_GLOBS,
+    GENERATOR,
+    PRESERVE_COMMIT,
+    QUOTA_PER_ROUND,
+    SUCCESS_STEPS,
+    Catalog,
+    CatalogError,
+    CompactPair,
+    LoopSource,
+    MillCatalog,
+    is_vendor_filename,
+    load_catalog,
+    refuse_vendor_paths,
 )
-from .identity import refuse_vendor_paths
-from .sources import MILL_SOURCES, MillSource, catalog_sources, loop_sources, source_by_id
-from .vocabulary import FACTORY, FAMILY_PREFIX
 
-__all__ = (
+__all__ = [
     "CATALOG",
-    "AmcCatalog",
+    "CATALOG_DIR",
+    "CATALOG_PATH",
     "FACTORY",
+    "FAMILY",
     "FAMILY_PREFIX",
-    "MILL_SOURCES",
+    "FORBIDDEN_MILL_GLOBS",
+    "GENERATOR",
+    "PRESERVE_COMMIT",
+    "QUOTA_PER_ROUND",
+    "SUCCESS_STEPS",
+    "Catalog",
+    "CatalogError",
+    "CompactPair",
+    "LoopSource",
     "MillCatalog",
-    "MillSource",
-    "catalog_sources",
-    "compose_family",
-    "extract_companion_path",
-    "extract_mill_catalog",
+    "is_vendor_filename",
     "load_catalog",
-    "loop_sources",
     "refuse_vendor_paths",
-    "source_by_id",
-    "vocabulary",
-    "zip_table_pairs",
-)
+]
