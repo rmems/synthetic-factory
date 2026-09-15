@@ -27,7 +27,7 @@ from code_repair_test_support import (  # noqa: E402
 # for digests on passing rows (Codex on #196, round 3).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
 # Harness protocol v2 (#213): out-of-band limits attestation line before program load.
-GOLDEN_SHA256 = "3e7496ad42dc7cbe408cfda2e4ba8d26b6d5e68b24ecf239588e94df8a66b7a0"
+GOLDEN_SHA256 = "1911d82d5a6dc819571162e3182bae3773a6a4f16886fd89fc3a28c69bab0ec7"
 
 
 def accepting_executor():

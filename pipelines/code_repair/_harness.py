@@ -31,7 +31,6 @@ from pathlib import Path
 
 PROTOCOL = "code-repair-harness/2"
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
-REPORT_FILENAME = "report.json"
 REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
@@ -41,9 +40,6 @@ MAX_CAPTURE_CHARS = 65_536
 def _apply_limits(spec: dict) -> bool:
     try:
         import resource
-    except ImportError:  # pragma: no cover - POSIX only
-        return False
-    try:
         limits = (
             (resource.RLIMIT_CPU, int(spec["cpu_seconds"])),
             (resource.RLIMIT_AS, int(spec["address_space_bytes"])),
@@ -51,7 +47,7 @@ def _apply_limits(spec: dict) -> bool:
         )
         for name, value in limits:
             resource.setrlimit(name, (value, value))
-    except (AttributeError, KeyError, OverflowError, OSError, TypeError, ValueError):
+    except (AttributeError, ImportError, KeyError, OverflowError, OSError, TypeError, ValueError):
         return False
     return True
 
@@ -273,25 +269,12 @@ def _write_limits_attestation(stream, limits_applied: bool) -> None:
     stream.flush()
 
 
-def _clear_exit_handlers() -> None:
-    """Drop candidate atexit callbacks so they cannot rewrite the report after we write it."""
+def _write_protocol_report(report: dict, dumps) -> None:
+    """JSON report on the inherited capture fd after dropping candidate atexit hooks."""
 
-    clearer = getattr(atexit, "_clear", None)
-    if clearer is not None:
-        clearer()
-
-
-def _write_protocol_report(workdir: Path, report: dict, dumps) -> None:
-    """JSON report on the inherited capture fd, falling back to a workdir file in tests."""
-
-    _clear_exit_handlers()
-    payload = dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True)
-    raw = os.environ.get(REPORT_FD_ENV, "")
-    if not raw:
-        (workdir / REPORT_FILENAME).write_text(payload, encoding="utf-8")
-        return
-    fd = int(raw)
-    data = payload.encode("utf-8")
+    getattr(atexit, "_clear", lambda: None)()
+    data = dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True).encode("utf-8")
+    fd = int(os.environ[REPORT_FD_ENV])
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, data)
     os.ftruncate(fd, len(data))
@@ -360,7 +343,7 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
                 "protocol": PROTOCOL,
                 "load": {"status": "error", "error": f"HarnessError: {exc}"},
             }
-        _write_protocol_report(workdir, report, _dumps)
+        _write_protocol_report(report, _dumps)
     sys.stdout, sys.stderr = real_stdout, real_stderr
     return 0
 

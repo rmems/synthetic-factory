@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The sandboxed child and its parent: real subprocess evidence (no fakes here)."""
 
+import atexit
 import doctest
 import hashlib
 import inspect
@@ -469,9 +470,9 @@ class LimitsAttestation(unittest.TestCase):
 
     def test_parent_and_child_share_the_attestation_constants(self):
         self.assertEqual(ex.LIMITS_ATTESTATION_PREFIX, harness.LIMITS_ATTESTATION_PREFIX)
-        self.assertEqual(ex.REPORT_FILENAME, harness.REPORT_FILENAME)
         self.assertEqual(ex.REPORT_FD_ENV, harness.REPORT_FD_ENV)
         self.assertEqual(cv.HARNESS_PROTOCOL, harness.PROTOCOL)
+        self.assertTrue(callable(harness._write_protocol_report))
 
     def test_limits_attested_rejects_empty_missing_and_malformed_lines(self):
         cases = (
@@ -525,24 +526,29 @@ class LimitsAttestation(unittest.TestCase):
         self.assertEqual(denied["load"]["status"], "error")
         self.assertFalse(denied["environment"]["limits_applied"])
 
-    def _run_main(self, workdir: Path, *, limits_applied: bool) -> tuple[int, str]:
+    def _run_main(self, workdir: Path, *, limits_applied: bool) -> tuple[int, str, dict]:
         stdout = io.StringIO()
+        report_file = tempfile.TemporaryFile()
+        self.addCleanup(report_file.close)
         with mock.patch.object(harness, "_apply_limits", return_value=limits_applied), \
-                mock.patch.object(os, "dup2"), \
+                mock.patch.object(os, "dup2", spec=os.dup2), \
                 mock.patch.object(sys, "stdout", stdout), \
-                mock.patch.object(sys, "stderr", io.StringIO()):
+                mock.patch.object(sys, "stderr", io.StringIO()), \
+                mock.patch.object(atexit, "_clear"), \
+                mock.patch.dict(os.environ, {harness.REPORT_FD_ENV: str(report_file.fileno())}):
             code = harness.main(["_harness.py", str(workdir)])
-        return code, stdout.getvalue()
+        report_file.seek(0)
+        body = json.loads(report_file.read().decode("utf-8"))
+        return code, stdout.getvalue(), body
 
-    def test_main_attests_true_and_writes_the_report_file(self):
+    def test_main_attests_true_and_writes_the_report_on_the_inherited_fd(self):
         text = "def f(n):\n    return n\n"
         job = ex.Job("main:test", text, "f", ({"args": "(1,)", "want": "1"},), False)
         with tempfile.TemporaryDirectory() as root:
             workdir = Path(root)
             (workdir / harness.PROGRAM_FILENAME).write_text(text, encoding="utf-8")
             (workdir / "spec.json").write_text(json.dumps(ex.Executor(timeout_s=3).spec(job)))
-            code, attested = self._run_main(workdir, limits_applied=True)
-            body = json.loads((workdir / harness.REPORT_FILENAME).read_text(encoding="utf-8"))
+            code, attested, body = self._run_main(workdir, limits_applied=True)
         self.assertEqual(code, 0)
         self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}true\n")
         self.assertEqual(body["protocol"], harness.PROTOCOL)
@@ -552,12 +558,22 @@ class LimitsAttestation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             workdir = Path(root)
             (workdir / "spec.json").write_text("not json", encoding="utf-8")
-            code, attested = self._run_main(workdir, limits_applied=False)
-            body = json.loads((workdir / harness.REPORT_FILENAME).read_text(encoding="utf-8"))
+            code, attested, body = self._run_main(workdir, limits_applied=False)
         self.assertEqual(code, 0)
         self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}false\n")
         self.assertEqual(body["load"]["status"], "error")
         self.assertIn("SANDBOX_UNAVAILABLE", body["load"]["error"])
+
+    def test_main_reports_harness_error_when_run_raises(self):
+        with tempfile.TemporaryDirectory() as root:
+            workdir = Path(root)
+            (workdir / "spec.json").write_text("{}", encoding="utf-8")
+            with mock.patch.object(harness, "_run", side_effect=RuntimeError("boom")):
+                code, attested, body = self._run_main(workdir, limits_applied=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}true\n")
+        self.assertEqual(body["load"]["status"], "error")
+        self.assertIn("HarnessError: boom", body["load"]["error"])
 
     def test_main_usage_error_is_exit_two(self):
         stderr = io.StringIO()
@@ -566,10 +582,12 @@ class LimitsAttestation(unittest.TestCase):
         self.assertIn("usage:", stderr.getvalue())
 
     def test_write_protocol_report_round_trips_sorted_json(self):
-        with tempfile.TemporaryDirectory() as root:
-            workdir = Path(root)
-            harness._write_protocol_report(workdir, {"z": 1, "a": 2}, json.dumps)
-            self.assertEqual((workdir / harness.REPORT_FILENAME).read_text(), '{"a": 2, "z": 1}')
+        with tempfile.TemporaryFile() as report_file, mock.patch.object(atexit, "_clear") as clearer:
+            with mock.patch.dict(os.environ, {harness.REPORT_FD_ENV: str(report_file.fileno())}):
+                harness._write_protocol_report({"z": 1, "a": 2}, json.dumps)
+            report_file.seek(0)
+            self.assertEqual(report_file.read(), b'{"a": 2, "z": 1}')
+            clearer.assert_called_once()
 
 
 if __name__ == "__main__":
