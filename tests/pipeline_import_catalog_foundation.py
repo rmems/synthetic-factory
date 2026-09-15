@@ -870,6 +870,54 @@ def _package_curate_gate_promotion() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_json() -> ModuleType:
+    import curate_identity_json as module
+
+    return module
+
+
+def _package_curate_identity_json() -> ModuleType:
+    import pipelines.curate_identity_json as module
+
+    return module
+
+
+def _direct_curate_identity_registry() -> ModuleType:
+    import curate_identity_registry as module
+
+    return module
+
+
+def _package_curate_identity_registry() -> ModuleType:
+    import pipelines.curate_identity_registry as module
+
+    return module
+
+
+def _direct_curate_identity_registry_fields() -> ModuleType:
+    import curate_identity_registry_fields as module
+
+    return module
+
+
+def _package_curate_identity_registry_fields() -> ModuleType:
+    import pipelines.curate_identity_registry_fields as module
+
+    return module
+
+
+def _direct_curate_identity_registry_rows() -> ModuleType:
+    import curate_identity_registry_rows as module
+
+    return module
+
+
+def _package_curate_identity_registry_rows() -> ModuleType:
+    import pipelines.curate_identity_registry_rows as module
+
+    return module
+
+
 def _direct_round_txn_agentic() -> ModuleType:
     import round_txn_agentic as module
 
@@ -1127,6 +1175,13 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "validate_run": (_direct_validate_run, _package_validate_run),
     "operator_paths": (_direct_operator_paths, _package_operator_paths),
     "curate_gate_promotion": (_direct_curate_gate_promotion, _package_curate_gate_promotion),
+    "curate_identity_json": (_direct_curate_identity_json, _package_curate_identity_json),
+    "curate_identity_registry": (_direct_curate_identity_registry, _package_curate_identity_registry),
+    "curate_identity_registry_fields": (_direct_curate_identity_registry_fields, _package_curate_identity_registry_fields),
+    "curate_identity_registry_rows": (
+        _direct_curate_identity_registry_rows,
+        _package_curate_identity_registry_rows,
+    ),
     "round_txn_agentic": (_direct_round_txn_agentic, _package_round_txn_agentic),
     "round_txn_agentic_terms": (_direct_round_txn_agentic_terms, _package_round_txn_agentic_terms),
     "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
