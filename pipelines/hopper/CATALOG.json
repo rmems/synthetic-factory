@@ -6,12 +6,16 @@
   "generator": "grok-4.6",
   "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
   "source_ref": "origin/legacy-mill-lane",
-  "extraction": "AST literals only; ssl-mill-r35/r112/r132 never imported or executed",
-  "slice": "third",
+  "extraction": "AST literals only; ssl tuple mills and ssl-mill-lll P() mills never imported or executed",
+  "slice": "fourth",
   "pairs_filename": "pairs.jsonl",
   "pairs_sha256": "04d25db8e4020532ff7f5da413875034fc1407e01657de7446cbe477ca25d68a",
   "n_pair_rows_extracted": 114,
   "n_pair_rows_committed": 114,
+  "episode_pairs_filename": "episode_pairs.jsonl",
+  "episode_pairs_sha256": "fb34f04a1b1fd26ab11e8de66d40e9056e435562ab77bd2cfcbd2c801917fd9b",
+  "n_episode_pair_rows_extracted": 192,
+  "n_episode_pair_rows_committed": 192,
   "mills": [
     {
       "mill_id": "ssl-mill-r35",
@@ -56,7 +60,51 @@
       "first_slug": "consul-connect-leaf-bind",
       "last_slug": "cert-manager-clusterissuer-handoff",
       "shape": "ssl-tuple-pairs-v1"
+    },
+    {
+      "mill_id": "ssl-mill-lll-r182",
+      "source": "experiments/ssl-mill-lll-r182.py",
+      "source_blob_sha1": "f67aedf068e070a42fcbc4b65c6696ad44bce5c8",
+      "source_sha256": "c3703233b76e34939d07b0968ff1a002e766f20f4626d09e22418eef141351b2",
+      "catalog_first": 182,
+      "n_rows": 16,
+      "first_slug": "nginx-leftover-stapling-reload-lll",
+      "last_slug": "stunnel-leftover-accept-reload-lll",
+      "shape": "ssl-episode-p-catalog-v1"
+    },
+    {
+      "mill_id": "ssl-mill-lll-r190",
+      "source": "experiments/ssl-mill-lll-r190.py",
+      "source_blob_sha1": "16e9cc4555a01cc39491cdf82549ec4cf842ef96",
+      "source_sha256": "63e74d50204545b1dd06bbf3bce06fc4ab5fe323d43d10005acc67582a9d72da",
+      "catalog_first": 190,
+      "n_rows": 16,
+      "first_slug": "stepca-leftover-jwk-provisioner-reload-lll",
+      "last_slug": "certmanager-leftover-certificaterequest-reload-lll",
+      "shape": "ssl-episode-p-catalog-v1"
+    },
+    {
+      "mill_id": "ssl-mill-lll-r206",
+      "source": "experiments/ssl-mill-lll-r206.py",
+      "source_blob_sha1": "04cb9cdd45b71f94e14aa558a0fd7ccd6f1ca458",
+      "source_sha256": "c7af4045ee95e3fe44cab1201d06e5e97de82ece6a5023471428b6214f1571b4",
+      "catalog_first": 206,
+      "n_rows": 80,
+      "first_slug": "stepca-leftover-clusterissuer-reload-lll",
+      "last_slug": "certmanager-leftover-dns01tsig-reload-lll",
+      "shape": "ssl-episode-p-catalog-v1"
+    },
+    {
+      "mill_id": "ssl-mill-lll-r286",
+      "source": "experiments/ssl-mill-lll-r286.py",
+      "source_blob_sha1": "c28c98da490f9fce3864ef03cc6b37eefa039518",
+      "source_sha256": "5322808290e6056c22d40bc46e0185e87847b8c8fa8fc87f975fc24ca29ef214",
+      "catalog_first": 286,
+      "n_rows": 80,
+      "first_slug": "stepca-leftover-acmeaccountkey-reload-lll",
+      "last_slug": "certmanager-leftover-statusrequest-reload-lll",
+      "shape": "ssl-episode-p-catalog-v1"
     }
   ],
-  "note": "Gap slice between hopper START ssl 27 and 106. r27/r106 owned by wave-1; ssl-mill-lll call mills deferred (episode shape). qbp r41 banned slugs stay off this extract."
+  "note": "Tuple pairs r35/r112/r132/r132-lll in pairs.jsonl; ssl-mill-lll P() episode identities in episode_pairs.jsonl. r27/r106 owned by wave-1. qbp r41 banned slugs stay off this extract."
 }
