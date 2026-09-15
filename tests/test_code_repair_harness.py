@@ -4,7 +4,11 @@
 import doctest
 import hashlib
 import inspect
+import io
+import json
+import os
 import re
+import resource
 import sys
 import tempfile
 import unittest
@@ -85,6 +89,80 @@ class Agreement(unittest.TestCase):
         self.assertEqual(self._hidden(module, [{"args": "(0.5,)", "want": "0.5"}]), ["pass"])
 
 
+class TamperResistance(unittest.TestCase):
+    """Issue #213: in-band ``limits_applied`` must not downgrade a limited run."""
+
+    _FRAME_WALK = (
+        "import sys\n"
+        "def _tamper():\n"
+        "    frame = sys._getframe()\n"
+        "    while frame is not None:\n"
+        "        report = frame.f_locals.get('report')\n"
+        "        if isinstance(report, dict) and isinstance(report.get('environment'), dict):\n"
+        "            report['environment']['limits_applied'] = False\n"
+        "            return True\n"
+        "        frame = frame.f_back\n"
+        "_tamper()\n\n"
+    )
+    _GC_WALK = (
+        "import gc\n"
+        "for obj in gc.get_objects():\n"
+        "    if (\n"
+        "        isinstance(obj, dict) and obj.get('limits_applied') is True\n"
+        "        and 'platform' in obj\n"
+        "    ):\n"
+        "        obj['limits_applied'] = False\n\n"
+    )
+    _STDOUT_REWRITE = (
+        "from pathlib import Path\n"
+        "Path('stdout').write_bytes(b'code-repair-limits-attestation/1 false\\n')\n\n"
+    )
+    _SAVED_FD_WALK = (
+        "import os, sys\n"
+        "def _tamper():\n"
+        "    frame = sys._getframe()\n"
+        "    token = b'code-repair-limits-attestation/1 false\\n'\n"
+        "    while frame is not None:\n"
+        "        saved = frame.f_locals.get('saved')\n"
+        "        if isinstance(saved, tuple):\n"
+        "            for item in saved:\n"
+        "                if isinstance(item, int):\n"
+        "                    try:\n"
+        "                        os.lseek(item, 0, os.SEEK_SET)\n"
+        "                        os.write(item, token)\n"
+        "                    except OSError:\n"
+        "                        pass\n"
+        "        frame = frame.f_back\n"
+        "_tamper()\n\n"
+    )
+
+    @staticmethod
+    def _run_tamper(preamble: str) -> ex.PhaseReport:
+        module = preamble + "def f(n):\n    return n\n"
+        job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
+        return RUNNER.run(job)
+
+    def test_frame_walk_cannot_refuse_the_run_by_clearing_limits(self):
+        report = self._run_tamper(self._FRAME_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_gc_walk_cannot_refuse_the_run_by_clearing_limits(self):
+        report = self._run_tamper(self._GC_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_rewriting_workdir_stdout_cannot_refuse_the_run(self):
+        report = self._run_tamper(self._STDOUT_REWRITE)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_frame_walk_of_saved_stdout_fd_cannot_refuse_the_run(self):
+        report = self._run_tamper(self._SAVED_FD_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+
 class Failures(unittest.TestCase):
     def test_a_child_that_streams_discarded_output_is_stopped_by_the_timeout(self):
         """Discarded output stays out of memory while the wall-clock bound stops the loop."""
@@ -129,20 +207,41 @@ class Failures(unittest.TestCase):
 
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
-        head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
-        full = head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
-        self.assertTrue(ex._parse_report(job, 0, full.encode()).ok)
-        bad = (
-            (1, b"{}"), (0, b"not json"), (0, b'{"protocol": "other/1"}'), (0, b'{"a": 1, "a": 2}'),
-            (0, (head + '"public": [], "hidden": []}').encode()),
-            (0, (head + '"public": [{"id": "public:0", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
-            (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:9", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
-            (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
-            (0, (head + '"public": "nine", "hidden": []}').encode()),
+        attest = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode()
+        head = (
+            '{"protocol": "code-repair-harness/2", "environment": {"limits_applied": true}, '
+            '"load": {"status": "ok", "error": null}, '
         )
-        for returncode, stdout in bad:
-            with self.subTest(stdout=stdout[:60]):
-                report = ex._parse_report(job, returncode, stdout)
+        full = (
+            head + '"public": [{"id": "public:0", "status": "pass"}, '
+            '{"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
+        )
+        self.assertTrue(ex._parse_report(job, 0, attest, full.encode()).ok)
+        bad = (
+            (1, b"", b"{}"),
+            (0, b"not json", b""),
+            (0, attest, b'{"protocol": "other/1"}'),
+            (0, attest, b'{"a": 1, "a": 2}'),
+            (0, attest, (head + '"public": [], "hidden": []}').encode()),
+            (0, attest, (
+                head + '"public": [{"id": "public:0", "status": "pass"}], '
+                '"hidden": [{"id": "hidden:0", "status": "pass"}]}'
+            ).encode()),
+            (0, attest, (
+                head + '"public": [{"id": "public:0", "status": "pass"}, '
+                '{"id": "public:9", "status": "pass"}], '
+                '"hidden": [{"id": "hidden:0", "status": "pass"}]}'
+            ).encode()),
+            (0, attest, (
+                head + '"public": [{"id": "public:0", "status": "pass"}, '
+                '{"id": "public:1"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
+            ).encode()),
+            (0, attest, (head + '"public": "nine", "hidden": []}').encode()),
+            (0, b"", b""),
+        )
+        for returncode, stdout, body in bad:
+            with self.subTest(stdout=stdout[:60], body=body[:60]):
+                report = ex._parse_report(job, returncode, stdout, body)
                 self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
                 self.assertFalse(report.ok)
 
@@ -316,6 +415,124 @@ class InProcessHarnessBehavior(unittest.TestCase):
         self.assertEqual(mismatch, {"id": "hidden:2", "status": "fail", "kind": "value_mismatch"})
         self.assertEqual(visible_error["got"], "RuntimeError: visible")
         self.assertEqual(hidden_error, {"id": "hidden:4", "status": "error", "kind": "exception"})
+
+
+class LimitsAttestation(unittest.TestCase):
+    """Issue #213: out-of-band attestation parse, write, and in-process main paths."""
+
+    def test_parent_and_child_share_the_attestation_constants(self):
+        self.assertEqual(ex.LIMITS_ATTESTATION_PREFIX, harness.LIMITS_ATTESTATION_PREFIX)
+        self.assertEqual(ex.REPORT_FILENAME, harness.REPORT_FILENAME)
+        self.assertEqual(cv.HARNESS_PROTOCOL, harness.PROTOCOL)
+
+    def test_limits_attested_rejects_empty_missing_and_malformed_lines(self):
+        cases = (
+            (b"", "empty stdout"),
+            (b"no-newline", "missing limits attestation line"),
+            (b'{"protocol": "x"}\n', "missing limits attestation line"),
+            (f"{ex.LIMITS_ATTESTATION_PREFIX}yes\n{{}}".encode(), "limits attestation malformed"),
+            (ex.LIMITS_ATTESTATION_PREFIX.encode() + b"\xff\n", "limits attestation malformed"),
+        )
+        for stdout, detail in cases:
+            with self.subTest(stdout=stdout[:40]):
+                self.assertEqual(ex._limits_attested(stdout), detail)
+
+    def test_limits_attested_accepts_true_and_false_tokens(self):
+        for token, expected in ((str(True).lower(), True), (str(False).lower(), False)):
+            with self.subTest(token=token):
+                stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}{token}\n".encode()
+                self.assertIs(ex._limits_attested(stdout), expected)
+
+    def test_limit_setup_errors_attest_unavailable_instead_of_raising(self):
+        self.assertIs(harness._apply_limits({}), False)
+        spec = {"cpu_seconds": 1, "address_space_bytes": 1024, "file_size_bytes": 1024}
+        with mock.patch.object(resource, "setrlimit", side_effect=OSError("denied")):
+            self.assertIs(harness._apply_limits(spec), False)
+
+    def test_harness_writes_attestation_before_any_program_load(self):
+        buffer = io.StringIO()
+        harness._write_limits_attestation(buffer, True)
+        harness._write_limits_attestation(buffer, False)
+        self.assertEqual(
+            buffer.getvalue(),
+            f"{harness.LIMITS_ATTESTATION_PREFIX}{str(True).lower()}\n"
+            f"{harness.LIMITS_ATTESTATION_PREFIX}{str(False).lower()}\n",
+        )
+
+    def test_run_executes_only_when_limits_were_applied(self):
+        text = "def f(n):\n    return n\n"
+        spec = {
+            "function": "f", "run_public": False,
+            "cases": [{"args": "(1,)", "want": "1"}],
+            "float_rel_tol": 1e-9, "float_abs_tol": 1e-12,
+        }
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            (directory / harness.PROGRAM_FILENAME).write_text(text, encoding="utf-8")
+            ok = harness._run(directory, spec, limits_applied=True)
+            denied = harness._run(directory, spec, limits_applied=False)
+        self.assertEqual(ok["load"]["status"], "ok")
+        self.assertTrue(ok["environment"]["limits_applied"])
+        self.assertEqual(ok["hidden"][0]["status"], "pass")
+        self.assertEqual(denied["load"]["status"], "error")
+        self.assertFalse(denied["environment"]["limits_applied"])
+
+    def test_read_spec_returns_a_harness_error_for_unreadable_json(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            spec, error = harness._read_spec(directory)
+            self.assertIsNone(spec)
+            self.assertTrue(error.startswith("HarnessError:"))
+            (directory / "spec.json").write_text("{", encoding="utf-8")
+            spec, error = harness._read_spec(directory)
+            self.assertIsNone(spec)
+            self.assertTrue(error.startswith("HarnessError:"))
+
+    def _run_main(self, workdir: Path, *, limits_applied: bool) -> tuple[int, str]:
+        stdout = io.StringIO()
+        with mock.patch.object(harness, "_apply_limits", return_value=limits_applied), \
+                mock.patch.object(os, "dup2"), \
+                mock.patch.object(sys, "stdout", stdout), \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            code = harness.main(["_harness.py", str(workdir)])
+        return code, stdout.getvalue()
+
+    def test_main_attests_true_and_writes_the_report_file(self):
+        text = "def f(n):\n    return n\n"
+        job = ex.Job("main:test", text, "f", ({"args": "(1,)", "want": "1"},), False)
+        with tempfile.TemporaryDirectory() as root:
+            workdir = Path(root)
+            (workdir / harness.PROGRAM_FILENAME).write_text(text, encoding="utf-8")
+            (workdir / "spec.json").write_text(json.dumps(ex.Executor(timeout_s=3).spec(job)))
+            code, attested = self._run_main(workdir, limits_applied=True)
+            body = json.loads((workdir / harness.REPORT_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}true\n")
+        self.assertEqual(body["protocol"], harness.PROTOCOL)
+        self.assertEqual(body["load"]["status"], "ok")
+
+    def test_main_attests_false_when_spec_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as root:
+            workdir = Path(root)
+            (workdir / "spec.json").write_text("not json", encoding="utf-8")
+            code, attested = self._run_main(workdir, limits_applied=True)
+            body = json.loads((workdir / harness.REPORT_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}false\n")
+        self.assertEqual(body["load"]["status"], "error")
+        self.assertIn("HarnessError", body["load"]["error"])
+
+    def test_main_usage_error_is_exit_two(self):
+        stderr = io.StringIO()
+        with mock.patch.object(sys, "stderr", stderr):
+            self.assertEqual(harness.main(["_harness.py"]), 2)
+        self.assertIn("usage:", stderr.getvalue())
+
+    def test_write_protocol_report_round_trips_sorted_json(self):
+        with tempfile.TemporaryDirectory() as root:
+            workdir = Path(root)
+            harness._write_protocol_report(workdir, {"z": 1, "a": 2}, json.dumps)
+            self.assertEqual((workdir / harness.REPORT_FILENAME).read_text(), '{"a": 2, "z": 1}')
 
 
 if __name__ == "__main__":

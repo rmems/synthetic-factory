@@ -39,6 +39,8 @@ FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
+LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
+REPORT_FILENAME = "report.json"
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
@@ -182,11 +184,11 @@ class Executor:
             shutil.rmtree(workdir, ignore_errors=True)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
-        """One child run; its output goes to files in the workdir, never to an unbounded pipe.
+        """One child run; attestation is an unlinked tempfile, JSON a workdir report file.
 
-        The child's file-size limit caps what it can write there, and the parent reads back at
-        most ``MAX_OUTPUT_BYTES`` of each stream, so a child that streams forever cannot grow
-        the factory process.
+        The child's file-size limit caps the report file, and the parent reads back at
+        most ``MAX_OUTPUT_BYTES`` of each stream, so a child that streams forever cannot
+        grow the factory process. Attestation is not a workdir path the candidate can reopen.
         """
 
         # This pilot runs reviewed pinned code only. Resource limits do not isolate host
@@ -194,20 +196,24 @@ class Executor:
         argv = [sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir)]
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
-        stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
+        stderr_path = workdir / "stderr"
+        report_path = workdir / REPORT_FILENAME
         try:
-            with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
+            with tempfile.TemporaryFile() as out, stderr_path.open("wb") as err:
                 # The reviewed argv is fixed and never enables a shell.
                 completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
                     argv, cwd=workdir, env=CHILD_ENV, stdout=out, stderr=err,
                     timeout=self.timeout_s, check=False,
                 )
+                out.seek(0)
+                stdout = out.read(MAX_OUTPUT_BYTES + 1)
         except subprocess.TimeoutExpired:
             entry.update(timed_out=True, stderr_tail=_tail(_bounded(stderr_path)))
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            report = _parse_report(job, completed.returncode, _bounded(stdout_path))
+            body = _bounded(report_path) if report_path.is_file() else b""
+            report = _parse_report(job, completed.returncode, stdout, body)
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)
         return report
@@ -221,33 +227,57 @@ def _harness_error(detail: str) -> PhaseReport:
     return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
 
 
-def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
+_ATTESTATION_PREFIX = LIMITS_ATTESTATION_PREFIX.encode()
+_ATTESTATION_BY_TOKEN = {
+    str(True).lower().encode(): True,
+    str(False).lower().encode(): False,
+}
+
+
+def _limits_attested(stdout: bytes) -> bool | str:
+    """Authoritative limits flag from the first stdout line, or why there is none."""
+
+    line, newline, _rest = stdout.partition(b"\n")
+    if not stdout:
+        return "empty stdout"
+    if not newline or not line.startswith(_ATTESTATION_PREFIX):
+        return "missing limits attestation line"
+    applied = _ATTESTATION_BY_TOKEN.get(line[len(_ATTESTATION_PREFIX):].strip())
+    return "limits attestation malformed" if applied is None else applied
+
+
+def _parsed_report(returncode: int, stdout: bytes, body: bytes) -> dict[str, Any] | str:
     """The protocol object the child wrote, or the reason there is none."""
 
     if returncode != 0:
         return f"exit status {returncode}"
+    attested = _limits_attested(stdout)
+    if not isinstance(attested, bool):
+        return attested
     try:
-        parsed = load_strict_json(stdout.decode("utf-8"))
+        parsed = load_strict_json(body.decode("utf-8"))
     except ValueError as exc:
         return f"report unreadable: {exc}"
     if not isinstance(parsed, dict) or parsed.get("protocol") != cv.HARNESS_PROTOCOL:
         return "report is not the protocol"
+    parsed["_limits_attested"] = attested
     return parsed
 
 
-def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
+def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
     Every row the job asked for must be present and well formed: a truncated
     or malformed suite is a harness error, never a suite with no failures.
+    ``stdout`` is the out-of-band limits attestation; ``body`` is the JSON file.
     """
 
-    parsed = _parsed_report(returncode, stdout)
+    parsed = _parsed_report(returncode, stdout, body)
     if isinstance(parsed, str):
         return _harness_error(parsed)
-    environment = _object(parsed, "environment")
-    if environment.get("limits_applied") is not True:
+    if parsed.pop("_limits_attested", None) is not True:
         return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    environment = {**_object(parsed, "environment"), "limits_applied": True}
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = _scrub_detail(str(load.get("error") or "load failed"))
