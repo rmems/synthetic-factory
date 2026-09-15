@@ -252,8 +252,10 @@ def _expose_package_sibling(qualified_name: str) -> None:
     direct_candidate = _local_sibling_module(sibling_name)
     if direct_candidate is not None:
         sys.modules[qualified_name] = direct_candidate
-    else:
-        sys.modules.setdefault(sibling_name, candidate)
+        return
+    if candidate is None:
+        return
+    sys.modules.setdefault(sibling_name, candidate)
 
 
 _alias_preloaded_direct_siblings()
