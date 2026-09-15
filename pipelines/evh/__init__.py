@@ -19,7 +19,13 @@ from .catalog_extract import extract_companion_path, extract_plant_catalog
 from .identity import refuse_vendor_paths
 from .leftover_plants import load_leftover_plants
 from .leftover_plants_b import load_leftover_plants_b
-from .plants_extract import extract_leftover_plant_pairs, leftover_plants_b_jsonl_path, leftover_plants_jsonl_path
+from .leftover_plants_letter import load_leftover_plants_letter
+from .plants_extract import (
+    extract_leftover_plant_pairs,
+    leftover_plants_b_jsonl_path,
+    leftover_plants_jsonl_path,
+    leftover_plants_letter_jsonl_path,
+)
 from .pairs import load_pairs
 from .sources import MILL_SOURCES, MillSource, catalog_sources, loop_sources, source_by_id
 from .vocabulary import FACTORY, FAMILY_PREFIX
@@ -40,9 +46,11 @@ __all__ = (
     "extract_plant_catalog",
     "leftover_plants_b_jsonl_path",
     "leftover_plants_jsonl_path",
+    "leftover_plants_letter_jsonl_path",
     "load_catalog",
     "load_leftover_plants",
     "load_leftover_plants_b",
+    "load_leftover_plants_letter",
     "load_pairs",
     "loop_sources",
     "refuse_vendor_paths",

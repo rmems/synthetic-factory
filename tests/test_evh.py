@@ -34,11 +34,13 @@ from evh.catalog_extract import (  # noqa: E402
 from evh.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from evh.leftover_plants import load_leftover_plants  # noqa: E402
 from evh.leftover_plants_b import load_leftover_plants_b  # noqa: E402
+from evh.leftover_plants_letter import load_leftover_plants_letter  # noqa: E402
 from evh.pairs import load_pairs  # noqa: E402
 from evh.plants_extract import (  # noqa: E402
     extract_leftover_plant_pairs,
     leftover_plants_b_jsonl_path,
     leftover_plants_jsonl_path,
+    leftover_plants_letter_jsonl_path,
 )
 from evh.sources import MILL_SOURCES, catalog_sources, loop_sources, source_by_id  # noqa: E402
 from evh import vocabulary as cv  # noqa: E402
@@ -392,6 +394,10 @@ class EvhLegacyExtractTests(unittest.TestCase):
         archive_c = committed.pop("archive_c")
         self.assertIsNotNone(archive_b)
         self.assertIsNotNone(archive_c)
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            key = str(cv.LEFTOVER_LETTER_PINS[letter]["archive_key"])
+            self.assertIsNotNone(committed.pop(key))
+        committed.pop("deferred_leftover_mills")
         self.assertEqual(committed, expected)
 
     def test_loop_and_gen_scripts_name_companion_mill_dir(self):
@@ -519,6 +525,56 @@ class EvhArchiveCPlantsTests(unittest.TestCase):
         committed = list(load_leftover_plants_b())
         self.assertEqual(len(extracted), cv.LEFTOVER_PLANTS_B_N_ROWS)
         self.assertEqual(extracted, committed)
+
+
+class EvhArchiveLetterPlantsTests(unittest.TestCase):
+    def test_leftover_letter_jsonl_stays_compact(self):
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            pin = cv.LEFTOVER_LETTER_PINS[letter]
+            path = leftover_plants_letter_jsonl_path(letter)
+            text = path.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            self.assertEqual(len(lines), pin["n_rows"], letter)
+            self.assertTrue(text.endswith("\n"))
+            self.assertNotIn("\r", text)
+            for line in lines:
+                self.assertFalse(line.startswith((" ", "\t")))
+                row = json.loads(line)
+                self.assertEqual(set(row), set(cv.LEFTOVER_PLANT_ROW_KEYS))
+                self.assertEqual(row["source"], pin["path"])
+
+    def test_archive_letters_match_catalog_pins(self):
+        self.assertEqual(len(CATALOG.archive_letters), len(cv.LEFTOVER_LETTERS_LANDED))
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            pin = cv.LEFTOVER_LETTER_PINS[letter]
+            key = str(pin["archive_key"])
+            archive = CATALOG.archive_letters[key]
+            self.assertEqual(archive.path, pin["path"])
+            self.assertEqual(archive.n_pairs, pin["n_rows"])
+            self.assertEqual(len(archive.pairs), pin["n_rows"])
+
+    def test_live_reextract_archive_letters_match_committed(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            pin = cv.LEFTOVER_LETTER_PINS[letter]
+            path = str(pin["path"])
+            text = subprocess.check_output(
+                ["git", "show", f"{cv.ARCHIVE_C_LEGACY_COMMIT}:{path}"],
+                text=True,
+                cwd=REPO,
+            )
+            extracted = extract_leftover_plant_pairs(text, path=path)
+            committed = list(load_leftover_plants_letter(letter))
+            self.assertEqual(len(extracted), pin["n_rows"], letter)
+            self.assertEqual(extracted, committed, letter)
+
+    def test_deferred_leftover_mills_are_generate_only(self):
+        self.assertEqual(len(CATALOG.deferred_leftover_mills), 27)
+        paths = [row.path for row in CATALOG.deferred_leftover_mills]
+        self.assertEqual(paths[0], f"{cv.MILL_DIR}/mill_plants_aa.py")
+        self.assertEqual(paths[-1], f"{cv.MILL_DIR}/mill_plants_z.py")
+        self.assertTrue(all(row.reason == "generate-only" for row in CATALOG.deferred_leftover_mills))
 
 
 class EvhDeferredPairsTests(unittest.TestCase):
