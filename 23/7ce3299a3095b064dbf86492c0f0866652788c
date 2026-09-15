@@ -1,0 +1,55 @@
+pipelines/curate_trajectory_preferences.py
+  ai_agent 471-472,474
+pipelines/coding_verify.py
+  ai_agent 211-227,237-239,241,304-305
+pipelines/payload_kind_audit_scan.py
+  ai_agent 15,41
+pipelines/preference_writer.py
+  ai_agent 19,37-54,194
+pipelines/rights_classifier.py
+  ai_agent 10,159,164-165,176-185,213-223,333-335,341-342,353,355,369,376-377,379-381
+pipelines/compose_mill.py
+  ai_agent 17,102-109
+pipelines/oracle_grounded/envelope.py
+  ai_agent 161-172
+pipelines/export_compose_auth.py
+  ai_agent 198-207,211-212,237-239
+pipelines/oracle_grounded/fault_simulator.py
+  ai_agent 336-340,342
+.claude/skills/publish-hub-research-run/build_bundles.py
+  ai_agent 584
+pipelines/oracle_grounded/distill_energy_claims.py
+  ai_agent 125-126,128-129
+scripts/publish_grok46_hub.py
+  s_af31ed7264ce5b::t_c2afc8f6e16ecd 728-731,734
+pipelines/preference_arms_receipt.py
+  ai_agent 330,341,377-379
+pipelines/oracle_grounded/distill_measurements.py
+  ai_agent 112-115
+pipelines/oracle_grounded/fault_config.py
+  ai_agent 106-114,302-307,309-315
+pipelines/quality_gate_embedding.py
+  ai_agent 218,567
+.claude/skills/publish-hub-research-run/build_fix.py
+  ai_agent 25,150,356
+.claude/skills/run-synthetic-factory/driver.py
+  ai_agent 412
+pipelines/rights_document_support.py
+  ai_agent 10,203-212,219-220,222,225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "237ce3299a3095b064dbf86492c0f0866652788c",
+  "prompts": {},
+  "sessions": {
+    "s_af31ed7264ce5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e13fca7-977d-487d-a447-9e9097e762ad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
