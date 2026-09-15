@@ -138,6 +138,54 @@ def _package_curate_gate() -> ModuleType:
     return module
 
 
+def _direct_curate_gate_contract() -> ModuleType:
+    import curate_gate_contract as module
+
+    return module
+
+
+def _package_curate_gate_contract() -> ModuleType:
+    import pipelines.curate_gate_contract as module
+
+    return module
+
+
+def _direct_curate_gate_digest() -> ModuleType:
+    import curate_gate_digest as module
+
+    return module
+
+
+def _package_curate_gate_digest() -> ModuleType:
+    import pipelines.curate_gate_digest as module
+
+    return module
+
+
+def _direct_curate_gate_paths() -> ModuleType:
+    import curate_gate_paths as module
+
+    return module
+
+
+def _package_curate_gate_paths() -> ModuleType:
+    import pipelines.curate_gate_paths as module
+
+    return module
+
+
+def _direct_curate_gate_plan() -> ModuleType:
+    import curate_gate_plan as module
+
+    return module
+
+
+def _package_curate_gate_plan() -> ModuleType:
+    import pipelines.curate_gate_plan as module
+
+    return module
+
+
 def _direct_curate_identity() -> ModuleType:
     import curate_identity as module
 
@@ -715,6 +763,13 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_agentic_shapes": (_direct_curate_agentic_shapes, _package_curate_agentic_shapes),
     "curate_coding": (_direct_curate_coding, _package_curate_coding),
     "curate_gate": (_direct_curate_gate, _package_curate_gate),
+    "curate_gate_contract": (
+        _direct_curate_gate_contract,
+        _package_curate_gate_contract,
+    ),
+    "curate_gate_digest": (_direct_curate_gate_digest, _package_curate_gate_digest),
+    "curate_gate_paths": (_direct_curate_gate_paths, _package_curate_gate_paths),
+    "curate_gate_plan": (_direct_curate_gate_plan, _package_curate_gate_plan),
     "curate_identity": (_direct_curate_identity, _package_curate_identity),
     "curate_identity_output": (
         _direct_curate_identity_output,
