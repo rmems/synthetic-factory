@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for the PBC mill-usage-burst plan (read-only counts)."""
+"""CLI for the PBC mill-usage-burst first-slice catalog (read-only)."""
 
 from __future__ import annotations
 
@@ -9,19 +9,22 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from .usage_burst_plan import PlanValidationError, load_mill_usage_burst_plan
+    from . import catalog
+    from ._contract import bind_import_twin
 else:
     _ROOT = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(_ROOT / "pipelines"))
-    from pbc.usage_burst_plan import PlanValidationError, load_mill_usage_burst_plan
+    from pbc import catalog  # type: ignore[no-redef]
+    from pbc._contract import bind_import_twin  # type: ignore[no-redef]
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pbc_cli.py", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    plan = sub.add_parser("plan", help="load and print mill-usage-burst counts")
+    plan = sub.add_parser("plan", help="load and print first-slice mill-usage-burst counts")
     plan.add_argument("--plan", type=Path, default=None)
     plan.add_argument("--json", action="store_true")
+    sub.add_parser("catalog", help="load CATALOG.json + plants.jsonl and print pin counts")
     return parser
 
 
@@ -29,8 +32,8 @@ def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "plan":
         try:
-            loaded = load_mill_usage_burst_plan(args.plan)
-        except PlanValidationError as exc:
+            loaded = catalog.load_mill_usage_burst_plan(args.plan)
+        except catalog.PlanValidationError as exc:
             print(str(exc), file=sys.stderr)
             return 2
         payload = {
@@ -42,15 +45,16 @@ def run(argv: list[str] | None = None) -> int:
             "counts": loaded.counts(),
             "mills": [
                 {
-                    "id": m.mill_id,
-                    "plants_module": m.plants_module,
-                    "start_round": m.start_round,
-                    "end_round": m.end_round_inclusive,
-                    "n_rounds": m.n_rounds,
-                    "pair_count": m.pair_count,
-                    "episodes": m.episodes,
+                    "id": mill.mill_id,
+                    "source": mill.source,
+                    "start_round": mill.start_round,
+                    "end_round": mill.end_round_inclusive,
+                    "n_rounds": mill.n_rounds,
+                    "pair_count": mill.pair_count,
+                    "full_n_rounds": mill.full_n_rounds,
+                    "episodes": mill.episodes,
                 }
-                for m in loaded.mills
+                for mill in loaded.mills
             ],
         }
         if args.json:
@@ -59,9 +63,28 @@ def run(argv: list[str] | None = None) -> int:
             counts = payload["counts"]
             print(
                 f"slice {loaded.slice} {loaded.label}: "
-                f"{counts['mills']} mills, {counts['rounds']} rounds, "
+                f"{counts['mills']} mills, {counts['rounds']} first-slice rounds, "
                 f"{counts['episodes']} episodes"
             )
+        return 0
+    if args.command == "catalog":
+        try:
+            loaded = catalog.load_catalog()
+        except catalog.PlanValidationError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {
+                    "catalog_id": loaded.catalog_id,
+                    "row_count": len(loaded.pairs),
+                    "plants_sha256": loaded.plants_sha256,
+                    "mills": [mill.mill_id for mill in loaded.mills],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     return 2
 
@@ -72,3 +95,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+bind_import_twin(__name__)

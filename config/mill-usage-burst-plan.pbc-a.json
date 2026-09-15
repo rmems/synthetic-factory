@@ -9,65 +9,75 @@
   "mills": [
     {
       "id": "pbc_r701",
-      "plants_module": "pbc.plants_r701",
+      "source": "experiments/pbc-mill-r701.py",
       "start_round": 701,
-      "n_rounds": 30,
-      "pair_count": 30
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 30
     },
     {
       "id": "pbc_r731",
-      "plants_module": "pbc.plants_r731",
+      "source": "experiments/pbc-mill-r731.py",
       "start_round": 731,
-      "n_rounds": 20,
-      "pair_count": 20
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 20
     },
     {
       "id": "pbc_r751",
-      "plants_module": "pbc.plants_r751",
+      "source": "experiments/pbc-mill-r751.py",
       "start_round": 751,
-      "n_rounds": 20,
-      "pair_count": 20
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 20
     },
     {
       "id": "pbc_r787",
-      "plants_module": "pbc.plants_r787",
+      "source": "experiments/pbc-mill-r787.py",
       "start_round": 787,
-      "n_rounds": 175,
-      "pair_count": 175
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 175
     },
     {
       "id": "pbc_r803",
-      "plants_module": "pbc.plants_r803",
+      "source": "experiments/pbc-mill-r803.py",
       "start_round": 803,
-      "n_rounds": 16,
-      "pair_count": 16
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 16
     },
     {
       "id": "pbc_r966",
-      "plants_module": "pbc.plants_r966",
+      "source": "experiments/pbc-mill-r966.py",
       "start_round": 966,
-      "n_rounds": 8,
-      "pair_count": 8
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 8
     },
     {
       "id": "pbc_r988",
-      "plants_module": "pbc.plants_r988",
+      "source": "experiments/pbc-mill-r988.py",
       "start_round": 988,
-      "n_rounds": 349,
-      "pair_count": 349
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 349
     },
     {
       "id": "pbc_r2535",
-      "plants_module": "pbc.plants_r2535",
+      "source": "experiments/pbc-mill-r2535.py",
       "start_round": 2535,
-      "n_rounds": 90,
-      "pair_count": 90
+      "n_rounds": 1,
+      "pair_count": 1,
+      "full_n_rounds": 90
     }
   ],
   "totals": {
     "mills": 8,
-    "rounds": 708,
-    "pairs": 708,
-    "episodes": 1416
+    "rounds": 8,
+    "pairs": 8,
+    "episodes": 16,
+    "full_pairs": 708,
+    "full_episodes": 1416
   }
 }

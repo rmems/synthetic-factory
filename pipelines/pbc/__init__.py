@@ -1,18 +1,44 @@
-"""PBC mill family helpers (proto-breaking-change, slice A burst plan)."""
+"""PBC mill family (prefix ``pbc`` / proto-breaking-change).
 
-from .burst_registry import BURST_MILLS, plants_module
-from .record_builder import handoff_episode, notes_for, success_episode
-from .usage_burst_plan import MillUsageBurstPlan, PlanValidationError, load_mill_usage_burst_plan
-from . import vocabulary
+The family lives here as ``_contract``, ``catalog``, ``generate``, and
+``cli``. Leftover mill scripts are not vendored.
+"""
+
+from ._contract import (
+    CATALOG_FORMAT,
+    CATALOG_ID,
+    FACTORY,
+    FACTORY_NAME,
+    FAMILY,
+    GENERATOR,
+    ID_PREFIX,
+    QUOTA,
+    SOURCE_COMMIT,
+    SOURCE_REF,
+    bind_import_twin,
+    refuse_vendor_paths,
+)
+from .catalog import load_catalog, load_mill_usage_burst_plan
+from .generate import handoff_episode, notes_for, success_episode
 
 __all__ = (
-    "BURST_MILLS",
-    "MillUsageBurstPlan",
-    "PlanValidationError",
+    "CATALOG_FORMAT",
+    "CATALOG_ID",
+    "FACTORY",
+    "FACTORY_NAME",
+    "FAMILY",
+    "GENERATOR",
+    "ID_PREFIX",
+    "QUOTA",
+    "SOURCE_COMMIT",
+    "SOURCE_REF",
+    "bind_import_twin",
     "handoff_episode",
+    "load_catalog",
     "load_mill_usage_burst_plan",
     "notes_for",
-    "plants_module",
+    "refuse_vendor_paths",
     "success_episode",
-    "vocabulary",
 )
+
+bind_import_twin(__name__)
