@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import types
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -32,7 +33,15 @@ __all__ = (
 
 def legacy_source(source_id: str) -> str:
     path = catalog.SOURCE_PATHS[source_id]
-    return subprocess.check_output(["git", "show", f"{LEGACY}:{path}"], text=True)
+    spec = f"{LEGACY}:{path}"
+    try:
+        return subprocess.check_output(
+            ["git", "show", spec],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise unittest.SkipTest(f"{spec} is not fetched") from exc
 
 
 def legacy_module(source_id: str):
