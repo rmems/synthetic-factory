@@ -186,7 +186,8 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "round_txn_agentic_terms",
     "round_txn_agentic_types",
     "round_txn_agentic_cascade",
-))
+    "validate_run_safety",
+)))
 
 
 def _load_package_sibling(name: str):
