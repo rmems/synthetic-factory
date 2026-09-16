@@ -27,7 +27,8 @@ from code_repair_test_support import (  # noqa: E402
 # then for digests on passing rows (Codex on #196, round 3), then for the parent-stamped
 # sandbox identity on the oracle fingerprint (#201).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-GOLDEN_SHA256 = "2966afd8a3f53b799a4faf69825482b0b8926c02d9a6fb260e28f6f5274d2c94"
+# bwrap OS boundary + #200 repr update move harness fingerprint
+GOLDEN_SHA256 = "0fba64fe62fe6dd99bc30ad35ea57d655a87bbb0f06befc2a2e468d09864de2e"
 
 
 def accepting_executor():

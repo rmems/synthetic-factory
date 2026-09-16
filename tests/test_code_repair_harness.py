@@ -129,6 +129,32 @@ class Failures(unittest.TestCase):
         self.assertEqual(report.hidden[0]["status"], cv.ROW_ERROR)
         self.assertNotIn("got", report.hidden[0])
 
+    def test_an_unrepresentable_return_value_is_one_error_row_and_the_report_stays_ok(self):
+        module = (
+            "class Bad:\n"
+            "    def __repr__(self):\n"
+            "        raise ValueError('nope')\n\n\n"
+            "def f(n):\n    return Bad() if n else n\n"
+        )
+        report = RUNNER.run(ex.Job(
+            "repr:test", module, "f",
+            ({"args": "(0,)", "want": None}, {"args": "(1,)", "want": None}),
+            False,
+        ))
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.hidden[0]["status"], cv.ROW_OBSERVED)
+        self.assertEqual(report.hidden[0]["got"], "0")
+        self.assertEqual(report.hidden[1]["status"], cv.ROW_ERROR)
+        self.assertIn("ValueError: nope", report.hidden[1]["got"])
+        huge = RUNNER.run(ex.Job(
+            "digits:test", "def f(n):\n    return 10 ** n\n", "f",
+            ({"args": "(5000,)", "want": "1"},), False,
+        ))
+        self.assertTrue(huge.ok, huge.detail)
+        self.assertEqual(huge.hidden[0]["status"], cv.ROW_ERROR)
+        self.assertEqual(huge.hidden[0]["kind"], "unrepresentable")
+        self.assertNotIn("got", huge.hidden[0])
+
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
         head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
@@ -321,6 +347,22 @@ class InProcessHarnessBehavior(unittest.TestCase):
         self.assertEqual(mismatch, {"id": "hidden:2", "status": "fail", "kind": "value_mismatch"})
         self.assertEqual(visible_error["got"], "RuntimeError: visible")
         self.assertEqual(hidden_error, {"id": "hidden:4", "status": "error", "kind": "exception"})
+
+    def test_an_unrepresentable_repr_is_a_hidden_error_not_a_raised_exception(self):
+        spec = {"float_rel_tol": 1e-12, "float_abs_tol": 1e-12}
+
+        class _BadRepr:
+            def __repr__(self):
+                raise ValueError("nope")
+
+        observed = harness._run_case(_BadRepr, 0, {"args": "()", "want": None}, spec)
+        hidden = harness._run_case(_BadRepr, 1, {"args": "()", "want": "0"}, spec)
+        huge = harness._run_case(pow, 2, {"args": "(10, 5000)", "want": "1"}, spec)
+
+        self.assertEqual(observed["status"], "error")
+        self.assertIn("ValueError: nope", observed["got"])
+        self.assertEqual(hidden, {"id": "hidden:1", "status": "error", "kind": "unrepresentable"})
+        self.assertEqual(huge, {"id": "hidden:2", "status": "error", "kind": "unrepresentable"})
 
 
 if __name__ == "__main__":

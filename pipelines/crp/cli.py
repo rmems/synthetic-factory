@@ -21,6 +21,7 @@ from . import r538 as r538_cat
 from . import leftover3_prior as leftover3_prior_cat
 from . import r729 as r729_cat
 from . import r817 as r817_cat
+from . import r995 as r995_cat
 from ._contract import bind_import_twin, dumps_exact_json, envelope
 
 __all__ = ["build_parser", "run"]
@@ -37,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--json", action="store_true")
     check.add_argument(
         "--wave",
-        choices=("leftover3", "leftover3-prior", "r432", "r538", "r729", "r817"),
+        choices=("leftover3", "leftover3-prior", "r432", "r538", "r729", "r817", "r995"),
         default="leftover3",
         help="leftover3 is the default; other waves are compact JSONL slices",
     )
@@ -72,6 +73,8 @@ def _catalog_check(args: argparse.Namespace) -> int:
         report = leftover3_prior_cat.catalog_check()
     elif args.wave == "r817":
         report = r817_cat.catalog_check()
+    elif args.wave == "r995":
+        report = r995_cat.catalog_check()
     else:
         report = cat.catalog_check()
     text = (

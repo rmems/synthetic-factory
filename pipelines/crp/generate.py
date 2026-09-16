@@ -21,6 +21,7 @@ from . import r538 as r538_cat
 from . import leftover3_prior as leftover3_prior_cat
 from . import r729 as r729_cat
 from . import r817 as r817_cat
+from . import r995 as r995_cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
     FINDING_DESTINATION_EXISTS,
@@ -559,6 +560,17 @@ def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]
             r817_cat.CATALOG_ID,
             r817_cat.RUN_FORMAT,
             "r817 GIS/feature-flag/IoT stretch",
+        )
+    if (
+        type(round_n) is int
+        and r995_cat.WAVE_FIRST_ROUND <= round_n <= r995_cat.WAVE_LAST_ROUND
+        and round_n > r817_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r995_cat.plants_for_round(round_n),
+            r995_cat.CATALOG_ID,
+            r995_cat.RUN_FORMAT,
+            "r995 low-code/BI/CRM stretch",
         )
     return (
         cat.plants_for_round(round_n),

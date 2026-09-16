@@ -14,6 +14,7 @@ import functools
 import os
 import shutil
 import struct
+import sys
 # Required only for the bwrap availability probe below.
 import subprocess  # nosec B404
 from collections.abc import Mapping
@@ -309,7 +310,7 @@ def _seccomp_blob() -> bytes | None:
 
 
 def _hide_roots(workdir: Path) -> tuple[Path, ...]:
-    """Host trees to overlay with tmpfs, skipping any ancestor of the workdir."""
+    """Host trees to overlay with tmpfs, skipping any ancestor of the workdir or Python runtime."""
     roots = [Path(_root_dir(name)) for name in _HIDE_ROOTS]
     roots.append(sp.ROOT)
     home = Path.home()
@@ -317,6 +318,13 @@ def _hide_roots(workdir: Path) -> tuple[Path, ...]:
         roots.append(home)
     hidden: list[Path] = []
     resolved_workdir = workdir.resolve()
+    python_paths = tuple({
+        p.resolve() for p in (
+            Path(sys.executable),
+            Path(sys.prefix),
+            Path(getattr(sys, "base_prefix", sys.prefix)),
+        ) if p.exists()
+    })
     for root in roots:
         try:
             resolved = root.resolve()
@@ -328,8 +336,12 @@ def _hide_roots(workdir: Path) -> tuple[Path, ...]:
             continue
         try:
             resolved_workdir.relative_to(resolved)
+            continue
         except ValueError:
-            hidden.append(resolved)
+            pass
+        if any(p == resolved or resolved in p.parents for p in python_paths):
+            continue
+        hidden.append(resolved)
     return tuple(hidden)
 
 
