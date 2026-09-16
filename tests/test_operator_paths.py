@@ -27,6 +27,27 @@ def _fifo(path: Path) -> Path:
     return path
 
 
+@contextlib.contextmanager
+def _lstat_raising_for(target: Path):
+    """Make ``os.lstat`` fail for one path, as an I/O error or race would.
+
+    Patches the ``lstat`` name the module under test looks up, without
+    depending on how many internal ``lstat`` calls CPython performs (a hit
+    counter over those internals is what broke this test on Python 3.14).
+    """
+
+    wanted = os.path.normpath(os.fspath(target))
+    real_lstat = os.lstat
+
+    def lstat(path, *args, **kwargs):
+        if os.path.normpath(os.fsdecode(os.fspath(path))) == wanted:
+            raise OSError("cannot inspect")
+        return real_lstat(path, *args, **kwargs)
+
+    with mock.patch("pipelines.operator_paths.os.lstat", side_effect=lstat):
+        yield
+
+
 class Confinement(unittest.TestCase):
     def test_paths_under_the_operator_roots_resolve(self):
         for candidate in (os.getcwd(), str(Path.home() / "x"), tempfile.gettempdir() + "/y"):
@@ -118,20 +139,53 @@ class LeafSafety(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             leaf = Path(td) / "sealed"
             leaf.write_text("keep\n", encoding="utf-8")
-            real_lstat = os.lstat
-
-            def lstat(path, *args, **kwargs):
-                target = os.fsdecode(os.fspath(path))
-                if os.path.normpath(target) == os.path.normpath(leaf):
-                    raise OSError("cannot inspect")
-                return real_lstat(path, *args, **kwargs)
-
             with (
-                mock.patch("pipelines.operator_paths.os.lstat", side_effect=lstat),
+                _lstat_raising_for(leaf),
                 self.assertRaises(argparse.ArgumentTypeError) as raised,
             ):
                 operator_path(leaf, argument="input")
             self.assertEqual(str(raised.exception), "input: the path cannot be inspected")
+
+    def test_an_uninspectable_symlink_is_refused(self):
+        # Regression (RM-1338): Path.is_symlink() swallows OSError, so a
+        # symlink whose metadata could not be read used to be accepted.
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "real.jsonl"
+            target.write_text("{}\n", encoding="utf-8")
+            link = Path(td) / "linked.jsonl"
+            link.symlink_to(target)
+            with (
+                _lstat_raising_for(link),
+                self.assertRaises(argparse.ArgumentTypeError) as raised,
+            ):
+                operator_path(link, argument="--output")
+            self.assertEqual(
+                str(raised.exception), "--output: the path cannot be inspected"
+            )
+
+    def test_an_uninspectable_fifo_is_refused(self):
+        # Regression (RM-1338): os.path.lexists() swallows OSError and the old
+        # code returned early on False, so an uninspectable FIFO was accepted.
+        with tempfile.TemporaryDirectory() as td:
+            fifo = _fifo(Path(td) / "named-pipe")
+            with (
+                _lstat_raising_for(fifo),
+                self.assertRaises(argparse.ArgumentTypeError) as raised,
+            ):
+                operator_path(fifo, argument="input")
+            self.assertEqual(
+                str(raised.exception), "input: the path cannot be inspected"
+            )
+
+    def test_an_uninspectable_device_node_is_refused(self):
+        with (
+            _lstat_raising_for(Path("/dev/null")),
+            self.assertRaises(argparse.ArgumentTypeError) as raised,
+        ):
+            operator_path("/dev/null", argument="--output")
+        self.assertEqual(
+            str(raised.exception), "--output: the path cannot be inspected"
+        )
 
     def test_fifo_and_device_leaves_are_refused(self):
         with tempfile.TemporaryDirectory() as td:
