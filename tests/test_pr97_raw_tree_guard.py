@@ -27,19 +27,21 @@ class RawTreeGuardIntegration(unittest.TestCase):
             descriptor = os.open(td, os.O_RDONLY | os.O_DIRECTORY)
             binding = sys.modules[compose_destination.PinnedDestination.__module__]
             try:
-                with mock.patch.object(
-                    binding,
-                    "is_under_raw",
-                    side_effect=OSError("mount lookup denied"),
-                ):
-                    with self.assertRaisesRegex(
+                with (
+                    mock.patch.object(
+                        binding,
+                        "is_under_raw",
+                        side_effect=OSError("mount lookup denied"),
+                    ),
+                    self.assertRaisesRegex(
                         compose_destination.ComposeError,
                         "cannot verify descriptor",
-                    ):
-                        compose_destination._assert_descriptor_outside_raw(
-                            descriptor,
-                            "destination",
-                        )
+                    ),
+                ):
+                    compose_destination._assert_descriptor_outside_raw(
+                        descriptor,
+                        "destination",
+                    )
             finally:
                 os.close(descriptor)
 
@@ -57,20 +59,22 @@ class RawTreeGuardIntegration(unittest.TestCase):
             staged = destination.parent / pinned.staged_name
             staged.rename(opaque_raw / staged.name)
             try:
-                with mock.patch.object(
-                    raw_tree_guard,
-                    "DEFAULT_RAW_OUTPUT_ROOT",
-                    opaque_raw,
-                ):
-                    with self.assertRaisesRegex(
+                with (
+                    mock.patch.object(
+                        raw_tree_guard,
+                        "DEFAULT_RAW_OUTPUT_ROOT",
+                        opaque_raw,
+                    ),
+                    self.assertRaisesRegex(
                         compose_destination.ComposeError,
                         "immutable raw evidence",
-                    ):
-                        compose_destination.write_pinned_new_bytes(
-                            pinned,
-                            "artifact.json",
-                            b"{}\n",
-                        )
+                    ),
+                ):
+                    compose_destination.write_pinned_new_bytes(
+                        pinned,
+                        "artifact.json",
+                        b"{}\n",
+                    )
             finally:
                 pinned.cleanup()
 
@@ -92,20 +96,22 @@ class RawTreeGuardIntegration(unittest.TestCase):
             )
             opaque_raw = pinned.root / "records"
             try:
-                with mock.patch.object(
-                    raw_tree_guard,
-                    "DEFAULT_RAW_OUTPUT_ROOT",
-                    opaque_raw,
-                ):
-                    with self.assertRaisesRegex(
+                with (
+                    mock.patch.object(
+                        raw_tree_guard,
+                        "DEFAULT_RAW_OUTPUT_ROOT",
+                        opaque_raw,
+                    ),
+                    self.assertRaisesRegex(
                         compose_destination.ComposeError,
                         "immutable raw evidence",
-                    ):
-                        compose_destination.write_pinned_new_bytes(
-                            pinned,
-                            "records/artifact.json",
-                            b"{}\n",
-                        )
+                    ),
+                ):
+                    compose_destination.write_pinned_new_bytes(
+                        pinned,
+                        "records/artifact.json",
+                        b"{}\n",
+                    )
             finally:
                 pinned.cleanup()
 

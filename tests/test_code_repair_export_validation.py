@@ -312,6 +312,7 @@ class FreshReplay(unittest.TestCase):
             meta['upstream']['license'] = 'Apache-2.0'
             meta['programs_sha256'] = hashlib.sha256((pinned / catalog.PROGRAMS_FILENAME).read_bytes()).hexdigest()
             metadata_path.write_text(json.dumps(meta))
+            # A rewritten license is not the reviewed pin, so this generate uses the OS boundary.
             generate.run(generate.RunRequest(pinned, root / 'run', 20260908, 12,
                                               '2026-09-08T00:00:00.000Z'))
             manifest = export.run(export.ExportRequest(root / 'run', root / 'export', catalog_dir=pinned))

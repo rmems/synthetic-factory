@@ -108,7 +108,11 @@ def _partition_by_eval_keys(
 
     train = [row for row in rows if (row.source_file, row.source_line) not in evaluation]
     evaluate = [row for row in rows if (row.source_file, row.source_line) in evaluation]
-    if not train or not evaluate:  # defensive: request validation makes this unreachable
+    # Reachable, despite the request validation: the split is keyed on the
+    # ``(source_file, source_line)`` identity, and ``_rebalance_one_sided_split``
+    # compares a set of identities against a count of rows, so a corpus with
+    # duplicate identities can still land every row on one side.
+    if not train or not evaluate:
         raise ExportError("deterministic fallback failed to produce both split sides")
     return train, evaluate
 

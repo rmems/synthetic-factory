@@ -12,7 +12,7 @@ import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, TypeGuard
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -38,7 +38,7 @@ REASONING_FIELDS = ("thought", "decision_basis", "reflection")
 SUPPORTED_RECORD_KINDS = frozenset({"episode", "thalamic"})
 
 
-def _is_episode_shaped(value: Any) -> bool:
+def _is_episode_shaped(value: Any) -> TypeGuard[Mapping[str, Any]]:
     return isinstance(value, Mapping) and all(key in value for key in EPISODE_MARKERS)
 
 

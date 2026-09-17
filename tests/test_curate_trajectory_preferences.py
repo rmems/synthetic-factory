@@ -309,6 +309,26 @@ class GateRejectPath(unittest.TestCase):
 
                 self.assert_excluded(source, ctp.REASON_PREFERENCE_DIRECTION_INVALID)
 
+    def test_same_goal_accepts_both_exact_spellings_of_one_and_nothing_near_it(self):
+        """``same_goal`` is an exact flag: JSON ``1`` and ``1.0``, never a tolerance."""
+
+        for value in (1, 1.0):
+            with self.subTest(accepted=value):
+                source = trajectory_pair(f"same-goal-{value!r}")
+                source["reward"]["same_goal"] = value
+
+                decision = ctp.curate_trajectory_pair(source)
+
+                self.assertEqual(decision.action, ctp.ACTION_RETAINED)
+
+        # Close is not the same goal. A tolerance comparison would admit these.
+        for value in (0.999999999, 1.000000001):
+            with self.subTest(refused=value):
+                source = trajectory_pair(f"same-goal-near-{value!r}")
+                source["reward"]["same_goal"] = value
+
+                self.assert_excluded(source, ctp.REASON_PREFERENCE_DIRECTION_INVALID)
+
     def test_direction_metadata_handles_arbitrarily_large_json_integers(self):
         huge = 10**400
         cases = (

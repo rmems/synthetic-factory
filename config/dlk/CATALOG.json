@@ -1,0 +1,30 @@
+{
+  "distinct_plants": 32,
+  "expected_per_round": 2,
+  "factory": "distributed-lock-factory",
+  "format": "dlk-mill-catalog/1",
+  "generator": "grok-4.6",
+  "n_rounds": 16,
+  "plant_files": {
+    "r1214": {
+      "bytes": 13879,
+      "file": "plants-r1214.json",
+      "plants": 16,
+      "round": 1214,
+      "sha256": "3f06d4d1dd42c87dcea6c85e207ef20089e61fe90fd36227a35e76a9bd7d1a02"
+    },
+    "r1280": {
+      "bytes": 14513,
+      "file": "plants-r1280.json",
+      "plants": 16,
+      "round": 1280,
+      "sha256": "729008479f55c7c1bb1edfbd518aada532ec2d0cdabac4f71d57d217c6d4d399"
+    }
+  },
+  "prefix": "dlk",
+  "preserved_rounds": [
+    1214,
+    1280
+  ],
+  "total_plants": 32
+}

@@ -2,7 +2,7 @@
   "version": 1,
   "dataset": "git-ops-recovery-trajectories",
   "issues": [65],
-  "note": "The viewer schema is declared by hand because `meta` is a key-bag: 2562 of 2832 records carry only `{factory, generator, round}`, so the datasets-server infers that thin struct from the first shards and then cannot cast the later records that add `kind` / `plant` / `designed` / `k` / `seed` / `tag` / `dep` / `pr` / `incident` / `steps`, or the four that add `domain` / `stack`. `/is-valid` reports `preview` true with `viewer`, `search`, `filter` and `statistics` false, and the parquet job fails on `config-size`. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag: 3648 of 3918 records carry only `{factory, generator, round}`, so the datasets-server infers that thin struct from the first shards and then cannot cast the later records that add `kind` / `plant` / `designed` / `k` / `seed` / `tag` / `dep` / `pr` / `incident` / `steps`, or the four that add `domain` / `stack`. `/is-valid` reports `preview` true with `viewer`, `search`, `filter` and `statistics` false, and the parquet job fails on `config-size`. Declaring the union fixes the index without rewriting a single historical raw record.",
   "config_name": "default",
   "split": "train",
   "data_files": ["data/raw/batch-*.jsonl"],
@@ -13,7 +13,7 @@
       "name": "plan",
       "dtype": "string",
       "optional": true,
-      "note": "present on 2756 of 2832 records; always a non-empty string where present. The 76 absences are the `meta.plant: designed` incident cohort in `batch-r13.jsonl`-`batch-r50.jsonl`, never a list-versus-string difference"
+      "note": "present on 3842 of 3918 records; always a non-empty string where present. The 76 absences are the `meta.plant: designed` incident cohort in `batch-r13.jsonl`-`batch-r50.jsonl`, never a list-versus-string difference"
     },
     {
       "name": "steps",
@@ -36,7 +36,7 @@
           "name": "reflection",
           "dtype": "string",
           "optional": true,
-          "note": "present on 7446 of 37388 steps"
+          "note": "present on 7446 of 54764 steps"
         }
       ]
     },
@@ -44,7 +44,7 @@
     {
       "name": "reward",
       "dtype": "json",
-      "note": "key-bag of 58 distinct keys over 49 distinct key sets, mixing five JSON types: `success` (bool) on every record, then `tests_passed` (2603), `cost_steps` (2566), `pr` (2499, int or null), `blocked` (659, str), `handoff` (579, str or int), the float triple `process_quality` / `verify_rigor` / `recovery_completeness` (76 each), 25 further multi-record int counters (from `poisoned_caches_deleted` and `live_ci_verified` at 73 each through 12 keys present on 2-6 records), and 24 single-record int extras"
+      "note": "key-bag of 58 distinct keys over 49 distinct key sets, mixing five JSON types: `success` (bool) on every record, then `tests_passed` (3689), `cost_steps` (3652), `pr` (3585, int or null), `blocked` (659, str), `handoff` (1122, str or int), the float triple `process_quality` / `verify_rigor` / `recovery_completeness` (76 each), 25 further multi-record int counters (from `poisoned_caches_deleted` and `live_ci_verified` at 73 each through 12 keys present on 2-6 records), and 24 single-record int extras"
     },
     {
       "name": "meta",
@@ -62,8 +62,8 @@
         "sir-r1195-whoosh-drop-leftover3d-handoff"
       ]
     },
-    "The other 2828 records are `gor-*` git-ops leftover-state recovery episodes (rebase, LFS, filter-repo). 167 of them carry `leftover` in the id: that is this factory's own advertised leftover-state mechanic on a matching payload kind, not a foreign dump. The only other leftover-in-id rows are the four `sir-*` leftover3d records disclosed above, so the dataset's 171 leftover-in-id names split 167 same-factory plus 4 foreign rather than 171 same-factory.",
-    "Every one of the 2832 records is stamped `meta.factory: git-ops-recovery-factory` and `meta.generator: grok-4.6`; the 1416 shards `batch-r01.jsonl` through `batch-r1416.jsonl` hold exactly two records each with no gaps and no parse failures.",
-    "Every one of the 37388 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+    "The other 3914 records are `gor-*` git-ops leftover-state recovery episodes (rebase, LFS, filter-repo). 169 of them carry `leftover` in the id: that is this factory's own advertised leftover-state mechanic on a matching payload kind, not a foreign dump. The only other leftover-in-id rows are the four `sir-*` leftover3d records disclosed above, so the dataset's 173 leftover-in-id names split 169 same-factory plus 4 foreign rather than 173 same-factory.",
+    "Every one of the 3918 records is stamped `meta.factory: git-ops-recovery-factory` and `meta.generator: grok-4.6`; the 1959 shards `batch-r01.jsonl` through `batch-r1959.jsonl` hold exactly two records each with no gaps and no parse failures.",
+    "Every one of the 54764 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
   ]
 }

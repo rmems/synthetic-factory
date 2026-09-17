@@ -227,9 +227,8 @@ class TestCanonicalIdentity(unittest.TestCase):
             "thalamic-trajectory-factory/\x00.jsonl",
         )
         for path in bad:
-            with self.subTest(path=path):
-                with self.assertRaises(identity.IdentityCurationError):
-                    identity.curate_record(source(raw, path=path))
+            with self.subTest(path=path), self.assertRaises(identity.IdentityCurationError):
+                identity.curate_record(source(raw, path=path))
         with self.assertRaisesRegex(identity.IdentityCurationError, "positive integer"):
             identity.curate_record(source(raw, line=0))
 
@@ -1334,9 +1333,11 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
 
     def test_float_overflow_is_rejected_by_registry_source_and_cli_apis(self):
         for payload in ("1e400", "-1e400", '{"nested":[1e400]}'):
-            with self.subTest(payload=payload):
-                with self.assertRaisesRegex(ValueError, "finitely representable"):
-                    identity._strict_json_loads(payload)
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(ValueError, "finitely representable"),
+            ):
+                identity._strict_json_loads(payload)
         self.assertEqual(identity._strict_json_loads("1e308"), 1e308)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1465,9 +1466,11 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
             r'{"value":"\ude00"}',
         )
         for payload in invalid_payloads:
-            with self.subTest(payload=payload):
-                with self.assertRaisesRegex(ValueError, "unpaired UTF-16 surrogate"):
-                    identity._strict_json_loads(payload)
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(ValueError, "unpaired UTF-16 surrogate"),
+            ):
+                identity._strict_json_loads(payload)
 
         astral = identity._strict_json_loads(r'{"escaped":"\ud83d\ude00","literal":"😀"}')
         self.assertEqual(astral, {"escaped": "😀", "literal": "😀"})
@@ -1639,6 +1642,11 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
 
 
 class TestIdentityWriterExcludeAndPin(unittest.TestCase):
+    def test_facade_default_registry_cache_is_the_injection_seam(self):
+        fake = mock.Mock(name="reviewed-registry")
+        with mock.patch.object(identity, "_DEFAULT_REGISTRY", fake):
+            self.assertIs(identity.default_registry(), fake)
+
     def test_registry_rejects_training_ready_and_invalid_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "missing.json"
@@ -1791,9 +1799,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 ),
             )
             for payload, needle in cases:
-                with self.subTest(needle=needle):
-                    with self.assertRaisesRegex(identity.IdentityCurationError, needle):
-                        _load_temp_registry(Path(tmp) / needle.replace(" ", "_"), payload)
+                with (
+                    self.subTest(needle=needle),
+                    self.assertRaisesRegex(identity.IdentityCurationError, needle),
+                ):
+                    _load_temp_registry(Path(tmp) / needle.replace(" ", "_"), payload)
 
             for case_index, path_id in enumerate(
                 (
@@ -1808,15 +1818,17 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     "/factory",
                 )
             ):
-                with self.subTest(path_id=path_id):
-                    with self.assertRaisesRegex(
+                with (
+                    self.subTest(path_id=path_id),
+                    self.assertRaisesRegex(
                         identity.IdentityCurationError,
                         "exactly one normalized directory component",
-                    ):
-                        _load_temp_registry(
-                            Path(tmp) / f"invalid-path-id-{case_index}",
-                            _registry_payload([_valid_row(path_id=path_id)]),
-                        )
+                    ),
+                ):
+                    _load_temp_registry(
+                        Path(tmp) / f"invalid-path-id-{case_index}",
+                        _registry_payload([_valid_row(path_id=path_id)]),
+                    )
 
             accepted = _load_temp_registry(
                 Path(tmp) / "ok",
@@ -2168,9 +2180,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
     def test_never_emit_real_is_enforced(self):
         raw = episode(FABLE_ACT)
         raw["state"] = {"sim_or_real": "simulated"}
-        with mock.patch.object(identity, "_map_claim", return_value="real"):
-            with self.assertRaisesRegex(identity.IdentityCurationError, "never emit"):
-                identity.curate_record(source(raw, f"{FABLE_ACT}/episodes.jsonl", 1))
+        with (
+            mock.patch.object(identity, "_map_claim", return_value="real"),
+            self.assertRaisesRegex(identity.IdentityCurationError, "never emit"),
+        ):
+            identity.curate_record(source(raw, f"{FABLE_ACT}/episodes.jsonl", 1))
 
         def stamp_real(curated, *_args, **_kwargs):
             curated["provenance"] = {"kind": "real"}
@@ -2237,9 +2251,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     raise OSError("sidecar vanished")
                 original(path, payload)
 
-            with mock.patch.object(identity, "_write_exclusive", boom_before_manifest):
-                with self.assertRaises(OSError):
-                    identity.write_run(src, dest)
+            with (
+                mock.patch.object(identity, "_write_exclusive", boom_before_manifest),
+                self.assertRaises(OSError),
+            ):
+                identity.write_run(src, dest)
             self.assertFalse(dest.exists())
 
             def boom_on_records(path, payload):
@@ -2247,18 +2263,22 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     raise OSError("fsync failed")
                 original(path, payload)
 
-            with mock.patch.object(identity, "_write_exclusive", boom_on_records):
-                with self.assertRaises(OSError):
-                    identity.write_run(src, dest)
+            with (
+                mock.patch.object(identity, "_write_exclusive", boom_on_records),
+                self.assertRaises(OSError),
+            ):
+                identity.write_run(src, dest)
             self.assertFalse(dest.exists())
 
-            with mock.patch.object(
-                identity,
-                "validate_identity_tree",
-                side_effect=identity.IdentityTreeError("post-write rejection"),
+            with (
+                mock.patch.object(
+                    identity,
+                    "validate_identity_tree",
+                    side_effect=identity.IdentityTreeError("post-write rejection"),
+                ),
+                self.assertRaisesRegex(identity.IdentityTreeError, "post-write rejection"),
             ):
-                with self.assertRaisesRegex(identity.IdentityTreeError, "post-write rejection"):
-                    identity.write_run(src, dest)
+                identity.write_run(src, dest)
             self.assertFalse(dest.exists())
 
             results = identity.write_run(src, dest)
@@ -3404,9 +3424,9 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with (
                 mock.patch.object(identity.os, "fdopen", bad_fdopen),
                 mock.patch.object(identity.os, "close", wraps=real_close) as close,
+                self.assertRaises(OSError),
             ):
-                with self.assertRaises(OSError):
-                    identity._write_exclusive(path, b"{}")
+                identity._write_exclusive(path, b"{}")
             close.assert_called_once()
             self.assertFalse(path.exists())
 
@@ -3437,9 +3457,11 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     raise FileExistsError("destination won by another creator")
                 return original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
 
-            with mock.patch.object(Path, "mkdir", racing_mkdir):
-                with self.assertRaisesRegex(FileExistsError, "another creator"):
-                    identity.write_run(src, dest)
+            with (
+                mock.patch.object(Path, "mkdir", racing_mkdir),
+                self.assertRaisesRegex(FileExistsError, "another creator"),
+            ):
+                identity.write_run(src, dest)
             self.assertEqual(
                 (dest / "foreign.txt").read_text(encoding="utf-8"),
                 "other process\n",

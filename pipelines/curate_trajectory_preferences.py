@@ -52,7 +52,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -70,6 +70,7 @@ if __package__:
         strip_hidden_thought_keys,
     )
     from .curate_preferences import PreferenceCurationError, write_run
+    from .operator_paths import operator_path
     from .trajectory_pair_curation import (
         changed_top_level_fields,
         curate_trajectory_pair,
@@ -149,6 +150,7 @@ else:
         strip_hidden_thought_keys,
     )
     from curate_preferences import PreferenceCurationError, write_run
+    from operator_paths import operator_path
     from trajectory_pair_curation import (
         changed_top_level_fields,
         curate_trajectory_pair,
@@ -468,8 +470,10 @@ def curate_source(source: Path, policy: GatePolicy = DEFAULT_POLICY) -> Curation
         tallies["classifications"][decision.classification] += 1
         tallies["reasons"].update(decision.reason_codes)
 
+        # ``_emitted_line`` returns bytes exactly when the decision carries a
+        # record, so the record itself is the discriminator for both.
         output_line = _emitted_line(decision, line.location, policy)
-        if output_line is not None:
+        if decision.record is not None:
             output_records.append(decision.record)
         manifest.append(_manifest_entry(decision, record, line, output_line))
 
@@ -527,7 +531,7 @@ def _add_policy_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -541,7 +545,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     curate.add_argument("--output", type=Path, required=True)
     curate.add_argument("--manifest", type=Path, required=True)
     _add_policy_argument(curate)
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return _build_parser().parse_args(argv)
+
+
+class Inputs(NamedTuple):
+    """The operator's paths, each confined to the working, home and temp trees."""
+
+    source: Path | None
+    output: Path | None
+    manifest: Path | None
+
+
+def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
+    """Confine every path argument right after parsing; sinks never read ``args`` again.
+
+    Only the CLI boundary is confined. ``_reject_raw_destination`` still runs
+    first inside ``_run_command``, and ``write_run`` (shared with
+    ``curate_preferences``) keeps refusing its destinations lexically for the
+    library callers that hand it an unresolved ``Path``.
+    """
+
+    def optional(name: str) -> Path | None:
+        value = getattr(args, name, None)
+        return None if value is None else operator_path(str(value))
+
+    try:
+        return Inputs(*(optional(name) for name in Inputs._fields))
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
 
 def _render_scan(run: CurationRun, as_json: bool) -> str:
@@ -555,26 +590,28 @@ def _render_scan(run: CurationRun, as_json: bool) -> str:
     )
 
 
-def _run_command(args: argparse.Namespace) -> int:
+def _run_command(args: argparse.Namespace, paths: Inputs) -> int:
     policy = GatePolicy(enforce_outcome_agreement=args.enforce_outcome_agreement)
     if args.command == "curate":
-        _reject_raw_destination(args.output, "output")
-        _reject_raw_destination(args.manifest, "manifest")
+        _reject_raw_destination(paths.output, "output")
+        _reject_raw_destination(paths.manifest, "manifest")
 
-    run = curate_source(args.source, policy)
+    run = curate_source(paths.source, policy)
     if args.command == "scan":
         print(_render_scan(run, args.json))
         return 0
 
-    write_run(run, args.source, args.output, args.manifest)
+    write_run(run, paths.source, paths.output, paths.manifest)
     print(json.dumps(run.summary, sort_keys=True))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    paths = _inputs(parser, args)
     try:
-        return _run_command(args)
+        return _run_command(args, paths)
     except (OSError, PreferenceCurationError, ValueError) as exc:
         print(f"trajectory preference curation failed: {exc}", file=sys.stderr)
         return 1

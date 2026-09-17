@@ -17,13 +17,10 @@ from round_txn_preference_support import (  # noqa: E402
     PreferenceRoundHarness,
     diagnosis_document,
     ffpc_record,
-    rejected_scratch,
     shared_context,
     thalamic_factory,
-    write_records,
 )
 import round_txn  # noqa: E402
-import round_txn_preference  # noqa: E402
 import preference_arms  # noqa: E402
 
 
@@ -444,13 +441,15 @@ class PreferencePublicationGate(PreferenceRoundHarness):
                     raise OSError("simulated interruption")
                 return real_link(*args, **kwargs)
 
-            with mock.patch.object(
-                round_txn.os,
-                "link",
-                side_effect=interrupt_completion_link,
+            with (
+                mock.patch.object(
+                    round_txn.os,
+                    "link",
+                    side_effect=interrupt_completion_link,
+                ),
+                self.assertRaisesRegex(OSError, "simulated interruption"),
             ):
-                with self.assertRaisesRegex(OSError, "simulated interruption"):
-                    round_txn.publish(factory, 1, reservation["token"])
+                round_txn.publish(factory, 1, reservation["token"])
 
             publishing = factory / "ROUND-r01.publishing.json"
             original_gate_version = json.loads(publishing.read_text())["preference_arm_gate"][
@@ -473,13 +472,15 @@ class PreferencePublicationGate(PreferenceRoundHarness):
             reservation = self.reserve(factory)
             self.fill_stage(reservation, ffpc_record())
 
-            with mock.patch.object(
-                round_txn.os,
-                "link",
-                side_effect=OSError("simulated interruption"),
+            with (
+                mock.patch.object(
+                    round_txn.os,
+                    "link",
+                    side_effect=OSError("simulated interruption"),
+                ),
+                self.assertRaisesRegex(OSError, "simulated interruption"),
             ):
-                with self.assertRaisesRegex(OSError, "simulated interruption"):
-                    round_txn.publish(factory, 1, reservation["token"])
+                round_txn.publish(factory, 1, reservation["token"])
 
             publishing = factory / "ROUND-r01.publishing.json"
             publishing.chmod(0o600)

@@ -172,7 +172,13 @@ def _same_goal_invalid(pair_reward: dict[str, Any]) -> bool:
     if "same_goal" not in pair_reward:
         return False
     value = pair_reward["same_goal"]
-    return not is_finite_json_number(value) or value != 1.0
+    # ``same_goal`` is a flag read straight out of a parsed record, never a
+    # computed quantity, so this is an exact test and stays one: JSON ``1``
+    # arrives as ``int`` and JSON ``1.0`` as exactly ``1.0``. The int literal
+    # is equivalent for both (``1 != 1.0`` is False) and keeps the comparison
+    # from reading as float arithmetic. A tolerance here would admit
+    # 0.999999999 as "same goal".
+    return not is_finite_json_number(value) or value != 1
 
 
 def _pair_evidence_invalid(pair_reward: Any) -> bool:

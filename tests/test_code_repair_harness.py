@@ -17,6 +17,7 @@ from code_repair_test_support import (  # noqa: E402
     boundary_site, catalog, executor as ex, mutate, program, refusal, vocabulary as cv,
 )
 from code_repair import _harness as harness  # noqa: E402
+from code_repair import sandbox as sb  # noqa: E402
 
 RUNNER = ex.Executor(timeout_s=5.0)
 
@@ -31,6 +32,7 @@ class OriginalAndMutant(unittest.TestCase):
         self.assertEqual(len(report.public), len(prog.examples))
         self.assertEqual(len(report.hidden), len(prog.cases))
         self.assertTrue(report.environment["limits_applied"])
+        self.assertEqual(report.environment["sandbox_identity"], "rlimits-only")
         self.assertEqual(report.environment["implementation"], "cpython")
 
     def test_the_mutant_fails_with_the_real_got_text(self):
@@ -127,6 +129,32 @@ class Failures(unittest.TestCase):
         self.assertEqual(report.hidden[0]["status"], cv.ROW_ERROR)
         self.assertNotIn("got", report.hidden[0])
 
+    def test_an_unrepresentable_return_value_is_one_error_row_and_the_report_stays_ok(self):
+        module = (
+            "class Bad:\n"
+            "    def __repr__(self):\n"
+            "        raise ValueError('nope')\n\n\n"
+            "def f(n):\n    return Bad() if n else n\n"
+        )
+        report = RUNNER.run(ex.Job(
+            "repr:test", module, "f",
+            ({"args": "(0,)", "want": None}, {"args": "(1,)", "want": None}),
+            False,
+        ))
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.hidden[0]["status"], cv.ROW_OBSERVED)
+        self.assertEqual(report.hidden[0]["got"], "0")
+        self.assertEqual(report.hidden[1]["status"], cv.ROW_ERROR)
+        self.assertIn("ValueError: nope", report.hidden[1]["got"])
+        huge = RUNNER.run(ex.Job(
+            "digits:test", "def f(n):\n    return 10 ** n\n", "f",
+            ({"args": "(5000,)", "want": "1"},), False,
+        ))
+        self.assertTrue(huge.ok, huge.detail)
+        self.assertEqual(huge.hidden[0]["status"], cv.ROW_ERROR)
+        self.assertEqual(huge.hidden[0]["kind"], "unrepresentable")
+        self.assertNotIn("got", huge.hidden[0])
+
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
         head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
@@ -188,8 +216,11 @@ class Isolation(unittest.TestCase):
         self.assertEqual(source.count("subprocess.run("), 1)
         self.assertNotIn("shell=", source)
         self.assertNotIn("preexec_fn", source)
+        self.assertIn("isolation.confine", source)
         self.assertEqual(ex.INTERPRETER_FLAGS, ("-P", "-s", "-S", "-B", "-X", "utf8"))
         self.assertEqual(set(ex.CHILD_ENV), {"PYTHONHASHSEED", "PYTHONDONTWRITEBYTECODE"})
+        self.assertNotIn("shell=", inspect.getsource(sb))
+        self.assertNotIn("preexec_fn", inspect.getsource(sb))
 
     def test_the_harness_imports_nothing_from_the_repository(self):
         text = ex.HARNESS_PATH.read_text(encoding="utf-8")
@@ -316,6 +347,22 @@ class InProcessHarnessBehavior(unittest.TestCase):
         self.assertEqual(mismatch, {"id": "hidden:2", "status": "fail", "kind": "value_mismatch"})
         self.assertEqual(visible_error["got"], "RuntimeError: visible")
         self.assertEqual(hidden_error, {"id": "hidden:4", "status": "error", "kind": "exception"})
+
+    def test_an_unrepresentable_repr_is_a_hidden_error_not_a_raised_exception(self):
+        spec = {"float_rel_tol": 1e-12, "float_abs_tol": 1e-12}
+
+        class _BadRepr:
+            def __repr__(self):
+                raise ValueError("nope")
+
+        observed = harness._run_case(_BadRepr, 0, {"args": "()", "want": None}, spec)
+        hidden = harness._run_case(_BadRepr, 1, {"args": "()", "want": "0"}, spec)
+        huge = harness._run_case(pow, 2, {"args": "(10, 5000)", "want": "1"}, spec)
+
+        self.assertEqual(observed["status"], "error")
+        self.assertIn("ValueError: nope", observed["got"])
+        self.assertEqual(hidden, {"id": "hidden:1", "status": "error", "kind": "unrepresentable"})
+        self.assertEqual(huge, {"id": "hidden:2", "status": "error", "kind": "unrepresentable"})
 
 
 if __name__ == "__main__":

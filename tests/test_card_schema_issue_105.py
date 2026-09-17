@@ -32,9 +32,9 @@ REPRESENTATIVE_FIXTURE = (
 )
 MIRROR = mirror_path(API_CONTRACT)
 PUBLISHED_PAYLOADS = [
-    f"batch-r{round_number:02d}.jsonl" for round_number in range(1, 4007)
+    f"batch-r{round_number:02d}.jsonl" for round_number in range(1, 4614)
 ]
-INVENTORY_SHA256 = "666f1809b7d1728e418aa7be0e1eb1953e752b24cdec926ab560f25eea293ac6"
+INVENTORY_SHA256 = "661ec10477f8cf442fb45f31548bc06b933c0b529000bea95ef52a8af44dc9aa"
 REPRESENTATIVE_SOURCES = {
     "acm-r01-disc-wallet-map-b7e2": (
         "batch-r01.jsonl",
@@ -102,7 +102,7 @@ META_SHAPE_COUNTS = {
         "round",
         "seed",
         "stack",
-    ): 890,
+    ): 2104,
     ("factory", "generator", "round"): 6,
     ("factory", "generator", "kind", "mechanic", "product", "round"): 2,
 }
@@ -174,8 +174,8 @@ class ApiContractMigrationDeclarationTests(DeclarationTestCase):
     """Issue #46: leftover mill mix plus `meta` drift in the contract-migration dump.
 
     Counts come from a read-only scan of the published mirror
-    ``~/rmems/hf/grok-4.6/api-contract-migration-trajectories``: 4006 shards,
-    8012 records, 130021 steps, 0 parse failures.
+    ``~/rmems/hf/grok-4.6/api-contract-migration-trajectories``: 4613 shards,
+    9226 records, 149445 steps, 0 parse failures.
     """
 
     DATASET = API_CONTRACT
@@ -188,22 +188,22 @@ class ApiContractMigrationDeclarationTests(DeclarationTestCase):
         "tags": ["synthetic-data", "trajectories", "openapi"],
     }
     SUMMARY = publisher.PayloadSummary(
-        records=8012,
-        bytes_=78346988,
+        records=9226,
+        bytes_=89929472,
         first="r01",
-        last="r4006",
+        last="r4613",
         names=PUBLISHED_PAYLOADS,
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
         names = self.names()
         self.assertEqual(set(names), EPISODE_FIELDS)
-        # Unlike long-horizon-coding, every one of the 8012 records carries a
+        # Unlike long-horizon-coding, every one of the 9226 records carries a
         # `plan`, so it is declared present rather than optional.
         self.assertNotIn("optional", names["plan"])
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
-        self.assert_episode_steps(names, "129909 of 130021 steps")
+        self.assert_episode_steps(names, "149333 of 149445 steps")
         self.assertEqual(self.declaration["issues"], [46])
 
     def test_key_bag_columns_are_declared_json(self):
@@ -216,7 +216,7 @@ class ApiContractMigrationDeclarationTests(DeclarationTestCase):
         self.assertIn("`batch-r02.jsonl`", note)
         self.assertIn("`batch-r98.jsonl`", note)
         meta = self.feature("meta")
-        self.assertIn("`seed` (6330)", meta["note"])
+        self.assertIn("`seed` (7544)", meta["note"])
 
     def test_reward_note_names_every_extra_key_found_in_the_payload(self):
         reward = self.feature("reward")
@@ -231,9 +231,9 @@ class ApiContractMigrationDeclarationTests(DeclarationTestCase):
             FEATURES_YAML, META_JSON_YAML, REWARD_JSON_YAML
         )
 
-    def test_card_reports_the_full_r01_through_r4006_range(self):
+    def test_card_reports_the_full_r01_through_r4613_range(self):
         self.assertIn(
-            "`data/raw/batch-r01.jsonl` through `data/raw/batch-r4006.jsonl`",
+            "`data/raw/batch-r01.jsonl` through `data/raw/batch-r4613.jsonl`",
             self.card,
         )
         self.assertNotIn(
@@ -269,10 +269,10 @@ class ApiContractMigrationDeclarationTests(DeclarationTestCase):
         )
 
     def test_declared_globs_cover_every_published_shard_name(self):
-        # The mirror publishes 4006 shards and nothing but `batch-rNN.jsonl`.
-        self.assertEqual(len(PUBLISHED_PAYLOADS), 4006)
+        # The mirror publishes 4613 shards and nothing but `batch-rNN.jsonl`.
+        self.assertEqual(len(PUBLISHED_PAYLOADS), 4613)
         self.assertEqual(PUBLISHED_PAYLOADS[0], "batch-r01.jsonl")
-        self.assertEqual(PUBLISHED_PAYLOADS[-1], "batch-r4006.jsonl")
+        self.assertEqual(PUBLISHED_PAYLOADS[-1], "batch-r4613.jsonl")
         self.assertEqual(
             card_schema.payload_coverage_errors(
                 self.declaration,
@@ -382,9 +382,9 @@ class ApiContractMigrationRawMirrorFidelity(unittest.TestCase):
                         )
 
         self.assertEqual(parse_failures, [])
-        self.assertEqual(record_count, 8012)
-        self.assertEqual(step_count, 130021)
-        self.assertEqual(seed_count, 6330)
+        self.assertEqual(record_count, 9226)
+        self.assertEqual(step_count, 149445)
+        self.assertEqual(seed_count, 7544)
         self.assertEqual(meta_shape_counts, META_SHAPE_COUNTS)
         self.assertEqual(thin_meta_locations, THIN_META_LOCATIONS)
         self.assertEqual(

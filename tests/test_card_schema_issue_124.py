@@ -47,7 +47,7 @@ def _mirror_root() -> Path:
 
 DOCKER_BUILD_CACHE_MIRROR = _mirror_root()
 
-SHARD_NAMES = [f"batch-r{number:02d}.jsonl" for number in range(1, 1029)]
+SHARD_NAMES = [f"batch-r{number:02d}.jsonl" for number in range(1, 1504)]
 
 
 def _spelled(number: int) -> str:
@@ -130,7 +130,7 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
     """Issue #61: thin `meta` vs the `plant` / `designed` leftover shapes.
 
     Every count asserted here was derived from the published mirror
-    (1028 shards, 2056 records, 36640 steps, 0 parse failures), not copied
+    (1503 shards, 3006 records, 53265 steps, 0 parse failures), not copied
     from the issue text.
     """
 
@@ -144,7 +144,7 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
         "tags": ["synthetic-data", "trajectories", "docker", "buildkit", "cache"],
     }
     SUMMARY = publisher.PayloadSummary(
-        records=2056, bytes_=12548477, first="r01", last="r1028", names=list(SHARD_NAMES)
+        records=3006, bytes_=18125410, first="r01", last="r1503", names=list(SHARD_NAMES)
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
@@ -170,11 +170,11 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
         self.assertEqual(self.declaration["issues"], [61])
 
     def test_plan_is_mandatory_here_unlike_the_sibling_declaration(self):
-        """`plan` is on 2056 of 2056 records; optionality is never inherited."""
+        """`plan` is on 3006 of 3006 records; optionality is never inherited."""
         plan = self.feature("plan")
         self.assertEqual(plan["dtype"], "string")
         self.assertNotIn("optional", plan)
-        self.assertIn("2056 of 2056", plan["note"])
+        self.assertIn("3006 of 3006", plan["note"])
         sibling_plan = by_name(card_schema.load(LONG_HORIZON)["features"])["plan"]
         self.assertTrue(sibling_plan["optional"])
         self.assertIn(PLAN_PRESENT_ROW, self.card)
@@ -188,9 +188,9 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
         A fabricated list that cannot match the real layout makes the coverage
         check unfalsifiable, so pin the names to `batch_label`.
         """
-        self.assertEqual(len(SHARD_NAMES), 1028)
+        self.assertEqual(len(SHARD_NAMES), 1503)
         self.assertEqual(SHARD_NAMES[0], "batch-r01.jsonl")
-        self.assertEqual(SHARD_NAMES[-1], "batch-r1028.jsonl")
+        self.assertEqual(SHARD_NAMES[-1], "batch-r1503.jsonl")
         for name in SHARD_NAMES:
             label = publisher.batch_label(Path(name))
             self.assertIsNotNone(label, name)
@@ -222,8 +222,8 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
         rounds are numbered numerically.
         """
         shards, records = scan_mirror(DOCKER_BUILD_CACHE_MIRROR)
-        self.assertEqual(len(shards), 1028)
-        self.assertEqual(len(records), 2056)
+        self.assertEqual(len(shards), 1503)
+        self.assertEqual(len(records), 3006)
         published = [shard.name for shard in shards]
         self.assertEqual(len(published), len(SHARD_NAMES))
         self.assertEqual(set(published), set(SHARD_NAMES))
@@ -250,7 +250,7 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
         total = len(records)
         thin, plant, kinded = _meta_shapes(records)
         self.assertEqual(len(thin) + len(plant) + len(kinded), total)
-        self.assertEqual([len(thin), len(plant), len(kinded)], [1934, 96, 26])
+        self.assertEqual([len(thin), len(plant), len(kinded)], [2884, 96, 26])
         self.assertEqual(
             [],
             [
@@ -464,21 +464,21 @@ class DockerBuildCacheDeclarationTests(DeclarationTestCase):
         self.assertNotIn(NOT_DECLARED, self.card)
         self.assert_card_has(
             # The advertised same-factory leftover-cache mechanic, not a foreign dump.
-            "833 of the 2056 record ids contain `leftover`",
+            "1308 of the 3006 record ids contain `leftover`",
             # The 26 designed cache-product templates are owned here by name.
             "`dbc-r634-bk-cachemount-id-alias-l3`",
             "`dbc-r646-containerd-gc-root-label-l3`",
             # Outbound copies in destination dumps stay with #44, not with this card.
             "/issues/44",
             REFLECTION_OPTIONAL_ROW,
-            "696 of 36640 steps",
+            "696 of 53265 steps",
         )
 
     def test_disclosures_keep_every_record_with_this_factory(self):
         summaries = [item["summary"] for item in self.declaration["disclosures"]]
         joined = " ".join(summaries)
         self.assertIn("no dest-stamped foreign payload", joined)
-        self.assertIn("36640 of 36640", joined)
+        self.assertIn("53265 of 53265", joined)
         listed = {
             record_id
             for item in self.declaration["disclosures"]

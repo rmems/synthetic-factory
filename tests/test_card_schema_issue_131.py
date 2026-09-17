@@ -80,11 +80,11 @@ class RagRetrievalDebugDeclarationTests(DeclarationTestCase):
     ISSUE = 71
     HUB_ITEM = _hub_item()
     SUMMARY = publisher.PayloadSummary(
-        records=1876,
-        bytes_=10831457,
+        records=3456,
+        bytes_=20521495,
         first="r01",
-        last="r938",
-        names=[f"batch-r{n:02d}.jsonl" for n in range(1, 939)],
+        last="r1728",
+        names=[f"batch-r{n:02d}.jsonl" for n in range(1, 1729)],
     )
 
     def setUp(self):
@@ -95,10 +95,10 @@ class RagRetrievalDebugDeclarationTests(DeclarationTestCase):
         self.assertEqual(self.declaration["issues"], [71])
         self.assertEqual(feature_names(self.declaration["features"]), RAG_FIELD_ORDER)
         names = self.names()
-        # `plan` is a string on all 1876 records here, unlike issue #36's dataset.
+        # `plan` is a string on all 3456 records here, unlike issue #36's dataset.
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertNotIn("optional", names["plan"])
-        self.assertIn("observed snapshot through round 938", names["plan"]["note"])
+        self.assertIn("observed snapshot through round 1728", names["plan"]["note"])
         steps = self.step_features(names)
         self.assertEqual(set(steps), STEP_FIELDS)
         self.assertTrue(steps["reflection"]["optional"])
@@ -186,7 +186,7 @@ class RagRetrievalDebugDeclarationTests(DeclarationTestCase):
     @needs_mirror(RAG_RETRIEVAL_DEBUG_MIRROR)
     def test_published_mirror_matches_the_snapshot_claims(self):
         payloads = sorted(RAG_RETRIEVAL_DEBUG_MIRROR.glob("batch-*.jsonl"))
-        self.assertEqual(len(payloads), 938)
+        self.assertEqual(len(payloads), 1728)
         records = 0
         extra_counts = {
             name: 0
@@ -214,7 +214,7 @@ class RagRetrievalDebugDeclarationTests(DeclarationTestCase):
                         evh_ids.add(record["id"])
                     records += 1
 
-        self.assertEqual(records, 1876)
+        self.assertEqual(records, 3456)
         self.assertEqual(set(extra_counts.values()), {76})
         self.assertEqual(evh_ids, set(self.EVH_IDS))
 

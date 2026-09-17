@@ -240,9 +240,8 @@ class ParseHooks(unittest.TestCase):
         # json.loads accepts bare NaN. Letting one through means the first
         # canonical re-serialisation raises and takes down the whole run.
         for constant in ("NaN", "Infinity", "-Infinity"):
-            with self.subTest(constant=constant):
-                with self.assertRaises(ValueError):
-                    json.loads(f'{{"v": {constant}}}', parse_constant=envelope.reject_json_constant)
+            with self.subTest(constant=constant), self.assertRaises(ValueError):
+                json.loads(f'{{"v": {constant}}}', parse_constant=envelope.reject_json_constant)
 
     def test_an_overflowing_float_literal_is_a_parse_failure(self):
         with self.assertRaises(ValueError):

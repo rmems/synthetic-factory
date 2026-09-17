@@ -1,0 +1,26 @@
+{
+  "catalog_id": "flk-fixture-v1",
+  "factory": "flaky-test-quarantine-factory",
+  "format": "flk-catalog/1",
+  "mill_prefix": "flk",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "flk_r0001",
+      "plant_count": 1,
+      "source": "tests/fixtures/flk/plants.jsonl"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "35253fa761b4b5c2e9201d374a7611b5ca1ff534335ad39b6bd7c21405529040",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": null,
+    "method": "git-show+ast.parse",
+    "ref": "fixture",
+    "scripts": [
+      "tests/fixtures/flk/plants.jsonl"
+    ]
+  }
+}
