@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -16,7 +16,6 @@ if __package__:
         EVIDENCE_STATUS_FIELDS,
         is_exact_string,
         policy_error,
-        protect_frozen_slots,
         require_hash,
         sha256_digest,
     )
@@ -39,7 +38,6 @@ else:
         EVIDENCE_STATUS_FIELDS,
         is_exact_string,
         policy_error,
-        protect_frozen_slots,
         require_hash,
         sha256_digest,
     )
@@ -79,9 +77,7 @@ _VERDICT_STRING_FIELDS = (
 )
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsRoute:  # noqa: D203,D211
+class RightsRoute(NamedTuple):  # noqa: D203,D211
     """Canonical provider/channel/profile coordinates for one decision."""
 
     provider: str
@@ -89,26 +85,20 @@ class RightsRoute:  # noqa: D203,D211
     rights_profile_id: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsVerification:
+class RightsVerification(NamedTuple):  # noqa: D203,D211
     """Trusted route and optional policy bytes for envelope verification."""
 
     expected_route: RightsRoute
     policy_bytes: bytes | None = None
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _BoundDigests:
+class _BoundDigests(NamedTuple):
     source_sha256: str
     factory_registry_sha256: str
     rights_policy_sha256: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsDecision:  # noqa: D203,D211
+class RightsDecision(NamedTuple):  # noqa: D203,D211
     """Immutable rights verdict with byte-bound evidence identifiers."""
 
     route: RightsRoute
@@ -155,12 +145,13 @@ def _authorization(route: RightsRoute) -> RightsAuthorization:
 
 
 def _require_route_value(
-    value: object,
+    value: Any,
     vocabulary: frozenset[str],
     label: str,
     *,
     where: str = _CLASSIFICATION_WHERE,
-) -> None:
+) -> str:
+    """The value once it is an exact member of its vocabulary, else a refusal."""
     if not is_exact_string(value):
         raise policy_error(
             where,
@@ -171,6 +162,16 @@ def _require_route_value(
             where,
             f"unknown {label}",
         )
+    return value
+
+
+#: (field name, its vocabulary, the label a refusal names it by) for the three
+#: coordinates every route carries, in the order they are validated.
+_ROUTE_COORDINATES: tuple[tuple[str, frozenset[str], str], ...] = (
+    ("provider", PROVIDERS, "canonical provider"),
+    ("channel", RIGHTS_CHANNELS, "channel"),
+    ("rights_profile_id", RIGHTS_PROFILE_IDS, "rights profile"),
+)
 
 
 def _validated_route(route: object) -> RightsRoute:
@@ -198,7 +199,17 @@ def _classification_route(
             _CLASSIFICATION_WHERE,
             f"route fields must be exactly {sorted(required)}",
         )
-    return _validated_route(RightsRoute(**route_fields))
+    provider, channel, rights_profile_id = tuple(
+        _require_route_value(route_fields[field], vocabulary, label)
+        for field, vocabulary, label in _ROUTE_COORDINATES
+    )
+    return _validated_route(
+        RightsRoute(
+            provider=provider,
+            channel=channel,
+            rights_profile_id=rights_profile_id,
+        )
+    )
 
 
 def classify_rights(
@@ -258,9 +269,7 @@ def _bound_bytes(value: object, field: str) -> bytes:
     return value
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _EnvelopeBytes:
+class _EnvelopeBytes(NamedTuple):
     source: bytes
     registry: bytes
     policy: bytes
@@ -308,12 +317,16 @@ def _reason_list(value: object) -> list[object]:
     return list(value)
 
 
-def _require_reason_strings(reasons: list[object]) -> None:
+def _require_reason_strings(reasons: list[Any]) -> list[str]:
+    """The reason codes once every one is a non-empty exact string."""
+    exact: list[str] = []
     for reason in reasons:
         if not is_exact_string(reason):
             raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
         if not reason:
             raise policy_error(_ENVELOPE_WHERE, _REASON_CODES_ERROR)
+        exact.append(reason)
+    return exact
 
 
 def _require_unique_reasons(reasons: list[object]) -> None:
@@ -324,9 +337,9 @@ def _require_unique_reasons(reasons: list[object]) -> None:
 def _verify_reason_codes(payload: dict[str, object]) -> None:
     reasons = _reason_list(payload["reason_codes"])
     payload["reason_codes"] = reasons
-    _require_reason_strings(reasons)
+    reason_codes = _require_reason_strings(reasons)
     _require_unique_reasons(reasons)
-    unknown_reasons = sorted(set(reasons) - REASON_CODES)
+    unknown_reasons = sorted(set(reason_codes) - REASON_CODES)
     if unknown_reasons:
         raise policy_error(
             _ENVELOPE_WHERE, f"unknown reason codes {unknown_reasons}"
@@ -340,22 +353,19 @@ def _require_verdict_strings(payload: dict[str, object]) -> None:
 
 
 def _payload_route(payload: dict[str, object]) -> RightsRoute:
-    route_fields = (
-        ("provider", PROVIDERS, "canonical provider"),
-        ("channel", RIGHTS_CHANNELS, "channel"),
-        ("rights_profile_id", RIGHTS_PROFILE_IDS, "rights profile"),
-    )
-    for field, vocabulary, label in route_fields:
+    provider, channel, rights_profile_id = tuple(
         _require_route_value(
             payload[field],
             vocabulary,
             label,
             where=_ENVELOPE_WHERE,
         )
+        for field, vocabulary, label in _ROUTE_COORDINATES
+    )
     return RightsRoute(
-        provider=payload["provider"],
-        channel=payload["channel"],
-        rights_profile_id=payload["rights_profile_id"],
+        provider=provider,
+        channel=channel,
+        rights_profile_id=rights_profile_id,
     )
 
 

@@ -243,13 +243,15 @@ class ComposeCuratedImportContracts(unittest.TestCase):
 
     def test_compose_facade_delegate_remains_a_live_seam(self):
         facade = pipeline_import_catalog.load_package("compose_curated")
-        with mock.patch.object(
-            facade,
-            "_facade_delegate",
-            side_effect=RuntimeError("facade delegation seam"),
+        with (
+            mock.patch.object(
+                facade,
+                "_facade_delegate",
+                side_effect=RuntimeError("facade delegation seam"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "facade delegation seam"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "facade delegation seam"):
-                facade.jsonl_physical_lines(b"{}\n")
+            facade.jsonl_physical_lines(b"{}\n")
 
 
 if __name__ == "__main__":

@@ -505,21 +505,26 @@ class PreferencePublishGate(unittest.TestCase):
                 write_jsonl(batch, [replacement, native_a, native_b])
                 return findings
 
-            with mock.patch.dict(
-                leftover_mill.KIND_MIX_QUARANTINE,
-                {CODE_REVIEW_SLUG: (provenance,)},
-                clear=True,
-            ), mock.patch.object(
-                publisher, "FACTORY_ROOT", root / "raw"
-            ), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(
-                publisher, "legacy_kind_mix", side_effect=replace_after_scan
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.dict(
+                    leftover_mill.KIND_MIX_QUARANTINE,
+                    {CODE_REVIEW_SLUG: (provenance,)},
+                    clear=True,
+                ),
+                mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                mock.patch.object(
+                    publisher, "legacy_kind_mix", side_effect=replace_after_scan
+                ),
+                self.assertRaisesRegex(
                     SystemExit, "legacy baseline changed during validation"
-                ):
-                    publisher.snapshot_one(PREFERENCE_ITEM)
+                ),
+            ):
+                publisher.snapshot_one(PREFERENCE_ITEM)
 
             copied = (
                 root

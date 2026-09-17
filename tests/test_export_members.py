@@ -33,13 +33,15 @@ class ExportMemberCompatibility(unittest.TestCase):
                 }
             }
 
-            with mock.patch.object(
-                export_members,
-                hook_name,
-                side_effect=FacadeHookReached,
+            with (
+                mock.patch.object(
+                    export_members,
+                    hook_name,
+                    side_effect=FacadeHookReached,
+                ),
+                self.assertRaises(FacadeHookReached),
             ):
-                with self.assertRaises(FacadeHookReached):
-                    export_members._authenticated_descriptor(root, summary, "manifest", member.name)
+                export_members._authenticated_descriptor(root, summary, "manifest", member.name)
 
     def test_descriptor_authentication_resolves_facade_reader_at_call_time(self):
         self._assert_descriptor_resolves_hook_at_call_time("_read_exact_regular_file")

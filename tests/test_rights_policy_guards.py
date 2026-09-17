@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import unittest
 
+from rights_test_support import SpoofedString
 from test_rights_policy import (
     RIGHTS_POLICY_SPEC,
     _policy_item,
@@ -54,9 +56,11 @@ class RightsPolicyGuardTests(unittest.TestCase):
             HostileNonTupleSlots,
         )
         for incompatible in incompatible_classes:
-            with self.subTest(incompatible=incompatible.__name__):
-                with self.assertRaisesRegex(TypeError, "frozen slotted dataclass"):
-                    rights_policy.protect_frozen_slots(incompatible)
+            with (
+                self.subTest(incompatible=incompatible.__name__),
+                self.assertRaisesRegex(TypeError, "frozen slotted dataclass"),
+            ):
+                rights_policy.protect_frozen_slots(incompatible)
 
     def test_loaded_policy_tree_is_immutable(self):
         original_version = rights_policy.RIGHTS_POLICY["mapping_version"]
@@ -105,9 +109,11 @@ class RightsPolicyGuardTests(unittest.TestCase):
         for target, field, replacement in attempts:
             original = object.__getattribute__(target, field)
             try:
-                with self.subTest(target=type(target).__name__, field=field):
-                    with self.assertRaises((AttributeError, TypeError)):
-                        object.__setattr__(target, field, replacement)
+                with (
+                    self.subTest(target=type(target).__name__, field=field),
+                    self.assertRaises((AttributeError, TypeError)),
+                ):
+                    object.__setattr__(target, field, replacement)
             finally:
                 if object.__getattribute__(target, field) != original:
                     object.__setattr__(target, field, original)
@@ -147,12 +153,14 @@ class RightsPolicyGuardTests(unittest.TestCase):
         ):
             document = mutable_policy_document()
             document["rules"][0][field] = value
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     f"unknown {field}",
-                ):
-                    rights_policy.validate_rights_policy(document)
+                ),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_requires_every_declared_profile(self):
         document = mutable_policy_document()
@@ -176,12 +184,14 @@ class RightsPolicyGuardTests(unittest.TestCase):
         for required_profile_ids in cases:
             document = mutable_policy_document()
             document["required_profile_ids"] = required_profile_ids
-            with self.subTest(required_profile_ids=required_profile_ids):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(required_profile_ids=required_profile_ids),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     "required_profile_ids must be a unique nonempty list of strings",
-                ):
-                    rights_policy.validate_rights_policy(document)
+                ),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_extra_shape_and_invariant_drift(self):
         cases = (
@@ -196,9 +206,8 @@ class RightsPolicyGuardTests(unittest.TestCase):
         for index, mutate in enumerate(cases):
             document = mutable_policy_document()
             mutate(document)
-            with self.subTest(case=index):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.validate_rights_policy(document)
+            with self.subTest(case=index), self.assertRaises(rights_policy.RightsPolicyError):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_byte_loader_rejects_payloads_over_the_explicit_limit(self):
         payload = b" " * (rights_policy.MAX_RIGHTS_JSON_BYTES + 1)
@@ -208,6 +217,63 @@ class RightsPolicyGuardTests(unittest.TestCase):
             "exceeds the .*byte rights JSON limit",
         ):
             rights_policy.load_rights_policy_bytes(payload)
+
+    def test_direct_policy_validation_rejects_spoofed_closed_vocabulary_strings(self):
+        for label, document in _spoofed_closed_vocabulary_cases():
+            with (
+                self.subTest(field=label),
+                self.assertRaises(rights_policy.RightsPolicyError),
+            ):
+                rights_policy.validate_rights_policy(document)
+
+    def test_byte_loader_rejects_serialized_spoofed_profile_verdict(self):
+        serialized = mutable_policy_document()
+        serialized["profiles"][0]["intended_use"] = SpoofedString(
+            "training_candidate", "research_only"
+        )
+        with self.assertRaisesRegex(
+            rights_policy.RightsPolicyError,
+            "inconsistent intended_use and project policy",
+        ):
+            rights_policy.load_rights_policy_bytes(
+                json.dumps(serialized).encode("utf-8")
+            )
+
+
+def _spoofed_closed_vocabulary_cases():
+    profile_use = mutable_policy_document()
+    profile_use["profiles"][0]["intended_use"] = SpoofedString(
+        "training_candidate", "research_only"
+    )
+    profile_policy = mutable_policy_document()
+    profile_policy["profiles"][0]["project_training_policy"] = SpoofedString(
+        "allowed", "blocked"
+    )
+    profile_status = mutable_policy_document()
+    profile_status["profiles"][0]["evidence_statuses"][
+        "provider_training_status"
+    ] = SpoofedString("allowed", "unresolved")
+    rule_use = mutable_policy_document()
+    rule_use["rules"][0]["intended_use"] = SpoofedString(
+        "training_candidate", rule_use["rules"][0]["intended_use"]
+    )
+    rule_policy = mutable_policy_document()
+    rule_policy["rules"][0]["project_training_policy"] = SpoofedString(
+        "allowed", rule_policy["rules"][0]["project_training_policy"]
+    )
+    rule_profile = mutable_policy_document()
+    original_profile = rule_profile["rules"][0]["rights_profile_id"]
+    rule_profile["rules"][0]["rights_profile_id"] = SpoofedString(
+        "other-profile", original_profile
+    )
+    return (
+        ("profile intended_use", profile_use),
+        ("profile project_training_policy", profile_policy),
+        ("profile evidence status", profile_status),
+        ("rule intended_use", rule_use),
+        ("rule project_training_policy", rule_policy),
+        ("rule rights_profile_id", rule_profile),
+    )
 
 
 if __name__ == "__main__":

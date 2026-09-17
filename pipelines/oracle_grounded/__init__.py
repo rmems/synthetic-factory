@@ -10,13 +10,22 @@ Nothing here invents a measurement. Every number under ``result.measured`` is
 produced by an oracle adapter that actually ran.
 """
 
+# Only the submodules that exist. The six names dropped here -- canon,
+# families, generators, oracles, record, sim -- were the layout of an
+# abandoned branch and were never modules on this package, so
+# ``from ... import *`` raised AttributeError on the first of them.
+# Sixteen real siblings (envelope, import_twins, the distill_* and fault_*
+# families) stay undeclared: every consumer names them explicitly, and
+# widening the star-import surface is a separate decision.
 __all__ = [
-    "canon",
-    "families",
-    "generators",
-    "oracles",
-    "record",
     "refusals",
     "rng",
-    "sim",
 ]
+
+from .import_twins import bind_import_twin
+
+# The CLI name (``oracle_grounded``) and the package name
+# (``pipelines.oracle_grounded``) stay one object. Declared submodules are
+# not imported here, so a star import still loads them by name and an
+# explicit sibling import is unchanged.
+bind_import_twin(__name__)

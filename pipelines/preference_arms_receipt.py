@@ -327,6 +327,7 @@ def _require_bound_publication(
     documents: list[dict[str, Any]],
     expected_names: tuple[str, ...],
     expectation: ReceiptExpectation,
+    batch: Path,
 ) -> None:
     """Bind the ordered Session A artifacts to the pairs actually published.
 
@@ -337,7 +338,7 @@ def _require_bound_publication(
     the diagnosis filenames already define.
     """
 
-    pairs = _batch_pairs(expectation.batch, expectation.expected_count)
+    pairs = _batch_pairs(batch, expectation.expected_count)
     scratch_names = rejected_scratch_filenames(
         expectation.round_number, expectation.expected_count
     )
@@ -373,5 +374,7 @@ def validate_diagnosis_handoff_receipt(
     entries = _validated_receipt_entries(receipt, expected_names, expectation.expected_count)
     documents = [_reconcile_entry_bytes(root, entry) for entry in entries]
     if expectation.batch is not None:
-        _require_bound_publication(root, documents, expected_names, expectation)
+        _require_bound_publication(
+            root, documents, expected_names, expectation, expectation.batch
+        )
     return receipt

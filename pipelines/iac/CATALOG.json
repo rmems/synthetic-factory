@@ -1,0 +1,387 @@
+{
+  "factory": "infra-as-code-factory",
+  "generator": "grok-4.6",
+  "mills": {
+    "iac-mill-r1132": {
+      "blob_sha": "9bbf8390a1581b6ec14e38acc641883a5127aec1",
+      "catalog_first": 1132,
+      "factory": "infra-as-code-factory",
+      "first_slug": "argocd-app-vs-old",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "alien-cfg-vs-old",
+      "mill_id": "iac-mill-r1132",
+      "n_rows": 382,
+      "path": "experiments/iac-mill-r1132.py",
+      "sha256": "539f1afcdb8e46416bf520b5f12b142eb01fee95d8fffeedccd401659130a291",
+      "shape": "k8s-cli-spec"
+    },
+    "iac-mill-r1514": {
+      "blob_sha": "9efee7a5778e84a2174131a0f166a1cd67f4acfe",
+      "catalog_first": 1514,
+      "factory": "infra-as-code-factory",
+      "first_slug": "piraeus-sat-vs-old",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "snyk-iac-vs-old",
+      "mill_id": "iac-mill-r1514",
+      "n_rows": 1097,
+      "path": "experiments/iac-mill-r1514.py",
+      "sha256": "066f5d5a54fc16b9b2bc81e9428bd0b858675f764921136d11282142c93bcdd3",
+      "shape": "k8s-cli-spec"
+    },
+    "iac-mill-r609": {
+      "blob_sha": "c3f9db2b8047fde0ae8a5b839da89f1ace51c51a",
+      "catalog_first": 625,
+      "factory": "infra-as-code-factory",
+      "first_slug": "flux-helmrelease-vs-helmchart",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "cts-consul-vs-stale-task",
+      "mill_id": "iac-mill-r609",
+      "n_rows": 34,
+      "pairs": [
+        {
+          "fail_handoff": true,
+          "fail_plant": "esker-jobs",
+          "fail_slug": "flux-helmchart-jobs-leftover",
+          "success_plant": "esker-prod",
+          "success_slug": "flux-helmrelease-vs-helmchart"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "drumlin-jobs",
+          "fail_slug": "argocd-hook-job-leftover",
+          "success_plant": "drumlin-prod",
+          "success_slug": "argocd-presync-hook-job"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "playa-jobs",
+          "fail_slug": "tfc-agent-disconnected-leftover",
+          "success_plant": "playa-prod",
+          "success_slug": "tfc-agent-pool-vs-remote"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "bajada-jobs",
+          "fail_slug": "tfc-varset-project-leftover",
+          "success_plant": "bajada-prod",
+          "success_slug": "tfc-varset-vs-workspace-var"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "yardang-jobs",
+          "fail_slug": "tfc-runtask-mandatory-leftover",
+          "success_plant": "yardang-prod",
+          "success_slug": "tfc-runtask-vs-advisory"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "loess-jobs",
+          "fail_slug": "tfc-sentinel-org-leftover",
+          "success_plant": "loess-prod",
+          "success_slug": "tfc-sentinel-hard-mandatory"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "palouse-jobs",
+          "fail_slug": "tfc-dyncreds-static-leftover",
+          "success_plant": "palouse-prod",
+          "success_slug": "tfc-dynamic-creds-vs-profile"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "scabland-jobs",
+          "fail_slug": "tf-replace-provider-backup-leftover",
+          "success_plant": "scabland-prod",
+          "success_slug": "tf-state-replace-provider"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "coulee-jobs",
+          "fail_slug": "tf-removed-orphan-leftover",
+          "success_plant": "coulee-prod",
+          "success_slug": "tf-removed-block-vs-state-rm"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "cuesta-jobs",
+          "fail_slug": "tf-check-data-leftover",
+          "success_plant": "cuesta-prod",
+          "success_slug": "tf-check-block-vs-refresh-false"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "hogback-jobs",
+          "fail_slug": "tf-ephemeral-backup-leftover",
+          "success_plant": "hogback-prod",
+          "success_slug": "tf-ephemeral-writeonly-vs-output"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "inselberg-jobs",
+          "fail_slug": "tf-refresh-planfile-leftover",
+          "success_plant": "inselberg-prod",
+          "success_slug": "tf-refresh-only-vs-full-apply"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "slough-jobs",
+          "fail_slug": "kapp-old-app-leftover",
+          "success_plant": "slough-prod",
+          "success_slug": "kapp-rebase-vs-override"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "bayou-jobs",
+          "fail_slug": "terramate-bak-backend-leftover",
+          "success_plant": "bayou-prod",
+          "success_slug": "terramate-generate-vs-run"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "col-jobs",
+          "fail_slug": "tf-login-public-creds-leftover",
+          "success_plant": "col-prod",
+          "success_slug": "tf-login-hostname-vs-creds"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "tarn-jobs",
+          "fail_slug": "tfc-public-module-cache-leftover",
+          "success_plant": "tarn-prod",
+          "success_slug": "tfc-private-registry-vs-public"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "arete-jobs",
+          "fail_slug": "tfc-assess-dismiss-leftover",
+          "success_plant": "arete-prod",
+          "success_slug": "tfc-drift-assessment-vs-plan"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "serac-jobs",
+          "fail_slug": "infracost-oldjson-leftover",
+          "success_plant": "serac-prod",
+          "success_slug": "infracost-breakdown-vs-stale-json"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "pingo-jobs",
+          "fail_slug": "conftest-ci-exception-leftover",
+          "success_plant": "pingo-prod",
+          "success_slug": "conftest-exception-vs-deny"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "kettle-jobs",
+          "fail_slug": "checkov-baseline-ci-leftover",
+          "success_plant": "kettle-prod",
+          "success_slug": "checkov-baseline-vs-skipcheck"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "tor-jobs",
+          "fail_slug": "env0-approval-lock-leftover",
+          "success_plant": "tor-prod",
+          "success_slug": "env0-wait-approval-vs-force"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "mesa-jobs",
+          "fail_slug": "tfc-ssh-old-key-leftover",
+          "success_plant": "mesa-prod",
+          "success_slug": "tfc-ssh-key-private-module"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "butte-jobs",
+          "fail_slug": "tanka-env-leftover",
+          "success_plant": "butte-prod",
+          "success_slug": "tanka-jsonnet-vs-stale-env"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "hoggin-jobs",
+          "fail_slug": "cue-v0-cache-leftover",
+          "success_plant": "hoggin-prod",
+          "success_slug": "cue-vet-vs-stale-instance"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "ventifact-jobs",
+          "fail_slug": "salt-jid-leftover",
+          "success_plant": "ventifact-prod",
+          "success_slug": "salt-highstate-vs-pending"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "dreikanter-jobs",
+          "fail_slug": "tf-stacks-legacy-state-leftover",
+          "success_plant": "dreikanter-prod",
+          "success_slug": "tf-stacks-vs-legacy-root"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "sastrugi-jobs",
+          "fail_slug": "tfc-notify-oldhook-leftover",
+          "success_plant": "sastrugi-prod",
+          "success_slug": "tfc-notify-webhook-vs-stale"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "rime-jobs",
+          "fail_slug": "tfc-nocode-vcs-leftover",
+          "success_plant": "rime-prod",
+          "success_slug": "tfc-nocode-vs-vcs"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "paternoster-jobs",
+          "fail_slug": "tfc-cost-oldplan-leftover",
+          "success_plant": "paternoster-prod",
+          "success_slug": "tfc-cost-estimate-vs-stale"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "bergschrund-jobs",
+          "fail_slug": "gdm-preview-jobs-leftover",
+          "success_plant": "bergschrund-prod",
+          "success_slug": "gdm-preview-vs-update"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "neve-jobs",
+          "fail_slug": "chef-berks-lock-jobs-leftover",
+          "success_plant": "neve-prod",
+          "success_slug": "chef-berks-lock-vs-supermarket"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "scree-jobs",
+          "fail_slug": "scalr-vcs-run-leftover",
+          "success_plant": "scree-prod",
+          "success_slug": "scalr-vcs-vs-cli"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "clast-jobs",
+          "fail_slug": "colmena-oldhost-leftover",
+          "success_plant": "clast-prod",
+          "success_slug": "colmena-target-vs-stale-ssh"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "till-jobs",
+          "fail_slug": "cts-task-webold-leftover",
+          "success_plant": "till-prod",
+          "success_slug": "cts-consul-vs-stale-task"
+        }
+      ],
+      "path": "experiments/iac-mill-r609.py",
+      "sha256": "cac8f7ee38a4fa70523408ca0a0bab7c82b3e42524d5b41ae5dfc235f9d98853",
+      "shape": "pairs-literal"
+    },
+    "iac-mill-r659": {
+      "blob_sha": "af3baadfebf0b7cacdd8fe4d750da1e28dcec99f",
+      "catalog_first": 659,
+      "factory": "infra-as-code-factory",
+      "first_slug": "atmos-tfvars-vs-stale-stack",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "terrakube-run-vs-cli",
+      "mill_id": "iac-mill-r659",
+      "n_rows": 24,
+      "path": "experiments/iac-mill-r659.py",
+      "sha256": "90d198050bd2739e3b1591b6bacba9624a5945bcad51c821d6855300bc916dc2",
+      "shape": "pairs-suc-fail"
+    },
+    "iac-mill-r683": {
+      "blob_sha": "aaceec5c235f462b3978bacfb27140c3da1909cf",
+      "catalog_first": 683,
+      "factory": "infra-as-code-factory",
+      "first_slug": "terrateam-lock-vs-stale-dir",
+      "generator": "grok-4.6",
+      "keep_slugs": [
+        "argo-rollouts-analysis-vs-promote",
+        "atmos-tfvars-vs-stale-stack",
+        "az-stack-deny-vs-update",
+        "cnrm-stateid-vs-adopt",
+        "copilot-overlay-vs-deploy",
+        "digger-lock-vs-stale-project",
+        "eso-secretstore-vs-clusterstore",
+        "pko-stackupdate-vs-apply",
+        "sops-tfvars-vs-plaintext"
+      ],
+      "kind": "pairs",
+      "last_slug": "metallb-ippool-vs-old",
+      "mill_id": "iac-mill-r683",
+      "n_extra": 17,
+      "n_keep": 9,
+      "n_rows": 26,
+      "path": "experiments/iac-mill-r683.py",
+      "sha256": "e61619dd38e0d1159ce74613748772a9db812806af39ced2c967b55175d27fdc",
+      "shape": "pairs-keep-extend"
+    },
+    "iac-mill-r709": {
+      "blob_sha": "1d93db28f222562e85aab5caada4238f7a3af63a",
+      "catalog_first": 709,
+      "factory": "infra-as-code-factory",
+      "first_slug": "xp-comprev-vs-old",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "knative-broker-vs-old",
+      "mill_id": "iac-mill-r709",
+      "n_rows": 68,
+      "path": "experiments/iac-mill-r709.py",
+      "sha256": "3c2c4e871f4f9a91fb0fbe458567a4605a67be99421a5311001e8da228810fbb",
+      "shape": "leftover-pair"
+    },
+    "iac-mill-r777": {
+      "blob_sha": "0cb6d90e80e44df952cab590e6440821c44a3f2d",
+      "catalog_first": 777,
+      "factory": "infra-as-code-factory",
+      "first_slug": "kserve-isvc-vs-old",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "packhcp-chan-vs-old",
+      "mill_id": "iac-mill-r777",
+      "n_rows": 355,
+      "path": "experiments/iac-mill-r777.py",
+      "sha256": "66bc9a6435becae09eaa967e7b5867ff38e43a1c0712bac85f506b67168ed819",
+      "shape": "k8s-file"
+    }
+  },
+  "n_mills": 7,
+  "n_pair_rows": 1986,
+  "preserve_commit": "51bc810cd2cdd753e97b1ae737d5fa5b00b92478",
+  "schema": "iac-catalog-extract/v1",
+  "slice": "mill_plants",
+  "source_ref": "origin/legacy-mill-lane",
+  "archive_b": {
+    "blob_sha": "af10345ae8103af86c05e58355559c5bcd795a8b",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "first_slug": "ansible-skip-if-unused",
+    "last_slug": "tf-already-used-address",
+    "n_plants": 8,
+    "path": "scripts/infra_as_code_mill/mill_plants.py",
+    "ref": "origin/legacy-mill-lane",
+    "sha256": "d2d60f15dafbb666299f1be1f2df7bcdc60aafd9dfc2fda17310f97273f0c585",
+    "shape": "ok-fail-label"
+  },
+  "archive_b_more": {
+    "blob_sha": "f28b122cac1956113df18c04ea7eb545d884e590",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "first_slug": "bicep-whatif-leftover-skip",
+    "last_slug": "nomad-system-skip",
+    "n_plants": 8,
+    "path": "scripts/infra_as_code_mill/mill_plants_b.py",
+    "ref": "origin/legacy-mill-lane",
+    "sha256": "e6827da1d0ea4808e535c0cf4a9107f240d4da717790d82f001aeba029c0b558",
+    "shape": "ok-fail-label"
+  },
+  "plants_sha256": "7d09efb34705757abef1a38be171d6e748234be838ccbef46a1d2045258405fb",
+  "plants_b_sha256": "a821ae6f0cca1fd687e6b9fc83bea266f92bc6313e5d2e7e852b3ea7c43a9694"
+}

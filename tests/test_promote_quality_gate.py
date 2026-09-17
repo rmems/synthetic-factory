@@ -50,17 +50,19 @@ def _cli(args):
 class TestPromoteQualityGatePreflight(unittest.TestCase):
     def _assert_preflight_rejected(self, raw, cleaned, manifest, expected_message):
         stderr = io.StringIO()
-        with mock.patch.object(promote, "promote_run") as promote_run:
-            with contextlib.redirect_stderr(stderr):
-                with self.assertRaises(SystemExit) as raised:
-                    promote.main(
-                        [
-                            str(raw),
-                            str(cleaned),
-                            "--quality-manifest",
-                            str(manifest),
-                        ]
-                    )
+        with (
+            mock.patch.object(promote, "promote_run") as promote_run,
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            promote.main(
+                [
+                    str(raw),
+                    str(cleaned),
+                    "--quality-manifest",
+                    str(manifest),
+                ]
+            )
 
         self.assertEqual(raised.exception.code, 2)
         self.assertIn(expected_message, stderr.getvalue())
@@ -91,19 +93,21 @@ class TestPromoteQualityGatePreflight(unittest.TestCase):
             raw.mkdir()
             stderr = io.StringIO()
 
-            with mock.patch.object(promote, "promote_run") as promote_run:
-                with contextlib.redirect_stderr(stderr):
-                    with self.assertRaises(SystemExit) as raised:
-                        promote.main(
-                            [
-                                str(raw),
-                                str(cleaned),
-                                "--quality-manifest",
-                                str(manifest),
-                                "--threshold",
-                                "0.5",
-                            ]
-                        )
+            with (
+                mock.patch.object(promote, "promote_run") as promote_run,
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                promote.main(
+                    [
+                        str(raw),
+                        str(cleaned),
+                        "--quality-manifest",
+                        str(manifest),
+                        "--threshold",
+                        "0.5",
+                    ]
+                )
 
             self.assertEqual(raised.exception.code, 2)
             self.assertIn("threshold must be a finite cosine", stderr.getvalue())
@@ -151,18 +155,20 @@ class TestPromoteQualityGatePreflight(unittest.TestCase):
             ),
         )
         for raw_relative, manifest_relative, expected_message in cases:
-            with self.subTest(
-                raw_relative=raw_relative, manifest_relative=manifest_relative
+            with (
+                self.subTest(
+                    raw_relative=raw_relative, manifest_relative=manifest_relative
+                ),
+                tempfile.TemporaryDirectory() as td,
             ):
-                with tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
-                    raw = root / "raw"
-                    cleaned = root / "cleaned"
-                    manifest = root / manifest_relative
-                    _write_jsonl(raw / raw_relative, [_record()])
-                    self._assert_preflight_rejected(
-                        raw, cleaned, manifest, expected_message
-                    )
+                root = Path(td)
+                raw = root / "raw"
+                cleaned = root / "cleaned"
+                manifest = root / manifest_relative
+                _write_jsonl(raw / raw_relative, [_record()])
+                self._assert_preflight_rejected(
+                    raw, cleaned, manifest, expected_message
+                )
 
     def test_manifest_path_is_canonicalized_before_promotion_writes_it(self):
         with tempfile.TemporaryDirectory() as td:
@@ -357,31 +363,30 @@ class TestPromoteGateFlags(unittest.TestCase):
 
     def test_custom_manifest_destination_is_honoured(self):
         for placement in ("outside", "below-created-directory"):
-            with self.subTest(placement=placement):
-                with tempfile.TemporaryDirectory() as td:
-                    raw = Path(td) / "raw"
-                    cleaned = Path(td) / "cleaned"
-                    sidecar = (
-                        Path(td) / "elsewhere" / "gate.json"
-                        if placement == "outside"
-                        else cleaned / "f" / "gate.json"
-                    )
-                    _write_jsonl(raw / "f" / "a.jsonl", [_record()])
+            with self.subTest(placement=placement), tempfile.TemporaryDirectory() as td:
+                raw = Path(td) / "raw"
+                cleaned = Path(td) / "cleaned"
+                sidecar = (
+                    Path(td) / "elsewhere" / "gate.json"
+                    if placement == "outside"
+                    else cleaned / "f" / "gate.json"
+                )
+                _write_jsonl(raw / "f" / "a.jsonl", [_record()])
 
-                    proc = _cli(
-                        [
-                            str(raw),
-                            str(cleaned),
-                            "--quality-manifest",
-                            str(sidecar),
-                            "--max-synthetic-ratio",
-                            "1.0",
-                        ]
-                    )
+                proc = _cli(
+                    [
+                        str(raw),
+                        str(cleaned),
+                        "--quality-manifest",
+                        str(sidecar),
+                        "--max-synthetic-ratio",
+                        "1.0",
+                    ]
+                )
 
-                    self.assertEqual(proc.returncode, 0, proc.stderr)
-                    self.assertTrue(sidecar.is_file())
-                    self.assertFalse((cleaned / "quality-manifest.json").exists())
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertTrue(sidecar.is_file())
+                self.assertFalse((cleaned / "quality-manifest.json").exists())
 
 
 if __name__ == "__main__":

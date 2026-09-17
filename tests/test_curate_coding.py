@@ -473,9 +473,11 @@ class CurateCodingTests(unittest.TestCase):
                 return real_write(path, values)
 
             rolled = Path(temporary) / "lane-coding-rollback"
-            with mock.patch.object(curate_coding, "_write_new_jsonl", boom):
-                with self.assertRaisesRegex(RuntimeError, "inject-write-failure"):
-                    curate_coding.curate_run(source, rolled)
+            with (
+                mock.patch.object(curate_coding, "_write_new_jsonl", boom),
+                self.assertRaisesRegex(RuntimeError, "inject-write-failure"),
+            ):
+                curate_coding.curate_run(source, rolled)
             self.assertFalse(rolled.exists())
 
     def test_directory_writer_rejects_symlink_empty_raw_and_nested_dest(self):

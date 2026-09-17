@@ -202,17 +202,21 @@ class PublishGrok46HubTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch.object(
-                publisher, "FACTORY_ROOT", root / "raw"
-            ), mock.patch.object(
-                publisher, "HF_ROOT", destination_root
-            ), mock.patch.object(
-                publisher.card_schema, "SCHEMA_ROOT", schema_root
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ),
+                mock.patch.object(
+                    publisher, "HF_ROOT", destination_root
+                ),
+                mock.patch.object(
+                    publisher.card_schema, "SCHEMA_ROOT", schema_root
+                ),
+                self.assertRaisesRegex(
                     SystemExit, "does not cover the published payload"
-                ):
-                    publisher.snapshot_one(ITEM)
+                ),
+            ):
+                publisher.snapshot_one(ITEM)
 
             self.assertEqual(mirror_file_bytes(mirror), before)
             self.assertFalse((mirror / "data").exists())
@@ -247,15 +251,19 @@ class PublishGrok46HubTests(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-                with mock.patch.object(
-                    publisher, "FACTORY_ROOT", root / "raw"
-                ), mock.patch.object(
-                    publisher, "HF_ROOT", destination_root
-                ), mock.patch.object(
-                    publisher.card_schema, "SCHEMA_ROOT", schema_root
+                with (
+                    mock.patch.object(
+                        publisher, "FACTORY_ROOT", root / "raw"
+                    ),
+                    mock.patch.object(
+                        publisher, "HF_ROOT", destination_root
+                    ),
+                    mock.patch.object(
+                        publisher.card_schema, "SCHEMA_ROOT", schema_root
+                    ),
+                    self.assertRaisesRegex(SystemExit, "cannot render card schema"),
                 ):
-                    with self.assertRaisesRegex(SystemExit, "cannot render card schema"):
-                        publisher.snapshot_one(ITEM)
+                    publisher.snapshot_one(ITEM)
 
                 self.assertEqual(mirror_file_bytes(mirror), before)
                 self.assertFalse((mirror / "data").exists())
@@ -513,9 +521,11 @@ class PublishGrok46HubTests(unittest.TestCase):
 
             linked_root = root / "linked-raw"
             linked_root.symlink_to(raw, target_is_directory=True)
-            with mock.patch.object(publisher, "FACTORY_ROOT", linked_root):
-                with self.assertRaisesRegex(SystemExit, "unsafe factory root"):
-                    publisher.factories()
+            with (
+                mock.patch.object(publisher, "FACTORY_ROOT", linked_root),
+                self.assertRaisesRegex(SystemExit, "unsafe factory root"),
+            ):
+                publisher.factories()
 
     def test_snapshot_uses_independent_copies_and_truthful_lettered_range(self):
         with tempfile.TemporaryDirectory() as td:
@@ -817,11 +827,14 @@ class PublishGrok46HubTests(unittest.TestCase):
                 unsafe.parent.mkdir(parents=True)
                 unsafe.symlink_to(outside, target_is_directory=True)
 
-                with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
-                    publisher, "HF_ROOT", root / "hf"
+                with (
+                    mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"),
+                    mock.patch.object(
+                        publisher, "HF_ROOT", root / "hf"
+                    ),
+                    self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"),
                 ):
-                    with self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"):
-                        publisher.snapshot_one(ITEM)
+                    publisher.snapshot_one(ITEM)
 
                 self.assertEqual(list(outside.iterdir()), [])
 
@@ -1079,11 +1092,14 @@ class PublishGrok46HubTests(unittest.TestCase):
             stale.parent.mkdir(parents=True)
             stale.write_text('{"id":"preserve"}\n')
 
-            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
+            with (
+                mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                self.assertRaisesRegex(SystemExit, "unsafe committed artifact"),
             ):
-                with self.assertRaisesRegex(SystemExit, "unsafe committed artifact"):
-                    publisher.snapshot_one(ITEM)
+                publisher.snapshot_one(ITEM)
 
             self.assertEqual(stale.read_text(), '{"id":"preserve"}\n')
 
@@ -1122,11 +1138,14 @@ class PublishGrok46HubTests(unittest.TestCase):
             stale.parent.mkdir(parents=True)
             stale.write_text("preserve\n")
 
-            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
+            with (
+                mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                self.assertRaisesRegex(SystemExit, "unsafe committed artifact"),
             ):
-                with self.assertRaisesRegex(SystemExit, "unsafe committed artifact"):
-                    publisher.snapshot_one(ITEM)
+                publisher.snapshot_one(ITEM)
 
             self.assertEqual(stale.read_text(), "preserve\n")
 
@@ -1308,13 +1327,17 @@ class PublishGrok46HubTests(unittest.TestCase):
                 batch.write_text('{"id":"changed-after-validation"}\n')
                 return selected
 
-            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(
-                publisher, "published_notes", side_effect=tamper_after_selection
+            with (
+                mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                mock.patch.object(
+                    publisher, "published_notes", side_effect=tamper_after_selection
+                ),
+                self.assertRaisesRegex(SystemExit, "changed after manifest validation"),
             ):
-                with self.assertRaisesRegex(SystemExit, "changed after manifest validation"):
-                    publisher.snapshot_one(ITEM)
+                publisher.snapshot_one(ITEM)
 
             self.assertFalse((root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).exists())
 
@@ -1336,17 +1359,21 @@ class PublishGrok46HubTests(unittest.TestCase):
                 batch.write_text('{"id":"changed-after-validation"}\n')
                 return selected
 
-            with mock.patch.object(
-                publisher, "FACTORY_ROOT", root / "raw"
-            ), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(
-                publisher, "published_notes", side_effect=tamper_after_selection
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                mock.patch.object(
+                    publisher, "published_notes", side_effect=tamper_after_selection
+                ),
+                self.assertRaisesRegex(
                     SystemExit, "changed after manifest validation"
-                ):
-                    publisher.snapshot_one(ITEM)
+                ),
+            ):
+                publisher.snapshot_one(ITEM)
 
             self.assertFalse(
                 (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).exists()
@@ -1366,17 +1393,21 @@ class PublishGrok46HubTests(unittest.TestCase):
                 batch.write_text('{"id":"changed-after-validation"}\n')
                 return selected
 
-            with mock.patch.object(
-                publisher, "FACTORY_ROOT", root / "raw"
-            ), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(
-                publisher, "published_notes", side_effect=tamper_after_selection
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                mock.patch.object(
+                    publisher, "published_notes", side_effect=tamper_after_selection
+                ),
+                self.assertRaisesRegex(
                     SystemExit, "changed after manifest validation"
-                ):
-                    publisher.snapshot_one(ITEM)
+                ),
+            ):
+                publisher.snapshot_one(ITEM)
 
             self.assertFalse(
                 (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).exists()
@@ -1397,17 +1428,21 @@ class PublishGrok46HubTests(unittest.TestCase):
                 notes.write_text("Novel coverage: changed after validation\n")
                 return selected
 
-            with mock.patch.object(
-                publisher, "FACTORY_ROOT", root / "raw"
-            ), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(
-                publisher, "published_notes", side_effect=tamper_after_selection
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ),
+                mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ),
+                mock.patch.object(
+                    publisher, "published_notes", side_effect=tamper_after_selection
+                ),
+                self.assertRaisesRegex(
                     SystemExit, "changed after manifest validation"
-                ):
-                    publisher.snapshot_one(ITEM)
+                ),
+            ):
+                publisher.snapshot_one(ITEM)
 
             self.assertFalse(
                 (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / notes.name).exists()
@@ -1509,9 +1544,11 @@ class PublishGrok46HubTests(unittest.TestCase):
             )
             dest = hub_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
 
-            with mock.patch.object(publisher, "HF_ROOT", hub_root):
-                with self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"):
-                    publisher.snapshot_directories(dest)
+            with (
+                mock.patch.object(publisher, "HF_ROOT", hub_root),
+                self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"),
+            ):
+                publisher.snapshot_directories(dest)
 
     def test_snapshot_refuses_a_destination_outside_the_datasets_root(self):
         # A mirror written directly under the Hub root (the pre-grouping
@@ -1520,11 +1557,13 @@ class PublishGrok46HubTests(unittest.TestCase):
             hub_root = Path(td) / "hf"
             hub_root.mkdir(parents=True)
 
-            with mock.patch.object(publisher, "HF_ROOT", hub_root):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(publisher, "HF_ROOT", hub_root),
+                self.assertRaisesRegex(
                     SystemExit, "snapshot destination escaped Hub root"
-                ):
-                    publisher.snapshot_directories(hub_root / ITEM["hub"])
+                ),
+            ):
+                publisher.snapshot_directories(hub_root / ITEM["hub"])
 
     def test_upload_refuses_a_missing_datasets_root(self):
         # HF_ROOT can exist while the per-model mirror root does not; the
@@ -1533,9 +1572,11 @@ class PublishGrok46HubTests(unittest.TestCase):
             hub_root = Path(td) / "hf"
             hub_root.mkdir(parents=True)
 
-            with mock.patch.object(publisher, "HF_ROOT", hub_root):
-                with self.assertRaisesRegex(SystemExit, "unsafe upload root"):
-                    publisher.safe_upload_directory(ITEM)
+            with (
+                mock.patch.object(publisher, "HF_ROOT", hub_root),
+                self.assertRaisesRegex(SystemExit, "unsafe upload root"),
+            ):
+                publisher.safe_upload_directory(ITEM)
 
     def test_upload_refuses_a_symlinked_hub_mirror(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1547,11 +1588,15 @@ class PublishGrok46HubTests(unittest.TestCase):
             outside.mkdir()
             (datasets_root / ITEM["hub"]).symlink_to(outside, target_is_directory=True)
 
-            with mock.patch.object(publisher, "HF_ROOT", hub_root), mock.patch.object(
-                publisher, "factories", return_value=[ITEM]
-            ), mock.patch.object(publisher, "run") as run:
-                with self.assertRaisesRegex(SystemExit, "unsafe upload directory"):
-                    publisher.cmd_upload()
+            with (
+                mock.patch.object(publisher, "HF_ROOT", hub_root),
+                mock.patch.object(
+                    publisher, "factories", return_value=[ITEM]
+                ),
+                mock.patch.object(publisher, "run") as run,
+                self.assertRaisesRegex(SystemExit, "unsafe upload directory"),
+            ):
+                publisher.cmd_upload()
 
             run.assert_not_called()
 
@@ -1562,11 +1607,15 @@ class PublishGrok46HubTests(unittest.TestCase):
             mirror.mkdir(parents=True)
             (mirror / "old.jsonl").write_text("unmanaged\n")
 
-            with mock.patch.object(publisher, "HF_ROOT", root), mock.patch.object(
-                publisher, "factories", return_value=[ITEM]
-            ), mock.patch.object(publisher, "run") as run:
-                with self.assertRaisesRegex(SystemExit, "unmanaged upload tree entry"):
-                    publisher.cmd_upload()
+            with (
+                mock.patch.object(publisher, "HF_ROOT", root),
+                mock.patch.object(
+                    publisher, "factories", return_value=[ITEM]
+                ),
+                mock.patch.object(publisher, "run") as run,
+                self.assertRaisesRegex(SystemExit, "unmanaged upload tree entry"),
+            ):
+                publisher.cmd_upload()
 
             run.assert_not_called()
 

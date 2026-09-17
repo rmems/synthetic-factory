@@ -129,9 +129,11 @@ class ArmDistanceMetric(unittest.TestCase):
     def test_programmatic_distance_floor_rejects_non_finite_or_out_of_range_values(self):
         record = first(TWO_SESSION_ROUND)
         for value in (float("nan"), float("inf"), -0.01, 1.0, True, "0.03"):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(ValueError, "arm-distance floor"):
-                    check(record, min_distance=value)
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(ValueError, "arm-distance floor"),
+            ):
+                check(record, min_distance=value)
 
 
 class TwoSessionRoundClearsTheGate(unittest.TestCase):

@@ -122,11 +122,11 @@ def _pair_requirement(
 ) -> frozenset[str] | None:
     """What one quantity/unit field pair requires, or None when it names no energy."""
 
-    quantity = value.get(quantity_key)
-    if envelope.is_enum_value(quantity, vocab.ENERGY_QUANTITIES):
+    quantity = envelope.enum_value_or_none(value.get(quantity_key), vocab.ENERGY_QUANTITIES)
+    if quantity is not None:
         return frozenset({quantity})
-    unit = value.get(unit_key)
-    if envelope.is_enum_value(unit, vocab.ENERGY_UNITS):
+    unit = envelope.enum_value_or_none(value.get(unit_key), vocab.ENERGY_UNITS)
+    if unit is not None:
         return frozenset(q for q in vocab.ENERGY_QUANTITIES if vocab.QUANTITY_UNITS[q] == unit)
     return None
 
