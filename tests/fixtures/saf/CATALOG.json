@@ -1,0 +1,26 @@
+{
+  "catalog_id": "saf-fixture-v1",
+  "factory": "safety-calibration-factory",
+  "format": "saf-catalog/1",
+  "mill_prefix": "saf",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "saf_r0001",
+      "plant_count": 1,
+      "source": "tests/fixtures/saf/plants.jsonl"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "7ecfbc9f7eefca3d1d7e56135612afa37ddf3e1805adeb549a6e90f5a8da7889",
+  "quota_per_round": 2,
+  "record_kind": "safety_case",
+  "source": {
+    "commit": null,
+    "method": "git-show+ast.parse",
+    "ref": "fixture",
+    "scripts": [
+      "tests/fixtures/saf/plants.jsonl"
+    ]
+  }
+}

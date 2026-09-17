@@ -1,0 +1,113 @@
+{
+  "schema_id": "dbm-mills/v1",
+  "family_prefix": "dbm",
+  "factory": "db-migration-repair-factory",
+  "generator": "grok-4.6",
+  "source": {
+    "lane": "legacy-mill-lane",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "plants_gen": "experiments/_gen_dbm_plants_r1340.py",
+    "plants_gen_sha256": "7f92115d076506a130efdfaca422242ca246b1cf0c75e327878c4e6970e0d704"
+  },
+  "mills": [
+    {
+      "path": "experiments/dbm-mill-r844.py",
+      "sha256": "2eac2f8a7d1f42f6b84b10c0e919ff3696c1504b3433a3d12a9d8f03734eb679",
+      "catalog_first": 844,
+      "constructor": "P",
+      "pair_count": 41,
+      "plant_count": 82,
+      "first_slug": "stats-ext-ndistinct-leftover",
+      "last_slug": "pg-wait-events-lwlock",
+      "slugs_sha256": "4a891adc9aada25912cb59b0bab6ade3af6be182e11b308f01d52e5a45de9f83"
+    },
+    {
+      "path": "experiments/dbm-mill-r888.py",
+      "sha256": "f4bf8757c6e16c4f5672d43caa17d3fd73065b908be351e13e103dc5f7ce58bd",
+      "catalog_first": 889,
+      "constructor": "P",
+      "pair_count": 45,
+      "plant_count": 90,
+      "first_slug": "firebird-computed-by-leftover",
+      "last_slug": "tidb-placement-policy",
+      "slugs_sha256": "abb3cfee91473ec8f79836f8d4ef7d3af038df54b0822b0cf517535a1057b80b"
+    },
+    {
+      "path": "experiments/dbm-mill-r934.py",
+      "sha256": "f1058c1b6b9ac3799d6a248f89807852805f8b5625012ba443396ebe963e1cd8",
+      "catalog_first": 934,
+      "constructor": "Q",
+      "pair_count": 80,
+      "plant_count": 160,
+      "first_slug": "oracle-blockchain-table",
+      "last_slug": "gauss-segment-page",
+      "slugs_sha256": "541f9bd46e81c385724a675b6e3be6f5546b09b2ffb70cf361744a423ac97244"
+    },
+    {
+      "path": "experiments/dbm-mill-r1014.py",
+      "sha256": "bea5f5ec44d72e0ebc6a1158e53e12959debf1f5473e94bb173802226caac945",
+      "catalog_first": 1014,
+      "constructor": "Q",
+      "pair_count": 74,
+      "plant_count": 148,
+      "first_slug": "oracle-sql-translation",
+      "last_slug": "timesten-repl",
+      "slugs_sha256": "b20b6f5b11a49170894bc43e0be2e3d92c1d9a443f5e86bb9fdedee15184ac87"
+    },
+    {
+      "path": "experiments/dbm-mill-r1088.py",
+      "sha256": "88bc7e4787362d7a2e6b187efc4417d45803709a4e281256ea024f28389adba6",
+      "catalog_first": 1088,
+      "constructor": "Q",
+      "pair_count": 53,
+      "plant_count": 106,
+      "first_slug": "oracle-sql-quarantine",
+      "last_slug": "myfdw-fetch",
+      "slugs_sha256": "c1423a4f3697dd534845543b9f927e881df85e6b69aed8b3ed33e0d667ffa6a9"
+    },
+    {
+      "path": "experiments/dbm-mill-r1141.py",
+      "sha256": "75ab260835716cbced95ec0ccd16182f16a8af88ec1cc6a7cc431b44d5345398",
+      "catalog_first": 1141,
+      "constructor": "Q",
+      "pair_count": 22,
+      "plant_count": 44,
+      "first_slug": "oracle-sql-monitor",
+      "last_slug": "rds-export",
+      "slugs_sha256": "d2175eb5bb716a3e2e79d24864052195e90104df8832029dfb78cb17954b22f4"
+    },
+    {
+      "path": "experiments/dbm-mill-r1163.py",
+      "sha256": "47dacdda81a9a55f534d823a950ace9293e06545a79020cae284f695fadc4c33",
+      "catalog_first": 1163,
+      "constructor": "R",
+      "pair_count": 97,
+      "plant_count": 194,
+      "first_slug": "pg-slot-sync",
+      "last_slug": "pg-logical-snap",
+      "slugs_sha256": "fc91c16eb4247eea1e56b1e06afaabd31ef04cff63401c5014f56e25e5a8865a"
+    },
+    {
+      "path": "experiments/dbm-mill-r1260.py",
+      "sha256": "f6f2c1d74af2d71d817557f2d0739c60d482ac36a04cb7935f5eaeda254616d9",
+      "catalog_first": 1260,
+      "constructor": "R",
+      "pair_count": 80,
+      "plant_count": 160,
+      "first_slug": "pg-stat-io",
+      "last_slug": "spanner-pg-seq",
+      "slugs_sha256": "2cf3319d37a4052d95083f9b8165dd4330c6ea1be9ca90516a267dbbbf472f6a"
+    },
+    {
+      "path": "experiments/dbm-mill-r1340.py",
+      "sha256": "4b3c142f04743be8806e8308a97cdc8db163a241d537b51c8a20a93da1f5daa3",
+      "catalog_first": 1340,
+      "constructor": "R",
+      "pair_count": 109,
+      "plant_count": 218,
+      "first_slug": "pgpool-wd-quorum",
+      "last_slug": "unity-vol-ext",
+      "slugs_sha256": "44f13d6b1307908edef94146a65bad6b1bf4c946697450a8f47c6c80379e3b33"
+    }
+  ]
+}

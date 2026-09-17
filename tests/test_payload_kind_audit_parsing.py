@@ -136,9 +136,11 @@ class PayloadKindParsing(PayloadKindAuditCase):
             payload.write_text(json.dumps(_episode([])) + "\n", encoding="utf-8")
             import payload_kind_audit_parse as _parse
 
-            with patch.object(_parse.os, "open", side_effect=OSError("denied")):
-                with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
-                    payload_kind_audit.build_audit(directory)
+            with (
+                patch.object(_parse.os, "open", side_effect=OSError("denied")),
+                self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught,
+            ):
+                payload_kind_audit.build_audit(directory)
             self.assertIn("unsafe payload entry", str(caught.exception))
 
     def test_empty_or_payload_free_corpora_are_rejected(self):

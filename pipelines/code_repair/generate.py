@@ -242,7 +242,7 @@ def run(request: RunRequest, executor: ex.Executor | None = None) -> dict[str, A
 
     stamp = _check_request(request)
     catalog = cat.load_catalog(request.catalog_dir)
-    engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
+    engine = ex.executor_for(catalog, timeout_s=request.timeout_s, supplied=executor)
     plan = planning.ProposalPlan(catalog, request.seed, request.per_program_cap)
     policy = catalog.split_policy
     policy_sha256 = None if policy is None else policy.sha256

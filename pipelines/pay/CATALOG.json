@@ -1,0 +1,37 @@
+{
+  "archive": "B",
+  "catalog_id": "pay-archive-b-v1",
+  "extract": {
+    "committed_pairs": 21,
+    "deferred_sources": [
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_h.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_i.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_j.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_k.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_l.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_m.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_n.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_o.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_p.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_q.py"},
+      {"n_pairs": 1, "path": "scripts/payment_idempotency_mill/mill_plants_r.py"}
+    ],
+    "full_archive_b_files": 18,
+    "full_archive_b_pair_count": 32,
+    "slice": "mill_plants.py+mill_plants_b..g"
+  },
+  "factory": "payment-idempotency-factory",
+  "generator": "grok-4.6",
+  "pairs_sha256": "d565e3a7561efe86fa36ee171f37d4954fca9bd52766ee28cf5da4b382f9459c",
+  "schema": "pay-archive-b-catalog-v1",
+  "source": {
+    "bytes_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "bytes_ref": "origin/legacy-mill-lane",
+    "commit": "e5206e72fa829931162944648e1e180949baaf0b",
+    "exec": false,
+    "method": "git-show+ast.parse",
+    "path": "scripts/payment_idempotency_mill/mill_plants.py",
+    "ref": "origin/codex/recover-grok-01a06111"
+  },
+  "start_round": 98
+}

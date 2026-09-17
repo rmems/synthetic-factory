@@ -188,13 +188,16 @@ class CurateAgenticCli(unittest.TestCase):
             # The record writer lives in curate_agentic_output, which is what
             # write_cleaned_tree actually calls; patching the re-export on
             # curate_agentic would not intercept it.
-            with mock.patch.object(
-                curate_agentic_output,
-                "write_new_jsonl",
-                side_effect=RuntimeError("writer failed"),
-            ), mock.patch.object(Path, "rmdir", side_effect=OSError("cleanup failed")):
-                with self.assertRaisesRegex(RuntimeError, "writer failed"):
-                    curate_agentic.write_cleaned_tree(run, out)
+            with (
+                mock.patch.object(
+                    curate_agentic_output,
+                    "write_new_jsonl",
+                    side_effect=RuntimeError("writer failed"),
+                ),
+                mock.patch.object(Path, "rmdir", side_effect=OSError("cleanup failed")),
+                self.assertRaisesRegex(RuntimeError, "writer failed"),
+            ):
+                curate_agentic.write_cleaned_tree(run, out)
 
     def test_write_requires_a_positive_mill_quarantine_gate(self):
         malformed_summaries = {

@@ -112,16 +112,18 @@ class ExportDestinationSafety(unittest.TestCase):
                     parent.symlink_to(raw, target_is_directory=True)
                 return real_mkdir(path, mode, dir_fd=dir_fd)
 
-            with mock.patch.object(
-                compose_curated.os,
-                "mkdir",
-                side_effect=swap_parent_before_create,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    compose_curated.os,
+                    "mkdir",
+                    side_effect=swap_parent_before_create,
+                ),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "destination parent changed while it was pinned",
-                ):
-                    export_hf.export_run(curated, destination)
+                ),
+            ):
+                export_hf.export_run(curated, destination)
 
             self.assertTrue(swapped)
             self.assertFalse((moved_parent / destination.name).exists())
@@ -267,11 +269,13 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     )
                 return result
 
-            with mock.patch.object(export_replay, "_read_exact_regular_file", racing_read):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(export_replay, "_read_exact_regular_file", racing_read),
+                self.assertRaisesRegex(
                     export_hf.ExportError, "changed while the replay snapshot"
-                ):
-                    export_hf.export_run(curated, root / "export")
+                ),
+            ):
+                export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
     def test_a_symlinked_directory_in_records_refuses_the_export(self):
@@ -344,12 +348,14 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     )
                 return result
 
-            with mock.patch.object(export_replay, "_read_exact_regular_file", racing_read):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(export_replay, "_read_exact_regular_file", racing_read),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "member set changed while the replay snapshot",
-                ):
-                    export_hf.export_run(curated, root / "export")
+                ),
+            ):
+                export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
     def test_a_curated_member_added_after_the_initial_snapshot_is_refused(self):
@@ -369,16 +375,18 @@ class ExportSnapshotCoherence(unittest.TestCase):
                 )
                 return metadata
 
-            with mock.patch.object(
-                export_hf,
-                "_compose_metadata",
-                side_effect=authenticate_then_add,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_compose_metadata",
+                    side_effect=authenticate_then_add,
+                ),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "curated member set changed after the initial snapshot",
-                ):
-                    export_hf.export_run(curated, root / "export")
+                ),
+            ):
+                export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
     def test_a_completed_export_artifact_is_reauthenticated_before_finish(self):
@@ -396,9 +404,11 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     (destination_target.root / export_hf.TRAIN_PATH).write_bytes(b"{}\n")
                 return digest
 
-            with mock.patch.object(export_hf, "_write_new_bytes", side_effect=write_then_mutate):
-                with self.assertRaisesRegex(export_hf.ExportError, "changed before export commit"):
-                    export_hf.export_run(curated, destination)
+            with (
+                mock.patch.object(export_hf, "_write_new_bytes", side_effect=write_then_mutate),
+                self.assertRaisesRegex(export_hf.ExportError, "changed before export commit"),
+            ):
+                export_hf.export_run(curated, destination)
             self.assertFalse(destination.exists())
 
 
@@ -427,20 +437,22 @@ class ExportMemberFifoSwap(unittest.TestCase):
                         os.close(writer)
                 return chunk
 
-            with mock.patch.object(
-                export_members.os,
-                "read",
-                side_effect=read_then_mutate,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    export_members.os,
+                    "read",
+                    side_effect=read_then_mutate,
+                ),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "changed while reading",
-                ):
-                    export_members._read_exact_regular_file(
-                        root,
-                        member.name,
-                        "curated payload",
-                    )
+                ),
+            ):
+                export_members._read_exact_regular_file(
+                    root,
+                    member.name,
+                    "curated payload",
+                )
 
             self.assertTrue(mutated)
 
@@ -499,9 +511,11 @@ class ExportAuditByteCapture(unittest.TestCase):
                 output.write_bytes(safe_payload)
                 return captured
 
-            with mock.patch.object(export_hf, "collect_files", side_effect=capture_then_replace):
-                with self.assertRaisesRegex(export_hf.ExportError, "hidden-thought"):
-                    export_hf.export_run(curated, root / "export")
+            with (
+                mock.patch.object(export_hf, "collect_files", side_effect=capture_then_replace),
+                self.assertRaisesRegex(export_hf.ExportError, "hidden-thought"),
+            ):
+                export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
 

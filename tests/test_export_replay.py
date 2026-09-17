@@ -45,9 +45,11 @@ class ReplayAuthenticationContexts(unittest.TestCase):
         )
 
         for context in contexts:
-            with self.subTest(context=type(context).__name__):
-                with self.assertRaises(FrozenInstanceError):
-                    context.summary = {"forged": True}
+            with (
+                self.subTest(context=type(context).__name__),
+                self.assertRaises(FrozenInstanceError),
+            ):
+                context.summary = {"forged": True}
 
     def test_each_replayed_aggregate_has_its_specific_failure(self):
         snapshot = export_replay._ReplaySnapshot(

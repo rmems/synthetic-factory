@@ -25,6 +25,7 @@ Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -61,6 +62,7 @@ except ImportError:  # pragma: no cover - publish imports from the repo tree
     check_safety_case = None
 
 
+from operator_paths import operator_path  # noqa: E402
 from verify_execution_shapes import (  # noqa: E402
     verify_record_execution,
 )
@@ -229,8 +231,23 @@ def audit_run(run_dir: Path, strict: bool = False):
     return counts, findings, blocked
 
 
+def _confined(parser, args):
+    """The run, record and batch paths, each confined to the working, home and temp trees.
+
+    An absent argument stays ``None``; the funnel runs right after parsing so
+    no sink below reads ``args`` for a path again.
+    """
+
+    def optional(value):
+        return None if value is None else operator_path(value)
+
+    try:
+        return optional(args.run_dir), optional(args.record), optional(args.batch)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+
+
 def main(argv=None):
-    import argparse
     p = argparse.ArgumentParser(description="Execution-grounded verification (verified/inconclusive/failed)")
     p.add_argument("run_dir", nargs="?", help="run directory containing .jsonl files")
     p.add_argument("--strict", action="store_true", help="inconclusive also blocks (default: only failed blocks)")
@@ -239,9 +256,9 @@ def main(argv=None):
     p.add_argument("--json", action="store_true", help="emit JSON findings")
     p.add_argument("--batch", help="single batch file for frontier gate check (alias for --record dir batch)")
     args = p.parse_args(argv)
+    run_dir, path, batch = _confined(p, args)
 
-    if args.record:
-        path = Path(args.record)
+    if path is not None:
         lineno = 1 if args.line is None else args.line
         try:
             text = jsonl_lines(path.read_text())
@@ -263,8 +280,8 @@ def main(argv=None):
         print(json.dumps({"status": status, "reason": reason}, indent=2))
         sys.exit(0 if status == "verified" else 1)
 
-    if args.batch:
-        counts, findings, blocked = verify_batch_for_frontier(Path(args.batch), strict=args.strict)
+    if batch is not None:
+        counts, findings, blocked = verify_batch_for_frontier(batch, strict=args.strict)
         if args.json:
             print(json.dumps({"counts": counts, "findings": findings, "blocked": blocked}, indent=2))
         else:
@@ -273,10 +290,10 @@ def main(argv=None):
                 print(f"{f['status'].upper()}: {f['file']}:{f['line']} — {f['reason']}", file=sys.stderr)
         sys.exit(1 if blocked else 0)
 
-    if not args.run_dir:
+    if run_dir is None:
         p.print_help()
         sys.exit(2)
-    counts, findings, blocked = audit_run(Path(args.run_dir), strict=args.strict)
+    counts, findings, blocked = audit_run(run_dir, strict=args.strict)
     if args.json:
         print(json.dumps({"counts": counts, "findings": findings, "blocked": blocked}, indent=2))
     else:

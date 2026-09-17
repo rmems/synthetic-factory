@@ -22,14 +22,16 @@ from code_repair_test_support import (  # noqa: E402
 )
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
-# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for the
-# exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
-# for digests on passing rows (Codex on #196, round 3).
+# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for
+# the exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197),
+# then for digests on passing rows (Codex on #196, round 3), then for the parent-stamped
+# sandbox identity on the oracle fingerprint (#201).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-# Re-pinned again for the harness that reports an unappliable limit instead of raising and names
-# the exception type in its catch-all: with harness_sha256 and record_sha256 removed, the records
-# are byte-identical to the S3 pin, so only the fingerprint moved.
-GOLDEN_SHA256 = "22b41c0a85d7ea2e9e5ae40c79d04c06f6bf2f556cc2e077fd56d64a3d922a50"
+# Re-pinned for the merge of this branch with the bwrap OS boundary (#322): main moved the
+# fingerprint via the OS boundary and the #200 repr update, and this branch moves it again by
+# reporting an unappliable limit instead of raising and naming the exception type in its
+# catch-all. Neither pre-merge value describes the merged records, so this is recomputed.
+GOLDEN_SHA256 = "630fa0146b688f1e39ce1c63ecbaaff62c80988e7788b7ceca6aebec6d4bba3b"
 
 
 def accepting_executor():

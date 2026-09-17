@@ -1,0 +1,26 @@
+{
+  "catalog_id": "gql-fixture-v1",
+  "factory": "graphql-nplusone-factory",
+  "format": "gql-catalog/1",
+  "mill_prefix": "gql",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "gql_r0001",
+      "plant_count": 1,
+      "source": "tests/fixtures/gql/plants.jsonl"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "40d5a9c8c7c0873adbbc03e25254dc5ecd4f7a317f9115a7be1ba2ca54f6c2ca",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": null,
+    "method": "git-show+ast.parse",
+    "ref": "fixture",
+    "scripts": [
+      "tests/fixtures/gql/plants.jsonl"
+    ]
+  }
+}

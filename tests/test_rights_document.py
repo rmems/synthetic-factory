@@ -123,9 +123,11 @@ class RightsDocumentLifecycleTests(unittest.TestCase):
         for target, field, replacement in attempts:
             original = object.__getattribute__(target, field)
             try:
-                with self.subTest(target=type(target).__name__, field=field):
-                    with self.assertRaises((AttributeError, TypeError)):
-                        object.__setattr__(target, field, replacement)
+                with (
+                    self.subTest(target=type(target).__name__, field=field),
+                    self.assertRaises((AttributeError, TypeError)),
+                ):
+                    object.__setattr__(target, field, replacement)
             finally:
                 if object.__getattribute__(target, field) != original:
                     object.__setattr__(target, field, original)
@@ -187,9 +189,8 @@ class RightsDocumentTests(unittest.TestCase):
         )
 
         for section in sections:
-            with self.subTest(section=type(section).__name__):
-                with self.assertRaises(AttributeError):
-                    section.__dict__
+            with self.subTest(section=type(section).__name__), self.assertRaises(AttributeError):
+                section.__dict__
 
     def test_openai_and_meta_display_aliases_are_explicit(self):
         cases = (
@@ -236,9 +237,8 @@ class RightsDocumentTests(unittest.TestCase):
         for field, emitted, expected in cases:
             document = anthropic_document()
             document[field] = SpoofedString(emitted, expected)
-            with self.subTest(field=field):
-                with self.assertRaises(rights_document.RightsPolicyError):
-                    rights_document.validate_rights_document(document)
+            with self.subTest(field=field), self.assertRaises(rights_document.RightsPolicyError):
+                rights_document.validate_rights_document(document)
 
     def test_direct_validation_rejects_spoofed_field_names(self):
         document = anthropic_document()
@@ -523,9 +523,11 @@ class RightsDocumentTests(unittest.TestCase):
             b"[" * 2048,
         )
         for payload in malformed:
-            with self.subTest(payload=payload):
-                with self.assertRaises(rights_document.RightsPolicyError):
-                    rights_document.load_rights_document_bytes(payload)
+            with (
+                self.subTest(payload=payload),
+                self.assertRaises(rights_document.RightsPolicyError),
+            ):
+                rights_document.load_rights_document_bytes(payload)
 
         with self.assertRaises(rights_document.RightsPolicyError):
             rights_document.load_rights_document_bytes("{}")

@@ -116,11 +116,13 @@ class RoundTransaction(unittest.TestCase):
                     swapped = True
                 return real_open(path, flags, mode, dir_fd=dir_fd)
 
-            with mock.patch.object(round_txn.os, "open", side_effect=swap_before_open):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(round_txn.os, "open", side_effect=swap_before_open),
+                self.assertRaisesRegex(
                     round_txn.TransactionError, "staging directory is unsafe"
-                ):
-                    round_txn.reserve(factory, 1, 1)
+                ),
+            ):
+                round_txn.reserve(factory, 1, 1)
 
             self.assertTrue(swapped)
             self.assertEqual(list(outside.iterdir()), [])
@@ -250,9 +252,11 @@ class RoundTransaction(unittest.TestCase):
                     raise OSError("simulated interruption")
                 return real_link(*args, **kwargs)
 
-            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_second_link):
-                with self.assertRaisesRegex(OSError, "simulated interruption"):
-                    round_txn.publish(factory, 1, reservation["token"])
+            with (
+                mock.patch.object(round_txn.os, "link", side_effect=interrupt_second_link),
+                self.assertRaisesRegex(OSError, "simulated interruption"),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
             self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
@@ -279,14 +283,16 @@ class RoundTransaction(unittest.TestCase):
                     raise OSError("simulated cleanup interruption")
                 return real_unlink(path, *args, **kwargs)
 
-            with mock.patch.object(
-                Path,
-                "unlink",
-                autospec=True,
-                side_effect=interrupt_cleanup,
+            with (
+                mock.patch.object(
+                    Path,
+                    "unlink",
+                    autospec=True,
+                    side_effect=interrupt_cleanup,
+                ),
+                self.assertRaisesRegex(OSError, "simulated cleanup interruption"),
             ):
-                with self.assertRaisesRegex(OSError, "simulated cleanup interruption"):
-                    round_txn.publish(factory, 1, reservation["token"])
+                round_txn.publish(factory, 1, reservation["token"])
 
             self.assertTrue(paths["complete"].is_file())
             self.assertTrue(paths["publishing"].is_file())
@@ -322,9 +328,11 @@ class RoundTransaction(unittest.TestCase):
                         raise OSError("simulated interruption")
                     return real_link(*args, **kwargs)
 
-                with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
-                    with self.assertRaisesRegex(OSError, "simulated interruption"):
-                        round_txn.publish(factory, 1, reservation["token"])
+                with (
+                    mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link),
+                    self.assertRaisesRegex(OSError, "simulated interruption"),
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
 
                 publishing = factory / "ROUND-r01.publishing.json"
                 payload = json.loads(publishing.read_text())
@@ -469,9 +477,11 @@ class RoundTransaction(unittest.TestCase):
                     raise OSError("simulated interruption")
                 return real_link(*args, **kwargs)
 
-            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
-                with self.assertRaisesRegex(OSError, "simulated interruption"):
-                    round_txn.publish(factory, 1, first["token"])
+            with (
+                mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link),
+                self.assertRaisesRegex(OSError, "simulated interruption"),
+            ):
+                round_txn.publish(factory, 1, first["token"])
 
             self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
             with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
@@ -721,9 +731,11 @@ class RoundTransaction(unittest.TestCase):
                     batch.write_text("{not-json\n")
                 return result
 
-            with mock.patch.object(round_txn, "check_jsonl", side_effect=mutate_after_check):
-                with self.assertRaisesRegex(round_txn.TransactionError, "changed while publishing"):
-                    round_txn.publish(factory, 1, reservation["token"])
+            with (
+                mock.patch.object(round_txn, "check_jsonl", side_effect=mutate_after_check),
+                self.assertRaisesRegex(round_txn.TransactionError, "changed while publishing"),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
@@ -838,9 +850,11 @@ class RoundTransaction(unittest.TestCase):
                     raise OSError("simulated interruption")
                 return real_link(*args, **kwargs)
 
-            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
-                with self.assertRaisesRegex(OSError, "simulated interruption"):
-                    round_txn.publish(factory, 1, reservation["token"])
+            with (
+                mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link),
+                self.assertRaisesRegex(OSError, "simulated interruption"),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
             self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
@@ -1064,13 +1078,15 @@ class RoundTransaction(unittest.TestCase):
                 real_validate(*args, **kwargs)
                 batch.write_text('{"id":"changed-after-validation"}\n')
 
-            with mock.patch.object(
-                round_txn,
-                "validate_completed_batch",
-                side_effect=tamper_after_validation,
+            with (
+                mock.patch.object(
+                    round_txn,
+                    "validate_completed_batch",
+                    side_effect=tamper_after_validation,
+                ),
+                self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"),
             ):
-                with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
-                    round_txn.frontier_status(factory)
+                round_txn.frontier_status(factory)
 
     def test_completion_manifest_validates_every_declared_artifact(self):
         with tempfile.TemporaryDirectory() as td:
