@@ -52,6 +52,8 @@ def _catalog_payload(loaded: cat.Catalog) -> dict[str, Any]:
         "n_rounds": loaded.n_rounds,
         "quota_per_round": loaded.quota_per_round,
         "pair_count": len(loaded.pairs),
+        "mapping_pair_count": len(loaded.mapping_pairs),
+        "total_pairs": len(loaded.pairs) + len(loaded.mapping_pairs),
         "rounds": [pair.round_n for pair in loaded.pairs],
         "slugs": [pair.ok["slug"] for pair in loaded.pairs],
         "source": dict(loaded.source),

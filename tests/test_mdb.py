@@ -29,6 +29,14 @@ from mdb.catalog_extract import (  # noqa: E402
     is_slice_mill,
     mill_summary,
 )
+from mdb.pairs import (  # noqa: E402
+    PAIRS,
+    compact_pair_row,
+    deferred_sources,
+    dumps_pairs_jsonl,
+    load_pairs,
+    pairs_jsonl_path,
+)
 from mdb.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from mdb.sources import MILL_SOURCES, catalog_sources, gen_sources, loop_sources  # noqa: E402
 from mdb import vocabulary as cv  # noqa: E402
@@ -185,7 +193,13 @@ class MdbSkeletonTests(unittest.TestCase):
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "mdb"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "catalog.py",
+            "identity.py",
+            "pairs.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
 
@@ -258,6 +272,48 @@ class MdbSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["mdb-mill-r918"].n_rows, 150)
         self.assertEqual(CATALOG.mills["mdb-mill-r1934"].n_rows, 80)
         self.assertFalse(CATALOG.mills["mdb-mill-r1934"].pairs)
+        self.assertEqual(cv.SLICE_PAIR_ROWS, 37)
+        self.assertEqual(cv.DEFERRED_PAIR_ROWS, 1284)
+        self.assertEqual(cv.SLICE_PAIR_ROWS + cv.DEFERRED_PAIR_ROWS, CATALOG.n_pair_rows)
+
+
+class MdbDeferredPairsTests(unittest.TestCase):
+    def test_compact_jsonl_has_deferred_identities_only(self):
+        self.assertEqual(len(PAIRS), cv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(len(deferred_sources()), 19)
+        self.assertEqual({pair.mill_id for pair in PAIRS}, {source.mill_id for source in deferred_sources()})
+        self.assertNotIn(cv.SLICE_MILL_ID, {pair.mill_id for pair in PAIRS})
+        self.assertEqual(PAIRS[0].success_slug, "rebar3-lock-leftover-ranch")
+        self.assertEqual(PAIRS[0].success_plant, "avocet")
+        self.assertEqual(PAIRS[-1].success_slug, "modxx-h-leftover-vst3xml")
+        self.assertIsNone(PAIRS[-1].success_plant)
+        self.assertTrue(all(pair.fail for pair in PAIRS))
+        grouped = {source.mill_id: [] for source in deferred_sources()}
+        for pair in PAIRS:
+            grouped[pair.mill_id].append(pair)
+        for source in deferred_sources():
+            mill = CATALOG.mills[source.mill_id]
+            rows = grouped[source.mill_id]
+            self.assertEqual(len(rows), mill.n_rows, source.mill_id)
+            self.assertEqual(rows[0].success_slug, mill.first_slug, source.mill_id)
+            self.assertEqual(rows[-1].success_slug, mill.last_slug, source.mill_id)
+            self.assertFalse(mill.pairs)
+
+    def test_pairs_jsonl_is_compact_lf_jsonl(self):
+        text = pairs_jsonl_path().read_text(encoding="utf-8")
+        self.assertNotIn("\r", text)
+        self.assertTrue(text.endswith("\n"))
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.DEFERRED_PAIR_ROWS)
+        self.assertTrue(all(line and line[0] not in " \t" for line in lines))
+        self.assertEqual(load_pairs(), PAIRS)
+
+    def test_r709_slice_stays_in_catalog_not_jsonl(self):
+        r709 = CATALOG.mills[cv.SLICE_MILL_ID]
+        self.assertEqual(len(r709.pairs), cv.SLICE_PAIR_ROWS)
+        jsonl_slugs = {(pair.mill_id, pair.success_slug) for pair in PAIRS}
+        for row in r709.pairs:
+            self.assertNotIn((cv.SLICE_MILL_ID, row["success_slug"]), jsonl_slugs)
 
 
 class MdbLegacyExtractTests(unittest.TestCase):
@@ -265,6 +321,7 @@ class MdbLegacyExtractTests(unittest.TestCase):
         if not _legacy_available():
             self.skipTest("origin/legacy-mill-lane is not fetched")
         mills = []
+        deferred = []
         for source in catalog_sources():
             text = subprocess.check_output(
                 ["git", "show", f"{cv.LEGACY_REF}:{source.path}"],
@@ -286,10 +343,16 @@ class MdbLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
             mills.append(mill_summary(live, include_pairs=is_slice_mill(source.mill_id)))
+            if not is_slice_mill(source.mill_id):
+                deferred.extend(
+                    compact_pair_row(source.mill_id, source.path, pair) for pair in live["pairs"]
+                )
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
         )
+        self.assertEqual(len(deferred), cv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(dumps_pairs_jsonl(deferred), pairs_jsonl_path().read_text(encoding="utf-8"))
 
     def test_loop_and_gen_scripts_name_companion_mills(self):
         if not _legacy_available():

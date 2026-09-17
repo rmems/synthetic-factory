@@ -8,9 +8,25 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .catalog_extract import catalog_json_path
-from .sources import MILL_SOURCES, catalog_sources
-from .vocabulary import CATALOG_SCHEMA_ID, FACTORY, GENERATOR, PRESERVE_COMMIT, SLICE_ID
+from .catalog_extract import (
+    catalog_json_path,
+    home_jsonl_path,
+    home_mill_pins,
+    load_home_header,
+    load_home_rows,
+)
+from .sources import MILL_SOURCES, catalog_sources, home_mill_sources
+from .vocabulary import (
+    CATALOG_SCHEMA_ID,
+    FACTORY,
+    GENERATOR,
+    KIND_HOME_PAIRS,
+    PRESERVE_COMMIT,
+    R31_MILL_ID,
+    R52_MILL_ID,
+    R72_MILL_ID,
+    SLICE_ID,
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +67,20 @@ class SearchCatalog:
     @property
     def hops(self) -> frozenset[str]:
         return frozenset(hop for mill in self.mills.values() for hop in mill.hops)
+
+
+@dataclass(frozen=True)
+class HomeMillCatalog:
+    mill_id: str
+    path: str
+    blob_sha: str
+    kind: str
+    catalog_first: int
+    n_rows: int
+    first_slug: str
+    last_slug: str
+    slice: str
+    pairs: tuple[Mapping[str, Any], ...]
 
 
 def load_catalog(path=None) -> SearchCatalog:
@@ -123,4 +153,54 @@ def _bind_sources(catalog: SearchCatalog) -> None:
             raise ValueError(f"{mill_id} pair rows do not match n_rows")
 
 
+def load_home_mill(mill_id: str, path=None) -> HomeMillCatalog:
+    pins = home_mill_pins(mill_id)
+    header = load_home_header(mill_id)
+    mill = header["mill"]
+    if mill.get("mill_id") != pins.mill_id or mill.get("path") != pins.path:
+        raise ValueError(f"{mill_id} header mill pin drifted from vocabulary")
+    if mill.get("blob_sha") != pins.blob_sha or mill.get("sha256") != pins.source_sha256:
+        raise ValueError(f"{mill_id} header source hashes drifted from vocabulary")
+    if header.get("pairs_sha256") != pins.jsonl_sha256:
+        raise ValueError(f"{mill_id} header pairs_sha256 drifted from vocabulary")
+    jsonl_path = path if path is not None else home_jsonl_path(mill_id)
+    rows = load_home_rows(mill_id, jsonl_path)
+    if len(rows) != pins.n_rows:
+        raise ValueError(f"{jsonl_path} expected {pins.n_rows} rows, found {len(rows)}")
+    first = rows[0]["success_slug"]
+    last = rows[-1]["success_slug"]
+    if first != pins.first_slug or last != pins.last_slug:
+        raise ValueError(f"{jsonl_path} first/last slugs drifted: {first} / {last}")
+    for offset, row in enumerate(rows):
+        expected_round = pins.catalog_first + offset
+        if row.get("round") != expected_round:
+            raise ValueError(f"{jsonl_path} row {offset} round drifted from {expected_round}")
+    source = next(item for item in home_mill_sources() if item.mill_id == mill_id)
+    if source.path != pins.path or source.blob_sha != pins.blob_sha:
+        raise ValueError(f"{mill_id} source pin drifted from vocabulary")
+    if source.catalog_first != pins.catalog_first or source.n_hops != 0:
+        raise ValueError(f"{mill_id} source window drifted from vocabulary")
+    if source.kind != KIND_HOME_PAIRS:
+        raise ValueError(f"{mill_id} source kind is not home-pairs")
+    return HomeMillCatalog(
+        mill_id=pins.mill_id,
+        path=pins.path,
+        blob_sha=source.blob_sha,
+        kind=KIND_HOME_PAIRS,
+        catalog_first=pins.catalog_first,
+        n_rows=len(rows),
+        first_slug=first,
+        last_slug=last,
+        slice=pins.slice_id,
+        pairs=tuple(rows),
+    )
+
+
+def load_r72(path=None) -> HomeMillCatalog:
+    return load_home_mill(R72_MILL_ID, path)
+
+
 CATALOG = load_catalog()
+R31 = load_home_mill(R31_MILL_ID)
+R52 = load_home_mill(R52_MILL_ID)
+R72 = load_r72()

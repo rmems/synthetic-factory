@@ -5,9 +5,9 @@
   "generator": "grok-4.6",
   "source_branch": "origin/legacy-mill-lane",
   "source_commit": "bb0775859c86d4692112c4845790fa1623ab8abb",
-  "extraction": "AST literals only; legacy modules were never imported or executed. Representative first/last pair per mill is committed. Remaining compact pair rows are deferred; no second PR this family.",
+  "extraction": "AST literals only; legacy modules were never imported or executed. Compact identities for all 1401 extracted pair rows are committed: 24 first/last bookends plus 1377 deferred middle rows. No amc-mill or amc-loop scripts are vendored.",
   "n_pair_rows_extracted": 1401,
-  "n_pair_rows_committed": 24,
+  "n_pair_rows_committed": 1401,
   "quota_per_round": 2,
   "success_steps": 16,
   "catalogs": [

@@ -42,6 +42,11 @@ from .vocabulary import (
     PRESERVE_COMMIT,
     SLICE_ID,
     SLICE_MILL_ID,
+    THEME_MILL_IDS,
+    CATALOG_EXTRACTION_NOTE,
+    PAIRS_FILENAME,
+    PAIR_MILL_IDS,
+    THEMES_FILENAME,
 )
 
 SHAPE_S_FROM = "s-from-l-from"
@@ -261,7 +266,7 @@ def extract_chain_bounds(source: str) -> tuple[int, int] | None:
 
 
 def mill_summary(record: Mapping[str, Any], *, include_themes: bool) -> dict[str, Any]:
-    """Catalog mill row: identity plus optional leftover-slice theme lists."""
+    """Catalog mill row: identity plus optional leftover- or theme-slice lists."""
 
     summary = {
         "mill_id": record["mill_id"],
@@ -289,6 +294,13 @@ def mill_summary(record: Mapping[str, Any], *, include_themes: bool) -> dict[str
 
 def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills)
+    identity_rows = sum(
+        len(mill.get("success") or ()) + len(mill.get("leftover") or ())
+        for mill in mills
+        if is_slice_mill(mill["mill_id"])
+        or is_theme_mill(mill["mill_id"])
+        or is_pair_mill(mill["mill_id"])
+    )
     return {
         "schema": CATALOG_SCHEMA_ID,
         "source_ref": LEGACY_REF,
@@ -296,10 +308,14 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "factory": FACTORY,
         "generator": GENERATOR,
         "slice": SLICE_ID,
+        "extraction": CATALOG_EXTRACTION_NOTE,
         "n_mills": len(mills),
         "n_pair_rows": pair_rows,
+        "n_pair_identity_rows_committed": identity_rows,
         "mills_filename": MILLS_FILENAME,
         "leftover_filename": LEFTOVER_FILENAME,
+        "themes_filename": THEMES_FILENAME,
+        "pairs_filename": PAIRS_FILENAME,
         "mills": {mill["mill_id"]: mill for mill in mills},
     }
 
@@ -322,7 +338,37 @@ def split_catalog(
     header = {key: document[key] for key in document if key != "mills"}
     header["mills_filename"] = MILLS_FILENAME
     header["leftover_filename"] = LEFTOVER_FILENAME
+    header["themes_filename"] = THEMES_FILENAME
+    header["pairs_filename"] = PAIRS_FILENAME
     return header, mill_rows, leftover_rows
+
+
+def split_theme_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Compact r1326+ theme identities (leftover.jsonl shape plus mill_id)."""
+
+    rows: list[dict[str, Any]] = []
+    mills = document["mills"]
+    for mill_id in sorted(mills):
+        if not is_theme_mill(mill_id):
+            continue
+        mill = mills[mill_id]
+        rows.extend({**row, "kind": "success", "mill_id": mill_id} for row in mill.get("success") or ())
+        rows.extend({**row, "kind": "leftover", "mill_id": mill_id} for row in mill.get("leftover") or ())
+    return rows
+
+
+def split_pair_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Compact orch / lll / llll identities (themes.jsonl shape plus mill_id)."""
+
+    rows: list[dict[str, Any]] = []
+    mills = document["mills"]
+    for mill_id in sorted(mills):
+        if not is_pair_mill(mill_id):
+            continue
+        mill = mills[mill_id]
+        rows.extend({**row, "kind": "success", "mill_id": mill_id} for row in mill.get("success") or ())
+        rows.extend({**row, "kind": "leftover", "mill_id": mill_id} for row in mill.get("leftover") or ())
+    return rows
 
 
 def dumps_catalog(document: Mapping[str, Any]) -> str:
@@ -350,9 +396,19 @@ def leftover_jsonl_path(package_dir: Path | None = None) -> Path:
     return catalog_json_path(package_dir).with_name(LEFTOVER_FILENAME)
 
 
+def themes_jsonl_path(package_dir: Path | None = None) -> Path:
+    return catalog_json_path(package_dir).with_name(THEMES_FILENAME)
+
+
+def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
+    return catalog_json_path(package_dir).with_name(PAIRS_FILENAME)
+
+
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
     destination = path if path is not None else catalog_json_path()
     header, mill_rows, leftover_rows = split_catalog(document)
+    theme_rows = split_theme_rows(document)
+    pair_rows = split_pair_rows(document)
     destination.write_text(
         json.dumps(header, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -362,8 +418,18 @@ def write_catalog_document(document: Mapping[str, Any], path: Path | None = None
         dumps_jsonl(leftover_rows),
         encoding="utf-8",
     )
+    themes_jsonl_path(destination.parent).write_text(dumps_jsonl(theme_rows), encoding="utf-8")
+    pairs_jsonl_path(destination.parent).write_text(dumps_jsonl(pair_rows), encoding="utf-8")
     return destination
 
 
 def is_slice_mill(mill_id: str) -> bool:
     return mill_id == SLICE_MILL_ID
+
+
+def is_theme_mill(mill_id: str) -> bool:
+    return mill_id in THEME_MILL_IDS
+
+
+def is_pair_mill(mill_id: str) -> bool:
+    return mill_id in PAIR_MILL_IDS

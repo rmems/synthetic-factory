@@ -1,0 +1,18 @@
+PAIRS = [
+    P(
+        slug="tiny-mimir-cap",
+        lslug="tiny-mimir-handoff",
+        svc="tiny-hinge-svc",
+        lsvc="tiny-flap-svc",
+        dash="tiny-mimir",
+        ldash="tiny-handoff",
+        kind="mimir",
+        lie="tiny leftover series cap",
+        llie="tiny leftover handoff does not lift the cap",
+        fail_val="10",
+        fix_val="100000",
+        query='tiny_total{job="tiny-hinge-svc"}',
+        lquery='tiny_total{job="tiny-flap-svc"}',
+        new_vs="tiny Mimir leftover, not Loki max_concurrent",
+    ),
+]
