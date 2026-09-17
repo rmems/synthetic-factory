@@ -1,0 +1,25 @@
+tests/test_oracle_grounded_package_surface.py
+  s_0fa35954eba2a7::t_4b532f76d76fa8 4-10
+  s_0fa35954eba2a7::t_1b2ac5713c0dad 66-67,69-71,74-76,79
+  s_0fa35954eba2a7::t_8aaaca3684ab73 129,135
+  s_0fa35954eba2a7::t_2a7384efd64cf1 45-51
+tests/oracle_grounded_package_probe.py
+  s_0fa35954eba2a7::t_0be811e6b76be9 21-26
+  s_0fa35954eba2a7::t_518a08719562a9 65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b8bf91a2d89abd95420572cb4daf4fb2764d8afe",
+  "prompts": {},
+  "sessions": {
+    "s_0fa35954eba2a7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4e86a36bffe0nKWflT7CDPsaf",
+        "model": "muse-spark-1.3-contributor"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
