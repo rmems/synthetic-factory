@@ -18,8 +18,18 @@ _package = sys.modules[__name__]
 _package_dir = Path(__file__).resolve().parent
 
 
-def _local_module(name: str, module_key: str, *, allow_initializing: bool = False):
-    """Return a loaded module only when it resolves to this package's sibling."""
+def _local_module(
+    name: str,
+    module_key: str,
+    *,
+    allow_initializing: bool = False,
+    package_child: bool = False,
+):
+    """Return a loaded module only when it resolves to this package's own child.
+
+    ``package_child`` selects a directory child (``<name>/__init__.py``) instead
+    of a single-file sibling (``<name>.py``).
+    """
 
     candidate = sys.modules.get(module_key)
     origin = getattr(candidate, "__file__", None)
@@ -28,8 +38,9 @@ def _local_module(name: str, module_key: str, *, allow_initializing: bool = Fals
     initializing = getattr(getattr(candidate, "__spec__", None), "_initializing", False)
     if initializing and not allow_initializing:
         return None
+    relative = f"{name}/__init__.py" if package_child else f"{name}.py"
     try:
-        is_local = Path(origin).resolve() == (_package_dir / f"{name}.py").resolve()
+        is_local = Path(origin).resolve() == (_package_dir / relative).resolve()
     except OSError:
         return None
     return candidate if is_local else None
@@ -231,20 +242,6 @@ def _alias_preloaded_direct_siblings() -> None:
         setattr(sys.modules[__name__], name, candidate)
 
 
-def _local_package_child(name: str):
-    """Return a top-level module that really is this package's directory child."""
-
-    candidate = sys.modules.get(name)
-    origin = getattr(candidate, "__file__", None)
-    if origin is None:
-        return None
-    try:
-        is_local = Path(origin).resolve() == (_package_dir / name / "__init__.py").resolve()
-    except OSError:
-        return None
-    return candidate if is_local else None
-
-
 def _alias_preloaded_package_children() -> None:
     """Bind already-loaded CLI-form package children into the package namespace.
 
@@ -261,9 +258,7 @@ def _alias_preloaded_package_children() -> None:
     for name, candidate in tuple(sys.modules.items()):
         if "." in name:
             continue
-        if _local_package_child(name) is not candidate:
-            continue
-        if getattr(getattr(candidate, "__spec__", None), "_initializing", False):
+        if _local_module(name, name, package_child=True) is not candidate:
             continue
         qualified_name = f"{__name__}.{name}"
         sys.modules.setdefault(qualified_name, candidate)
