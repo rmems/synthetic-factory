@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 from . import catalog as cat
 from . import executor as ex
 from . import lineage
+from . import sandbox as sb
 from . import vocabulary as cv
 from ._contract import bind_import_twin
 
@@ -163,6 +164,7 @@ def _empty_split_findings(catalog: cat.Catalog) -> list[dict[str, str]]:
 def catalog_check(catalog: cat.Catalog, executor: ex.Executor) -> list[dict[str, str]]:
     """Every original passes twice identically, references agree, groups and splits hold."""
 
+    sb.refuse_unisolated_execution(executor, catalog=catalog)
     findings: list[dict[str, str]] = []
     for program in catalog.programs:
         findings += original_findings(program, executor)

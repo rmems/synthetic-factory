@@ -55,7 +55,7 @@ def replay_records(run, records, *, catalog, candidates_sha256) -> dict:
     """Validate captured inputs, then freshly execute every positive using the pinned timeout."""
     findings = validate_run(run, records, catalog=catalog, candidates_sha256=candidates_sha256)
     cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY, ', '.join(findings))
-    engine = executor.Executor(timeout_s=run['timeout_s'])
+    engine = executor.executor_for(catalog, timeout_s=run['timeout_s'])
     entries = _fresh_entries(records, catalog, engine)
     status, counts = _replay_summary(entries)
     return {'run_identity': run_identity(run, candidates_sha256),
