@@ -1,0 +1,17 @@
+tests/test_code_repair_records.py
+  31dbd147cd7b6025 30-32
+  995b461f098a3917 34
+  a646ee4e9ce6bce6 33
+tests/test_oracle_grounded_package_surface.py
+  c867db0fccb08099 7-144
+tests/oracle_grounded_package_probe.py
+  c867db0fccb08099 1-171
+pipelines/oracle_grounded/__init__.py
+  c867db0fccb08099 24-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "af6ef0ce78ed6f5c44431ebd4950d699f8f17ebf",
+  "prompts": {}
+}
