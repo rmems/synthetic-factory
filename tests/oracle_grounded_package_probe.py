@@ -19,6 +19,8 @@ REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 PHANTOM_NAMES = ("canon", "families", "generators", "oracles", "record", "sim")
 DECLARED_NAMES = ("refusals", "rng")
+FLAT_NAME = "oracle_grounded"
+PACKAGED_NAME = f"pipelines.{FLAT_NAME}"
 
 
 def _forget_repository_modules() -> None:
@@ -117,28 +119,28 @@ def run_form(form: str) -> dict[str, Any]:
         pkg = _cli_form()
         return {
             "all": list(pkg.__all__),
-            "twin_bound": sys.modules.get("pipelines.oracle_grounded") is pkg,
-            "phantoms": _phantom_outcomes("oracle_grounded"),
+            "twin_bound": sys.modules.get(PACKAGED_NAME) is pkg,
+            "phantoms": _phantom_outcomes(FLAT_NAME),
         }
     if form == "package":
         pkg = _package_form()
         return {
             "all": list(pkg.__all__),
-            "twin_bound": sys.modules.get("oracle_grounded") is pkg,
-            "phantoms": _phantom_outcomes("pipelines.oracle_grounded"),
+            "twin_bound": sys.modules.get(FLAT_NAME) is pkg,
+            "phantoms": _phantom_outcomes(PACKAGED_NAME),
         }
     first, _sep, second = form.partition("_then_")
     loaders = {"cli": _cli_form, "package": _package_form}
     one, two = loaders[first](), loaders[second]()
-    flat = sys.modules["oracle_grounded"]
-    packaged = sys.modules["pipelines.oracle_grounded"]
-    refusals = importlib.import_module("oracle_grounded.refusals")
-    packaged_refusals = importlib.import_module("pipelines.oracle_grounded.refusals")
-    rng = importlib.import_module("oracle_grounded.rng")
-    envelope = importlib.import_module("oracle_grounded.envelope")
-    packaged_envelope = importlib.import_module("pipelines.oracle_grounded.envelope")
+    flat = sys.modules[FLAT_NAME]
+    packaged = sys.modules[PACKAGED_NAME]
+    refusals = importlib.import_module(f"{FLAT_NAME}.refusals")
+    packaged_refusals = importlib.import_module(f"{PACKAGED_NAME}.refusals")
+    rng = importlib.import_module(f"{FLAT_NAME}.rng")
+    envelope = importlib.import_module(f"{FLAT_NAME}.envelope")
+    packaged_envelope = importlib.import_module(f"{PACKAGED_NAME}.envelope")
     try:
-        packaged_rng = importlib.import_module("pipelines.oracle_grounded.rng")
+        packaged_rng = importlib.import_module(f"{PACKAGED_NAME}.rng")
         packaged_rng.DrawStream(-1)
         packaged_seed = "succeeded"
     except envelope.ContractError:
@@ -155,7 +157,7 @@ def run_form(form: str) -> dict[str, Any]:
         "undeclared_code": _undeclared_code_outcome(refusals),
         "all": list(one.__all__),
         "declared_bound": {
-            name: getattr(flat, name) is importlib.import_module(f"oracle_grounded.{name}")
+            name: getattr(flat, name) is importlib.import_module(f"{FLAT_NAME}.{name}")
             for name in DECLARED_NAMES
         },
     }
