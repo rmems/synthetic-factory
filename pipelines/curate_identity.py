@@ -96,6 +96,7 @@ SHAPE_BASIS = {
     "preference": "synthetic_factory_preference_shape",
     "safety_case": "synthetic_factory_safety_case_shape",
     "multi_agent": "synthetic_factory_multi_agent_shape",
+    "oracle": "synthetic_factory_oracle_shape",
 }
 LEGACY_ID_KEYS = ("id", "record_id", "trajectory_id", "episode_id", "pair_id")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -997,6 +998,51 @@ def _curate_code_repair(original, row, mapping):
     return CurationResult("retained", curated, mapping)
 
 
+def _curate_oracle(original, row, mapping):
+    """Preserve oracle-grounded records byte-for-byte like the code-repair route.
+
+    The oracle envelope (generator/oracle split, hashes, provenance) is the
+    measurement's training attribution; rewriting it into canonical curated
+    provenance would drop the verifiable claims, so retained records keep
+    the source bytes. Eligibility follows the record's own validation block:
+    accepted + publishable records are training candidates, honestly-rejected
+    records are retained for context but ineligible.
+    """
+    ready_claims = _training_ready_true_paths(original)
+    if ready_claims:
+        return _exclude(
+            mapping,
+            "identity.training_ready_policy_violation",
+            details=[{"paths": ready_claims, "policy": row.training_ready_policy}],
+        )
+    validation = original.get("validation")
+    if not isinstance(validation, dict):
+        return _exclude(mapping, "identity.oracle_invalid", details=["missing validation block"])
+    eligible = validation.get("status") == "accepted" and validation.get("publishable") is True
+    if eligible:
+        reasons: list[str] = []
+    else:
+        reason = validation.get("publishable_reason")
+        reasons = [reason] if isinstance(reason, str) and reason else [
+            str(finding) for finding in validation.get("reasons", [])
+        ]
+    curated = copy.deepcopy(original)
+    output_id = curated["id"]
+    mapping.update(
+        action="retained", reason_codes=["identity.preserved", "provenance.preserved"],
+        output_id=output_id, output_sha256=sha256_json(curated),
+        id_mappings=[{"owner_path": "/", "output_id": output_id}], provenance_mappings=[],
+        procedural_authority={
+            "policy_sha256": row.procedural_policy_sha256,
+            "generator_ownership": row.generator_ownership,
+            "generation_method": row.generation_method,
+            "source_license_evidence": dict(row.source_license_evidence),
+            "eligible_training_candidate": eligible, "ineligibility_reasons": list(reasons),
+        },
+    )
+    return CurationResult("retained", curated, mapping)
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1039,6 +1085,8 @@ def curate_record(
         result = _exclude(mapping, "identity.unknown_factory")
     elif kind == "code_repair":
         result = _curate_code_repair(original, row, mapping)
+    elif kind == "oracle":
+        result = _curate_oracle(original, row, mapping)
     else:
         context = _identity_stages.CurationContext(
             original=original,

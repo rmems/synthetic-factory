@@ -1,0 +1,116 @@
+"""Independently sealed oracle source authority; no hosted policy vocabulary.
+
+The deterministic scenario generator is project-owned: no hosted provider or
+channel certifies its output, so the hosted rights route (research_only /
+blocked for every authorized assignment) can never carry it to training.
+Like the code-repair procedural route, this module seals the single reviewed
+oracle row: the policy JSON bytes pinned by POLICY_SHA256 below, refreshed
+only with a reviewed generator/policy change. Catalog rebuilds update the
+reviewed JSON pins and POLICY_SHA256 in the same review. Caller-supplied JSON
+cannot authorize a new source or generator. The snapshot loaded at import
+remains immutable for the process lifetime.
+
+Pin semantics (recompute on any reviewed change):
+- catalog_sha256: SHA-256 over the concatenated exact bytes of
+  pipelines/oracle_grounded/*.py in sorted name order (the measured
+  generation semantics).
+- programs_sha256: SHA-256 over pipelines/oracle_generate.py followed by
+  pipelines/oracle_validate.py (the pipeline entry points).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from .import_twins import bind_import_twin
+
+ROOT = Path(__file__).resolve().parents[2]
+POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
+# Independent trust anchor: update only with the reviewed generator/policy change.
+POLICY_SHA256 = "f17d843e4889b5b845194c271d95fdd275307d1a7c7cea734e75bdbfe8019d89"
+PROCEDURAL_FIELDS = frozenset({
+    "source_type", "generator_ownership", "generation_method", "source_license_evidence",
+    "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
+})
+
+
+class SourcePolicyError(ValueError):
+    """An oracle authority differs from the reviewed source policy."""
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
+    """Read exact trusted bytes; alternate paths have no independent authority."""
+    try:
+        raw = path.read_bytes()
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_object_keys)
+    except (OSError, ValueError) as exc:
+        raise SourcePolicyError(f"oracle policy unreadable or invalid: {exc}") from exc
+    if hashlib.sha256(raw).hexdigest() != POLICY_SHA256:
+        raise SourcePolicyError("oracle policy differs from independently reviewed bytes")
+    return _freeze(value)
+
+
+POLICY = load_policy()
+
+
+def reviewed_row() -> dict[str, Any]:
+    """Fresh registry representation of the sealed, single approved route."""
+    result = {key: POLICY[key] for key in (
+        "path_id", "generator", "generator_version", "generator_ownership", "generation_method",
+        "catalog_id", "catalog_sha256", "programs_sha256", "intended_use",
+        "project_training_policy", "publication_target",
+    )}
+    result.update(
+        source_type="procedural", payload_factory=POLICY["path_id"],
+        source_license_evidence=dict(POLICY["source_license_evidence"]),
+        procedural_policy_sha256=POLICY_SHA256, record_kinds=["oracle"],
+        identity_authoritative=True, training_ready_policy="compose_eligible",
+        allowed_curation_lanes=["curate_identity"],
+        provenance_contract_by_kind={"oracle": "synthetic_shape_implies_designed"},
+    )
+    return result
+
+
+def validate_registry_row(raw: Any) -> None:
+    """Only the exact reviewed discriminated row grants oracle authority."""
+    if not isinstance(raw, Mapping):
+        raise SourcePolicyError("oracle registry row must be an object")
+    if raw.get("identity_authoritative") is not True:
+        raise SourcePolicyError("oracle registry row must be identity-authoritative")
+    if dict(raw) != reviewed_row():
+        raise SourcePolicyError("oracle registry row drifts from independently sealed policy")
+
+
+def claims_oracle_route(raw: Any) -> bool:
+    """Identify this authority's single row without touching hosted rows."""
+    if not isinstance(raw, Mapping):
+        return False
+    return (
+        raw.get("source_type") == "procedural"
+        and raw.get("path_id") == "oracle-grounded"
+        and raw.get("payload_factory") == "oracle-grounded"
+    )
+
+
+bind_import_twin(__name__)

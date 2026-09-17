@@ -398,6 +398,44 @@ def _route_episode(obj, where, factory_staging):
 # listed key is present; precedence is positional, so thalamic outranks
 # preference, which outranks bridge pairs, safety cases, multi-agent
 # transcripts, and episodes.
+def _route_oracle(obj, where, _factory_staging):
+    """Bind oracle-grounded envelope checks without re-running any oracle.
+
+    Envelope and status findings are fail-closed here; family findings are
+    the record's own honestly-reported rejection reasons and stay owned by
+    oracle_validate, which also checks the filing (accepted- vs rejected-).
+    This layer additionally pins the declared verdict against the filename
+    carried in ``where`` (``<file>:<line>``), so an accepted-filed record
+    that fails its family invariants cannot pass staging silently.
+    """
+    if __package__:
+        from .oracle_grounded import record as _oracle_record
+    else:
+        from oracle_grounded import record as _oracle_record
+    try:
+        layers = _oracle_record.classify(obj)
+    except Exception as exc:  # final boundary around one untrusted record
+        return [
+            f"{where}: record validation raised an internal exception: "
+            f"{type(exc).__name__}"
+        ]
+    errors = [f"{where}: {finding}" for finding in layers["envelope"] + layers["status"]]
+    filename = where.rsplit(":", 1)[0].rsplit("/", 1)[-1]
+    expected_verdict = None
+    if filename.startswith("accepted-"):
+        expected_verdict = "accepted"
+    elif filename.startswith("rejected-"):
+        expected_verdict = "rejected"
+    validation = obj.get("validation")
+    declared_verdict = validation.get("status") if isinstance(validation, dict) else None
+    if expected_verdict and declared_verdict != expected_verdict:
+        errors.append(
+            f"{where}: record declares verdict {declared_verdict!r} but is filed in "
+            f"{filename!r}, which is reserved for {expected_verdict!r} records"
+        )
+    return errors
+
+
 def _line_routes():
     """Return the ordered (required_keys, kind, route) table ``check_line`` walks."""
     return (
@@ -407,6 +445,7 @@ def _line_routes():
         (("case_type",), "safety_case", _route_safety_case),
         (("transcript", "agents"), "multi_agent", _route_multi_agent),
         (("goal", "steps"), "episode", _route_episode),
+        (("oracle", "result", "proposal_hash"), "oracle", _route_oracle),
     )
 
 

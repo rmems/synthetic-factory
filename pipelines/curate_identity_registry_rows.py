@@ -326,6 +326,16 @@ def _source_policy():
     return source_policy
 
 
+def _oracle_source_policy():
+    """The oracle route's separately sealed authority, bound lazily like above."""
+
+    if __package__:
+        from .oracle_grounded import source_policy
+    else:
+        from oracle_grounded import source_policy
+    return source_policy
+
+
 def _is_procedural_row(raw: Any, schema_version: str) -> bool:
     if schema_version != REGISTRY_SCHEMA_VERSION:
         return False
@@ -343,7 +353,37 @@ def _registry_row_for_validation(
 
 
 def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
+    try:
+        return _parse_code_repair_procedural_row(raw, index)
+    except IdentityCurationError:
+        return _parse_oracle_procedural_row(raw, index)
+
+
+def _parse_code_repair_procedural_row(raw: Any, index: int) -> FactoryRow:
     policy = _source_policy()
+    try:
+        policy.validate_registry_row(raw)
+    except policy.SourcePolicyError as exc:
+        raise IdentityCurationError(f"factories[{index}]: {exc}") from exc
+    return FactoryRow(
+        path_id=raw["path_id"], payload_factory=raw["payload_factory"],
+        generator=raw["generator"], generator_version=raw["generator_version"],
+        provider=None, channel=None, rights_profile_id=policy.POLICY["policy_id"],
+        intended_use=raw["intended_use"], project_training_policy=raw["project_training_policy"],
+        record_kinds=frozenset(raw["record_kinds"]), identity_authoritative=True,
+        publication_target=None, training_ready_policy=raw["training_ready_policy"],
+        allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
+        provenance_contract_by_kind=MappingProxyType(dict(raw["provenance_contract_by_kind"])),
+        source_type="procedural", generator_ownership=raw["generator_ownership"],
+        generation_method=raw["generation_method"],
+        source_license_evidence=MappingProxyType(dict(raw["source_license_evidence"])),
+        procedural_policy_sha256=raw["procedural_policy_sha256"], catalog_id=raw["catalog_id"],
+        catalog_sha256=raw["catalog_sha256"], programs_sha256=raw["programs_sha256"],
+    )
+
+
+def _parse_oracle_procedural_row(raw: Any, index: int) -> FactoryRow:
+    policy = _oracle_source_policy()
     try:
         policy.validate_registry_row(raw)
     except policy.SourcePolicyError as exc:

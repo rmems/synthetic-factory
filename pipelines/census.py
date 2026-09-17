@@ -52,6 +52,7 @@ KINDS = (
     "multi_agent",
     "safety_case",
     "episode",
+    "oracle",
     "unknown",
 )
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")

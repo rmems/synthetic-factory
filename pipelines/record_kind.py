@@ -27,6 +27,7 @@ KIND_ORDER = (
     "safety_case",
     "multi_agent",
     "episode",
+    "oracle",
     "unknown",
 )
 
@@ -41,6 +42,7 @@ _PAYLOAD_KEY_RULES = (
     ("safety_case", frozenset({"case_type"})),
     ("multi_agent", frozenset({"transcript", "agents"})),
     ("episode", frozenset({"goal", "steps"})),
+    ("oracle", frozenset({"oracle", "result", "proposal_hash"})),
 )
 
 
@@ -56,7 +58,9 @@ def classify_kind(obj: Any) -> str:
     5. safety_case — ``case_type``
     6. multi_agent — ``transcript`` and ``agents``
     7. episode — ``goal`` and ``steps``
-    8. unknown
+    8. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
+       measurement records; accepted and rejected share the envelope)
+    9. unknown
     """
 
     kind = "unknown"

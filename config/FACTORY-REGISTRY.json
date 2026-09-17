@@ -1267,6 +1267,39 @@
       "provenance_contract_by_kind": {
         "code_repair": "preserve_oracle_envelope"
       }
+    },
+    {
+      "path_id": "oracle-grounded",
+      "generator": "deterministic-scenario-generator",
+      "generator_version": "1.0.0",
+      "generator_ownership": "project_owned",
+      "generation_method": "deterministic_execution",
+      "catalog_id": "oracle-grounded-v1",
+      "catalog_sha256": "7e940f989690b1679e41f2068ed47fdc474228f359a9241f12bd2b12670c04b1",
+      "programs_sha256": "d12d90494f703ffcc20fb1e75e361a36cee909a3dd2ddc3fd167d9a9d4676ff6",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_type": "procedural",
+      "payload_factory": "oracle-grounded",
+      "source_license_evidence": {
+        "repository": "rmems/synthetic-factory",
+        "path": "pipelines/oracle_grounded",
+        "license": "Apache-2.0",
+        "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
+      },
+      "procedural_policy_sha256": "f17d843e4889b5b845194c271d95fdd275307d1a7c7cea734e75bdbfe8019d89",
+      "record_kinds": [
+        "oracle"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "compose_eligible",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "oracle": "synthetic_shape_implies_designed"
+      }
     }
   ]
 }
