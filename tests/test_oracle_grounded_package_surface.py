@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 import multiprocessing
 import sys
 import unittest
@@ -58,10 +59,19 @@ class PackageStarImportSurface(unittest.TestCase):
                 self.assertIs(getattr(self.package, name), module)
 
     def test_a_dropped_name_fails_to_import_instead_of_succeeding(self):
+        """A dropped name must resolve to nothing, not to some other module.
+
+        ``find_spec`` settles existence for the whole set without executing a
+        module to find out; the literal import below keeps the
+        ``ModuleNotFoundError`` half of the contract pinned directly.
+        """
+
         for name in PHANTOM_NAMES:
             with self.subTest(name=name):
-                with self.assertRaises(ModuleNotFoundError):
-                    importlib.import_module(f"pipelines.oracle_grounded.{name}")
+                self.assertIsNone(importlib.util.find_spec(f"pipelines.oracle_grounded.{name}"))
+
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("pipelines.oracle_grounded.canon")
 
     def test_explicit_sibling_imports_still_resolve(self):
         for name in ("envelope", "import_twins", "fault_oracle", "distill_contract"):
@@ -111,13 +121,13 @@ class SupportedImportForms(unittest.TestCase):
         report = self.fresh("cli")
         self.assertEqual(tuple(report["all"]), DECLARED_NAMES)
         self.assertTrue(report["twin_bound"], report)
-        self.assertEqual(set(report["phantoms"].values()), {"ModuleNotFoundError"})
+        self.assertEqual(set(report["phantoms"].values()), {"absent"})
 
     def test_the_package_form_alone_binds_its_twin(self):
         report = self.fresh("package")
         self.assertEqual(tuple(report["all"]), DECLARED_NAMES)
         self.assertTrue(report["twin_bound"], report)
-        self.assertEqual(set(report["phantoms"].values()), {"ModuleNotFoundError"})
+        self.assertEqual(set(report["phantoms"].values()), {"absent"})
 
     def test_both_orders_bind_one_object_and_keep_refusals_distinguishable(self):
         for form in ("cli_then_package", "package_then_cli"):

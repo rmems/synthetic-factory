@@ -11,6 +11,7 @@ sibling imports already bind the parent as a side effect.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 from pathlib import Path
 from typing import Any
@@ -56,16 +57,21 @@ def _package_form() -> Any:
 
 
 def _phantom_outcomes(package_name: str) -> dict[str, str]:
-    """Each dropped ``__all__`` name fails to import; none become a success."""
+    """Each dropped ``__all__`` name resolves to nothing; none become a success.
+
+    ``find_spec`` answers existence without executing the module, which is what
+    this assertion is actually about. Importing a name to prove it is absent
+    runs arbitrary module code on every name that turns out to be present.
+    """
 
     outcomes = {}
     for name in PHANTOM_NAMES:
         try:
-            importlib.import_module(f"{package_name}.{name}")
-        except Exception as exc:
-            outcomes[name] = type(exc).__name__
+            spec = importlib.util.find_spec(f"{package_name}.{name}")
+        except ModuleNotFoundError:
+            outcomes[name] = "absent"
         else:
-            outcomes[name] = "imported"
+            outcomes[name] = "present" if spec is not None else "absent"
     return outcomes
 
 
@@ -156,8 +162,10 @@ def run_form(form: str) -> dict[str, Any]:
         "dotted_attribute_chain": _dotted_attribute_chain(),
         "undeclared_code": _undeclared_code_outcome(refusals),
         "all": list(one.__all__),
+        # The two declared names are already resolved above, so assert against
+        # those objects rather than importing them a second time by name.
         "declared_bound": {
-            name: getattr(flat, name) is importlib.import_module(f"{FLAT_NAME}.{name}")
-            for name in DECLARED_NAMES
+            "refusals": getattr(flat, "refusals") is refusals,
+            "rng": getattr(flat, "rng") is rng,
         },
     }
