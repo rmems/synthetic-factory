@@ -221,17 +221,26 @@ def _agree(got: str, want: str, spec: dict) -> bool:
     return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
 
 
+def _case_error(index: int, case: dict, exc: Exception, workdir: str, kind: str) -> dict:
+    """One hidden error row: observed probes keep the message; pinned wants keep only ``kind``."""
+
+    detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
+    if case["want"] is None:
+        return _row("hidden", index, "error", detail)
+    return {**_row("hidden", index, "error"), "kind": kind}
+
+
 def _run_case(target, index: int, case: dict, spec: dict, workdir: str = "") -> dict:
     """One hidden case: a pass/fail row against the pinned want, or an observed repr."""
 
     try:
         result = target(*ast.literal_eval(case["args"]))
-        got = _scrub_workdir(repr(result), workdir)
     except Exception as exc:  # the program under test may raise anything
-        detail = _scrub_workdir(f"{type(exc).__name__}: {exc}", workdir)
-        if case["want"] is None:
-            return _row("hidden", index, "error", detail)
-        return {**_row("hidden", index, "error"), "kind": "exception"}
+        return _case_error(index, case, exc, workdir, "exception")
+    try:
+        got = _scrub_workdir(repr(result), workdir)
+    except Exception as exc:  # huge ints and hostile __repr__ must not abort the suite
+        return _case_error(index, case, exc, workdir, "unrepresentable")
     if case["want"] is None:
         return _row("hidden", index, "observed", got)
     if _agree(got, case["want"], spec):

@@ -16,7 +16,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -34,7 +34,24 @@ PreferenceCurationError = _preference_model.PreferenceCurationError
 canonical_json = _preference_model.canonical_json
 is_under_raw = _preference_model.is_under_raw
 
-__all__ = ["write_run"]
+__all__ = ["CuratedRun", "write_run"]
+
+
+class CuratedRun(Protocol):
+    """What ``write_run`` serializes: the two JSONL bodies of a curation run.
+
+    Both preference lanes build their own frozen ``CurationRun`` — the
+    same-state pair lane's in ``preference_model`` and the trajectory-pair
+    lane's in ``trajectory_pair_vocabulary`` — and this writer reads only the
+    two record tuples they share. Stating that as the parameter type binds the
+    writer to what it actually touches instead of to one lane's class.
+    """
+
+    @property
+    def records(self) -> tuple[dict[str, Any], ...]: ...
+
+    @property
+    def manifest(self) -> tuple[dict[str, Any], ...]: ...
 
 
 def _refuse_raw_destination(destination: Path, label: str) -> None:
@@ -174,7 +191,7 @@ def _close_parents(created: list[_CreatedFile]) -> None:
         os.close(parent_fd)
 
 
-def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
+def write_run(run: CuratedRun, source: Path, output: Path, manifest: Path) -> None:
     """Write a curation run to two absent destinations without clobbering."""
 
     source = Path(source)

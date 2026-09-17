@@ -14,7 +14,6 @@ import tempfile
 import unittest
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 
@@ -318,9 +317,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_decision_is_immutable(self):
         decision = self.classify()
 
-        # Frozen slotted dataclasses raise either exception across supported
-        # Python releases when assigning a delegated attribute.
-        with self.assertRaises((FrozenInstanceError, TypeError)):
+        with self.assertRaises((AttributeError, TypeError)):
             decision.project_training_policy = "allowed"
         with self.assertRaises(TypeError):
             decision.public_payload["project_training_policy"] = "allowed"
@@ -350,19 +347,23 @@ class RightsPolicyTests(RightsPolicyTestCase):
             cases.append(document)
 
         for document in cases:
-            with self.subTest(document=document):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.validate_rights_policy(document)
+            with (
+                self.subTest(document=document),
+                self.assertRaises(rights_policy.RightsPolicyError),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_duplicate_ids(self):
         for collection in ("profiles", "rules", "reason_codes"):
             document = mutable_policy_document()
             document[collection].append(copy.deepcopy(document[collection][0]))
-            with self.subTest(collection=collection):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(collection=collection),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError, "duplicate"
-                ):
-                    rights_policy.validate_rights_policy(document)
+                ),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_missing_or_extra_status_fields(self):
         for status_change in ("missing", "extra"):
@@ -372,12 +373,14 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 statuses.pop("redistribution_status")
             else:
                 statuses["copyright_status"] = "unresolved"
-            with self.subTest(status_change=status_change):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(status_change=status_change),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     "evidence status fields",
-                ):
-                    rights_policy.validate_rights_policy(document)
+                ),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_policy_validation_rejects_uncovered_or_unknown_reasons(self):
         orphan = mutable_policy_document()
@@ -436,12 +439,14 @@ class RightsPolicyTests(RightsPolicyTestCase):
             ),
         )
         for label, check in checks:
-            with self.subTest(check=label):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(check=label),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     "required profile.*authorization path",
-                ):
-                    check()
+                ),
+            ):
+                check()
 
     def test_required_profiles_retain_their_defining_reason_codes(self):
         document = mutable_policy_document()
@@ -534,12 +539,14 @@ class RightsPolicyTests(RightsPolicyTestCase):
         ):
             rights_policy.load_rights_policy_bytes("not bytes")
         for invalid_path in ("\x00", "\ud800"):
-            with self.subTest(invalid_path=ascii(invalid_path)):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(invalid_path=ascii(invalid_path)),
+                self.assertRaisesRegex(
                     rights_policy.RightsPolicyError,
                     "rights policy is unreadable",
-                ):
-                    rights_policy.load_rights_policy(invalid_path)
+                ),
+            ):
+                rights_policy.load_rights_policy(invalid_path)
 
         with tempfile.TemporaryDirectory() as directory:
             malformed = {
@@ -553,15 +560,15 @@ class RightsPolicyTests(RightsPolicyTestCase):
             }
             for name, payload in malformed.items():
                 path = self.write_bytes(directory, name, payload)
-                with self.subTest(name=name):
-                    with self.assertRaises(rights_policy.RightsPolicyError):
-                        rights_policy.load_rights_policy(path)
+                with self.subTest(name=name), self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_policy.load_rights_policy(path)
 
             missing = Path(directory) / "missing.json"
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(missing)
             with self.assertRaises(rights_policy.RightsPolicyError):
                 rights_policy.load_rights_policy(Path(directory))
+
 
 class RightsPolicyAvailabilityTests(unittest.TestCase):
     def test_rights_policy_runtime_exists(self):

@@ -1,0 +1,25 @@
+{
+  "extraction": "AST literals only; leftover3/lll mills already cataloged are refused; never exec",
+  "factory": "search-index-rebuild-factory",
+  "family": "search",
+  "generator": "grok-4.6",
+  "mill": {
+    "blob_sha": "229a91d892fe12d19e21f0e25d5031bca348f51e",
+    "catalog_first": 31,
+    "first_slug": "sqlite-vec-rebuild",
+    "kind": "home-pairs",
+    "last_slug": "lancedb-ivf-rebuild",
+    "mill_id": "sir-mill-r31",
+    "n_hops": 0,
+    "n_rows": 16,
+    "path": "experiments/sir-mill-r31.py",
+    "sha256": "b0332396e1c20c8640a4c0cf04e91ec135e983407b91a3cc76e24154debe72ae"
+  },
+  "n_rows": 16,
+  "pairs_filename": "r31.jsonl",
+  "pairs_sha256": "00a7773c539b9090f4b60e6b201539df14a49d1944fd468032f3040f5a49a61a",
+  "preserve_commit": "854c59b31eb9bde983f79c8a1adf3b40d04100a9",
+  "schema": "search-r31-catalog/v1",
+  "slice": "sir-mill-r31",
+  "source_ref": "origin/legacy-mill-lane"
+}

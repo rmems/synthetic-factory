@@ -1,0 +1,20 @@
+{
+  "catalog_id": "maos-recover-v1",
+  "family": "maos",
+  "schema": "maos-plants-v1",
+  "factory": "multi-agent-ouroboros-swarm",
+  "generator": "grok-4.6",
+  "intended_use": "research_only",
+  "project_training_policy": "blocked",
+  "run": "2026-09-02-final-heavy",
+  "slice": "third",
+  "plants_filename": "plants.jsonl",
+  "plants_sha256": "56e4d676a7d6caf2035d759e6fe416491c970b1f09b38373dc5c9b38f3c76cb3",
+  "plants": 27,
+  "rounds": [14, 15, 16, 19, 20, 21, 23, 24, 25, 29, 30, 31, 32, 33, 34, 35, 36, 39, 41, 42, 43, 46, 47, 48, 51, 52, 67],
+  "quota_per_round": 1,
+  "source_ref": "origin/codex/recover-grok-01a06111",
+  "source_commit": "e5206e72fa829931162944648e1e180949baaf0b",
+  "source_tree": "recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path",
+  "note": "Third MAOS slice lands the remaining twenty-one exact recovered builders (r23-r67 gaps) so the pinned catalog now covers all twenty-seven exact /tmp/maos-r* build_r*.py path keys at e5206e72. Rank-1 (r14-r16) and rank-2 (r19-r21) rows are unchanged. experiments/maos* is absent on origin/legacy-mill-lane @ 813f93f and on the recover-grok tree. Identities are AST-extracted via git show + ast.parse (exec: false). Mills and loops are not vendored. Compact rows only; rasters stay off this branch. Records stay research_only/blocked."
+}

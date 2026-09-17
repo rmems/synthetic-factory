@@ -22,5 +22,15 @@ class Confinement(unittest.TestCase):
                 operator_paths.operator_path(candidate)
 
 
+class CompatibilitySpelling(unittest.TestCase):
+    """``scripts.operator_paths`` keeps resolving to the pipelines implementation."""
+
+    def test_both_spellings_are_one_implementation(self):
+        import pipelines.operator_paths as pipelines_operator_paths
+
+        self.assertIs(operator_paths.operator_path, pipelines_operator_paths.operator_path)
+        self.assertIs(operator_paths.operator_roots, pipelines_operator_paths.operator_roots)
+
+
 if __name__ == "__main__":
     unittest.main()

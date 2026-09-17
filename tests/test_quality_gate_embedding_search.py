@@ -190,12 +190,14 @@ class EmbeddingDedupSearch(unittest.TestCase):
             {"id": f"idf-{index}", "state": {"note": note}}
             for index, note in enumerate(DISTINCT_NOTES)
         ]
-        with mock.patch.object(quality_gate_embedding, "_tfidf_vector", spy_vector), \
-                mock.patch.object(quality_gate_embedding, "_candidate_pairs", spy_pairs):
-            with tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                write(root / "batch.jsonl", records)
-                quality_gate.audit_run(root)
+        with (
+            mock.patch.object(quality_gate_embedding, "_tfidf_vector", spy_vector),
+            mock.patch.object(quality_gate_embedding, "_candidate_pairs", spy_pairs),
+            tempfile.TemporaryDirectory() as td,
+        ):
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            quality_gate.audit_run(root)
 
         self.assertIn("alive_at_pair_phase", seen)
         self.assertFalse(seen["alive_at_pair_phase"])
@@ -326,9 +328,8 @@ class EmbeddingDedupSearch(unittest.TestCase):
         proposes. Scoring only candidates would exit clean while failing the
         configured policy, so the range excludes it (Codex #98)."""
         for threshold in (-0.5, -1.0, -0.000001):
-            with self.subTest(threshold=threshold):
-                with self.assertRaises(ValueError):
-                    quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=threshold)
+            with self.subTest(threshold=threshold), self.assertRaises(ValueError):
+                quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=threshold)
 
     def test_the_floor_is_the_banding_knee_not_zero(self):
         """Zero was accepted as the floor on the premise that a pair the LSH
@@ -349,9 +350,8 @@ class EmbeddingDedupSearch(unittest.TestCase):
             write(root / "batch.jsonl", records)
 
             for threshold in (0.0, 0.25, quality_gate.EMBEDDING_MIN_THRESHOLD - 1e-6):
-                with self.subTest(threshold=threshold):
-                    with self.assertRaises(ValueError):
-                        quality_gate.audit_run(root, threshold=threshold)
+                with self.subTest(threshold=threshold), self.assertRaises(ValueError):
+                    quality_gate.audit_run(root, threshold=threshold)
 
             # The knee itself, and anything above it, is accepted.
             report = quality_gate.audit_run(

@@ -25,40 +25,57 @@ from test_rights_policy import (
 
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsClassifierTests(RightsPolicyTestCase):
-    def test_uninitialized_decision_attribute_lookup_terminates(self):
-        decision = rights_classifier.RightsDecision.__new__(
-            rights_classifier.RightsDecision
-        )
-        self.assertTrue(callable(getattr(decision, "__setstate__")))
-        for name in ("route", "authorization", "bindings"):
-            with self.subTest(name=name):
-                with self.assertRaises(AttributeError):
-                    getattr(decision, name)
+    def test_incomplete_decision_construction_fails(self):
+        with self.assertRaises(TypeError):
+            rights_classifier.RightsDecision()
 
         classified = self.classify()
         self.assertEqual(copy.deepcopy(classified), classified)
 
-    def test_initialized_decision_state_cannot_be_restored(self):
+    def test_classified_decision_graph_rejects_base_object_mutation(self):
         decision = self.classify()
         verification = self.verification()
+        promoted = decision.authorization._replace(
+            intended_use="training_candidate",
+            project_training_policy="allowed",
+        )
+        attempts = (
+            (decision, "authorization", promoted),
+            (decision.route, "provider", "xai"),
+            (decision.bindings, "rights_policy_sha256", "sha256:" + "0" * 64),
+            (verification, "expected_route", decision.route),
+        )
+        for target, field, replacement in attempts:
+            original = object.__getattribute__(target, field)
+            try:
+                with (
+                    self.subTest(target=type(target).__name__, field=field),
+                    self.assertRaises((AttributeError, TypeError)),
+                ):
+                    object.__setattr__(target, field, replacement)
+            finally:
+                if object.__getattribute__(target, field) != original:
+                    object.__setattr__(target, field, original)
+
+        payload = decision.to_public_payload()
+        self.assertEqual(
+            (payload["intended_use"], payload["project_training_policy"]),
+            ("research_only", "blocked"),
+        )
+        self.assertEqual(copy.deepcopy(decision), decision)
+        self.assertEqual(copy.deepcopy(verification), verification)
+
+    def test_classified_values_have_no_writable_instance_dict(self):
+        decision = self.classify()
         values = (
             decision,
             decision.route,
             decision.bindings,
-            verification,
+            self.verification(),
         )
-
         for value in values:
-            state = [
-                object.__getattribute__(value, name)
-                for name in type(value).__slots__
-            ]
             with self.subTest(value=type(value).__name__):
-                with self.assertRaisesRegex(TypeError, "initialized"):
-                    value.__setstate__(state)
-
-        self.assertEqual(copy.deepcopy(decision), decision)
-        self.assertEqual(copy.deepcopy(verification), verification)
+                self.assertRaises(AttributeError, getattr, value, "__dict__")
 
     def test_route_argument_guards_reject_conflict_and_missing_fields(self):
         route = rights_classifier.RightsRoute(
@@ -100,9 +117,11 @@ class RightsClassifierTests(RightsPolicyTestCase):
                 "profile": rights_policy.HOSTED_FRONTIER_PROFILE_ID,
             }
             arguments.update(overrides)
-            with self.subTest(arguments=arguments):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    self.classify(**arguments)
+            with (
+                self.subTest(arguments=arguments),
+                self.assertRaises(rights_policy.RightsPolicyError),
+            ):
+                self.classify(**arguments)
 
     def test_malformed_semantic_types_raise_rights_policy_error(self):
         with self.assertRaises(rights_policy.RightsPolicyError):
@@ -118,9 +137,11 @@ class RightsClassifierTests(RightsPolicyTestCase):
         for mutate in mutations:
             document = mutable_policy_document()
             mutate(document)
-            with self.subTest(document=document):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.validate_rights_policy(document)
+            with (
+                self.subTest(document=document),
+                self.assertRaises(rights_policy.RightsPolicyError),
+            ):
+                rights_policy.validate_rights_policy(document)
 
     def test_package_first_and_direct_imports_share_module_objects(self):
         for package_first in (False, True):
@@ -168,9 +189,8 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
                 "factory_registry_sha256": self.REGISTRY_SHA256,
             }
             arguments[field] = "sha256:" + "A" * 64
-            with self.subTest(field=field):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.classify_rights(**arguments)
+            with self.subTest(field=field), self.assertRaises(rights_policy.RightsPolicyError):
+                rights_classifier.classify_rights(**arguments)
 
     def test_envelope_verification_recomputes_all_three_bound_digests(self):
         payload = self.classify().to_public_payload()
@@ -192,16 +212,18 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
         for field, label in digest_cases.items():
             altered = copy.deepcopy(payload)
             altered[field] = "sha256:" + "0" * 64
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(rights_policy.RightsPolicyError, label):
-                    rights_classifier.verify_rights_envelope(
-                        altered,
-                        source_bytes=self.SOURCE_BYTES,
-                        factory_registry_bytes=self.REGISTRY_BYTES,
-                        verification=self.verification(
-                            policy_bytes=MAPPING.read_bytes()
-                        ),
-                    )
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(rights_policy.RightsPolicyError, label),
+            ):
+                rights_classifier.verify_rights_envelope(
+                    altered,
+                    source_bytes=self.SOURCE_BYTES,
+                    factory_registry_bytes=self.REGISTRY_BYTES,
+                    verification=self.verification(
+                        policy_bytes=MAPPING.read_bytes()
+                    ),
+                )
 
     def test_envelope_verification_rejects_bound_byte_drift(self):
         payload = self.classify().to_public_payload()
@@ -229,12 +251,14 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
             },
         }
         for label, arguments in byte_cases.items():
-            with self.subTest(bound_bytes=label):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(
-                        payload,
-                        **arguments,
-                    )
+            with (
+                self.subTest(bound_bytes=label),
+                self.assertRaises(rights_policy.RightsPolicyError),
+            ):
+                rights_classifier.verify_rights_envelope(
+                    payload,
+                    **arguments,
+                )
 
     def test_envelope_verification_rejects_invalid_supplied_policy(self):
         payload = self.classify().to_public_payload()
@@ -296,14 +320,13 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
         for label, mutate in mutations.items():
             altered = copy.deepcopy(payload)
             mutate(altered)
-            with self.subTest(label=label):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(
-                        altered,
-                        source_bytes=self.SOURCE_BYTES,
-                        factory_registry_bytes=self.REGISTRY_BYTES,
-                        verification=self.verification(),
-                    )
+            with self.subTest(label=label), self.assertRaises(rights_policy.RightsPolicyError):
+                rights_classifier.verify_rights_envelope(
+                    altered,
+                    source_bytes=self.SOURCE_BYTES,
+                    factory_registry_bytes=self.REGISTRY_BYTES,
+                    verification=self.verification(),
+                )
 
     def test_envelope_verification_rejects_spoofed_string_values(self):
         payload = self.classify().to_public_payload()
@@ -316,14 +339,13 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
         for field, emitted in cases:
             altered = copy.deepcopy(payload)
             altered[field] = SpoofedString(emitted, payload[field])
-            with self.subTest(field=field):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(
-                        altered,
-                        source_bytes=self.SOURCE_BYTES,
-                        factory_registry_bytes=self.REGISTRY_BYTES,
-                        verification=self.verification(),
-                    )
+            with self.subTest(field=field), self.assertRaises(rights_policy.RightsPolicyError):
+                rights_classifier.verify_rights_envelope(
+                    altered,
+                    source_bytes=self.SOURCE_BYTES,
+                    factory_registry_bytes=self.REGISTRY_BYTES,
+                    verification=self.verification(),
+                )
 
         altered = copy.deepcopy(payload)
         altered["reason_codes"][0] = SpoofedString(
@@ -368,14 +390,16 @@ assert packaged["rights_document"].RightsDocument is packaged["rights_document_s
         for reasons in ([], ["UNKNOWN_PROVENANCE"] * 2, [1]):
             altered = copy.deepcopy(payload)
             altered["reason_codes"] = reasons
-            with self.subTest(reason_codes=reasons):
-                with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_classifier.verify_rights_envelope(
-                        altered,
-                        source_bytes=self.SOURCE_BYTES,
-                        factory_registry_bytes=self.REGISTRY_BYTES,
-                        verification=self.verification(),
-                    )
+            with (
+                self.subTest(reason_codes=reasons),
+                self.assertRaises(rights_policy.RightsPolicyError),
+            ):
+                rights_classifier.verify_rights_envelope(
+                    altered,
+                    source_bytes=self.SOURCE_BYTES,
+                    factory_registry_bytes=self.REGISTRY_BYTES,
+                    verification=self.verification(),
+                )
 
 
 if __name__ == "__main__":

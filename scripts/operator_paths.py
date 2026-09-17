@@ -1,30 +1,20 @@
 #!/usr/bin/env python3
-"""Operator-supplied paths for the code-repair scripts, confined to where the operator runs.
+"""Compatibility shim: the confinement itself lives in ``pipelines/operator_paths.py``.
 
-The scripts read and write only under the working directory, the home directory or the
-temp directory (SonarCloud S8707): a path is resolved with ``realpath`` and refused unless
-one of those roots is a prefix of it.
+The code-repair scripts imported this module before the pipeline CLIs needed
+the same confinement. It moved to ``pipelines/`` so both can reach it; this
+spelling keeps resolving to the same functions.
 """
 
 from __future__ import annotations
 
-import argparse
-import os
-import tempfile
+import sys
 from pathlib import Path
 
+_REPO = str(Path(__file__).resolve().parents[1])
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
 
-def operator_roots() -> tuple[str, ...]:
-    return tuple(
-        os.path.realpath(root) for root in (os.getcwd(), Path.home(), tempfile.gettempdir())
-    )
+from pipelines.operator_paths import operator_path, operator_roots  # noqa: E402
 
-
-def operator_path(value: str) -> Path:
-    """The resolved path, or an argparse error when it lies outside every operator root."""
-
-    resolved = os.path.realpath(value)
-    for root in operator_roots():
-        if resolved == root or resolved.startswith(root.rstrip(os.sep) + os.sep):
-            return Path(resolved)
-    raise argparse.ArgumentTypeError("the path lies outside the working, home and temp trees")
+__all__ = ["operator_path", "operator_roots"]

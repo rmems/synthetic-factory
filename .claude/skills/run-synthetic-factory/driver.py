@@ -409,7 +409,7 @@ def factory_token_efficiency(factory_dir: Path):
     # Lettered notes are legacy artifacts for the same numeric round. The
     # canonical unsuffixed note wins; otherwise keep one deterministic suffix
     # so the same round cannot count twice toward a plateau.
-    notes_by_round = {}
+    notes_by_round: dict[int, Path] = {}
     for path in notes:
         parts = note_parts(path)
         if parts is None:

@@ -1,0 +1,26 @@
+{
+  "catalog_id": "saf-pairs-v1",
+  "factory": "safety-calibration-factory",
+  "format": "saf-catalog/1",
+  "mill_prefix": "saf",
+  "mills": [
+    {
+      "base_round": 5045,
+      "mill_id": "saf_r5045",
+      "plant_count": 16,
+      "source": "experiments/saf_r5045_leftover_leftover_leftover_mill.py"
+    }
+  ],
+  "plant_count": 16,
+  "plants_sha256": "4826d6625619a9abf540b8665c89c691deaa4017f71229f831305e58e052aff1",
+  "quota_per_round": 2,
+  "record_kind": "safety_case",
+  "source": {
+    "commit": "6fe337661de77b0dcc71e686578ddb0fa01e5863",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/saf_r5045_leftover_leftover_leftover_mill.py"
+    ]
+  }
+}

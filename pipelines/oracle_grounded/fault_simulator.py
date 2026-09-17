@@ -333,9 +333,13 @@ def _reasons_match_evidence(result: FaultResult) -> bool:
 
 def _recovery_follows_detection(result: FaultResult) -> bool:
     """Recovery is onset-relative like detection: zero for continue, else never before it."""
-    if result.outcome == fv.OUTCOME_CONTINUE:
+    # ``_detection_fits_outcome`` runs first and ``refuse_first`` is lazy, so a
+    # missing detection here means the continue tier: the same two cases as
+    # before, discriminated by the field this rule actually reads.
+    detection = result.detection_latency_ms
+    if detection is None:
         return result.recovery_latency_ms <= 0.0  # non-negative by the field rules, so zero
-    return result.recovery_latency_ms >= result.detection_latency_ms
+    return result.recovery_latency_ms >= detection
 
 
 # (predicate over a field-valid result, what it guarantees): the consistency

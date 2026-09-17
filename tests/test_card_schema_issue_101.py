@@ -520,9 +520,8 @@ class CascadingErrorRecoveryDeclarationTests(DeclarationTestCase):
             ("an undeclared error_introduced key", extra_report),
             ("error_introduced.step as a bool", bad_bool),
         ):
-            with self.subTest(row=label):
-                with self.assertRaises(AssertionError):
-                    self._walk_record(row)
+            with self.subTest(row=label), self.assertRaises(AssertionError):
+                self._walk_record(row)
 
 
 if __name__ == "__main__":
