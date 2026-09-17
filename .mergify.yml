@@ -1,0 +1,114 @@
+# Mergify configuration for rmems/synthetic-factory
+#
+# Landing policy (AGENTS.md): "Squash-merge only when CI is green and every
+# review comment has been dealt with."
+#
+# Why this file exists. Until now the repository had no Mergify config, so the
+# queue ran on defaults. On #298 that produced:
+#   * a two-parent merge commit instead of a squash, and
+#   * `action.queue.checks_end=pending` immediately followed by
+#     `action.queue.leave=merged` -- it merged while the checks were still
+#     pending, and main went red on SonarCloud afterwards.
+#
+# Three deliberate choices:
+#
+#   1. merge_method: squash -- one commit per PR on main, never a merge commit.
+#
+#   2. merge_conditions on the real gates -- a pending check no longer satisfies
+#      the queue. Nothing merges until unit tests, operator smoke and patch
+#      coverage have actually reported success.
+#
+#   3. Merging is opt-in, never automatic. `rmems` is the only account with push
+#      access and GitHub forbids approving your own pull request, so every
+#      APPROVED state in this repository comes from a bot (codescene-access
+#      auto-approves; coderabbitai approves). An `#approved-reviews-by>=1`
+#      condition would therefore either deadlock every merge or rubber-stamp it,
+#      so approvals are not used as a gate. Instead a pull request enters the
+#      queue only when the owner asks for it, by applying the `queue` label or
+#      commenting `@mergify queue`. Either way the merge_conditions below still
+#      have to pass.
+#
+# Gate policy. Unit tests, operator smoke and patch coverage are hard gates
+# everywhere. CodeScene and qlty are advisory (land-stacked-prs/SKILL.md).
+# Codacy and Qodana are evidence-based, judged per finding rather than by
+# dashboard colour. cubic and DeepSource are quota-exhausted noise. Only the
+# hard gates appear below; the rest stay human judgement.
+
+queue_rules:
+  - name: default
+    # Entry is cheap, merging is not: keep entry permissive and gate the merge.
+    queue_conditions:
+      - base=main
+      - -draft
+      - -conflict
+    merge_conditions:
+      # The three hard gates. `check-success` matches check runs and commit
+      # statuses alike, so codecov/patch (a status, posted asynchronously
+      # several minutes after the test job finishes) is covered.
+      - check-success=unittest (Python 3.14)
+      - check-success=operator smoke + fixture census
+      - check-success=codecov/patch
+      # Nothing outstanding from a reviewer.
+      - "#changes-requested-reviews-by=0"
+    merge_method: squash
+    # Update the branch to main before the queue evaluates it, so the checks
+    # that gate the merge ran against what main is about to become. `merge`
+    # rather than `rebase`: AGENTS.md forbids rewriting published commits on the
+    # large stacks.
+    update_method: merge
+
+  # SonarCloud's new-code duplication gate is hard for the mill/catalog cohort
+  # only (it is what pipelines/mill_support exists to fix). Queue those PRs with
+  # the `queue-mill` label to add that gate on top of the three above.
+  - name: mill
+    queue_conditions:
+      - base=main
+      - -draft
+      - -conflict
+    merge_conditions:
+      - check-success=unittest (Python 3.14)
+      - check-success=operator smoke + fixture census
+      - check-success=codecov/patch
+      - check-success=SonarCloud Code Analysis
+      - "#changes-requested-reviews-by=0"
+    merge_method: squash
+    update_method: merge
+
+pull_request_rules:
+  - name: queue when the owner applies the queue label
+    conditions:
+      - base=main
+      - -draft
+      - -closed
+      - -conflict
+      - label=queue
+    actions:
+      queue:
+        name: default
+
+  - name: queue mill pull requests with the duplication gate
+    conditions:
+      - base=main
+      - -draft
+      - -closed
+      - -conflict
+      - label=queue-mill
+    actions:
+      queue:
+        name: mill
+
+  - name: explain why a labelled pull request cannot be queued
+    conditions:
+      - base=main
+      - -closed
+      - conflict
+      - or:
+          - label=queue
+          - label=queue-mill
+    actions:
+      comment:
+        message: |
+          This pull request conflicts with `main`, so it cannot enter the merge
+          queue. Merge `main` into the branch and push — do not rebase if this
+          branch is part of a stack. The queue picks it up once the conflict is
+          gone and the hard gates report success.
