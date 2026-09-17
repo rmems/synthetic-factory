@@ -70,19 +70,33 @@ class PackageStarImportSurface(unittest.TestCase):
                 self.assertEqual(module.__name__.rsplit(".", 1)[-1], name)
 
 
+def _finally_bodies(source: str) -> list[ast.Module]:
+    """Every ``finally:`` block in ``source``, as walkable modules."""
+
+    return [
+        ast.Module(body=node.finalbody, type_ignores=[])
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Try)
+    ]
+
+
+def _finally_jumps(source: str) -> list[str]:
+    """Jump statements inside a ``finally:``, which would suppress a primary outcome."""
+
+    return [
+        type(statement).__name__
+        for body in _finally_bodies(source)
+        for statement in ast.walk(body)
+        if isinstance(statement, (ast.Return, ast.Break, ast.Continue))
+    ]
+
+
 class NoFinallyJumps(unittest.TestCase):
     def test_package_init_has_no_jump_inside_a_finally_block(self):
         source = Path(importlib.import_module("pipelines.oracle_grounded").__file__).read_text(
             encoding="utf-8"
         )
-        jumps = []
-        for node in ast.walk(ast.parse(source)):
-            if not isinstance(node, ast.Try):
-                continue
-            for statement in ast.walk(ast.Module(body=node.finalbody, type_ignores=[])):
-                if isinstance(statement, (ast.Return, ast.Break, ast.Continue)):
-                    jumps.append(type(statement).__name__)
-        self.assertEqual(jumps, [])
+        self.assertEqual(_finally_jumps(source), [])
 
 
 class SupportedImportForms(unittest.TestCase):
@@ -117,6 +131,27 @@ class SupportedImportForms(unittest.TestCase):
                 self.assertEqual(report["undeclared_code"], "lookup_error")
                 self.assertEqual(tuple(report["all"]), DECLARED_NAMES)
                 self.assertEqual(report["declared_bound"], {name: True for name in DECLARED_NAMES})
+
+    def test_both_orders_keep_the_dotted_attribute_chain_usable(self):
+        """Binding the twin must not cost ``import pipelines.oracle_grounded.rng``.
+
+        Registering the CLI module under its packaged name lets CPython skip the
+        child load, which also skips setting the child on the parent package.
+        ``pipelines/__init__`` re-attaches preloaded children so the dotted form
+        keeps resolving.
+        """
+
+        for form in ("cli_then_package", "package_then_cli"):
+            with self.subTest(form=form):
+                report = self.fresh(form)
+                # One object serves both spellings, so whichever form loaded the
+                # submodule first owns ``__name__``. Either is a resolved chain;
+                # an ``AttributeError`` string is not.
+                self.assertIn(
+                    report["dotted_attribute_chain"],
+                    ("oracle_grounded.rng", "pipelines.oracle_grounded.rng"),
+                    report,
+                )
 
 
 if __name__ == "__main__":

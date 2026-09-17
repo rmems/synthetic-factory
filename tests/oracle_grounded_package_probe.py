@@ -91,6 +91,24 @@ def _undeclared_code_outcome(refusals_module: Any) -> str:
     return "succeeded"
 
 
+def _dotted_attribute_chain() -> str:
+    """A bare dotted import must leave ``pipelines.oracle_grounded`` reachable.
+
+    ``importlib.import_module`` and ``import ... as ...`` both return the module
+    directly, so neither walks the parent attribute chain. Only a bare
+    ``import pipelines.oracle_grounded.rng`` does, and that is the form that
+    breaks when the CLI spelling loaded first and the parent package never had
+    the child bound onto it.
+    """
+
+    try:
+        import pipelines.oracle_grounded.rng
+
+        return pipelines.oracle_grounded.rng.__name__
+    except AttributeError as exc:
+        return f"AttributeError: {exc}"
+
+
 def run_form(form: str) -> dict[str, Any]:
     """Run one import form in this (fresh) interpreter and report what it bound."""
 
@@ -133,6 +151,7 @@ def run_form(form: str) -> dict[str, Any]:
         "one_contract_error": envelope.ContractError is packaged_envelope.ContractError,
         "seed_outcome": _seed_outcome(rng, envelope.ContractError),
         "packaged_seed_caught_through_flat": packaged_seed,
+        "dotted_attribute_chain": _dotted_attribute_chain(),
         "undeclared_code": _undeclared_code_outcome(refusals),
         "all": list(one.__all__),
         "declared_bound": {

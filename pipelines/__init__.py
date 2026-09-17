@@ -231,6 +231,45 @@ def _alias_preloaded_direct_siblings() -> None:
         setattr(sys.modules[__name__], name, candidate)
 
 
+def _local_package_child(name: str):
+    """Return a top-level module that really is this package's directory child."""
+
+    candidate = sys.modules.get(name)
+    origin = getattr(candidate, "__file__", None)
+    if origin is None:
+        return None
+    try:
+        is_local = Path(origin).resolve() == (_package_dir / name / "__init__.py").resolve()
+    except OSError:
+        return None
+    return candidate if is_local else None
+
+
+def _alias_preloaded_package_children() -> None:
+    """Bind already-loaded CLI-form package children into the package namespace.
+
+    ``bind_import_twin`` registers ``pipelines.<child>`` in ``sys.modules`` when
+    the CLI form (``import <child>`` with ``pipelines/`` on ``sys.path``) loads
+    first, but CPython only sets the attribute on the parent package when it
+    loads the child itself. A later ``import pipelines.<child>.<module>`` then
+    finds the child already in ``sys.modules``, skips the load, and leaves
+    ``pipelines.<child>`` unset, so the dotted attribute chain raises
+    ``AttributeError``. This pass closes that gap without importing anything:
+    the CLI entry points still never pull in the package.
+    """
+
+    for name, candidate in tuple(sys.modules.items()):
+        if "." in name:
+            continue
+        if _local_package_child(name) is not candidate:
+            continue
+        if getattr(getattr(candidate, "__spec__", None), "_initializing", False):
+            continue
+        qualified_name = f"{__name__}.{name}"
+        sys.modules.setdefault(qualified_name, candidate)
+        setattr(sys.modules[__name__], name, sys.modules[qualified_name])
+
+
 def _expose_package_sibling(qualified_name: str) -> None:
     """Expose one fully initialized local package child to direct CLI imports."""
 
@@ -265,6 +304,7 @@ def _bind_unloaded_direct_sibling(sibling_name: str, candidate: object) -> None:
 
 
 _alias_preloaded_direct_siblings()
+_alias_preloaded_package_children()
 
 _direct_encoding = _local_sibling_module("exact_json_encoding")
 if _direct_encoding is None:
