@@ -1,0 +1,40 @@
+pipelines/oracle_grounded/source_policy.py
+  s_0fa35954eba2a7::t_3213c51aaaa153 1-116
+pipelines/record_kind.py
+  s_0fa35954eba2a7::t_8e9b5a0aa6fbba 30,45,61-63
+pipelines/validate_run.py
+  s_0fa35954eba2a7::t_32c670b27f498b 401-420,422-435,437-438
+  s_0fa35954eba2a7::t_d071ad253b6dbf 421,436
+  s_0fa35954eba2a7::t_841b9350e42759 448
+tests/test_census.py
+  s_0fa35954eba2a7::t_d74badcebc3f99 28
+tests/test_oracle_curation_wiring.py
+  s_0fa35954eba2a7::t_d9b9f1433d0745 3-130
+  s_0fa35954eba2a7::t_6424ada88009f8 1-2
+config/FACTORY-REGISTRY.json
+  s_0fa35954eba2a7::t_cc133d9f97d8a0 1270-1302
+schemas/procedural-oracle-policy-v1.json
+  s_0fa35954eba2a7::t_460c3c87e7d540 1-23
+pipelines/curate_identity_registry_rows.py
+  s_0fa35954eba2a7::t_926a7cf119380d 329-338,356-362
+  s_0fa35954eba2a7::t_b096a4e625bf7b 385-393
+pipelines/curate_identity.py
+  s_0fa35954eba2a7::t_3b200c428be136 1001-1045,1088-1089
+  s_0fa35954eba2a7::t_11c323f1a3b3a6 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c52793e9fc9adbd14162aafaa894cb72d0f871b5",
+  "prompts": {},
+  "sessions": {
+    "s_0fa35954eba2a7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4e86a36bffe0nKWflT7CDPsaf",
+        "model": "muse-spark-1.3-contributor"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
