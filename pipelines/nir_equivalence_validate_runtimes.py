@@ -44,6 +44,31 @@ else:
         UNAVAILABLE_REASON_CODES,
     )
 
+# Exact diagnostic pairs emitted by the reviewed adapters at 7e6eb343.
+# They preserve observations across package installation/removal only while
+# the current probe still refuses execution. A code alone grants no authority.
+_REVIEWED_UNAVAILABLE_DIAGNOSTICS = {
+    "nir_rs": (
+        ("RUNTIME_NOT_INSTALLED",
+         "nir_rs is not installed in this environment; the authority-contract oracle for this family"),
+        ("RUNTIME_ADAPTER_NOT_IMPLEMENTED",
+         "'nir-rs' is on PATH but this repository ships no adapter for it; the authority-contract oracle for this family"),
+    ),
+    "nir_python": (
+        ("RUNTIME_NOT_INSTALLED",
+         "nir_python is not installed in this environment; reference NIR serialization library"),
+        ("RUNTIME_ADAPTER_NOT_IMPLEMENTED",
+         "the 'nir' package is importable but this repository ships no adapter for it; reference NIR serialization library"),
+    ),
+    "nirtorch_snntorch": (
+        ("RUNTIME_NOT_INSTALLED",
+         "nirtorch_snntorch is not installed in this environment; upstream-compatible execution backend"),
+        ("RUNTIME_ADAPTER_NOT_IMPLEMENTED",
+         "the 'snntorch' package is importable but this repository ships no adapter for it; upstream-compatible execution backend"),
+    ),
+}
+
+
 def _check_runtimes(record, where):
     errors = []
     runtimes = ((record.get("oracle") or {}).get("runtimes")) or []
@@ -232,7 +257,7 @@ def _unavailable_probe_errors(entry, availability, label):
 
 
 def _unavailable_reason_errors(entry, availability, label):
-    """Both current capability and recorded history need recognized refusal codes."""
+    """Bind the complete diagnostic to the current probe or reviewed adapter history."""
     errors = []
     expected_reason = availability.get("reason_code")
     if expected_reason not in UNAVAILABLE_REASON_CODES:
@@ -245,7 +270,25 @@ def _unavailable_reason_errors(entry, availability, label):
             f"{label}: unavailable reason_code {entry.get('reason_code')!r} is unsupported "
             "[RUNTIME_STATUS_UNKNOWN]"
         )
+    errors += _unavailable_diagnostic_errors(entry, availability, label)
     return errors
+
+
+def _unavailable_diagnostic_errors(entry, availability, label):
+    if not _nonempty_text(availability.get("detail")):
+        return [
+            f"{label}: runtime probe returned a missing or malformed diagnostic "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        ]
+    recorded = (entry.get("reason_code"), entry.get("detail"))
+    current = (availability.get("reason_code"), availability.get("detail"))
+    reviewed = _REVIEWED_UNAVAILABLE_DIAGNOSTICS.get(entry.get("runtime"), ())
+    if recorded == current or recorded in reviewed:
+        return []
+    return [
+        f"{label}: unavailable diagnostic does not match the current probe or "
+        "reviewed history for this runtime [RUNTIME_STATUS_UNKNOWN]"
+    ]
 
 
 if __package__:

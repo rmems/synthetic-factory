@@ -46,6 +46,13 @@ SELECTED_CAPTURE_SOURCE_STAMPS = (
      '87f57427d678301afc2e33f6cd9c24bc804ea1ae42fb3af7b85805f7ef291fbd'),
 )
 
+CURRENT_CATALOG_SOURCE_STAMPS = (
+    ('sha256:0678792200503ef3c9e1d9a717a481411c9ea34d0b8d25ad133840e784a910e6',
+     'df36b001ec78b9d2c0f37d9fb4baa93622d1dc9b07d0e605210a2a401eda6063'),
+    ('sha256:03b7dc18c8b9b9927b8310d57949e03f600c35d236f09be5eabe2a521a226eaa',
+     '449fa8bc214dba2d1cc5e6a5eec74d7f591ff44d85e65c232f0d809dad416445'),
+)
+
 
 class HistoricalSourceStamps(unittest.TestCase):
     def _records(self, slug, expected_hash):
@@ -61,6 +68,17 @@ class HistoricalSourceStamps(unittest.TestCase):
     def test_reviewed_followup_stamps_do_not_authorize_obsolete_scenarios(self):
         for stamps in (NEXT_SOURCE_STAMPS, LATEST_SOURCE_STAMPS, RECENT_SOURCE_STAMPS, SELECTED_CAPTURE_SOURCE_STAMPS):
             self._check_followup_stamps(stamps)
+
+    def test_reviewed_current_catalog_bytes_survive_validator_refactors(self):
+        for case, (source, checksum) in zip(CASES, CURRENT_CATALOG_SOURCE_STAMPS, strict=True):
+            module, slug, _ = case
+            raw = (ROOT / 'tests/fixtures/parity-run' / slug / 'batch-r01.jsonl').read_bytes()
+            current = json.loads(raw.split(b'\n')[0])['provenance']['generator_version']
+            reviewed = raw.replace(current.encode(), source.encode())
+            # Independently pinned raw bytes from published commit 7e6eb343.
+            self.assertEqual(hashlib.sha256(reviewed).hexdigest(), checksum)
+            records = [json.loads(line) for line in reviewed.split(b'\n') if line]
+            self.assertEqual(module.validate_records(records), [])
 
     def _check_followup_stamps(self, stamps):
         for case, (source, checksum) in zip(CASES, stamps, strict=True):
