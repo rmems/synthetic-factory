@@ -121,6 +121,58 @@ def _require_git(repo: Path | None = None) -> None:
         raise MillScriptInventoryError("git is required for inventory scope checks")
 
 
+def _class_close(pattern: str, start: int) -> int | None:
+    index = start
+    if index < len(pattern) and pattern[index] in "!^":
+        index += 1
+    if index < len(pattern) and pattern[index] == "]":
+        index += 1
+    while index < len(pattern):
+        if pattern[index] == "]":
+            return index
+        if pattern[index] == "\\" and index + 1 < len(pattern):
+            index += 2
+            continue
+        index += 1
+    return None
+
+
+def _class_atom(body: str, index: int) -> tuple[str, int]:
+    if body.startswith("\\", index) and index + 1 < len(body):
+        return body[index + 1], index + 2
+    return body[index], index + 1
+
+
+def _class_regex(body: str) -> str:
+    parts: list[str] = []
+    index = 0
+    while index < len(body):
+        atom, index = _class_atom(body, index)
+        if index + 1 < len(body) and body[index] == "-":
+            end, next_index = _class_atom(body, index + 1)
+            if len(atom) == 1 and len(end) == 1:
+                parts.append(f"{re.escape(atom)}-{re.escape(end)}")
+                index = next_index
+                continue
+        parts.append(re.escape(atom))
+    return "".join(parts)
+
+
+def _character_class(pattern: str, index: int) -> tuple[str, int]:
+    close = _class_close(pattern, index + 1)
+    if close is None:
+        return re.escape("["), index + 1
+    inner = pattern[index + 1 : close]
+    negated = inner[:1] in "!^"
+    body = inner[1:] if negated else inner
+    if not body:
+        return re.escape("["), index + 1
+    translated = _class_regex(body)
+    if negated:
+        return f"[^{translated}/]", close + 1
+    return f"(?:(?!/)[{translated}])", close + 1
+
+
 def _wildcard_token(pattern: str, index: int) -> tuple[str, int]:
     if pattern.startswith("**", index) and pattern[index + 2 : index + 3] in ("", "/"):
         skip = 3 if pattern.startswith("**/", index) else 2
@@ -130,6 +182,10 @@ def _wildcard_token(pattern: str, index: int) -> tuple[str, int]:
         return "[^/]*", index + 1
     if char == "?":
         return "[^/]", index + 1
+    if char == "\\" and index + 1 < len(pattern):
+        return re.escape(pattern[index + 1]), index + 2
+    if char == "[":
+        return _character_class(pattern, index)
     return re.escape(char), index + 1
 
 
@@ -191,6 +247,10 @@ def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
     flags = int.from_bytes(payload[offset + 60 : offset + 62], "big")
     start = offset
     offset += 62
+    if flags & 0x4000:
+        if offset + 2 > len(payload):
+            raise MillScriptInventoryError("git index is truncated")
+        offset += 2
     if flags & 0xFFF == 0xFFF:
         path, offset = _nul_terminated(payload, offset)
     else:
@@ -199,15 +259,137 @@ def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
     return path.replace("\\", "/"), offset + pad
 
 
-def _read_git_index(repo: Path) -> tuple[str, ...]:
-    payload = (_git_dir(repo) / "index").read_bytes()
+def _index_extensions(payload: bytes, offset: int) -> dict[bytes, bytes]:
+    if offset + 20 > len(payload):
+        raise MillScriptInventoryError("git index is truncated")
+    body = payload[offset:-20]
+    extensions: dict[bytes, bytes] = {}
+    cursor = 0
+    while cursor < len(body):
+        if cursor + 8 > len(body):
+            raise MillScriptInventoryError("git index is not parseable")
+        signature = body[cursor : cursor + 4]
+        size = int.from_bytes(body[cursor + 4 : cursor + 8], "big")
+        cursor += 8
+        if cursor + size > len(body):
+            raise MillScriptInventoryError("git index is truncated")
+        extensions[signature] = body[cursor : cursor + size]
+        cursor += size
+    return extensions
+
+
+def _parse_git_index(payload: bytes) -> tuple[tuple[str, ...], dict[bytes, bytes]]:
     count = _git_index_header(payload)
     offset = 12
     paths: list[str] = []
     for _ in range(count):
         path, offset = _git_index_entry(payload, offset)
         paths.append(path)
-    return tuple(paths)
+    return tuple(paths), _index_extensions(payload, offset)
+
+
+def _ewah_run_bits(run_bit: int, running_len: int, start: int) -> tuple[tuple[int, ...], int]:
+    bits = []
+    index = start
+    for _ in range(running_len):
+        if run_bit:
+            bits.extend(range(index, index + 64))
+        index += 64
+    return tuple(bits), index
+
+
+def _ewah_literal_bits(word: int, start: int) -> tuple[int, ...]:
+    return tuple(start + bit for bit in range(64) if word & (1 << bit))
+
+
+def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
+    if bit_size == 0:
+        return frozenset()
+    bits: list[int] = []
+    index = 0
+    cursor = 0
+    while cursor < len(words):
+        rlw = words[cursor]
+        cursor += 1
+        run_bits, index = _ewah_run_bits(rlw & 1, (rlw >> 1) & 0xFFFFFFFF, index)
+        bits.extend(run_bits)
+        for _ in range(rlw >> 33):
+            if cursor >= len(words):
+                raise MillScriptInventoryError("git index is truncated")
+            bits.extend(_ewah_literal_bits(words[cursor], index))
+            cursor += 1
+            index += 64
+    return frozenset(bit for bit in bits if bit < bit_size)
+
+
+def _ewah_bits(payload: bytes, offset: int) -> tuple[frozenset[int], int]:
+    if offset + 8 > len(payload):
+        raise MillScriptInventoryError("git index is truncated")
+    bit_size = int.from_bytes(payload[offset : offset + 4], "big")
+    word_count = int.from_bytes(payload[offset + 4 : offset + 8], "big")
+    offset += 8
+    words: list[int] = []
+    for _ in range(word_count):
+        if offset + 8 > len(payload):
+            raise MillScriptInventoryError("git index is truncated")
+        words.append(int.from_bytes(payload[offset : offset + 8], "big"))
+        offset += 8
+    if offset + 4 > len(payload):
+        raise MillScriptInventoryError("git index is truncated")
+    offset += 4
+    return _ewah_decode(words, bit_size), offset
+
+
+def _link_bitmaps(link: bytes) -> tuple[str, frozenset[int], frozenset[int]]:
+    if len(link) < 20:
+        raise MillScriptInventoryError("git index is truncated")
+    deleted, offset = _ewah_bits(link, 20)
+    replaced, offset = _ewah_bits(link, offset)
+    if offset != len(link):
+        raise MillScriptInventoryError("git index is not parseable")
+    return link[:20].hex(), deleted, replaced
+
+
+def _merge_split_paths(
+    shared: Sequence[str],
+    split: Sequence[str],
+    deleted: frozenset[int],
+    replaced: frozenset[int],
+) -> tuple[str, ...]:
+    merged: list[str] = []
+    cursor = 0
+    for index, path in enumerate(shared):
+        if index in deleted:
+            continue
+        if index not in replaced:
+            merged.append(path)
+            continue
+        if cursor >= len(split):
+            raise MillScriptInventoryError("git index is truncated")
+        merged.append(split[cursor] or path)
+        cursor += 1
+    merged.extend(path for path in split[cursor:] if path)
+    return tuple(path for path in merged if path)
+
+
+def _paths_from_split_index(gitdir: Path, split_paths: Sequence[str], link: bytes) -> tuple[str, ...]:
+    oid, deleted, replaced = _link_bitmaps(link)
+    shared_path = gitdir / f"sharedindex.{oid}"
+    if not shared_path.is_file():
+        raise MillScriptInventoryError("git index is not parseable")
+    shared_paths, shared_ext = _parse_git_index(shared_path.read_bytes())
+    if b"link" in shared_ext:
+        raise MillScriptInventoryError("unsupported git index version")
+    return _merge_split_paths(shared_paths, split_paths, deleted, replaced)
+
+
+def _read_git_index(repo: Path) -> tuple[str, ...]:
+    gitdir = _git_dir(repo)
+    paths, extensions = _parse_git_index((gitdir / "index").read_bytes())
+    link = extensions.get(b"link")
+    if link is None:
+        return tuple(path for path in paths if path)
+    return _paths_from_split_index(gitdir, paths, link)
 
 
 def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
@@ -344,10 +526,25 @@ def _from_import_targets(node: ast.ImportFrom) -> tuple[str, ...]:
     return (node.module, *names, *(f"{node.module}.{name}" for name in names))
 
 
+def _assignment_alias_names(node: ast.AST, functions: set[str]) -> tuple[str, ...]:
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+        value = node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        targets = (node.target,)
+        value = node.value
+    else:
+        return ()
+    if ast.unparse(value) not in functions:
+        return ()
+    return tuple(target.id for target in targets if isinstance(target, ast.Name))
+
+
 def _dynamic_import_functions(tree: ast.AST) -> frozenset[str]:
     functions = {"__import__", "builtins.__import__", "importlib.import_module"}
     for node in ast.walk(tree):
         functions.update(_import_function_aliases(node))
+        functions.update(_assignment_alias_names(node, functions))
     return frozenset(functions)
 
 

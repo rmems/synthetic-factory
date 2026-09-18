@@ -27,7 +27,7 @@ tracked harvest notes.
 ## 2. Where historical generators live
 
 ```bash
-git fetch origin legacy-mill-lane
+git fetch origin legacy-mill-lane:refs/remotes/origin/legacy-mill-lane
 git show origin/legacy-mill-lane:experiments/srl_r6110_leftover3_mill.py | head
 ```
 

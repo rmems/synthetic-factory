@@ -124,6 +124,26 @@ class PublisherAndFamilyScope(unittest.TestCase):
         self.assertFalse(report["ok"], report)
         self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
 
+    def test_gitignore_bracket_class_cannot_hide_production_mill_package(self):
+        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+        with _scope_repo() as root:
+            ignore = root / ".gitignore"
+            ignore.write_text(ignore.read_text() + "\npipelines/[m]ill/**\n")
+            report = msi.check_inventory(root, tracked=paths)
+            matches = msi.gitignore_matches(root, (*paths, "pipelines/will/cli.py"))
+        self.assertFalse(report["ok"], report)
+        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
+        self.assertNotIn("pipelines/will/cli.py", matches)
+
+    def test_escaped_gitignore_bracket_is_literal(self):
+        with _scope_repo() as root:
+            (root / ".gitignore").write_text("pipelines/\\[m]ill/**\n")
+            matches = msi.gitignore_matches(
+                root, ("pipelines/mill/cli.py", "pipelines/[m]ill/cli.py")
+            )
+        self.assertNotIn("pipelines/mill/cli.py", matches)
+        self.assertIn("pipelines/[m]ill/cli.py", matches)
+
     def test_qlty_cannot_hide_cleaned_production_family_package(self):
         paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
         rules = msi.qlty_exclude_patterns(REPO) + ("pipelines/mill/**",)
@@ -153,6 +173,9 @@ class InventoryIntegrity(unittest.TestCase):
             'from builtins import __import__ as load; load("ewr_leftover3_mill")',
             'import importlib as loader; loader.import_module("ewr_leftover3_mill")',
             'from importlib import import_module as load; load(name="ewr_leftover3_mill")',
+            'import importlib; load = importlib.import_module; load("experiments.ewr_leftover3_mill")',
+            'import importlib; load = importlib.import_module; other = load; other("ewr_leftover3_mill")',
+            'from importlib import import_module; load: object = import_module; load("ewr_leftover3_mill")',
         )
         archived = msi.archived_module_names(msi.INVENTORY)
         for source in statements:

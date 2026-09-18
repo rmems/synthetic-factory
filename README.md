@@ -157,7 +157,7 @@ guard, and quality-scope globs live in `config/MILL-SCRIPT-INVENTORY.json`
 ([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
 
 ```bash
-git fetch origin legacy-mill-lane
+git fetch origin legacy-mill-lane:refs/remotes/origin/legacy-mill-lane
 git show origin/legacy-mill-lane:experiments/srl_r6110_leftover3_mill.py | head
 python3 pipelines/mill_script_inventory.py --check
 ```

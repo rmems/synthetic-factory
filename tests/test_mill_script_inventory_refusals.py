@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -118,6 +119,55 @@ class InventoryEvidenceRefusals(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(msi.MillScriptInventoryError):
                 msi.tracked_paths(Path(temp))
+
+    def test_split_index_inherits_shared_paths_for_empty_replacements(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.check_call(["git", "init", "-q"], cwd=root)
+            subprocess.check_call(["git", "config", "user.email", "inventory@test"], cwd=root)
+            subprocess.check_call(["git", "config", "user.name", "inventory"], cwd=root)
+            (root / "pipelines").mkdir()
+            (root / "README").write_text("x\n", encoding="utf-8")
+            (root / "pipelines" / "leftover_mill.py").write_text("print(1)\n", encoding="utf-8")
+            subprocess.check_call(["git", "add", "README", "pipelines/leftover_mill.py"], cwd=root)
+            subprocess.check_call(["git", "commit", "-qm", "init"], cwd=root)
+            subprocess.check_call(["git", "update-index", "--split-index"], cwd=root)
+            gitdir = root / ".git"
+            self.assertTrue(list(gitdir.glob("sharedindex.*")))
+            self.assertIn(b"link", (gitdir / "index").read_bytes())
+            tracked = msi.tracked_paths(root)
+        self.assertEqual(tracked, ("README", "pipelines/leftover_mill.py"))
+        self.assertNotIn("", tracked)
+
+    def test_split_index_merge_applies_deletes_replacements_and_additions(self):
+        merged = msi._merge_split_paths(
+            ("README", "pipelines/leftover_mill.py", "pipelines/old_mill.py"),
+            ("pipelines/leftover_mill.py", "pipelines/added_mill.py"),
+            frozenset({0}),
+            frozenset({1}),
+        )
+        self.assertEqual(
+            merged,
+            ("pipelines/leftover_mill.py", "pipelines/old_mill.py", "pipelines/added_mill.py"),
+        )
+
+    def test_ewah_replace_bitmap_from_split_index_sets_the_shared_slots(self):
+        bits = msi._ewah_decode((8589934592, 7), 3)
+        self.assertEqual(bits, frozenset({0, 1, 2}))
+
+    def test_missing_shared_index_cannot_be_reported_as_clean_scope(self):
+        empty_ewah = (0).to_bytes(4, "big") + (1).to_bytes(4, "big") + (0).to_bytes(8, "big") + (0).to_bytes(4, "big")
+        link = bytes(20) + empty_ewah + empty_ewah
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(
+                b"DIRC" + (2).to_bytes(4, "big") + (0).to_bytes(4, "big") + b"\0" * 20
+            )
+            with patch.object(msi, "_parse_git_index", return_value=(("", ""), {b"link": link})):
+                with self.assertRaisesRegex(msi.MillScriptInventoryError, "git index"):
+                    msi._read_git_index(root)
 
     def test_invalid_qlty_exclusion_configuration_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:
