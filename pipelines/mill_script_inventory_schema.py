@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -27,6 +28,21 @@ CLASSIFICATIONS = frozenset(
 )
 QUALITY_SCOPES = frozenset({"production", "archived"})
 MAX_INVENTORY_BYTES = 256_000
+
+
+# Reviewed against the preserved tree; no archive checkout is needed in shallow CI.
+ARCHIVE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+ARCHIVE_PATHS_SHA256 = "9067b5b9a8e703d743605c52ab98beef32499bc61097faead285b2b786a917e1"
+ARCHIVE_PATHS_COUNT = 1399
+
+
+def archive_provenance_matches(policy: dict) -> bool:
+    """Bind the complete reviewed path list to its preserved provenance commit."""
+    paths = policy["archived_paths"]
+    actual = hashlib.sha256(json.dumps(sorted(paths), separators=(",", ":")).encode()).hexdigest()
+    return (policy["provenance_commit"], len(paths), actual) == (
+        ARCHIVE_COMMIT, ARCHIVE_PATHS_COUNT, ARCHIVE_PATHS_SHA256,
+    )
 
 
 class MillScriptInventoryError(Exception):
@@ -149,7 +165,7 @@ def _validate_historical_policy(value: object) -> dict:
     scope = _require_str(row.get("quality_scope"), "historical_generator_policy.quality_scope")
     if scope != "archived":
         raise MillScriptInventoryError("historical_generator_policy.quality_scope must be archived")
-    return {
+    validated = {
         "classification": classification,
         "status": _require_str(row.get("status"), "historical_generator_policy.status"),
         "quality_scope": scope,
@@ -171,6 +187,10 @@ def _validate_historical_policy(value: object) -> dict:
         ),
         "notes": _require_str(row.get("notes"), "historical_generator_policy.notes"),
     }
+    if not archive_provenance_matches(validated):
+        raise MillScriptInventoryError("historical archive does not match reviewed provenance")
+    return validated
+
 
 
 def _validate_quality_policy(value: object) -> dict:

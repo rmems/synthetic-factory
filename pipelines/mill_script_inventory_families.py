@@ -19,6 +19,11 @@ else:
 
 # The reviewed search package owns the sir home mills; sir is the source prefix.
 CANONICAL_PACKAGES = {"sir": "search"}
+# Distinct cleaned slices intentionally coexist with their family's primary home.
+ADDITIONAL_FAMILY_OWNERS = {
+    "crp-leftover3": "pipelines/code_leftover3",
+    "lhc-w4cl": "pipelines/lhc_w4cl",
+}
 
 
 def _archive_family(path: str) -> str:
@@ -34,11 +39,14 @@ def expected_family_owners(archived: Iterable[str], tracked: Sequence[str]) -> d
 
     tracked_set = frozenset(tracked)
     families = {_archive_family(path) for path in archived}
-    return {
+    primary = {
         family: f"pipelines/{family}"
         for family in sorted(families)
         if f"pipelines/{family}/__init__.py" in tracked_set
     }
+    additional = {family: owner for family, owner in ADDITIONAL_FAMILY_OWNERS.items()
+                  if f"{owner}/__init__.py" in tracked_set}
+    return primary | additional
 
 
 def production_family_paths(rows: Sequence[Mapping], tracked: Sequence[str]) -> frozenset[str]:

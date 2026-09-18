@@ -221,11 +221,38 @@ def _from_import_targets(node: ast.ImportFrom) -> tuple[str, ...]:
     return (node.module, *names, *(f"{node.module}.{name}" for name in names))
 
 
+def _dynamic_import_functions(tree: ast.AST) -> frozenset[str]:
+    functions = {"__import__", "builtins.__import__", "importlib.import_module"}
+    for node in ast.walk(tree):
+        functions.update(_import_function_aliases(node))
+    return frozenset(functions)
+
+
+def _import_function_aliases(node: ast.AST) -> tuple[str, ...]:
+    modules = {"importlib": "import_module", "builtins": "__import__"}
+    if isinstance(node, ast.Import):
+        return tuple(f"{alias.asname or alias.name}.{modules[alias.name]}"
+                     for alias in node.names if alias.name in modules)
+    if isinstance(node, ast.ImportFrom) and node.module in modules:
+        return tuple(alias.asname or alias.name for alias in node.names if alias.name == modules[node.module])
+    return ()
+
+
+def _dynamic_import_targets(node: ast.AST, functions: frozenset[str]) -> tuple[str, ...]:
+    if not isinstance(node, ast.Call) or ast.unparse(node.func) not in functions:
+        return ()
+    arguments = node.args[:1] or [item.value for item in node.keywords if item.arg == "name"]
+    return tuple(argument.value for argument in arguments
+                 if isinstance(argument, ast.Constant) and isinstance(argument.value, str))
+
+
 def imported_module_names(source: str) -> frozenset[str]:
     """Return every imported module name, including dotted forms."""
 
     tree = ast.parse(source)
     names = {name for node in ast.walk(tree) for name in _import_targets(node) if name}
+    functions = _dynamic_import_functions(tree)
+    names.update(target for node in ast.walk(tree) for target in _dynamic_import_targets(node, functions))
     names.update(part for name in tuple(names) for part in name.split("."))
     return frozenset(names)
 
@@ -337,6 +364,7 @@ def check_inventory(
     qlty_hits = patterns_hitting(qlty_rules, production)
     report = {
         "unclassified": unclassified,
+        "archive_provenance_mismatch": not _schema.archive_provenance_matches(loaded["historical_generator_policy"]),
         "gitignore_hits_on_production": gitignore_hits,
         "qlty_hits_on_production": qlty_hits,
         "gitignore_hits_on_retained_experiments": _gitignore_hits(retained & ignored, matches),

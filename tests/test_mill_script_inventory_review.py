@@ -131,3 +131,42 @@ class PublisherAndFamilyScope(unittest.TestCase):
             report = msi.check_inventory(REPO, tracked=paths)
         self.assertFalse(report["ok"], report)
         self.assertEqual({path for _, path in report["qlty_hits_on_production"]}, set(paths))
+
+
+class InventoryIntegrity(unittest.TestCase):
+    def test_archive_deletion_or_commit_substitution_fails_the_guard(self):
+        for field, change in (("archived_paths", lambda paths: tuple(
+            path for path in paths if path != "experiments/_gen_acm_plants_r4230.py")),
+                              ("provenance_commit", lambda _: "0" * 40)):
+            with self.subTest(field=field):
+                inventory = copy.deepcopy(msi.INVENTORY)
+                policy = inventory["historical_generator_policy"]
+                policy[field] = change(policy[field])
+                self.assertFalse(msi.check_inventory(REPO, inventory=inventory)["ok"])
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.load_inventory_bytes(json.dumps(inventory).encode())
+
+    def test_literal_dynamic_imports_cannot_load_archived_publishers(self):
+        statements = (
+            'importlib.import_module("experiments.ewr_leftover3_mill")',
+            '__import__("ewr_leftover3_mill")',
+            'from builtins import __import__ as load; load("ewr_leftover3_mill")',
+            'import importlib as loader; loader.import_module("ewr_leftover3_mill")',
+            'from importlib import import_module as load; load(name="ewr_leftover3_mill")',
+        )
+        archived = msi.archived_module_names(msi.INVENTORY)
+        for source in statements:
+            with self.subTest(source=source):
+                self.assertTrue(msi.archived_import_hits(source, archived))
+
+    def test_secondary_cleaned_owners_are_required_and_protected(self):
+        for owner in ("pipelines/lhc_w4cl", "pipelines/code_leftover3"):
+            with self.subTest(owner=owner):
+                rules = msi.qlty_exclude_patterns(REPO) + (owner + "/**",)
+                with patch.object(msi, "qlty_exclude_patterns", return_value=rules):
+                    self.assertFalse(msi.check_inventory(REPO)["ok"])
+                inventory = copy.deepcopy(msi.INVENTORY)
+                inventory["mill_families"] = tuple(
+                    row for row in inventory["mill_families"] if row["owner"] != owner
+                )
+                self.assertFalse(msi.check_inventory(REPO, inventory=inventory)["ok"])

@@ -1704,6 +1704,12 @@
       "provenance": "origin/legacy-mill-lane:experiments/code_review_preference_mill_leftover3.py"
     },
     {
+      "family": "crp-leftover3",
+      "owner": "pipelines/code_leftover3",
+      "classification": "production",
+      "provenance": "legacy-mill-lane:experiments/code_review_preference_mill_leftover3.py; prior leftover3 wave is a distinct cleaned slice from pipelines/crp"
+    },
+    {
       "family": "cst",
       "owner": "pipelines/cst",
       "classification": "production",
@@ -1816,6 +1822,12 @@
       "owner": "pipelines/lhc",
       "classification": "production",
       "provenance": "Cleaned production owner for archived lhc generators preserved at 813f93f1969c1c4421e5663492e9663739efa642; source files remain on origin/legacy-mill-lane."
+    },
+    {
+      "family": "lhc-w4cl",
+      "owner": "pipelines/lhc_w4cl",
+      "classification": "production",
+      "provenance": "legacy-mill-lane:experiments/lhc-mill-w4cl-r4605.py; distinct cleaned LHC slice alongside pipelines/lhc"
     },
     {
       "family": "lrd",
