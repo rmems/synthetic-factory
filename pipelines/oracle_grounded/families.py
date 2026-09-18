@@ -467,6 +467,7 @@ def _neuron_checks(record):
             findings.append(
                 f"{side}.v_trace length does not match v_trace_stride_ms and duration_ms"
             )
+            continue
         v_min = state.get("v_min")
         v_max = state.get("v_max")
         v_mean = state.get("v_mean")

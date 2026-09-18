@@ -149,6 +149,14 @@ verification. Accepted and rejected filenames are also checked against each
 record's recomputed verdict, and mixed runtime/reference chains are reported
 separately from named runtimes.
 
+Training admission independently replays accepted reference measurements with
+the built-in oracle and requires an exact result digest match. Named and mixed
+runtime records remain ineligible with `authenticated runtime replay required`:
+their metadata alone cannot authenticate their measurements. This identifies
+missing evidence, not a claim that their runtime measurements are incorrect.
+Admission does not invoke external runtime commands, and the CLI reproduction
+report is not yet an authenticated receipt consumable by training admission.
+
 Before any record is trusted, the validator pins the run root with a directory
 descriptor, rejects symlinks, hardlink aliases, non-regular files, escaping or
 noncanonical manifest paths, and excessive file sizes/counts/nesting, then reads

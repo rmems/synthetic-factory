@@ -11,7 +11,10 @@ The record's declared verdict is only allowed to say *rejected* when the
 family's own invariants fail. Envelope or declared-status disagreement is
 corruption, not honest rejection, and raises.
 
-Publication/replay is a separate gate: this proves technical admission only.
+Accepted reference measurements must reproduce exactly using the built-in
+oracle. Named or mixed runtime measurements need authenticated replay evidence
+from an explicitly invoked runtime gate; metadata admission never launches an
+external command. Publication remains a separate gate.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from . import generators, refusals, source_policy
+from .import_twins import bind_import_twin
 
 __all__ = ["OracleAdmissionError", "natural_eligibility", "row_findings"]
 
@@ -100,21 +104,24 @@ def _generator_findings(record: Mapping[str, Any]) -> list[tuple[str, str]]:
     return []
 
 
-def natural_eligibility(record: Any, row: Any) -> tuple[bool, tuple[str, ...]]:
-    """Technical eligibility for one oracle record; raises for corrupt evidence.
-
-    Eligibility is recomputed from the record's measured content via
-    ``record.classify``. The stored ``validation`` block is never trusted for
-    the decision; it is only cross-checked for disagreement.
-    """
+def _measurement_eligibility(record: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
+    """Authenticate reference output without implicitly executing runtime commands."""
     from . import record as oracle_record
 
-    if not isinstance(record, Mapping):
-        _refuse("ORACLE_VALIDATION_INVALID", "record must be a JSON object")
-    findings = row_findings(row) + _factory_findings(record, row)
-    findings += _generator_findings(record)
-    for code, message in findings:
-        _refuse(code, message)
+    if record["oracle"]["implementation"] != "reference":
+        return False, ("authenticated runtime replay required",)
+    try:
+        status, detail = oracle_record.reproduce(record, environ={})
+    except Exception as exc:  # final boundary around one untrusted record
+        _refuse("ORACLE_VALIDATION_INVALID", f"reference replay raised {type(exc).__name__}")
+    if status != "reproduced":
+        _refuse("ORACLE_VALIDATION_INVALID", f"reference replay {status}: {detail}")
+    return True, ()
+
+
+def _require_consistent_validation(record: Mapping[str, Any]) -> None:
+    """Refuse envelope corruption or a verdict contradicted by measured content."""
+    from . import record as oracle_record
 
     try:
         layers = oracle_record.classify(record, check_declared_status=True)
@@ -135,20 +142,38 @@ def natural_eligibility(record: Any, row: Any) -> tuple[bool, tuple[str, ...]]:
             + "; ".join(layers["status"]),
         )
 
+
+def _ineligible_reasons(validation: Mapping[str, Any]) -> tuple[str, ...]:
+    reason = validation.get("publishable_reason")
+    if isinstance(reason, str) and reason:
+        return (reason,)
+    stored = validation.get("reasons")
+    reasons = tuple(str(item) for item in stored) if isinstance(stored, list) else ()
+    return reasons or ("ORACLE_NATURALLY_INELIGIBLE",)
+
+
+def natural_eligibility(record: Any, row: Any) -> tuple[bool, tuple[str, ...]]:
+    """Technical eligibility for one oracle record; raises for corrupt evidence.
+
+    Eligibility is recomputed from the record's measured content via
+    ``record.classify``. The stored ``validation`` block is never trusted for
+    the decision; it is only cross-checked for disagreement.
+    """
+    if not isinstance(record, Mapping):
+        _refuse("ORACLE_VALIDATION_INVALID", "record must be a JSON object")
+    findings = row_findings(row) + _factory_findings(record, row)
+    findings += _generator_findings(record)
+    for code, message in findings:
+        _refuse(code, message)
+
+    _require_consistent_validation(record)
+
     validation = record.get("validation")
     if not isinstance(validation, Mapping):
         _refuse("ORACLE_VALIDATION_INVALID", "missing validation block")
     if validation.get("status") != "accepted" or validation.get("publishable") is not True:
-        reasons = validation.get("publishable_reason")
-        if not isinstance(reasons, str) or not reasons:
-            stored = validation.get("reasons")
-            reasons_list = [str(item) for item in stored] if isinstance(stored, list) else []
-        else:
-            reasons_list = [reasons]
-        return False, tuple(reasons_list) or ("ORACLE_NATURALLY_INELIGIBLE",)
-    return True, ()
+        return False, _ineligible_reasons(validation)
+    return _measurement_eligibility(record)
 
-
-from .import_twins import bind_import_twin
 
 bind_import_twin(__name__)
