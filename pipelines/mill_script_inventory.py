@@ -147,13 +147,13 @@ def _finish_git(pid: int, out_r: int, err_r: int, accepted: tuple[int, ...]) -> 
     return stdout
 
 
-def _spawn_git(repo: Path, argv: Sequence[str], extra_actions=()) -> tuple[int, int, int]:
+def _git_ls_files(repo: Path) -> bytes:
+    _require_git()
     out_r, out_w, err_r, err_w, actions = _git_stdio()
-    actions.extend(extra_actions)
     try:
         pid = os.posix_spawn(
             "/usr/bin/git",
-            ["/usr/bin/git", *argv],
+            ["/usr/bin/git", "ls-files", "-z"],
             _git_env(repo),
             file_actions=actions,
         )
@@ -161,12 +161,6 @@ def _spawn_git(repo: Path, argv: Sequence[str], extra_actions=()) -> tuple[int, 
         _close_fds(out_r, out_w, err_r, err_w)
         raise MillScriptInventoryError(str(exc)) from exc
     _close_fds(out_w, err_w)
-    return pid, out_r, err_r
-
-
-def _git_ls_files(repo: Path) -> bytes:
-    _require_git()
-    pid, out_r, err_r = _spawn_git(repo, ("ls-files", "-z"))
     return _finish_git(pid, out_r, err_r, (0,))
 
 
@@ -187,16 +181,25 @@ def _payload_stdin(payload: bytes) -> tuple[int, str]:
 def _git_check_ignore(repo: Path, payload: bytes) -> bytes:
     _require_git()
     stdin_fd, name = _payload_stdin(payload)
-    extra = [(os.POSIX_SPAWN_DUP2, stdin_fd, 0)]
-    if stdin_fd != 0:
-        extra.append((os.POSIX_SPAWN_CLOSE, stdin_fd))
     try:
+        out_r, out_w, err_r, err_w, actions = _git_stdio()
+        actions.append((os.POSIX_SPAWN_DUP2, stdin_fd, 0))
+        if stdin_fd != 0:
+            actions.append((os.POSIX_SPAWN_CLOSE, stdin_fd))
         try:
-            pid, out_r, err_r = _spawn_git(repo, ("check-ignore", "--no-index", "-z", "-v", "--stdin"), extra)
-        finally:
-            os.close(stdin_fd)
+            pid = os.posix_spawn(
+                "/usr/bin/git",
+                ["/usr/bin/git", "check-ignore", "--no-index", "-z", "-v", "--stdin"],
+                _git_env(repo),
+                file_actions=actions,
+            )
+        except OSError as exc:
+            _close_fds(out_r, out_w, err_r, err_w)
+            raise MillScriptInventoryError(str(exc)) from exc
+        _close_fds(out_w, err_w)
         return _finish_git(pid, out_r, err_r, (0, 1))
     finally:
+        os.close(stdin_fd)
         os.unlink(name)
 
 
