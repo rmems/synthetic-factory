@@ -53,107 +53,119 @@ def mutate(source, defect, apply_defect):
     return item
 
 
+def drop_result(item):
+    item["result"] = {}
+
+
+def misattribute(item):
+    item["result"]["produced_by"] = "some-other-oracle"
+    item["result_hash"] = canon.digest(item["result"])
+
+
+def stale_hash(item):
+    item["result"]["measured"]["retention_margin"] += 0.5
+
+
+def unknown_commit(item):
+    item["oracle"]["commit"] = "unknown"
+
+
+def no_module_digest(item):
+    item["oracle"]["module_digest"] = ""
+
+
+def claims_named_runtime_measurement(item):
+    item["validation"]["publishable_reason"] = "measured by synaptic-mesh"
+
+
+def empty_measurement(item):
+    item["result"]["measured"] = {}
+    item["result_hash"] = canon.digest(item["result"])
+
+
+def no_stages(item):
+    item["oracle"]["stages"] = []
+
+
+def claims_named_runtime(item):
+    item["oracle"]["implementation"] = "named-runtime"
+    item["oracle"]["authority"] = "measured-runtime"
+    item["oracle"]["runtime_bound"] = True
+
+
+def reserved_key(item):
+    item["scenario"]["measured"] = {"information_retention": 1.0}
+
+
+def tampered_proposal(item):
+    item["scenario"]["sample_count"] += 1
+
+
+def claims_authority(item):
+    item["generator"]["authoritative"] = True
+
+
+def guess_posing_as_truth(item):
+    item["candidate_prediction"]["kind"] = "ground_truth"
+
+
+def empty_scenario(item):
+    item["scenario"] = {}
+
+
+def relabelled_accepted(item):
+    item["validation"]["status"] = "accepted"
+    item["validation"]["reasons"] = []
+
+
+def reason_rewritten(item):
+    item["validation"]["reasons"] = ["looks fine to me"]
+
+
+def _invalid_oracle_records(records):
+    encoder, neuron, mesh, credit, _memory = records
+    return [
+        mutate(encoder, "missing_result", drop_result),
+        mutate(encoder, "result_not_attributed_to_declared_oracle", misattribute),
+        mutate(encoder, "result_hash_does_not_cover_result", stale_hash),
+        mutate(neuron, "oracle_commit_unknown", unknown_commit),
+        mutate(neuron, "oracle_module_digest_missing", no_module_digest),
+        mutate(mesh, "publishable_reason_claims_the_named_runtime", claims_named_runtime_measurement),
+        mutate(mesh, "empty_measurement", empty_measurement),
+        mutate(credit, "no_executed_stages", no_stages),
+        mutate(credit, "reference_run_relabelled_as_named_runtime", claims_named_runtime),
+    ]
+
+
+def _malformed_generator_records(records):
+    encoder, neuron, mesh, _credit, memory_rejected = records
+    return [
+        mutate(encoder, "generator_authored_a_measurement_key", reserved_key),
+        mutate(encoder, "scenario_edited_after_proposal_hash", tampered_proposal),
+        mutate(neuron, "generator_claims_authority", claims_authority),
+        mutate(neuron, "candidate_prediction_posing_as_ground_truth", guess_posing_as_truth),
+        mutate(mesh, "empty_scenario", empty_scenario),
+        mutate(memory_rejected, "failing_record_relabelled_accepted", relabelled_accepted),
+        mutate(memory_rejected, "rejection_reason_rewritten", reason_rewritten),
+    ]
+
+
 def main():
-    encoder = load(families.ENCODER_FAMILY)[0]
-    neuron = load(families.NEURON_FAMILY)[0]
-    mesh = load(families.MESH_FAMILY)[0]
-    credit = load(families.CREDIT_FAMILY)[0]
-    memory_rejected = load(families.MEMORY_FAMILY, "rejected")[0]
-
-    def drop_result(item):
-        item["result"] = {}
-
-    def misattribute(item):
-        item["result"]["produced_by"] = "some-other-oracle"
-        item["result_hash"] = canon.digest(item["result"])
-
-    def stale_hash(item):
-        # Change a measurement without restamping result_hash.
-        item["result"]["measured"]["retention_margin"] += 0.5
-
-    def unknown_commit(item):
-        item["oracle"]["commit"] = "unknown"
-
-    def no_module_digest(item):
-        item["oracle"]["module_digest"] = ""
-
-    def claims_named_runtime_measurement(item):
-        # #171 makes an accepted reference record publishable, so the forgery
-        # is the reason: a simulator run dressed up as the named runtime.
-        item["validation"]["publishable_reason"] = "measured by synaptic-mesh"
-
-    def empty_measurement(item):
-        item["result"]["measured"] = {}
-        item["result_hash"] = canon.digest(item["result"])
-
-    def no_stages(item):
-        item["oracle"]["stages"] = []
-
-    def claims_named_runtime(item):
-        item["oracle"]["implementation"] = "named-runtime"
-        item["oracle"]["authority"] = "measured-runtime"
-        item["oracle"]["runtime_bound"] = True
+    records = (
+        load(families.ENCODER_FAMILY)[0],
+        load(families.NEURON_FAMILY)[0],
+        load(families.MESH_FAMILY)[0],
+        load(families.CREDIT_FAMILY)[0],
+        load(families.MEMORY_FAMILY, "rejected")[0],
+    )
 
     emit(
         OUT / "invalid-oracle.jsonl",
-        [
-            mutate(encoder, "missing_result", drop_result),
-            mutate(encoder, "result_not_attributed_to_declared_oracle", misattribute),
-            mutate(encoder, "result_hash_does_not_cover_result", stale_hash),
-            mutate(neuron, "oracle_commit_unknown", unknown_commit),
-            mutate(neuron, "oracle_module_digest_missing", no_module_digest),
-            mutate(
-                mesh,
-                "publishable_reason_claims_the_named_runtime",
-                claims_named_runtime_measurement,
-            ),
-            mutate(mesh, "empty_measurement", empty_measurement),
-            mutate(credit, "no_executed_stages", no_stages),
-            mutate(
-                credit, "reference_run_relabelled_as_named_runtime", claims_named_runtime
-            ),
-        ],
+        _invalid_oracle_records(records),
     )
-
-    def reserved_key(item):
-        item["scenario"]["measured"] = {"information_retention": 1.0}
-
-    def tampered_proposal(item):
-        item["scenario"]["sample_count"] += 1
-
-    def claims_authority(item):
-        item["generator"]["authoritative"] = True
-
-    def guess_posing_as_truth(item):
-        item["candidate_prediction"]["kind"] = "ground_truth"
-
-    def empty_scenario(item):
-        item["scenario"] = {}
-
-    def relabelled_accepted(item):
-        item["validation"]["status"] = "accepted"
-        item["validation"]["reasons"] = []
-
-    def reason_rewritten(item):
-        item["validation"]["reasons"] = ["looks fine to me"]
-
     emit(
         OUT / "malformed-generator.jsonl",
-        [
-            mutate(encoder, "generator_authored_a_measurement_key", reserved_key),
-            mutate(encoder, "scenario_edited_after_proposal_hash", tampered_proposal),
-            mutate(neuron, "generator_claims_authority", claims_authority),
-            mutate(
-                neuron,
-                "candidate_prediction_posing_as_ground_truth",
-                guess_posing_as_truth,
-            ),
-            mutate(mesh, "empty_scenario", empty_scenario),
-            mutate(
-                memory_rejected, "failing_record_relabelled_accepted", relabelled_accepted
-            ),
-            mutate(memory_rejected, "rejection_reason_rewritten", reason_rewritten),
-        ],
+        _malformed_generator_records(records),
     )
     return 0
 

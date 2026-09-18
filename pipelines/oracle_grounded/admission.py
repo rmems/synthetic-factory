@@ -21,7 +21,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from . import generators, refusals, source_policy
+from . import admission_checks as _checks
+from . import refusals
 from .import_twins import bind_import_twin
 
 __all__ = ["OracleAdmissionError", "natural_eligibility", "row_findings"]
@@ -43,65 +44,7 @@ class OracleAdmissionError(refusals.CodedRefusal):
 _refuse, _refuse_when, _refuse_first = refusals.helpers(OracleAdmissionError)
 
 
-def row_findings(row: Any) -> list[tuple[str, str]]:
-    """Whether the resolved row is the one sealed oracle authority."""
-    expected = source_policy.reviewed_row()
-    expected["record_kinds"] = frozenset(expected["record_kinds"])
-    expected["allowed_curation_lanes"] = tuple(expected["allowed_curation_lanes"])
-    actual = {key: getattr(row, key, object()) for key in expected}
-    authorized = getattr(row, "identity_authoritative", None) is True
-    if not authorized or actual != expected:
-        return [
-            ("ORACLE_ROUTE_UNAUTHORIZED", "row differs from sealed source authority")
-        ]
-    # The row repeating the sealed digests proves nothing about the installed
-    # bytes, so the reviewed generation semantics are recomputed here too.
-    try:
-        source_policy.verify_source_bytes()
-    except source_policy.SourcePolicyError as exc:
-        return [("ORACLE_ROUTE_UNAUTHORIZED", str(exc))]
-    return []
-
-
-def _factory_findings(record: Mapping[str, Any], row: Any) -> list[tuple[str, str]]:
-    """A path-selected row must not authorize a payload naming another factory."""
-    if row is None:
-        # No authorized oracle row resolves for this path; ``row_findings``
-        # already reports ORACLE_ROUTE_UNAUTHORIZED, and there is no row
-        # payload_factory to contradict. Refusing is fail-closed either way.
-        return []
-    meta = record.get("meta")
-    if isinstance(meta, Mapping) and meta.get("factory") not in (None, row.payload_factory):
-        return [
-            (
-                "ORACLE_FAMILY_MISMATCH",
-                "payload meta.factory contradicts the source route",
-            )
-        ]
-    return []
-
-
-def _generator_findings(record: Mapping[str, Any]) -> list[tuple[str, str]]:
-    generator = record.get("generator")
-    if not isinstance(generator, Mapping):
-        return [("ORACLE_GENERATOR_MISMATCH", "generator must be an object")]
-    if generator.get("authoritative") is not False:
-        return [("ORACLE_GENERATOR_MISMATCH", "generator must not be authoritative")]
-    if generator.get("name") != generators.GENERATOR_NAME:
-        return [
-            (
-                "ORACLE_GENERATOR_MISMATCH",
-                "generator is not the reviewed implementation",
-            )
-        ]
-    if generator.get("version") != generators.GENERATOR_VERSION:
-        return [
-            (
-                "ORACLE_GENERATOR_MISMATCH",
-                "generator version is not the reviewed version",
-            )
-        ]
-    return []
+row_findings = _checks.row_findings
 
 
 def _measurement_eligibility(record: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
@@ -158,8 +101,8 @@ def natural_eligibility(record: Any, row: Any) -> tuple[bool, tuple[str, ...]]:
     """
     if not isinstance(record, Mapping):
         _refuse("ORACLE_VALIDATION_INVALID", "record must be a JSON object")
-    findings = row_findings(row) + _factory_findings(record, row)
-    findings += _generator_findings(record)
+    findings = row_findings(row) + _checks.factory_findings(record, row)
+    findings += _checks.generator_findings(record)
     for code, message in findings:
         _refuse(code, message)
 

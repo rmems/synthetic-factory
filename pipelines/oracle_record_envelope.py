@@ -15,169 +15,19 @@ def _nonempty_object(value):
     return isinstance(value, dict) and bool(value)
 
 
-class EnvelopeChecks:
-    """Validate envelope evidence through the record facade's live callbacks."""
+if __package__:
+    from .oracle_record_envelope_part1 import EnvelopeChecksPart1
+    from .oracle_record_envelope_part2 import EnvelopeChecksPart2
+else:
+    from oracle_record_envelope_part1 import EnvelopeChecksPart1
+    from oracle_record_envelope_part2 import EnvelopeChecksPart2
+
+
+class EnvelopeChecks(EnvelopeChecksPart1, EnvelopeChecksPart2):
+    """Compose the focused validation concerns behind one facade."""
 
     def __init__(self, api):
         self.api = api
-
-    def _oracle_shape_findings(self, oracle, findings, expected_commit=None):
-        """Shape and identity checks on the oracle envelope itself.
-
-        ``expected_commit`` is a commit the caller has already resolved against
-        the repository (a run manifest's oracle commit). When provided, a record
-        stamped with a different commit is rejected by string comparison instead
-        of launching its own repository resolution, so a run holding thousands of
-        distinct forged commits cannot turn validation into repeated git calls.
-        """
-        if not _nonempty_object(oracle["configuration"]):
-            findings.append("oracle.configuration must be a non-empty object")
-        if not _nonempty_object(oracle["units"]):
-            findings.append("oracle.units must be a non-empty object")
-        if not isinstance(oracle["stages"], list) or not oracle["stages"]:
-            findings.append("oracle.stages must list at least one executed stage")
-        if oracle["repo"] != self.api.oracles.REPO_SLUG:
-            findings.append(f"oracle must declare repo {self.api.oracles.REPO_SLUG!r}")
-        self._source_commit_findings(oracle["commit"], expected_commit, findings)
-        if not self.api.canon.is_digest(oracle.get("module_digest", "")):
-            findings.append("oracle.module_digest must be a sha256 digest")
-
-    def _source_commit_findings(self, commit, expected_commit, findings):
-        if not self.api.oracles.is_source_commit(commit):
-            findings.append("oracle.commit must be a resolved lowercase 40- or 64-hex source commit")
-        elif expected_commit is not None and commit != expected_commit:
-            findings.append(
-                "oracle.commit does not match the run manifest's resolved oracle commit"
-            )
-        elif self.api.oracles.resolve_source_commit(commit) != commit:
-            findings.append(
-                "oracle.commit does not resolve to that commit object in the source repository"
-            )
-
-    def _oracle_implementation_findings(self, oracle, family, findings):
-        """Checks that apply once the declared implementation is a known kind."""
-        findings.extend(self.api._validate_stage_consistency(oracle, family))
-        if oracle.get("module_digest") != self.api.oracles.module_digest():
-            findings.append(
-                "oracle.module_digest does not match the current reference implementation"
-            )
-        if oracle["implementation"] in ("reference", "mixed"):
-            if oracle.get("module") != self.api.oracles.MODULE_PATH:
-                findings.append(f"reference oracle.module must be {self.api.oracles.MODULE_PATH!r}")
-        expected_authority = {
-            "reference": "reference-simulator",
-            "named-runtime": "measured-runtime",
-            "mixed": "mixed-reference-and-runtime",
-        }[oracle["implementation"]]
-        if oracle.get("authority") != expected_authority:
-            findings.append(
-                f"oracle.authority must be {expected_authority!r} for "
-                f"implementation {oracle['implementation']!r}"
-            )
-
-    def _oracle_spec_findings(self, oracle, family, require_named_runtime, findings):
-        """The oracle envelope must match the family's declared contract."""
-        spec = self.api.families.spec_for(family)
-        if oracle.get("type") != spec.oracle_type:
-            findings.append(
-                f"oracle.type {oracle.get('type')!r} does not match family oracle type "
-                f"{spec.oracle_type!r}"
-            )
-        if oracle.get("requested_runtime") != list(spec.runtimes):
-            findings.append(
-                f"oracle.requested_runtime does not match the runtimes specified for {family!r}"
-            )
-        if oracle.get("units") != spec.units:
-            findings.append("oracle.units does not match the family units contract")
-        if require_named_runtime and oracle["implementation"] != "named-runtime":
-            findings.append(
-                "oracle.implementation is not 'named-runtime' and a named runtime was required"
-            )
-
-    def _result_findings(self, record, oracle, findings):
-        """Validate the result block. False when curation must stop here."""
-        result = record["result"]
-        if not _nonempty_object(result):
-            findings.append("result must be a non-empty object (curation fails closed)")
-            return False
-        measured = result.get("measured")
-        if not _nonempty_object(measured):
-            findings.append("result.measured must be a non-empty object")
-        if result.get("produced_by") != oracle["id"]:
-            findings.append(
-                f"result.produced_by {result.get('produced_by')!r} does not match "
-                f"oracle.id {oracle['id']!r}"
-            )
-        result_units = result.get("units")
-        if not _nonempty_object(result_units):
-            findings.append("result.units must be a non-empty object")
-        elif result_units != oracle["units"]:
-            findings.append("result.units does not exactly match oracle.units")
-        if record["result_hash"] != self.api.canon.digest(result):
-            findings.append("result_hash does not cover the stored result")
-        return True
-
-    def _provenance_findings(self, record, oracle, findings):
-        """The provenance block must describe a simulated, oracle-grounded record."""
-        provenance = record["provenance"]
-        if not isinstance(provenance, dict):
-            findings.append("provenance must be an object")
-            return
-        unknown = sorted(key for key in provenance if key not in self.api.PROVENANCE_ALLOWED_KEYS)
-        if unknown:
-            findings.append(
-                "provenance carries unauthenticated sibling keys: " + ", ".join(unknown)
-            )
-        self._provenance_kind_findings(provenance.get("kind"), findings)
-        if provenance.get("oracle_grounded") is not True:
-            findings.append("provenance.oracle_grounded must be true")
-        if provenance.get("claimed") != oracle.get("authority"):
-            findings.append("provenance.claimed must match oracle.authority")
-        if provenance.get("generator_authored") != list(self.api.GENERATOR_SECTIONS):
-            findings.append("provenance.generator_authored does not match the generator sections")
-        if provenance.get("oracle_authored") != ["result", "oracle.stages"]:
-            findings.append("provenance.oracle_authored does not match the oracle-authored sections")
-
-    def _provenance_kind_findings(self, kind, findings):
-        if kind not in self.api.ALLOWED_PROVENANCE_KIND:
-            findings.append(f"provenance.kind must be one of {sorted(self.api.ALLOWED_PROVENANCE_KIND)}")
-        elif kind not in self.api.TRAINING_PROVENANCE_KIND:
-            findings.append("provenance.kind must not be 'unknown' on a new record")
-        elif kind != "simulated":
-            findings.append(
-                "provenance.kind must be 'simulated'; the sf-oracle protocol does "
-                "not attest physical hardware execution"
-            )
-
-    def _envelope_membership(self, oracle, findings):
-        missing = [key for key in self.api.ORACLE_KEYS if key not in oracle]
-        if missing:
-            findings.append(f"oracle is missing: {', '.join(missing)}")
-            return False
-        unknown = sorted(key for key in oracle if key not in self.api.ORACLE_ALLOWED_KEYS)
-        if unknown:
-            findings.append(
-                "oracle carries unauthenticated sibling keys: " + ", ".join(unknown)
-            )
-        return True
-
-    def _validate_oracle_side(self, record, require_named_runtime, expected_commit=None):
-        findings = []
-        oracle = record["oracle"]
-        if not isinstance(oracle, dict):
-            return ["oracle must be an object"]
-        if not self._envelope_membership(oracle, findings):
-            return findings
-        self.api._oracle_shape_findings(oracle, findings, expected_commit)
-        if oracle["implementation"] not in ("reference", "named-runtime", "mixed"):
-            findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
-        else:
-            self.api._oracle_implementation_findings(oracle, record["family"], findings)
-        self.api._oracle_spec_findings(oracle, record["family"], require_named_runtime, findings)
-        if not self.api._result_findings(record, oracle, findings):
-            return findings
-        self.api._provenance_findings(record, oracle, findings)
-        return findings
 
 if __package__:
     _expose_package_sibling(__name__)

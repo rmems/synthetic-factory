@@ -34,7 +34,8 @@ class OracleProtocolDeadlineTests(unittest.TestCase):
     def _assert_stderr_timeout(self, response, expired_before_select):
         process = SimpleNamespace(
             stdin=io.BytesIO(), stdout=mock.Mock(), stderr=mock.Mock(),
-            pid=12345, wait=mock.Mock(return_value=0), kill=mock.Mock(),
+            pid=12345, poll=mock.Mock(return_value=None),
+            wait=mock.Mock(return_value=0), kill=mock.Mock(),
         )
         process.stdout.fileno.return_value = 101
         process.stderr.fileno.return_value = 102

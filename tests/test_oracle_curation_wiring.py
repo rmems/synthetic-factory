@@ -204,7 +204,7 @@ class OracleCurationTests(unittest.TestCase):
         self.assertEqual(result.action, "exclude")
         self.assertIn("ORACLE_FAMILY_MISMATCH", str(result.mapping.get("details")))
 
-    def test_malformed_validation_block_excluded(self):
+    def test_malformed_validation_is_excluded(self):
         record = _build()
         del record["validation"]
         result = self._curate(record)

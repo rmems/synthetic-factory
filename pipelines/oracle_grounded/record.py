@@ -36,6 +36,7 @@ from .envelope import (
     reserved_key_hits,
 )
 from . import rng as _rng
+from . import record_replay as _record_replay
 from .rng import Rng, seed_from_label
 
 MAX_SEED = _rng.MAX_SEED
@@ -612,58 +613,4 @@ def reproduce(record, environ=None):
     ``mismatch``, ``unavailable``, or ``invalid``.  Malformed stored input is
     bounded as ``invalid`` instead of escaping as a validator traceback.
     """
-    try:
-        stored_oracle = record["oracle"]
-        implementation = stored_oracle["implementation"]
-        stored_commit = stored_oracle.get("commit")
-        if oracles.resolve_source_commit(stored_commit) != stored_commit:
-            return "invalid", "stored oracle.commit is not a resolved source commit"
-        if stored_oracle.get("module_digest") != oracles.module_digest():
-            return "mismatch", "stored oracle module digest is not current"
-        if implementation in ("reference", "mixed"):
-            if stored_oracle.get("module") != oracles.MODULE_PATH:
-                return "mismatch", "stored reference module identity is not current"
-        spec = families.spec_for(record["family"])
-        request = spec.build_request(record["scenario"], record["intervention"])
-        rebuilt_configuration = canon.normalize(request.get("configuration"))
-        stored_configuration = canon.normalize(stored_oracle.get("configuration"))
-    except Exception as exc:
-        return "invalid", f"stored record cannot rebuild an oracle request: {type(exc).__name__}"
-    if rebuilt_configuration != stored_configuration:
-        return "mismatch", (
-            "stored oracle.configuration does not match the configuration rebuilt "
-            "from scenario and intervention"
-        )
-    try:
-        adapter = spec.oracle(environ)
-    except oracles.OracleError as exc:
-        return "unavailable", str(exc)
-    if adapter.implementation != record["oracle"]["implementation"]:
-        return "unavailable", (
-            f"record was measured by {record['oracle']['implementation']!r} but this "
-            f"environment resolves to {adapter.implementation!r}"
-        )
-    try:
-        run = adapter.run(record["family"], request)
-    except oracles.OracleError as exc:
-        return "unavailable", str(exc)
-    try:
-        replay_stages = canon.normalize(run.stages)
-        stored_stages = canon.normalize(stored_oracle["stages"])
-    except Exception as exc:
-        return "invalid", f"stored stage identity is malformed: {type(exc).__name__}"
-    if replay_stages != stored_stages:
-        return "mismatch", "stored oracle stage code identity does not match the replay"
-    replay = {
-        "produced_by": adapter.oracle_id,
-        "measured": run.measured,
-        "units": run.units,
-    }
-    try:
-        replay_digest = canon.digest(replay)
-        expected_digest = record["result_hash"]
-    except (KeyError, TypeError, ValueError) as exc:
-        return "invalid", f"stored result digest is malformed: {type(exc).__name__}"
-    if replay_digest == expected_digest:
-        return "reproduced", expected_digest
-    return "mismatch", f"expected {expected_digest}, recomputed {replay_digest}"
+    return _record_replay.reproduce(record, environ)

@@ -114,6 +114,14 @@ class FileSnapshot:
 
 
 @dataclass(frozen=True)
+class _SnapshotRequest:
+    path: Path
+    relative: str
+    limit: int
+    expected_stat: object
+
+
+@dataclass(frozen=True)
 class ParsedRecord:
     """A parsed record plus the captured file coordinate that supplied it."""
 
@@ -264,14 +272,16 @@ def _capture_pinned_body(descriptor, limit, expected_stat):
     return body, before, os.fstat(descriptor)
 
 
-def _snapshot_regular_file(root_fd, path, relative, limit, expected_stat):
+def _snapshot_regular_file(root_fd, request):
     """Capture one root-relative path once and detect identity or byte changes."""
-    path = Path(path)
-    if expected_stat.st_size > limit:
-        raise ValueError(f"file exceeds the {limit}-byte snapshot limit")
-    descriptor = _open_beneath(root_fd, relative)
+    path = Path(request.path)
+    if request.expected_stat.st_size > request.limit:
+        raise ValueError(f"file exceeds the {request.limit}-byte snapshot limit")
+    descriptor = _open_beneath(root_fd, request.relative)
     try:
-        body, before, after = _capture_pinned_body(descriptor, limit, expected_stat)
+        body, before, after = _capture_pinned_body(
+            descriptor, request.limit, request.expected_stat
+        )
     finally:
         os.close(descriptor)
     if _stat_identity(before) != _stat_identity(after):
@@ -280,7 +290,7 @@ def _snapshot_regular_file(root_fd, path, relative, limit, expected_stat):
         raise ValueError("captured byte count does not match the regular-file size")
     return FileSnapshot(
         path=path,
-        relative=relative,
+        relative=request.relative,
         body=body,
         device=after.st_dev,
         inode=after.st_ino,
@@ -371,10 +381,9 @@ def _load_run_manifest(run_dir, root_fd, actual, errors):
         manifest_file, manifest_stat = manifest_entry
         manifest_snapshot = _snapshot_regular_file(
             root_fd,
-            manifest_file,
-            MANIFEST_FILENAME,
-            MAX_MANIFEST_BYTES,
-            expected_stat=manifest_stat,
+            _SnapshotRequest(
+                manifest_file, MANIFEST_FILENAME, MAX_MANIFEST_BYTES, manifest_stat
+            ),
         )
         return strict_json_loads(manifest_snapshot.body)
     except (
@@ -456,10 +465,7 @@ def _capture_manifested_files(actual, valid_entries, root_fd, errors):
         try:
             snapshot = _snapshot_regular_file(
                 root_fd,
-                path,
-                relative,
-                MAX_JSONL_BYTES,
-                expected_stat=expected_stat,
+                _SnapshotRequest(path, relative, MAX_JSONL_BYTES, expected_stat),
             )
         except (OSError, ValueError, MemoryError) as exc:
             errors.append(

@@ -30,7 +30,7 @@ def _normalize_float(value, precision):
         raise NonFiniteNumber(f"non-finite number in record: {value!r}")
     rounded = round(value, precision)
     # round() can return -0.0; JSON keeps the sign and breaks equality.
-    if rounded == 0.0:
+    if not rounded:
         return 0.0
     return rounded
 

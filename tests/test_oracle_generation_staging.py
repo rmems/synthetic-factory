@@ -14,6 +14,44 @@ from oracle_grounded import families
 
 
 class StagingSubstitutionTests(unittest.TestCase):
+    def test_staging_identity_failure_closes_and_quarantines_the_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+            cleanup = oracle_generate._cleanup_staging
+            real_fstat = os.fstat
+            changed = False
+
+            def changed_identity(descriptor):
+                nonlocal changed
+                state = real_fstat(descriptor)
+                if changed:
+                    return state
+                changed = True
+                values = list(state)
+                values[1] += 1
+                return os.stat_result(values)
+
+            try:
+                with (
+                    mock.patch.object(
+                        oracle_generate.os,
+                        "fstat",
+                        side_effect=changed_identity,
+                    ),
+                    mock.patch.object(
+                        oracle_generate,
+                        "_cleanup_staging",
+                        wraps=cleanup,
+                    ) as cleanup_spy,
+                    self.assertRaises(OSError),
+                ):
+                    oracle_generate._create_staging(parent / "run", parent_fd)
+                cleanup_spy.assert_called_once()
+                self.assertEqual(len(list(parent.glob(".synthetic-factory-rollback-*"))), 1)
+            finally:
+                os.close(parent_fd)
+
     def _assert_substitution_refused(self, name, symlink):
         with tempfile.TemporaryDirectory() as tmp:
             outside = Path(tmp) / "outside"
@@ -48,7 +86,7 @@ class StagingSubstitutionTests(unittest.TestCase):
     def test_payload_replacement_refuses_publication(self):
         self._assert_substitution_refused("payload", False)
 
-    def test_payload_symlink_refuses_publication(self):
+    def test_payload_symlink_is_refused(self):
         self._assert_substitution_refused("payload", True)
 
     def test_manifest_replacement_refuses_publication(self):

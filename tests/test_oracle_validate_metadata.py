@@ -110,7 +110,7 @@ class ManifestHeaderFieldTest(GoldenRunFixture):
             "oracle_commit does not resolve",
         )
 
-    def test_malformed_oracle_commit_is_rejected(self):
+    def test_malformed_commit_is_rejected(self):
         self.assert_reports(
             lambda m: m.__setitem__("oracle_commit", "not-a-commit"),
             "oracle_commit must be a resolved lowercase",
@@ -161,7 +161,7 @@ class ManifestFamiliesTest(GoldenRunFixture):
 class ManifestAvailabilityTest(GoldenRunFixture):
     """oracle_availability must agree with the probes captured in records."""
 
-    def test_non_object_availability_is_rejected(self):
+    def test_availability_requires_object(self):
         self.assert_reports(
             lambda m: m.__setitem__("oracle_availability", "none"),
             "oracle_availability must be an object",
@@ -179,7 +179,7 @@ class ManifestAvailabilityTest(GoldenRunFixture):
 
         self.assert_reports(mutate, "oracle_availability runtimes do not match families")
 
-    def test_non_string_runtime_name_is_rejected(self):
+    def test_runtime_name_requires_string(self):
         def mutate(manifest):
             manifest["oracle_availability"]["runtimes"][0]["runtime"] = 7
 
@@ -282,7 +282,7 @@ class ValidateRunTest(unittest.TestCase):
         self.assertEqual(report["accepted"] + report["rejected"], 20)
         self.assertEqual(report["parse_failures"], 0)
 
-    def test_by_family_counts_cover_every_family(self):
+    def test_family_counts_cover_manifest(self):
         report, _errors = oracle_validate.validate_run(GOLDEN)
         self.assertEqual(sum(report["by_family"].values()), report["records"])
         self.assertEqual(len(report["by_family"]), 5)
@@ -335,7 +335,7 @@ class RunTreeGuardTest(unittest.TestCase):
         matched = [error for error in errors if fragment in error]
         self.assertTrue(matched, f"expected a finding containing {fragment!r}, got {errors}")
 
-    def test_a_symlink_inside_the_run_is_refused(self):
+    def test_run_symlink_is_refused(self):
         run = self.scratch_run()
         (run / "alias.jsonl").symlink_to(run / "manifest.json")
         self.assert_authentication_reports(run, "symbolic links are not allowed")
@@ -393,13 +393,13 @@ class RunTreeGuardTest(unittest.TestCase):
         (run / "stray.jsonl").write_text("", encoding="utf-8")
         self.assert_authentication_reports(run, "unmanifested file is present: stray.jsonl")
 
-    def test_a_missing_declared_file_is_reported(self):
+    def test_missing_declared_file_is_reported(self):
         run = self.scratch_run()
         victim = next(run.rglob("accepted-*.jsonl"))
         victim.unlink()
         self.assert_authentication_reports(run, "manifest file is missing")
 
-    def test_a_tampered_payload_fails_its_digest(self):
+    def test_tampered_payload_fails_digest(self):
         run = self.scratch_run()
         victim = next(run.rglob("accepted-*.jsonl"))
         with victim.open("a", encoding="utf-8") as handle:

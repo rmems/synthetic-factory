@@ -25,7 +25,7 @@ class OracleBoundaryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unresolved provenance"):
                     replay_diagnostic_fixture({"oracle_dirty": dirty}, Path("unused"))
 
-    def test_reference_stamp_must_match_checkout(self):
+    def test_reference_stamp_matches_checkout(self):
         with (
             mock.patch.object(oracle_generate.oracles, "resolve_commit", return_value=("a" * 40, False)),
             mock.patch.object(oracle_generate.oracles, "resolve_source_commit", return_value="b" * 40),

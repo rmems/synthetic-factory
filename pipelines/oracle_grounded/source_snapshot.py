@@ -1,6 +1,6 @@
 """Compile the declared measurement modules from the bytes their digest names.
 
-This binds the six measurement sources, not the whole transitive Python runtime.
+This binds the measurement sources, not the whole transitive Python runtime.
 Current installed-source policy verification remains a separate eligibility gate.
 """
 
@@ -18,7 +18,38 @@ import weakref
 
 from .import_twins import bind_import_twin
 
-SOURCE_NAMES = ("canon.py", "families.py", "generators.py", "oracles.py", "rng.py", "sim.py")
+SOURCE_NAMES = (
+    "canon.py",
+    "families.py",
+    "family_common.py",
+    "family_credit.py",
+    "family_credit_checks.py",
+    "family_encoder.py",
+    "family_memory.py",
+    "family_memory_checks.py",
+    "family_mesh.py",
+    "family_neuron.py",
+    "generator_common.py",
+    "generator_credit.py",
+    "generator_encoder.py",
+    "generator_memory.py",
+    "generator_mesh.py",
+    "generator_neuron.py",
+    "generators.py",
+    "oracle_adapters.py",
+    "oracle_binding.py",
+    "oracle_core.py",
+    "oracle_protocol.py",
+    "oracles.py",
+    "rng.py",
+    "sim.py",
+    "sim_common.py",
+    "sim_credit.py",
+    "sim_encoder.py",
+    "sim_memory.py",
+    "sim_mesh.py",
+    "sim_neuron.py",
+)
 PACKAGE_NAMES = ("oracle_grounded", "pipelines.oracle_grounded")
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 

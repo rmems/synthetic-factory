@@ -1047,6 +1047,14 @@ def _curate_oracle(original, row, mapping):
     return CurationResult("retained", curated, mapping)
 
 
+def _curate_known_kind(kind, original, row, mapping):
+    if kind == "code_repair":
+        return _curate_code_repair(original, row, mapping)
+    if kind == "oracle":
+        return _curate_oracle(original, row, mapping)
+    return None
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1087,11 +1095,9 @@ def curate_record(
         )
     elif row is None:
         result = _exclude(mapping, "identity.unknown_factory")
-    elif kind == "code_repair":
-        result = _curate_code_repair(original, row, mapping)
-    elif kind == "oracle":
-        result = _curate_oracle(original, row, mapping)
     else:
+        result = _curate_known_kind(kind, original, row, mapping)
+    if result is None:
         context = _identity_stages.CurationContext(
             original=original,
             source=source,

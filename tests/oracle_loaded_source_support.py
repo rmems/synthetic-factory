@@ -16,7 +16,38 @@ SIM_SOURCE = "sim.py"
 PACKAGE_INIT = "__init__.py"
 BEFORE_MARKER = b'MARKER = "before"'
 AFTER_MARKER = b'MARKER = "after!"'
-SOURCE_NAMES = ("canon.py", "families.py", "generators.py", "oracles.py", "rng.py", SIM_SOURCE)
+SOURCE_NAMES = (
+    "canon.py",
+    "families.py",
+    "family_common.py",
+    "family_credit.py",
+    "family_credit_checks.py",
+    "family_encoder.py",
+    "family_memory.py",
+    "family_memory_checks.py",
+    "family_mesh.py",
+    "family_neuron.py",
+    "generator_common.py",
+    "generator_credit.py",
+    "generator_encoder.py",
+    "generator_memory.py",
+    "generator_mesh.py",
+    "generator_neuron.py",
+    "generators.py",
+    "oracle_adapters.py",
+    "oracle_binding.py",
+    "oracle_core.py",
+    "oracle_protocol.py",
+    "oracles.py",
+    "rng.py",
+    SIM_SOURCE,
+    "sim_common.py",
+    "sim_credit.py",
+    "sim_encoder.py",
+    "sim_memory.py",
+    "sim_mesh.py",
+    "sim_neuron.py",
+)
 
 
 def _digest(package):

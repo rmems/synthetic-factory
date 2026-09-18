@@ -485,16 +485,24 @@ def _route_code_repair(obj, where):
     return sealed_record_findings(obj, where), "code_repair"
 
 
+def _special_line_route(obj, where, factory_staging):
+    if obj.get("family") == "python-function-repair":
+        return _route_code_repair(obj, where)
+    oracle_shape = obj.get("schema") == "oracle-grounded/v1" or all(
+        key in obj for key in ("oracle", "result", "proposal_hash")
+    )
+    if oracle_shape:
+        return _route_oracle(obj, where, factory_staging), "oracle"
+    return None
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-    if obj.get("family") == "python-function-repair":
-        return _route_code_repair(obj, where)
-    if obj.get("schema") == "oracle-grounded/v1" or all(
-        key in obj for key in ("oracle", "result", "proposal_hash")
-    ):
-        return _route_oracle(obj, where, factory_staging), "oracle"
+    special = _special_line_route(obj, where, factory_staging)
+    if special is not None:
+        return special
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):
             continue

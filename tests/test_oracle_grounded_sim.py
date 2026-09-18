@@ -326,7 +326,13 @@ class DelayMesh(unittest.TestCase):
         result = sim.simulate_mesh(nodes, edges, events, 60.0)
         self.assertEqual(result["firing_order"], ["A", "B"])
 
-    def test_an_unknown_edge_endpoint_is_refused(self):
+    def test_causal_summary_rejects_unknown_endpoints(self):
+        result = sim.simulate_mesh([sim.mesh_node("A")], [], [], 1.0)
+        for source, sink, role in (("missing", "A", "source"), ("A", "missing", "sink")):
+            with self.subTest(role=role), self.assertRaisesRegex(ValueError, role):
+                sim.mesh_causal_summary(result, source, sink)
+
+    def test_unknown_edge_endpoint_is_refused(self):
         with self.assertRaises(ValueError):
             sim.simulate_mesh(
                 [sim.mesh_node("A")],
@@ -348,6 +354,13 @@ class DelayMesh(unittest.TestCase):
         result = sim.simulate_mesh(nodes, edges, events, 5000.0, max_spikes=50)
         self.assertTrue(result["spike_budget_exhausted"])
         self.assertLessEqual(result["total_spikes"], 51)
+
+    def test_a_zero_delay_feedback_edge_arrives_on_the_next_step(self):
+        nodes = [sim.mesh_node("A", t_refractory_ms=0.0)]
+        edges = [{"src": "A", "dst": "A", "weight": 2.0, "delay_ms": 0.0}]
+        events = [{"target": "A", "t_ms": 0.0, "amplitude": 2.0}]
+        result = sim.simulate_mesh(nodes, edges, events, 3.0, dt_ms=1.0)
+        self.assertGreaterEqual(result["spike_counts"]["A"], 2)
 
     def test_the_causal_delta_names_suppressed_and_recruited_nodes(self):
         nodes, edges, events = self.chain()
@@ -460,7 +473,7 @@ class CriticAndPlasticity(unittest.TestCase):
         for up, down in zip(rewarded["weight_deltas"], punished["weight_deltas"], strict=True):
             self.assertAlmostEqual(up, -down, places=9)
 
-    def test_weights_are_clamped_to_their_bounds(self):
+    def test_weights_respect_bounds(self):
         config = sim.plasticity_config({"learning_rate": 50.0, "w_max": 1.5, "w_min": 0.0})
         measured = sim.run_plasticity(
             self.weights,

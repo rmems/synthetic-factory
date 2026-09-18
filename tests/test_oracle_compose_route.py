@@ -18,6 +18,17 @@ import export_replay
 GOLDEN = Path(__file__).resolve().parent / "fixtures/oracle-grounded/golden-r01"
 
 
+def copy_golden(tmp):
+    source = Path(tmp) / "source"
+    shutil.copytree(GOLDEN, source)
+    return source, Path(tmp) / "out"
+
+
+def load_manifest(source):
+    path = source / "manifest.json"
+    return path, json.loads(path.read_text())
+
+
 class OracleComposeRoute(unittest.TestCase):
     def test_golden_run_retains_all_records_and_replays_physical_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -45,10 +56,8 @@ class OracleComposeRoute(unittest.TestCase):
 
     def test_noncanonical_native_records_keep_exact_bytes_through_export_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source, out = Path(tmp) / "source", Path(tmp) / "out"
-            shutil.copytree(GOLDEN, source)
-            manifest_path = source / "manifest.json"
-            manifest = json.loads(manifest_path.read_text())
+            source, out = copy_golden(tmp)
+            manifest_path, manifest = load_manifest(source)
             for relative, metadata in manifest["files"].items():
                 path = source / relative
                 records = [json.loads(line) for line in path.read_bytes().split(b"\n") if line]
@@ -105,10 +114,8 @@ class OracleComposeRoute(unittest.TestCase):
 
     def test_malformed_oracle_manifest_refuses_before_destination_creation(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source, out = Path(tmp) / "source", Path(tmp) / "out"
-            shutil.copytree(GOLDEN, source)
-            path = source / "manifest.json"
-            manifest = json.loads(path.read_text())
+            source, out = copy_golden(tmp)
+            path, manifest = load_manifest(source)
             member = next(iter(manifest["files"]))
             manifest["files"][member]["sha256"] = "0" * 64
             path.write_text(json.dumps(manifest))
@@ -135,10 +142,8 @@ class OracleComposeRoute(unittest.TestCase):
 
     def test_manifest_header_is_validated_before_routing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source, out = Path(tmp) / "source", Path(tmp) / "out"
-            shutil.copytree(GOLDEN, source)
-            path = source / "manifest.json"
-            manifest = json.loads(path.read_text())
+            source, out = copy_golden(tmp)
+            path, manifest = load_manifest(source)
             manifest["count_per_family"] += 1
             path.write_text(json.dumps(manifest))
             with self.assertRaisesRegex(compose.ComposeError, "failed validation"):
@@ -147,23 +152,19 @@ class OracleComposeRoute(unittest.TestCase):
 
     def test_corrupt_schema_and_unreadable_manifests_refuse_routing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "source"
-            shutil.copytree(GOLDEN, source)
-            path = source / "manifest.json"
-            manifest = json.loads(path.read_text())
+            source, out = copy_golden(tmp)
+            path, manifest = load_manifest(source)
             manifest["schema"] = "oracle-grounded/forged"
             for body in (json.dumps(manifest), "not json"):
                 with self.subTest(body=body[:40]):
                     path.write_text(body)
-                    out = Path(tmp) / "out"
                     with self.assertRaises(compose.ComposeError):
                         compose.compose_run(source, out)
                     self.assertFalse(out.exists())
 
     def test_family_folders_and_payloads_do_not_authorize_a_route(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source, out = Path(tmp) / "source", Path(tmp) / "out"
-            shutil.copytree(GOLDEN, source)
+            source, out = copy_golden(tmp)
             (source / "manifest.json").unlink()
             summary = compose.compose_run(source, out)
             self.assertEqual(summary["counts"]["retained"], 0)
@@ -171,15 +172,13 @@ class OracleComposeRoute(unittest.TestCase):
 
     def test_export_reauthenticates_manifest_and_physical_route_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "source"
-            shutil.copytree(GOLDEN, source)
+            source, _out = copy_golden(tmp)
             snapshot = export_replay._replay_source_lines(source, {})
             entries = [dict(entry) for entry in snapshot.expected_manifest]
             entries[0]["physical_source_path"] = "forged/accepted-r01.jsonl"
             with self.assertRaisesRegex(export_replay.ExportError, "does not reproduce"):
                 export_replay._require_replayed_documents(snapshot, entries, [])
-            manifest = source / "manifest.json"
-            data = json.loads(manifest.read_text())
+            manifest, data = load_manifest(source)
             data["count_per_family"] += 1
             manifest.write_text(json.dumps(data))
             with self.assertRaisesRegex(export_replay.ExportError, "failed validation"):
