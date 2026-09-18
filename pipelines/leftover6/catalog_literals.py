@@ -17,6 +17,13 @@ from ._contract import bind_import_twin
 UNSET = object()
 
 
+class _UnresolvedBinding:
+    """Opaque dependencies of an unevaluated expression, never a literal value."""
+
+    def __init__(self, references):
+        self.references = tuple(references)
+
+
 class _LiteralMapping(dict):
     """Literal fields with their originating syntax retained for shape checks."""
 
@@ -40,11 +47,16 @@ def _atomic_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return env.get(node.id, UNSET)
+        return _bound_literal(node.id, env)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, env)
         return -inner if isinstance(inner, (int, float)) else UNSET
     return UNSET
+
+
+def _bound_literal(name, env):
+    value = env.get(name, UNSET)
+    return UNSET if isinstance(value, _UnresolvedBinding) else value
 
 
 def _compound_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:

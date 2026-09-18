@@ -73,10 +73,11 @@ def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, A
     digest = sha256_bytes(payload)
     lines = _source_line_count(source)
     context = SourceContext(path, blob_sha, digest, lines)
-    for suffix, builder in (("mill_gql_leftover6_r260.py", _gql_record), ("ssl_r164_leftover6_mill.py", _ssl_record), ("sbox-mill-plants-leftover6.py", _sbox_record)):
-        if path.endswith(suffix):
-            return builder(constants, context)
-    raise ValueError(f"unsupported leftover6 source {path}")
+    builders = {GQL_PATH: _gql_record, SSL_PATH: _ssl_record, SBOX_PATH: _sbox_record}
+    builder = builders.get(path)
+    if builder is None:
+        raise ValueError(f"unsupported leftover6 source {path}")
+    return builder(constants, context)
 
 
 def _source_line_count(source: str) -> int:
@@ -151,7 +152,7 @@ def _ssl_record(constants: Mapping[str, Any], context: SourceContext) -> dict[st
 def _sbox_record(constants: Mapping[str, Any], context: SourceContext) -> dict[str, Any]:
     path, blob_sha, digest, lines = context.path, context.blob_sha, context.digest, context.lines
     rows = _mapping_rows(constants.get("_ROWS"), SBOX_PLANT_FIELDS, path=path, name="_ROWS")
-    first_inc = _require_int(rows[0]["inc"], f"{path} _ROWS[0].inc")
+    first_inc = _ordered_sbox_increments(rows, path)
     return {
         "kind": "sbox-plants",
         "shape": "row-ctor",
@@ -167,6 +168,14 @@ def _sbox_record(constants: Mapping[str, Any], context: SourceContext) -> dict[s
         "last_slug": rows[-1]["family"],
         "rows": [{"kind": "sbox-plants", **row} for row in rows],
     }
+
+
+def _ordered_sbox_increments(rows, path):
+    first_inc = _require_int(rows[0]["inc"], f"{path} _ROWS[0].inc")
+    for index, row in enumerate(rows):
+        if row["inc"] != first_inc + 4 * index:
+            raise ValueError(f"{path} _ROWS[{index}].inc does not follow the four-step sequence")
+    return first_inc
 
 
 def _mapping_rows(

@@ -24,6 +24,15 @@ _ROWS = [_row('fixture-family', 'dump', 'miss-dump', 'secret', 'pin', 'path',
 '''
 
 
+def _sbox_increment_source(increment):
+    tree = ast.parse(SBOX_SOURCE)
+    second = ast.parse(SBOX_SOURCE).body[0].value.elts[0]
+    second.args[0] = ast.Constant(value="second-family")
+    second.args[12] = ast.Constant(value=increment)
+    tree.body[0].value.elts.append(second)
+    return ast.unparse(tree)
+
+
 class LiteralCatalogExtract(unittest.TestCase):
     def test_ssl_source_preserves_literal_fields_and_declared_round(self):
         found = extract_source(SSL_SOURCE, path=SSL_PATH, blob_sha='a' * 40)
@@ -98,6 +107,56 @@ class LiteralCatalogExtract(unittest.TestCase):
             source = SSL_SOURCE + '\nALIAS = ' + alias + '\nALIAS.clear()'
             with self.subTest(alias=alias), self.assertRaises(ValueError):
                 extract_source(source, path=SSL_PATH)
+
+    def test_unresolved_access_alias_cannot_hide_catalog_mutations(self):
+        for alias in ('PAIRS[0]', 'PAIRS[:]', 'PAIRS[0:1]', 'PAIRS if condition else []', 'PAIRS or []'):
+            source = SSL_SOURCE + '\nALIAS = ' + alias + '\nALIAS.clear()'
+            with self.subTest(alias=alias), self.assertRaises(ValueError):
+                extract_source(source, path=SSL_PATH)
+
+    def test_unresolved_dependency_aliases_remain_unproven_transitively(self):
+        mutations = (
+            'ALIAS = (PAIRS, unknown)\nALIAS[0].clear()',
+            'ALIAS = [row for row in PAIRS]\nALIAS[0].clear()',
+            'ALIAS = (PAIRS, unknown)\nNEXT = ALIAS\nNEXT[0].clear()',
+            'ALIAS = (PAIRS, unknown)\nBOX = {"rows": ALIAS}\nBOX["rows"][0].clear()',
+            'def clear():\n    PAIRS.clear()\nALIAS = (clear, unknown)\nALIAS[0]()',
+            'execute = exec\nexecute("PAIRS=[]")',
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + mutation, path=SSL_PATH)
+        unproven = SSL_SOURCE + '\nALIAS = (PAIRS, unknown)\nPAIRS = ALIAS'
+        with self.assertRaises(ValueError):
+            extract_source(unproven, path=SSL_PATH)
+
+    def test_wildcard_import_cannot_keep_preimport_catalog_bindings(self):
+        source = SSL_SOURCE + '\nfrom replacement import *'
+        with self.assertRaises(ValueError):
+            extract_source(source, path=SSL_PATH)
+
+    def test_dynamic_namespace_calls_and_aliases_fail_closed(self):
+        statements = ('exec("PAIRS=[]")', 'eval("PAIRS.clear()")',
+                      'globals()["PAIRS"] = []',
+                      'import builtins as b\nb.exec("PAIRS=[]")',
+                      'from builtins import exec as execute\nexecute("PAIRS=[]")')
+        for statement in statements:
+            with self.subTest(statement=statement), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + statement, path=SSL_PATH)
+        deferred = SSL_SOURCE + '\ndef publish():\n    exec("PAIRS=[]")'
+        self.assertEqual(extract_source(deferred, path=SSL_PATH)['n_rows'], 1)
+
+    def test_sbox_extraction_requires_every_four_step_increment(self):
+        for increment in (4, 5, 9, 12):
+            with self.subTest(increment=increment), self.assertRaises(ValueError):
+                extract_source(_sbox_increment_source(increment), path=SBOX_PATH)
+        rows = extract_source(_sbox_increment_source(8), path=SBOX_PATH)['rows']
+        self.assertEqual([row['inc'] for row in rows], [4, 8])
+
+    def test_known_basename_cannot_authenticate_an_unrelated_path(self):
+        for prefix in ('/untrusted/', 'unreviewed/', './'):
+            with self.subTest(prefix=prefix), self.assertRaisesRegex(ValueError, 'unsupported leftover6 source'):
+                extract_source(SSL_SOURCE, path=prefix + SSL_PATH)
 
     def test_overwritten_alias_is_invalidated_before_its_identity_is_lost(self):
         source = SSL_SOURCE + '\nALIAS = PAIRS\nALIAS = ALIAS.clear()'

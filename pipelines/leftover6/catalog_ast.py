@@ -8,8 +8,9 @@ from typing import Any
 
 from ._contract import bind_import_twin
 
-from .catalog_literals import UNSET, literal_value
+from .catalog_literals import UNSET, _UnresolvedBinding, literal_value
 
+_DYNAMIC_NAMESPACES = frozenset({"globals", "locals", "vars", "exec", "eval"})
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
 _STRING_BINDINGS = {ast.MatchAs: "name", ast.MatchStar: "name",
@@ -56,11 +57,16 @@ def _bind_literal(env, name, value):
     if resolved is not UNSET:
         env[name] = resolved
         return
-    # Unknown assignments cannot retain an earlier literal or a mutable alias.
+    # Keep unevaluated dependencies opaque so later aliases cannot lose them.
+    binding = _unresolved_binding(value, env)
     _invalidate_names(env, _call_names(value))
-    env.pop(name, None)
-    if isinstance(value, ast.Lambda):
-        env[name] = value
+    env[name] = value if isinstance(value, ast.Lambda) else binding
+
+
+def _unresolved_binding(value, env):
+    names = _statement_names(value)
+    _refuse_dynamic_namespaces(names)
+    return _UnresolvedBinding(env[name] for name in names if name in env)
 
 
 def _statement_names(node: ast.AST) -> list[str]:
@@ -75,11 +81,21 @@ def _binding_names(node):
     if isinstance(node, ast.Name):
         return [node.id]
     if isinstance(node, ast.alias):
-        return [node.asname or node.name.partition(".")[0]]
+        return _alias_names(node)
+    if isinstance(node, ast.Attribute) and node.attr in _DYNAMIC_NAMESPACES:
+        return [node.attr]
     binding = _STRING_BINDINGS.get(type(node))
     if binding:
         return list(filter(None, [getattr(node, binding)]))
     return []
+
+
+def _alias_names(node: ast.alias) -> list[str]:
+    original = node.name.partition(".")[0]
+    names = [node.asname or original]
+    if original in _DYNAMIC_NAMESPACES:
+        names.append(original)
+    return names
 
 
 def _scope_names(node: ast.AST) -> list[str] | None:
@@ -111,12 +127,16 @@ def _mutable_identities(value: Any) -> set[int]:
 
 
 def _contained_values(value):
+    if isinstance(value, _UnresolvedBinding):
+        return value.references
     if isinstance(value, dict):
         return value.values()
     return value if isinstance(value, (list, tuple, set)) else ()
 
 
+
 def _call_names(node: ast.AST) -> list[str]:
+    """Immediate effects are separate from the value dependencies retained above."""
     if isinstance(node, ast.Lambda):
         return _call_names(node.args)
     if isinstance(node, (ast.Call, ast.NamedExpr)):
@@ -126,9 +146,19 @@ def _call_names(node: ast.AST) -> list[str]:
 
 def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
     """Invalidate aliases too when an unsupported operation touches mutable data."""
-    if any(_unproven_code(env.get(name)) for name in names):
+    _refuse_dynamic_namespaces(names)
+    if "*" in names or any(_unproven_code(env.get(name)) for name in names):
         env.clear()
         return
+    _invalidate_mutable_aliases(env, names)
+
+
+def _refuse_dynamic_namespaces(names):
+    if _DYNAMIC_NAMESPACES.intersection(names):
+        raise ValueError("dynamic module namespace access is not a literal catalog")
+
+
+def _invalidate_mutable_aliases(env, names):
     affected = set().union(*(_mutable_identities(env.get(name)) for name in names))
     for name, value in tuple(env.items()):
         if name in names or affected.intersection(_mutable_identities(value)):

@@ -131,6 +131,13 @@ def _extract_live_source(mill):
 
 def _assert_live_source_metadata(live, mill) -> None:
     expected = {
+        "path": mill.source_path,
+        "kind": mill.kind,
+        "blob_sha": mill.source_blob_sha1,
+        "source_lines": mill.source_lines,
+        "catalog_first": mill.catalog_first,
+        "factory": mill.factory,
+        "generator": CATALOG.generator,
         "n_rows": mill.n_rows,
         "first_slug": mill.first_slug,
         "last_slug": mill.last_slug,
