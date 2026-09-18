@@ -318,21 +318,6 @@ def _next_replacement(split: Sequence[str], cursor: int, inherited: str) -> tupl
     return split[cursor] or inherited, cursor + 1
 
 
-def _apply_split_slot(
-    index: int,
-    path: str,
-    split: Sequence[str],
-    cursor: int,
-    deleted: frozenset[int],
-    replaced: frozenset[int],
-) -> tuple[str | None, int]:
-    if index in deleted:
-        return None, cursor
-    if index not in replaced:
-        return path, cursor
-    return _next_replacement(split, cursor, path)
-
-
 def _merge_split_paths(
     shared: Sequence[str],
     split: Sequence[str],
@@ -342,9 +327,12 @@ def _merge_split_paths(
     merged: list[str] = []
     cursor = 0
     for index, path in enumerate(shared):
-        kept, cursor = _apply_split_slot(index, path, split, cursor, deleted, replaced)
-        if kept:
-            merged.append(kept)
+        if index in deleted:
+            continue
+        if index in replaced:
+            path, cursor = _next_replacement(split, cursor, path)
+        if path:
+            merged.append(path)
     merged.extend(path for path in split[cursor:] if path)
     return tuple(merged)
 

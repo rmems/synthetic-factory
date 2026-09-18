@@ -52,12 +52,17 @@ class MillScriptInventoryError(Exception):
 def _reject_duplicate_keys(pairs: list[tuple[object, object]]) -> dict:
     seen: dict[str, object] = {}
     for key, value in pairs:
-        if not isinstance(key, str):
-            raise MillScriptInventoryError("object keys must be strings")
-        if key in seen:
-            raise MillScriptInventoryError(f"duplicate key {key!r}")
-        seen[key] = value
+        name = _object_key(key)
+        if name in seen:
+            raise MillScriptInventoryError(f"duplicate key {name!r}")
+        seen[name] = value
     return seen
+
+
+def _object_key(key: object) -> str:
+    if not isinstance(key, str):
+        raise MillScriptInventoryError("object keys must be strings")
+    return key
 
 
 def _require_mapping(value: object, where: str) -> dict:

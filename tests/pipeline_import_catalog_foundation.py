@@ -1149,52 +1149,16 @@ def _package_validate_run_cli() -> ModuleType:
 Loader = Callable[[], ModuleType]
 
 
-def _direct_mill_script_inventory() -> ModuleType:
-    import mill_script_inventory as module
-
-    return module
+def _direct_named(name: str) -> ModuleType:
+    return __import__(name)
 
 
-def _package_mill_script_inventory() -> ModuleType:
-    import pipelines.mill_script_inventory as module
-
-    return module
+def _package_named(name: str) -> ModuleType:
+    return __import__(f"pipelines.{name}", fromlist=(name,))
 
 
-def _direct_mill_script_inventory_schema() -> ModuleType:
-    import mill_script_inventory_schema as module
-
-    return module
-
-
-def _package_mill_script_inventory_schema() -> ModuleType:
-    import pipelines.mill_script_inventory_schema as module
-
-    return module
-
-
-def _direct_mill_script_inventory_families() -> ModuleType:
-    import mill_script_inventory_families as module
-
-    return module
-
-
-def _package_mill_script_inventory_families() -> ModuleType:
-    import pipelines.mill_script_inventory_families as module
-
-    return module
-
-
-def _direct_mill_script_inventory_git() -> ModuleType:
-    import mill_script_inventory_git as module
-
-    return module
-
-
-def _package_mill_script_inventory_git() -> ModuleType:
-    import pipelines.mill_script_inventory_git as module
-
-    return module
+def _named_pair(name: str) -> tuple[Loader, Loader]:
+    return (lambda n=name: _direct_named(n), lambda n=name: _package_named(n))
 
 
 def _direct_reward_parse_values() -> ModuleType:
@@ -1222,19 +1186,10 @@ def _package_reward_parse_patterns() -> ModuleType:
 
 
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
-    "mill_script_inventory_families": (
-        _direct_mill_script_inventory_families,
-        _package_mill_script_inventory_families,
-    ),
-    "mill_script_inventory_git": (
-        _direct_mill_script_inventory_git,
-        _package_mill_script_inventory_git,
-    ),
-    "mill_script_inventory": (_direct_mill_script_inventory, _package_mill_script_inventory),
-    "mill_script_inventory_schema": (
-        _direct_mill_script_inventory_schema,
-        _package_mill_script_inventory_schema,
-    ),
+    "mill_script_inventory_families": _named_pair("mill_script_inventory_families"),
+    "mill_script_inventory_git": _named_pair("mill_script_inventory_git"),
+    "mill_script_inventory": _named_pair("mill_script_inventory"),
+    "mill_script_inventory_schema": _named_pair("mill_script_inventory_schema"),
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
     "coding_constants": (_direct_coding_constants, _package_coding_constants),
