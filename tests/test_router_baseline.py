@@ -100,6 +100,17 @@ class DatasetExtraction(unittest.TestCase):
 
 
 class Splitting(unittest.TestCase):
+    def test_signed_zero_variants_cannot_cross_the_split(self):
+        samples = [
+            rb.Sample("positive", (0.0, 0.0, 1.0), 0),
+            rb.Sample("negative", (0.0, -0.0, 1.0), 0),
+        ]
+        for holdout in range(1, 91):
+            with self.subTest(holdout=holdout):
+                train, test = rb.split(samples, holdout_pct=holdout)
+                self.assertIn(len(train), (0, 2))
+                self.assertIn(len(test), (0, 2))
+
     def test_split_is_deterministic_and_input_keyed(self):
         # Keyed on the compact input (not the id): stable under reordering,
         # and identical inputs can never straddle the split — an id-keyed

@@ -23,7 +23,7 @@ deterministic given a seed.
 
 CLI::
 
-    python3 pipelines/router_baseline.py evaluate <records.jsonl> --json
+    python3 pipelines/router_baseline.py evaluate <records.jsonl>
 """
 
 from __future__ import annotations
@@ -187,7 +187,8 @@ def split(
     train: list[Sample] = []
     test: list[Sample] = []
     for sample in samples:
-        key = ",".join(repr(value) for value in sample.features)
+        # Signed zeros are the same model input and must share a split key.
+        key = ",".join(repr(value if value else 0.0) for value in sample.features)
         digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
         bucket = int.from_bytes(digest[:4], "big") % 100
         (test if bucket < holdout_pct else train).append(sample)
