@@ -70,6 +70,11 @@ _identity_mapping_gate = _identity_mapping._identity_mapping_gate
 _reward_ontology_gate = _reward._reward_ontology_gate
 _reward_sidecar_gate = _reward_sidecars._reward_sidecar_gate
 
+if __package__:
+    from .curate_gate_rights import evaluate_rights
+else:
+    from curate_gate_rights import evaluate_rights
+
 
 # ---------------------------------------------------------------------------
 # subprocess gates
@@ -141,7 +146,14 @@ def _evidence_gates(cleaned: Path, inputs: GateInputs, log: _GateLog) -> list[di
     return normalized_bindings
 
 
-def _tool_gates(cleaned: Path, tools: GateTools, log: _GateLog) -> dict[str, Any]:
+def _completion_source(inputs: GateInputs) -> Path | None:
+    for lane in inputs.prepared_lanes:
+        if "_completion_source" in lane:
+            return lane["_completion_source"]
+    return None
+
+
+def _tool_gates(cleaned: Path, tools: GateTools, log: _GateLog, completion_source: Path | None) -> dict[str, Any]:
     code, _out, err = _run_tool(tools.validator, cleaned)
     log.gates["structural_validator"] = {
         "tool": "validate_run.py",
@@ -162,7 +174,7 @@ def _tool_gates(cleaned: Path, tools: GateTools, log: _GateLog) -> dict[str, Any
     if code:
         log.blockers.append(f"RECORD_INVARIANTS_FAILED:exit {code}")
 
-    report = training_audit.audit_run(cleaned)
+    report = training_audit.audit_run(cleaned, completion_source=completion_source)
     log.gates["training_audit"] = {
         "tool": "training_audit.py --strict",
         "passed": bool(report["training_ready"]),
@@ -204,6 +216,12 @@ def _audit_gates(report: dict[str, Any], log: _GateLog) -> None:
         log.blockers.append(f"CANONICAL_ID_COVERAGE:{missing_ids} records lack a top-level id")
 
 
+def _rights_gate(identity_mappings, log: _GateLog, prepared_lanes=()) -> None:
+    report, blockers = evaluate_rights(identity_mappings, prepared_lanes)
+    log.gates["rights"] = report
+    log.blockers.extend(blockers)
+
+
 def _reward_gates(
     cleaned: Path,
     normalized_bindings: Sequence[dict[str, Any]],
@@ -239,8 +257,9 @@ def run_gates(cleaned: Path, *, inputs: GateInputs, tools: GateTools) -> dict[st
 
     log = _GateLog({}, [])
     normalized_bindings = _evidence_gates(cleaned, inputs, log)
-    report = _tool_gates(cleaned, tools, log)
+    report = _tool_gates(cleaned, tools, log, _completion_source(inputs))
     _audit_gates(report, log)
+    _rights_gate(inputs.lane_manifests.get("identity_mappings") or [], log, inputs.prepared_lanes)
     _reward_gates(cleaned, normalized_bindings, inputs.prepared_lanes, log)
 
     return {
@@ -315,6 +334,7 @@ def build_manifest(inputs: ManifestInputs, evidence: ManifestEvidence) -> dict[s
             "path": str(plan["plan_path"]),
             "sha256": plan["plan_sha256"],
             "source_run": plan["source_run"],
+            "source_run_dir": str(plan["source_run_dir"]),
         },
         "cleaned_dir": str(composition["destination"]),
         "corpus_digest": inputs.sample["corpus_digest"],

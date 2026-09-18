@@ -49,7 +49,7 @@ class DestinationServices:
 @dataclass(frozen=True)
 class ReportServices:
     load_calibration: Callable[..., tuple[dict[str, Any], dict[str, Any]]]
-    audit_records: Callable[[Path, int], dict[str, Any]]
+    audit_records: Callable[..., dict[str, Any]]
     transform_contract: Callable[[], dict[str, Any]]
 
 
@@ -171,6 +171,7 @@ class ComposeRunState:
     emitted_ids: dict[str, str] = field(default_factory=dict)
     seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
     seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+    rights_lanes: Counter[str] = field(default_factory=Counter)
 
 
 if __package__:

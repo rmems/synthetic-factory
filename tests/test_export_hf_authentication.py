@@ -10,6 +10,7 @@ from unittest import mock
 
 from export_test_support import (  # noqa: E402
     ONE_CALIBRATION,
+    ResearchExportAllowed,
     calibration_document,
 )
 import compose_curated  # noqa: E402
@@ -17,7 +18,7 @@ import export_contract  # noqa: E402
 import export_hf  # noqa: E402
 
 
-class CalibrationAuthentication(unittest.TestCase):
+class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
     """COMPOSE.json's calibration descriptor is authenticated before replay.
 
     A published export carries the reward calibration it was composed with.

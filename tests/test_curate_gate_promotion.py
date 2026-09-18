@@ -29,6 +29,7 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_gate  # noqa: E402
+from tests.procedural_gate_support import ProceduralGateFixture, prepare_gate_template  # noqa: E402
 
 
 class ReviewSampleTests(unittest.TestCase):
@@ -126,11 +127,15 @@ class ReviewSampleTests(unittest.TestCase):
 
 
 class PromotionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        prepare_gate_template(cls)
+
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory(prefix="curate-gate-")
         self.addCleanup(self._temp.cleanup)
         self.root = Path(self._temp.name)
-        self.fixture = GateFixture(self.root)
+        self.fixture = ProceduralGateFixture.copy_template(self.template, self.root)
         self.assertEqual(self.fixture.integrate(), 0)
 
     def test_promotion_writes_a_new_curated_tree_and_final_manifest(self):
@@ -138,7 +143,7 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(self.fixture.promote(review), 0)
 
         curated = self.fixture.curated
-        self.assertTrue((curated / "thalamic-mini" / "batch-r02.jsonl").is_file())
+        self.assertTrue((curated / "python-function-repair-factory" / "batch-r01.jsonl").is_file())
         self.assertFalse((curated / "PROVENANCE.md").exists())
 
         manifest = json.loads((curated / curate_gate.MANIFEST_FILENAME).read_text())
@@ -150,7 +155,7 @@ class PromotionTests(unittest.TestCase):
         )
         promotion = manifest["promotion"]
         self.assertEqual(promotion["curated_dir"], str(curated))
-        self.assertEqual(promotion["records"], 4)
+        self.assertEqual(promotion["records"], 10)
         self.assertEqual(
             promotion["promoter"],
             "pipelines/curate_gate.py immutable-staged-snapshot",
@@ -163,7 +168,7 @@ class PromotionTests(unittest.TestCase):
         self.assertRegex(promotion["review_sha256"], r"^[0-9a-f]{64}$")
         self.assertRegex(promotion["governance_evidence_digest"], r"^sha256:[0-9a-f]{64}$")
         emitted = {entry["path"] for entry in promotion["outputs"]}
-        self.assertIn("thalamic-mini/batch-r02.jsonl", emitted)
+        self.assertIn("python-function-repair-factory/batch-r01.jsonl", emitted)
         for entry in promotion["outputs"]:
             self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
         self.assertEqual(manifest["review"]["reviewer"], "curation-reviewer")
@@ -195,10 +200,10 @@ class PromotionTests(unittest.TestCase):
         # governance files from the evidence digest that promotion recomputes,
         # and promotion fails closed on INTEGRATION_EVIDENCE_MISMATCH.
         exact_decimal = "42.000000000000000001"
-        fixture = GateFixture(self.root / "exact-evidence")
+        fixture = ProceduralGateFixture.copy_template(self.template, self.root / "exact-evidence")
         lane_manifest = fixture.manifest_paths[0]
         entries = json.loads(lane_manifest.read_text(encoding="utf-8"))
-        quarantined = [entry for entry in entries if entry.get("action") == "quarantine"]
+        quarantined = [entry for entry in entries if entry.get("action") == "excluded"]
         self.assertEqual(len(quarantined), 1)
         quarantined[0]["classification"] = {"confidence_pct": "__EXACT__"}
         lane_manifest.write_text(
@@ -414,7 +419,7 @@ class PromotionTests(unittest.TestCase):
 
     def test_promotion_validates_and_publishes_one_immutable_snapshot(self):
         review = self.fixture.accepted_review()
-        corpus_path = self.fixture.cleaned / "thalamic-mini" / "batch-r02.jsonl"
+        corpus_path = self.fixture.cleaned / "python-function-repair-factory" / "batch-r01.jsonl"
         sidecar_path = next(
             (
                 self.fixture.cleaned
@@ -437,7 +442,7 @@ class PromotionTests(unittest.TestCase):
             if not mutated:
                 mutated = True
                 records = _read_jsonl(corpus_path)
-                records[0]["state"]["env"] = "mutated after immutable snapshot"
+                records[0]["provenance"]["tampered"] = "mutated after immutable snapshot"
                 _write_jsonl(corpus_path, records)
                 sidecar_path.write_bytes(expected_sidecar + b"\n")
                 review.write_text('{"reviewer":"attacker"}\n')
@@ -483,7 +488,7 @@ class PromotionTests(unittest.TestCase):
             entries = original(staged)
             if not mutated:
                 mutated = True
-                corpus = staged / "thalamic-mini" / "batch-r02.jsonl"
+                corpus = staged / "python-function-repair-factory" / "batch-r01.jsonl"
                 corpus.write_text("{invalid-json\n", encoding="utf-8")
             return entries
 
@@ -507,7 +512,7 @@ class PromotionTests(unittest.TestCase):
             entries = original(staged)
             inventories += 1
             if inventories == 2:
-                corpus = staged / "thalamic-mini" / "batch-r02.jsonl"
+                corpus = staged / "python-function-repair-factory" / "batch-r01.jsonl"
                 corpus.write_text("{invalid-json\n", encoding="utf-8")
             return entries
 
@@ -528,7 +533,7 @@ class PromotionTests(unittest.TestCase):
         original = curate_gate._rename_noreplace
 
         def mutate_then_publish(source, destination, label, expected_tree):
-            corpus = source / "thalamic-mini" / "batch-r02.jsonl"
+            corpus = source / "python-function-repair-factory" / "batch-r01.jsonl"
             corpus.write_text("{invalid-json\n", encoding="utf-8")
             return original(source, destination, label, expected_tree)
 
@@ -545,13 +550,17 @@ class PromotionTests(unittest.TestCase):
 
 
 class CommandLineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        prepare_gate_template(cls)
+
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory(prefix="curate-gate-")
         self.addCleanup(self._temp.cleanup)
         self.root = Path(self._temp.name)
 
     def test_cli_integrate_then_promote(self):
-        fixture = GateFixture(self.root)
+        fixture = ProceduralGateFixture.copy_template(self.template, self.root)
         integrate = subprocess.run(
             [
                 sys.executable,
@@ -591,7 +600,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(promoted.returncode, 0, promoted.stderr)
         result = json.loads(promoted.stdout)
         self.assertTrue(result["promoted"])
-        self.assertEqual(result["records"], 4)
+        self.assertEqual(result["records"], 10)
 
 
 if __name__ == "__main__":

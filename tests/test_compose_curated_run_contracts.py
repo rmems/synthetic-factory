@@ -16,7 +16,10 @@ for _path in (TESTS, REPO / "pipelines"):
         sys.path.insert(0, str(_path))
 
 import compose_curated  # noqa: E402
-from compose_curated_test_support import build_source_run  # noqa: E402
+from compose_curated_test_support import (  # noqa: E402
+    assert_research_only_audit,
+    build_source_run,
+)
 
 
 class ComposeCuratedRunContracts(unittest.TestCase):
@@ -73,8 +76,8 @@ class ComposeCuratedRunContracts(unittest.TestCase):
                 status = compose_curated.main(
                     ["--strict", str(source), str(root / "curated")]
                 )
-            self.assertEqual(status, 0)
-            self.assertTrue(json.loads(stdout.getvalue())["audit"]["training_ready"])
+            self.assertEqual(status, 1)
+            assert_research_only_audit(self, json.loads(stdout.getvalue())["audit"])
 
             stderr = io.StringIO()
             with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
