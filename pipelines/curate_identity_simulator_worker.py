@@ -11,10 +11,12 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_identity_simulator_worker")
+    from .oracle_grounded.distill_vocabulary import is_genuine_int
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity_simulator_worker"
     )
+    from oracle_grounded.distill_vocabulary import is_genuine_int
 
 MAX_STREAMS = 8
 MAX_DRAWS = 1_000_000
@@ -63,7 +65,7 @@ class ProposalStreams:
 
 def _request(payload):
     seed, index, stamp = json.loads(payload)
-    if type(seed) is not int or type(index) is not int:
+    if not is_genuine_int(seed) or not is_genuine_int(index):
         raise ValueError("simulator coordinates must be integers")
     if not isinstance(stamp, str):
         raise ValueError("simulator timestamp must be text")
