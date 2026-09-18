@@ -1123,8 +1123,21 @@ def _package_oracle_validate_tree() -> ModuleType:
     return module
 
 
+def _direct_oracle_validate_records() -> ModuleType:
+    import oracle_validate_records as module
+
+    return module
+
+
+def _package_oracle_validate_records() -> ModuleType:
+    import pipelines.oracle_validate_records as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "oracle_validate": (_direct_oracle_validate, _package_oracle_validate),
+    "oracle_validate_records": (_direct_oracle_validate_records, _package_oracle_validate_records),
     "oracle_validate_tree": (_direct_oracle_validate_tree, _package_oracle_validate_tree),
     "oracle_validate_manifest": (_direct_oracle_validate_manifest, _package_oracle_validate_manifest),
     "oracle_validate_manifest_records": (_direct_oracle_validate_manifest_records, _package_oracle_validate_manifest_records),

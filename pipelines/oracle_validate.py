@@ -20,7 +20,7 @@ Options:
 
 import argparse
 import hashlib
-import io
+import io as io
 import json
 import math
 import os
@@ -35,6 +35,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("oracle_validate")
+    from . import oracle_validate_records as _oracle_validate_records
     from . import oracle_validate_tree as _oracle_validate_tree
     from . import oracle_validate_manifest as _oracle_validate_manifest
     from . import oracle_validate_manifest_records as _oracle_validate_manifest_records
@@ -44,6 +45,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "oracle_validate"
     )
+    import oracle_validate_records as _oracle_validate_records
     import oracle_validate_tree as _oracle_validate_tree
     import oracle_validate_manifest as _oracle_validate_manifest
     import oracle_validate_manifest_records as _oracle_validate_manifest_records
@@ -569,135 +571,35 @@ class _FileScope:
 
 
 def _verdict_for_file(name):
-    """The verdict a run file name reserves, or None."""
-    return next(
-        (verdict for verdict in ("accepted", "rejected") if name.startswith(f"{verdict}-")),
-        None,
-    )
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._verdict_for_file(name)
 
 
 def _parse_record_line(line, where, scope):
-    """Parse one JSONL line into a record object, or None with a finding."""
-    try:
-        item = strict_json_loads(line)
-    except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
-        scope.totals["parse_failures"] += 1
-        scope.report(where, f"JSON parse error: {exc}")
-        return None
-    if not isinstance(item, dict):
-        scope.totals["parse_failures"] += 1
-        scope.report(where, "record is not a JSON object")
-        return None
-    return item
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._parse_record_line(line, where, scope)
 
 
 def _duplicate_id_finding(item, where, seen_ids):
-    """Claim this record's id, reporting the coordinate that claimed it first."""
-    identifier = item.get("id")
-    if not isinstance(identifier, str):
-        return None
-    if identifier in seen_ids:
-        return f"duplicate record id {identifier!r}; first seen at {seen_ids[identifier]}"
-    seen_ids[identifier] = where
-    return None
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._duplicate_id_finding(item, where, seen_ids)
 
 
 def _classify_layers(item, require_runtime, expected_commit=None):
-    """Classify one record, containing any internal failure as an envelope finding."""
-    try:
-        return record.classify(
-            item,
-            require_named_runtime=require_runtime,
-            expected_commit=expected_commit,
-        )
-    except Exception as exc:  # final boundary around one untrusted record
-        return {
-            "envelope": [
-                f"record validation raised an internal exception: {type(exc).__name__}"
-            ],
-            "family": [],
-            "status": [],
-        }
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._classify_layers(item, require_runtime, expected_commit)
 
 
 def _fatal_findings(item, layers, identity_finding, scope):
-    """The findings that make one record invalid, in emission order."""
-    fatal = layers["envelope"] + layers["status"]
-    if identity_finding:
-        fatal.append(identity_finding)
-    family = item.get("family")
-    if family != scope.path.parent.name:
-        fatal.append(
-            f"record family {family!r} does not match directory {scope.path.parent.name!r}"
-        )
-    declared_verdict = (
-        item.get("validation", {}).get("status")
-        if isinstance(item.get("validation"), dict)
-        else None
-    )
-    expected_verdict = _verdict_for_file(scope.path.name)
-    if expected_verdict and declared_verdict != expected_verdict:
-        fatal.append(
-            f"record declares verdict {declared_verdict!r} but is filed in "
-            f"{scope.path.name!r}, which is reserved for {expected_verdict!r} records"
-        )
-    return fatal
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._fatal_findings(item, layers, identity_finding, scope)
 
 
 def _count_valid_record(item, layers, totals):
-    """Roll one valid record into the per-run counters."""
-    if layers["family"]:
-        totals["rejected"] += 1
-    else:
-        totals["accepted"] += 1
-    implementation = item["oracle"]["implementation"]
-    if implementation == "reference":
-        totals["reference_oracle"] += 1
-    elif implementation == "named-runtime":
-        totals["named_runtime"] += 1
-    else:
-        totals["mixed_oracle"] += 1
-    if item["validation"].get("publishable"):
-        totals["publishable"] += 1
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._count_valid_record(item, layers, totals)
 
 
 def _reproduce_record(item, where, scope):
-    """Re-derive one record's oracle result and count the outcome."""
-    try:
-        status, detail = record.reproduce(item)
-    except Exception as exc:  # defensive boundary around stored data
-        status = "invalid"
-        detail = f"reproduction raised {type(exc).__name__}"
-    scope.totals[f"reproduce_{status}"] += 1
-    if status != "reproduced":
-        # The record is already tallied as accepted or rejected by
-        # _count_valid_record; charging "invalid" as well would make
-        # accepted + rejected + invalid exceed records in the report.  The
-        # failure still fails the run through the reported finding, and the
-        # outcome stays visible in the report's reproduce_* buckets.
-        scope.report(where, f"requested oracle reproduction was {status}: {detail}")
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._reproduce_record(item, where, scope)
 
 
 def _validate_one_record(item, where, scope):
-    """Apply every per-record rule, updating the file's totals and findings."""
-    identity_finding = _duplicate_id_finding(item, where, scope.seen_ids)
-    if scope.selected and item.get("family") not in scope.selected:
-        scope.totals["skipped"] += 1
-        if identity_finding:
-            scope.totals["invalid"] += 1
-            scope.report(where, identity_finding)
-        return
-    scope.totals["records"] += 1
-    layers = _classify_layers(item, scope.require_runtime, scope.expected_commit)
-    fatal = _fatal_findings(item, layers, identity_finding, scope)
-    if fatal:
-        scope.totals["invalid"] += 1
-        for finding in fatal:
-            scope.report(where, finding)
-        return
-    _count_valid_record(item, layers, scope.totals)
-    if scope.reproduce:
-        _reproduce_record(item, where, scope)
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__])._validate_one_record(item, where, scope)
 
 
 def validate_file(snapshot, require_runtime, reproduce, selected, seen_ids=None, expected_commit=None):
@@ -719,25 +621,7 @@ def validate_file(snapshot, require_runtime, reproduce, selected, seen_ids=None,
         seen_ids={} if seen_ids is None else seen_ids,
         expected_commit=expected_commit,
     )
-    expected_verdict = _verdict_for_file(scope.path.name)
-    parsed_records = []
-    for number, line in enumerate(io.BytesIO(snapshot.body), start=1):
-        if not line.strip():
-            continue
-        where = f"{scope.path}:{number}"
-        item = _parse_record_line(line, where, scope)
-        if item is None:
-            continue
-        parsed_records.append(
-            ParsedRecord(
-                item=item,
-                where=where,
-                relative=scope.relative,
-                verdict=expected_verdict,
-            )
-        )
-        _validate_one_record(item, where, scope)
-    return scope.totals, scope.errors, parsed_records
+    return _oracle_validate_records.RecordChecks(sys.modules[__name__]).validate_file(snapshot, scope)
 
 
 _RUN_FILE_RE = re.compile(
