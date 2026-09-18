@@ -57,6 +57,7 @@ queue_rules:
           - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
           - check-success=@github-actions/verify five public datasets
       # Nothing outstanding from a reviewer, including inline threads.
+      - "#review-requested=0"
       - "#changes-requested-reviews-by=0"
       - "#review-threads-unresolved=0"
     merge_method: squash
@@ -83,6 +84,7 @@ queue_rules:
       - or:
           - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
           - check-success=@github-actions/verify five public datasets
+      - "#review-requested=0"
       - "#changes-requested-reviews-by=0"
       - "#review-threads-unresolved=0"
     merge_method: squash
