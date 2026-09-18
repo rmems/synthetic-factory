@@ -20,6 +20,10 @@ else:
 
 
 NEW_SPLIT_MODULES = (
+    "rights_policy_placeholders",
+    "rights_policy_semantics",
+    "curate_identity_registry_evidence",
+
     "compose_contract",
     "compose_curated",
     "compose_mill",

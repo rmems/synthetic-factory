@@ -14,7 +14,6 @@ import tempfile
 import unittest
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 
@@ -327,9 +326,7 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_decision_is_immutable(self):
         decision = self.classify()
 
-        # Frozen slotted dataclasses raise either exception across supported
-        # Python releases when assigning a delegated attribute.
-        with self.assertRaises((FrozenInstanceError, TypeError)):
+        with self.assertRaises((AttributeError, TypeError)):
             decision.project_training_policy = "allowed"
         with self.assertRaises(TypeError):
             decision.public_payload["project_training_policy"] = "allowed"

@@ -26,7 +26,8 @@ KIND_PAIRS = "pairs"
 KIND_LOOP = "loop"
 KIND_LEFTOVER = "leftover"
 EXTRACTED_PAIR_ROWS = 1401
-COMMITTED_PAIR_ROWS = 24
+COMMITTED_PAIR_ROWS = 1401
+DEFERRED_PAIR_ROWS = 1377
 VENDOR_PREFIXES = ("amc-mill-", "amc-loop-", "mill_amc_")
 FORBIDDEN_MILL_GLOBS = (
     "amc-mill*.py",
@@ -83,7 +84,10 @@ _LEFTOVER_PAIR_KEYS = {
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-_ROLES = frozenset({"first", "last"})
+ROLE_FIRST = "first"
+ROLE_LAST = "last"
+ROLE_DEFERRED = "deferred"
+_ROLES = frozenset({ROLE_FIRST, ROLE_LAST, ROLE_DEFERRED})
 
 
 class CatalogError(ValueError):
@@ -216,6 +220,12 @@ def _optional_int(value: Any, context: str) -> int | None:
     return _integer(value, context, minimum=0)
 
 
+def _require(ok: bool, message: str) -> None:
+    if ok:
+        return
+    raise CatalogError(message)
+
+
 def _load_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -253,8 +263,10 @@ def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
     keys = _LEFTOVER_PAIR_KEYS if kind == KIND_LEFTOVER else _PAIR_KEYS
     row = _mapping(raw, f"{PAIRS_FILENAME}:{index}", keys)
     role = _text(row["role"], f"{PAIRS_FILENAME}:{index}.role")
-    if role not in _ROLES:
-        raise CatalogError(f"{PAIRS_FILENAME}:{index}.role must be first or last")
+    _require(
+        role in _ROLES,
+        f"{PAIRS_FILENAME}:{index}.role must be first, last, or deferred",
+    )
     pair = CompactPair(
         source_path=_text(row["source_path"], f"{PAIRS_FILENAME}:{index}.source_path"),
         mill_id=mill_id,
@@ -272,35 +284,82 @@ def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
     return pair
 
 
+def _split_roles(
+    pairs: tuple[CompactPair, ...],
+) -> tuple[list[CompactPair], list[CompactPair], list[CompactPair]]:
+    first: list[CompactPair] = []
+    last: list[CompactPair] = []
+    deferred: list[CompactPair] = []
+    buckets = {ROLE_FIRST: first, ROLE_LAST: last, ROLE_DEFERRED: deferred}
+    for pair in pairs:
+        buckets[pair.role].append(pair)
+    return first, last, deferred
+
+
+def _bookends(
+    pairs: tuple[CompactPair, ...], context: str
+) -> tuple[CompactPair, CompactPair, tuple[CompactPair, ...]]:
+    first, last, deferred = _split_roles(pairs)
+    _require(len(first) == 1, f"{context} must commit exactly one first pair")
+    _require(len(last) == 1, f"{context} must commit exactly one last pair")
+    return first[0], last[0], tuple(deferred)
+
+
+def _bookend_slug(pair: CompactPair, kind: str) -> str:
+    leftover_slugs = {KIND_LEFTOVER: pair.success_slug}
+    return leftover_slugs.get(kind, pair.fail_slug)
+
+
+def _refuse_mill_identities(
+    pairs: tuple[CompactPair, ...],
+    deferred: tuple[CompactPair, ...],
+    n_rows: int,
+    context: str,
+) -> None:
+    unique = {(pair.fail_slug, pair.success_slug) for pair in pairs}
+    _require(
+        len(pairs) == n_rows,
+        f"{context} committed {len(pairs)} identities, expected {n_rows}",
+    )
+    _require(
+        len(deferred) == n_rows - 2,
+        f"{context} deferred identity count drifted from {n_rows - 2}",
+    )
+    _require(len(unique) == len(pairs), f"{context} repeats a compact pair identity")
+
+
 def _mill(raw: Any, context: str, grouped: dict[str, list[CompactPair]]) -> MillCatalog:
     row = _mapping_subset(raw, context, _MILL_REQUIRED, _MILL_OPTIONAL)
     mill_id = _text(row["mill_id"], f"{context}.mill_id")
     pairs = tuple(grouped.get(mill_id, ()))
-    if len(pairs) != 2 or {pair.role for pair in pairs} != _ROLES:
-        raise CatalogError(f"{context} must commit exactly one first and one last pair")
-    by_role = {pair.role: pair for pair in pairs}
+    first, last, deferred = _bookends(pairs, context)
+    n_rows = _integer(row["n_rows_extracted"], f"{context}.n_rows_extracted", minimum=2)
+    _refuse_mill_identities(pairs, deferred, n_rows, context)
     first_slug = _text(row["first_slug"], f"{context}.first_slug")
     last_slug = _text(row["last_slug"], f"{context}.last_slug")
     kind = _text(row["kind"], f"{context}.kind")
-    if kind == KIND_LEFTOVER:
-        if by_role["first"].success_slug != first_slug or by_role["last"].success_slug != last_slug:
-            raise CatalogError(f"{context} leftover slugs drifted from committed pairs")
-    elif by_role["first"].fail_slug != first_slug or by_role["last"].fail_slug != last_slug:
-        raise CatalogError(f"{context} pair slugs drifted from committed pairs")
+    _require(
+        _bookend_slug(first, kind) == first_slug,
+        f"{context} bookend slugs drifted from committed pairs",
+    )
+    _require(
+        _bookend_slug(last, kind) == last_slug,
+        f"{context} bookend slugs drifted from committed pairs",
+    )
     source_path = _text(row["source_path"], f"{context}.source_path")
-    if any(pair.source_path != source_path for pair in pairs):
-        raise CatalogError(f"{context} pair source_path drifted")
+    foreign = [pair for pair in pairs if pair.source_path != source_path]
+    _require(not foreign, f"{context} pair source_path drifted")
     return MillCatalog(
         source_path=source_path,
         mill_id=mill_id,
-        source_blob_sha1=_text(row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1),
+        source_blob_sha1=_text(
+            row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1
+        ),
         source_sha256=_text(row["source_sha256"], f"{context}.source_sha256", pattern=_SHA256),
         kind=kind,
         shape=_text(row["shape"], f"{context}.shape"),
         catalog_first=_integer(row["catalog_first"], f"{context}.catalog_first", minimum=1),
-        n_rows_extracted=_integer(
-            row["n_rows_extracted"], f"{context}.n_rows_extracted", minimum=2
-        ),
+        n_rows_extracted=n_rows,
         first_slug=first_slug,
         last_slug=last_slug,
         pairs=pairs,
@@ -316,31 +375,55 @@ def _loop(raw: Any, context: str) -> LoopSource:
     return LoopSource(
         mill_id=_text(row["mill_id"], f"{context}.mill_id"),
         source_path=_text(row["source_path"], f"{context}.source_path"),
-        source_blob_sha1=_text(row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1),
+        source_blob_sha1=_text(
+            row["source_blob_sha1"], f"{context}.source_blob_sha1", pattern=_SHA1
+        ),
         companion_mill_path=_text(row["companion_mill_path"], f"{context}.companion_mill_path"),
     )
 
 
+def _deferred_identity_count(catalog: Catalog) -> int:
+    return sum(1 for pair in catalog.pairs() if pair.role == ROLE_DEFERRED)
+
+
 def _refuse_identity(catalog: Catalog) -> None:
-    if catalog.schema_version != SCHEMA_VERSION:
-        raise CatalogError(f"unsupported schema version: {catalog.schema_version!r}")
-    if catalog.family != FAMILY or catalog.factory != FACTORY:
-        raise CatalogError("catalog identity does not match the reviewed AMC family")
-    if catalog.generator != GENERATOR:
-        raise CatalogError("catalog identity does not match the reviewed AMC family")
-    if catalog.source_commit != PRESERVE_COMMIT:
-        raise CatalogError("catalog preserve commit drifted")
-    if catalog.n_pair_rows_extracted != EXTRACTED_PAIR_ROWS:
-        raise CatalogError("extracted pair-row pin drifted from 1401")
-    if catalog.n_pair_rows_committed != COMMITTED_PAIR_ROWS:
-        raise CatalogError("committed representative subset drifted from 24")
-    if catalog.quota_per_round != QUOTA_PER_ROUND or catalog.success_steps != SUCCESS_STEPS:
-        raise CatalogError("quota or step pin drifted")
     extracted = sum(mill.n_rows_extracted for mill in catalog.catalogs)
-    if extracted != EXTRACTED_PAIR_ROWS:
-        raise CatalogError("per-mill extracted counts no longer sum to 1401")
-    if "deferred" not in catalog.extraction:
-        raise CatalogError("extraction note must record the deferred remainder")
+    committed = sum(len(mill.pairs) for mill in catalog.catalogs)
+    _require(
+        catalog.schema_version == SCHEMA_VERSION,
+        f"unsupported schema version: {catalog.schema_version!r}",
+    )
+    _require(catalog.family == FAMILY, "catalog identity does not match the reviewed AMC family")
+    _require(catalog.factory == FACTORY, "catalog identity does not match the reviewed AMC family")
+    _require(
+        catalog.generator == GENERATOR,
+        "catalog identity does not match the reviewed AMC family",
+    )
+    _require(catalog.source_commit == PRESERVE_COMMIT, "catalog preserve commit drifted")
+    _require(
+        catalog.n_pair_rows_extracted == EXTRACTED_PAIR_ROWS,
+        "extracted pair-row pin drifted from 1401",
+    )
+    _require(
+        catalog.n_pair_rows_committed == COMMITTED_PAIR_ROWS,
+        "committed pair-row pin drifted from 1401",
+    )
+    _require(
+        catalog.n_pair_rows_committed == catalog.n_pair_rows_extracted,
+        "committed identities no longer cover the extracted set",
+    )
+    _require(catalog.quota_per_round == QUOTA_PER_ROUND, "quota or step pin drifted")
+    _require(catalog.success_steps == SUCCESS_STEPS, "quota or step pin drifted")
+    _require(extracted == EXTRACTED_PAIR_ROWS, "per-mill extracted counts no longer sum to 1401")
+    _require(committed == COMMITTED_PAIR_ROWS, "per-mill extracted counts no longer sum to 1401")
+    _require(
+        _deferred_identity_count(catalog) == DEFERRED_PAIR_ROWS,
+        "deferred identity count drifted from 1377",
+    )
+    _require(
+        "1377 deferred" in catalog.extraction,
+        "extraction note must record the deferred identity slice",
+    )
 
 
 def _refuse_duplicates(catalog: Catalog) -> None:

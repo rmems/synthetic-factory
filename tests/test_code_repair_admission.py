@@ -75,9 +75,9 @@ class ProceduralRegistryTests(unittest.TestCase):
                          ("identity_authoritative", 1)):
             with self.subTest(key=key), self.assertRaises(ci.IdentityCurationError):
                 def change(value, key=key, bad=bad):
-                    procedural = next(
-                        row for row in value["factories"] if row.get("source_type") == "procedural"
-                    )
+                    procedural = {row["path_id"]: row for row in value["factories"]}[
+                        "python-function-repair-factory"
+                    ]
                     procedural.update({key: bad})
                 self.load_changed(change)
 

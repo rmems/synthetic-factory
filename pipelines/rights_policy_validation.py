@@ -25,6 +25,7 @@ HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
 HOSTED_FRONTIER_PROVIDERS = _rights_mapping.HOSTED_FRONTIER_PROVIDERS
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
+is_exact_string = _rights_mapping.is_exact_string
 policy_error = _rights_mapping.policy_error
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_unique_strings = _rights_mapping.require_unique_strings
@@ -101,12 +102,12 @@ class _RuleCoverage:
     combinations: set[tuple[str, str, str]] = field(default_factory=set)
 
 
-def _rule_verdict(rule: dict, reasons: tuple[str, ...]) -> tuple[object, ...]:
-    return (
-        rule.get("intended_use"),
-        rule.get("project_training_policy"),
-        list(reasons),
-    )
+def _rule_verdict(rule: dict, reasons: tuple[str, ...]) -> tuple[object, ...] | None:
+    intended_use = rule.get("intended_use")
+    project_policy = rule.get("project_training_policy")
+    if not is_exact_string(intended_use) or not is_exact_string(project_policy):
+        return None
+    return (intended_use, project_policy, list(reasons))
 
 
 def _validated_rule(
@@ -118,7 +119,7 @@ def _validated_rule(
     rule_id = rule["id"]
     providers, channels = _validate_rule_lists(rule, rule_id, where)
     profile_id = rule.get("rights_profile_id")
-    if not isinstance(profile_id, str) or profile_id not in profiles:
+    if not is_exact_string(profile_id) or profile_id not in profiles:
         raise policy_error(where, f"rule {rule_id!r} cites unknown profile")
     reasons = require_unique_strings(
         rule.get("reason_codes"), "reason_codes", where=where
@@ -201,6 +202,28 @@ def _require_fallback_coverage(coverage: _RuleCoverage, where: str) -> None:
         )
 
 
+_REVIEWED_PROFILE_ROUTES = {
+    HOSTED_FRONTIER_PROFILE_ID: frozenset({
+        ("anthropic", "consumer"), ("meta", "api"),
+        ("openai", "consumer"), ("xai", "consumer"),
+    }),
+    _rights_mapping.PROCEDURAL_PROFILE_ID: frozenset({("procedural", "local")}),
+    _rights_mapping.SIMULATOR_PROFILE_ID: frozenset({("simulator", "local")}),
+    _rights_mapping.DEEPSEEK_PLACEHOLDER_PROFILE_ID: frozenset({("deepseek", "api"), ("deepseek", "local")}),
+    _rights_mapping.NEMOTRON_PLACEHOLDER_PROFILE_ID: frozenset({("nemotron", "api"), ("nemotron", "local")}),
+}
+
+
+def _profile_routes(coverage: _RuleCoverage, profile_id: str) -> set[tuple[str, str]]:
+    return {(provider, channel) for provider, channel, profile in coverage.combinations if profile == profile_id}
+
+
+def _require_reviewed_profile_routes(coverage: _RuleCoverage, where: str) -> None:
+    for profile_id, expected in _REVIEWED_PROFILE_ROUTES.items():
+        if _profile_routes(coverage, profile_id) != expected:
+            raise policy_error(where, f"profile {profile_id!r} must keep exact reviewed provider/channel routes")
+
+
 def _require_rule_coverage(
     coverage: _RuleCoverage,
     reason_ids: frozenset[str],
@@ -211,6 +234,7 @@ def _require_rule_coverage(
     _require_profile_paths(coverage, where)
     _require_reason_coverage(coverage, reason_ids, where)
     _require_fallback_coverage(coverage, where)
+    _require_reviewed_profile_routes(coverage, where)
 
 
 def _validate_rules(

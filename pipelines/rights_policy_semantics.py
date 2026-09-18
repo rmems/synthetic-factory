@@ -76,9 +76,19 @@ def _require_unknown_provenance_verdict(profiles: dict[str, dict], where: str) -
         raise policy_error(where, "unknown-provenance profile must fail closed")
 
 
+def _require_candidate_reasons(profile: dict, where: str) -> None:
+    blocked_reasons = {
+        reason for profile_id, reason in _REQUIRED_PROFILE_REASONS.items()
+        if profile_id not in _TRAINING_CANDIDATE_PROFILE_IDS
+    }
+    if blocked_reasons.intersection(profile["reason_codes"]):
+        raise policy_error(where, "allowed profile cannot carry fail-closed defining reasons")
+
+
 def _require_training_candidate_verdicts(profiles: dict[str, dict], where: str) -> None:
     for profile_id in _TRAINING_CANDIDATE_PROFILE_IDS:
         candidate = profiles[profile_id]
+        _require_candidate_reasons(candidate, where)
         if _decision_pair(candidate) != _ALLOWED_DECISION:
             raise policy_error(
                 where,

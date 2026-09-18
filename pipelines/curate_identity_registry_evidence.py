@@ -29,6 +29,11 @@ else:
     )
 
 
+# Sealed from pipelines/oracle_grounded/fault_simulator.py at this commit;
+# UTF-8 source with CRLF/CR normalized to LF, SHA-256 prefixed with its algorithm.
+REVIEWED_SIMULATOR_COMMIT = "6ca641465bbf8ce8339de1dce6ce77f77186e34a"
+REVIEWED_SIMULATOR_DIGEST = "sha256:be267e0720662cf1f8c79b24384bd335df9ec127fce8184459e2e64e31c8d3e4"
+
 _GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 CATALOG_AUTHORSHIP_VALUES = frozenset(
     {"human-authored", "permissive-upstream-license"}
@@ -52,7 +57,7 @@ def _require_prefixed_digest(raw: Mapping[str, Any], field: str, index: int) -> 
 
 def _require_catalog_authorship(raw: Mapping[str, Any], index: int) -> str:
     value = raw.get("catalog_authorship")
-    if value not in CATALOG_AUTHORSHIP_VALUES:
+    if not isinstance(value, str) or value not in CATALOG_AUTHORSHIP_VALUES:
         raise IdentityCurationError(
             f"factories[{index}] procedural rows require catalog_authorship "
             f"{sorted(CATALOG_AUTHORSHIP_VALUES)}"
@@ -90,8 +95,10 @@ def _require_procedural_evidence(raw: Mapping[str, Any], index: int) -> None:
 
 
 def _require_simulator_evidence(raw: Mapping[str, Any], index: int) -> None:
-    _require_commit_sha(raw, index)
-    _require_prefixed_digest(raw, "module_digest", index)
+    commit = _require_commit_sha(raw, index)
+    digest = _require_prefixed_digest(raw, "module_digest", index)
+    if (commit, digest) != (REVIEWED_SIMULATOR_COMMIT, REVIEWED_SIMULATOR_DIGEST):
+        raise IdentityCurationError(f"factories[{index}] simulator pins differ from reviewed module")
     _reject_unexpected_evidence(
         raw, index, ("catalog_authorship", "generator_source_digest")
     )
@@ -103,7 +110,7 @@ _PROFILE_EVIDENCE_CHECKERS = {
 }
 
 
-def _require_profile_evidence(raw: Mapping[str, Any], index: int) -> None:
+def require_profile_evidence(raw: Mapping[str, Any], index: int) -> None:
     checker = _PROFILE_EVIDENCE_CHECKERS.get(
         raw["rights_profile_id"], _require_no_profile_evidence
     )

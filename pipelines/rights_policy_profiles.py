@@ -33,6 +33,8 @@ POLICY_DOCUMENT_TYPE = _rights_mapping.POLICY_DOCUMENT_TYPE
 POLICY_VERSION = _rights_mapping.POLICY_VERSION
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
+UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
+is_exact_string = _rights_mapping.is_exact_string
 policy_error = _rights_mapping.policy_error
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_unique_strings = _rights_mapping.require_unique_strings
@@ -168,7 +170,7 @@ def _profile_value(
     profile: dict, field_name: str, vocabulary: frozenset[str], where: str
 ) -> str:
     value = profile.get(field_name)
-    if not isinstance(value, str) or value not in vocabulary:
+    if not is_exact_string(value) or value not in vocabulary:
         raise policy_error(
             where,
             f"profile {profile['id']!r} has unknown {field_name}",
@@ -230,7 +232,7 @@ def _checked_profile_entry(entry: object, index: int, where: str) -> str:
     return profile_id
 
 
-def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
+def _required_profile_ids(document: dict, where: str) -> tuple[str, ...]:
     required_ids = require_unique_strings(
         document.get("required_profile_ids"), "required_profile_ids", where=where
     )
@@ -239,9 +241,19 @@ def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
             where,
             f"required_profile_ids must be exactly {sorted(REQUIRED_PROFILE_IDS)}",
         )
-    profiles_raw = document.get("profiles")
-    if not isinstance(profiles_raw, list) or not profiles_raw:
+    return required_ids
+
+
+def _profile_entries(document: dict, where: str) -> list:
+    entries = document.get("profiles")
+    if not isinstance(entries, list) or not entries:
         raise policy_error(where, "profiles must be a nonempty list")
+    return entries
+
+
+def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
+    required_ids = _required_profile_ids(document, where)
+    profiles_raw = _profile_entries(document, where)
     identifiers = [
         _checked_profile_entry(entry, index, where)
         for index, entry in enumerate(profiles_raw)

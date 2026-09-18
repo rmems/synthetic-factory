@@ -32,6 +32,7 @@ from . import catalog_check as cc
 from . import catalog_inputs as inputs
 from . import executor as ex
 from . import lineage
+from . import sandbox as sb
 from . import vocabulary as cv
 from ._contract import bind_import_twin, oc
 
@@ -381,6 +382,15 @@ def build_rows(
     two runs differently is dropped and noted (``build.notes``), never built into a row.
     """
 
+    sb.refuse_unisolated_execution(
+        executor,
+        upstream={
+            "repository": build.upstream.repository, "commit": build.upstream.commit,
+            "license": build.upstream.license,
+            "license_sha256": hashlib.sha256(build.upstream.license_text.encode("utf-8")).hexdigest(),
+        },
+        selector=SELECTOR_VERSION,
+    )
     ordered = sorted(set(targets))  # canonical row order: by upstream path, then function
     rows = [_verified_row(build, path, function, executor) for path, function in ordered]
     kept = [row for row in rows if row is not None]

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 
 from test_rights_policy import (
     RIGHTS_POLICY_SPEC,
@@ -67,11 +68,9 @@ class RightsPolicyNewProviderTests(RightsPolicyTestCase):
 
     def test_placeholder_profiles_stay_blocked_even_with_a_snapshot_hash(self):
         document = mutable_policy_document()
-        profile = next(
-            item
-            for item in document["profiles"]
-            if item["id"] == rights_policy.DEEPSEEK_PLACEHOLDER_PROFILE_ID
-        )
+        profile = {item["id"]: item for item in document["profiles"]}[
+            rights_policy.DEEPSEEK_PLACEHOLDER_PROFILE_ID
+        ]
         self.assertIsNone(profile[rights_policy.UNBLOCK_TERMS_SNAPSHOT_FIELD])
         profile[rights_policy.UNBLOCK_TERMS_SNAPSHOT_FIELD] = "sha256:" + "b" * 64
         validated = rights_policy.validate_rights_policy(document)
@@ -86,6 +85,32 @@ class RightsPolicyNewProviderTests(RightsPolicyTestCase):
             "must remain a blocked terms placeholder",
         ):
             rights_policy.validate_rights_policy(document)
+
+    def test_provider_specific_routes_cannot_be_reassigned_or_expanded(self):
+        cases = (
+            ("PROCEDURAL_LOCAL_ATTESTED", "providers", ["deepseek"]),
+            ("SIMULATOR_LOCAL_ORACLE", "providers", ["procedural"]),
+            ("PROCEDURAL_LOCAL_ATTESTED", "channels", ["local", "api"]),
+            ("DEEPSEEK_TERMS_PLACEHOLDER", "providers", ["nemotron"]),
+        )
+        for rule_id, field, value in cases:
+            with self.subTest(rule=rule_id, field=field):
+                document = mutable_policy_document()
+                rules = {row["id"]: row for row in document["rules"]}
+                rules[rule_id][field] = value
+                with self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_policy.load_rights_policy_bytes(json.dumps(document).encode())
+
+    def test_allowed_profiles_cannot_claim_foreign_defining_reasons(self):
+        for reason in ("UNKNOWN_PROVENANCE", "DEEPSEEK_TERMS_SNAPSHOT_PENDING", "NEMOTRON_TERMS_SNAPSHOT_PENDING"):
+            with self.subTest(reason=reason):
+                document = mutable_policy_document()
+                profiles = {row["id"]: row for row in document["profiles"]}
+                profiles[rights_policy.PROCEDURAL_PROFILE_ID]["reason_codes"].append(reason)
+                rules = {row["id"]: row for row in document["rules"]}
+                rules["PROCEDURAL_LOCAL_ATTESTED"]["reason_codes"].append(reason)
+                with self.assertRaises(rights_policy.RightsPolicyError):
+                    rights_policy.validate_rights_policy(document)
 
     def test_unauthorized_new_provider_hosted_frontier_route_fails_closed(self):
         with self.assertRaisesRegex(

@@ -2,9 +2,14 @@
 """Vocabulary for the ``lef`` mill family (llm-eval-flakiness lane).
 
 The reviewed mill prefix ``lef`` maps to ``llm-eval-flakiness-factory`` in
-``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts the
+``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracted the
 six flake-class catalogs from the 7 ``legacy-mill-lane`` scripts without
-vendoring ``lef-mill*.py`` and without executing a publisher.
+vendoring ``lef-mill*.py`` and without executing a publisher. The second
+slice commits the deferred r728 and r968 table rows into ``rows.jsonl``.
+The third slice AST-extracts Archive B ``mill_plants.py`` (r613–r620) into
+``plants.jsonl`` without vendoring ``scripts/llm_eval_flakiness_mill/*``. The
+fourth slice AST-extracts ``mill_plants_b.py`` (r621–r628) into
+``plants_b.jsonl`` the same way.
 """
 
 from __future__ import annotations
@@ -15,19 +20,39 @@ GENERATOR = "grok-4.6"
 RECORD_ID_PREFIX = FAMILY_PREFIX
 QUOTA_PER_ROUND = 2
 CATALOG_SCHEMA_ID = "lef-catalog-extract/v1"
-SLICE_ID = "r629"
+SLICE_ID = "full"
 DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "02d05373e4144ab609ec141b28fd4c52a4174f21"
 CATALOG_FILENAME = "CATALOG.json"
 ROWS_FILENAME = "rows.jsonl"
 SLICE_MILL_ID = "lef-mill-r629"
+COMMITTED_MILL_IDS = ("lef-mill-r629", "lef-mill-r728", "lef-mill-r968")
+COMMITTED_ROW_COUNT = 682
 PAIR_BUCKETS = 3
+
+ARCHIVE_B_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+PLANTS_SOURCE_PATH = "scripts/llm_eval_flakiness_mill/mill_plants.py"
+PLANTS_MILL_ID = "lef-mill-plants-a"
+PLANTS_CATALOG_FIRST = 613
+PLANTS_PAIR_COUNT = 8
+PLANTS_FILENAME = "plants.jsonl"
+PLANTS_BLOB_SHA = "98bf17417e6d5e25651c48febf09248b1ecabd34"
+PLANTS_B_SOURCE_PATH = "scripts/llm_eval_flakiness_mill/mill_plants_b.py"
+PLANTS_B_MILL_ID = "lef-mill-plants-b"
+PLANTS_B_CATALOG_FIRST = 621
+PLANTS_B_PAIR_COUNT = 8
+PLANTS_B_FILENAME = "plants_b.jsonl"
+PLANTS_B_BLOB_SHA = "f1ffb042ec711bd1b57a989dec51a30721687570"
+PLANTS_APPEND_LIST_B = "MORE"
+OK_CALL = "_ok"
+BAD_CALL = "_bad"
 
 KIND_TABLES = "tables"
 KIND_STEMS = "stems"
 KIND_LOOP = "loop"
 KIND_SLUGS = "slugs"
+KIND_PLANTS = "plants"
 
 SHAPE_TABLES = "six-tables"
 SHAPE_STEMS = "stems"
@@ -119,6 +144,10 @@ VENDOR_PREFIXES = ("lef-mill-", "lef-loop-")
 FORBIDDEN_MILL_GLOBS = (
     "lef-mill*.py",
     "lef-loop*.py",
+    "mill_plants.py",
+    "mill_plants_*.py",
+    "mill_gen.py",
+    "mill.py",
 )
 SLUGS_FILENAME = ".lef-used-slugs.txt"
 CATALOG_ASSIGNMENT_NAMES = frozenset(

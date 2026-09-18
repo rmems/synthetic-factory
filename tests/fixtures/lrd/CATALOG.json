@@ -1,0 +1,26 @@
+{
+  "catalog_id": "lrd-fixture-v1",
+  "factory": "log-redaction-factory",
+  "format": "lrd-mill-catalog/1",
+  "mill_prefix": "lrd",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "lrd_r0001",
+      "plant_count": 1,
+      "source": "tests/fixtures/lrd/plants.jsonl"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "8672a76a29ed34e3fff9946bf5c1e095c83c51bfa2c51655a59d5582fe5ed534",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": null,
+    "method": "git-show+ast.parse",
+    "ref": "fixture",
+    "scripts": [
+      "tests/fixtures/lrd/plants.jsonl"
+    ]
+  }
+}

@@ -1075,7 +1075,40 @@ def _package_validate_run_thalamic() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
+def _direct_rights_policy_placeholders() -> ModuleType:
+    import rights_policy_placeholders as module
+    return module
+
+
+def _package_rights_policy_placeholders() -> ModuleType:
+    import pipelines.rights_policy_placeholders as module
+    return module
+
+
+def _direct_rights_policy_semantics() -> ModuleType:
+    import rights_policy_semantics as module
+    return module
+
+
+def _package_rights_policy_semantics() -> ModuleType:
+    import pipelines.rights_policy_semantics as module
+    return module
+
+
+def _direct_curate_identity_registry_evidence() -> ModuleType:
+    import curate_identity_registry_evidence as module
+    return module
+
+
+def _package_curate_identity_registry_evidence() -> ModuleType:
+    import pipelines.curate_identity_registry_evidence as module
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "rights_policy_placeholders": (_direct_rights_policy_placeholders, _package_rights_policy_placeholders),
+    "rights_policy_semantics": (_direct_rights_policy_semantics, _package_rights_policy_semantics),
+    "curate_identity_registry_evidence": (_direct_curate_identity_registry_evidence, _package_curate_identity_registry_evidence),
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
     "coding_constants": (_direct_coding_constants, _package_coding_constants),

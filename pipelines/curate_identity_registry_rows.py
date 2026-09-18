@@ -160,10 +160,10 @@ class FactoryRegistry:
 
 _apply_field_rules = _fields._apply_field_rules
 _PATH_RULES = _fields._PATH_RULES
-_RIGHTS_VOCABULARY_RULES = _fields._RIGHTS_VOCABULARY_RULES
-_SHAPE_RULES = _fields._SHAPE_RULES
-_PREFERENCE_SIDE_RULES = _fields._PREFERENCE_SIDE_RULES
-_require_profile_evidence = _evidence._require_profile_evidence
+_RIGHTS_VOCABULARY_RULES = _fields.RIGHTS_VOCABULARY_RULES
+_SHAPE_RULES = _fields.SHAPE_RULES
+_PREFERENCE_SIDE_RULES = _fields.PREFERENCE_SIDE_RULES
+_require_profile_evidence = _evidence.require_profile_evidence
 
 
 def _is_normalized_token(value: Any) -> bool:

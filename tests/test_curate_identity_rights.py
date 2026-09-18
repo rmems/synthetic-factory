@@ -292,17 +292,24 @@ def _attested_digest():
     return "sha256:" + "a" * 64
 
 
-def _attested_procedural_row(**overrides):
-    row = _valid_row(
-        path_id="procedural-attested-factory",
-        payload_factory="procedural-attested-factory",
-        generator="procedural-attested",
+def _candidate_row(path_id, **fields):
+    return _valid_row(
+        path_id=path_id,
+        payload_factory=path_id,
         generator_version="1",
-        provider="procedural",
         channel="local",
-        rights_profile_id="procedural-local-attested-v1",
         intended_use="training_candidate",
         project_training_policy="allowed",
+        **fields,
+    )
+
+
+def _attested_procedural_row(**overrides):
+    row = _candidate_row(
+        "procedural-attested-factory",
+        generator="procedural-attested",
+        provider="procedural",
+        rights_profile_id="procedural-local-attested-v1",
         catalog_authorship="human-authored",
         generator_source_digest=_attested_digest(),
     )
@@ -311,18 +318,13 @@ def _attested_procedural_row(**overrides):
 
 
 def _simulator_row(**overrides):
-    row = _valid_row(
-        path_id="fault-recovery-simulator-factory",
-        payload_factory="fault-recovery-simulator-factory",
+    row = _candidate_row(
+        "fault-recovery-simulator-factory",
         generator="relay-reflex-simulator",
-        generator_version="1",
         provider="simulator",
-        channel="local",
         rights_profile_id="simulator-local-oracle-v1",
-        intended_use="training_candidate",
-        project_training_policy="allowed",
         commit_sha="6ca641465bbf8ce8339de1dce6ce77f77186e34a",
-        module_digest=_attested_digest(),
+        module_digest="sha256:be267e0720662cf1f8c79b24384bd335df9ec127fce8184459e2e64e31c8d3e4",
     )
     row.update(overrides)
     return row
@@ -365,16 +367,15 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
                 _load_temp_registry(Path(tmp) / "hosted", _registry_payload([hosted]))
 
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
-        procedural = next(
-            row for row in payload["factories"] if row.get("source_type") == "procedural"
-        )
+        procedural = {row["path_id"]: row for row in payload["factories"]}[
+            "python-function-repair-factory"
+        ]
         procedural.pop("source_license_evidence")
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(
-                identity.IdentityCurationError,
-                "drifts from independently sealed policy",
-            ):
-                _load_temp_registry(tmp, payload)
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(identity.IdentityCurationError, "drifts from independently sealed policy"),
+        ):
+            _load_temp_registry(tmp, payload)
 
     def test_attested_procedural_hosted_row_classifies_as_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -386,6 +387,15 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
         self.assertEqual(row.intended_use, "training_candidate")
         self.assertEqual(row.project_training_policy, "allowed")
         self.assertEqual(row.catalog_authorship, "human-authored")
+
+    def test_simulator_pin_substitution_is_refused_for_copied_registries(self):
+        document = json.loads(identity.FACTORY_REGISTRY_PATH.read_text())
+        original = {row["path_id"]: row for row in document["factories"]}["fault-recovery-simulator-factory"]
+        for field, replacement in (("commit_sha", "a" * 40), ("module_digest", "sha256:" + "a" * 64)):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                altered = dict(original, **{field: replacement})
+                with self.assertRaises(identity.IdentityCurationError):
+                    _load_temp_registry(tmp, _registry_payload([altered]))
 
     def test_simulator_row_without_pins_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

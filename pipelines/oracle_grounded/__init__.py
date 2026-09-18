@@ -21,3 +21,11 @@ __all__ = [
     "refusals",
     "rng",
 ]
+
+from .import_twins import bind_import_twin
+
+# The CLI name (``oracle_grounded``) and the package name
+# (``pipelines.oracle_grounded``) stay one object. Declared submodules are
+# not imported here, so a star import still loads them by name and an
+# explicit sibling import is unchanged.
+bind_import_twin(__name__)
