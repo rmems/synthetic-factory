@@ -322,6 +322,11 @@ and on Linux publishes the complete manifest-authenticated tree with
 destination after reservation wins its own path and causes generation to fail;
 its content is never replaced. If the no-replace primitive is unavailable, the
 generator fails closed rather than falling back to overwrite-capable `rename`.
+Before publication it checks that the requested parent still names the pinned
+directory, and afterward it checks both that binding and the published leaf
+identity. A failed final check returns nonzero without a success manifest;
+the diagnostic identifies that publication already occurred, and the retained
+tree is not deleted through a pathname another writer may have replaced.
 The staging directory's device/inode identity is authenticated immediately
 before and after rename; a substituted source is quarantined rather than
 reported as the published run. A staging failure atomically moves the owned

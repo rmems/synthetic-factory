@@ -319,6 +319,16 @@ def _directory_identity(path):
     return state.st_dev, state.st_ino
 
 
+def _verify_requested_publication(out_dir, parent_fd, published_identity=None):
+    """Bind descriptor-relative publication back to the caller's pathname."""
+    requested = os.stat(out_dir.parent)
+    pinned = os.fstat(parent_fd)
+    if (requested.st_dev, requested.st_ino) != (pinned.st_dev, pinned.st_ino):
+        raise OSError(errno.ESTALE, "requested parent no longer matches the pinned directory")
+    if published_identity is not None and _directory_identity(out_dir) != published_identity:
+        raise OSError(errno.ESTALE, "requested output no longer matches the published directory")
+
+
 def _rename_noreplace(source, destination):
     """Linux atomic rename that never replaces ``destination``."""
     if not sys.platform.startswith("linux"):
@@ -713,12 +723,15 @@ def main(argv=None):
         # The destination is addressed through the pinned parent as well.
         _verify_staged_payloads(staging_fd, files, MAX_JSONL_BYTES)
         _verify_staged_manifest(staging_fd, (manifest_text + "\n").encode("utf-8"))
+        _verify_requested_publication(out_dir, parent_fd)
         publish_noreplace(staging, pinned_parent / out_dir.name, staging_identity)
         staging = None
         published = True
+        _verify_requested_publication(out_dir, parent_fd, staging_identity)
     except (OSError, TypeError, ValueError) as exc:
+        phase = "after publication; requested destination could not be authenticated" if published else "before publication"
         print(
-            f"oracle_generate: transaction failed before publication: {type(exc).__name__}: {exc}",
+            f"oracle_generate: transaction failed {phase}: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
         return 1
