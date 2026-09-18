@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from .catalog_source import SOURCE_PINS, literal_source_tree, source_statements
+
 from ._contract import (
     CsvRefusal,
     FACTORY,
@@ -22,12 +24,13 @@ from .catalog_validation import (
     _require_pair_identifiers,
     _require_mill_round,
     _require_int,
+    _require_bounded_int,
     _require_text,
 )
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Never exec, compile, or eval."""
+    """Literal values only; never execute recovered expressions."""
 
     try:
         return ast.literal_eval(node)
@@ -65,22 +68,14 @@ def _dict_call(node: ast.AST, where: str) -> dict[str, Any]:
     return mapped
 
 
-def _parse_source(text: str, source: str) -> ast.Module:
-    try:
-        return ast.parse(text)
-    except SyntaxError as exc:
-        raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}") from exc
-
-
 def _source_assignments(text: str, source: str) -> dict[str, ast.AST]:
     """Collect the source pins and require one unambiguous assignment each."""
 
-    tree = _parse_source(text, source)
+    tree = literal_source_tree(text, source, _dict_call)
     assignments: dict[str, ast.AST] = {}
-    names = {"PAIRS", "CATALOG_FIRST", "FAC", "FACTORY", "PREFIX"}
-    for node in tree.body:
+    for node in source_statements(tree.body):
         assigned = _assigned_name(node)
-        if assigned is None or assigned[0] not in names:
+        if assigned is None or assigned[0] not in SOURCE_PINS:
             continue
         name, value = assigned
         # FAC and FACTORY are aliases for the same pin.
@@ -166,6 +161,7 @@ def plants_from_source(
     rows = []
     seen = {key: set() for key in ("slug", "fail", "ticket")}
     for index, item in enumerate(pairs):
+        _require_bounded_int(base + index, f"{source} effective_round", FINDING_PLANT_FIELD_INVALID)
         fields = _pair_fields(item, f"{source} PAIRS[{index}]")
         for key, values in seen.items():
             _claim_unique(values, fields[key], f"{source} duplicate {key}")

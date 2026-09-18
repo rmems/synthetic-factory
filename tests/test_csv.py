@@ -121,7 +121,7 @@ class RuntimeExecutionVisitor(ast.NodeVisitor):
             self.hits.append(node.module)
 
     def visit_Call(self, node):
-        if isinstance(node.func, ast.Name) and node.func.id in {"exec", "eval", "compile"}:
+        if isinstance(node.func, ast.Name) and node.func.id in {"exec", "eval"}:
             self.hits.append(node.func.id)
         self.generic_visit(node)
 
@@ -228,7 +228,6 @@ class AstExtract(unittest.TestCase):
             "from runpy import run_path",
             "f(exec('x'))",
             "eval('x')",
-            "compile('x')",
         ):
             with self.subTest(source=source):
                 visitor = RuntimeExecutionVisitor()

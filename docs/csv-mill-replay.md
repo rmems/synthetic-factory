@@ -8,6 +8,21 @@ reads the AST without executing the archived program. The loader requires
 that provenance declaration and authenticates the plants bytes before parsing
 them. The small test fixture is a reduced, renumbered slice from this source.
 
+Unpinned source must consist of proven literal assignments and inert declarations.
+The `dict` constructor must be unshadowed; unknown module-time calls, imports,
+mutations, control flow, decorators, and evaluated default expressions refuse.
+Ordinary function/lambda bodies and exact script-entry bodies remain deferred.
+Every emitted effective round must fit the exact JSON integer domain, and loaded
+mill rows must retain contiguous index order.
+
+The exact archived path and full UTF-8 SHA-256
+`98faa233ffe331fbd1d563c0aa3e190b48e40f18c5939939eab07d078d0ba570`
+permit a separate AST text projection of its literal catalog. That pin was
+independently derived from the preserved Git bytes. It does not assert runtime
+equivalence or execute the archived setup/publisher; any changed byte loses the
+exception. Source text must be a builtin string so parsed text and hashed bytes
+cannot disagree through an overridden encoding method.
+
 `generate --all --out <new-directory> --json` emits 16 designed success/handoff
 pairs, a run summary, and notes. It stages all three files before publishing
 the new directory and refuses an existing destination or `outputs/raw/`.
@@ -19,7 +34,10 @@ reports `published_destination` separately from the requested `destination`.
 A directory descriptor does not lock its pathname: another process can move the
 containing directory between the final check and rename, or after success. These
 checks do not provide an atomic pathname-location guarantee against such moves.
-Keep the containing directory stable during publication; the generator does not
+Staged entry names, original file identities, and written bytes are checked before
+publication, but another process under the same UID can still alter content
+between that check and rename. Keep the containing directory and staged content
+stable during publication; the generator does not
 roll back by deleting paths that another writer may have replaced.
 
 ## Source rounds and publication
@@ -42,3 +60,7 @@ The recovered plant fields remain intact. One output-template correction
 removes a duplicate `-handoff` suffix from failure domains; the generated notes
 now report that same domain. These records describe designed traces, not live
 tool executions.
+
+Before projection, the original AST is compiled only to validate Python constraints,
+including deferred function bodies. Its code object is discarded without execution.
+Both source text and its path must be builtin strings before parsing or hashing.

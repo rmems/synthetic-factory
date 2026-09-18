@@ -102,10 +102,9 @@ class ParentBinding(unittest.TestCase):
         original = generate_io._OwnedStage.write
 
         def write(stage, name, payload):
-            result = original(stage, name, payload)
+            original(stage, name, payload)
             if name == "RUN.json":
                 self._retarget()
-            return result
 
         with patch.object(generate_io._OwnedStage, "write", write), self.assertRaises(CsvRefusal):
             self._run(self.alias / "run")
@@ -118,12 +117,11 @@ class ParentBinding(unittest.TestCase):
         relocated = self.raw / "relocated"
 
         def write(stage, name, payload):
-            result = original(stage, name, payload)
+            original(stage, name, payload)
             if name == "RUN.json":
                 self.safe.rename(relocated)
                 self.alias.unlink()
                 self.alias.symlink_to(relocated, target_is_directory=True)
-            return result
 
         with patch.object(generate_io._OwnedStage, "write", write), self.assertRaises(CsvRefusal) as caught:
             self._run(self.alias / "run")

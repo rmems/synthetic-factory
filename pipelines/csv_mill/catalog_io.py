@@ -157,10 +157,10 @@ def _check_mill(mill: Mill, plants: list[Plant]) -> None:
             f"{mill.mill_id} plant_count {mill.plant_count} != {len(plants)}",
         )
     _check_mill_base(mill, plants)
-    if {plant.index for plant in plants} != set(range(mill.plant_count)):
+    if [plant.index for plant in plants] != list(range(mill.plant_count)):
         raise CsvRefusal(
             FINDING_CATALOG_FIELD_INVALID,
-            f"{mill.mill_id} indices must be contiguous from zero",
+            f"{mill.mill_id} indices must be in contiguous order from zero",
         )
 
 

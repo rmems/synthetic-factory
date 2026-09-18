@@ -55,6 +55,11 @@ class CatalogInputBoundaries(unittest.TestCase):
         with patch.object(json.scanner, "make_scanner", json.scanner.py_make_scanner):
             self._assert_refusal(["catalog-check"], "CATALOG_FIELD_INVALID")
 
+    def test_catalog_rows_must_preserve_the_declared_index_order(self):
+        lines = (self.catalog / "plants.jsonl").read_bytes().splitlines()
+        self._save_rows(b"\n".join(reversed(lines)) + b"\n")
+        self._assert_refusal(["catalog-check"], "CATALOG_FIELD_INVALID")
+
     def test_surrogateescaped_unknown_argument_is_a_json_refusal(self):
         status, out, err = invoke(["catalog-check", "--json", "--unknown-\udcff"])
         self.assertEqual((status, err), (2, ""))

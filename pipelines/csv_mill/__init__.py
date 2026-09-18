@@ -15,6 +15,7 @@ __all__ = [
     "catalog_extract",
     "catalog_io",
     "catalog_models",
+    "catalog_source",
     "catalog_validation",
     "cli",
     "generate",
