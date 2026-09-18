@@ -13,6 +13,20 @@ from typing import Any
 UNSET = object()
 
 
+def module_constants(tree: ast.AST) -> dict[str, Any]:
+    """Resolve assignments in order, retaining ``UNSET`` for unknown bindings."""
+
+    env: dict[str, Any] = {}
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name is None:
+            for assigned in assignment_names(node):
+                env[assigned] = UNSET
+        elif value is not None:
+            env[name] = literal_value(value, env)
+    return env
+
+
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     """Return ``(name, value)`` for a simple ``NAME = value`` statement."""
 

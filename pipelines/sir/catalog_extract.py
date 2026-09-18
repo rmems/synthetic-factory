@@ -17,13 +17,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .catalog_ast import UNSET, assignment_names, assignment_of, literal_value, module_docstring
+from .catalog_ast import module_constants, module_docstring
 from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
     FACTORY,
     GENERATOR,
-    KIND_CATALOG_PAIRS,
     KIND_LEFTOVER_PAIRS,
     LEGACY_REF,
     PAIR_FIELD_ORDER,
@@ -43,7 +42,9 @@ def mill_id_for_path(path: str) -> str:
 
 
 def mill_kind_for_id(mill_id: str) -> str:
-    return KIND_LEFTOVER_PAIRS if "leftover" in mill_id else KIND_CATALOG_PAIRS
+    if "leftover" not in mill_id:
+        raise ValueError("home mill catalogs belong to the search package")
+    return KIND_LEFTOVER_PAIRS
 
 
 def extract_mill_catalog(
@@ -57,11 +58,11 @@ def extract_mill_catalog(
     payload = source.encode()
     tree = ast.parse(source, filename=path)
     mill_id = mill_id_for_path(path)
-    constants = _module_constants(tree)
+    constants = module_constants(tree)
     factory = _required_string(constants.get("FACTORY", FACTORY), f"{path} FACTORY")
     generator = _required_string(constants.get("GEN", GENERATOR), f"{path} GEN")
     catalog_first = _catalog_first(constants, path)
-    hops = _optional_factory_list(constants.get("HOP", UNSET), path=path)
+    hops = _optional_factory_list(constants.get("HOP"), path=path)
     rows = _pair_rows(constants.get("PAIRS"), path=path, mill_id=mill_id)
     n_rounds = _round_count(constants.get("N_ROUNDS"), len(rows), path)
     return {
@@ -85,26 +86,6 @@ def extract_mill_catalog(
         "doc_first_line": _first_line(module_docstring(tree)),
         "pairs": rows,
     }
-
-
-def _module_constants(tree: ast.AST) -> dict[str, Any]:
-    env: dict[str, Any] = {}
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name is None:
-            for assigned in assignment_names(node):
-                env.pop(assigned, None)
-        elif value is not None:
-            _bind_literal(env, name, value)
-    return env
-
-
-def _bind_literal(env: dict[str, Any], name: str, value: ast.AST) -> None:
-    resolved = literal_value(value, env)
-    if resolved is UNSET:
-        env.pop(name, None)
-    else:
-        env[name] = resolved
 
 
 def _required_string(value: Any, where: str) -> str:
@@ -131,7 +112,7 @@ def _round_count(value: Any, n_pairs: int, path: str) -> int:
 
 
 def _optional_factory_list(value: Any, *, path: str) -> list[str]:
-    if value is UNSET or value is None:
+    if value is None:
         return []
     if not isinstance(value, list):
         raise ValueError(f"{path} HOP is not a literal list of factory slugs")

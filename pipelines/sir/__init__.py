@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Sir mill family (``sir``): AST catalog extract, leftover mills off-branch.
+"""Additional sir leftover catalogs: AST extraction, publishers off-branch.
 
-FAMILY=sir. Catalog rows are extracted from ``origin/legacy-mill-lane``
-pair mills via :mod:`sir.catalog_extract`. The leftover3 / leftover3d
+FAMILY=sir. This package owns only leftover3-r72 and r108-leftover3d;
+the ``search`` package owns the r31/r52/r72 home mills and their pair rows.
+The two leftover catalogs are extracted from ``origin/legacy-mill-lane``
+via :mod:`sir.catalog_extract`. The leftover3 / leftover3d
 publishers and leftover3 loop are not vendored and are never executed.
 """
 

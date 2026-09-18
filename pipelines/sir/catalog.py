@@ -15,6 +15,7 @@ from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
     GENERATOR,
+    LEGACY_REF,
     PAIR_FIELD_ORDER,
     PRESERVE_COMMIT,
     SHAPE_PAIR_6TUPLES,
@@ -95,15 +96,20 @@ def load_catalog(path=None) -> SirCatalog:
 def _require_header(document, path: Path) -> None:
     expected = {
         "schema": CATALOG_SCHEMA_ID,
+        "source_ref": LEGACY_REF,
         "preserve_commit": PRESERVE_COMMIT,
         "factory": FACTORY,
         "generator": GENERATOR,
         "slice": SLICE_ID,
         "family": "sir",
     }
+    _require_fields(document, expected, f"{path} drifted from vocabulary")
+
+
+def _require_fields(actual: Mapping, expected: Mapping, where: str) -> None:
     for key, value in expected.items():
-        if document.get(key) != value:
-            raise ValueError(f"{path} {key} drifted from vocabulary")
+        if actual.get(key) != value:
+            raise ValueError(f"{where}: {key} mismatch")
 
 
 def _load_pair_rows(path: Path) -> dict[str, tuple[Mapping[str, Any], ...]]:
@@ -121,9 +127,24 @@ def _pair_record(line: str, where: str) -> Mapping[str, Any]:
     if not line or line.startswith((" ", "\t")):
         raise ValueError(f"{where} is not a compact JSONL record")
     row = json.loads(line)
-    if set(row) != set(PAIR_FIELD_ORDER):
+    if not isinstance(row, dict) or set(row) != set(PAIR_FIELD_ORDER):
         raise ValueError(f"{where} keys drifted from PAIR_FIELD_ORDER")
+    _require_pair_values(row, where)
     return row
+
+
+def _require_pair_values(row: Mapping[str, Any], where: str) -> None:
+    if row["fail_handoff"] is not True:
+        raise ValueError(f"{where} fail_handoff must be true")
+    for field in PAIR_FIELD_ORDER:
+        if field == "fail_handoff":
+            continue
+        _require_pair_text(row[field], f"{where} {field}")
+
+
+def _require_pair_text(value: Any, where: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{where} must be a non-empty string")
 
 
 def _mill_from_row(row: Mapping[str, Any], pairs: tuple[Mapping[str, Any], ...]) -> MillCatalog:
@@ -174,29 +195,33 @@ def _require_source_inventory(catalog: SirCatalog, expected: Mapping[str, MillSo
             f"extra={sorted(set(catalog.mills) - set(expected))} "
             f"missing={sorted(set(expected) - set(catalog.mills))}"
         )
-    if len(MILL_SOURCES) != 5:
-        raise ValueError(f"expected 5 sir catalog mills, found {len(MILL_SOURCES)}")
+    if len(MILL_SOURCES) != 2:
+        raise ValueError(f"expected 2 sir leftover mills, found {len(MILL_SOURCES)}")
 
 
 def _require_source_pin(mill: MillCatalog, source: MillSource) -> None:
-    fields = ("path", "blob_sha", "catalog_first", "n_rows", "n_hops", "loads_sibling", "kind")
-    for field in fields:
-        if getattr(mill, field) != getattr(source, field):
-            raise ValueError(f"{mill.mill_id} {field} disagrees with sources.py")
+    fields = (
+        "mill_id",
+        "path",
+        "blob_sha",
+        "catalog_first",
+        "n_rows",
+        "n_hops",
+        "loads_sibling",
+        "kind",
+    )
+    expected = {field: getattr(source, field) for field in fields}
+    _require_fields(vars(mill), expected, f"{mill.mill_id} disagrees with sources.py")
 
 
 def _require_mill_vocabulary(mill: MillCatalog) -> None:
     expected = {"factory": FACTORY, "generator": GENERATOR, "shape": SHAPE_PAIR_6TUPLES}
-    for field, value in expected.items():
-        if getattr(mill, field) != value:
-            raise ValueError(f"{mill.mill_id} {field} drifted from vocabulary")
+    _require_fields(vars(mill), expected, f"{mill.mill_id} drifted from vocabulary")
 
 
 def _require_mill_rows(mill: MillCatalog) -> None:
     expected = {"n_rounds": mill.n_rows, "n_hops": len(mill.hops), "n_rows": len(mill.pairs)}
-    for field, value in expected.items():
-        if getattr(mill, field) != value:
-            raise ValueError(f"{mill.mill_id} {field} disagrees with catalog contents")
+    _require_fields(vars(mill), expected, f"{mill.mill_id} disagrees with catalog contents")
     _require_boundary_slugs(mill)
 
 

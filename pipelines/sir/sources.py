@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Pinned inventory of the five sir pair mills on ``legacy-mill-lane``.
+"""Pinned inventory of two additional sir leftover mills on ``legacy-mill-lane``.
 
 Blob SHAs are the preserve-commit objects (``vocabulary.PRESERVE_COMMIT``);
 they are byte-identical on ``origin/legacy-mill-lane`` tip ``813f93f1``.
 The leftover3 loop and the SourceFileLoader / leftover-mill publishers stay
 off this branch.
+The r31/r52/r72 home mills belong to ``search``; sibling identity comes
+from that canonical inventory rather than duplicating its source pins.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .vocabulary import KIND_CATALOG_PAIRS, KIND_LEFTOVER_PAIRS
+if __name__.startswith("pipelines."):
+    from ..search.sources import R31_SOURCE
+else:
+    from search.sources import R31_SOURCE
+
+from .vocabulary import KIND_LEFTOVER_PAIRS
 
 
 @dataclass(frozen=True)
@@ -28,35 +35,6 @@ class MillSource:
 
 MILL_SOURCES: tuple[MillSource, ...] = (
     MillSource(
-        "sir-mill-r31",
-        "experiments/sir-mill-r31.py",
-        "229a91d892fe12d19e21f0e25d5031bca348f51e",
-        KIND_CATALOG_PAIRS,
-        31,
-        16,
-        0,
-    ),
-    MillSource(
-        "sir-mill-r52",
-        "experiments/sir-mill-r52.py",
-        "3dc95d6019dd2e193a431c6f60198d3875abbfd1",
-        KIND_CATALOG_PAIRS,
-        52,
-        20,
-        0,
-        "experiments/sir-mill-r31.py",
-    ),
-    MillSource(
-        "sir-mill-r72",
-        "experiments/sir-mill-r72.py",
-        "860ef89f276787201cc7ef76221bb41c339bcc76",
-        KIND_CATALOG_PAIRS,
-        72,
-        20,
-        0,
-        "experiments/sir-mill-r31.py",
-    ),
-    MillSource(
         "sir-mill-leftover3-r72",
         "experiments/sir-mill-leftover3-r72.py",
         "79f88a0be841682c69c50052beee6fb0f84cd27e",
@@ -64,7 +42,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         72,
         16,
         0,
-        "experiments/sir-mill-r31.py",
+        R31_SOURCE.path,
     ),
     MillSource(
         "sir_r108_leftover3d_mill",

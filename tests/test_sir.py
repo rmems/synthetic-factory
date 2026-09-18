@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
+from search.sources import HOME_MILL_SOURCES, R31_SOURCE  # noqa: E402
 from sir.catalog import CATALOG, load_catalog  # noqa: E402
 from sir.catalog_extract import (  # noqa: E402
     SHAPE_PAIR_6TUPLES,
@@ -120,6 +121,16 @@ def _package_function_names() -> set[str]:
 
 
 class SirSkeletonTests(unittest.TestCase):
+    def test_catalog_does_not_duplicate_search_home_ownership(self):
+        home_ids = {source.mill_id for source in HOME_MILL_SOURCES}
+        self.assertTrue(home_ids.isdisjoint(CATALOG.mills))
+        self.assertTrue(home_ids.isdisjoint(source.mill_id for source in MILL_SOURCES))
+        self.assertEqual(catalog_sources()[0].loads_sibling, R31_SOURCE.path)
+
+    def test_home_extraction_requires_canonical_search_package(self):
+        with self.assertRaisesRegex(ValueError, "search"):
+            extract_mill_catalog(_CHAIN_SNIPPET, path="experiments/sir-mill-r52.py")
+
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[cv.FAMILY_PREFIX], cv.FACTORY)
         self.assertEqual(cv.FAMILY, "sir")
@@ -127,25 +138,22 @@ class SirSkeletonTests(unittest.TestCase):
         self.assertEqual(cv.FACTORY, "search-index-rebuild-factory")
         self.assertEqual(cv.GENERATOR, "grok-4.6")
         self.assertEqual(cv.PRESERVE_COMMIT, "854c59b31eb9bde983f79c8a1adf3b40d04100a9")
-        self.assertEqual(cv.SLICE_ID, "full")
+        self.assertEqual(cv.SLICE_ID, "leftover-mills")
 
-    def test_five_catalog_mill_sources(self):
-        self.assertEqual(len(MILL_SOURCES), 5)
-        self.assertEqual(len(catalog_sources()), 5)
+    def test_two_leftover_catalog_mill_sources(self):
+        self.assertEqual(len(MILL_SOURCES), 2)
+        self.assertEqual(len(catalog_sources()), 2)
         self.assertEqual(
             [source.mill_id for source in catalog_sources()],
             [
-                "sir-mill-r31",
-                "sir-mill-r52",
-                "sir-mill-r72",
                 "sir-mill-leftover3-r72",
                 "sir_r108_leftover3d_mill",
             ],
         )
-        self.assertEqual(catalog_sources()[0].catalog_first, 31)
-        self.assertEqual(catalog_sources()[3].kind, cv.KIND_LEFTOVER_PAIRS)
-        self.assertEqual(catalog_sources()[4].n_hops, 11)
-        self.assertEqual(catalog_sources()[1].loads_sibling, "experiments/sir-mill-r31.py")
+        self.assertEqual(catalog_sources()[0].catalog_first, 72)
+        self.assertEqual(catalog_sources()[0].kind, cv.KIND_LEFTOVER_PAIRS)
+        self.assertEqual(catalog_sources()[1].n_hops, 11)
+        self.assertEqual(catalog_sources()[0].loads_sibling, R31_SOURCE.path)
 
     def test_no_vendored_mill_scripts(self):
         hits = []
@@ -205,11 +213,13 @@ class SirSkeletonTests(unittest.TestCase):
         )
 
     def test_extractor_records_sourcefileloader_sibling_without_loading(self):
-        extracted = extract_mill_catalog(_CHAIN_SNIPPET, path="experiments/sir-mill-r52.py")
+        extracted = extract_mill_catalog(
+            _CHAIN_SNIPPET, path="experiments/sir-mill-leftover3-r72.py"
+        )
         self.assertEqual(extracted["loads_sibling"], "experiments/sir-mill-r31.py")
         self.assertEqual(extracted["n_rows"], 1)
         self.assertEqual(extracted["factory"], cv.FACTORY)
-        self.assertEqual(extracted["kind"], cv.KIND_CATALOG_PAIRS)
+        self.assertEqual(extracted["kind"], cv.KIND_LEFTOVER_PAIRS)
 
     def test_extractor_refuses_non_literal_pairs(self):
         source = (
@@ -235,6 +245,56 @@ class SirSkeletonTests(unittest.TestCase):
             path="experiments/sir-mill-leftover3-r72.py",
         )
         self.assertEqual(extracted["first_slug"], "meili-swap-leftover3-rebuild")
+
+    def test_extractor_refuses_explicit_nonliteral_optional_bindings(self):
+        for field in ("FACTORY", "GEN", "N_ROUNDS", "HOP"):
+            for assignment in (f"{field} = compute()", f"{field} = alias = compute()"):
+                with self.subTest(assignment=assignment), self.assertRaises(ValueError):
+                    extract_mill_catalog(
+                        _LEFTOVER_SNIPPET + f"\n{assignment}\n",
+                        path="experiments/sir-mill-leftover3-r72.py",
+                    )
+
+    def test_loader_refuses_embedded_mill_identity_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
+            header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+            header["mills"]["sir-mill-leftover3-r72"]["mill_id"] = "sir_r108_leftover3d_mill"
+            (directory / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "mill_id"):
+                load_catalog(directory / "CATALOG.json")
+
+    def test_loader_refuses_fabricated_source_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
+            header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+            header["source_ref"] = "other-repository/main"
+            (directory / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "source_ref"):
+                load_catalog(directory / "CATALOG.json")
+
+    def test_loader_refuses_invalid_middle_pair_values(self):
+        invalid = (
+            ("success_slug", None),
+            ("fail_url", 12),
+            ("success_ticket", ""),
+            ("fail_handoff", False),
+            ("fail_handoff", 1),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "CATALOG.json").write_bytes(catalog_json_path().read_bytes())
+            for field, value in invalid:
+                with self.subTest(field=field, value=value):
+                    lines = pairs_jsonl_path().read_text(encoding="utf-8").split("\n")
+                    row = json.loads(lines[1])
+                    row[field] = value
+                    lines[1] = json.dumps(row, separators=(",", ":"))
+                    (directory / "pairs.jsonl").write_text("\n".join(lines), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        load_catalog(directory / "CATALOG.json")
 
     def test_loader_refuses_non_lf_pair_framing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -279,7 +339,7 @@ class SirSkeletonTests(unittest.TestCase):
             for field in ("factory", "generator", "shape"):
                 with self.subTest(field=field):
                     header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
-                    header["mills"]["sir-mill-r31"][field] = "other"
+                    header["mills"]["sir-mill-leftover3-r72"][field] = "other"
                     (directory / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
                     with self.assertRaisesRegex(ValueError, "vocabulary"):
                         load_catalog(directory / "CATALOG.json")
@@ -290,16 +350,12 @@ class SirSkeletonTests(unittest.TestCase):
             extract_mill_catalog(source, path="experiments/sir-mill-leftover3-r72.py")
 
     def test_committed_catalog_counts(self):
-        self.assertEqual(len(CATALOG.mills), 5)
-        self.assertEqual(CATALOG.n_pair_rows, 88)
-        self.assertEqual(CATALOG.slice, "full")
+        self.assertEqual(len(CATALOG.mills), 2)
+        self.assertEqual(CATALOG.n_pair_rows, 32)
+        self.assertEqual(CATALOG.slice, "leftover-mills")
         self.assertEqual(CATALOG.preserve_commit, cv.PRESERVE_COMMIT)
         leftover3 = CATALOG.mills["sir-mill-leftover3-r72"]
         leftover3d = CATALOG.mills["sir_r108_leftover3d_mill"]
-        r31 = CATALOG.mills["sir-mill-r31"]
-        self.assertEqual(r31.n_rows, 16)
-        self.assertEqual(r31.first_slug, "sqlite-vec-rebuild")
-        self.assertEqual(r31.last_slug, "lancedb-ivf-rebuild")
         self.assertEqual(leftover3.n_rows, 16)
         self.assertEqual(leftover3.first_slug, "meili-swap-leftover3-rebuild")
         self.assertEqual(leftover3.last_slug, "paradedb-bm25-leftover3-rebuild")
@@ -314,7 +370,7 @@ class SirSkeletonTests(unittest.TestCase):
     def test_pairs_jsonl_stays_compact(self):
         text = pairs_jsonl_path().read_text(encoding="utf-8")
         lines = text.splitlines()
-        self.assertEqual(len(lines), 88)
+        self.assertEqual(len(lines), 32)
         self.assertTrue(text.endswith("\n"))
         self.assertNotIn("\r", text)
         for line in lines:
@@ -326,7 +382,7 @@ class SirSkeletonTests(unittest.TestCase):
         document = json.loads(catalog_json_path().read_text(encoding="utf-8"))
         for mill in document["mills"].values():
             self.assertNotIn("pairs", mill)
-        self.assertEqual(document["n_pair_rows"], 88)
+        self.assertEqual(document["n_pair_rows"], 32)
         self.assertIn("never imported or executed", document["extraction"])
 
     def test_hops_are_catalogued_not_executed(self):
@@ -379,7 +435,7 @@ class SirLegacyExtractTests(unittest.TestCase):
         )
         self.assertEqual(dumps_pairs(mills), pairs_jsonl_path().read_text(encoding="utf-8"))
         summaries = [mill_summary(mill) for mill in mills]
-        self.assertEqual(len(summaries), 5)
+        self.assertEqual(len(summaries), 2)
 
     def test_git_show_is_the_only_legacy_read(self):
         if not _legacy_available():
