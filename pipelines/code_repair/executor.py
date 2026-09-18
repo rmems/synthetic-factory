@@ -26,9 +26,9 @@ import tempfile
 import time
 import tokenize
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from . import _sandbox as landlock
 from . import harness_report as _harness_report
@@ -169,6 +169,7 @@ class Executor:
         self.timeout_s = float(timeout_s)
         self.isolation = isolation if isolation is not None else sb.Isolation.rlimits_only()
         self._harness_bytes = HARNESS_PATH.read_bytes()
+        self._sandbox_bytes = SANDBOX_PATH.read_bytes()
         self.harness_sha256 = hashlib.sha256(self._harness_bytes).hexdigest()
         self.log: list[dict[str, Any]] = []
 
@@ -197,12 +198,12 @@ class Executor:
             program = workdir / cv.PROGRAM_FILENAME
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
-            (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
-            (workdir / SANDBOX_FILENAME).write_bytes(SANDBOX_PATH.read_bytes())
-            executed = cast(PhaseReport, replace(
+            _write_child(workdir, HARNESS_FILENAME, self._harness_bytes)
+            _write_child(workdir, SANDBOX_FILENAME, self._sandbox_bytes)
+            executed = _copy_report(
                 self._execute(job, workdir),
                 module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest(),
-            ))
+            )
             return self._stamp_identity(executed)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -212,7 +213,7 @@ class Executor:
 
         environment = dict(report.environment)
         environment["sandbox_identity"] = self.isolation.identity
-        return cast(PhaseReport, replace(report, environment=environment))
+        return _copy_report(report, environment=environment)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
         """One child run; attestation and JSON are unlinked tempfiles, not workdir paths.
@@ -253,10 +254,12 @@ class Executor:
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            report = _parse_report(
-                job, completed.returncode, stdout, body,
-                os_boundary=self.isolation.is_os_boundary,
-            )
+            if completed.returncode != 0 and self.isolation.is_os_boundary:
+                report = _harness_error(
+                    f"{cv.FINDING_SANDBOX_UNAVAILABLE}: isolation wrapper failed",
+                )
+            else:
+                report = _parse_report(job, completed.returncode, stdout, body)
         finally:
             if confined is not None:
                 confined.close()
@@ -291,10 +294,31 @@ _limits_attested = _harness_report.limits_attested
 _parsed_report = _harness_report.parsed_report
 
 
-def _parse_report(
-    job: Job, returncode: int, stdout: bytes, body: bytes = b"", *,
-    os_boundary: bool = False,
-) -> PhaseReport:
+def _copy_report(report: PhaseReport, **updates: Any) -> PhaseReport:
+    """A PhaseReport with named fields replaced; avoids dataclasses.replace inference."""
+
+    return PhaseReport(
+        updates.get("status", report.status),
+        updates.get("load_ok", report.load_ok),
+        updates.get("public", report.public),
+        updates.get("hidden", report.hidden),
+        updates.get("environment", report.environment),
+        updates.get("detail", report.detail),
+        updates.get("module_sha256", report.module_sha256),
+    )
+
+
+def _write_child(workdir: Path, name: str, payload: bytes) -> None:
+    """Write a sibling file that cannot escape the per-job workdir."""
+
+    root = workdir.resolve()
+    dest = (root / name).resolve()
+    if dest.parent != root or dest.name != name:
+        raise RuntimeError("child file escaped the workdir")
+    dest.write_bytes(payload)
+
+
+def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
     Every row the job asked for must be present and well formed: a truncated
@@ -306,8 +330,6 @@ def _parse_report(
         return PhaseReport(
             cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
             f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
-    if returncode != 0 and os_boundary:
-        return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: isolation wrapper failed")
     parsed = _parsed_report(returncode, stdout, body)
     if isinstance(parsed, str):
         return _harness_error(parsed)
