@@ -170,3 +170,35 @@ class InventoryIntegrity(unittest.TestCase):
                     row for row in inventory["mill_families"] if row["owner"] != owner
                 )
                 self.assertFalse(msi.check_inventory(REPO, inventory=inventory)["ok"])
+
+
+class CompleteProductionAndImportScope(unittest.TestCase):
+    def test_nonarchive_production_owners_cannot_disappear(self):
+        for owner in ("pipelines/actf", "pipelines/ffpc"):
+            with self.subTest(owner=owner):
+                inventory = copy.deepcopy(msi.INVENTORY)
+                inventory["mill_families"] = tuple(
+                    row for row in inventory["mill_families"] if row["owner"] != owner
+                )
+                self.assertFalse(msi.check_inventory(REPO, inventory=inventory)["ok"])
+
+    def test_literal_hyphenated_dynamic_imports_are_archived(self):
+        archived = msi.archived_module_names(msi.INVENTORY)
+        for name in ("rag-loop-r343", "experiments.rag-loop-r343"):
+            with self.subTest(name=name):
+                self.assertIn(name, msi.archived_import_hits(f'importlib.import_module("{name}")', archived))
+
+    def test_bare_archived_package_import_is_blocked(self):
+        archived = msi.archived_module_names(msi.INVENTORY)
+        self.assertIn("infra_as_code_mill", msi.archived_import_hits("import infra_as_code_mill", archived))
+
+    def test_inventory_helper_modules_cannot_be_excluded(self):
+        paths = ("pipelines/mill_script_inventory_schema.py", "pipelines/mill_script_inventory_families.py")
+        for path in paths:
+            with self.subTest(path=path), _scope_repo() as root:
+                ignore = root / ".gitignore"
+                ignore.write_text(ignore.read_text() + "\n" + path + "\n")
+                self.assertFalse(msi.check_inventory(root, tracked=paths)["ok"])
+                rules = msi.qlty_exclude_patterns(REPO) + (path,)
+                with patch.object(msi, "qlty_exclude_patterns", return_value=rules):
+                    self.assertFalse(msi.check_inventory(REPO, tracked=paths)["ok"])

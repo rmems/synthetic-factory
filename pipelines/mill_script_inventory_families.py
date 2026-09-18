@@ -19,8 +19,10 @@ else:
 
 # The reviewed search package owns the sir home mills; sir is the source prefix.
 CANONICAL_PACKAGES = {"sir": "search"}
-# Distinct cleaned slices intentionally coexist with their family's primary home.
+# Reviewed owners outside archive-derived primary homes, including newer families.
 ADDITIONAL_FAMILY_OWNERS = {
+    "actf": "pipelines/actf",
+    "ffpc": "pipelines/ffpc",
     "crp-leftover3": "pipelines/code_leftover3",
     "lhc-w4cl": "pipelines/lhc_w4cl",
 }

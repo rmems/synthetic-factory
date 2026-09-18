@@ -15,13 +15,12 @@ import argparse
 import ast
 import fnmatch
 import json
-import re
 import shutil
 import subprocess
 import sys
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -50,7 +49,6 @@ QUALITY_SCOPES = _schema.QUALITY_SCOPES
 MAX_INVENTORY_BYTES = _schema.MAX_INVENTORY_BYTES
 MillScriptInventoryError = _schema.MillScriptInventoryError
 load_inventory_bytes = _schema.load_inventory_bytes
-IDENTIFIER_RE = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
 PRODUCTION_ROOTS = ("pipelines/", "scripts/", ".claude/skills/")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_PATH = REPO_ROOT / "config" / "MILL-SCRIPT-INVENTORY.json"
@@ -168,14 +166,11 @@ def archived_script_paths(inventory: Mapping[str, object]) -> frozenset[str]:
     )
 
 
-def _stem_identifier(path: str) -> str | None:
-    name = path.replace("\\", "/").rsplit("/", 1)[-1]
-    if not name.endswith(".py"):
+def _module_basename(path: str) -> str | None:
+    module = PurePosixPath(path)
+    if module.suffix != ".py":
         return None
-    stem = name[:-3]
-    if IDENTIFIER_RE.fullmatch(stem):
-        return stem
-    return None
+    return module.parent.name if module.stem == "__init__" else module.stem
 
 
 def historical_paths(inventory: Mapping[str, object]) -> frozenset[str]:
@@ -187,7 +182,7 @@ def archived_module_names(inventory: Mapping[str, object]) -> frozenset[str]:
     """Names derived from the full pinned archive, not illustrative examples."""
 
     paths = historical_paths(inventory)
-    stems = frozenset(filter(None, map(_stem_identifier, paths)))
+    stems = frozenset(filter(None, map(_module_basename, paths)))
     qualified = frozenset(filter(None, map(_qualified_module, paths)))
     canonical = {
         row["owner"].removeprefix("pipelines/")
@@ -198,12 +193,12 @@ def archived_module_names(inventory: Mapping[str, object]) -> frozenset[str]:
 
 
 def _qualified_module(path: str) -> str | None:
+    if not path.endswith(".py"):
+        return None
     parts = path.removesuffix(".py").split("/")
     if parts[-1] == "__init__":
         parts.pop()
-    if all(IDENTIFIER_RE.fullmatch(part) for part in parts):
-        return ".".join(parts)
-    return None
+    return ".".join(parts)
 
 
 def _import_targets(node: ast.AST) -> tuple[str, ...]:
@@ -339,6 +334,11 @@ def _retained_experiments(tracked: Sequence[str], archived: frozenset[str]) -> f
     return frozenset(path for path in tracked if path.startswith("experiments/")) - archived
 
 
+def production_inventory_paths(tracked: Sequence[str]) -> frozenset[str]:
+    """Keep the tracked validator and its split runtime modules in quality scope."""
+    return frozenset(path for path in tracked if path_matches(path, "pipelines/mill_script_inventory*.py"))
+
+
 def check_inventory(
     root: Path | None = None,
     inventory: Mapping[str, object] | None = None,
@@ -350,7 +350,9 @@ def check_inventory(
     loaded = dict(inventory) if inventory is not None else load_inventory()
     listed = tracked if tracked is not None else tracked_paths(repo)
     unclassified = unclassified_paths(listed, loaded)
-    production = production_script_paths(loaded) | production_family_paths(loaded["mill_families"], listed)
+    production = (production_script_paths(loaded)
+                  | production_family_paths(loaded["mill_families"], listed)
+                  | production_inventory_paths(listed))
     policy = loaded["quality_policy"]
     if not isinstance(policy, Mapping):
         raise MillScriptInventoryError("quality_policy must be an object")
