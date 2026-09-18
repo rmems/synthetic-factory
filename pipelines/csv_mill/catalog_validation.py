@@ -134,9 +134,16 @@ def _mill_from_row(row: Any, where: str) -> Mill:
         raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.mill_id is not csv_rNNN")
     return Mill(
         **text_fields,
-        base_round=_mill_positive_int(row, "base_round", where),
+        base_round=_mill_round(row, text_fields["mill_id"], where),
         plant_count=_mill_positive_int(row, "plant_count", where),
     )
+
+
+def _mill_round(row: Any, mill_id: str, where: str) -> int:
+    base = _mill_positive_int(row, "base_round", where)
+    if mill_id.removeprefix("csv_r").lstrip("0") != str(base):
+        raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, "mill_id suffix must match base_round")
+    return base
 
 
 def _claim_unique(seen: set[str], value: str, detail: str) -> None:

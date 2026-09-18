@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from ._contract import CsvRefusal, FINDING_DESTINATION_EXISTS, bind_import_twin
+from ._contract import CsvRefusal, FINDING_DESTINATION_EXISTS, FINDING_DESTINATION_INVALID, bind_import_twin
 
 if __name__.startswith("pipelines."):
     from ..compose_destination_rename import rename_noreplace
@@ -30,7 +30,10 @@ def _publish(parent: Path, staged: Path, destination: Path) -> None:
 
 def write_run_files(destination: Path, files: dict[str, str]) -> None:
     """Expose only complete runs; clean the private stage on write failure."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CsvRefusal(FINDING_DESTINATION_INVALID, f"cannot create output parent {destination.parent}: {exc}") from exc
     with tempfile.TemporaryDirectory(prefix=".csv-stage-", dir=destination.parent) as temp:
         staged = Path(temp)
         for name, payload in files.items():

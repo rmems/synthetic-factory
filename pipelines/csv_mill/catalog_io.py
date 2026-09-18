@@ -17,6 +17,9 @@ from ._contract import (
     FINDING_FACTORY_NOT_REGISTERED,
     FINDING_PLANTS_SHA_MISMATCH,
     MILL_PREFIX,
+    LEGACY_COMMIT,
+    LEGACY_REF,
+    LEGACY_SOURCE,
     PLANTS_FILENAME,
     QUOTA_PER_ROUND,
     RECORD_KIND,
@@ -74,7 +77,20 @@ def _metadata(catalog_dir: Path) -> dict[str, Any]:
                 FINDING_CATALOG_FIELD_INVALID,
                 f"{CATALOG_FILENAME}.{key} must be {expected}",
             )
+    _check_source_provenance(meta)
     return meta
+
+
+def _check_source_provenance(meta: dict[str, Any]) -> None:
+    expected = {
+        "commit": LEGACY_COMMIT,
+        "ref": LEGACY_REF,
+        "method": "git-show+ast.parse",
+        "scripts": [LEGACY_SOURCE],
+        "not_executed": [LEGACY_SOURCE],
+    }
+    if _field(meta, "source", dict, CATALOG_FILENAME) != expected:
+        raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, "catalog source provenance differs from the pinned extraction")
 
 
 def _authenticated_plants(
@@ -164,7 +180,15 @@ def _catalog_mills(meta: dict[str, Any], plants: tuple[Plant, ...]) -> tuple[Mil
         )
     for mill in mills:
         _check_mill(mill, groups[mill.mill_id])
+    _check_round_allocation(plants)
     return mills
+
+
+def _check_round_allocation(plants: tuple[Plant, ...]) -> None:
+    """Keep the declared pair quota across the complete catalog selection."""
+    rounds: set[str] = set()
+    for plant in plants:
+        _claim_unique(rounds, str(plant.base_round + plant.index), "overlapping catalog round")
 
 
 def load_catalog(

@@ -86,7 +86,7 @@ def _meta(
     return {
         "catalog_id": catalog_id,
         "designed": True,
-        "domain": plant.domain if success else plant.fail + "-handoff",
+        "domain": plant.domain if success else plant.fail,
         "factory": FACTORY,
         "generator": GENERATOR,
         "kind": "episode",
@@ -138,7 +138,7 @@ def notes_markdown(rnd: int, plant: cat.Plant) -> str:
         f"  - plan change at step 12: Bind leftover leftover leftover {p['keep']}. "
         f"{p['naive']} parse is not the index.\n"
         "  - edit→test→fail→re-read→fix at steps 10-13\n"
-        f"- `{bad}`: 17 steps, success=False, domain=drop {p['keep']}, seed={p['fail']}\n"
+        f"- `{bad}`: 17 steps, success=False, domain={p['fail']}, seed={p['fail']}\n"
         "  - 429 at step 6 recovered 7; 502 at step 8 recovered 9\n"
         f"  - plan change at step 12: Dropped leftover leftover leftover {p['keep']} "
         f"is ingest-plat. Handoff {p['ticket']}.\n"

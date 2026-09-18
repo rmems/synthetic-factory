@@ -91,7 +91,9 @@ def _source_assignments(text: str, source: str) -> dict[str, ast.AST]:
 
 def _source_pins(assignments: dict[str, ast.AST], source: str) -> None:
     for name, expected in (("FACTORY", FACTORY), ("PREFIX", RECORD_PREFIX)):
-        pin = assignments.get(name, ast.Constant(value=expected))
+        if name not in assignments:
+            raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} is missing {name}")
+        pin = assignments[name]
         if _const_eval(pin) != expected:
             raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} {name} must be {expected}")
 
