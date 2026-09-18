@@ -295,6 +295,12 @@ def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -
     if isinstance(parsed, str):
         return _harness_error(parsed)
     parsed.pop("_limits_attested", None)
+    return _reported_phase(job, parsed)
+
+
+def _reported_phase(job: Job, parsed: dict[str, Any]) -> PhaseReport:
+    """Interpret complete report rows after the limits attestation is verified."""
+
     if "limits_applied" not in _object(parsed, "environment"):
         reason = _object(parsed, "load").get("error") or "the child reported no environment"
         return _harness_error(_scrub_detail(str(reason)))
