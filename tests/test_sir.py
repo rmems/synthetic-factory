@@ -90,12 +90,12 @@ _PUBLISHER_NAMES = frozenset(
 
 def _legacy_available() -> bool:
     reference = f"{cv.PRESERVE_COMMIT}:{catalog_sources()[0].path}"
-    result = subprocess.run(["git", "show", reference], cwd=REPO, capture_output=True, check=False)
+    result = subprocess.run(["/usr/bin/git", "show", reference], cwd=REPO, capture_output=True, check=False)
     return result.returncode == 0
 
 
 def _git_text(command: str, reference: str) -> str:
-    return subprocess.check_output(["git", command, reference], text=True, cwd=REPO)
+    return subprocess.check_output(["/usr/bin/git", command, reference], text=True, cwd=REPO)
 
 
 def _module_uses_exec(path: Path) -> list[str]:
