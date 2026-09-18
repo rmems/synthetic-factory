@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sys
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import NamedTuple
 
 if __package__:
@@ -22,6 +22,7 @@ else:
 RewardOntologyError = _values.RewardOntologyError
 _policy_error = _values._policy_error
 _mapping_str = _values._mapping_str
+_INVALID_SIGNATURE_MEMBER = "signature contains an invalid member"
 
 
 class PatternOptions(NamedTuple):
@@ -34,7 +35,7 @@ class PatternOptions(NamedTuple):
 def _require_numeric_match(match, key, where):
     try:
         Decimal(str(match.group(1)).replace(",", ""))
-    except (InvalidOperation, TypeError, IndexError, ArithmeticError) as exc:
+    except (TypeError, IndexError, ArithmeticError) as exc:
         raise _policy_error(where, f"{key} capture group must be numeric") from exc
 
 
@@ -80,7 +81,7 @@ def _numeric_capture(match, *, integer=False):
     try:
         token = str(match.group(1)).replace(",", "")
         value = int(token) if integer else Decimal(token)
-    except (InvalidOperation, TypeError, ValueError, IndexError, ArithmeticError) as exc:
+    except (TypeError, ValueError, IndexError, ArithmeticError) as exc:
         raise RewardOntologyError("numeric regex capture is not a number") from exc
     return value
 
@@ -130,11 +131,11 @@ def _split_signature(signature, separator):
 def _signature_member(part, where):
     pieces = _split_signature(part, ":")
     if len(pieces) != 2:
-        raise _policy_error(where, "signature contains an invalid member")
+        raise _policy_error(where, _INVALID_SIGNATURE_MEMBER)
     key = _unescape_signature_token(pieces[0])
     member_type = _unescape_signature_token(pieces[1])
     if not member_type:
-        raise _policy_error(where, "signature contains an invalid member")
+        raise _policy_error(where, _INVALID_SIGNATURE_MEMBER)
     return key, member_type
 
 
@@ -143,7 +144,7 @@ def _signature_members(signature, where):
     for part in _split_signature(signature, "|"):
         key, member_type = _signature_member(part, where)
         if key in members:
-            raise _policy_error(where, "signature contains an invalid member")
+            raise _policy_error(where, _INVALID_SIGNATURE_MEMBER)
         members[key] = member_type
     return members
 
