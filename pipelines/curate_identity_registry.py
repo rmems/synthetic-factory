@@ -129,6 +129,8 @@ def _registry_rows(payload: Mapping[str, Any]) -> tuple[str, list[Any]]:
 
 
 def _parse_loaded_registry_row(raw_row: Any, index: int, schema_version: str) -> FactoryRow:
+    if schema_version == REGISTRY_SCHEMA_VERSION and _rows._parity_policy().claims_parity_route(raw_row):
+        return _rows._parse_parity_row(raw_row, index)
     if _is_procedural_row(raw_row, schema_version):
         return _parse_procedural_row(raw_row, index)
     row_payload = _registry_row_for_validation(raw_row, index, schema_version)

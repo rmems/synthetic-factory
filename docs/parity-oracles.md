@@ -297,6 +297,15 @@ record in the committed fixture has `oracle_complete: false`.
 
 ## Running the families
 
+The recurrent NIR scenario now enters its cycle through opposite populations
+under the two traversal policies. An ordering convention is a candidate cause
+only when the retained observations show different cut edges. Archived records
+from the earlier `a_lif`/`b_lif` recipe keep their original bytes, but that
+scenario fails current catalog validation: both runtimes cut the same edge.
+Reviewed historical source stamps do not override this semantic check. The
+other eight historical scenarios remain individually valid; that subset is
+incomplete and cannot stand in for a full catalog round.
+
 ```bash
 python3 pipelines/hardware_parity.py availability
 python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
@@ -318,6 +327,36 @@ Both families also route through the normal factory layers:
 `pipelines/census.py` classifies them, `pipelines/validate_run.py` enforces
 the shared envelope, and `pipelines/check_records.py` runs the full
 re-derivation described above.
+
+## Research dataset assembly
+
+Fresh generator output can enter the ordinary identity and composition routes:
+
+```bash
+python3 pipelines/hardware_parity.py generate outputs/staging/parity-new --round 37 --steps 16
+python3 pipelines/nir_equivalence.py generate outputs/staging/parity-new --round 37 --steps 16
+python3 pipelines/compose_curated.py outputs/staging/parity-new outputs/curated/parity-new
+```
+
+The two exact factory rows use the separately sealed
+`schemas/parity-source-policy-v1.json`. They retain the original native IDs,
+envelopes, execution evidence, and frontier-session catalog authorship after
+current validation and replay. Provider and channel remain unset; this route
+does not infer model provenance or grant training rights. Historical source
+stamps remain subject to the existing complete-tuple and current-replay checks.
+
+Identity artifacts carry the original source text and a complete replayable
+mapping. Actual composition retains each native record's JSON text and its
+captured LF, CRLF, or absent final terminator. Blank source lines remain counted
+and skipped by composition; they are not records. Export source replay checks
+the same framing and complete output bytes. Strict-LF audit may independently
+refuse CRLF or an unclosed record even though research assembly preserved it.
+
+All native parity records remain research-only with `training_ready_policy:
+never`. Audits count them separately from eligible records, including in mixed
+corpora, and `export_hf` refuses a training export. A successful research assembly
+or a match verdict cannot upgrade those rights or stand in for a live FPGA or
+upstream-runtime execution.
 
 ## Publication status
 

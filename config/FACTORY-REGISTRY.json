@@ -1,7 +1,7 @@
 {
-  "schema_version": "factory-registry-v0.3",
+  "schema_version": "factory-registry-v0.4",
   "lookup_key": "path_id",
-  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Identity retain is not publication and not training_ready.",
+  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path \u2192 identity.unknown_factory; registered path with missing or different meta.factory \u2192 identity.factory_path_payload_mismatch; kind not in the row's record_kinds \u2192 identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Identity retain is not publication and not training_ready.",
   "factories": [
     {
       "path_id": "agentic-coding-trajectory-factory",
@@ -1234,8 +1234,8 @@
       "provenance_contract_by_kind": {
         "episode": "synthetic_shape_implies_designed"
       }
-    }
-    ,{
+    },
+    {
       "path_id": "python-function-repair-factory",
       "generator": "python-repair-mutator",
       "generator_version": "2.0.0",
@@ -1267,6 +1267,60 @@
       "provenance_contract_by_kind": {
         "code_repair": "preserve_oracle_envelope"
       }
+    },
+    {
+      "path_id": "hardware-parity-spike-trajectories",
+      "payload_factory": "hardware-parity-spike-trajectories",
+      "source_type": "frontier_session",
+      "generator": "synthetic-factory.hardware_parity.scenario_catalog",
+      "generator_version": "sha256:0678792200503ef3c9e1d9a717a481411c9ea34d0b8d25ad133840e784a910e6",
+      "provider": null,
+      "channel": null,
+      "rights_profile_id": "native-parity-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "hardware_parity"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "hardware_parity": "preserve_native_parity_envelope"
+      },
+      "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
+      "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
+      "parity_policy_sha256": "ace96432bb602eb5d3a67dd0a6df110526d9d82e54e591e735d06a9d17947af4"
+    },
+    {
+      "path_id": "nir-cross-runtime-equivalence",
+      "payload_factory": "nir-cross-runtime-equivalence",
+      "source_type": "frontier_session",
+      "generator": "synthetic-factory.nir_equivalence.graph_catalog",
+      "generator_version": "sha256:03b7dc18c8b9b9927b8310d57949e03f600c35d236f09be5eabe2a521a226eaa",
+      "provider": null,
+      "channel": null,
+      "rights_profile_id": "native-parity-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "nir_equivalence"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "nir_equivalence": "preserve_native_parity_envelope"
+      },
+      "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
+      "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
+      "parity_policy_sha256": "ace96432bb602eb5d3a67dd0a6df110526d9d82e54e591e735d06a9d17947af4"
     }
   ]
 }

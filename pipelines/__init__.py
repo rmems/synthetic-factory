@@ -194,6 +194,8 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_gate_reward_sidecars",
     "curate_gate_gates",
     "curate_identity_json",
+    "curate_parity_policy",
+    "curate_parity",
     "curate_identity_registry",
     "curate_identity_registry_fields",
     "curate_identity_registry_rows",

@@ -59,17 +59,17 @@ def relevant_conventions(graph, entries):
     candidate causes of an observed divergence would be noise dressed as
     analysis, so a convention is only a candidate when the graph contains the
     construct it applies to and, for reset, when a spike actually fired.
+    Recurrent ordering additionally requires different observed cycle cuts.
     """
     types = _node_types(graph)
     executed = _executed(entries)
     spiked = any(_has_spikes(entry) for entry in executed)
-    has_recurrence = any(_has_recurrence(entry) for entry in executed)
     relevant = set()
     if types & {"LIF", "IF"} and spiked:
         relevant.add("reset")
     if "Delay" in types:
         relevant.add("delay_unit")
-    if has_recurrence:
+    if _cycle_cuts_differ(executed):
         relevant.add("cycle_break_order")
     return relevant
 
@@ -92,8 +92,10 @@ def _has_spikes(entry):
     return (_output_field(entry, "spike_count") or 0) > 0
 
 
-def _has_recurrence(entry):
-    return _output_field(entry, "recurrent_edges")
+def _cycle_cuts_differ(entries):
+    cuts = {frozenset(map(tuple, _output_field(entry, "recurrent_edges") or ()))
+            for entry in entries}
+    return len(cuts) > 1
 
 
 def _membrane_values(blob):

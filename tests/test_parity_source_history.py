@@ -39,19 +39,27 @@ RECENT_SOURCE_STAMPS = (
 )
 
 
+SELECTED_CAPTURE_SOURCE_STAMPS = (
+    ('sha256:10adc613345266b99469f07324c07b6a7c8bac6189bf1c05d446dc92b4d1f7b8',
+     'd1ede19755b25c7bc7e8d7fe417f82b73a46c65155dacca3887432958cde1fae'),
+    ('sha256:1165884bb47c71b68db70b3f49e1d6a1357ae3fc92daebdc74085f54b1142d0a',
+     '87f57427d678301afc2e33f6cd9c24bc804ea1ae42fb3af7b85805f7ef291fbd'),
+)
+
+
 class HistoricalSourceStamps(unittest.TestCase):
     def _records(self, slug, expected_hash):
         raw = (HISTORY / slug / "batch-r01.jsonl").read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(), expected_hash)
         return [json.loads(line) for line in raw.split(b"\n") if line]
 
-    def test_reviewed_historical_bytes_pass_complete_current_validation(self):
+    def test_reviewed_historical_bytes_still_require_current_semantics(self):
         for module, slug, checksum in CASES:
             with self.subTest(family=slug):
-                self.assertEqual(module.validate_records(self._records(slug, checksum)), [])
+                self._assert_current_semantics(module, self._records(slug, checksum))
 
-    def test_reviewed_followup_commit_bytes_remain_valid(self):
-        for stamps in (NEXT_SOURCE_STAMPS, LATEST_SOURCE_STAMPS, RECENT_SOURCE_STAMPS):
+    def test_reviewed_followup_stamps_do_not_authorize_obsolete_scenarios(self):
+        for stamps in (NEXT_SOURCE_STAMPS, LATEST_SOURCE_STAMPS, RECENT_SOURCE_STAMPS, SELECTED_CAPTURE_SOURCE_STAMPS):
             self._check_followup_stamps(stamps)
 
     def _check_followup_stamps(self, stamps):
@@ -64,7 +72,21 @@ class HistoricalSourceStamps(unittest.TestCase):
             self.assertEqual(hashlib.sha256(next_raw).hexdigest(), checksum)
             records = [json.loads(line) for line in next_raw.split(b"\n") if line]
             with self.subTest(family=slug):
-                self.assertEqual(module.validate_records(records), [])
+                self._assert_current_semantics(module, records)
+
+    def _assert_current_semantics(self, module, records):
+        if module is hp:
+            self.assertEqual(module.validate_records(records), [])
+            return
+        obsolete = [r for r in records if r["scenario"]["id"] == "nir-recurrent-cycle"]
+        unchanged = [r for r in records if r not in obsolete]
+        self.assertEqual(len(obsolete), 1)
+        self.assertEqual(len(unchanged), 8)
+        self.assertEqual(module.validate_records(unchanged), [])
+        errors = module.validate_record(obsolete[0], "historical")
+        self.assertTrue(any("scenario.graph does not match" in error for error in errors), errors)
+        _, view_errors = module.build_training_views(unchanged)
+        self.assertTrue(any("catalog" in error for error in view_errors), view_errors)
 
     def test_historical_stamp_does_not_authorize_catalog_or_policy_tampering(self):
         changes = (

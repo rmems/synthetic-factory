@@ -1,0 +1,57 @@
+{
+  "schema_version": "parity-source-policy-v1",
+  "rows": [
+    {
+      "path_id": "hardware-parity-spike-trajectories",
+      "payload_factory": "hardware-parity-spike-trajectories",
+      "source_type": "frontier_session",
+      "generator": "synthetic-factory.hardware_parity.scenario_catalog",
+      "generator_version": "sha256:0678792200503ef3c9e1d9a717a481411c9ea34d0b8d25ad133840e784a910e6",
+      "provider": null,
+      "channel": null,
+      "rights_profile_id": "native-parity-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "hardware_parity"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "hardware_parity": "preserve_native_parity_envelope"
+      },
+      "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
+      "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e"
+    },
+    {
+      "path_id": "nir-cross-runtime-equivalence",
+      "payload_factory": "nir-cross-runtime-equivalence",
+      "source_type": "frontier_session",
+      "generator": "synthetic-factory.nir_equivalence.graph_catalog",
+      "generator_version": "sha256:03b7dc18c8b9b9927b8310d57949e03f600c35d236f09be5eabe2a521a226eaa",
+      "provider": null,
+      "channel": null,
+      "rights_profile_id": "native-parity-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "nir_equivalence"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "nir_equivalence": "preserve_native_parity_envelope"
+      },
+      "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
+      "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73"
+    }
+  ]
+}

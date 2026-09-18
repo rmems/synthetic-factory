@@ -20,6 +20,8 @@ THALAMIC_REQUIRED = (
 )
 
 KIND_ORDER = (
+    "hardware_parity",
+    "nir_equivalence",
     "code_repair",
     "thalamic",
     "preference",
@@ -35,9 +37,10 @@ SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
 # Oracle-grounded parity families declare their kind rather than overlapping
-# thalamic/episode key names. They are not identity-lane payloads, so they stay
-# out of KIND_ORDER (and therefore out of SUPPORTED_RECORD_KINDS).
+# thalamic/episode key names. Identity retention additionally requires sealed
+# research-only registry authority; recognizing a kind grants no rights.
 DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
+PRESERVED_NATIVE_KINDS = DECLARED_KINDS | {"code_repair"}
 DECLARED_FACTORY_KINDS = {
     "hardware-parity-spike-trajectories": "hardware_parity",
     "nir-cross-runtime-equivalence": "nir_equivalence",

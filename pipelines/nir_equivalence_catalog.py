@@ -225,7 +225,7 @@ GRAPH_SPECS = (
                     "v_leak": 0.0,
                     "v_threshold": 0.35,
                 },
-                "b_lif": {
+                "z_lif": {
                     "type": "LIF",
                     "size": 2,
                     "tau": 0.004,
@@ -237,15 +237,15 @@ GRAPH_SPECS = (
             },
             "edges": [
                 ["in", "a_lif"],
-                ["a_lif", "b_lif"],
-                ["b_lif", "a_lif"],
-                ["b_lif", "out"],
+                ["a_lif", "z_lif"],
+                ["z_lif", "a_lif"],
+                ["z_lif", "out"],
             ],
         },
         "pattern": [(1, 0), (2, 0)],
         "intervention": {
             "kind": "topology_probe",
-            "detail": "a_lif <-> b_lif mutual excitation forms a cycle",
+            "detail": "a_lif <-> z_lif enters through opposite nodes under insertion and reverse-name order",
             "applies_to": "edges",
         },
     },

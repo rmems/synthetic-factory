@@ -270,6 +270,16 @@ def _authenticate_identity_source_claims(
 ) -> str:
     if not isinstance(source_record, dict):
         raise GateError(f"{label} cannot authenticate identity claims for a non-object source")
+    if __package__:
+        from .curate_parity import authenticate, is_native
+    else:
+        from curate_parity import authenticate, is_native
+    if is_native(entry, source_record):
+        return authenticate(entry, source_record, label)
+    return _authenticate_rewritten_identity(entry, source_record, label)
+
+
+def _authenticate_rewritten_identity(entry, source_record, label):
     claimed = _claimed_identity_source_evidence(entry, label)
     try:
         kind = curate_identity.record_kind(source_record)

@@ -51,7 +51,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             registry = json.loads(registry_path.read_text(encoding="utf-8"))
             registry["schema_version"] = "factory-registry-v0.1"
             registry["factories"] = [row for row in registry["factories"]
-                                     if row.get("source_type") != "procedural"]
+                                     if row.get("source_type", "hosted") == "hosted"]
             rights_fields = (
                 "provider",
                 "channel",

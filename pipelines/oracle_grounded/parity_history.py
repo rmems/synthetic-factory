@@ -14,6 +14,7 @@ from .envelope import strict_json_equal
 from .import_twins import bind_import_twin
 
 REVIEWED_COMMITS = (
+    '17bca600c0b8fb86bdbaaacddebe8bc34afa6e3c',
     "55cd425dc6aef6609e645fba60b3a89f72659274",
     "0bbeb5e6436f4e30208e5067ee17c5ad676c6003",
     "b2b5366fc94b2d17ea31309210141edf8dcbc696",
@@ -75,6 +76,10 @@ _REVIEWED = (
         _NIR_CATALOG_DIGEST,
         _NIR_ATTESTATION,
     ),
+    (_HARDWARE_GENERATOR, 'sha256:10adc613345266b99469f07324c07b6a7c8bac6189bf1c05d446dc92b4d1f7b8',
+     _HARDWARE_CATALOG_DIGEST, _HARDWARE_ATTESTATION),
+    (_NIR_GENERATOR, 'sha256:1165884bb47c71b68db70b3f49e1d6a1357ae3fc92daebdc74085f54b1142d0a',
+     _NIR_CATALOG_DIGEST, _NIR_ATTESTATION),
 )
 
 

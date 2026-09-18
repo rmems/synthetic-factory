@@ -128,6 +128,12 @@ def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     return list(candidates)
 
 
+def _preserved_identity_detail(entry):
+    if entry.get("record_kind") in {"hardware_parity", "nir_equivalence"}:
+        return {"identity_detail": copy.deepcopy(entry)}
+    return {}
+
+
 def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, Any]:
     source = entry.get("source")
     if not isinstance(source, dict):
@@ -167,6 +173,7 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
         "id_mappings": copy.deepcopy(entry.get("id_mappings")),
         "provenance_mappings": copy.deepcopy(entry.get("provenance_mappings")),
         "manifest_entry_sha256": record_sha256(entry),
+        **_preserved_identity_detail(entry),
     }
 
 

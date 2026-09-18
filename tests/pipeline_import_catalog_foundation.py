@@ -882,6 +882,26 @@ def _package_curate_identity_json() -> ModuleType:
     return module
 
 
+def _direct_curate_parity_policy() -> ModuleType:
+    import curate_parity_policy as module
+    return module
+
+
+def _package_curate_parity_policy() -> ModuleType:
+    import pipelines.curate_parity_policy as module
+    return module
+
+
+def _direct_curate_parity() -> ModuleType:
+    import curate_parity as module
+    return module
+
+
+def _package_curate_parity() -> ModuleType:
+    import pipelines.curate_parity as module
+    return module
+
+
 def _direct_curate_identity_registry() -> ModuleType:
     import curate_identity_registry as module
 
@@ -1212,6 +1232,8 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "operator_paths": (_direct_operator_paths, _package_operator_paths),
     "curate_gate_promotion": (_direct_curate_gate_promotion, _package_curate_gate_promotion),
     "curate_identity_json": (_direct_curate_identity_json, _package_curate_identity_json),
+    "curate_parity_policy": (_direct_curate_parity_policy, _package_curate_parity_policy),
+    "curate_parity": (_direct_curate_parity, _package_curate_parity),
     "curate_identity_registry": (_direct_curate_identity_registry, _package_curate_identity_registry),
     "curate_identity_registry_fields": (_direct_curate_identity_registry_fields, _package_curate_identity_registry_fields),
     "curate_identity_registry_rows": (

@@ -46,6 +46,8 @@ if __package__:
     from .record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
+        PRESERVED_NATIVE_KINDS,
+        DECLARED_KINDS as DECLARED_KINDS,
         classify_kind,
         preference_side_kinds,
     )
@@ -71,6 +73,8 @@ else:
     from record_kind import (
         PREFERENCE_SIDE_KINDS,
         SUPPORTED_RECORD_KINDS,
+        PRESERVED_NATIVE_KINDS,
+        DECLARED_KINDS as DECLARED_KINDS,
         classify_kind,
         preference_side_kinds,
     )
@@ -272,7 +276,7 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
     if original is not None:
         _identity_checks.validate_source_json(original, canonical_source, _identity_check_dependencies())
     if source.source_sha256 is None:
-        preserve_source = original is not None and classify_kind(source.record) == "code_repair"
+        preserve_source = original is not None and classify_kind(source.record) in PRESERVED_NATIVE_KINDS
         original = original if preserve_source else canonical_source
         digest = sha256_bytes(original.encode("utf-8"))
         basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"
@@ -997,6 +1001,15 @@ def _curate_code_repair(original, row, mapping):
     return CurationResult("retained", curated, mapping)
 
 
+def _curate_preserved_record(original, row, mapping, kind):
+    if __package__:
+        from .curate_parity import curate
+    else:
+        from curate_parity import curate
+    curators = {"code_repair": _curate_code_repair, "hardware_parity": curate, "nir_equivalence": curate}
+    return curators[kind](original, row, mapping)
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1037,8 +1050,8 @@ def curate_record(
         )
     elif row is None:
         result = _exclude(mapping, "identity.unknown_factory")
-    elif kind == "code_repair":
-        result = _curate_code_repair(original, row, mapping)
+    elif kind in PRESERVED_NATIVE_KINDS:
+        result = _curate_preserved_record(original, row, mapping, kind)
     else:
         context = _identity_stages.CurationContext(
             original=original,
@@ -1179,7 +1192,8 @@ def _hash_verified_manifest_source(source_meta: Mapping[str, Any], index: int) -
     if hash_basis == "canonical-json-sha256" and original != canonical_json(original_record):
         raise IdentityTreeError(f"{where}.original does not match canonical-json-sha256 basis")
     digest = None if hash_basis == "canonical-json-sha256" else source_sha256
-    return SourceRecord(original_record, source_path, source_line, digest, original)
+    return SourceRecord(original_record, source_path, source_line, digest,
+                        original if hash_basis == "source-json-line-sha256" else None)
 
 
 def _validate_presence_snapshot(snapshot: Any, where: str) -> tuple[bool, Any]:
@@ -1500,7 +1514,7 @@ def _validate_manifest_ids(
 ) -> None:
     expected_result = replay.result
     expected_mapping = expected_result.mapping
-    if expected_mapping.get("record_kind") == "code_repair":
+    if expected_mapping.get("record_kind") in PRESERVED_NATIVE_KINDS:
         _require_canonical_json_equal(mapping, expected_mapping, "procedural identity mapping")
         _require_canonical_json_equal(record, expected_result.record, "preserved oracle envelope")
         return
@@ -1587,7 +1601,7 @@ def _validate_identity_outputs(expected_outputs, actual_paths, registry) -> None
         preserved_sources = {
             line_no: replay.source.original.encode("utf-8")
             for line_no, (_, _, replay) in expected_by_line.items()
-            if replay.result.mapping.get("record_kind") == "code_repair"
+            if replay.result.mapping.get("record_kind") in PRESERVED_NATIVE_KINDS
         }
         actual_by_line = _identity_output.read_identity_output(
             actual_paths[rel], rel, preserved_sources, dependencies)

@@ -13,12 +13,12 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run_context")
-    from .compose_contract import ComposeDecision, LANE_ORDER
+    from .compose_contract import ComposeDecision, EmittedRecord, LANE_ORDER
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run_context"
     )
-    from compose_contract import ComposeDecision, LANE_ORDER
+    from compose_contract import ComposeDecision, EmittedRecord, LANE_ORDER
 
 
 @dataclass(frozen=True)
@@ -92,8 +92,9 @@ class SourceLineContext:
     line_number: int
     source_file_sha256: str
     catalog: Mapping[str, Any] | None
-    emitted: list[str]
+    emitted: list[EmittedRecord]
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+    source_terminator: str = "\n"
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,8 @@ class RetainedLineContext:
     entry: dict[str, Any]
     relative: str
     location: str
-    emitted: list[str]
+    emitted: list[EmittedRecord]
+    source_terminator: str = "\n"
 
 
 @dataclass(frozen=True)
