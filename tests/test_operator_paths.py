@@ -119,14 +119,11 @@ class LeafSafety(unittest.TestCase):
             leaf = Path(td) / "sealed"
             leaf.write_text("keep\n", encoding="utf-8")
             real_lstat = os.lstat
-            hits = {"n": 0}
 
             def lstat(path, *args, **kwargs):
                 target = os.fsdecode(os.fspath(path))
                 if os.path.normpath(target) == os.path.normpath(leaf):
-                    hits["n"] += 1
-                    if hits["n"] >= 2:
-                        raise OSError("cannot inspect")
+                    raise OSError("cannot inspect")
                 return real_lstat(path, *args, **kwargs)
 
             with (

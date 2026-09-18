@@ -95,16 +95,16 @@ def _inspectable_leaf(text: str) -> Path:
 def _refuse_leaf(leaf: Path, argument: str | None) -> None:
     """Refuse a leaf that is a symlink or a special file, before following it."""
 
-    if leaf.is_symlink():
-        if leaf.exists():
-            _refuse(argument, "the path is a symlink")
-        _refuse(argument, "the path is a dangling symlink")
-    if not os.path.lexists(leaf):
-        return
     try:
         mode = os.lstat(leaf).st_mode
+    except FileNotFoundError:
+        return
     except OSError:
         _refuse(argument, "the path cannot be inspected")
+    if stat.S_ISLNK(mode):
+        if os.path.exists(leaf):
+            _refuse(argument, "the path is a symlink")
+        _refuse(argument, "the path is a dangling symlink")
     if _is_special_file(mode):
         _refuse(argument, "the path is a special file")
 
