@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 if __package__:
     from .reward_mapping import (
-        ARITHMETIC_STATUSES,
         COMPONENT_DISPOSITIONS,
         VALUE_TYPES,
-        _SHAPE_STATUS_METHODS,
         _arithmetic_methods_for_signature,
         _mapping_integer,
         _mapping_object,
@@ -19,12 +18,18 @@ if __package__:
         _policy_disposition,
         _policy_error,
     )
+    from .reward_parse import (
+        _add_unique,
+        _require_arithmetic_status_method,
+        _require_named_object,
+        NamedObjectContract,
+        ArithmeticContract,
+        _unknown_members,
+    )
 else:
     from reward_mapping import (
-        ARITHMETIC_STATUSES,
         COMPONENT_DISPOSITIONS,
         VALUE_TYPES,
-        _SHAPE_STATUS_METHODS,
         _arithmetic_methods_for_signature,
         _mapping_integer,
         _mapping_object,
@@ -32,6 +37,14 @@ else:
         _mapping_str_list,
         _policy_disposition,
         _policy_error,
+    )
+    from reward_parse import (
+        _add_unique,
+        _require_arithmetic_status_method,
+        _require_named_object,
+        NamedObjectContract,
+        ArithmeticContract,
+        _unknown_members,
     )
 
 
@@ -39,7 +52,7 @@ def _validate_vocabulary_counts(vocabulary, reward_keys, where):
     vocabulary_where = f"{where}.source_vocabulary"
     _mapping_str(vocabulary, "run", vocabulary_where)
     scope_keys = _mapping_str_list(vocabulary, "scope_keys", vocabulary_where)
-    unknown_scopes = sorted(set(scope_keys) - set(reward_keys))
+    unknown_scopes = _unknown_members(scope_keys, reward_keys)
     if unknown_scopes:
         raise _policy_error(
             vocabulary_where, f"scope_keys names non-reward keys {unknown_scopes}"
@@ -60,17 +73,19 @@ def _validate_vocabulary_counts(vocabulary, reward_keys, where):
 
 def _validate_one_component_key(key, entry, arithmetic, reward_instances, vocabulary_where):
     entry_where = f"{vocabulary_where}.component_keys[{key!r}]"
-    if not isinstance(key, str) or not key:
-        raise _policy_error(vocabulary_where, "component key names must be nonempty")
-    if not isinstance(entry, dict) or not entry:
-        raise _policy_error(entry_where, "entry must be a nonempty object")
+    _require_named_object(
+        key,
+        entry,
+        NamedObjectContract(vocabulary_where, "component key names must be nonempty",
+                            entry_where, "entry must be a nonempty object"),
+    )
     disposition = _mapping_str(entry, "disposition", entry_where)
     if disposition not in COMPONENT_DISPOSITIONS:
         raise _policy_error(
             entry_where, f"unknown component disposition {disposition!r}"
         )
     observed_types = _mapping_str_list(entry, "observed_types", entry_where)
-    unknown_types = sorted(set(observed_types) - VALUE_TYPES)
+    unknown_types = _unknown_members(observed_types, VALUE_TYPES)
     if unknown_types:
         raise _policy_error(
             entry_where, f"unknown observed value types {unknown_types}"
@@ -141,25 +156,17 @@ def _validate_shape_outcome(
         raise _policy_error(where, "outcome must be an object")
     status_key, method_key = _shape_outcome_keys(has_singular)
     status = _mapping_str(outcome, status_key, where)
-    if status not in ARITHMETIC_STATUSES:
-        raise _policy_error(where, f"unknown arithmetic status {status!r}")
     method = _mapping_str(outcome, method_key, where)
-    if method not in arithmetic["methods"]:
-        raise _policy_error(where, f"unknown arithmetic method {method!r}")
-    if method not in allowed_methods:
-        raise _policy_error(
-            where,
-            f"arithmetic method {method!r} is incompatible with signature",
-        )
-    if method not in _SHAPE_STATUS_METHODS.get(status, ()):
-        raise _policy_error(
-            where,
-            f"arithmetic status {status!r} is incompatible with method {method!r}",
-        )
-    pair = (status, method)
-    if pair in seen_outcomes:
-        raise _policy_error(where, "duplicate arithmetic outcome")
-    seen_outcomes.add(pair)
+    _require_arithmetic_status_method(
+        status,
+        method,
+        ArithmeticContract(arithmetic["methods"], where, allowed_methods, True),
+    )
+    _add_unique(
+        (status, method),
+        seen_outcomes,
+        _policy_error(where, "duplicate arithmetic outcome"),
+    )
 
 
 def _validate_one_shape(shape, index, arithmetic, signatures, vocabulary_where):
@@ -169,9 +176,11 @@ def _validate_one_shape(shape, index, arithmetic, signatures, vocabulary_where):
     signature = shape.get("signature")
     if not isinstance(signature, str):
         raise _policy_error(shape_where, "signature must be a string")
-    if signature in signatures:
-        raise _policy_error(shape_where, f"duplicate shape signature {signature!r}")
-    signatures.add(signature)
+    _add_unique(
+        signature,
+        signatures,
+        _policy_error(shape_where, f"duplicate shape signature {signature!r}"),
+    )
     allowed_methods = _arithmetic_methods_for_signature(
         signature, arithmetic, shape_where
     )
@@ -248,15 +257,15 @@ def _validate_vocabulary_arithmetic(vocabulary, arithmetic, reward_instances, vo
         if not isinstance(row, dict):
             raise _policy_error(row_where, "arithmetic census row must be an object")
         status = _mapping_str(row, "status", row_where)
-        if status not in ARITHMETIC_STATUSES:
-            raise _policy_error(row_where, f"unknown arithmetic status {status!r}")
         method = _mapping_str(row, "method", row_where)
-        if method not in arithmetic["methods"]:
-            raise _policy_error(row_where, f"unknown arithmetic method {method!r}")
-        pair = (status, method)
-        if pair in seen_arithmetic:
-            raise _policy_error(row_where, "duplicate arithmetic census row")
-        seen_arithmetic.add(pair)
+        _require_arithmetic_status_method(
+            status, method, ArithmeticContract(arithmetic["methods"], row_where)
+        )
+        _add_unique(
+            (status, method),
+            seen_arithmetic,
+            _policy_error(row_where, "duplicate arithmetic census row"),
+        )
         arithmetic_total += _mapping_integer(
             row, "occurrences", row_where, minimum=1
         )
@@ -304,7 +313,7 @@ def _validate_expected_totals(expected, expected_where, classes, reason_codes, r
             expected_where, "comparability counts must sum to records"
         )
     expected_reasons = _mapping_object(expected, "reason_codes", expected_where)
-    unknown_reasons = sorted(set(expected_reasons) - set(reason_codes))
+    unknown_reasons = _unknown_members(expected_reasons, reason_codes)
     if unknown_reasons:
         raise _policy_error(
             expected_where, f"uncatalogued reason-code counts {unknown_reasons}"
@@ -314,17 +323,25 @@ def _validate_expected_totals(expected, expected_where, classes, reason_codes, r
     return records, comparability, expected_reasons
 
 
+def _require_factory_name(factory, where):
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", factory) is None:
+        raise _policy_error(where, "factory names must match ^[a-z0-9][a-z0-9-]*$")
+
+
 def _validate_factory_entry(factory, entry, expected_where, classes, reason_codes):
     factory_where = f"{expected_where}.by_factory[{factory!r}]"
-    if not isinstance(factory, str) or not factory:
-        raise _policy_error(expected_where, "factory names must be nonempty strings")
-    if not isinstance(entry, dict) or not entry:
-        raise _policy_error(factory_where, "entry must be a nonempty object")
+    _require_named_object(
+        factory,
+        entry,
+        NamedObjectContract(expected_where, "factory names must be nonempty strings",
+                            factory_where, "entry must be a nonempty object"),
+    )
+    _require_factory_name(factory, expected_where)
     entry_records = _mapping_integer(entry, "records", factory_where)
     entry_comparability = _mapping_object(
         entry, "comparability", factory_where
     )
-    unknown_classes = sorted(set(entry_comparability) - set(classes))
+    unknown_classes = _unknown_members(entry_comparability, classes)
     if unknown_classes:
         raise _policy_error(
             factory_where,
@@ -343,9 +360,7 @@ def _validate_factory_entry(factory, entry, expected_where, classes, reason_code
             factory_where, "comparability counts must sum to records"
         )
     entry_reasons = _mapping_object(entry, "reason_codes", factory_where)
-    unknown_factory_reasons = sorted(
-        set(entry_reasons) - set(reason_codes)
-    )
+    unknown_factory_reasons = _unknown_members(entry_reasons, reason_codes)
     if unknown_factory_reasons:
         raise _policy_error(
             factory_where,
