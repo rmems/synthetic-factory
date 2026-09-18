@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
-"""Filesystem and network isolation for the code-repair child.
+"""Landlock allowlist for the code-repair child.
 
-The parent wraps the child with ``unshare --user --map-root-user --mount --net
---propagation private``. This module then applies a Landlock allowlist (working
-directory plus the interpreter/runtime) and names the isolation actually
-applied. It imports nothing of the factory package: the executor copies it next
-to ``_harness.py`` in the child's working directory.
+The parent still confines with ``bwrap-ro-netns-v1``. This module then denies
+host paths the read-only root bind still exposes. It imports nothing of the
+factory package: the executor copies it next to ``_harness.py``.
 """
 
 from __future__ import annotations
 
 import ctypes
 import os
-import socket
-import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
-MECHANISM = "unshare(user,mount,net)+landlock"
-UNSHARE_BIN = "/usr/bin/unshare"
-UNSHARE_FLAGS = ("--user", "--map-root-user", "--mount", "--net", "--propagation", "private")
+MECHANISM = "landlock"
+MIN_ABI = 3
 LANDLOCK_SYSCALLS = {"x86_64": (444, 445, 446), "aarch64": (444, 445, 446)}
 LANDLOCK_CREATE_RULESET_VERSION = 1 << 0
 LANDLOCK_RULE_PATH_BENEATH = 1
@@ -54,12 +49,9 @@ RW_ACCESS = (
     | FS_MAKE_DIR | FS_MAKE_REG | FS_MAKE_SYM
 )
 DEV_NODES = ("/dev/null", "/dev/zero", "/dev/urandom", "/dev/random")
-NET_PROBE = ("203.0.113.1", 1)  # TEST-NET-3; UDP connect sends no packet
+HOST_CANARIES = ("/etc/passwd", "/etc/hosts", "/proc/1/environ")
 
-__all__ = [
-    "MECHANISM", "UNSHARE_BIN", "UNSHARE_FLAGS", "applied", "apply", "token_for",
-    "wrapper_available",
-]
+__all__ = ["MECHANISM", "MIN_ABI", "applied", "apply", "available", "token_for"]
 
 
 class _RulesetAttr(ctypes.Structure):
@@ -83,26 +75,21 @@ def applied(token: object) -> bool:
     if not isinstance(token, str) or not token.startswith(prefix):
         return False
     suffix = token[len(prefix):]
-    return suffix.isdigit() and int(suffix) >= 1
+    return suffix.isdigit() and int(suffix) >= MIN_ABI
 
 
-def wrapper_available() -> bool:
-    """Whether the documented ``unshare`` wrapper can create user/mount/net namespaces."""
+def available() -> bool:
+    """True when this kernel reports a Landlock ABI that mediates truncate."""
 
-    if not os.path.isfile(UNSHARE_BIN) or not os.access(UNSHARE_BIN, os.X_OK):
-        return False
     try:
-        completed = subprocess.run(  # nosec B603
-            [UNSHARE_BIN, *UNSHARE_FLAGS, "true"],
-            timeout=2, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        abi = _landlock_abi()
+    except (OSError, ValueError, AttributeError):
         return False
-    return completed.returncode == 0
+    return abi is not None and abi >= MIN_ABI
 
 
 def apply(workdir: str) -> str | None:
-    """Restrict this process, or return None when any required layer is unavailable."""
+    """Restrict this process, or return None when Landlock cannot be applied."""
 
     try:
         return _apply(os.path.realpath(workdir))
@@ -111,29 +98,14 @@ def apply(workdir: str) -> str | None:
 
 
 def _apply(workdir: str) -> str | None:
-    if not _network_namespace_is_empty():
-        return None
     abi = _landlock_abi()
-    if abi is None:
+    if abi is None or abi < MIN_ABI:
         return None
     if not _restrict_filesystem(workdir, abi):
         return None
     if not _host_paths_are_closed(workdir):
         return None
     return token_for(abi)
-
-
-def _network_namespace_is_empty() -> bool:
-    """UDP connect succeeds on a host stack and fails with ENETUNREACH in an empty netns."""
-
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        probe.connect(NET_PROBE)
-    except OSError:
-        return True
-    finally:
-        probe.close()
-    return False
 
 
 def _libc():
@@ -147,21 +119,14 @@ def _landlock_abi() -> int | None:
     numbers = LANDLOCK_SYSCALLS.get(os.uname().machine)
     if numbers is None:
         return None
-    libc = _libc()
-    version = int(libc.syscall(
+    version = int(_libc().syscall(
         numbers[0], None, ctypes.c_size_t(0), LANDLOCK_CREATE_RULESET_VERSION,
     ))
-    if version < 1:
-        return None
-    return version
+    return version if version >= 1 else None
 
 
 def _handled_rights(abi: int) -> tuple[int, int, int, int]:
-    handled_fs = FS_ABI1
-    if abi >= 2:
-        handled_fs |= FS_REFER
-    if abi >= 3:
-        handled_fs |= FS_TRUNCATE
+    handled_fs = FS_ABI1 | FS_REFER | FS_TRUNCATE
     if abi >= 5:
         handled_fs |= FS_IOCTL_DEV
     handled_net = (NET_BIND_TCP | NET_CONNECT_TCP) if abi >= 4 else 0
@@ -170,54 +135,17 @@ def _handled_rights(abi: int) -> tuple[int, int, int, int]:
     return handled_fs, handled_net, scoped, size
 
 
-def _restrict_filesystem(workdir: str, abi: int) -> bool:
+def _open_ruleset(abi: int) -> tuple[object, int, tuple[int, int, int]] | None:
     numbers = LANDLOCK_SYSCALLS.get(os.uname().machine)
     if numbers is None:
-        return False
+        return None
     libc = _libc()
     handled_fs, handled_net, scoped, size = _handled_rights(abi)
     attr = _RulesetAttr(handled_fs, handled_net, scoped)
     ruleset = int(libc.syscall(numbers[0], ctypes.byref(attr), ctypes.c_size_t(size), 0))
     if ruleset < 0:
-        return False
-    try:
-        ro = (RO_ACCESS | (FS_REFER if abi >= 2 else 0)) & handled_fs
-        rw = (RW_ACCESS | (FS_REFER if abi >= 2 else 0) | (FS_TRUNCATE if abi >= 3 else 0))
-        rw &= handled_fs
-        if not _add_path(libc, numbers[1], ruleset, workdir, rw):
-            return False
-        prefixes = _runtime_prefixes()
-        for prefix in prefixes:
-            if prefix == "/" or not os.path.isdir(prefix):
-                return False
-            if not _add_path(libc, numbers[1], ruleset, prefix, ro):
-                return False
-        dev_access = FS_READ_FILE | (FS_IOCTL_DEV if abi >= 5 else 0)
-        for node in DEV_NODES:
-            if os.path.exists(node) and not _add_path(libc, numbers[1], ruleset, node, dev_access):
-                return False
-        for mapped in _mapped_files():
-            if _beneath(mapped, workdir) or any(_beneath(mapped, prefix) for prefix in prefixes):
-                continue
-            extra = (FS_READ_FILE | FS_EXECUTE | (FS_IOCTL_DEV if abi >= 5 else 0)) & handled_fs
-            _add_path(libc, numbers[1], ruleset, mapped, extra)
-        if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
-            return False
-        return int(libc.syscall(numbers[2], ruleset, 0)) == 0
-    finally:
-        os.close(ruleset)
-
-
-def _add_path(libc, add_rule: int, ruleset: int, path: str, access: int) -> bool:
-    fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
-    try:
-        attr = _PathBeneath(access, fd)
-        rule = libc.syscall(
-            add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, ctypes.byref(attr), 0,
-        )
-        return int(rule) == 0
-    finally:
-        os.close(fd)
+        return None
+    return libc, ruleset, numbers
 
 
 def _runtime_prefixes() -> set[str]:
@@ -228,7 +156,85 @@ def _runtime_prefixes() -> set[str]:
         )
         if path
     }
-    return {path if os.path.isdir(path) else os.path.dirname(path) for path in prefixes}
+    resolved = {path if os.path.isdir(path) else os.path.dirname(path) for path in prefixes}
+    return {path for path in resolved if path and path != "/"}
+
+
+class _ActiveRuleset:
+    libc = None
+    fd = 0
+    add_rule = 0
+    restrict = 0
+    handled_fs = 0
+    ioctl = 0
+
+
+def _bind_ruleset(opened, abi: int) -> _ActiveRuleset:
+    libc, ruleset, numbers = opened
+    active = _ActiveRuleset()
+    active.libc = libc
+    active.fd = ruleset
+    active.add_rule = numbers[1]
+    active.restrict = numbers[2]
+    active.handled_fs = _handled_rights(abi)[0]
+    active.ioctl = FS_IOCTL_DEV if abi >= 5 else 0
+    return active
+
+
+def _add_path(active: _ActiveRuleset, path: str, access: int) -> bool:
+    fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+    try:
+        attr = _PathBeneath(access, fd)
+        rule = active.libc.syscall(
+            active.add_rule, active.fd, LANDLOCK_RULE_PATH_BENEATH, ctypes.byref(attr), 0,
+        )
+        return int(rule) == 0
+    finally:
+        os.close(fd)
+
+
+def _allow_roots(active: _ActiveRuleset, workdir: str) -> bool:
+    ro = (RO_ACCESS | FS_REFER) & active.handled_fs
+    rw = (RW_ACCESS | FS_REFER | FS_TRUNCATE) & active.handled_fs
+    if not _add_path(active, workdir, rw):
+        return False
+    for prefix in _runtime_prefixes():
+        if not os.path.isdir(prefix) or not _add_path(active, prefix, ro):
+            return False
+    return True
+
+
+def _allow_extra_mapped(active: _ActiveRuleset, workdir: str, path: str) -> None:
+    prefixes = _runtime_prefixes()
+    if _beneath(path, workdir) or any(_beneath(path, prefix) for prefix in prefixes):
+        return
+    extra = (FS_READ_FILE | FS_EXECUTE | active.ioctl) & active.handled_fs
+    _add_path(active, path, extra)
+
+
+def _allow_devices_and_maps(active: _ActiveRuleset, workdir: str) -> bool:
+    access = FS_READ_FILE | active.ioctl
+    for node in DEV_NODES:
+        if os.path.exists(node) and not _add_path(active, node, access):
+            return False
+    for mapped in _mapped_files():
+        _allow_extra_mapped(active, workdir, mapped)
+    return True
+
+
+def _restrict_filesystem(workdir: str, abi: int) -> bool:
+    opened = _open_ruleset(abi)
+    if opened is None:
+        return False
+    active = _bind_ruleset(opened, abi)
+    try:
+        if not _allow_roots(active, workdir) or not _allow_devices_and_maps(active, workdir):
+            return False
+        if active.libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+            return False
+        return int(active.libc.syscall(active.restrict, active.fd, 0)) == 0
+    finally:
+        os.close(active.fd)
 
 
 def _mapped_files() -> set[str]:
@@ -252,9 +258,8 @@ def _beneath(path: str, root: str) -> bool:
 def _host_paths_are_closed(workdir: str) -> bool:
     """True when host files cannot be read; ``stat`` is not a Landlock denial."""
 
-    canaries = ("/etc/passwd", "/etc/hosts", "/proc/1/environ")
     denied = False
-    for path in canaries:
+    for path in HOST_CANARIES:
         if not os.path.lexists(path):
             continue
         try:

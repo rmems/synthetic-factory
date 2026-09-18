@@ -281,6 +281,22 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
+def _apply_landlock(workdir: Path, spec: dict) -> str:
+    """Apply the copied Landlock module when the parent required an OS boundary."""
+
+    if not spec.get("require_landlock"):
+        return ""
+    location = importlib.util.spec_from_file_location(
+        "_sandbox", Path(__file__).with_name("_sandbox.py"),
+    )
+    if location is None or location.loader is None:
+        return ""
+    module = importlib.util.module_from_spec(location)
+    location.loader.exec_module(module)
+    token = module.apply(str(workdir))
+    return token if module.applied(token) else ""
+
+
 def _write_limits_attestation(stream, limits_applied: bool) -> None:
     """Out-of-band limits proof on real stdout before ``program.py`` is read."""
 
@@ -310,6 +326,12 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     if not limits_applied:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
         return report
+    if spec.get("require_landlock"):
+        landlock = _apply_landlock(workdir, spec)
+        report["environment"]["landlock"] = landlock
+        if not landlock:
+            report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: landlock"}
+            return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
 
@@ -345,7 +367,7 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
     real_stderr.flush()
     try:
         spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-    except (OSError, TypeError, UnicodeError, ValueError):
+    except (OSError, TypeError, ValueError):
         spec = {}
     limits_applied = _apply_limits(spec)
     _write_limits_attestation(real_stdout, limits_applied)

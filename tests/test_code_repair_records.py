@@ -30,7 +30,8 @@ from code_repair_test_support import (  # noqa: E402
 # Harness protocol v2 (#213): out-of-band limits attestation line before program load.
 # bwrap OS boundary + #200 repr update move the harness fingerprint.
 # Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
-GOLDEN_SHA256 = "ad548000fdd72169f9ea5feba31ed1e70a3aa694efc320606987a63606493f51"
+# Landlock child allowlist on the OS-boundary path changes harness bytes (#339).
+GOLDEN_SHA256 = "2bd8680e305f0a4d4ce42f71b7f6ddad37d9fc6fcf778abd05f1bb820c8f2c59"
 
 
 def accepting_executor():

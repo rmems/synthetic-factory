@@ -28,8 +28,9 @@ import tokenize
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from . import _sandbox as landlock
 from . import harness_report as _harness_report
 from . import sandbox as sb
 from . import vocabulary as cv
@@ -37,6 +38,8 @@ from ._contract import bind_import_twin
 
 HARNESS_FILENAME = "_harness.py"
 HARNESS_PATH = Path(__file__).with_name(HARNESS_FILENAME)
+SANDBOX_FILENAME = "_sandbox.py"
+SANDBOX_PATH = Path(__file__).with_name(SANDBOX_FILENAME)
 INTERPRETER_FLAGS = ("-P", "-s", "-S", "-B", "-X", "utf8")
 CHILD_ENV = {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
 FLOAT_REL_TOL = 1e-9
@@ -49,7 +52,7 @@ REPORT_FD_ENV = _harness_report.REPORT_FD_ENV
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
-    "executor_for", "harness_sha256", "rows_of",
+    "executor_for", "harness_sha256", "landlock_applied", "rows_of",
 ]
 
 
@@ -84,6 +87,10 @@ class PhaseReport:
 
 def harness_sha256() -> str:
     return hashlib.sha256(HARNESS_PATH.read_bytes()).hexdigest()
+
+
+def landlock_applied(token: Any) -> bool:
+    return landlock.applied(token)
 
 
 def rows_of(rows: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -180,6 +187,7 @@ class Executor:
             "cpu_seconds": int(self.timeout_s) + 2,
             "address_space_bytes": cv.ADDRESS_SPACE_MIB * 1024 * 1024,
             "file_size_bytes": cv.FILE_SIZE_KIB * 1024,
+            "require_landlock": self.isolation.is_os_boundary,
         }
 
     def run(self, job: Job) -> PhaseReport:
@@ -190,10 +198,11 @@ class Executor:
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
             (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
-            executed: PhaseReport = replace(
+            (workdir / SANDBOX_FILENAME).write_bytes(SANDBOX_PATH.read_bytes())
+            executed = cast(PhaseReport, replace(
                 self._execute(job, workdir),
                 module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest(),
-            )
+            ))
             return self._stamp_identity(executed)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -203,7 +212,7 @@ class Executor:
 
         environment = dict(report.environment)
         environment["sandbox_identity"] = self.isolation.identity
-        return replace(report, environment=environment)
+        return cast(PhaseReport, replace(report, environment=environment))
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
         """One child run; attestation and JSON are unlinked tempfiles, not workdir paths.
@@ -244,7 +253,10 @@ class Executor:
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            report = _parse_report(job, completed.returncode, stdout, body)
+            report = _parse_report(
+                job, completed.returncode, stdout, body,
+                os_boundary=self.isolation.is_os_boundary,
+            )
         finally:
             if confined is not None:
                 confined.close()
@@ -279,7 +291,10 @@ _limits_attested = _harness_report.limits_attested
 _parsed_report = _harness_report.parsed_report
 
 
-def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -> PhaseReport:
+def _parse_report(
+    job: Job, returncode: int, stdout: bytes, body: bytes = b"", *,
+    os_boundary: bool = False,
+) -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
     Every row the job asked for must be present and well formed: a truncated
@@ -291,6 +306,8 @@ def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -
         return PhaseReport(
             cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
             f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    if returncode != 0 and os_boundary:
+        return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: isolation wrapper failed")
     parsed = _parsed_report(returncode, stdout, body)
     if isinstance(parsed, str):
         return _harness_error(parsed)

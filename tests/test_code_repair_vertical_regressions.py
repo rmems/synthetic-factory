@@ -221,7 +221,11 @@ class VerticalRegressions(unittest.TestCase):
 
     def test_missing_isolation_is_refused_before_more_execution(self):
         fake = FakeExecutor({'original': lambda job: dataclasses.replace(
-            report(rows('public', 1)), environment={'limits_applied': True, 'isolation': ''})})
+            report(rows('public', 1)), environment={
+                'limits_applied': True,
+                'sandbox_identity': 'bwrap-ro-netns-v1',
+                'landlock': '',
+            })})
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaises(cv.RepairRefusal) as raised:
                 generate.run(generate.RunRequest(FIXTURE_CATALOG, Path(root)/'run', SEED, 1, PINNED_AT), fake)
