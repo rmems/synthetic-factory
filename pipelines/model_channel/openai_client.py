@@ -29,6 +29,7 @@ def _split_url(base_url: str) -> tuple[str, str, int, str]:
 def _connection(scheme: str, host: str, port: int, timeout: float):
     if scheme == "https":
         context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         return http.client.HTTPSConnection(host, port, timeout=timeout, context=context)
     return http.client.HTTPConnection(host, port, timeout=timeout)
 

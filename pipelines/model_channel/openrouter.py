@@ -24,7 +24,7 @@ class OpenRouterError(ValueError):
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _is_alias_id(model_id: str) -> bool:

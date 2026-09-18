@@ -21,7 +21,6 @@ from . import source_policy as policy
 from . import vllm as vllm_spec
 
 THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 FORBIDDEN_KEYS = frozenset({
     "thought",
     "chain_of_thought",
@@ -52,7 +51,7 @@ class GenerateError(ValueError):
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _sha256_text(text: str) -> str:
@@ -96,11 +95,19 @@ def _contains_self_certify(value: Any) -> bool:
     return False
 
 
+def _unfence(text: str) -> str:
+    """Read the first complete fence without regex backtracking on model output."""
+    _, opening, tail = text.partition("```")
+    body, closing, _ = tail.partition("```")
+    if not opening or not closing:
+        return text
+    if body[:4].lower() == "json":
+        body = body[4:]
+    return body.strip()
+
+
 def _extract_json_object(content: str) -> dict[str, Any]:
-    text = _strip_think(content)
-    fenced = FENCE_RE.search(text)
-    if fenced is not None:
-        text = fenced.group(1).strip()
+    text = _unfence(_strip_think(content))
     try:
         payload = load_strict_json(text)
     except ValueError as exc:
