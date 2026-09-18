@@ -312,7 +312,7 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
         plants=plants,
     )
     _refuse_identity(catalog)
-    _bind_counts(catalog)
+    _bind_counts(catalog, row)
     return catalog
 
 
@@ -327,7 +327,21 @@ def _refuse_identity(catalog: Catalog) -> None:
         raise CatalogError("catalog source_branch is not origin/legacy-mill-lane")
 
 
-def _bind_counts(catalog: Catalog) -> None:
+def _declared_total(row: Mapping[str, Any], key: str) -> int:
+    return _integer(row[key], f"catalog.{key}")
+
+
+def _contiguous(values: list[int], first: int, context: str, step: int = 1) -> None:
+    if values != list(range(first, first + step * len(values), step)):
+        raise CatalogError(f"{context} rows are not contiguous from {first}")
+
+
+def _unique(values: list[str], context: str) -> None:
+    if len(values) != len(set(values)):
+        raise CatalogError(f"{context} contains duplicate identities")
+
+
+def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
     gql, ssl, sbox = catalog.catalogs
     gql_pairs = [row for row in catalog.pairs if row["kind"] == "gql-pairs"]
     ssl_pairs = [row for row in catalog.pairs if row["kind"] == "ssl-pairs"]
@@ -335,6 +349,20 @@ def _bind_counts(catalog: Catalog) -> None:
         raise CatalogError("pair JSONL counts disagree with leftover6 mill headers")
     if len(catalog.plants) != sbox.n_rows:
         raise CatalogError("plant JSONL count disagrees with leftover6 mill header")
+    expected = {
+        "n_pair_rows_extracted": len(catalog.pairs),
+        "n_pair_rows_committed": len(catalog.pairs),
+        "n_plant_rows_extracted": len(catalog.plants),
+        "n_plant_rows_committed": len(catalog.plants),
+    }
+    for key, actual in expected.items():
+        if _declared_total(header, key) != actual:
+            raise CatalogError(f"catalog.{key} disagrees with loaded rows")
+    _unique([row["slug"] for row in catalog.pairs], "pair JSONL")
+    _unique([row["family"] for row in catalog.plants], "plant JSONL")
+    _contiguous([row["round"] for row in gql_pairs], gql.catalog_first, "gql")
+    _contiguous([row["round"] for row in ssl_pairs], ssl.catalog_first, "ssl")
+    _contiguous([row["inc"] for row in catalog.plants], sbox.catalog_first, "sbox", 4)
     if gql_pairs[0]["slug"] != gql.first_slug or gql_pairs[-1]["slug"] != gql.last_slug:
         raise CatalogError("gql leftover6 slugs drifted from header")
     if ssl_pairs[0]["slug"] != ssl.first_slug or ssl_pairs[-1]["slug"] != ssl.last_slug:
