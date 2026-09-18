@@ -1,0 +1,24 @@
+pipelines/leftover6/catalog_extract.py
+  s_5660553172852b::t_8dfb8a01057581 18,210-212,85-86,21
+  s_5660553172852b::t_c06017c64d796c 74,82-84
+  s_5660553172852b::t_a21dade25014e5 88,93,129,186-189
+  s_5660553172852b::t_c89ee1faa5e102 96-97
+  s_5660553172852b::t_08d66d836000e4 16-17,19,22-23
+  s_5660553172852b::t_bc5879e4f77447 20,24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f90484c03e8b0117f7c24dafacc1fa19795589b5",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
