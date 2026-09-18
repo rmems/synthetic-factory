@@ -52,9 +52,12 @@ def invoke(argv):
 
 
 def _git_show(path: str) -> str | None:
+    executable = shutil.which("git")
+    if executable is None:
+        return None
     try:
         proc = subprocess.run(
-            ["git", "show", f"{LEGACY_REF}:{path}"],
+            [executable, "show", f"{LEGACY_COMMIT}:{path}"],
             cwd=REPO,
             check=False,
             capture_output=True,
@@ -274,21 +277,24 @@ class GeneratePairs(unittest.TestCase):
     def test_existing_destination_is_refused(self):
         dest = self.root / "exists"
         dest.mkdir()
+        request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
         with self.assertRaises(CsvRefusal) as caught:
-            generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+            generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_DESTINATION_EXISTS)
 
     def test_destination_under_raw_is_refused(self):
         dest = self.root / "outputs" / "raw" / "csv-out"
+        request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
         with self.assertRaises(CsvRefusal) as caught:
-            generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+            generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(dest.exists())
 
     def test_generate_requires_exactly_one_selector(self):
         dest = self.root / "none"
+        request = generate.GenerateRequest(FIXTURE, dest)
         with self.assertRaises(CsvRefusal) as caught:
-            generate.run(generate.GenerateRequest(FIXTURE, dest))
+            generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_USAGE)
 
     def test_committed_catalog_all_plants_are_episodes(self):

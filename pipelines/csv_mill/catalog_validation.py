@@ -17,6 +17,7 @@ from ._contract import (
     PAIR_KEYS,
     bind_import_twin,
     load_strict_json,
+    is_integer,
     repo_root,
 )
 
@@ -45,10 +46,14 @@ def _field(mapping: Any, key: str, kind: type, where: str) -> Any:
     if key not in mapping:
         raise CsvRefusal(FINDING_CATALOG_FIELD_MISSING, f"{where}.{key} is missing")
     value = mapping[key]
-    # Exact built-in types prevent bool from satisfying integer pins.
-    if type(value) is not kind:
+    # Booleans cannot satisfy integer pins.
+    if not _field_type_matches(value, kind):
         raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.{key} has the wrong type")
     return value
+
+
+def _field_type_matches(value: Any, kind: type) -> bool:
+    return is_integer(value) if kind is int else isinstance(value, kind)
 
 
 def _require_text(value: Any, where: str, code: str) -> str:
@@ -60,7 +65,7 @@ def _require_text(value: Any, where: str, code: str) -> str:
 
 
 def _require_int(value: Any, minimum: int, where: str, code: str) -> int:
-    if type(value) is not int:
+    if not is_integer(value):
         raise CsvRefusal(code, f"{where} must be an integer >= {minimum}")
     if value < minimum:
         raise CsvRefusal(code, f"{where} must be an integer >= {minimum}")

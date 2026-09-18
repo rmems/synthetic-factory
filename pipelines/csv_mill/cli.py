@@ -33,22 +33,37 @@ class _Parser(argparse.ArgumentParser):
         raise CsvRefusal("USAGE", message)
 
 
+def _shared_arguments() -> argparse.ArgumentParser:
+    common = _Parser(add_help=False)
+    common.add_argument("--catalog", type=Path, default=None)
+    common.add_argument("--json", action="store_true")
+    return common
+
+
+def _generation_arguments(parser: argparse.ArgumentParser) -> None:
+    options = {
+        "--out": {"type": Path, "required": True},
+        "--plant": {"default": None, "help": "exact plant_id (mill_id:slug)"},
+        "--mill": {"default": None, "help": "one mill_id, every plant in order"},
+        "--all": {"action": "store_true", "help": "every plant in the catalog"},
+        "--round": {"type": int, "default": None, "help": "id round; only with --plant"},
+    }
+    for flag, settings in options.items():
+        parser.add_argument(flag, **settings)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="pipelines.csv_mill.cli", description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    check = commands.add_parser("catalog-check", help="load the pinned catalog and verify pins")
-    check.add_argument("--catalog", type=Path, default=None)
-    check.add_argument("--json", action="store_true")
-
-    gen_cmd = commands.add_parser("generate", help="success/handoff pairs into a new directory")
-    gen_cmd.add_argument("--catalog", type=Path, default=None)
-    gen_cmd.add_argument("--out", type=Path, required=True)
-    gen_cmd.add_argument("--plant", default=None, help="exact plant_id (mill_id:slug)")
-    gen_cmd.add_argument("--mill", default=None, help="one mill_id, every plant in order")
-    gen_cmd.add_argument("--all", action="store_true", help="every plant in the catalog")
-    gen_cmd.add_argument("--round", type=int, default=None, help="id round; only with --plant")
-    gen_cmd.add_argument("--json", action="store_true")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    common = _shared_arguments()
+    for name, handler, help_text in (
+        ("catalog-check", _catalog_check, "load the pinned catalog and verify pins"),
+        ("generate", _generate, "success/handoff pairs into a new directory"),
+    ):
+        command = subcommands.add_parser(name, parents=[common], help=help_text)
+        command.set_defaults(handler=handler)
+        if name == "generate":
+            _generation_arguments(command)
     return parser
 
 
@@ -126,10 +141,7 @@ def run(argv: list[str] | None = None) -> int:
     args = argparse.Namespace(json="--json" in argv, command=None)
     try:
         args = parser.parse_args(argv)
-        if args.command == "catalog-check":
-            return _catalog_check(args)
-        if args.command == "generate":
-            return _generate(args)
+        return args.handler(args)
     except CsvRefusal as exc:
         return _refused(args, exc)
     return 2

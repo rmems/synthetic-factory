@@ -74,8 +74,9 @@ class CsvRegressions(unittest.TestCase):
             meta["plants_sha256"] = catalog.sha256_bytes(payload.encode())
             (source / "CATALOG.json").write_text(json.dumps(meta), encoding="utf-8")
             destination = root / "output"
+            request = generate.GenerateRequest(source, destination, all_plants=True)
             with self.assertRaises(CsvRefusal):
-                generate.run(generate.GenerateRequest(source, destination, all_plants=True))
+                generate.run(request)
             self.assertFalse(destination.exists())
 
     def test_parser_failures_in_json_mode_are_structured(self):

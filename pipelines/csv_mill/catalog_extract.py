@@ -121,10 +121,10 @@ def _pair_keys(mapping: dict[str, Any], where: str) -> None:
     expected = set(PAIR_KEYS)
     missing = expected.difference(mapping)
     if missing:
-        raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} missing {sorted(missing)[0]}")
+        raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} missing {min(missing)}")
     extra = set(mapping).difference(expected)
     if extra:
-        raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} has extra {sorted(extra)[0]}")
+        raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} has extra {min(extra)}")
 
 
 def _pair_fields(item: ast.AST, where: str) -> dict[str, str]:

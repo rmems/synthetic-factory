@@ -18,19 +18,27 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 if __name__.startswith("pipelines."):
-    from ..exact_json import ExactJSONFloat, dumps_exact_json
+    from ..exact_json import ExactJSONFloat
+    from .. import exact_json as _exact_json
     from ..mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES
-    from ..oracle_grounded import envelope, refusals
+    from .. import oracle_grounded as _oracle_grounded
+    from ..oracle_grounded import refusals
     from ..oracle_grounded.import_twins import bind_import_twin
-    from ..raw_tree_guard import is_under_raw
+    from .. import raw_tree_guard as _raw_tree_guard
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 else:
-    from exact_json import ExactJSONFloat, dumps_exact_json
+    from exact_json import ExactJSONFloat
+    import exact_json as _exact_json
     from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES
-    from oracle_grounded import envelope, refusals
+    import oracle_grounded as _oracle_grounded
+    from oracle_grounded import refusals
     from oracle_grounded.import_twins import bind_import_twin
-    from raw_tree_guard import is_under_raw
+    import raw_tree_guard as _raw_tree_guard
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
+
+dumps_exact_json = _exact_json.dumps_exact_json
+envelope = _oracle_grounded.envelope
+is_under_raw = _raw_tree_guard.is_under_raw
 
 FAMILY = "csv"
 FACTORY = "csv-excel-ingest-factory"
@@ -159,6 +167,7 @@ __all__ = [name for name in globals() if name.isupper()] + [
     "dumps_exact_json",
     "envelope",
     "is_under_raw",
+    "is_integer",
     "load_strict_json",
     "refuse",
     "refuse_first",
@@ -168,6 +177,11 @@ __all__ = [name for name in globals() if name.isupper()] + [
     "repo_root",
     "shown",
 ]
+
+
+def is_integer(value: object) -> bool:
+    """JSON integer domain, excluding booleans."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def repo_root() -> Path:

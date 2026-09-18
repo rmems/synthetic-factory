@@ -38,6 +38,7 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
+    is_integer,
 )
 
 __all__ = [
@@ -163,7 +164,7 @@ def notes_markdown(rnd: int, plant: cat.Plant) -> str:
 
 def _require_round(value: int | None, default: int) -> int:
     rnd = default if value is None else value
-    if type(rnd) is not int or rnd < 1:
+    if not is_integer(rnd) or rnd < 1:
         raise CsvRefusal(FINDING_ROUND_INVALID, f"round must be a positive int, got {value!r}")
     return rnd
 

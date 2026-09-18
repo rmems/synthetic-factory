@@ -15,8 +15,9 @@ class CsvOutputTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / "run"
             with patch.object(generate, "fail_episode", side_effect=ValueError("injected")):
+                request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
                 with self.assertRaisesRegex(ValueError, "injected"):
-                    generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+                    generate.run(request)
             self.assertEqual(list(Path(temp).iterdir()), [])
             generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
 
@@ -32,8 +33,9 @@ class CsvOutputTransaction(unittest.TestCase):
                     return original(path, *args, **kwargs)
 
                 with patch.object(Path, "write_text", write):
+                    request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
                     with self.assertRaisesRegex(OSError, "injected disk failure"):
-                        generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+                        generate.run(request)
                 self.assertEqual(list(Path(temp).iterdir()), [])
                 generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
                 self.assertEqual(len(list(dest.iterdir())), 3)
@@ -42,8 +44,9 @@ class CsvOutputTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / "run"
             dest.symlink_to("missing")
+            request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
             with self.assertRaises(CsvRefusal) as caught:
-                generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+                generate.run(request)
             self.assertEqual(caught.exception.code, "DESTINATION_EXISTS")
             self.assertEqual(dest.readlink(), Path("missing"))
 
@@ -57,8 +60,9 @@ class CsvOutputTransaction(unittest.TestCase):
                 original(parent, staged, destination)
 
             with patch.object(generate_io, "_publish", publish):
+                request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
                 with self.assertRaises(CsvRefusal) as caught:
-                    generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+                    generate.run(request)
             self.assertEqual(caught.exception.code, "DESTINATION_EXISTS")
             self.assertEqual(list(dest.iterdir()), [])
             self.assertEqual(list(Path(temp).iterdir()), [dest])
@@ -67,6 +71,7 @@ class CsvOutputTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / "run"
             with patch.object(generate_io, "rename_noreplace", side_effect=OSError("injected")):
+                request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
                 with self.assertRaisesRegex(OSError, "injected"):
-                    generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+                    generate.run(request)
             self.assertEqual(list(Path(temp).iterdir()), [])
