@@ -162,6 +162,23 @@ class RunPublication(unittest.TestCase):
             self.assertEqual(list(root.iterdir()), [out])
             self.assertEqual(list(out.iterdir()), [])
 
+    def test_dangling_destination_symlink_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "out"
+            out.symlink_to("missing-directory", target_is_directory=True)
+            with self.assertRaisesRegex(generate.GenerateError, "already exists"):
+                self._write(out)
+            self.assertEqual(out.readlink(), Path("missing-directory"))
+            self.assertEqual(list(root.iterdir()), [out])
+
+    def test_raw_tree_destination_is_refused_before_parent_creation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(generate.GenerateError, "raw tree"):
+                self._write(root / "outputs/raw/factory")
+            self.assertEqual(list(root.iterdir()), [])
+
 
 class OllamaVocabulary(unittest.TestCase):
     def test_vocabulary_only_ollama_routes_cannot_get_training_authorization(self):
