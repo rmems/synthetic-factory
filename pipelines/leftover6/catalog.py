@@ -160,6 +160,16 @@ class Catalog:
         return iter(self.catalogs)
 
 
+@dataclass(frozen=True)
+class BoundSources:
+    gql: MillSource
+    ssl: MillSource
+    sbox: MillSource
+    gql_pairs: list[Mapping[str, Any]]
+    ssl_pairs: list[Mapping[str, Any]]
+    plants: tuple[Mapping[str, Any], ...]
+
+
 def is_vendor_filename(name: str) -> bool:
     if not name.endswith(".py"):
         return False
@@ -350,16 +360,17 @@ def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
     gql, ssl, sbox = catalog.catalogs
     gql_pairs = [row for row in catalog.pairs if row["kind"] == "gql-pairs"]
     ssl_pairs = [row for row in catalog.pairs if row["kind"] == "ssl-pairs"]
-    _validate_source_counts(gql_pairs, ssl_pairs, catalog.plants, gql, ssl, sbox)
+    bound = BoundSources(gql, ssl, sbox, gql_pairs, ssl_pairs, catalog.plants)
+    _validate_source_counts(bound)
     _validate_declared_totals(catalog, header)
-    _validate_unique_and_ordered(gql_pairs, ssl_pairs, catalog.plants, gql, ssl, sbox)
-    _validate_source_bindings(gql_pairs, ssl_pairs, catalog.plants, gql, ssl, sbox)
+    _validate_unique_and_ordered(bound)
+    _validate_source_bindings(bound)
 
 
-def _validate_source_counts(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> None:
-    if len(gql_pairs) != gql.n_rows or len(ssl_pairs) != ssl.n_rows:
+def _validate_source_counts(bound: BoundSources) -> None:
+    if len(bound.gql_pairs) != bound.gql.n_rows or len(bound.ssl_pairs) != bound.ssl.n_rows:
         raise CatalogError("pair JSONL counts disagree with leftover6 mill headers")
-    if len(plants) != sbox.n_rows:
+    if len(bound.plants) != bound.sbox.n_rows:
         raise CatalogError("plant JSONL count disagrees with leftover6 mill header")
 
 
@@ -375,15 +386,22 @@ def _validate_declared_totals(catalog: Catalog, header: Mapping[str, Any]) -> No
             raise CatalogError(f"catalog.{key} disagrees with loaded rows")
 
 
-def _validate_unique_and_ordered(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> None:
-    _unique([row["slug"] for row in [*gql_pairs, *ssl_pairs]], "pair JSONL")
-    _unique([row["family"] for row in plants], "plant JSONL")
-    _contiguous([row["round"] for row in gql_pairs], gql.catalog_first, "gql")
-    _contiguous([row["round"] for row in ssl_pairs], ssl.catalog_first, "ssl")
-    _contiguous([row["inc"] for row in plants], sbox.catalog_first, "sbox", 4)
+def _validate_unique_and_ordered(bound: BoundSources) -> None:
+    _unique([row["slug"] for row in [*bound.gql_pairs, *bound.ssl_pairs]], "pair JSONL")
+    _unique([row["family"] for row in bound.plants], "plant JSONL")
+    _contiguous([row["round"] for row in bound.gql_pairs], bound.gql.catalog_first, "gql")
+    _contiguous([row["round"] for row in bound.ssl_pairs], bound.ssl.catalog_first, "ssl")
+    _contiguous([row["inc"] for row in bound.plants], bound.sbox.catalog_first, "sbox", 4)
 
 
-def _validate_source_bindings(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> None:
+def _validate_source_bindings(bound: BoundSources) -> None:
+    _validate_endpoints(bound)
+    _validate_row_sources(bound)
+
+
+def _validate_endpoints(bound: BoundSources) -> None:
+    gql_pairs, ssl_pairs, plants = bound.gql_pairs, bound.ssl_pairs, bound.plants
+    gql, ssl, sbox = bound.gql, bound.ssl, bound.sbox
     if gql_pairs[0]["slug"] != gql.first_slug or gql_pairs[-1]["slug"] != gql.last_slug:
         raise CatalogError("gql leftover6 slugs drifted from header")
     if ssl_pairs[0]["slug"] != ssl.first_slug or ssl_pairs[-1]["slug"] != ssl.last_slug:
@@ -392,6 +410,9 @@ def _validate_source_bindings(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> N
         raise CatalogError("sbox leftover6 first plant drifted from header")
     if plants[-1]["family"] != sbox.last_slug:
         raise CatalogError("sbox leftover6 last plant drifted from header")
+def _validate_row_sources(bound: BoundSources) -> None:
+    gql_pairs, ssl_pairs, plants = bound.gql_pairs, bound.ssl_pairs, bound.plants
+    gql, ssl, sbox = bound.gql, bound.ssl, bound.sbox
     if any(row["source_path"] != gql.source_path for row in gql_pairs):
         raise CatalogError("gql leftover6 pair source_path drifted")
     if any(row["source_path"] != ssl.source_path for row in ssl_pairs):
