@@ -1,0 +1,30 @@
+pipelines/leftover6/_contract.py
+  s_5660553172852b::t_8dfb8a01057581 1-31
+pipelines/leftover6/catalog_extract.py
+  s_5660553172852b::t_8dfb8a01057581 17-18,145-150,165-166,169-172,174,332-334
+  s_5660553172852b::t_4cde50f2c98595 167-168,173
+tests/test_leftover6.py
+  s_5660553172852b::t_b0c27caec8efb9 9,181-203
+  s_5660553172852b::t_ea6477feb628ed 27,29,176-180,204,244-285
+pipelines/leftover6/__init__.py
+  s_5660553172852b::t_8dfb8a01057581 10,40-42
+pipelines/leftover6/catalog.py
+  s_5660553172852b::t_ea6477feb628ed 11,421-423
+  s_5660553172852b::t_8dfb8a01057581 216-217,223-224,226,232,234,238-239,267-268,271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4b879530857da13aee5039592a72542c460b16b5",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
