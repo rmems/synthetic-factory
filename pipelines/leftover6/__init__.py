@@ -7,6 +7,7 @@ already have reviewed homes. leftover6 itself is not added to
 are never executed.
 """
 
+from ._contract import bind_import_twin
 from .catalog import (
     CATALOG,
     CATALOG_DIR,
@@ -36,3 +37,6 @@ __all__ = [
     "load_catalog",
     "refuse_vendor_paths",
 ]
+
+
+bind_import_twin(__name__)

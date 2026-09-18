@@ -12,8 +12,9 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
+
+from ._contract import bind_import_twin
 
 UNSET = object()
 
@@ -141,7 +142,12 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
         value = literal_value(value_node, env)
         if key is UNSET or value is UNSET:
             return UNSET
-        out[key] = value
+        try:
+            if key in out:
+                return UNSET
+            out[key] = value
+        except TypeError:
+            return UNSET
     return out
 
 
@@ -156,8 +162,16 @@ def _literal_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
 def _dict_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if node.args or any(keyword.arg is None for keyword in node.keywords):
         return UNSET
-    values = {keyword.arg: literal_value(keyword.value, env) for keyword in node.keywords}
-    return UNSET if any(value is UNSET for value in values.values()) else values
+    values: dict[str, Any] = {}
+    for keyword in node.keywords:
+        name = keyword.arg
+        if name is None or name in values:
+            return UNSET
+        value = literal_value(keyword.value, env)
+        if value is UNSET:
+            return UNSET
+        values[name] = value
+    return values
 
 
 def _row_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
@@ -315,3 +329,6 @@ def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
 
 def dumps_header(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+bind_import_twin(__name__)

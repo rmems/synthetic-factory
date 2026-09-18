@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +24,9 @@ from pipelines.leftover6.catalog_extract import (
     GQL_PATH,
     SBOX_PATH,
     SSL_PATH,
+    UNSET,
     dumps_jsonl,
+    literal_value,
 )
 from pipelines.mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES
 
@@ -170,6 +173,35 @@ class Leftover6CatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             extract_source(source, path="experiments/mill_gql_leftover6_r260.py")
 
+    def test_extractor_refuses_duplicate_keywords_and_unhashable_mapping_keys(self):
+        duplicate_keywords = ast.parse("dict(slug='first', slug='second')").body[0].value
+        unhashable_key = ast.parse("{['key']: 'value'}").body[0].value
+        self.assertIs(literal_value(duplicate_keywords), UNSET)
+        self.assertIs(literal_value(unhashable_key), UNSET)
+
+    def test_catalog_modules_keep_direct_and_packaged_import_identity(self):
+        program = """
+import importlib
+import sys
+from pathlib import Path
+root = Path.cwd()
+sys.path.insert(0, str(root / 'pipelines'))
+first = importlib.import_module(sys.argv[1])
+second = importlib.import_module(sys.argv[2])
+if first is not second or first.CatalogError is not second.CatalogError:
+    raise SystemExit('leftover6 import identity diverged')
+"""
+        for first, second in (
+            ("leftover6.catalog", "pipelines.leftover6.catalog"),
+            ("pipelines.leftover6.catalog", "leftover6.catalog"),
+        ):
+            with self.subTest(first=first):
+                subprocess.run(
+                    [sys.executable, "-c", program, first, second],
+                    cwd=ROOT,
+                    check=True,
+                )
+
     def test_jsonl_stays_compact(self):
         for path, expected in ((PAIRS_JSONL, 32), (PLANTS_JSONL, 65)):
             text = path.read_text(encoding="utf-8")
@@ -208,6 +240,49 @@ class Leftover6CatalogTests(unittest.TestCase):
             (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
             with self.assertRaisesRegex(CatalogError, "round must be an integer"):
                 load_catalog(dest)
+
+    def test_loader_refuses_a_non_string_pair_kind(self):
+        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
+        rows = [json.loads(line) for line in PAIRS_JSONL.read_text(encoding="utf-8").splitlines()]
+        rows[0]["kind"] = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+            (dest / "pairs.jsonl").write_text(dumps_jsonl(rows), encoding="utf-8")
+            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(CatalogError, "kind is not a leftover6 pair"):
+                load_catalog(dest)
+
+    def test_loader_refuses_duplicate_json_keys_and_non_lf_framing(self):
+        header = CATALOG_JSON.read_bytes()
+        pairs = PAIRS_JSONL.read_bytes()
+        plants = PLANTS_JSONL.read_bytes()
+        duplicate = pairs.replace(b'"kind":"gql-pairs"', b'"kind":"gql-pairs","kind":"gql-pairs"', 1)
+        for label, candidate, expected in (
+            ("duplicate", duplicate, "duplicate JSON object key"),
+            ("crlf", pairs.replace(b"\n", b"\r\n"), "carriage returns"),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
+                dest = Path(temp_dir)
+                (dest / "CATALOG.json").write_bytes(header)
+                (dest / "pairs.jsonl").write_bytes(candidate)
+                (dest / "plants.jsonl").write_bytes(plants)
+                with self.assertRaisesRegex(CatalogError, expected):
+                    load_catalog(dest)
+
+    def test_loader_keeps_unicode_line_separator_inside_a_json_string(self):
+        header = CATALOG_JSON.read_bytes()
+        pairs = PAIRS_JSONL.read_bytes().replace(
+            b'"fail":"dl-drop-cachekey-handoff"',
+            b'"fail":"dl-drop\\u2028cachekey-handoff"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_bytes(header)
+            (dest / "pairs.jsonl").write_bytes(pairs)
+            (dest / "plants.jsonl").write_bytes(PLANTS_JSONL.read_bytes())
+            self.assertEqual(load_catalog(dest).pairs[0]["fail"], "dl-drop\u2028cachekey-handoff")
 
     def test_loader_refuses_stale_declared_totals(self):
         header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))

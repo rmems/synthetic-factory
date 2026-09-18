@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._contract import bind_import_twin, load_strict_json, strict_lf_jsonl_lines
 from .catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH
 
 CATALOG_DIR = Path(__file__).resolve().parents[2] / "config" / "leftover6"
@@ -213,38 +213,30 @@ def _integer(value: Any, context: str, *, minimum: int = 0) -> int:
 
 def _load_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        return load_strict_json(path.read_bytes())
+    except (OSError, ValueError) as exc:
         raise CatalogError(f"cannot load leftover6 catalog {path}: {exc}") from exc
 
 
 def _load_jsonl(path: Path) -> list[Any]:
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+        lines = strict_lf_jsonl_lines(path.read_bytes(), path.name)
+    except (OSError, ValueError) as exc:
         raise CatalogError(f"cannot load leftover6 catalog {path}: {exc}") from exc
-    _require_jsonl_frame(path, text)
-    rows = _jsonl_rows(path, text)
+    rows = _jsonl_rows(path, lines)
     if not rows:
         raise CatalogError(f"{path.name} must contain at least one row")
     return rows
 
 
-def _require_jsonl_frame(path: Path, text: str) -> None:
-    if "\r" in text or not text.endswith("\n"):
-        raise CatalogError(f"{path.name} must be LF-framed jsonl")
-
-
-def _jsonl_rows(path: Path, text: str) -> list[Any]:
+def _jsonl_rows(path: Path, lines: list[str]) -> list[Any]:
     rows: list[Any] = []
-    for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise CatalogError(f"{path.name}:{index} is empty")
+    for index, line in enumerate(lines, start=1):
         if line.startswith((" ", "\t")):
             raise CatalogError(f"{path.name}:{index} is not compact")
         try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError as exc:
+            rows.append(load_strict_json(line))
+        except ValueError as exc:
             raise CatalogError(f"{path.name}:{index} is not JSON: {exc}") from exc
     return rows
 
@@ -272,9 +264,11 @@ def _pair_row(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, dict) or "kind" not in value:
         raise CatalogError(f"{context} must be a leftover6 pair object")
     kind = value["kind"]
-    keys = _GQL_ROW_KEYS if kind == "gql-pairs" else _SSL_ROW_KEYS
+    if not isinstance(kind, str):
+        raise CatalogError(f"{context} kind is not a leftover6 pair")
     if kind not in {"gql-pairs", "ssl-pairs"}:
         raise CatalogError(f"{context} kind is not a leftover6 pair")
+    keys = _GQL_ROW_KEYS if kind == "gql-pairs" else _SSL_ROW_KEYS
     return _typed_row(_mapping(value, context, keys), context, {"round": 0, "novel": 1})
 
 
@@ -424,3 +418,6 @@ def _source_rows(rows, source, label: str) -> None:
 
 
 CATALOG = load_catalog()
+
+
+bind_import_twin(__name__)
