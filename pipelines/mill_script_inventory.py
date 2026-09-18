@@ -182,7 +182,7 @@ def _from_import_targets(node: ast.ImportFrom) -> tuple[str, ...]:
     names = tuple(alias.name for alias in node.names)
     if node.module is None:
         return names
-    return (node.module, *names, *(f"{node.module}.{name}" for name in names))
+    return node.module, *names, *(f"{node.module}.{name}" for name in names)
 
 
 def _assignment_alias_names(node: ast.AST, functions: set[str]) -> tuple[str, ...]:
@@ -307,7 +307,7 @@ def qlty_exclude_patterns(root: Path | None = None) -> tuple[str, ...]:
     patterns = document.get("exclude_patterns", [])
     if not isinstance(patterns, list):
         raise MillScriptInventoryError("Qlty exclude_patterns must be an array")
-    return tuple(_schema._require_str(pattern, "exclude_patterns") for pattern in patterns)
+    return tuple(_schema.require_str(pattern, "exclude_patterns") for pattern in patterns)
 
 
 def _gitignore_evidence(
