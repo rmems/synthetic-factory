@@ -35,6 +35,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("oracle_validate")
+    from . import oracle_validate_tree as _oracle_validate_tree
     from . import oracle_validate_manifest as _oracle_validate_manifest
     from . import oracle_validate_manifest_records as _oracle_validate_manifest_records
     from .oracle_grounded import canon as canon, families, oracles, record
@@ -43,6 +44,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "oracle_validate"
     )
+    import oracle_validate_tree as _oracle_validate_tree
     import oracle_validate_manifest as _oracle_validate_manifest
     import oracle_validate_manifest_records as _oracle_validate_manifest_records
     from oracle_grounded import canon as canon, families, oracles, record
@@ -296,116 +298,23 @@ class _RunTreeWalk:
 
 
 def _record_regular_file(entry_stat, relative, walk):
-    """Record one regular file. True when a run-wide limit halts the walk."""
-    if entry_stat.st_nlink != 1:
-        walk.report(relative, "hard-linked files are not allowed in a run")
-    walk.files[relative] = (walk.root / relative, entry_stat)
-    walk.bytes_seen += entry_stat.st_size
-    if walk.bytes_seen > MAX_RUN_BYTES:
-        walk.errors.append(f"{walk.root}: run exceeds the {MAX_RUN_BYTES}-byte snapshot limit")
-        return True
-    if len(walk.files) > MAX_RUN_FILES:
-        walk.errors.append(f"{walk.root}: run contains more than {MAX_RUN_FILES} files")
-        return True
-    return False
+    return _oracle_validate_tree.RunTreeChecks(sys.modules[__name__])._record_regular_file(entry_stat, relative, walk)
 
 
 def _push_subdirectory(entry, entry_stat, relative_path, walk):
-    """Open a child directory without following links and queue it."""
-    relative = relative_path.as_posix()
-    if len(relative_path.parts) > MAX_RUN_DEPTH:
-        walk.report(relative, f"run nesting exceeds {MAX_RUN_DEPTH} directories")
-        return
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    try:
-        child_fd = os.open(entry.name, flags, dir_fd=walk.directory_fd)
-        child_stat = os.fstat(child_fd)
-    except OSError as exc:
-        walk.report(relative, f"could not open directory safely: {type(exc).__name__}")
-        return
-    if (child_stat.st_dev, child_stat.st_ino) != (entry_stat.st_dev, entry_stat.st_ino):
-        os.close(child_fd)
-        walk.report(relative, "directory changed during enumeration")
-        return
-    walk.stack.append((relative_path, child_fd))
+    return _oracle_validate_tree.RunTreeChecks(sys.modules[__name__])._push_subdirectory(entry, entry_stat, relative_path, walk)
 
 
 def _scan_entry(entry, relative_path, walk):
-    """Classify one directory entry. True when a run-wide limit halts the walk."""
-    relative = relative_path.as_posix()
-    try:
-        entry_stat = entry.stat(follow_symlinks=False)
-    except OSError as exc:
-        walk.report(relative, f"could not inspect entry: {type(exc).__name__}")
-        return False
-    if stat.S_ISLNK(entry_stat.st_mode):
-        walk.report(relative, "symbolic links are not allowed in a run")
-        return False
-    if stat.S_ISDIR(entry_stat.st_mode):
-        _push_subdirectory(entry, entry_stat, relative_path, walk)
-        return False
-    if stat.S_ISREG(entry_stat.st_mode):
-        return _record_regular_file(entry_stat, relative, walk)
-    walk.report(relative, "only regular files and directories are allowed")
-    return False
+    return _oracle_validate_tree.RunTreeChecks(sys.modules[__name__])._scan_entry(entry, relative_path, walk)
 
 
 def _scan_directory(prefix, directory_fd, walk):
-    """Scan one directory level. True when a run-wide limit halts the walk."""
-    walk.directory_fd = directory_fd
-    # Enforce the entry cap while draining the iterator: sorting first would
-    # materialize an untrusted directory of arbitrary size before the cap
-    # could refuse it, so the walk never holds more than the cap allows.
-    entries = []
-    with os.scandir(directory_fd) as iterator:
-        for entry in iterator:
-            walk.entries_seen += 1
-            if walk.entries_seen > MAX_RUN_ENTRIES:
-                walk.errors.append(
-                    f"{walk.root}: run contains more than {MAX_RUN_ENTRIES} entries"
-                )
-                return True
-            entries.append(entry)
-    entries.sort(key=lambda entry: entry.name)
-    for entry in entries:
-        if _scan_entry(entry, prefix / entry.name, walk):
-            return True
-    return False
+    return _oracle_validate_tree.RunTreeChecks(sys.modules[__name__])._scan_directory(prefix, directory_fd, walk)
 
 
 def _enumerate_run_files(run_dir, root_fd):
-    """List one opened run tree without following directory links."""
-    walk = _RunTreeWalk(root=Path(run_dir))
-    # A duplicated fd shares the directory stream/cache of the first scan.
-    # Reopen the same pinned inode for a fresh enumeration after mutations.
-    try:
-        fresh_root = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=root_fd)
-    except OSError as exc:
-        return {}, [f"{run_dir}: could not reopen pinned directory: {type(exc).__name__}"]
-    walk.stack.append((PurePosixPath(), fresh_root))
-    try:
-        while walk.stack:
-            prefix, directory_fd = walk.stack.pop()
-            halted = False
-            try:
-                halted = _scan_directory(prefix, directory_fd, walk)
-            except OSError as exc:
-                walk.errors.append(
-                    f"{walk.root / prefix}: could not enumerate directory: {type(exc).__name__}"
-                )
-            finally:
-                os.close(directory_fd)
-            if halted:
-                return walk.files, walk.errors
-    finally:
-        for _prefix, descriptor in walk.stack:
-            os.close(descriptor)
-    return walk.files, walk.errors
+    return _oracle_validate_tree.RunTreeChecks(sys.modules[__name__])._enumerate_run_files(run_dir, root_fd)
 
 
 def _open_run_root(run_dir):
