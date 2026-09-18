@@ -198,6 +198,30 @@ class LeafSafety(unittest.TestCase):
                 operator_path(spelling, argument="input")
             self.assertEqual(str(raised.exception), "input: the path is a special file")
 
+    def test_terminal_dotdot_cannot_hide_a_directory_symlink(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "target"
+            target.mkdir()
+            alias = root / "alias"
+            alias.symlink_to(target, target_is_directory=True)
+            for suffix in ("/missing/..", "/missing/../", "/missing/../."):
+                with self.subTest(suffix=suffix), self.assertRaises(argparse.ArgumentTypeError):
+                    operator_path(str(alias) + suffix, argument="--run-dir")
+            self.assertEqual(operator_path(str(target) + "/missing/.."), target)
+
+    def test_terminal_dot_preserves_interior_symlink_parent_resolution(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "target"
+            (target / "deep").mkdir(parents=True)
+            (root / "real").mkdir()
+            (root / "alias").symlink_to(target / "deep", target_is_directory=True)
+            (target / "leaf").symlink_to(root / "real", target_is_directory=True)
+            for suffix in ("/", "/."):
+                with self.subTest(suffix=suffix), self.assertRaises(argparse.ArgumentTypeError):
+                    operator_path(str(root / "alias" / ".." / "leaf") + suffix)
+
     def test_a_new_destination_under_temp_still_resolves(self):
         with tempfile.TemporaryDirectory() as td:
             destination = Path(td) / "new.jsonl"

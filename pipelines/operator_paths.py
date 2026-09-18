@@ -79,17 +79,29 @@ def _is_special_file(mode: int) -> bool:
 def _inspectable_leaf(text: str) -> Path:
     """The leaf ``realpath`` binds, without following a final symlink.
 
-    Kernel ``lstat`` of the typed spelling fails closed when a component
-    before ``..`` is missing, but ``os.path.realpath`` still pops that
-    spelling onto the real leaf. Lexical ``normpath`` pops ``..`` without
-    walking a symlink parent, so resolve the parent first, then inspect the
-    joined name.
+    Collapse terminal separators and dot components so an absent prefix
+    cannot hide the effective leaf. For an ordinary named leaf, resolve
+    its parent first: a symlink before an interior ``..`` changes which
+    directory contains the leaf.
     """
 
-    parent, name = os.path.split(text)
-    if not name or name in (os.curdir, os.pardir):
-        return Path(text)
+    parent, name = os.path.split(_without_terminal_dots(text))
     return Path(os.path.join(os.path.realpath(parent), name))
+
+
+def _without_terminal_dots(text: str) -> str:
+    """Remove only the terminal syntax; interior symlink parents stay intact."""
+    while True:
+        text = text.rstrip(os.sep) or os.sep
+        parent, name = os.path.split(text)
+        if name == os.curdir and parent:
+            text = parent
+            continue
+        prefix, previous = os.path.split(parent)
+        if name == os.pardir and previous not in ("", os.curdir, os.pardir):
+            text = prefix or os.curdir
+            continue
+        return text
 
 
 def _refuse_leaf(leaf: Path, argument: str | None) -> None:
