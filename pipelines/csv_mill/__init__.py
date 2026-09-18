@@ -18,6 +18,7 @@ __all__ = [
     "catalog_validation",
     "cli",
     "generate",
+    "generate_io",
     "steps",
     "steps_templates",
 ]

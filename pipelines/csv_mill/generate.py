@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog as cat
+from .generate_io import write_run_files
 from .steps import make_steps
 from .steps_templates import EPISODES
 from ._contract import (
@@ -183,7 +184,7 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
 def _check_destination(out_dir: Path) -> None:
     if is_under_raw(out_dir):
         raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, f"{out_dir} names or aliases the raw tree")
-    if out_dir.exists():
+    if out_dir.exists() or out_dir.is_symlink():
         raise CsvRefusal(FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
 
 
@@ -194,7 +195,6 @@ def run(request: GenerateRequest) -> dict[str, Any]:
     loaded = cat.load_catalog(request.catalog_dir)
     jobs = _jobs(loaded, request)
     out_dir = Path(request.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=False)
     records: list[dict[str, Any]] = []
     note_chunks: list[str] = []
     for rnd, plant in jobs:
@@ -203,10 +203,7 @@ def run(request: GenerateRequest) -> dict[str, Any]:
         note_chunks.append(notes_markdown(rnd, plant))
     lines = [dumps_exact_json(record, ensure_ascii=False, sort_keys=True) for record in records]
     records_text = "\n".join(lines) + "\n"
-    records_path = out_dir / RECORDS_FILENAME
-    records_path.write_text(records_text, encoding="utf-8")
     notes_text = "\n".join(note_chunks)
-    (out_dir / NOTES_FILENAME).write_text(notes_text, encoding="utf-8")
     summary = {
         "format": RUN_FORMAT,
         "catalog_id": loaded.catalog_id,
@@ -219,10 +216,11 @@ def run(request: GenerateRequest) -> dict[str, Any]:
         "records_sha256": hashlib.sha256(records_text.encode("utf-8")).hexdigest(),
         "destination": str(out_dir),
     }
-    (out_dir / RUN_FILENAME).write_text(
-        dumps_exact_json(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_run_files(out_dir, {
+        RECORDS_FILENAME: records_text,
+        NOTES_FILENAME: notes_text,
+        RUN_FILENAME: dumps_exact_json(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    })
     return summary
 
 

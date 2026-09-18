@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+from itertools import product
 import json
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
@@ -19,17 +20,18 @@ from tests.test_csv import COMMITTED, TINY_PAIR, _dict_source
 
 class CsvRegressions(unittest.TestCase):
     def test_both_import_orders_preserve_stdlib_and_bind_every_sibling(self):
-        for first in ("csv_mill", "pipelines.csv_mill"):
+        for first, preload in product(("csv_mill", "pipelines.csv_mill"), (False, True)):
             with (
-                self.subTest(first=first),
+                self.subTest(first=first, preload=preload),
                 ProcessPoolExecutor(
                     max_workers=1, mp_context=multiprocessing.get_context("spawn")
                 ) as pool,
             ):
-                report = pool.submit(csv_import_probe.probe, first).result(timeout=120)
+                report = pool.submit(csv_import_probe.probe, first, preload).result(timeout=120)
                 self.assertEqual(report["rows"], [["a", "b"]])
                 self.assertEqual(report["split_modules"], [])
                 self.assertTrue(report["same_package"])
+                self.assertTrue(report["same_stdlib"])
                 self.assertEqual(report["exports"], sorted(csv_import_probe.MODULES))
 
     def test_repeated_source_keyword_is_refused(self):

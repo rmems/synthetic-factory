@@ -13,6 +13,7 @@ MODULES = (
     "catalog_validation",
     "cli",
     "generate",
+    "generate_io",
     "steps",
     "steps_templates",
 )
@@ -25,9 +26,10 @@ def _forget_family() -> None:
             del sys.modules[name]
 
 
-def probe(first: str) -> dict:
+def probe(first: str, preload_stdlib: bool = False) -> dict:
     repo = Path(__file__).resolve().parents[1]
     _forget_family()
+    original_csv = importlib.import_module("csv") if preload_stdlib else None
     sys.path[:0] = [str(repo / "pipelines"), str(repo)]
     second = "csv_mill" if first == "pipelines.csv_mill" else "pipelines.csv_mill"
     packages = [importlib.import_module(prefix) for prefix in (first, second)]
@@ -39,6 +41,7 @@ def probe(first: str) -> dict:
     ]
     csv = importlib.import_module("csv")
     return {
+        "same_stdlib": original_csv is None or csv is original_csv,
         "rows": list(csv.reader(["a,b"])),
         "split_modules": split,
         "same_package": packages[0] is packages[1],
