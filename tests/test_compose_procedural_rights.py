@@ -109,11 +109,13 @@ class CompletedProceduralRights(unittest.TestCase):
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             curated = root / "curated"
             summary = compose_curated.compose_run(factory, curated)
-            audit = summary["audit"]
-            self.assertTrue(audit["training_ready"], audit["blockers"])
+            self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
+            report = training_audit.audit_run(curated / "records", completion_source=factory)
+            self.assertTrue(report["training_ready"], report["blockers"])
+            self.assertGreater(report["code_repair"]["records"], 0)
             self.assertEqual(
-                audit["code_repair"]["completed_records"],
-                audit["code_repair"]["records"],
+                report["code_repair"]["completed_records"],
+                report["code_repair"]["records"],
             )
             exported = export_hf.export_run(curated, root / "export")
             self.assertTrue(exported["training_ready"])
