@@ -1127,15 +1127,34 @@ def _is_authoritative_teacher_grounded(oracle: Any, result: Any) -> bool:
     )
 
 
-def _claims_transformers_or_sealed_moe(oracle: Any, fingerprint: Any) -> bool:
-    """TransformersMoERouter implementation or a sealed Hub MoE card model."""
+def _claims_transformers(oracle: Any) -> bool:
+    """Either known producer field keeps the Transformers contract active."""
 
-    if (
-        isinstance(oracle, dict)
-        and oracle.get("implementation") == TRANSFORMERS_MOE_IMPLEMENTATION
-    ):
-        return True
-    return _sealed_hub_card(fingerprint) is not None
+    return isinstance(oracle, dict) and (
+        oracle.get("name") == TransformersMoERouter.name
+        or oracle.get("implementation") == TRANSFORMERS_MOE_IMPLEMENTATION
+    )
+
+
+def _claims_transformers_or_sealed_moe(oracle: Any, fingerprint: Any) -> bool:
+    """A Transformers producer identity or a sealed Hub MoE card model."""
+
+    return _claims_transformers(oracle) or _sealed_hub_card(fingerprint) is not None
+
+
+def _check_transformers_identity(oracle: Any, where: str) -> list[str]:
+    """Known producer claims must retain their implementation and oracle type."""
+
+    if not _claims_transformers(oracle):
+        return []
+    return [
+        f"{where}.oracle.{field}: TRANSFORMERS_IDENTITY_MISMATCH — expected {expected!r}"
+        for field, expected in (
+            ("implementation", TRANSFORMERS_MOE_IMPLEMENTATION),
+            ("type", TransformersMoERouter.oracle_type),
+        )
+        if oracle.get(field) != expected
+    ]
 
 
 def _check_authoritative_checkpoint(
@@ -1262,8 +1281,10 @@ def _check_teacher_fingerprint(oracle: Any, fingerprint: Any, where: str) -> lis
             f"{where}.oracle.fingerprint must record the teacher model, checkpoint "
             "and configuration"
         ]
-    return _check_fingerprint_identity(fingerprint, where) + _check_laundered_oracle(
-        oracle, fingerprint, where
+    return (
+        _check_fingerprint_identity(fingerprint, where)
+        + _check_laundered_oracle(oracle, fingerprint, where)
+        + _check_transformers_identity(oracle, where)
     )
 
 
