@@ -2,6 +2,7 @@
 
 import ast
 import copy
+import hashlib
 import unittest
 
 from pipelines.leftover6.catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH, extract_source
@@ -44,10 +45,49 @@ def _sbox_increment_source(increment):
 
 
 class LiteralCatalogExtract(unittest.TestCase):
+    def test_blob_identity_does_not_trust_custom_equality(self):
+        class ForgedBlob(str):
+            def __eq__(self, other):
+                return True
+
+        class ForgedObject:
+            __eq__ = ForgedBlob.__eq__
+
+        for blob in (ForgedBlob('forged-git-identity'), ForgedObject()):
+            with self.subTest(kind=type(blob)), self.assertRaisesRegex(ValueError, 'blob'):
+                extract_source(SSL_SOURCE, path=SSL_PATH, blob_sha=blob)
+
+    def test_supplied_blob_identity_must_match_exact_utf8_source(self):
+        source = SSL_SOURCE + '\n# caf\u00e9\n'
+        payload = source.encode('utf-8')
+        blob = hashlib.sha1(b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
+                            usedforsecurity=False).hexdigest()
+        self.assertEqual(extract_source(source, path=SSL_PATH, blob_sha=blob)['blob_sha'], blob)
+        self.assertEqual(extract_source(source, path=SSL_PATH)['blob_sha'], '')
+        self.assertEqual(extract_source(source, path=SSL_PATH, blob_sha='')['blob_sha'], '')
+        for bad in ('definitely-not-a-sha', 'a' * 40, None, 42):
+            with self.subTest(blob=bad), self.assertRaisesRegex(ValueError, 'blob'):
+                extract_source(source, path=SSL_PATH, blob_sha=bad)
+        with self.assertRaisesRegex(ValueError, 'blob'):
+            extract_source(source + '\n', path=SSL_PATH, blob_sha=blob)
+
+    def test_future_imports_must_stay_in_the_original_module_header(self):
+        future = 'from __future__ import annotations\n'
+        for prefix in (future, '\"module docstring\"\n' + future + future):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(extract_source(prefix + SSL_SOURCE, path=SSL_PATH)['n_rows'], 1)
+        invalid = (SSL_SOURCE + future, 'pass\n' + future + SSL_SOURCE,
+                   '\"doc\"\n\"second string\"\n' + future + SSL_SOURCE,
+                   SSL_SOURCE + '\ndef unused():\n    ' + future,
+                   SSL_SOURCE + '\nif __name__ == "__main__":\n    ' + future)
+        for source in invalid:
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                extract_source(source, path=SSL_PATH)
+
     def test_ssl_source_preserves_literal_fields_and_declared_round(self):
-        found = extract_source(SSL_SOURCE, path=SSL_PATH, blob_sha='a' * 40)
+        found = extract_source(SSL_SOURCE, path=SSL_PATH)
         self.assertEqual((found['kind'], found['shape'], found['n_rows']), ('ssl-pairs', 'literal-dicts', 1))
-        self.assertEqual(found['blob_sha'], 'a' * 40)
+        self.assertEqual(found['blob_sha'], '')
         self.assertEqual(found['catalog_first'], 164)
         self.assertEqual((found['first_slug'], found['last_slug']), ('bind', 'bind'))
         self.assertEqual(found['rows'][0]['novel'], 1)

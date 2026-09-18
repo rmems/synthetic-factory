@@ -70,6 +70,7 @@ def sha256_bytes(payload: bytes) -> str:
 
 def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, Any]:
     payload = source.encode()
+    _require_blob_identity(payload, blob_sha)
     constants = module_constants(source, path=path)
     digest = sha256_bytes(payload)
     lines = _source_line_count(source)
@@ -79,6 +80,16 @@ def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, A
     if builder is None:
         raise ValueError(f"unsupported leftover6 source {path}")
     return builder(constants, context)
+
+
+def _require_blob_identity(payload: bytes, blob_sha: str) -> None:
+    # Git scalar identity must not delegate equality to caller-defined objects.
+    if type(blob_sha) is not str:
+        raise ValueError("supplied blob SHA must be a plain string")
+    framed = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
+    expected = hashlib.sha1(framed, usedforsecurity=False).hexdigest()
+    if blob_sha not in ("", expected):
+        raise ValueError("supplied blob SHA does not identify the exact source bytes")
 
 
 def _source_line_count(source: str) -> int:

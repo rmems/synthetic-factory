@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from itertools import takewhile
 from typing import Any
 
 from ._contract import bind_import_twin
@@ -26,6 +27,7 @@ _ANNOTATION_NAMES = frozenset({"str", "int", "float", "bool", "list", "dict", "t
 
 def module_constants(source: str, *, path: str) -> dict[str, Any]:
     tree = ast.parse(source, filename=path)
+    _require_future_header(tree)
     archive = _ARCHIVE_SOURCE_PINS.get(path) == hashlib.sha256(source.encode()).hexdigest()
     env: dict[str, Any] = {}
     for node in _catalog_statements(tree.body):
@@ -34,6 +36,17 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
         else:
             _bind_literal_statement(env, node)
     return env
+
+
+def _require_future_header(tree):
+    start = int(ast.get_docstring(tree) is not None)
+    allowed = set(takewhile(_is_future_import, tree.body[start:]))
+    if any(_is_future_import(node) and node not in allowed for node in ast.walk(tree)):
+        raise ValueError("future imports must occur in the original module header")
+
+
+def _is_future_import(node):
+    return isinstance(node, ast.ImportFrom) and node.module == "__future__"
 
 
 def _bind_literal_statement(env, node):
