@@ -177,6 +177,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "training_audit_record",
     "training_audit_reasoning",
     "training_audit_snapshot",
+    "training_audit_completion",
     "training_audit",
     "training_audit_rights",
     "training_audit_rights_manifest",

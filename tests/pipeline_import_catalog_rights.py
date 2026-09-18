@@ -78,6 +78,18 @@ def _package_training_audit_rights_coverage() -> ModuleType:
     return module
 
 
+def _direct_training_audit_completion() -> ModuleType:
+    import training_audit_completion as module
+
+    return module
+
+
+def _package_training_audit_completion() -> ModuleType:
+    import pipelines.training_audit_completion as module
+
+    return module
+
+
 Loader = Callable[[], ModuleType]
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "training_audit_rights_manifest": (
@@ -87,6 +99,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "training_audit_rights_coverage": (
         _direct_training_audit_rights_coverage,
         _package_training_audit_rights_coverage,
+    ),
+    "training_audit_completion": (
+        _direct_training_audit_completion,
+        _package_training_audit_completion,
     ),
     "rights_record": (_direct_rights_record, _package_rights_record),
     "training_audit_rights": (_direct_training_audit_rights, _package_training_audit_rights),

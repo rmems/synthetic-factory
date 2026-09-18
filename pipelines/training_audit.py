@@ -32,6 +32,7 @@ if __package__:
     from . import training_audit_record as _record_audit
     from . import training_audit_snapshot as _snapshot
     from . import training_audit_rights as _rights_audit
+    from . import training_audit_completion as _completion
     from .census import factory_for_path
     from .check_records import (
         ALLOWED_PROVENANCE,
@@ -64,6 +65,7 @@ else:
     import training_audit_record as _record_audit
     import training_audit_snapshot as _snapshot
     import training_audit_rights as _rights_audit
+    import training_audit_completion as _completion
     from census import factory_for_path
     from check_records import (
         ALLOWED_PROVENANCE,
@@ -387,7 +389,9 @@ class _CorpusAudit:
         self.totals["bytes"] += len(payload)
 
         try:
-            raw_lines = self._audit_jsonl_records(rel, payload)
+            raw_lines = _completion.audit_jsonl_records(
+                rel, payload, self._completed_published_payload,
+            )
         except StrictJsonlError as exc:
             self.record_errors.append(str(exc))
             return
@@ -398,27 +402,8 @@ class _CorpusAudit:
             self._observe_completed_procedural_file(rel, payload, procedural_before)
 
     def _completed_published_payload(self, rel, payload) -> bool:
-        if __package__:
-            from .code_repair.publication_export import completed_published_batch_matches
-        else:
-            from code_repair.publication_export import completed_published_batch_matches
         source_root = self.completion_source or self.run_dir
-        return completed_published_batch_matches(source_root, rel, payload)
-
-    def _physical_jsonl_records(self, payload):
-        if __package__:
-            from .compose_curated_run_lines import jsonl_physical_lines
-        else:
-            from compose_curated_run_lines import jsonl_physical_lines
-        return jsonl_physical_lines(payload)
-
-    def _audit_jsonl_records(self, rel, payload):
-        try:
-            return strict_lf_jsonl_records(payload, rel.as_posix())
-        except StrictJsonlError:
-            if self._completed_published_payload(rel, payload):
-                return self._physical_jsonl_records(payload)
-            raise
+        return _completion.completed_published_payload(source_root, rel, payload)
 
     def _observe_completed_procedural_file(self, rel, payload, previous_records):
         if self._completed_published_payload(rel, payload):

@@ -93,6 +93,7 @@ NEW_SPLIT_MODULES = (
     "training_audit_record",
     "training_audit_reasoning",
     "training_audit_snapshot",
+    "training_audit_completion",
     "curate_agentic",
     "curate_gate",
     "curate_gate_contract",
