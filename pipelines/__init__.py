@@ -100,6 +100,7 @@ def _local_package_sibling(name: str, *, allow_initializing: bool = False):
 # (pylint R0401 reads a function-body ``from . import`` as a module-level one).
 _PACKAGE_SIBLING_NAMES = frozenset((
     "mill_script_inventory_schema",
+    "mill_script_inventory_families",
     "mill_script_inventory",
     "exact_json_encoding",
     "exact_json",

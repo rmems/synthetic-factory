@@ -35,8 +35,10 @@ else:
 
 if __package__:
     from . import mill_script_inventory_schema as _schema
+    from .mill_script_inventory_families import expected_family_owners, family_owner_findings
 else:
     import mill_script_inventory_schema as _schema
+    from mill_script_inventory_families import expected_family_owners, family_owner_findings
 
 SCHEMA_VERSION = _schema.SCHEMA_VERSION
 CLASSIFICATIONS = _schema.CLASSIFICATIONS
@@ -180,22 +182,47 @@ def historical_paths(inventory: Mapping[str, object]) -> frozenset[str]:
 def archived_module_names(inventory: Mapping[str, object]) -> frozenset[str]:
     """Names derived from the full pinned archive, not illustrative examples."""
 
-    return frozenset(filter(None, map(_stem_identifier, historical_paths(inventory))))
+    paths = historical_paths(inventory)
+    stems = frozenset(filter(None, map(_stem_identifier, paths)))
+    qualified = frozenset(filter(None, map(_qualified_module, paths)))
+    canonical = {
+        row["owner"].removeprefix("pipelines/")
+        for row in inventory["mill_families"]
+        if row["classification"] == "production"
+    }
+    return (stems - canonical) | qualified
+
+
+def _qualified_module(path: str) -> str | None:
+    parts = path.removesuffix(".py").split("/")
+    if parts[-1] == "__init__":
+        parts.pop()
+    if all(IDENTIFIER_RE.fullmatch(part) for part in parts):
+        return ".".join(parts)
+    return None
+
+
+def _import_targets(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Import):
+        return tuple(alias.name for alias in node.names)
+    if isinstance(node, ast.ImportFrom):
+        return _from_import_targets(node)
+    return ()
+
+
+def _from_import_targets(node: ast.ImportFrom) -> tuple[str, ...]:
+    names = tuple(alias.name for alias in node.names)
+    if node.module is None:
+        return names
+    return (node.module, *names, *(f"{node.module}.{name}" for name in names))
 
 
 def imported_module_names(source: str) -> frozenset[str]:
     """Return every imported module name, including dotted forms."""
 
     tree = ast.parse(source)
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name)
-                names.add(alias.name.split(".", 1)[0])
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
-            names.add(node.module.split(".", 1)[0])
+    names = {name for node in ast.walk(tree) for name in _import_targets(node) if name}
+    names.update(part for name in tuple(names) for part in name.split("."))
     return frozenset(names)
 
 
@@ -277,6 +304,10 @@ def _gitignore_hits(paths: Iterable[str], matches: Mapping[str, tuple[str, str, 
     return tuple((matches[path][2], path) for path in sorted(paths))
 
 
+def _retained_experiments(tracked: Sequence[str], archived: frozenset[str]) -> frozenset[str]:
+    return frozenset(path for path in tracked if path.startswith("experiments/")) - archived
+
+
 def check_inventory(
     root: Path | None = None,
     inventory: Mapping[str, object] | None = None,
@@ -295,7 +326,8 @@ def check_inventory(
     gitignore_rules = gitignore_lines(repo)
     qlty_rules = qlty_exclude_patterns(repo)
     archived = historical_paths(loaded)
-    matches = gitignore_matches(repo, production | archived)
+    retained = _retained_experiments(listed, archived)
+    matches = gitignore_matches(repo, production | archived | retained)
     ignored = _ignored_paths(matches)
     gitignore_hits = _gitignore_hits(production & ignored, matches)
     qlty_hits = patterns_hitting(qlty_rules, production)
@@ -303,11 +335,17 @@ def check_inventory(
         "unclassified": unclassified,
         "gitignore_hits_on_production": gitignore_hits,
         "qlty_hits_on_production": qlty_hits,
+        "gitignore_hits_on_retained_experiments": _gitignore_hits(retained & ignored, matches),
+        "qlty_hits_on_retained_experiments": patterns_hitting(qlty_rules, retained),
+        "unmatched_archived_paths": uncovered_paths(loaded["match_patterns"], archived),
+        "missing_or_invalid_family_owners": family_owner_findings(
+            loaded["mill_families"], expected_family_owners(archived, listed)
+        ),
         **_policy_findings(policy, gitignore_rules, qlty_rules),
         "uncovered_gitignore_archived_paths": tuple(sorted(archived - ignored)),
         "uncovered_qlty_archived_paths": uncovered_paths(qlty_rules, archived),
     }
-    anomalies = (production & ignored) | (archived - ignored)
+    anomalies = ((production | retained) & ignored) | (archived - ignored)
     evidence = _gitignore_evidence(anomalies, matches)
     return {**report, "ok": not any(report.values()), "gitignore_rule_evidence": evidence}
 

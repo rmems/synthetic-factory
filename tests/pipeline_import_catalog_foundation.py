@@ -1101,7 +1101,23 @@ def _package_mill_script_inventory_schema() -> ModuleType:
     return module
 
 
+def _direct_mill_script_inventory_families() -> ModuleType:
+    import mill_script_inventory_families as module
+
+    return module
+
+
+def _package_mill_script_inventory_families() -> ModuleType:
+    import pipelines.mill_script_inventory_families as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "mill_script_inventory_families": (
+        _direct_mill_script_inventory_families,
+        _package_mill_script_inventory_families,
+    ),
     "mill_script_inventory": (_direct_mill_script_inventory, _package_mill_script_inventory),
     "mill_script_inventory_schema": (
         _direct_mill_script_inventory_schema,

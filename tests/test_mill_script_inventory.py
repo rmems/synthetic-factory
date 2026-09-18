@@ -88,7 +88,8 @@ class Completeness(unittest.TestCase):
                 self.assertIn(row["path"], tracked)
                 self.assertTrue(row["owner"])
                 self.assertIn(row["classification"], msi.CLASSIFICATIONS)
-                self.assertEqual(row["quality_scope"], "production")
+                expected = "production" if row["classification"] == "production" else "archived"
+                self.assertEqual(row["quality_scope"], expected)
 
     def test_mill_family_owners_exist_on_main(self):
         for row in self.inventory["mill_families"]:

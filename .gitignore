@@ -51,4 +51,7 @@ scripts/*_mill.py
 pipelines/*_mill_leftover*.py
 /mill_*_r*.py
 
-experiments/*-loop-r*.py
+experiments/*-loop*.py
+experiments/*_loop*.py
+experiments/*-hop*.py
+experiments/*_hop*.py

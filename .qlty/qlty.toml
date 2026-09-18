@@ -43,7 +43,10 @@ exclude_patterns = [
   # These exclude leftover generators if they appear in a working tree; they
   # do not match production leftover_mill.py / compose_mill.py / tests.
   "experiments/*mill*.py",
-  "experiments/*-loop-r*.py",
+  "experiments/*-loop*.py",
+  "experiments/*_loop*.py",
+  "experiments/*-hop*.py",
+  "experiments/*_hop*.py",
   "experiments/**/*mill*.py",
   "experiments/*leftover*.py",
   "experiments/**/*leftover*.py",

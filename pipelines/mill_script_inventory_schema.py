@@ -62,8 +62,11 @@ def _require_str_list(value: object, where: str) -> tuple[str, ...]:
 
 def _require_path(value: object, where: str) -> str:
     path = _require_str(value, where).replace("\\", "/")
-    if PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts:
+    canonical = PurePosixPath(path)
+    if canonical.is_absolute() or ".." in canonical.parts:
         raise MillScriptInventoryError(f"{where} must be a repo-relative path")
+    if path != canonical.as_posix() or not canonical.parts:
+        raise MillScriptInventoryError(f"{where} must use canonical path components")
     return path
 
 
