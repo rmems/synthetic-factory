@@ -46,6 +46,39 @@ else:
 FPGA_DEVICE_ENV = "SPIKENAUT_FPGA_DEVICE"
 FPGA_BITSTREAM_ENV = "SPIKENAUT_FPGA_BITSTREAM"
 
+_FPGA_DIAGNOSTIC_DETAILS = {
+    "FPGA_DEVICE_NOT_DECLARED": f"{FPGA_DEVICE_ENV} is unset; no board is claimed and none is assumed",
+    "FPGA_BITSTREAM_NOT_DECLARED": (
+        f"{FPGA_BITSTREAM_ENV} is unset; a parity run without a pinned "
+        "bitstream hash is not attributable"
+    ),
+    "FPGA_DRIVER_NOT_IMPLEMENTED": (
+        "device and bitstream are declared but this repository ships no board "
+        "transport; implement one before claiming fpga_hardware"
+    ),
+}
+
+
+def _unavailable_status(reason, detail=None):
+    return {
+        "available": False,
+        "reason_code": reason,
+        "detail": _FPGA_DIAGNOSTIC_DETAILS[reason] if detail is None else detail,
+    }
+
+
+def fpga_diagnostic_matches(reason, detail):
+    """Authenticate the historical diagnostic shape without probing a recorded path."""
+    if not isinstance(reason, str) or not isinstance(detail, str):
+        return False
+    if reason != "FPGA_DEVICE_ABSENT":
+        return reason in _FPGA_DIAGNOSTIC_DETAILS and detail == _FPGA_DIAGNOSTIC_DETAILS[reason]
+    prefix, suffix = "declared device ", " does not exist"
+    return (
+        detail.startswith(prefix) and detail.endswith(suffix)
+        and bool(detail[len(prefix):-len(suffix)].strip())
+    )
+
 
 class FpgaHardwareAdapter(OracleAdapter):
     """Real FPGA execution target.
@@ -66,36 +99,12 @@ class FpgaHardwareAdapter(OracleAdapter):
     def availability(self):
         device = self.env.get(FPGA_DEVICE_ENV)
         if not device:
-            return {
-                "available": False,
-                "reason_code": "FPGA_DEVICE_NOT_DECLARED",
-                "detail": (
-                    f"{FPGA_DEVICE_ENV} is unset; no board is claimed and none is assumed"
-                ),
-            }
+            return _unavailable_status("FPGA_DEVICE_NOT_DECLARED")
         if not Path(device).exists():
-            return {
-                "available": False,
-                "reason_code": "FPGA_DEVICE_ABSENT",
-                "detail": f"declared device {device} does not exist",
-            }
+            return _unavailable_status("FPGA_DEVICE_ABSENT", f"declared device {device} does not exist")
         if not self.env.get(FPGA_BITSTREAM_ENV):
-            return {
-                "available": False,
-                "reason_code": "FPGA_BITSTREAM_NOT_DECLARED",
-                "detail": (
-                    f"{FPGA_BITSTREAM_ENV} is unset; a parity run without a pinned "
-                    "bitstream hash is not attributable"
-                ),
-            }
-        return {
-            "available": False,
-            "reason_code": "FPGA_DRIVER_NOT_IMPLEMENTED",
-            "detail": (
-                "device and bitstream are declared but this repository ships no board "
-                "transport; implement one before claiming fpga_hardware"
-            ),
-        }
+            return _unavailable_status("FPGA_BITSTREAM_NOT_DECLARED")
+        return _unavailable_status("FPGA_DRIVER_NOT_IMPLEMENTED")
 
     def run(self, model, stimulus, repeats=1):
         status = self.availability()

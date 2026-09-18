@@ -734,6 +734,7 @@ def validate_legacy_baseline_payloads(
                 f"invalid legacy payload covered by marker baseline: {path}"
                 + (f"\n{details}" if details else "")
             )
+        _enforce_parity_batch(path, factory_dir, round_number)
         records_by_round[round_number] = records_by_round.get(round_number, 0) + records
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
     for round_number, records in records_by_round.items():
@@ -1674,7 +1675,7 @@ def _enforce_parity_batch(batch, factory_dir, round_number):
         return
     errors = parity_batch_errors(batch, kind, round_number)
     if errors:
-        raise TransactionError("staged parity batch is incomplete or misbound:\n" + "\n".join(errors))
+        raise TransactionError("parity batch is incomplete or misbound:\n" + "\n".join(errors))
 
 
 def _validate_staged_batch(batch, factory_dir, expected, round_number):

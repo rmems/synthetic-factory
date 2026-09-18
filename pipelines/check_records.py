@@ -21,6 +21,7 @@ from pathlib import Path
 
 if __package__:
     from .record_kind import DECLARED_FACTORY_KINDS
+    from .tag_jsonutil import reject_duplicate_object_keys
     from .exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -44,6 +45,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from record_kind import DECLARED_FACTORY_KINDS
+    from tag_jsonutil import reject_duplicate_object_keys
     from exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -873,6 +875,7 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
         try:
             obj = json.loads(
                 line,
+                object_pairs_hook=reject_duplicate_object_keys,
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )

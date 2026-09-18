@@ -217,6 +217,38 @@ class RecordedCapturePath(unittest.TestCase):
             repeats=3,
         )[0]
 
+    def _assert_capture_rejected(self, expected_fragments, mutate=None, **capture_kwargs):
+        """Generate one isolated capture and require its specific refusal diagnostic."""
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp, **capture_kwargs)
+            if mutate is not None:
+                mutate(record)
+            errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(all(fragment in error for fragment in expected_fragments) for error in errors),
+            errors,
+        )
+
+    def _assert_relabelled_adapter_rejected(self, adapter, runtime_class, message):
+        def relabel(record):
+            record["oracle"]["deployment"].update(adapter=adapter, runtime_class=runtime_class)
+
+        self._assert_capture_rejected((message,), relabel)
+
+    def _assert_repeat_observation_is_bound(self, mutate_repeat):
+        def mutate(record):
+            capture = record["oracle"]["deployment"]["capture"]
+            source = capture["source"]
+            payload = source["payload"]
+            mutate_repeat(payload["repeat_outputs"][1])
+            payload_sha = oracle.digest(payload)
+            source["manifest"]["payload_sha256"] = payload_sha
+            capture["payload_sha256"] = payload_sha
+            capture["manifest_sha256"] = oracle.digest(source["manifest"])
+            capture["source_sha256"] = oracle.digest(source)
+
+        self._assert_capture_rejected(("repeat_digests[1] is not derived",), mutate)
+
     def test_capture_derived_records_validate(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(hp.validate_record(self._record(tmp), WHERE), [])
@@ -226,15 +258,9 @@ class RecordedCapturePath(unittest.TestCase):
             self.assertEqual(self._record(tmp)["provenance"]["kind"], "hil")
 
     def test_capture_evidence_cannot_be_relabelled_as_an_unknown_adapter(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp)
-            deployment = record["oracle"]["deployment"]
-            deployment["adapter"] = "plausible_vendor_driver"
-            deployment["runtime_class"] = "physical_hardware"
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any("unsupported adapter identity" in error for error in errors), errors
-            )
+        self._assert_relabelled_adapter_rejected(
+            "plausible_vendor_driver", "physical_hardware", "unsupported adapter identity"
+        )
 
     def test_capture_digest_chain_is_rechecked_from_stored_source(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,32 +272,16 @@ class RecordedCapturePath(unittest.TestCase):
             self.assertTrue(any("capture" in error.lower() for error in errors), errors)
 
     def test_capture_recorded_at_is_bound_to_the_manifest(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp)
-            record["oracle"]["deployment"]["capture"]["recorded_at"] = (
-                "1999-01-01T00:00:00Z"
-            )
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any(
-                    "recorded_at" in error and "HW_PROVENANCE_MISSING" in error
-                    for error in errors
-                ),
-                errors,
-            )
+        def mutate(record):
+            record["oracle"]["deployment"]["capture"]["recorded_at"] = "1999-01-01T00:00:00Z"
+
+        self._assert_capture_rejected(("recorded_at", "HW_PROVENANCE_MISSING"), mutate)
 
     def test_missing_capture_recorded_at_is_rejected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp)
-            record["oracle"]["deployment"]["capture"].pop("recorded_at", None)
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any(
-                    "recorded_at" in error and "HW_PROVENANCE_MISSING" in error
-                    for error in errors
-                ),
-                errors,
-            )
+        self._assert_capture_rejected(
+            ("recorded_at", "HW_PROVENANCE_MISSING"),
+            lambda record: record["oracle"]["deployment"]["capture"].pop("recorded_at", None),
+        )
 
     def test_whitespace_only_recorded_at_does_not_bind(self):
         # A whitespace-only value matched on both sides must not validate as
@@ -327,13 +337,7 @@ class RecordedCapturePath(unittest.TestCase):
             )
 
     def test_capture_spike_width_is_bound_to_neuron_count(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp, narrow_spikes=True)
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any("spikes[0]" in error and "exactly 4 cells" in error for error in errors),
-                errors,
-            )
+        self._assert_capture_rejected(("spikes[0]", "exactly 4 cells"), narrow_spikes=True)
 
     def test_capture_spike_cells_are_exact_binary_integers(self):
         for cell in (True, 2, 0.5):
@@ -345,16 +349,7 @@ class RecordedCapturePath(unittest.TestCase):
                 )
 
     def test_capture_membrane_width_is_bound_to_neuron_count(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp, narrow_membrane=True)
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any(
-                    "membrane.trace[0]" in error and "exactly 4 cells" in error
-                    for error in errors
-                ),
-                errors,
-            )
+        self._assert_capture_rejected(("membrane.trace[0]", "exactly 4 cells"), narrow_membrane=True)
 
     def test_capture_action_and_events_must_encode_the_spike_grid(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -450,16 +445,11 @@ class RecordedCapturePath(unittest.TestCase):
             )
 
     def test_recorded_capture_cannot_be_relabelled_as_a_live_board(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp)
-            deployment = record["oracle"]["deployment"]
-            deployment["adapter"] = oracle.FpgaHardwareAdapter.name
-            deployment["runtime_class"] = oracle.FpgaHardwareAdapter.runtime_class
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any("live FPGA evidence must bind" in error for error in errors),
-                errors,
-            )
+        self._assert_relabelled_adapter_rejected(
+            oracle.FpgaHardwareAdapter.name,
+            oracle.FpgaHardwareAdapter.runtime_class,
+            "live FPGA evidence must bind",
+        )
 
     def _reseal_capture(self, record):
         """Refresh every digest that binds the capture source to the record."""
@@ -593,42 +583,16 @@ class RecordedCapturePath(unittest.TestCase):
             self.assertEqual(hp.validate_record(record, WHERE), [])
 
     def test_repeat_digest_binds_the_complete_retained_observation(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp)
-            capture = record["oracle"]["deployment"]["capture"]
-            source = capture["source"]
-            payload = source["payload"]
-            payload["repeat_outputs"][1]["membrane"]["trace"][0][0] += 0.25
-            payload_sha = oracle.digest(payload)
-            source["manifest"]["payload_sha256"] = payload_sha
-            capture["payload_sha256"] = payload_sha
-            capture["manifest_sha256"] = oracle.digest(source["manifest"])
-            capture["source_sha256"] = oracle.digest(source)
+        def mutate(repeat):
+            repeat["membrane"]["trace"][0][0] += 0.25
 
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any("repeat_digests[1] is not derived" in error for error in errors),
-                errors,
-            )
+        self._assert_repeat_observation_is_bound(mutate)
 
     def test_repeat_digest_includes_arithmetic_observations(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            record = self._record(tmp)
-            capture = record["oracle"]["deployment"]["capture"]
-            source = capture["source"]
-            payload = source["payload"]
-            payload["repeat_outputs"][1]["arithmetic"]["saturation_events"] += 1
-            payload_sha = oracle.digest(payload)
-            source["manifest"]["payload_sha256"] = payload_sha
-            capture["payload_sha256"] = payload_sha
-            capture["manifest_sha256"] = oracle.digest(source["manifest"])
-            capture["source_sha256"] = oracle.digest(source)
+        def mutate(repeat):
+            repeat["arithmetic"]["saturation_events"] += 1
 
-            errors = hp.validate_record(record, WHERE)
-            self.assertTrue(
-                any("repeat_digests[1] is not derived" in error for error in errors),
-                errors,
-            )
+        self._assert_repeat_observation_is_bound(mutate)
 
     def _with_q88_raw(self, record, raw_value):
         deployment = record["oracle"]["deployment"]

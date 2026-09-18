@@ -16,6 +16,7 @@ if __package__:
 
     _assert_direct_sibling("hardware_parity_validate_availability")
     from . import neuro_oracle  # noqa: E402
+    from .neuro_oracle_availability import fpga_diagnostic_matches
     from .neuro_oracle import (  # noqa: E402
         FpgaHardwareAdapter,
         RecordedCaptureAdapter,
@@ -28,6 +29,7 @@ else:
         "hardware_parity_validate_availability"
     )
     import neuro_oracle  # noqa: E402
+    from neuro_oracle_availability import fpga_diagnostic_matches
     from neuro_oracle import (  # noqa: E402
         FpgaHardwareAdapter,
         RecordedCaptureAdapter,
@@ -128,6 +130,8 @@ def _replayed_adapter_probe(_record, oracle, requested, where):
     or a fatal error list when the diagnostic cannot be replayed at all.
     """
     adapter_name = requested.get("adapter")
+    if adapter_name == FpgaHardwareAdapter.name:
+        return _historical_fpga_probe(oracle, requested, where)
     if adapter_name != RecordedCaptureAdapter.name:
         return availability_report().get(adapter_name), []
     config = requested.get("adapter_config")
@@ -138,6 +142,29 @@ def _replayed_adapter_probe(_record, oracle, requested, where):
             "path [ORACLE_UNAVAILABLE]"
         ]
     return _historical_capture_probe(oracle, requested, where)
+
+
+def _historical_fpga_probe(oracle, requested, where):
+    """Keep the historical reason only while the selected live adapter is absent."""
+    current = availability_report().get(FpgaHardwareAdapter.name)
+    if not isinstance(current, dict) or current.get("available") is not False:
+        return current, []
+    entry = oracle["unavailable"][0]
+    reason, detail = entry.get("reason_code"), entry.get("detail")
+    if not _valid_fpga_diagnostic(reason, detail, requested):
+        return None, [
+            f"{where}: selected adapter 'spikenaut_fpga' reports no supported "
+            "historical diagnostic for these fields [ORACLE_UNAVAILABLE]"
+        ]
+    return dict(current, reason_code=reason, detail=detail), []
+
+
+def _valid_fpga_diagnostic(reason, detail, requested):
+    expected = {
+        "adapter": FpgaHardwareAdapter.name,
+        "execution_target": FpgaHardwareAdapter.execution_target,
+    }
+    return fpga_diagnostic_matches(reason, detail) and requested == expected
 
 
 _CAPTURE_REASON_CODES = frozenset(
@@ -171,13 +198,19 @@ def _historical_capture_probe(oracle, requested, where):
 
 
 def _valid_capture_diagnostic(reason, detail, target):
-    if not isinstance(reason, str) or reason not in _CAPTURE_REASON_CODES:
-        return False
-    if not isinstance(detail, str) or not detail.strip():
+    if not _valid_diagnostic_text(reason, detail, _CAPTURE_REASON_CODES):
         return False
     if target is None:
         return True
     return isinstance(target, str) and target in neuro_oracle.EXECUTION_TARGETS
+
+
+def _valid_diagnostic_text(reason, detail, allowed_reasons):
+    """Unavailable evidence uses a known reason and a nonblank historical detail."""
+    return (
+        isinstance(reason, str) and reason in allowed_reasons
+        and isinstance(detail, str) and bool(detail.strip())
+    )
 
 
 def _check_unavailable_deployment(record, where):
@@ -190,7 +223,7 @@ def _check_unavailable_deployment(record, where):
     adapter_name = requested.get("adapter")
     current, fatal = _replayed_adapter_probe(record, oracle, requested, where)
     if fatal:
-        return fatal
+        return errors + fatal
     if not isinstance(current, dict) or current.get("available") is not False:
         return [
             f"{where}: unavailable deployment names adapter {adapter_name!r}, which "

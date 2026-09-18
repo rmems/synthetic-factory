@@ -24,10 +24,11 @@ class Validation(unittest.TestCase):
     def setUp(self):
         self.records = hp.generate_records(round_number=1, steps=6, repeats=2)
         self.mismatch = next(
-            record
-            for record in self.records
-            if record["result"]["verdict"] == contract.VERDICT_MISMATCH
+            (record for record in self.records
+             if record["result"]["verdict"] == contract.VERDICT_MISMATCH),
+            None,
         )
+        self.assertIsNotNone(self.mismatch, "generated parity fixtures must include a mismatch")
 
     def test_fixture_validates(self):
         self.assertEqual(hp.validate_records(_fixture_records()), [])
@@ -145,15 +146,13 @@ class Validation(unittest.TestCase):
         self.assertTrue(any("Q88_PROVENANCE_MISSING" in error for error in errors))
 
     def test_hidden_saturation_count_is_caught(self):
-        record = copy.deepcopy(
-            next(
-                item
-                for item in self.records
-                if item["oracle"]["deployment"]["quantization"][
-                    "saturated_parameter_count"
-                ]
-            )
+        saturated = next(
+            (item for item in self.records
+             if item["oracle"]["deployment"]["quantization"]["saturated_parameter_count"]),
+            None,
         )
+        self.assertIsNotNone(saturated, "generated parity fixtures must include saturated parameters")
+        record = copy.deepcopy(saturated)
         record["oracle"]["deployment"]["quantization"]["saturated_parameter_count"] = 0
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("Q88_PROVENANCE_MISMATCH" in error for error in errors))
@@ -327,10 +326,11 @@ class ReSimulationGate(unittest.TestCase):
     def setUp(self):
         self.records = hp.generate_records(round_number=1, steps=6, repeats=2)
         self.mismatch = next(
-            record
-            for record in self.records
-            if record["result"]["verdict"] == contract.VERDICT_MISMATCH
+            (record for record in self.records
+             if record["result"]["verdict"] == contract.VERDICT_MISMATCH),
+            None,
         )
+        self.assertIsNotNone(self.mismatch, "generated parity fixtures must include a mismatch")
 
     def _forge_match(self):
         """Copy the software traces onto the deployment side and recompute."""

@@ -145,6 +145,12 @@ or physical execution. Executed captures still require validation of their
 embedded source and measurement chain; live FPGA claims still require a fresh
 adapter probe.
 
+An unavailable FPGA diagnostic is also historical: its selected adapter,
+supported reason, reason-specific detail, and digest lineage must agree. A
+different unavailable reason on the validating host does not invalidate the
+record. A fresh probe must still report that adapter unavailable; the record
+remains inconclusive and supplies no physical measurement.
+
 No capture is committed to this repository. Committing a synthetic one would
 be indistinguishable from committing a fabricated hardware result.
 
