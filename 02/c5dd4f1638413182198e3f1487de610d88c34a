@@ -1,0 +1,25 @@
+tests/test_curate_identity_rights.py
+  0ca4909185094544 295-298,303-312,321-322,327,370-372,374-378,391-399
+pipelines/oracle_grounded/__init__.py
+  c867db0fccb08099 24-31
+pipelines/curate_identity_registry_evidence.py
+  5d2e7bf7e672be6e 60,98-101,113
+tests/test_oracle_grounded_package_surface.py
+  c867db0fccb08099 7-9,14,16-18,20,23-29,42-47,61-144
+tests/oracle_grounded_package_probe.py
+  c867db0fccb08099 1-171
+pipelines/curate_identity_registry_rows.py
+  5d2e7bf7e672be6e 166
+pipelines/rights_policy_profiles.py
+  0ca4909185094544 248-249
+tests/test_rights_policy_new_providers.py
+  5d2e7bf7e672be6e 71-73,89-114
+tests/test_code_repair_admission.py
+  0ca4909185094544 78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "02c5dd4f1638413182198e3f1487de610d88c34a",
+  "prompts": {}
+}
