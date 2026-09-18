@@ -89,7 +89,7 @@ class ProceduralRegistryTests(unittest.TestCase):
     def test_hosted_rows_keep_blocked_policy(self):
         rows = ci.load_registry().by_path_id.values()
         for row in rows:
-            if row.path_id != "python-function-repair-factory":
+            if row.source_type == "hosted":
                 self.assertEqual((row.intended_use, row.project_training_policy),
                                  ("research_only", "blocked"))
 
