@@ -11,9 +11,10 @@ cannot authorize a new source or generator. The snapshot loaded at import
 remains immutable for the process lifetime.
 
 Pin semantics (recompute on any reviewed change):
-- catalog_sha256: SHA-256 over every pipelines/oracle_grounded/*.py in sorted
-  name order except this module (the measured generation semantics). Each
-  member is framed by its name and byte length before its bytes, so a byte
+- catalog_sha256: SHA-256 over every pipelines/oracle_grounded/*.py except this
+  module, the base oracle-grounded-v1.schema.json, and every family schema under
+  schemas/oracle-grounded/. Members are sorted by repository-relative path.
+  Each member is framed by its path and byte length before its bytes, so a byte
   redistribution across two adjacent modules cannot preserve the digest while
   the module boundary moves. This module is the trust anchor that seals the
   policy carrying the digest, so including it would make the value a
@@ -36,7 +37,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "44a6349abcf1bbf57437636c1ccee2fa48f2b93a1053fed7a507ac462bd631c1"
+POLICY_SHA256 = "4e6e8c247e6252a52773512c10df954ced2bddae20ee2284ef364b7a5d3a0a4b"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -68,12 +69,15 @@ def framed_digest(members: Iterable[tuple[str, bytes]]) -> str:
 
 
 def catalog_digest(package: Path) -> str:
-    """The reviewed ``catalog_sha256`` for one ``oracle_grounded`` package."""
-    domain = sorted(
-        (path for path in package.glob("*.py") if path.name != Path(__file__).name),
-        key=lambda path: path.name,
+    """Seal implementation and executable schema bytes from one source tree."""
+    root = package.parent.parent
+    domain = [path for path in package.glob("*.py") if path.name != Path(__file__).name]
+    domain.append(root / "schemas/oracle-grounded-v1.schema.json")
+    domain.extend((root / "schemas/oracle-grounded").glob("*.schema.json"))
+    members = sorted(domain, key=lambda path: path.relative_to(root).as_posix())
+    return framed_digest(
+        (path.relative_to(root).as_posix(), path.read_bytes()) for path in members
     )
-    return framed_digest((path.name, path.read_bytes()) for path in domain)
 
 
 def programs_digest(pipelines: Path, names: Sequence[str]) -> str:
