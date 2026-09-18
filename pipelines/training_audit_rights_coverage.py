@@ -12,8 +12,7 @@ if __package__:
     _assert_direct_sibling("training_audit_rights_coverage")
     from .curate_identity_json import sha256_json
     from .rights_mapping import parse_strict_json_bytes
-    from .strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
-    from .training_audit_completion import completed_published_payload, physical_jsonl_records
+    from .training_audit_completion import audit_jsonl_records, completed_published_payload
     from .training_audit_rights_manifest import _retained_entries
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -21,8 +20,7 @@ else:
     )
     from curate_identity_json import sha256_json
     from rights_mapping import parse_strict_json_bytes
-    from strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
-    from training_audit_completion import completed_published_payload, physical_jsonl_records
+    from training_audit_completion import audit_jsonl_records, completed_published_payload
     from training_audit_rights_manifest import _retained_entries
 
 
@@ -41,22 +39,11 @@ def _file_coordinates(relative: str, lines: Sequence[bytes]):
     }
 
 
-def _completed_physical_lines(relative: str, payload: bytes, source_root):
-    if source_root is None:
-        return None
-    if not completed_published_payload(source_root, relative, payload):
-        return None
-    return physical_jsonl_records(payload)
-
-
 def _compose_record_lines(relative: str, payload: bytes, source_root):
-    try:
-        return strict_lf_jsonl_records(payload, relative)
-    except StrictJsonlError:
-        lines = _completed_physical_lines(relative, payload, source_root)
-        if lines is None:
-            raise
-        return lines
+    def completed(rel, body):
+        return source_root is not None and completed_published_payload(source_root, rel, body)
+
+    return audit_jsonl_records(relative, payload, completed)
 
 
 def _output_coordinates(
