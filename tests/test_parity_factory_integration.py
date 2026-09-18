@@ -116,11 +116,13 @@ class FixtureRun(unittest.TestCase):
 
         for module in (hardware_parity, nir_equivalence):
             with self.subTest(module=module.__name__):
-                first = next(s for s in module.build_scenarios() if s["intervention"])
+                first = next((s for s in module.build_scenarios() if s["intervention"]), None)
+                self.assertIsNotNone(first, f"{module.__name__} needs an intervention scenario")
                 first["intervention"]["detail"] = "poisoned"
                 again = next(
-                    s for s in module.build_scenarios() if s["id"] == first["id"]
+                    (s for s in module.build_scenarios() if s["id"] == first["id"]), None
                 )
+                self.assertIsNotNone(again, f"scenario {first['id']} disappeared")
                 self.assertNotEqual(again["intervention"]["detail"], "poisoned")
 
     def test_no_record_claims_real_world_provenance(self):
@@ -265,10 +267,10 @@ class DeepLayer(unittest.TestCase):
     def test_deep_layer_re_executes_nir_runtimes(self):
         record = copy.deepcopy(_records(NIR_BATCH)[0])
         entry = next(
-            item
-            for item in record["oracle"]["runtimes"]
-            if item["status"] == "executed"
+            (item for item in record["oracle"]["runtimes"] if item["status"] == "executed"),
+            None,
         )
+        self.assertIsNotNone(entry, "the NIR fixture needs an executed runtime")
         entry["outputs"]["spike_count"] += 1
         errors, _warnings, kind, _id = check_records.check_record(record, "unit:1")
         self.assertEqual(kind, "nir_equivalence")

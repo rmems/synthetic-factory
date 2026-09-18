@@ -13,6 +13,7 @@ PIPELINES = REPO / "pipelines"
 sys.path.insert(0, str(PIPELINES))
 
 from oracle_grounded import parity_contract as contract  # noqa: E402
+from neuro_oracle import TARGET_SOFTWARE_FLOAT  # noqa: E402
 
 WHERE = "unit:1"
 
@@ -21,7 +22,7 @@ def make_record(**overrides):
     record = {
         "id": "rec-001",
         "record_kind": contract.KIND_HARDWARE_PARITY,
-        "dataset": "hardware-parity-spike-trajectories",
+        "dataset": contract.DATASET_FOR_KIND[contract.KIND_HARDWARE_PARITY],
         "schema_version": "1.0.0",
         "generator": {
             "name": "unit-generator",
@@ -33,7 +34,7 @@ def make_record(**overrides):
         "scenario": {"id": "sc-001"},
         "intervention": None,
         "candidate_prediction": {"source": "generator", "authoritative": False},
-        "oracle": {"software": {"execution_target": "software_float"}},
+        "oracle": {"software": {"execution_target": TARGET_SOFTWARE_FLOAT}},
         "result": {
             "oracle_backed": True,
             "verdict": contract.VERDICT_MATCH,
@@ -54,7 +55,7 @@ def make_record(**overrides):
 
 def make_view(record, **overrides):
     view = contract.build_training_view(
-        record, "prompt", "completion", ["software_float"]
+        record, "prompt", "completion", [TARGET_SOFTWARE_FLOAT]
     )
     view.update(overrides)
     return view

@@ -36,6 +36,7 @@ else:
         contract,
     )
 
+
 def availability_report(**kwargs):
     """The oracle's availability probe, resolved through its module each call."""
     return neuro_oracle.availability_report(**kwargs)
@@ -52,18 +53,29 @@ def _check_fpga_environment(record, where):
     by ``_check_unavailable_deployment`` against the selected adapter.
     """
     oracle = record.get("oracle")
+    recorded, fatal = _recorded_fpga_probe(oracle, where)
+    if fatal:
+        return fatal
+    errors = _fpga_probe_shape_errors(recorded, where)
+    current = availability_report().get("spikenaut_fpga")
+    current_available = isinstance(current, dict) and current.get("available") is True
+    errors.extend(_fpga_live_claim_errors(oracle, recorded, current_available, where))
+    return errors
+
+
+def _recorded_fpga_probe(oracle, where):
     environment = oracle.get("environment") if isinstance(oracle, dict) else None
     if not isinstance(environment, dict):
-        return [
-            f"{where}: oracle.environment must be an object "
-            "[ENVELOPE_MALFORMED]"
-        ]
+        return None, [f"{where}: oracle.environment must be an object [ENVELOPE_MALFORMED]"]
     recorded = environment.get("fpga_hardware")
     if not isinstance(recorded, dict):
-        return [
-            f"{where}: oracle.environment.fpga_hardware must be an object "
-            "[ENVELOPE_MALFORMED]"
+        return None, [
+            f"{where}: oracle.environment.fpga_hardware must be an object [ENVELOPE_MALFORMED]"
         ]
+    return recorded, []
+
+
+def _fpga_probe_shape_errors(recorded, where):
     errors = []
     if not isinstance(recorded.get("available"), bool):
         errors.append(
@@ -77,8 +89,11 @@ def _check_fpga_environment(record, where):
                 f"{where}: unavailable fpga_hardware probe must name a reason_code "
                 "[ENVELOPE_MALFORMED]"
             )
-    current = availability_report().get("spikenaut_fpga")
-    current_available = isinstance(current, dict) and current.get("available") is True
+    return errors
+
+
+def _fpga_live_claim_errors(oracle, recorded, current_available, where):
+    errors = []
     if recorded.get("available") is True and not current_available:
         # FpgaHardwareAdapter.run() always raises regardless of what
         # availability() reports, so no adapter code path in this repository
@@ -90,18 +105,20 @@ def _check_fpga_environment(record, where):
             f"{where}: oracle.environment.fpga_hardware.available is true but no "
             "current adapter probe corroborates it [ORACLE_UNAVAILABLE]"
         )
-    deployment = oracle.get("deployment")
-    if (
-        isinstance(deployment, dict)
-        and deployment.get("adapter") == FpgaHardwareAdapter.name
-        and deployment.get("runtime_class") == FpgaHardwareAdapter.runtime_class
-        and not current_available
-    ):
+    if _is_live_fpga_deployment(oracle.get("deployment")) and not current_available:
         errors.append(
             f"{where}: a live {FpgaHardwareAdapter.name!r} deployment requires the "
             "current adapter probe to report available [ORACLE_UNAVAILABLE]"
         )
     return errors
+
+
+def _is_live_fpga_deployment(deployment):
+    return (
+        isinstance(deployment, dict)
+        and deployment.get("adapter") == FpgaHardwareAdapter.name
+        and deployment.get("runtime_class") == FpgaHardwareAdapter.runtime_class
+    )
 
 
 def _replayed_adapter_probe(_record, oracle, requested, where):
@@ -123,11 +140,17 @@ def _replayed_adapter_probe(_record, oracle, requested, where):
     return _historical_capture_probe(oracle, requested, where)
 
 
-_CAPTURE_REASON_CODES = frozenset({
-    "CAPTURE_FILE_ABSENT", "CAPTURE_UNREADABLE", "CAPTURE_TARGET_UNKNOWN",
-    "CAPTURE_DIGEST_MISMATCH", "CAPTURE_INPUT_FIXTURE_MISMATCH",
-    "CAPTURE_QUANTIZATION_CONFLICT", "CAPTURE_QUANTIZATION_MISSING",
-})
+_CAPTURE_REASON_CODES = frozenset(
+    {
+        "CAPTURE_FILE_ABSENT",
+        "CAPTURE_UNREADABLE",
+        "CAPTURE_TARGET_UNKNOWN",
+        "CAPTURE_DIGEST_MISMATCH",
+        "CAPTURE_INPUT_FIXTURE_MISMATCH",
+        "CAPTURE_QUANTIZATION_CONFLICT",
+        "CAPTURE_QUANTIZATION_MISSING",
+    }
+)
 
 
 def _historical_capture_probe(oracle, requested, where):
@@ -160,32 +183,10 @@ def _valid_capture_diagnostic(reason, detail, target):
 def _check_unavailable_deployment(record, where):
     """Authenticate the diagnostic used in place of a deployment run."""
     oracle = record.get("oracle") or {}
-    unavailable = oracle.get("unavailable")
-    if not isinstance(unavailable, list) or len(unavailable) != 1:
-        return [
-            f"{where}: oracle.unavailable must contain exactly one deployment "
-            "diagnostic [ORACLE_UNAVAILABLE]"
-        ]
-    entry = unavailable[0]
-    if not isinstance(entry, dict):
-        return [
-            f"{where}: oracle.unavailable[0] must be an object [ORACLE_UNAVAILABLE]"
-        ]
-
-    requested = oracle.get("requested_deployment")
-    if not isinstance(requested, dict):
-        return [
-            f"{where}: oracle.requested_deployment must bind the selected adapter "
-            "[ORACLE_UNAVAILABLE]"
-        ]
-    errors = []
-    for key in ("adapter", "execution_target", "adapter_config"):
-        if entry.get(key) != requested.get(key):
-            errors.append(
-                f"{where}: oracle.unavailable[0].{key} does not match the selected "
-                f"adapter recorded in oracle.requested_deployment [ORACLE_UNAVAILABLE]"
-            )
-
+    entry, requested, fatal = _unavailable_diagnostic(oracle, where)
+    if fatal:
+        return fatal
+    errors = _selected_adapter_errors(entry, requested, where)
     adapter_name = requested.get("adapter")
     current, fatal = _replayed_adapter_probe(record, oracle, requested, where)
     if fatal:
@@ -195,6 +196,62 @@ def _check_unavailable_deployment(record, where):
             f"{where}: unavailable deployment names adapter {adapter_name!r}, which "
             "does not currently report unavailable [ORACLE_UNAVAILABLE]"
         ]
+    errors.extend(_current_probe_errors(entry, current, adapter_name, where))
+    expected_entry = _expected_unavailable_entry(requested, current)
+    if not contract.strict_json_equal(entry, expected_entry):
+        errors.append(
+            f"{where}: oracle.unavailable[0] must exactly match the "
+            "selected-adapter diagnostic [ORACLE_UNAVAILABLE]"
+        )
+    return errors
+
+
+def _unavailable_diagnostic(oracle, where):
+    unavailable = oracle.get("unavailable")
+    if not isinstance(unavailable, list) or len(unavailable) != 1:
+        return (
+            None,
+            None,
+            [
+                f"{where}: oracle.unavailable must contain exactly one deployment "
+                "diagnostic [ORACLE_UNAVAILABLE]"
+            ],
+        )
+    entry = unavailable[0]
+    if not isinstance(entry, dict):
+        return (
+            None,
+            None,
+            [f"{where}: oracle.unavailable[0] must be an object [ORACLE_UNAVAILABLE]"],
+        )
+
+    requested = oracle.get("requested_deployment")
+    if not isinstance(requested, dict):
+        return (
+            None,
+            None,
+            [
+                f"{where}: oracle.requested_deployment must bind the selected adapter "
+                "[ORACLE_UNAVAILABLE]"
+            ],
+        )
+    return entry, requested, []
+
+
+def _selected_adapter_errors(entry, requested, where):
+    errors = []
+    for key in ("adapter", "execution_target", "adapter_config"):
+        if entry.get(key) != requested.get(key):
+            errors.append(
+                f"{where}: oracle.unavailable[0].{key} does not match the selected "
+                f"adapter recorded in oracle.requested_deployment [ORACLE_UNAVAILABLE]"
+            )
+
+    return errors
+
+
+def _current_probe_errors(entry, current, adapter_name, where):
+    errors = []
     for key in ("execution_target", "reason_code", "detail"):
         if entry.get(key) != current.get(key):
             errors.append(
@@ -202,6 +259,10 @@ def _check_unavailable_deployment(record, where):
                 f"adapter {adapter_name!r} reports {current.get(key)!r} "
                 "[ORACLE_UNAVAILABLE]"
             )
+    return errors
+
+
+def _expected_unavailable_entry(requested, current):
     expected_entry = {
         key: copy.deepcopy(requested[key])
         for key in ("adapter", "execution_target", "adapter_config")
@@ -213,12 +274,7 @@ def _check_unavailable_deployment(record, where):
             "detail": current.get("detail"),
         }
     )
-    if not contract.strict_json_equal(entry, expected_entry):
-        errors.append(
-            f"{where}: oracle.unavailable[0] must exactly match the "
-            "selected-adapter diagnostic [ORACLE_UNAVAILABLE]"
-        )
-    return errors
+    return expected_entry
 
 
 if __package__:

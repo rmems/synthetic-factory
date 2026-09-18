@@ -46,8 +46,8 @@ def _dropped_record_errors(record_ids, view_id_counts, where):
     if not dropped:
         return []
     return [
-        f"{where}: training view set drops records {dropped} "
-        f"[TRAINING_VIEW_HIDES_FAILURE]"
+        (f"{where}: training view set drops records {dropped} "
+         f"[TRAINING_VIEW_HIDES_FAILURE]")
     ]
 
 
@@ -57,8 +57,8 @@ def _orphan_view_errors(view_id_counts, record_id_set, where):
     if not orphans:
         return []
     return [
-        f"{where}: training view set contains views with no record behind them: "
-        f"{orphans} [TRAINING_VIEW_HIDES_FAILURE]"
+        (f"{where}: training view set contains views with no record behind them: "
+         f"{orphans} [TRAINING_VIEW_HIDES_FAILURE]")
     ]
 
 
@@ -68,8 +68,8 @@ def _duplicate_view_errors(view_id_counts, where):
     if not duplicates:
         return []
     return [
-        f"{where}: training view set repeats {duplicates}, which reweights the "
-        f"corpus away from what the oracles found [TRAINING_VIEW_HIDES_FAILURE]"
+        (f"{where}: training view set repeats {duplicates}, which reweights the "
+         f"corpus away from what the oracles found [TRAINING_VIEW_HIDES_FAILURE]")
     ]
 
 
@@ -91,11 +91,15 @@ def view_set_errors(records, views, where="training-view"):
     agreeable half of a corpus dilutes the failures just as effectively as
     deleting them, and a view with no record behind it is unsourced.
     """
-    record_ids = [record.get("id") for record in records]
-    view_ids = [view.get("id") for view in views]
+    record_ids = _object_ids(records)
+    view_ids = _object_ids(views)
     errors = _view_id_validity_errors(record_ids, view_ids, where)
     errors += _view_id_mapping_errors(record_ids, view_ids, where)
     return errors
+
+
+def _object_ids(objects):
+    return [item.get("id") if isinstance(item, dict) else None for item in objects]
 
 
 def catalog_batch_errors(records, catalog_ids, where="training-view"):
@@ -111,12 +115,15 @@ def catalog_batch_errors(records, catalog_ids, where="training-view"):
     validation, which is what binds each record's scenario id and round to
     its own evidence.
     """
+    errors = _catalog_coordinate_errors(records, catalog_ids, where)
+    if errors:
+        return errors
     expected = Counter(catalog_ids)
     scenario_ids_by_round = _scenario_ids_by_round(records)
     if not scenario_ids_by_round:
         return [
-            f"{where}: no records to project; a training-view batch must carry "
-            "at least one complete catalog round [TRAINING_VIEW_HIDES_FAILURE]"
+            (f"{where}: no records to project; a training-view batch must carry "
+             "at least one complete catalog round [TRAINING_VIEW_HIDES_FAILURE]")
         ]
     return [
         _round_coverage_error(round_number, got, expected, where)
@@ -131,6 +138,26 @@ def _declared_field(record, section, key):
     """``record[section][key]`` when both levels are objects, else ``None``."""
     block = record.get(section) if isinstance(record, dict) else None
     return block.get(key) if isinstance(block, dict) else None
+
+
+def _catalog_coordinate_errors(records, catalog_ids, where):
+    if _non_string_ids(catalog_ids):
+        return [f"{where}: catalog scenario IDs must be strings [TRAINING_VIEW_HIDES_FAILURE]"]
+    return [
+        f"{where}:{index}: invalid scenario ID or positive integer round [TRAINING_VIEW_HIDES_FAILURE]"
+        for index, record in enumerate(records, 1)
+        if not _valid_catalog_coordinates(record)
+    ]
+
+
+def _valid_catalog_coordinates(record):
+    round_number = _declared_field(record, "meta", "round")
+    scenario_id = _declared_field(record, "scenario", "id")
+    if isinstance(round_number, bool) or not isinstance(round_number, int):
+        return False
+    if round_number < 1:
+        return False
+    return isinstance(scenario_id, str) and bool(scenario_id)
 
 
 def _scenario_ids_by_round(records):

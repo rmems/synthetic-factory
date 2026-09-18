@@ -9,6 +9,8 @@ or relabels what the oracles found.
 
 from __future__ import annotations
 
+import copy
+
 from .import_twins import bind_import_twin
 
 from .envelope import strict_json_equal
@@ -33,6 +35,7 @@ TRAINING_VIEW_KEYS = (
     "oracle_backed",
     "execution_targets",
     "evidence_digests",
+    "provenance",
 )
 
 # A MATCH is not a complete oracle when the hardware/HIL leg could not be
@@ -57,6 +60,10 @@ def oracle_is_complete(reason_codes):
     )
 
 
+def _is_passing_verdict(verdict):
+    return isinstance(verdict, str) and verdict in PASSING_VERDICTS
+
+
 def build_training_view(record, prompt, completion, execution_targets):
     """Build a training view that structurally cannot hide a parity failure.
 
@@ -78,7 +85,7 @@ def build_training_view(record, prompt, completion, execution_targets):
         "prompt": prompt,
         "completion": completion,
         "verdict": verdict,
-        "parity_failed": verdict not in PASSING_VERDICTS,
+        "parity_failed": not _is_passing_verdict(verdict),
         # `parity_failed: false` means "the oracles that ran agreed", which is
         # not the same as "the intended oracles ran". A consumer filtering on
         # parity_failed alone would otherwise read a clean bill of health off a
@@ -89,6 +96,7 @@ def build_training_view(record, prompt, completion, execution_targets):
         "oracle_backed": result.get("oracle_backed"),
         "execution_targets": list(execution_targets),
         "evidence_digests": evidence_digests,
+        "provenance": copy.deepcopy(record.get("provenance")),
     }
 
 
@@ -153,7 +161,7 @@ def _view_identity_field_errors(record, view, where):
     return [
         f"{where}: training view {key} must exactly match the source record "
         "[TRAINING_VIEW_HIDES_FAILURE]"
-        for key in ("id", "record_kind", "dataset")
+        for key in ("id", "record_kind", "dataset", "provenance")
         if not strict_json_equal(view.get(key), record.get(key))
     ]
 
@@ -163,12 +171,14 @@ def _view_verdict_errors(record, view, where):
     result = record.get("result") or {}
     verdict = result.get("verdict")
     errors = []
+    if not isinstance(verdict, str):
+        errors.append(f"{where}: record verdict must be a string [TRAINING_VIEW_HIDES_FAILURE]")
     if view.get("verdict") != verdict:
         errors.append(
             f"{where}: training view verdict {view.get('verdict')!r} != record verdict "
             f"{verdict!r} [TRAINING_VIEW_HIDES_FAILURE]"
         )
-    expected_failed = verdict not in PASSING_VERDICTS
+    expected_failed = not _is_passing_verdict(verdict)
     if view.get("parity_failed") is not expected_failed:
         errors.append(
             f"{where}: training view parity_failed must be {expected_failed} for verdict "

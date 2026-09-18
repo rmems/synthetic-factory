@@ -360,6 +360,8 @@ def generate_records(round_number=1, steps=12, deployment_adapter=None, repeats=
                      env=None):
     """Generate one round of paired records for the whole scenario catalog."""
     deployment_adapter = deployment_adapter or FixedPointReferenceAdapter()
+    if env is None and isinstance(deployment_adapter, FixedPointReferenceAdapter):
+        env = {}
     fpga_status = availability_report(env=env)["spikenaut_fpga"]
     records = []
     for scenario in build_scenarios(steps=steps):

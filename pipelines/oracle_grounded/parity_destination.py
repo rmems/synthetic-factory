@@ -11,14 +11,15 @@ from .import_twins import bind_import_twin
 
 from pathlib import Path
 
+try:
+    from pipelines.raw_tree_guard import contains_raw_segments, is_under_raw
+except ImportError:
+    from raw_tree_guard import contains_raw_segments, is_under_raw
+
 
 def _points_under_raw_tree(candidate):
     """True when consecutive path parts spell an ``outputs/raw`` tree."""
-    parts = candidate.parts
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
+    return contains_raw_segments(candidate.parts)
 
 
 def raw_tree_destination_error(destination):
@@ -28,15 +29,15 @@ def raw_tree_destination_error(destination):
     through the transaction/publish path, never directly from a generator
     CLI. Both the lexical argument and its resolved form are checked, so
     neither a ``..`` respelling nor a symlink detour can land a fresh batch
-    inside a raw tree. Returns ``None`` for an acceptable destination.
+    inside a raw tree. The shared guard also checks inode and bind-mount
+    aliases. Returns ``None`` for an acceptable destination.
     """
     destination = Path(destination)
-    for candidate in (destination, destination.resolve(strict=False)):
-        if _points_under_raw_tree(candidate):
-            return (
-                "refusing to generate beneath immutable outputs/raw: "
-                f"{destination}"
-            )
+    if _points_under_raw_tree(destination) or is_under_raw(destination):
+        return (
+            "refusing to generate beneath immutable outputs/raw: "
+            f"{destination}"
+        )
     return None
 
 
