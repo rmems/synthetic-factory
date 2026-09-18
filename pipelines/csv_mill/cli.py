@@ -17,21 +17,31 @@ from typing import Any
 if __package__:
     from . import catalog as cat
     from . import generate as gen
-    from ._contract import CsvRefusal, bind_import_twin, dumps_exact_json
+    from ._contract import CsvRefusal, bind_import_twin, dumps_exact_json, parse_json_integer
 else:
     _REPO = Path(__file__).resolve().parents[2]
     if str(_REPO) not in sys.path:
         sys.path.insert(0, str(_REPO))
     from pipelines.csv_mill import catalog as cat
     from pipelines.csv_mill import generate as gen
-    from pipelines.csv_mill._contract import CsvRefusal, bind_import_twin, dumps_exact_json
+    from pipelines.csv_mill._contract import CsvRefusal, bind_import_twin, dumps_exact_json, parse_json_integer
 
 __all__ = ["build_parser", "run"]
 
 
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
-        raise CsvRefusal("USAGE", message)
+        code = "ROUND_INVALID" if "round exceeds the exact-JSON integer domain" in message else "USAGE"
+        raise CsvRefusal(code, message)
+
+
+def _parse_round(token: str) -> int:
+    try:
+        return parse_json_integer(token)
+    except ValueError as exc:
+        if "precision exceeds" in str(exc):
+            raise argparse.ArgumentTypeError("round exceeds the exact-JSON integer domain") from exc
+        raise
 
 
 def _shared_arguments() -> argparse.ArgumentParser:
@@ -47,7 +57,7 @@ def _generation_arguments(parser: argparse.ArgumentParser) -> None:
         "--plant": {"default": None, "help": "exact plant_id (mill_id:slug)"},
         "--mill": {"default": None, "help": "one mill_id, every plant in order"},
         "--all": {"action": "store_true", "help": "every plant in the catalog"},
-        "--round": {"type": int, "default": None, "help": "id round; only with --plant"},
+        "--round": {"type": _parse_round, "default": None, "help": "id round; only with --plant"},
     }
     for flag, settings in options.items():
         parser.add_argument(flag, **settings)

@@ -45,7 +45,7 @@ class CatalogInputBoundaries(unittest.TestCase):
                 self._save_rows(("\n".join(json.dumps(row) for row in rows) + "\n").encode())
                 for selector in (["catalog-check"], ["generate", "--all", "--out", str(self.root / "run")],
                                  ["generate", "--mill", mill_id, "--out", str(self.root / "run")]):
-                    self._assert_refusal(selector, "PLANT_FIELD_INVALID")
+                    self._assert_refusal(selector, "CATALOG_FIELD_INVALID" if base == 10 ** 4096 else "PLANT_FIELD_INVALID")
 
     def test_deep_jsonl_field_is_a_coded_refusal(self):
         payload = (self.catalog / "plants.jsonl").read_bytes()

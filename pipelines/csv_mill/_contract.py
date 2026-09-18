@@ -37,6 +37,7 @@ else:
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 
 dumps_exact_json = _exact_json.dumps_exact_json
+parse_json_integer = _exact_json.parse_json_integer
 json_integer_is_bounded = _exact_json.json_integer_is_bounded
 envelope = _oracle_grounded.envelope
 is_under_raw = _raw_tree_guard.is_under_raw
@@ -199,6 +200,7 @@ def load_strict_json(payload: str | bytes):
         object_pairs_hook=reject_duplicate_object_keys,
         parse_constant=reject_json_constant,
         parse_float=ExactJSONFloat,
+        parse_int=parse_json_integer,
     )
 
 

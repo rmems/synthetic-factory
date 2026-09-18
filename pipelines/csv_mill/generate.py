@@ -101,7 +101,7 @@ def _meta(
 
 
 def _episode_id(rnd: int, slug: str) -> str:
-    return f"{RECORD_PREFIX}-r{rnd:02d}-{slug}"
+    return f"{RECORD_PREFIX}-r{dumps_exact_json(rnd).zfill(2)}-{slug}"
 
 
 def _episode(rnd: int, plant: cat.Plant, catalog_id: str, success: bool) -> dict[str, Any]:
@@ -131,7 +131,7 @@ def notes_markdown(rnd: int, plant: cat.Plant) -> str:
     ok = _episode_id(rnd, p["slug"])
     bad = _episode_id(rnd, p["fail"])
     return (
-        f"# {FACTORY} — NOTES r{rnd:02d}\n\n"
+        f"# {FACTORY} — NOTES r{dumps_exact_json(rnd).zfill(2)}\n\n"
         f"Novel coverage: leftover leftover leftover {p['keep']} vs {p['naive']}. "
         "Not r106–r113 clones. Not beehiiv. Not tantivy/search-index.\n\n"
         "## Episodes\n"
