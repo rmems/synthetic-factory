@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any
 
 from ._contract import bind_import_twin, dumps_exact_json, load_strict_json, strict_lf_jsonl_lines
-from .catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH
+from .catalog_extract import GQL_PATH, SBOX_PATH, SBOX_PLANT_FIELDS, SSL_PATH
 
 CATALOG_DIR = Path(__file__).resolve().parents[2] / "config" / "leftover6"
 CATALOG_FILENAME = "CATALOG.json"
@@ -97,28 +97,7 @@ _SSL_ROW_KEYS = {
     "new_vs",
     "ticket",
 }
-_PLANT_ROW_KEYS = {
-    "source_path",
-    "kind",
-    "family",
-    "dump",
-    "miss_dump",
-    "secret",
-    "pin",
-    "pin_path",
-    "pin_needle",
-    "grep_hit",
-    "distinct",
-    "ext",
-    "miss_ext",
-    "live_bin",
-    "inc",
-    "over_slug",
-    "miss_slug",
-    "proc",
-    "allow",
-    "rotate",
-}
+_PLANT_ROW_KEYS = {"source_path", "kind", *SBOX_PLANT_FIELDS}
 FORBIDDEN_MILL_GLOBS = (
     "*leftover6*mill*.py",
     "*mill*leftover6*.py",

@@ -7,6 +7,11 @@ import ast
 from collections.abc import Mapping
 from typing import Any
 
+if __name__.startswith("pipelines."):
+    from ..sbox.generate import ROW_PARAM_CORE as SBOX_PLANT_FIELDS
+else:
+    from sbox.generate import ROW_PARAM_CORE as SBOX_PLANT_FIELDS
+
 from ._contract import bind_import_twin
 
 UNSET = object()
@@ -20,26 +25,7 @@ class _LiteralMapping(dict):
         self.shape = shape
 
 
-SBOX_PLANT_FIELDS = (
-    "family",
-    "dump",
-    "miss_dump",
-    "secret",
-    "pin",
-    "pin_path",
-    "pin_needle",
-    "grep_hit",
-    "distinct",
-    "ext",
-    "miss_ext",
-    "live_bin",
-    "inc",
-    "over_slug",
-    "miss_slug",
-    "proc",
-    "allow",
-    "rotate",
-)
+
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
