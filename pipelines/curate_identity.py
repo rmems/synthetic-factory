@@ -679,6 +679,20 @@ _provenance_mapping_sha256 = _identity_apply.provenance_mapping_sha256
 _seal_provenance_mapping = _identity_apply.seal_provenance_mapping
 
 
+def _stamp_plan(
+    curated: dict[str, Any],
+    original: Mapping[str, Any],
+    source: _SourceIdentity,
+    kind: str,
+    owner_specs: list[tuple[str, Mapping[str, Any]]],
+    output_id: str,
+    root_original_ids: list[dict[str, Any]],
+) -> _identity_apply.StampPlan:
+    return _identity_apply.StampPlan(
+        curated, original, source, kind, owner_specs, output_id, root_original_ids
+    )
+
+
 def _assign_nested_ids(
     curated: dict[str, Any],
     original: Mapping[str, Any],
@@ -689,14 +703,8 @@ def _assign_nested_ids(
     root_original_ids: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     return _identity_apply.assign_nested_ids(
-        _identity_apply.NestedIdsPlan(
-            curated,
-            original,
-            source,
-            kind,
-            owner_specs,
-            output_id,
-            root_original_ids,
+        _stamp_plan(
+            curated, original, source, kind, owner_specs, output_id, root_original_ids
         ),
         _apply_ids(),
     )
@@ -725,15 +733,17 @@ def _apply_resolved_state(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     return _identity_apply.apply_resolved_state(
         _identity_apply.ResolvedStatePlan(
-            curated,
-            original,
-            source,
-            kind,
-            native_owner_specs,
+            _stamp_plan(
+                curated,
+                original,
+                source,
+                kind,
+                native_owner_specs,
+                output_id,
+                root_original_ids,
+            ),
             resolve_owners,
             resolutions,
-            output_id,
-            root_original_ids,
         ),
         _apply_ids(),
     )
@@ -749,14 +759,8 @@ def _apply_shape_designed(
     root_original_ids: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     return _identity_apply.apply_shape_designed(
-        _identity_apply.ShapeDesignedPlan(
-            curated,
-            original,
-            source,
-            kind,
-            owner_specs,
-            output_id,
-            root_original_ids,
+        _stamp_plan(
+            curated, original, source, kind, owner_specs, output_id, root_original_ids
         ),
         _apply_ids(),
     )

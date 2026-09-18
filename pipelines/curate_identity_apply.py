@@ -28,42 +28,28 @@ else:
     from curate_identity_json import sha256_json
 
 
-class ResolvedStatePlan(NamedTuple):
-    """The curated object plus the state resolutions that stamp it."""
+class StampPlan(NamedTuple):
+    """Curated payload plus the owners that receive nested IDs."""
 
     curated: dict[str, Any]
     original: Mapping[str, Any]
     source: Any
     kind: str
-    native_owner_specs: list[tuple[str, Mapping[str, Any]]]
+    owner_specs: list[tuple[str, Mapping[str, Any]]]
+    output_id: str
+    root_original_ids: list[dict[str, Any]]
+
+
+NestedIdsPlan = StampPlan
+ShapeDesignedPlan = StampPlan
+
+
+class ResolvedStatePlan(NamedTuple):
+    """Stamp plan plus the state resolutions that overwrite owner provenance."""
+
+    stamp: StampPlan
     resolve_owners: list[tuple[str, Mapping[str, Any]]]
     resolutions: list[dict[str, Any]]
-    output_id: str
-    root_original_ids: list[dict[str, Any]]
-
-
-class ShapeDesignedPlan(NamedTuple):
-    """The curated object plus the owners that receive the designed contract."""
-
-    curated: dict[str, Any]
-    original: Mapping[str, Any]
-    source: Any
-    kind: str
-    owner_specs: list[tuple[str, Mapping[str, Any]]]
-    output_id: str
-    root_original_ids: list[dict[str, Any]]
-
-
-class NestedIdsPlan(NamedTuple):
-    """The inputs needed to assign IDs to a curated record and its owners."""
-
-    curated: dict[str, Any]
-    original: Mapping[str, Any]
-    source: Any
-    kind: str
-    owner_specs: list[tuple[str, Mapping[str, Any]]]
-    output_id: str
-    root_original_ids: list[dict[str, Any]]
 
 
 class NestedWrapperMappingPlan(NamedTuple):
@@ -106,6 +92,27 @@ def _owner_provenance_original(owner: Mapping[str, Any]) -> dict[str, Any]:
             "value": copy.deepcopy(owner.get("provenance")),
         }
     }
+
+
+def _sealed_path_mapping(payload: dict[str, Any]) -> dict[str, Any]:
+    payload["canonical"] = copy.deepcopy(payload["canonical"])
+    return seal_provenance_mapping(payload)
+
+
+def _seal_from_owner(
+    owner_path: str,
+    basis: str,
+    owner: Mapping[str, Any],
+    canonical: Mapping[str, Any],
+) -> dict[str, Any]:
+    return _sealed_path_mapping(
+        {
+            "owner_path": owner_path,
+            "basis": basis,
+            "original": _owner_provenance_original(owner),
+            "canonical": canonical,
+        }
+    )
 
 
 def assign_nested_ids(plan: NestedIdsPlan, ids: ApplyIds) -> list[dict[str, Any]]:
@@ -166,22 +173,6 @@ def _stamp_resolved_owner(
     return canonical_provenance
 
 
-def _sealed_state_mapping(
-    owner_path: str,
-    resolution: Mapping[str, Any],
-    canonical_provenance: Mapping[str, Any],
-) -> dict[str, Any]:
-    return seal_provenance_mapping(
-        {
-            "owner_path": owner_path,
-            "state_path": resolution["state_path"],
-            "basis": resolution["basis"],
-            "original": resolution["original"],
-            "canonical": copy.deepcopy(canonical_provenance),
-        }
-    )
-
-
 def _nested_wrapper_kind(
     canonical_provenances: list[dict[str, Any]],
     equal: Callable[..., bool],
@@ -196,67 +187,37 @@ def _nested_wrapper_kind(
     return wrapper_kind, claims
 
 
+def _write_record_provenance(
+    curated: dict[str, Any],
+    original: Mapping[str, Any],
+    provenance_mappings: list[dict[str, Any]],
+    provenance: Mapping[str, Any],
+    basis: str,
+) -> None:
+    curated["provenance"] = provenance
+    provenance_mappings.append(_seal_from_owner("/", basis, original, provenance))
+
+
 def _append_nested_wrapper_mapping(plan: NestedWrapperMappingPlan) -> None:
     wrapper_kind, wrapper_claimed = _nested_wrapper_kind(
         plan.canonical_provenances, plan.equal
     )
-    plan.curated["provenance"] = {
-        "kind": wrapper_kind,
-        "claimed": copy.deepcopy(wrapper_claimed),
-    }
-    plan.provenance_mappings.append(
-        seal_provenance_mapping(
-            {
-                "owner_path": "/",
-                "basis": "nested_trajectory_aggregate",
-                "original": _owner_provenance_original(plan.original),
-                "canonical": copy.deepcopy(plan.curated["provenance"]),
-            }
-        )
-    )
-
-
-def _append_root_resolution_mapping(
-    curated: dict[str, Any],
-    original: Mapping[str, Any],
-    resolutions: list[dict[str, Any]],
-    provenance_mappings: list[dict[str, Any]],
-) -> None:
-    root = {
-        "kind": resolutions[0]["kind"],
-        "claimed": copy.deepcopy(resolutions[0]["claimed"]),
-        "basis": resolutions[0]["basis"],
-    }
-    curated["provenance"] = root
-    provenance_mappings.append(
-        seal_provenance_mapping(
-            {
-                "owner_path": "/",
-                "basis": resolutions[0]["basis"],
-                "original": _owner_provenance_original(original),
-                "canonical": copy.deepcopy(root),
-            }
-        )
+    _write_record_provenance(
+        plan.curated,
+        plan.original,
+        plan.provenance_mappings,
+        {"kind": wrapper_kind, "claimed": copy.deepcopy(wrapper_claimed)},
+        "nested_trajectory_aggregate",
     )
 
 
 def apply_resolved_state(plan: ResolvedStatePlan, ids: ApplyIds):
     """Stamp canonical state provenance onto ``plan.curated``."""
 
-    id_mappings = assign_nested_ids(
-        NestedIdsPlan(
-            plan.curated,
-            plan.original,
-            plan.source,
-            plan.kind,
-            plan.native_owner_specs,
-            plan.output_id,
-            plan.root_original_ids,
-        ),
-        ids,
-    )
+    stamp = plan.stamp
+    id_mappings = assign_nested_ids(stamp, ids)
     curated_owners = curated_resolve_owners(
-        plan.curated, plan.kind, plan.resolve_owners, ids
+        stamp.curated, stamp.kind, plan.resolve_owners, ids
     )
     provenance_mappings: list[dict[str, Any]] = []
     canonical_provenances: list[dict[str, Any]] = []
@@ -266,22 +227,39 @@ def apply_resolved_state(plan: ResolvedStatePlan, ids: ApplyIds):
         canonical_provenance = _stamp_resolved_owner(owner, resolution, ids.error_type)
         canonical_provenances.append(canonical_provenance)
         provenance_mappings.append(
-            _sealed_state_mapping(owner_path, resolution, canonical_provenance)
+            _sealed_path_mapping(
+                {
+                    "owner_path": owner_path,
+                    "state_path": resolution["state_path"],
+                    "basis": resolution["basis"],
+                    "original": resolution["original"],
+                    "canonical": canonical_provenance,
+                }
+            )
         )
 
-    if plan.kind in {"preference", "bridge_pair"}:
+    if stamp.kind in {"preference", "bridge_pair"}:
         _append_nested_wrapper_mapping(
             NestedWrapperMappingPlan(
-                plan.curated,
-                plan.original,
+                stamp.curated,
+                stamp.original,
                 canonical_provenances,
                 provenance_mappings,
                 ids.canonical_json_equal,
             )
         )
-    elif plan.kind in {"episode", "safety_case", "multi_agent"} and plan.resolutions:
-        _append_root_resolution_mapping(
-            plan.curated, plan.original, plan.resolutions, provenance_mappings
+    elif stamp.kind in {"episode", "safety_case", "multi_agent"} and plan.resolutions:
+        first = plan.resolutions[0]
+        _write_record_provenance(
+            stamp.curated,
+            stamp.original,
+            provenance_mappings,
+            {
+                "kind": first["kind"],
+                "claimed": copy.deepcopy(first["claimed"]),
+                "basis": first["basis"],
+            },
+            first["basis"],
         )
     return id_mappings, provenance_mappings
 
@@ -299,15 +277,12 @@ def _append_designed_owner_mappings(
     for owner_path, owner in ids.owner_specs(plan.curated, plan.kind):
         nested_designed = _designed_provenance(plan.kind, ids)
         owner["provenance"] = copy.deepcopy(nested_designed)
-        original_owner = original_owners[owner_path]
         provenance_mappings.append(
-            seal_provenance_mapping(
-                {
-                    "owner_path": owner_path,
-                    "basis": nested_designed["basis"],
-                    "original": _owner_provenance_original(original_owner),
-                    "canonical": copy.deepcopy(nested_designed),
-                }
+            _seal_from_owner(
+                owner_path,
+                nested_designed["basis"],
+                original_owners[owner_path],
+                nested_designed,
             )
         )
 
@@ -316,29 +291,12 @@ def apply_shape_designed(plan: ShapeDesignedPlan, ids: ApplyIds):
     """Stamp the synthetic-shape-implies-designed contract onto ``plan.curated``."""
 
     designed = _designed_provenance(plan.kind, ids)
-    plan.curated["provenance"] = copy.deepcopy(designed)
-    id_mappings = assign_nested_ids(
-        NestedIdsPlan(
-            plan.curated,
-            plan.original,
-            plan.source,
-            plan.kind,
-            plan.owner_specs,
-            plan.output_id,
-            plan.root_original_ids,
-        ),
-        ids,
+    provenance_mappings: list[dict[str, Any]] = []
+    _write_record_provenance(
+        plan.curated, plan.original, provenance_mappings, copy.deepcopy(designed),
+        designed["basis"],
     )
-    provenance_mappings = [
-        seal_provenance_mapping(
-            {
-                "owner_path": "/",
-                "basis": designed["basis"],
-                "original": _owner_provenance_original(plan.original),
-                "canonical": copy.deepcopy(designed),
-            }
-        )
-    ]
+    id_mappings = assign_nested_ids(plan, ids)
     if plan.owner_specs:
         _append_designed_owner_mappings(plan, provenance_mappings, ids)
     return id_mappings, provenance_mappings
