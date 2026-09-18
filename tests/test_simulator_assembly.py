@@ -45,6 +45,23 @@ class SimulatorAssembly(unittest.TestCase):
                 export_hf.export_run(root / "composed", root / "export")
             self.assertFalse((root / "export").exists())
 
+    def test_malformed_family_claim_cannot_escape_to_thalamic_shape(self):
+        from pipelines import record_kind
+
+        claimant = {
+            "family": "neuromorphic-fault-recovery",
+            "state": {},
+            "proposed_action": {},
+            "safety_decision": {},
+            "executed_action": {},
+            "future_outcome": {},
+            "reward_components": {},
+        }
+        self.assertEqual(record_kind.classify_kind(claimant), "fault_recovery")
+        errors, kind = validate_run.check_line(claimant, "claim")
+        self.assertEqual(kind, "fault_recovery")
+        self.assertTrue(errors)
+
     def test_changed_native_source_precision_is_excluded(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

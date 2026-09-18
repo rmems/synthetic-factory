@@ -123,6 +123,13 @@ class ProceduralRegistryTests(unittest.TestCase):
         self.assertEqual(classify_kind({"family": "python-function-repair", "goal": "x",
                                         "steps": [], "result": []}), "code_repair")
 
+    def test_malformed_native_family_claim_cannot_escape_to_thalamic_shape(self):
+        from record_kind import THALAMIC_REQUIRED
+
+        claimant = {key: {} for key in THALAMIC_REQUIRED}
+        claimant["family"] = "neuromorphic-fault-recovery"
+        self.assertEqual(classify_kind(claimant), "fault_recovery")
+
     def test_supplied_source_json_remains_the_identity_snapshot_without_a_digest(self):
         record = {"family": "python-function-repair"}
         raw = '{"family": "python-function-repair"}  '

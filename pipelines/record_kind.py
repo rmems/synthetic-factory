@@ -46,9 +46,9 @@ _PAYLOAD_KEY_RULES = (
 
 
 def _is_fault_recovery(record: Mapping[str, Any]) -> bool:
-    return (record.get("family"), record.get("schema_version")) == (
-        "neuromorphic-fault-recovery", "oracle-grounded/1.0.0",
-    )
+    # Family is sticky: a malformed claimant stays in fault_recovery and fails
+    # that family's validator instead of falling through to thalamic keys.
+    return record.get("family") == "neuromorphic-fault-recovery"
 
 
 def classify_kind(obj: Any) -> str:
@@ -57,7 +57,7 @@ def classify_kind(obj: Any) -> str:
     Order (census/agentic, issue #32 comment 5377279101):
 
     1. code_repair — ``family`` is ``python-function-repair``
-    2. fault_recovery — native neuromorphic-fault-recovery oracle envelope
+    2. fault_recovery — ``family`` is ``neuromorphic-fault-recovery``
     3. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
     4. preference — ``chosen`` and ``rejected``
     5. bridge_pair — ``language_view`` and ``spike_events``
