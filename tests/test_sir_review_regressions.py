@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import tempfile
 import unittest
@@ -30,17 +29,35 @@ def _extract(appendix):
     )
 
 
+def _catalog_models(package_first):
+    if package_first:
+        from pipelines.sir import catalog_model as first
+        from sir import catalog_model as second
+    else:
+        from sir import catalog_model as first
+        from pipelines.sir import catalog_model as second
+    return first, second
+
+
+def _catalog_classes():
+    from pipelines.sir.catalog import MillCatalog as packaged
+    from sir.catalog import MillCatalog as direct
+
+    return packaged, direct
+
+
 class SirReviewRegressions(unittest.TestCase):
     def test_catalog_class_identity_survives_both_import_orders(self):
-        direct, package = "sir.catalog_model", "pipelines.sir.catalog_model"
-        for first, second in ((direct, package), (package, direct)):
-            with self.subTest(first=first), clean_package_imports(), direct_pipeline_path():
-                first_module = importlib.import_module(first)
-                second_module = importlib.import_module(second)
+        for package_first in (True, False):
+            with (
+                self.subTest(package_first=package_first),
+                clean_package_imports(),
+                direct_pipeline_path(),
+            ):
+                first_module, second_module = _catalog_models(package_first)
                 self.assertIs(first_module, second_module)
-                for catalog_name in ("sir.catalog", "pipelines.sir.catalog"):
-                    catalog = importlib.import_module(catalog_name)
-                    self.assertIs(catalog.MillCatalog, first_module.MillCatalog)
+                for catalog_class in _catalog_classes():
+                    self.assertIs(catalog_class, first_module.MillCatalog)
 
     def test_destructuring_invalidates_every_bound_catalog_name(self):
         targets = ("{field}, extra", "[extra, [{field}]]", "extra, *{field}")

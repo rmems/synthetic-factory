@@ -188,13 +188,17 @@ def _first_py_constant(node: ast.AST | None) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value if node.value.endswith(".py") else ""
     if isinstance(node, ast.Call):
-        for arg in node.args:
-            found = _first_py_constant(arg)
-            if found:
-                return found
-        return ""
+        return _first_py_argument(node.args)
     if isinstance(node, ast.BinOp):
         return _first_py_constant(node.right) or _first_py_constant(node.left)
+    return ""
+
+
+def _first_py_argument(arguments: list[ast.expr]) -> str:
+    for argument in arguments:
+        found = _first_py_constant(argument)
+        if found:
+            return found
     return ""
 
 
