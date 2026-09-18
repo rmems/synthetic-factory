@@ -1,0 +1,44 @@
+pipelines/csv_mill/cli.py
+  s_5660553172852b::t_ed4eb342663070 1-101,103-145
+tests/test_csv_catalog_validation.py
+  s_5660553172852b::t_7f2881b5827c94 1-12,14-15,18-119
+tests/csv_import_probe.py
+  s_5660553172852b::t_6142c32b6e980c 1-7,18-20,22,25,31-33,40-46
+  s_5660553172852b::t_74fa7c7f8af581 8-17,21,23-24,26-30,34-39
+pipelines/csv_mill/steps.py
+  s_5660553172852b::t_ed544bef08f2e4 1-46
+pipelines/csv_mill/catalog.py
+  s_5660553172852b::t_1d50fc39a00452 23-24,53,55
+  s_5660553172852b::t_ed4eb342663070 1-21,25,27-28,30-52,54,57-67
+  s_5660553172852b::t_869e91f2fe11a5 22
+  s_5660553172852b::t_4b435da0db50b2 29
+tests/test_csv.py
+  s_5660553172852b::t_7c6e101e5860db 27-28,107-125,210-211,214-216,218-227,229-233,327-338,355
+tests/test_csv_regressions.py
+  s_5660553172852b::t_bb717e409fcc1e 1-7,10-13,18-20,35,37-46,49-50,57-64,68-95
+  s_5660553172852b::t_ed4eb342663070 14-15,34
+  s_5660553172852b::t_6142c32b6e980c 8-9,16-17,21-22,24-26,29-33,36,47-48,51-56,65-67
+pipelines/csv_mill/catalog_models.py
+  s_5660553172852b::t_4107cc2697632a 1-5,8-22,24-68,72-73,75-76,80-81,83-85
+pipelines/csv_mill/__init__.py
+  s_5660553172852b::t_6142c32b6e980c 1-25
+pipelines/csv_mill/generate.py
+  s_5660553172852b::t_ed4eb342663070 1-17,20-65,67,69-81,83-86,88-93,96-102,106,112-121,123-164,166-178,181-229
+  s_5660553172852b::t_0a4242a8c59114 18,66,68,82,87,94-95,165,179-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8a8ff73c81cb3349e085355e9cc395026a3a8d0a",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
