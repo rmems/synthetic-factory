@@ -617,6 +617,25 @@ class AvailabilityShapeTest(unittest.TestCase):
             ["records.jsonl:1 has malformed runtime availability"] * 2,
         )
 
+    def test_noncanonical_probe_values_report_the_original_error_kind(self):
+        recursive = []
+        recursive.append(recursive)
+        cases = ((object(), "TypeError"), (float("nan"), "NonFiniteNumber"),
+                 (recursive, "RecursionError"))
+        for value, error_kind in cases:
+            with self.subTest(error_kind=error_kind):
+                context = _FakeMetadataContext()
+                parsed = mock.Mock(where="records.jsonl:1")
+                oracle_validate._record_availability_errors(
+                    parsed,
+                    {"availability": {"runtimes": [{"runtime": "demo", "value": value}]}},
+                    context,
+                )
+                self.assertEqual(context.errors, [
+                    f"records.jsonl:1 has malformed runtime availability: {error_kind}"
+                ])
+                self.assertEqual(context.probe_values, {})
+
     def test_a_malformed_manifest_probe_is_reported(self):
         context = _FakeMetadataContext()
         oracle_validate._availability_probe_errors(

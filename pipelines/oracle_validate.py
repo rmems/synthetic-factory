@@ -35,14 +35,18 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("oracle_validate")
-    from .oracle_grounded import canon, families, oracles, record
-    from .oracle_grounded.rng import MAX_SEED, seed_from_label
+    from . import oracle_validate_manifest as _oracle_validate_manifest
+    from . import oracle_validate_manifest_records as _oracle_validate_manifest_records
+    from .oracle_grounded import canon as canon, families, oracles, record
+    from .oracle_grounded.rng import MAX_SEED as MAX_SEED, seed_from_label as seed_from_label
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "oracle_validate"
     )
-    from oracle_grounded import canon, families, oracles, record
-    from oracle_grounded.rng import MAX_SEED, seed_from_label
+    import oracle_validate_manifest as _oracle_validate_manifest
+    import oracle_validate_manifest_records as _oracle_validate_manifest_records
+    from oracle_grounded import canon as canon, families, oracles, record
+    from oracle_grounded.rng import MAX_SEED as MAX_SEED, seed_from_label as seed_from_label
 
 
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
@@ -834,23 +838,7 @@ _RUN_FILE_RE = re.compile(
 
 
 def _summary(records, manifest_path, label, errors):
-    scores = []
-    for parsed in records:
-        validation = parsed.item.get("validation")
-        if not isinstance(validation, dict):
-            errors.append(f"{manifest_path}: {label} contains a record without validation")
-            continue
-        score = validation.get("candidate_prediction_correct")
-        if score is not None and not isinstance(score, bool):
-            errors.append(f"{manifest_path}: {label} contains a non-boolean candidate score")
-            continue
-        if score is not None:
-            scores.append(score)
-    return {
-        "records": len(records),
-        "candidate_scored": len(scores),
-        "candidate_correct": sum(1 for score in scores if score),
-    }
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._summary(records, manifest_path, label, errors)
 
 
 @dataclass(frozen=True)
@@ -900,397 +888,79 @@ class _MetadataContext:
 
 
 def _read_manifest_header(manifest):
-    """Lift the manifest scalars into one bundle."""
-    return _ManifestHeader(
-        round_number=manifest.get("round"),
-        master_seed=manifest.get("seed"),
-        count_per_family=manifest.get("count_per_family"),
-        commit=manifest.get("oracle_commit"),
-        dirty=manifest.get("oracle_dirty"),
-        module_digest=manifest.get("module_digest"),
-    )
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._read_manifest_header(manifest)
 
 
 def _header_field_errors(context):
-    """Range- and type-check the manifest scalar fields."""
-    header = context.header
-    if not header.round_ok:
-        context.report(f"round must be an integer in [1, {MAX_ROUND}]")
-    if not _plain_int(header.master_seed):
-        context.report("seed must be an integer")
-    elif not 0 <= header.master_seed <= MAX_SEED:
-        context.report(f"seed must lie in [0, {MAX_SEED}] (a 64-bit integer)")
-    if not header.count_ok:
-        context.report(f"count_per_family must be an integer in [1, {MAX_RUN_RECORDS}]")
-    if not oracles.is_source_commit(header.commit):
-        context.report(
-            "oracle_commit must be a resolved lowercase 40- or 64-hex source commit"
-        )
-    elif oracles.resolve_source_commit(header.commit) != header.commit:
-        context.report("oracle_commit does not resolve in the source repository")
-    if header.dirty is not None and not isinstance(header.dirty, bool):
-        context.report("oracle_dirty must be boolean or null")
-    if not canon.is_digest(header.module_digest):
-        context.report("module_digest must be a sha256 digest")
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._header_field_errors(context)
 
 
 def _declared_families_block(manifest, context):
-    """Validate the declared families mapping and return it."""
-    declared = manifest.get("families")
-    if not isinstance(declared, dict):
-        context.report("families must be an object")
-        return {}
-    if not declared:
-        context.report("families must declare at least one family")
-    elif context.header.count_ok and (
-        context.header.count_per_family * len(declared) > MAX_RUN_RECORDS
-    ):
-        context.report(
-            f"count_per_family across declared families exceeds {MAX_RUN_RECORDS} records"
-        )
-    return declared
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._declared_families_block(manifest, context)
 
 
 def _run_file_layout(snapshots, context):
-    """Map each captured file to ``(family, verdict, round)``."""
-    header = context.header
-    file_info = {}
-    actual_families = set()
-    for snapshot in snapshots:
-        match = _RUN_FILE_RE.fullmatch(snapshot.relative)
-        if match is None:
-            context.report(f"manifest path is not a canonical run file: {snapshot.relative}")
-            continue
-        family = match.group("family")
-        file_round = int(match.group("round"))
-        file_info[snapshot.relative] = (family, match.group("verdict"), file_round)
-        actual_families.add(family)
-        if family not in families.SPECS:
-            context.report(f"run contains unknown family {family!r}")
-        if header.round_ok and file_round != header.round_number:
-            context.report(
-                f"{snapshot.relative} round {file_round} "
-                f"does not match manifest round {header.round_number}"
-            )
-    return file_info, actual_families
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._run_file_layout(snapshots, context)
 
 
 def _family_file_pairing_errors(file_info, actual_families, context):
-    """Each family must carry exactly one accepted and one rejected file."""
-    header = context.header
-    if not header.round_ok:
-        return
-    for family in sorted(actual_families):
-        expected_files = {
-            f"{family}/accepted-r{header.round_number:02d}.jsonl",
-            f"{family}/rejected-r{header.round_number:02d}.jsonl",
-        }
-        actual_files = {relative for relative, info in file_info.items() if info[0] == family}
-        if actual_files != expected_files:
-            context.report(
-                f"family {family!r} must have exactly one accepted "
-                "and one rejected file for the manifest round"
-            )
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._family_file_pairing_errors(file_info, actual_families, context)
 
 
 def _record_index(parsed, context):
-    """The proposal index encoded in a record id, or None when malformed."""
-    identifier = parsed.item.get("id")
-    match = (
-        re.fullmatch(
-            rf"{re.escape(context.family)}-r([0-9]{{1,8}})-([0-9]{{1,10}})",
-            identifier,
-        )
-        if isinstance(identifier, str)
-        else None
-    )
-    if match is None:
-        context.report(f"{parsed.where} has no canonical family id")
-        return None
-    if context.header.round_ok and int(match.group(1)) != context.header.round_number:
-        context.report(f"{parsed.where} id round does not match manifest")
-    return int(match.group(2))
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._record_index(parsed, context)
 
 
 def _record_oracle_binding_errors(parsed, oracle, index, context):
-    """Bind one record's oracle block to the manifest, returning its implementation."""
-    header = context.header
-    implementation = oracle.get("implementation")
-    if not isinstance(implementation, str):
-        context.report(f"{parsed.where} oracle.implementation must be a string")
-        implementation = None
-    if oracle.get("commit") != header.commit:
-        context.report(f"{parsed.where} oracle.commit disagrees")
-    if oracle.get("dirty") is not header.dirty:
-        context.report(f"{parsed.where} oracle.dirty disagrees")
-    if oracle.get("module_digest") != header.module_digest:
-        context.report(f"{parsed.where} oracle.module_digest disagrees")
-    if _plain_int(header.master_seed) and index is not None:
-        _record_seed_errors(parsed, oracle, index, context)
-    meta = parsed.item.get("meta")
-    if not isinstance(meta, dict) or meta.get("round") != header.round_number:
-        context.report(f"{parsed.where} meta.round disagrees")
-    return implementation
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._record_oracle_binding_errors(parsed, oracle, index, context)
 
 
 def _record_seed_errors(parsed, oracle, index, context):
-    """Both the oracle and generator seeds must derive from the manifest seed."""
-    expected_seed = seed_from_label(context.header.master_seed, f"{context.family}:{index}")
-    if oracle.get("seed") != expected_seed:
-        context.report(f"{parsed.where} oracle.seed does not derive from the manifest seed")
-    generator = parsed.item.get("generator")
-    if not isinstance(generator, dict) or generator.get("seed") != expected_seed:
-        context.report(f"{parsed.where} generator.seed does not derive from the manifest seed")
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._record_seed_errors(parsed, oracle, index, context)
 
 
 def _record_availability_errors(parsed, oracle, context):
-    """Runtime availability probes must stay identical across the run."""
-    availability = oracle.get("availability")
-    if not isinstance(availability, dict):
-        # The record envelope already rejects this shape; report rather than
-        # skip so this cross-check never silently passes a malformed block.
-        context.report(f"{parsed.where} has malformed runtime availability")
-        return
-    record_probes = availability.get("runtimes")
-    if not isinstance(record_probes, list):
-        context.report(f"{parsed.where} has malformed runtime availability")
-        record_probes = []
-    for probe in record_probes:
-        if not (isinstance(probe, dict) and isinstance(probe.get("runtime"), str)):
-            context.report(f"{parsed.where} has malformed runtime availability")
-            continue
-        try:
-            normalized = canon.normalize(probe)
-        except (TypeError, ValueError, RecursionError) as exc:
-            context.report(
-                f"{parsed.where} has malformed runtime availability: {type(exc).__name__}"
-            )
-            continue
-        previous = context.probe_values.setdefault(probe["runtime"], normalized)
-        if previous != normalized:
-            context.report("runtime availability changes within the run")
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._record_availability_errors(parsed, oracle, context)
 
 
 def _collect_rejection_reasons(parsed, reasons, context):
-    """Accumulate the declared rejection reasons for one rejected record."""
-    validation = parsed.item.get("validation")
-    declared = validation.get("reasons") if isinstance(validation, dict) else None
-    if not isinstance(declared, list) or not all(
-        isinstance(reason, str) for reason in declared
-    ):
-        context.report(f"{parsed.where} has malformed rejection reasons")
-        return
-    reasons.update(declared)
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._collect_rejection_reasons(parsed, reasons, context)
 
 
 def _indexes_are_complete(indexes, context):
-    """Whether the captured ids cover each proposal index exactly once."""
-    if not context.header.count_ok:
-        return False
-    return len(indexes) == context.header.count_per_family and all(
-        index == expected for expected, index in enumerate(sorted(indexes))
-    )
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._indexes_are_complete(indexes, context)
 
 
 def _family_summary(family, records, context):
-    """Validate one family's records and rebuild the summary it must declare."""
-    header = context.header
-    if header.count_ok and len(records) != header.count_per_family:
-        context.report(
-            f"family {family!r} has {len(records)} captured records, "
-            f"expected {header.count_per_family}"
-        )
-    indexes = []
-    implementations = []
-    accepted = [parsed for parsed in records if parsed.verdict == "accepted"]
-    rejected = [parsed for parsed in records if parsed.verdict == "rejected"]
-    rejection_reasons = set()
-    for parsed in records:
-        index = _record_index(parsed, context)
-        if index is not None:
-            indexes.append(index)
-        oracle = parsed.item.get("oracle")
-        if not isinstance(oracle, dict):
-            context.report(f"{parsed.where} has no oracle object")
-            continue
-        implementation = _record_oracle_binding_errors(parsed, oracle, index, context)
-        if implementation is not None:
-            implementations.append(implementation)
-        _record_availability_errors(parsed, oracle, context)
-        if parsed.verdict == "rejected":
-            _collect_rejection_reasons(parsed, rejection_reasons, context)
-    if header.count_ok and not _indexes_are_complete(indexes, context):
-        context.report(f"family {family!r} ids do not cover each proposal index once")
-    if len(set(implementations)) > 1:
-        context.report(f"family {family!r} mixes oracle implementations")
-    spec = families.SPECS.get(family)
-    return {
-        "proposed": header.count_per_family,
-        "accepted": _summary(
-            accepted, context.manifest_path, f"families[{family!r}].accepted", context.errors
-        ),
-        "rejected": {
-            "records": len(rejected),
-            "reasons": sorted(rejection_reasons),
-        },
-        "oracle": {
-            "requested_runtime": list(spec.runtimes) if spec is not None else [],
-            "implementation": implementations[0] if implementations else None,
-        },
-    }
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._family_summary(family, records, context)
 
 
 def _group_records_by_family(parsed_records, file_info, actual_families):
-    """Bucket parsed records under the family directory that carried them."""
-    by_family = {family: [] for family in actual_families}
-    for parsed in parsed_records:
-        info = file_info.get(parsed.relative)
-        if info is not None:
-            by_family.setdefault(info[0], []).append(parsed)
-    return by_family
+    return _oracle_validate_manifest_records.ManifestRecordChecks(sys.modules[__name__])._group_records_by_family(parsed_records, file_info, actual_families)
 
 
 def _expected_runtime_set(actual_families):
-    """Every runtime the captured families request."""
-    return {
-        runtime
-        for family in actual_families
-        if family in families.SPECS
-        for runtime in families.spec_for(family).runtimes
-    }
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._expected_runtime_set(actual_families)
 
 
 def _availability_probe_errors(probes, context):
-    """Each declared probe must match the one captured in the records."""
-    for probe in probes:
-        if not isinstance(probe, dict) or not isinstance(probe.get("runtime"), str):
-            # The sibling runtime-name check already rejects these shapes;
-            # report rather than skip so a malformed probe can never pass.
-            context.report("availability declares a malformed runtime probe")
-            continue
-        runtime = probe["runtime"]
-        expected_probe = context.probe_values.get(runtime)
-        if (
-            expected_probe is None
-            or probe != expected_probe
-            or probe.get("binding_env") != oracles.env_key(runtime)
-            or not isinstance(probe.get("bound"), bool)
-        ):
-            context.report(
-                f"availability for runtime {runtime!r} does not match captured records"
-            )
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._availability_probe_errors(probes, context)
 
 
 def _availability_rollup_errors(availability, probes, runtime_names, context):
-    """``all_bound`` and ``unbound`` must follow from the declared probes."""
-    # A set keeps this linear: probe counts are untrusted and bounded only by
-    # the manifest byte limit. Non-string runtimes can never match a string
-    # name, so excluding them from the set changes no outcome.
-    bound = {
-        probe.get("runtime")
-        for probe in probes
-        if isinstance(probe, dict)
-        and probe.get("bound") is True
-        and isinstance(probe.get("runtime"), str)
-    }
-    unbound = (
-        [runtime for runtime in runtime_names if runtime not in bound]
-        if all(isinstance(runtime, str) for runtime in runtime_names)
-        else []
-    )
-    if availability.get("all_bound") is not (not unbound):
-        context.report("oracle_availability.all_bound disagrees")
-    if availability.get("unbound") != unbound:
-        context.report("oracle_availability.unbound disagrees")
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._availability_rollup_errors(availability, probes, runtime_names, context)
 
 
 def _availability_block_errors(manifest, actual_families, context):
-    """Validate the manifest's oracle_availability block."""
-    availability = manifest.get("oracle_availability")
-    if not isinstance(availability, dict):
-        context.report("oracle_availability must be an object")
-        return
-    # Exactly the fields availability_report() emits; an undeclared sibling
-    # would be an unsupported provenance claim in canonical run metadata.
-    unknown = sorted(set(availability) - {"protocol", "runtimes", "all_bound", "unbound"})
-    if unknown:
-        context.report(
-            "oracle_availability carries unauthenticated sibling keys: " + ", ".join(unknown)
-        )
-    probes = availability.get("runtimes")
-    if availability.get("protocol") != oracles.PROTOCOL or not isinstance(probes, list):
-        context.report("oracle_availability is malformed")
-        return
-    runtime_names = [
-        probe.get("runtime") if isinstance(probe, dict) else None for probe in probes
-    ]
-    runtime_names_valid = all(isinstance(runtime, str) for runtime in runtime_names)
-    if not runtime_names_valid:
-        context.report("oracle_availability runtime names must be strings")
-    elif (
-        len(runtime_names) != len(set(runtime_names))
-        or set(runtime_names) != _expected_runtime_set(actual_families)
-    ):
-        context.report("oracle_availability runtimes do not match families")
-    _availability_probe_errors(probes, context)
-    _availability_rollup_errors(availability, probes, runtime_names, context)
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._availability_block_errors(manifest, actual_families, context)
 
 
 def _manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir):
-    """Bind manifest metadata and summaries to the captured record snapshot."""
-    context = _MetadataContext(
-        header=_read_manifest_header(manifest),
-        manifest_path=Path(run_dir) / "manifest.json",
-        errors=[],
-        probe_values={},
-    )
-    # The manifest is canonical run metadata that no other digest covers, so
-    # its vocabulary is closed: an undeclared sibling would be an unsupported
-    # provenance claim riding along with an otherwise valid run.
-    unknown = sorted(set(manifest) - MANIFEST_ALLOWED_KEYS)
-    if unknown:
-        context.report("manifest carries unauthenticated sibling keys: " + ", ".join(unknown))
-    _header_field_errors(context)
-    declared_families = _declared_families_block(manifest, context)
-
-    file_info, actual_families = _run_file_layout(snapshots, context)
-    if set(declared_families) != actual_families:
-        context.report("families keys do not match captured family directories")
-    _family_file_pairing_errors(file_info, actual_families, context)
-
-    by_family = _group_records_by_family(parsed_records, file_info, actual_families)
-    expected_summaries = {
-        family: _family_summary(family, by_family.get(family, []), context.bound(family))
-        for family in sorted(actual_families)
-    }
-    if declared_families != expected_summaries:
-        context.report(
-            "per-family counts, reasons, scores, or oracle summaries "
-            "do not match the captured records"
-        )
-    if context.header.module_digest != oracles.module_digest():
-        context.report("module_digest does not match the current reference implementation")
-
-    _availability_block_errors(manifest, actual_families, context)
-    _manifest_note_errors(manifest, parsed_records, context)
-    return context.errors
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir)
 
 
 def _manifest_note_errors(manifest, parsed_records, context):
-    """The note is derived provenance, not free text: recompute it.
-
-    ``build_manifest`` chooses between exactly two notes based on whether any
-    captured record is publishable.  An unvalidated note could otherwise claim
-    external attestation or publishability that no record carries.
-    """
-    any_publishable = any(
-        isinstance(parsed.item.get("validation"), dict)
-        and parsed.item["validation"].get("publishable") is True
-        for parsed in parsed_records
-    )
-    expected = MANIFEST_NOTE_PUBLISHABLE if any_publishable else MANIFEST_NOTE_UNPUBLISHABLE
-    if manifest.get("note") != expected:
-        context.report("note does not match the publishability of the captured records")
+    return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._manifest_note_errors(manifest, parsed_records, context)
 
 
 def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):

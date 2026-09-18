@@ -116,6 +116,8 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "validate_run_outcomes",
     "validate_run_thalamic",
     "oracle_validate",
+    "oracle_validate_manifest",
+    "oracle_validate_manifest_records",
     "compose_contract",
     "compose_curated",
     "compose_curated_calibration",

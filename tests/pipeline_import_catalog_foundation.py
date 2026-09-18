@@ -1087,8 +1087,35 @@ def _package_oracle_validate() -> ModuleType:
     return module
 
 
+def _direct_oracle_validate_manifest() -> ModuleType:
+    import oracle_validate_manifest as module
+
+    return module
+
+
+def _package_oracle_validate_manifest() -> ModuleType:
+    import pipelines.oracle_validate_manifest as module
+
+    return module
+
+
+def _direct_oracle_validate_manifest_records() -> ModuleType:
+    import oracle_validate_manifest_records as module
+
+    return module
+
+
+def _package_oracle_validate_manifest_records() -> ModuleType:
+    import pipelines.oracle_validate_manifest_records as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "oracle_validate": (_direct_oracle_validate, _package_oracle_validate),
+    "oracle_validate_manifest": (_direct_oracle_validate_manifest, _package_oracle_validate_manifest),
+    "oracle_validate_manifest_records": (_direct_oracle_validate_manifest_records, _package_oracle_validate_manifest_records),
+
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
     "coding_constants": (_direct_coding_constants, _package_coding_constants),
