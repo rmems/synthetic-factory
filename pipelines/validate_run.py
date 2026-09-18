@@ -401,14 +401,11 @@ def _route_episode(obj, where, factory_staging):
 def _route_oracle(obj, where, _factory_staging):
     """Bind oracle-grounded envelope checks without re-running any oracle.
 
-    Envelope and status findings are fail-closed here. This layer additionally
-    pins the declared verdict against the filename carried in ``where``
-    (``<file>:<line>``), so an accepted-filed record that fails its family
-    invariants cannot pass staging silently: for ``accepted-`` files the
-    recomputed family findings are staging errors too, because a fabricated
-    measurement must not ride a trusted envelope into the accepted partition.
-    Rejected-filed records keep their honestly-reported reasons as evidence
-    and stay owned by oracle_validate, which checks the filing.
+    Envelope and status findings are fail-closed here, as are the family
+    findings of an accepted-filed record: a fabricated measurement must not
+    ride a trusted envelope into the accepted partition. Rejected-filed
+    records keep their honestly-reported reasons as evidence and stay owned
+    by oracle_validate, which also checks the filing (accepted- vs rejected-).
     """
     if __package__:
         from .oracle_grounded import record as _oracle_record
@@ -422,24 +419,31 @@ def _route_oracle(obj, where, _factory_staging):
             f"{type(exc).__name__}"
         ]
     errors = [f"{where}: {finding}" for finding in layers["envelope"] + layers["status"]]
+    return errors + _oracle_filing_errors(obj, layers, where)
+
+
+def _oracle_filing_errors(obj, layers, where):
+    """Findings that depend on the accepted-/rejected- filing of one record.
+
+    ``accepted-`` files must survive their own family invariants, so the
+    recomputed family findings are staging errors there; ``rejected-`` files
+    keep those reasons as honestly-reported evidence owned by oracle_validate.
+    """
     filename = where.rsplit(":", 1)[0].rsplit("/", 1)[-1]
-    expected_verdict = None
+    expected = None
     if filename.startswith("accepted-"):
-        expected_verdict = "accepted"
+        expected = "accepted"
     elif filename.startswith("rejected-"):
-        expected_verdict = "rejected"
+        expected = "rejected"
     validation = obj.get("validation")
-    declared_verdict = validation.get("status") if isinstance(validation, dict) else None
-    if expected_verdict and declared_verdict != expected_verdict:
+    declared = validation.get("status") if isinstance(validation, dict) else None
+    errors = []
+    if expected and declared != expected:
         errors.append(
-            f"{where}: record declares verdict {declared_verdict!r} but is filed in "
-            f"{filename!r}, which is reserved for {expected_verdict!r} records"
+            f"{where}: record declares verdict {declared!r} but is filed in "
+            f"{filename!r}, which is reserved for {expected!r} records"
         )
-    if expected_verdict == "accepted":
-        # An accepted-filed record must survive its own family invariants.
-        # ``status`` already flags a stale stamp, but the finding text is the
-        # family reason and belongs in staging errors too, so a fabricated
-        # measurement cannot be filed as accepted on a trusted envelope alone.
+    if expected == "accepted":
         errors.extend(f"{where}: {finding}" for finding in layers["family"])
     return errors
 
