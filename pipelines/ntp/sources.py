@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Pinned inventory of the 84 NTP scripts on ``legacy-mill-lane``.
 
-Blob SHAs are the preserve-commit objects (``vocabulary.PRESERVE_COMMIT``);
-they are byte-identical on ``origin/legacy-mill-lane`` tip. Loop, chain, and
+Blob SHAs are the preserve-commit objects (``vocabulary.PRESERVE_COMMIT``,
+``813f93f…`` on ``origin/legacy-mill-lane``). Loop, chain, and
 plant-gen scripts are pinned so later PRs can bind them without vendoring
 publishers.
 """

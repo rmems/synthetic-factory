@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/lef`` skeleton (no vendored mills)."""
+"""lef catalog extract: full r629+r728+r968 slice, no vendored mills."""
 
 from __future__ import annotations
 
@@ -15,12 +15,20 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from lef.catalog import CATALOG  # noqa: E402
+from lef.plants_extract import (  # noqa: E402
+    dumps_plants_jsonl,
+    extract_mill_plants_record,
+    extract_plant_pairs,
+    plants_jsonl_path,
+    sha256_bytes as plants_sha256_bytes,
+)
 from lef.catalog_extract import (  # noqa: E402
     SHAPE_STEMS,
     SHAPE_TABLES,
     catalog_document,
     catalog_json_path,
     dumps_catalog,
+    dumps_rows,
     extract_companion_path,
     extract_mill_catalog,
     extract_nums_formula,
@@ -31,8 +39,11 @@ from lef.catalog_extract import (  # noqa: E402
 from lef.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from lef.sources import (  # noqa: E402
     MILL_SOURCES,
+    PLANT_B_SOURCE,
+    PLANT_SOURCE,
     catalog_sources,
     loop_sources,
+    plant_sources,
     slug_sources,
 )
 from lef import vocabulary as lv  # noqa: E402
@@ -176,17 +187,108 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertTrue(is_vendor_filename("lef-mill-r629.py"))
         self.assertTrue(is_vendor_filename("lef-loop-r629.py"))
         self.assertTrue(is_vendor_filename(".lef-used-slugs.txt"))
+        self.assertTrue(is_vendor_filename("mill_plants.py"))
+        self.assertTrue(is_vendor_filename("mill_plants_b.py"))
         self.assertFalse(is_vendor_filename("catalog_extract.py"))
+        self.assertFalse(is_vendor_filename("plants.jsonl"))
         self.assertFalse(is_vendor_filename("leftover_mill.py"))
         with self.assertRaises(SystemExit):
             refuse_vendor_paths([Path("experiments/lef-mill-r629.py")])
+        with self.assertRaises(SystemExit):
+            refuse_vendor_paths(
+                [Path("scripts/llm_eval_flakiness_mill/mill_plants.py")]
+            )
 
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "lef"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "catalog.py",
+            "identity.py",
+            "plants_extract.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
+
+    def test_archive_b_plant_source_pins(self):
+        self.assertEqual(len(plant_sources()), 2)
+        self.assertEqual(PLANT_SOURCE.mill_id, lv.PLANTS_MILL_ID)
+        self.assertEqual(PLANT_SOURCE.path, lv.PLANTS_SOURCE_PATH)
+        self.assertEqual(PLANT_SOURCE.blob_sha, lv.PLANTS_BLOB_SHA)
+        self.assertEqual(PLANT_B_SOURCE.mill_id, lv.PLANTS_B_MILL_ID)
+        self.assertEqual(PLANT_B_SOURCE.path, lv.PLANTS_B_SOURCE_PATH)
+        self.assertEqual(PLANT_B_SOURCE.blob_sha, lv.PLANTS_B_BLOB_SHA)
+
+    def test_committed_plants_catalog(self):
+        self.assertIsNotNone(CATALOG.plants)
+        plants = CATALOG.plants
+        assert plants is not None
+        self.assertEqual(plants.n_pairs, lv.PLANTS_PAIR_COUNT)
+        self.assertEqual(plants.catalog_first, lv.PLANTS_CATALOG_FIRST)
+        self.assertEqual(plants.first_ok_slug, "kappa-vs-geval-align")
+        self.assertEqual(plants.last_ok_slug, "diff-sorted-truncate")
+        self.assertEqual(plants.archive_commit, lv.ARCHIVE_B_COMMIT)
+        self.assertEqual(len(plants.pairs), lv.PLANTS_PAIR_COUNT)
+        self.assertTrue(plants.pairs[0].ok["success"])
+        self.assertFalse(plants.pairs[0].bad["success"])
+
+    def test_committed_plants_b_catalog(self):
+        self.assertIsNotNone(CATALOG.plants_b)
+        plants_b = CATALOG.plants_b
+        assert plants_b is not None
+        self.assertEqual(plants_b.n_pairs, lv.PLANTS_B_PAIR_COUNT)
+        self.assertEqual(plants_b.catalog_first, lv.PLANTS_B_CATALOG_FIRST)
+        self.assertEqual(plants_b.first_ok_slug, "annotator-id-unkeyed")
+        self.assertEqual(plants_b.last_ok_slug, "fleiss-vs-two-rater")
+        self.assertEqual(plants_b.archive_commit, lv.ARCHIVE_B_COMMIT)
+        self.assertEqual(plants_b.plants_file, lv.PLANTS_B_FILENAME)
+        self.assertEqual(len(plants_b.pairs), lv.PLANTS_B_PAIR_COUNT)
+        self.assertTrue(plants_b.pairs[0].ok["success"])
+        self.assertFalse(plants_b.pairs[0].bad["success"])
+
+    def test_plants_jsonl_is_compact(self):
+        path = plants_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), lv.PLANTS_PAIR_COUNT)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            json.loads(line)
+
+    def test_plants_b_jsonl_is_compact(self):
+        path = plants_jsonl_path(filename=lv.PLANTS_B_FILENAME)
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), lv.PLANTS_B_PAIR_COUNT)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            json.loads(line)
+
+    def test_dumps_plants_rebuilds_committed_jsonl(self):
+        path = plants_jsonl_path()
+        rebuilt = dumps_plants_jsonl(
+            [{"ok": pair.ok, "bad": pair.bad} for pair in CATALOG.plants.pairs],  # type: ignore[union-attr]
+            mill_id=lv.PLANTS_MILL_ID,
+            source=lv.PLANTS_SOURCE_PATH,
+            base_round=lv.PLANTS_CATALOG_FIRST,
+        )
+        self.assertEqual(rebuilt, path.read_text(encoding="utf-8"))
+
+    def test_dumps_plants_b_rebuilds_committed_jsonl(self):
+        path = plants_jsonl_path(filename=lv.PLANTS_B_FILENAME)
+        rebuilt = dumps_plants_jsonl(
+            [{"ok": pair.ok, "bad": pair.bad} for pair in CATALOG.plants_b.pairs],  # type: ignore[union-attr]
+            mill_id=lv.PLANTS_B_MILL_ID,
+            source=lv.PLANTS_B_SOURCE_PATH,
+            base_round=lv.PLANTS_B_CATALOG_FIRST,
+        )
+        self.assertEqual(rebuilt, path.read_text(encoding="utf-8"))
 
     def test_extractor_reads_tables_and_augassign(self):
         extracted = extract_mill_catalog(
@@ -234,8 +336,9 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.n_catalog_rows, 682)
         self.assertEqual(CATALOG.n_pair_slots, 2046)
         self.assertEqual(CATALOG.n_table_rows, 4092)
-        self.assertEqual(CATALOG.slice, "r629")
+        self.assertEqual(CATALOG.slice, "full")
         self.assertEqual(CATALOG.preserve_commit, lv.PRESERVE_COMMIT)
+        self.assertEqual(tuple(CATALOG.mills), lv.COMMITTED_MILL_IDS)
         r629 = CATALOG.mills["lef-mill-r629"]
         self.assertEqual(r629.n_rows, 48)
         self.assertEqual(r629.catalog_first, 629)
@@ -247,13 +350,17 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertEqual(r728.first_slug, "cuda-graph-capture-unkeyed")
         self.assertEqual(r728.last_slug, "nbd-timeout-unkeyed")
         self.assertEqual(r728.banned_slugs, ("conll-coref-avg", "simpson-policy-mix"))
-        self.assertIsNone(r728.tables)
+        self.assertEqual(len(r728.tables["CACHE_OK"]), 80)
+        self.assertEqual(r728.tables["CACHE_OK"][0][0], r728.first_slug)
+        self.assertEqual(r728.tables["CACHE_OK"][-1][0], r728.last_slug)
         r968 = CATALOG.mills["lef-mill-r968"]
         self.assertEqual(r968.n_rows, 554)
         self.assertEqual(r968.shape, SHAPE_STEMS)
         self.assertEqual(r968.first_slug, "tsc-offset-unkeyed")
         self.assertEqual(r968.last_slug, "iwd-roam-unkeyed")
-        self.assertIsNone(r968.tables)
+        self.assertEqual(len(r968.tables["CACHE_OK"]), 554)
+        self.assertEqual(r968.tables["CACHE_OK"][0][0], r968.first_slug)
+        self.assertEqual(r968.tables["CACHE_OK"][-1][0], r968.last_slug)
         self.assertIsNone(r968.stems)
         self.assertEqual(r968.nums, lv.NUMS_FORMULA)
         self.assertEqual(CATALOG.slugs.n_rows, 2095)
@@ -277,12 +384,33 @@ class LefSkeletonTests(unittest.TestCase):
         path = REPO / "pipelines" / "lef" / lv.ROWS_FILENAME
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
-        self.assertEqual(len(lines), 48)
+        self.assertEqual(len(lines), lv.COMMITTED_ROW_COUNT)
+        self.assertEqual(len(lines), 48 + 80 + 554)
         self.assertTrue(text.endswith("\n"))
         self.assertNotIn("\r", text)
+        parsed = []
         for line in lines:
             self.assertFalse(line.startswith((" ", "\t")))
-            json.loads(line)
+            parsed.append(json.loads(line))
+        self.assertEqual(parsed[0]["i"], 0)
+        self.assertEqual(parsed[-1]["i"], lv.COMMITTED_ROW_COUNT - 1)
+        self.assertEqual(parsed[0]["CACHE_OK"][0], "azure-api-version-unkeyed")
+        self.assertEqual(parsed[47]["CACHE_OK"][0], "candidate-count-unkeyed")
+        self.assertEqual(parsed[48]["CACHE_OK"][0], "cuda-graph-capture-unkeyed")
+        self.assertEqual(parsed[127]["CACHE_OK"][0], "nbd-timeout-unkeyed")
+        self.assertEqual(parsed[128]["CACHE_OK"][0], "tsc-offset-unkeyed")
+        self.assertEqual(parsed[681]["CACHE_OK"][0], "iwd-roam-unkeyed")
+
+    def test_dumps_rows_rebuilds_committed_jsonl(self):
+        path = REPO / "pipelines" / "lef" / lv.ROWS_FILENAME
+        start = 0
+        chunks = []
+        for mill_id in lv.COMMITTED_MILL_IDS:
+            mill = CATALOG.mills[mill_id]
+            chunks.append(dumps_rows(mill.tables, start_index=start))
+            start += mill.n_rows
+        self.assertEqual("".join(chunks), path.read_text(encoding="utf-8"))
+        self.assertEqual(start, lv.COMMITTED_ROW_COUNT)
 
 
 class LefLegacyExtractTests(unittest.TestCase):
@@ -310,13 +438,12 @@ class LefLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            if source.mill_id == lv.SLICE_MILL_ID:
-                for name in lv.TABLE_NAMES:
-                    self.assertEqual(
-                        tuple(tuple(row) for row in live["tables"][name]),
-                        committed.tables[name],
-                        source.mill_id,
-                    )
+            for name in lv.TABLE_NAMES:
+                self.assertEqual(
+                    tuple(tuple(row) for row in live["tables"][name]),
+                    committed.tables[name],
+                    source.mill_id,
+                )
             mills.append(mill_summary(live, include_tables=False))
         slugs_source = slug_sources()[0]
         slugs_text = subprocess.check_output(
@@ -331,9 +458,15 @@ class LefLegacyExtractTests(unittest.TestCase):
         )
         self.assertEqual(slugs["n_rows"], CATALOG.slugs.n_rows)
         self.assertEqual(slugs["sha256"], CATALOG.slugs.sha256)
+        committed_header = json.loads(
+            catalog_json_path().read_text(encoding="utf-8")
+        )
+        committed_header.pop("plants", None)
+        committed_header.pop("plants_b", None)
         self.assertEqual(
             dumps_catalog(catalog_document(mills, slugs=slugs)),
-            catalog_json_path().read_text(encoding="utf-8"),
+            json.dumps(committed_header, ensure_ascii=True, indent=2, sort_keys=True)
+            + "\n",
         )
 
     def test_loop_scripts_name_companion_mills(self):
@@ -375,6 +508,103 @@ class LefLegacyExtractTests(unittest.TestCase):
             dest = Path(tmp)
             refuse_vendor_paths(dest.rglob("*") if dest.exists() else ())
             self.assertEqual(list(dest.glob("lef-mill*.py")), [])
+
+    def test_archive_b_plants_match_live_ast_extract(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            ["git", "show", f"{lv.ARCHIVE_B_COMMIT}:{lv.PLANTS_SOURCE_PATH}"],
+            text=True,
+            cwd=REPO,
+        )
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{lv.ARCHIVE_B_COMMIT}:{lv.PLANTS_SOURCE_PATH}"],
+            text=True,
+            cwd=REPO,
+        ).strip()
+        self.assertEqual(blob, PLANT_SOURCE.blob_sha)
+        live_pairs = extract_plant_pairs(text, path=lv.PLANTS_SOURCE_PATH)
+        self.assertEqual(len(live_pairs), lv.PLANTS_PAIR_COUNT)
+        record = extract_mill_plants_record(
+            text,
+            path=lv.PLANTS_SOURCE_PATH,
+            blob_sha=blob,
+            archive_commit=lv.ARCHIVE_B_COMMIT,
+            mill_id=lv.PLANTS_MILL_ID,
+            catalog_first=lv.PLANTS_CATALOG_FIRST,
+        )
+        committed = CATALOG.plants
+        assert committed is not None
+        self.assertEqual(record["n_pairs"], committed.n_pairs)
+        self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
+        self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
+        self.assertEqual(record["sha256"], committed.sha256)
+        live_jsonl = dumps_plants_jsonl(
+            live_pairs,
+            mill_id=lv.PLANTS_MILL_ID,
+            source=lv.PLANTS_SOURCE_PATH,
+            base_round=lv.PLANTS_CATALOG_FIRST,
+        )
+        self.assertEqual(
+            plants_sha256_bytes(live_jsonl.encode()),
+            committed.plants_sha256,
+        )
+        self.assertEqual(
+            live_jsonl,
+            plants_jsonl_path().read_text(encoding="utf-8"),
+        )
+
+    def test_archive_b_plants_b_match_live_ast_extract(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            ["git", "show", f"{lv.ARCHIVE_B_COMMIT}:{lv.PLANTS_B_SOURCE_PATH}"],
+            text=True,
+            cwd=REPO,
+        )
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{lv.ARCHIVE_B_COMMIT}:{lv.PLANTS_B_SOURCE_PATH}"],
+            text=True,
+            cwd=REPO,
+        ).strip()
+        self.assertEqual(blob, PLANT_B_SOURCE.blob_sha)
+        live_pairs = extract_plant_pairs(
+            text,
+            path=lv.PLANTS_B_SOURCE_PATH,
+            append_list=lv.PLANTS_APPEND_LIST_B,
+        )
+        self.assertEqual(len(live_pairs), lv.PLANTS_B_PAIR_COUNT)
+        record = extract_mill_plants_record(
+            text,
+            path=lv.PLANTS_B_SOURCE_PATH,
+            blob_sha=blob,
+            archive_commit=lv.ARCHIVE_B_COMMIT,
+            mill_id=lv.PLANTS_B_MILL_ID,
+            catalog_first=lv.PLANTS_B_CATALOG_FIRST,
+            append_list=lv.PLANTS_APPEND_LIST_B,
+            expected_pairs=lv.PLANTS_B_PAIR_COUNT,
+            plants_file=lv.PLANTS_B_FILENAME,
+        )
+        committed = CATALOG.plants_b
+        assert committed is not None
+        self.assertEqual(record["n_pairs"], committed.n_pairs)
+        self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
+        self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
+        self.assertEqual(record["sha256"], committed.sha256)
+        live_jsonl = dumps_plants_jsonl(
+            live_pairs,
+            mill_id=lv.PLANTS_B_MILL_ID,
+            source=lv.PLANTS_B_SOURCE_PATH,
+            base_round=lv.PLANTS_B_CATALOG_FIRST,
+        )
+        self.assertEqual(
+            plants_sha256_bytes(live_jsonl.encode()),
+            committed.plants_sha256,
+        )
+        self.assertEqual(
+            live_jsonl,
+            plants_jsonl_path(filename=lv.PLANTS_B_FILENAME).read_text(encoding="utf-8"),
+        )
 
 
 if __name__ == "__main__":

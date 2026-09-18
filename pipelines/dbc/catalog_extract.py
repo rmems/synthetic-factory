@@ -33,6 +33,8 @@ from .vocabulary import (
     GENERATOR,
     KIND_PAIRS,
     LEGACY_REF,
+    PAIR_JSONL_KEYS,
+    PAIRS_FILENAME,
     PRESERVE_COMMIT,
     R248_COMPANION_ID,
     R248_MILL_ID,
@@ -635,6 +637,60 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
 def catalog_json_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / CATALOG_FILENAME
+
+
+def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / PAIRS_FILENAME
+
+
+def compact_deferred_pair(
+    pair: Mapping[str, Any], *, mill_id: str, source_path: str
+) -> dict[str, Any]:
+    """Identity only. Drop constructor bodies; keep the PR-a slug/plant pins."""
+
+    row = {
+        "fail_handoff": pair["fail_handoff"],
+        "fail_plant": pair["fail_plant"],
+        "fail_slug": pair["fail_slug"],
+        "mill_id": mill_id,
+        "source_path": source_path,
+        "success_plant": pair["success_plant"],
+        "success_slug": pair["success_slug"],
+    }
+    if set(row) != set(PAIR_JSONL_KEYS):
+        raise ValueError(f"deferred pair keys drifted: {sorted(row)}")
+    return row
+
+
+def deferred_pair_rows(
+    composed: Mapping[str, Mapping[str, Any]],
+    sources,
+) -> list[dict[str, Any]]:
+    """JSONL rows for every catalog mill except the r193 first slice."""
+
+    rows: list[dict[str, Any]] = []
+    for source in sources:
+        if source.mill_id == SLICE_MILL_ID:
+            continue
+        record = composed[source.mill_id]
+        for pair in record.get("pairs") or ():
+            rows.append(
+                compact_deferred_pair(
+                    pair, mill_id=source.mill_id, source_path=source.path
+                )
+            )
+    return rows
+
+
+def dumps_pairs_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    """One compact object per line. Trailing newline. No CR."""
+
+    lines = [
+        json.dumps(dict(row), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        for row in rows
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:

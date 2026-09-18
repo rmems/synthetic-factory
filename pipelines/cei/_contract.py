@@ -35,7 +35,30 @@ SOURCE_MILL_ID = "cei_r81"
 SOURCE_ROUND = 81
 SOURCE_REF = "legacy-mill-lane"
 SOURCE_PATH = "experiments/cei-mill-r81.py"
-SOURCE_COMMIT = "cf63f18e63ca9469246145c1eec9388199d60b47"
+SOURCE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+SLICE3_R42_MILL_ID = "cei_r42"
+SLICE3_R42_ROUND = 42
+SLICE3_R42_PATH = "experiments/cei_r42_mill.py"
+SLICE3_R65_MILL_ID = "cei_r65"
+SLICE3_R65_ROUND = 65
+SLICE3_R65_PATH = "experiments/cei_r65_leftover3_mill.py"
+SLICE3_R137_MILL_ID = "cei_r137"
+SLICE3_R137_ROUND = 137
+SLICE3_R137_PATH = "experiments/cei_r137_leftover3_mill.py"
+SLICE3_SOURCES = frozenset(
+    {
+        SLICE3_R42_PATH,
+        SLICE3_R65_PATH,
+        SLICE3_R137_PATH,
+    }
+)
+LEFTOVER3_MILL_ID = "cei_r48"
+LEFTOVER3_ROUND = 48
+LEFTOVER3_PATH = "experiments/cei_r48_mill.py"
+LEFTOVER3_SHAPE = "leftover3-s"
+LEFTOVER3_CALL = "S"
+LEFTOVER3_WRONG = "os.remove(path)"
+SHAPE_OK_BAD = "ok-bad"
 NOVEL_COVERAGE_OK = 84
 NOVEL_COVERAGE_BAD = 83
 
@@ -98,6 +121,45 @@ OK_SIDE_KEYS = (
     "coverage",
 )
 BAD_SIDE_KEYS = OK_SIDE_KEYS + ("ticket", "ticket_why")
+S_OK_ARG_NAMES = (
+    "slug",
+    "mod",
+    "file",
+    "leftover",
+    "naive",
+    "wrong2",
+    "fix",
+    "test",
+    "url",
+    "url2",
+    "doc",
+    "doc2",
+    "fail1",
+    "fail2",
+    "plan",
+    "goal",
+    "domain",
+    "stack",
+    "ok",
+    "chg",
+)
+S_BAD_ARG_NAMES = S_OK_ARG_NAMES + ("ticket",)
+LEFTOVER3_OK_KEYS = S_OK_ARG_NAMES + ("wrong",)
+LEFTOVER3_BAD_KEYS = S_BAD_ARG_NAMES + ("wrong",)
+LEFTOVER3_BANNED_SLUGS = frozenset(
+    {
+        "xlsx-slicercache-vs-used",
+        "prism-pzfx-handoff",
+        "ods-content-vs-drop",
+        "lo-lock-vs-drop",
+    }
+)
+LOOP_NAME_MARKERS = ("cei-loop-",)
+FOREIGN_LEFTOVER3_IMPORTS = (
+    "from cei_r48_mill import",
+    "from cei_r42_mill import",
+)
+DEFERRED_LEFTOVER3_MARKERS = ("leftover3_mill",)
 
 BANNED_KEYS = frozenset(
     {
@@ -136,6 +198,8 @@ FINDING_BANNED_ID = "cei.banned_id"
 FINDING_USAGE = "cei.usage"
 FINDING_ROUND_INVALID = "cei.round_invalid"
 FINDING_GOAL_INVALID = "cei.goal_invalid"
+FINDING_LOOP_REFUSED = "cei.loop_refused"
+FINDING_LEFTOVER3_EXEC = "cei.leftover3_exec"
 
 __all__ = [
     "BAD_ARG_NAMES",
@@ -148,6 +212,7 @@ __all__ = [
     "CATALOG_FORMAT",
     "DECISION_PREFIXES",
     "DEFAULT_CATALOG_ID",
+    "DEFERRED_LEFTOVER3_MARKERS",
     "FACTORY",
     "FINDING_BANNED_ID",
     "FINDING_BANNED_KEY",
@@ -159,6 +224,8 @@ __all__ = [
     "FINDING_DESTINATION_UNDER_RAW",
     "FINDING_FACTORY_NOT_REGISTERED",
     "FINDING_GOAL_INVALID",
+    "FINDING_LEFTOVER3_EXEC",
+    "FINDING_LOOP_REFUSED",
     "FINDING_MILL_NOT_FOUND",
     "FINDING_PLANT_DUPLICATE_ID",
     "FINDING_PLANT_FIELD_INVALID",
@@ -167,7 +234,18 @@ __all__ = [
     "FINDING_ROUND_INVALID",
     "FINDING_SOURCE_NOT_PARSEABLE",
     "FINDING_USAGE",
+    "FOREIGN_LEFTOVER3_IMPORTS",
     "GENERATOR",
+    "LEFTOVER3_BAD_KEYS",
+    "LEFTOVER3_BANNED_SLUGS",
+    "LEFTOVER3_CALL",
+    "LEFTOVER3_MILL_ID",
+    "LEFTOVER3_OK_KEYS",
+    "LEFTOVER3_PATH",
+    "LEFTOVER3_ROUND",
+    "LEFTOVER3_SHAPE",
+    "LEFTOVER3_WRONG",
+    "LOOP_NAME_MARKERS",
     "MILL_PREFIX",
     "NOTES_FILENAME",
     "NOVEL_COVERAGE_BAD",
@@ -181,11 +259,24 @@ __all__ = [
     "RECORDS_FILENAME",
     "RUN_FILENAME",
     "RUN_FORMAT",
+    "SHAPE_OK_BAD",
+    "SLICE3_R137_MILL_ID",
+    "SLICE3_R137_PATH",
+    "SLICE3_R137_ROUND",
+    "SLICE3_R42_MILL_ID",
+    "SLICE3_R42_PATH",
+    "SLICE3_R42_ROUND",
+    "SLICE3_R65_MILL_ID",
+    "SLICE3_R65_PATH",
+    "SLICE3_R65_ROUND",
+    "SLICE3_SOURCES",
     "SOURCE_COMMIT",
     "SOURCE_MILL_ID",
     "SOURCE_PATH",
     "SOURCE_REF",
     "SOURCE_ROUND",
+    "S_BAD_ARG_NAMES",
+    "S_OK_ARG_NAMES",
     "CeiRefusal",
     "bind_import_twin",
     "dumps_exact_json",

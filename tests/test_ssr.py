@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -14,7 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
-from ssr.catalog import CATALOG  # noqa: E402
+from ssr.catalog import CATALOG, load_catalog  # noqa: E402
 from ssr.catalog_extract import (  # noqa: E402
     SHAPE_LITERAL,
     SHAPE_PLANT,
@@ -22,9 +24,12 @@ from ssr.catalog_extract import (  # noqa: E402
     SHAPE_TAILS,
     catalog_document,
     catalog_json_path,
+    deferred_pair_rows,
     dumps_catalog,
+    dumps_pairs_jsonl,
     extract_companion_path,
     extract_mill_catalog,
+    pairs_jsonl_path,
     summarize_catalog_records,
 )
 from ssr.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
@@ -176,6 +181,52 @@ class SsrSkeletonTests(unittest.TestCase):
         self.assertEqual(extracted["last_tail"], "ecl-fasl")
         self.assertEqual(extracted["first_slug"], "gitleaks-gold-map-leftover")
         self.assertEqual(extracted["last_slug"], "gitleaks-thinlto-leftover")
+        self.assertEqual(len(extracted["pairs"]), 2)
+        self.assertEqual(extracted["pairs"][0]["fail_slug"], "trufflehog-bfd-map-leftover")
+        self.assertEqual(extracted["pairs"][1]["success_slug"], "gitleaks-thinlto-leftover")
+
+    def test_inherited_scan_expands_deferred_tail_pairs(self):
+        parent = extract_mill_catalog(_TAILS_SNIPPET, path="experiments/ssr-mill-r436.py")
+        child = extract_mill_catalog(
+            'CATALOG_FIRST = 554\nTAILS = ["gold-map", "bfd-map", "thinlto", "ecl-fasl"]\n',
+            path="experiments/ssr-mill-r554.py",
+        )
+        self.assertEqual(child["pairs"], [])
+        rows = deferred_pair_rows([parent, child])
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[2]["mill_id"], "ssr-mill-r554")
+        self.assertEqual(rows[2]["success_slug"], "gitleaks-gold-map-leftover")
+        self.assertEqual(rows[2]["fail_slug"], "trufflehog-bfd-map-leftover")
+
+    def test_pairs_jsonl_stays_compact(self):
+        path = pairs_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.DEFERRED_PAIR_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        mill_ids = set()
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(tuple(row), cv.DEFERRED_PAIR_KEYS)
+            mill_ids.add(row["mill_id"])
+        self.assertNotIn(cv.SLICE_MILL_ID, mill_ids)
+        self.assertEqual(len(mill_ids), 39)
+        self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), cv.PAIRS_SHA256)
+
+    def test_loader_fails_closed_on_a_missing_deferred_field(self):
+        header = catalog_json_path().read_text(encoding="utf-8")
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        del first["fail_slug"]
+        lines[0] = json.dumps(first, separators=(",", ":"))
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            (dest / "CATALOG.json").write_text(header, encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "keys drifted"):
+                load_catalog(dest / "CATALOG.json")
 
     def test_loop_mill_path_constant(self):
         source = (
@@ -203,7 +254,12 @@ class SsrSkeletonTests(unittest.TestCase):
             "gitleaks-mosquitto-acl-leftover",
         )
         self.assertEqual(CATALOG.mills["ssr-mill-r332"].n_rows, 104)
-        self.assertFalse(CATALOG.mills["ssr-mill-r1702"].pairs)
+        self.assertEqual(len(CATALOG.mills["ssr-mill-r1702"].pairs), 40)
+        self.assertEqual(len(CATALOG.deferred_pairs), cv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(
+            CATALOG.mills["ssr-mill-r197"].pairs[0]["success_slug"],
+            "ripsecrets-third-party-glob",
+        )
 
 
 class SsrLegacyExtractTests(unittest.TestCase):
@@ -239,6 +295,12 @@ class SsrLegacyExtractTests(unittest.TestCase):
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_pairs_jsonl(
+                deferred_pair_rows(records, expected_rows=cv.DEFERRED_PAIR_ROWS)
+            ),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
         )
 
     def test_loop_scripts_name_companion_mills(self):

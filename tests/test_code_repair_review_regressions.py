@@ -11,7 +11,6 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import catalog, executor as ex, oc, refusal, vocabulary as cv
-from code_repair import _sandbox as sandbox
 from test_code_repair_catalog import copied_fixture, rewrite_programs
 
 
@@ -100,29 +99,25 @@ class ExecutionEvidence(unittest.TestCase):
                 result = runner.run(ex.Job("snapshot", "def f():\n    return 1\n", "f",
                                            ({"args": "()", "want": "1"},), False))
             self.assertTrue(result.ok, result.detail)
-            self.assertEqual(
-                runner.harness_sha256,
-                hashlib.sha256(original + ex.SANDBOX_PATH.read_bytes()).hexdigest(),
-            )
+            self.assertEqual(runner.harness_sha256, hashlib.sha256(original).hexdigest())
 
     def test_reports_without_applied_limits_are_rejected(self):
         for flag in (None, False, 1):
             report = {"protocol": cv.HARNESS_PROTOCOL, "load": {"status": "ok"},
                       "environment": {"limits_applied": flag}, "public": [], "hidden": []}
+            stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode()
             result = ex._parse_report(ex.Job("limits", "", "f", (), False),
-                                      0, json.dumps(report).encode())
+                                      0, stdout, json.dumps(report).encode())
             self.assertFalse(result.ok)
             self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, result.detail)
 
-    def test_reports_without_applied_isolation_are_rejected(self):
-        for token in (None, False, "", "rlimits-only", sandbox.MECHANISM):
-            report = {"protocol": cv.HARNESS_PROTOCOL, "load": {"status": "ok"},
-                      "environment": {"limits_applied": True, "isolation": token},
-                      "public": [], "hidden": []}
-            result = ex._parse_report(ex.Job("isolation", "", "f", (), False),
-                                      0, json.dumps(report).encode())
-            self.assertFalse(result.ok)
-            self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, result.detail)
+    def test_in_band_limits_cannot_override_a_true_attestation(self):
+        report = {"protocol": cv.HARNESS_PROTOCOL, "load": {"status": "ok"},
+                  "environment": {"limits_applied": False}, "public": [], "hidden": []}
+        stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode()
+        result = ex._parse_report(ex.Job("limits", "", "f", (), False),
+                                  0, stdout, json.dumps(report).encode())
+        self.assertTrue(result.environment["limits_applied"])
 
     def test_unavailable_limits_stop_before_loading_program_code(self):
         from code_repair import _harness
@@ -133,24 +128,8 @@ class ExecutionEvidence(unittest.TestCase):
             (directory / "program.py").write_text(
                 f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
             )
-            with patch.object(_harness, "_apply_limits", return_value=False):
-                result = _harness._run(directory, {})
+            result = _harness._run(directory, {}, limits_applied=False)
             self.assertEqual(result["load"]["status"], "error")
-            self.assertFalse(marker.exists())
-
-    def test_unavailable_isolation_stops_before_loading_program_code(self):
-        from code_repair import _harness
-
-        with tempfile.TemporaryDirectory() as root:
-            directory = Path(root)
-            marker = directory / "loaded"
-            (directory / "program.py").write_text(
-                f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
-            )
-            with patch.object(_harness, "_apply_limits", return_value=True):
-                result = _harness._run(directory, {}, isolation="")
-            self.assertEqual(result["load"]["status"], "error")
-            self.assertIn("isolation", result["load"]["error"])
             self.assertFalse(marker.exists())
 
 
