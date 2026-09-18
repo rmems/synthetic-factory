@@ -77,43 +77,25 @@ class _FunnelCase:
 class FunnelLeaves(_FunnelCase, unittest.TestCase):
     """Direct funnels refuse unsafe leaves before any CLI sink is selected."""
 
-    def test_verify_record_mode_ignores_an_inactive_positional_run_dir(self):
-        """A --record invocation does not inspect its unused positional path."""
+    def test_verify_selected_file_mode_ignores_an_inactive_positional_run_dir(self):
+        """A selected --record or --batch path takes precedence over run_dir."""
 
         parser = argparse.ArgumentParser(prog="verify_execution.py")
         with tempfile.TemporaryDirectory() as td:
-            record = Path(td) / "record.jsonl"
-            record.write_text("{}\n", encoding="utf-8")
+            for option, field in (("record", "record"), ("batch", "batch")):
+                with self.subTest(option=option):
+                    selected = Path(td) / f"{option}.jsonl"
+                    selected.write_text("{}\n", encoding="utf-8")
+                    values = {"run_dir": "/etc/passwd", "record": None, "batch": None}
+                    values[field] = str(selected)
 
-            run_dir, confined_record, batch = verify_execution._confined(
-                parser,
-                SimpleNamespace(
-                    run_dir="/etc/passwd", record=str(record), batch=None
-                ),
-            )
+                    run_dir, record, batch = verify_execution._confined(
+                        parser, SimpleNamespace(**values)
+                    )
 
-        self.assertIsNone(run_dir)
-        self.assertEqual(confined_record, record)
-        self.assertIsNone(batch)
-
-    def test_verify_batch_mode_ignores_an_inactive_positional_run_dir(self):
-        """A --batch invocation does not inspect its unused positional path."""
-
-        parser = argparse.ArgumentParser(prog="verify_execution.py")
-        with tempfile.TemporaryDirectory() as td:
-            batch_path = Path(td) / "batch-r01.jsonl"
-            batch_path.write_text("{}\n", encoding="utf-8")
-
-            run_dir, record, batch = verify_execution._confined(
-                parser,
-                SimpleNamespace(
-                    run_dir="/etc/passwd", record=None, batch=str(batch_path)
-                ),
-            )
-
-        self.assertIsNone(run_dir)
-        self.assertIsNone(record)
-        self.assertEqual(batch, batch_path)
+                    self.assertIsNone(run_dir)
+                    self.assertEqual(record if field == "record" else batch, selected)
+                    self.assertIsNone(batch if field == "record" else record)
 
     def test_verify_selected_record_cannot_fall_back_to_a_valid_run_dir(self):
         """Mode precedence selects --record even if only run_dir is confined."""
