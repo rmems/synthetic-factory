@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import json
+import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ from pipelines.leftover6.catalog_extract import (
     literal_value,
 )
 from pipelines.mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES
+from tests.pipeline_import_test_support import clean_package_imports, direct_pipeline_path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "pipelines" / "leftover6"
@@ -36,6 +38,7 @@ CONFIG_DIR = ROOT / "config" / "leftover6"
 CATALOG_JSON = CONFIG_DIR / "CATALOG.json"
 PAIRS_JSONL = CONFIG_DIR / "pairs.jsonl"
 PLANTS_JSONL = CONFIG_DIR / "plants.jsonl"
+GIT = Path(shutil.which("git") or "/usr/bin/git").resolve()
 
 _GQL_SNIPPET = """
 FAC = "graphql-nplusone-factory"
@@ -63,15 +66,88 @@ _PUBLISHER_NAMES = frozenset(
 
 
 def _legacy_available() -> bool:
+    if not GIT.is_file():
+        return False
     try:
         subprocess.check_output(
-            ["git", "show", f"origin/legacy-mill-lane:{GQL_PATH}"],
+            [str(GIT), "cat-file", "-e", f"{leftover6_catalog.SOURCE_COMMIT}^{{commit}}"],
             cwd=ROOT,
             stderr=subprocess.DEVNULL,
         )
         return True
     except subprocess.CalledProcessError:
         return False
+
+
+def _git_show(commit: str, path: str) -> str:
+    return subprocess.check_output(
+        [str(GIT), "show", f"{commit}:{path}"], text=True, cwd=ROOT
+    )
+
+
+def _git_blob(commit: str, path: str) -> str:
+    return subprocess.check_output(
+        [str(GIT), "rev-parse", f"{commit}:{path}"], text=True, cwd=ROOT
+    ).strip()
+
+
+def _catalog_rows() -> list[dict[str, object]]:
+    return [json.loads(line) for line in PAIRS_JSONL.read_text(encoding="utf-8").splitlines()]
+
+
+class _CatalogFixture:
+    def __init__(self, *, header=None, pairs=None, plants=None):
+        self.header = CATALOG_JSON.read_bytes() if header is None else header
+        self.pairs = PAIRS_JSONL.read_bytes() if pairs is None else pairs
+        self.plants = PLANTS_JSONL.read_bytes() if plants is None else plants
+        self._temporary = tempfile.TemporaryDirectory()
+
+    def __enter__(self) -> Path:
+        directory = Path(self._temporary.__enter__())
+        (directory / "CATALOG.json").write_bytes(_as_bytes(self.header))
+        (directory / "pairs.jsonl").write_bytes(_as_bytes(self.pairs))
+        (directory / "plants.jsonl").write_bytes(_as_bytes(self.plants))
+        return directory
+
+    def __exit__(self, *args) -> None:
+        self._temporary.__exit__(*args)
+
+
+def _as_bytes(value: str | bytes) -> bytes:
+    return value.encode("utf-8") if isinstance(value, str) else value
+
+
+def _fixture(**changes) -> _CatalogFixture:
+    return _CatalogFixture(**changes)
+
+
+def _extract_live_source(mill):
+    text = _git_show(mill.preserve_commit, mill.source_path)
+    blob = _git_blob(mill.preserve_commit, mill.source_path)
+    live = extract_source(text, path=mill.source_path, blob_sha=blob)
+    _assert_live_source_metadata(live, mill)
+    return live
+
+
+def _assert_live_source_metadata(live, mill) -> None:
+    expected = {
+        "n_rows": mill.n_rows,
+        "first_slug": mill.first_slug,
+        "last_slug": mill.last_slug,
+        "sha256": mill.source_sha256,
+        "shape": mill.shape,
+    }
+    for field, value in expected.items():
+        if live[field] != value:
+            raise AssertionError(f"{mill.source_path} {field} drifted")
+
+
+def _append_live_rows(live, mill, pair_rows, plant_rows) -> None:
+    rows = [{"source_path": mill.source_path, **row} for row in live["rows"]]
+    if live["kind"] == "sbox-plants":
+        plant_rows.extend(rows)
+    else:
+        pair_rows.extend(rows)
 
 
 def _module_uses_exec(path: Path) -> list[str]:
@@ -180,27 +256,15 @@ class Leftover6CatalogTests(unittest.TestCase):
         self.assertIs(literal_value(unhashable_key), UNSET)
 
     def test_catalog_modules_keep_direct_and_packaged_import_identity(self):
-        program = """
-import importlib
-import sys
-from pathlib import Path
-root = Path.cwd()
-sys.path.insert(0, str(root / 'pipelines'))
-first = importlib.import_module(sys.argv[1])
-second = importlib.import_module(sys.argv[2])
-if first is not second or first.CatalogError is not second.CatalogError:
-    raise SystemExit('leftover6 import identity diverged')
-"""
         for first, second in (
             ("leftover6.catalog", "pipelines.leftover6.catalog"),
             ("pipelines.leftover6.catalog", "leftover6.catalog"),
         ):
-            with self.subTest(first=first):
-                subprocess.run(
-                    [sys.executable, "-c", program, first, second],
-                    cwd=ROOT,
-                    check=True,
-                )
+            with self.subTest(first=first), clean_package_imports(), direct_pipeline_path():
+                direct_or_packaged = importlib.import_module(first)
+                twin = importlib.import_module(second)
+                self.assertIs(direct_or_packaged, twin)
+                self.assertIs(direct_or_packaged.CatalogError, twin.CatalogError)
 
     def test_jsonl_stays_compact(self):
         for path, expected in ((PAIRS_JSONL, 32), (PLANTS_JSONL, 65)):
@@ -214,105 +278,62 @@ if first is not second or first.CatalogError is not second.CatalogError:
                 json.loads(line)
 
     def test_loader_fails_closed_on_a_missing_case_field(self):
-        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
-        lines = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
-        first = json.loads(lines[0])
-        del first["ticket"]
-        lines[0] = json.dumps(first, separators=(",", ":"))
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
-            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+        rows = _catalog_rows()
+        del rows[0]["ticket"]
+        with _fixture(pairs=dumps_jsonl(rows)) as dest:
             with self.assertRaisesRegex(CatalogError, "keys differ"):
                 load_catalog(dest)
 
     def test_loader_refuses_a_wrong_pair_value_type(self):
-        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
-        lines = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
-        first = json.loads(lines[0])
-        first["round"] = "260"
-        lines[0] = json.dumps(first, separators=(",", ":"))
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
-            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+        rows = _catalog_rows()
+        rows[0]["round"] = "260"
+        with _fixture(pairs=dumps_jsonl(rows)) as dest:
             with self.assertRaisesRegex(CatalogError, "round must be an integer"):
                 load_catalog(dest)
 
     def test_loader_refuses_a_non_string_pair_kind(self):
-        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
-        rows = [json.loads(line) for line in PAIRS_JSONL.read_text(encoding="utf-8").splitlines()]
+        rows = _catalog_rows()
         rows[0]["kind"] = []
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
-            (dest / "pairs.jsonl").write_text(dumps_jsonl(rows), encoding="utf-8")
-            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+        with _fixture(pairs=dumps_jsonl(rows)) as dest:
             with self.assertRaisesRegex(CatalogError, "kind is not a leftover6 pair"):
                 load_catalog(dest)
 
     def test_loader_refuses_duplicate_json_keys_and_non_lf_framing(self):
-        header = CATALOG_JSON.read_bytes()
         pairs = PAIRS_JSONL.read_bytes()
-        plants = PLANTS_JSONL.read_bytes()
         duplicate = pairs.replace(b'"kind":"gql-pairs"', b'"kind":"gql-pairs","kind":"gql-pairs"', 1)
         for label, candidate, expected in (
             ("duplicate", duplicate, "duplicate JSON object key"),
             ("crlf", pairs.replace(b"\n", b"\r\n"), "carriage returns"),
         ):
-            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
-                dest = Path(temp_dir)
-                (dest / "CATALOG.json").write_bytes(header)
-                (dest / "pairs.jsonl").write_bytes(candidate)
-                (dest / "plants.jsonl").write_bytes(plants)
+            with self.subTest(label=label), _fixture(pairs=candidate) as dest:
                 with self.assertRaisesRegex(CatalogError, expected):
                     load_catalog(dest)
 
     def test_loader_keeps_unicode_line_separator_inside_a_json_string(self):
-        header = CATALOG_JSON.read_bytes()
         pairs = PAIRS_JSONL.read_bytes().replace(
             b'"fail":"dl-drop-cachekey-handoff"',
             b'"fail":"dl-drop\\u2028cachekey-handoff"',
             1,
         )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_bytes(header)
-            (dest / "pairs.jsonl").write_bytes(pairs)
-            (dest / "plants.jsonl").write_bytes(PLANTS_JSONL.read_bytes())
+        with _fixture(pairs=pairs) as dest:
             self.assertEqual(load_catalog(dest).pairs[0]["fail"], "dl-drop\u2028cachekey-handoff")
 
     def test_loader_refuses_stale_declared_totals(self):
         header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
         header["n_pair_rows_committed"] += 1
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
-            (dest / "pairs.jsonl").write_text(PAIRS_JSONL.read_text(encoding="utf-8"))
-            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+        with _fixture(header=json.dumps(header)) as dest:
             with self.assertRaisesRegex(CatalogError, "n_pair_rows_committed"):
                 load_catalog(dest)
 
     def test_loader_refuses_duplicate_or_gapped_pair_rows(self):
-        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
-        rows = [json.loads(line) for line in PAIRS_JSONL.read_text(encoding="utf-8").splitlines()]
+        rows = _catalog_rows()
         rows[1]["slug"] = rows[0]["slug"]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
-            (dest / "pairs.jsonl").write_text(dumps_jsonl(rows), encoding="utf-8")
-            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+        with _fixture(pairs=dumps_jsonl(rows)) as dest:
             with self.assertRaisesRegex(CatalogError, "duplicate identities"):
                 load_catalog(dest)
         rows[1]["slug"] = "unique-test-slug"
         rows[1]["round"] += 1
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dest = Path(temp_dir)
-            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
-            (dest / "pairs.jsonl").write_text(dumps_jsonl(rows), encoding="utf-8")
-            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+        with _fixture(pairs=dumps_jsonl(rows)) as dest:
             with self.assertRaisesRegex(CatalogError, "not contiguous"):
                 load_catalog(dest)
 
@@ -320,31 +341,13 @@ if first is not second or first.CatalogError is not second.CatalogError:
 class Leftover6LegacyExtractTests(unittest.TestCase):
     def test_committed_catalog_matches_live_ast_extract(self):
         if not _legacy_available():
-            self.skipTest("origin/legacy-mill-lane is not fetched")
+            self.skipTest("the immutable leftover6 source commit is not fetched")
         pair_rows = []
         plant_rows = []
         for mill in CATALOG.catalogs:
-            text = subprocess.check_output(
-                ["git", "show", f"{mill.preserve_commit}:{mill.source_path}"],
-                text=True,
-                cwd=ROOT,
-            )
-            blob = subprocess.check_output(
-                ["git", "rev-parse", f"{mill.preserve_commit}:{mill.source_path}"],
-                text=True,
-                cwd=ROOT,
-            ).strip()
-            self.assertEqual(blob, mill.source_blob_sha1, mill.source_path)
-            live = extract_source(text, path=mill.source_path, blob_sha=blob)
-            self.assertEqual(live["n_rows"], mill.n_rows, mill.source_path)
-            self.assertEqual(live["first_slug"], mill.first_slug, mill.source_path)
-            self.assertEqual(live["last_slug"], mill.last_slug, mill.source_path)
-            self.assertEqual(live["sha256"], mill.source_sha256, mill.source_path)
-            self.assertEqual(live["shape"], mill.shape, mill.source_path)
-            if live["kind"] == "sbox-plants":
-                plant_rows.extend({"source_path": mill.source_path, **row} for row in live["rows"])
-            else:
-                pair_rows.extend({"source_path": mill.source_path, **row} for row in live["rows"])
+            live = _extract_live_source(mill)
+            self.assertEqual(live["blob_sha"], mill.source_blob_sha1, mill.source_path)
+            _append_live_rows(live, mill, pair_rows, plant_rows)
         self.assertEqual(dumps_jsonl(pair_rows), PAIRS_JSONL.read_text(encoding="utf-8"))
         self.assertEqual(dumps_jsonl(plant_rows), PLANTS_JSONL.read_text(encoding="utf-8"))
 
