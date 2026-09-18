@@ -31,7 +31,7 @@ else:
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 SIMULATOR_SOURCE_PINS = MappingProxyType({
-    "pipelines/curate_identity_simulator_worker.py": "691020dac2151cdc03e0f5efa93d9d6eae543e46ddddee17a0274ffc4a63e3ec",
+    "pipelines/curate_identity_simulator_worker.py": "9f26fb3400cb222ed29c8f2ebf56fd1380e109cb4c582e3c1f227b6ad1289b17",
     "pipelines/oracle_grounded/distill_blocks.py": "7dcbd942dfb8383370c6f68347e24c4332692b5016769014d2353f1c079eae69",
     "pipelines/oracle_grounded/distill_energy_claims.py": "16a1fe6aa0d50bc5e53439f29a6c57809588a88091b865ccd0ac686ac0cc70e2",
     "pipelines/oracle_grounded/distill_measurements.py": "dc2fd89567db0cb1a8ff0a9310f723ff8e80c5bf5e5f62149a788a55a707c2d2",
