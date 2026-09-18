@@ -60,6 +60,7 @@ def load_catalog(path=None) -> SirCatalog:
     catalog_path = path if path is not None else catalog_json_path()
     catalog_path = Path(catalog_path)
     document = _strict_json(catalog_path.read_text(encoding="utf-8"))
+    _require_document_shape(document)
     _require_header(document, catalog_path)
     pair_rows = _load_pair_rows(pairs_jsonl_path(catalog_path.parent), document["mills"])
     mills = {
@@ -84,6 +85,13 @@ def load_catalog(path=None) -> SirCatalog:
 def _strict_json(text):
     return json.loads(text, object_pairs_hook=reject_duplicate_object_keys,
                       parse_constant=reject_json_constant, parse_float=reject_nonfinite_float)
+
+
+def _require_document_shape(document):
+    if not isinstance(document, Mapping):
+        raise ValueError("catalog document must be a mapping")
+    if not isinstance(document.get("mills"), Mapping):
+        raise ValueError("catalog mills must be a mapping")
 
 
 def _require_header(document, path: Path) -> None:

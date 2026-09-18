@@ -18,7 +18,7 @@ from . import catalog_literals as _literals
 
 UNSET = _literals.UNSET
 literal_value = _literals.literal_value
-_DYNAMIC_NAMESPACES = frozenset({"globals", "locals", "vars", "exec", "eval"})
+_DYNAMIC_NAMESPACES = frozenset({"globals", "locals", "vars", "exec", "eval", "modules"})
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
 _STRING_BINDINGS = {ast.MatchAs: "name", ast.MatchStar: "name",
@@ -31,6 +31,7 @@ def module_constants(tree: ast.AST) -> dict[str, Any]:
     env: dict[str, Any] = {}
     for node in _catalog_statements(getattr(tree, "body", ())):
         name, value = assignment_of(node)
+        _require_import_name(name)
         if name is None:
             _invalidate_names(env, assignment_names(node))
             if isinstance(node, _DEFINITIONS):
@@ -57,6 +58,8 @@ def _assignment_value(value: ast.AST, env: dict[str, Any]) -> Any:
 
 
 def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
+    for name in names:
+        _require_import_name(name)
     if _DYNAMIC_NAMESPACES.intersection(names):
         raise ValueError("dynamic module namespace access is not a literal catalog")
     if "*" in names or any(_unproven_reference(env.get(name, UNSET)) for name in names):
@@ -65,6 +68,11 @@ def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
         names = list(set(env).union(names))
     for name in names:
         env[name] = UNSET
+
+
+def _require_import_name(name: str | None) -> None:
+    if name == "__name__":
+        raise ValueError("module name access outside the script guard is not a literal catalog")
 
 
 def _unproven_reference(value: Any) -> bool:

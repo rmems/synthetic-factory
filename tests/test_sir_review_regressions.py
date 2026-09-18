@@ -260,6 +260,33 @@ class SirReviewRegressions(unittest.TestCase):
         with self.assertRaises(ValueError):
             _extract(guarded + "else:\n    clear()\n")
 
+    def test_rebound_module_name_cannot_hide_script_guard_mutation(self):
+        rebindings = (
+            '__name__ = "__main__"',
+            '__name__: str = "__main__"',
+            '(__name__, extra) = ("__main__", 0)',
+            'if condition:\n    __name__ = "__main__"',
+            'import replacement as __name__',
+        )
+        guard = '\nif __name__ == "__main__":\n    PAIRS = []'
+        for rebinding in rebindings:
+            with self.subTest(rebinding=rebinding), self.assertRaises(ValueError):
+                _extract(rebinding + guard)
+        self.assertEqual(_extract('def unused():\n    __name__ = "__main__"' + guard)["n_rows"], 1)
+
+    def test_module_registry_writes_cannot_preserve_catalog_bindings(self):
+        mutations = (
+            'import sys\nsys.modules[__name__].PAIRS = []',
+            'import sys as s\ns.modules[__name__].PAIRS = []',
+            'from sys import modules as registry\nregistry[__name__].PAIRS = []',
+            'import sys\nmodule = sys.modules[__name__]\nmodule.PAIRS = []',
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                _extract(mutation)
+        deferred = 'def unused():\n    import sys\n    sys.modules[__name__].PAIRS = []'
+        self.assertEqual(_extract(deferred)["n_rows"], 1)
+
     def test_pattern_and_exception_bindings_invalidate_previous_pairs(self):
         statements = (
             "match []:\n    case PAIRS: pass",
@@ -310,6 +337,19 @@ class SirReviewRegressions(unittest.TestCase):
                 destination = directory / "CATALOG.json"
                 destination.write_text(header, encoding="utf-8")
                 (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
+                with self.assertRaises(ValueError):
+                    load_catalog(destination)
+
+    def test_catalog_document_and_mills_require_mapping_shapes(self):
+        original = json.loads(catalog_json_path().read_bytes())
+        missing = dict(original)
+        del missing["mills"]
+        documents = [None, [], "catalog", 42, missing]
+        documents.extend(dict(original, mills=value) for value in (None, [], "mills", 42))
+        for document in documents:
+            with self.subTest(document=document), tempfile.TemporaryDirectory() as tmp:
+                destination = Path(tmp) / "CATALOG.json"
+                destination.write_text(json.dumps(document), encoding="utf-8")
                 with self.assertRaises(ValueError):
                     load_catalog(destination)
 
