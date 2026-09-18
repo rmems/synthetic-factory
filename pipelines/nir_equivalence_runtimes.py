@@ -19,6 +19,7 @@ if __package__:
     _assert_direct_sibling("nir_equivalence_runtimes")
     from .nir_equivalence_interpreter import (  # noqa: E402,F401
         NirReferenceRuntime,
+        RuntimeConventions,
         UnsupportedConstruct,
         _integrate_membrane,
         _step_affine,
@@ -33,6 +34,7 @@ else:
     )
     from nir_equivalence_interpreter import (  # noqa: E402,F401
         NirReferenceRuntime,
+        RuntimeConventions,
         UnsupportedConstruct,
         _integrate_membrane,
         _step_affine,
@@ -94,16 +96,12 @@ class RuntimeUnavailable(Exception):
 
 REFERENCE_V1 = NirReferenceRuntime(
     name="nir_reference_v1",
-    reset="subtract",
-    delay_unit="steps",
-    cycle_break_order="insertion",
+    conventions=RuntimeConventions("subtract", "steps", "insertion"),
     supported_types=ALL_KNOWN_TYPES,
 )
 REFERENCE_ALT = NirReferenceRuntime(
     name="nir_reference_v1_altorder",
-    reset="zero",
-    delay_unit="steps_minus_one",
-    cycle_break_order="reverse_name",
+    conventions=RuntimeConventions("zero", "steps_minus_one", "reverse_name"),
     supported_types=ALL_KNOWN_TYPES - {"LI"},
 )
 UPSTREAM_RUNTIMES = (

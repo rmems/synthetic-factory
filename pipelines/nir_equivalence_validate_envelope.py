@@ -73,7 +73,14 @@ def _check_envelope_identity(record, scenario, where):
             f"{where}: generator does not match the NIR catalog identity "
             "[ENVELOPE_MALFORMED]"
         )
-    provenance = record.get("provenance")
+    errors += _provenance_identity_errors(record.get("provenance"), where)
+    errors += _validation_identity_errors(record.get("validation"), where)
+    errors += _scenario_digest_errors(record, scenario, where)
+    return errors
+
+
+def _provenance_identity_errors(provenance, where):
+    errors = []
     expected_provenance_identity = {
         "kind": "simulated",
         "tool": VALIDATOR,
@@ -90,7 +97,11 @@ def _check_envelope_identity(record, scenario, where):
             f"{where}: provenance identity does not match the NIR validator "
             "[ENVELOPE_MALFORMED]"
         )
-    validation = record.get("validation")
+    return errors
+
+
+def _validation_identity_errors(validation, where):
+    errors = []
     expected_validation = {
         "validator": VALIDATOR,
         "validator_version": SCHEMA_VERSION,
@@ -108,6 +119,11 @@ def _check_envelope_identity(record, scenario, where):
             f"{where}: validation block does not match the NIR validator contract "
             "[ENVELOPE_MALFORMED]"
         )
+    return errors
+
+
+def _scenario_digest_errors(record, scenario, where):
+    errors = []
     try:
         expected_scenario_digest = digest(
             {"graph": scenario.get("graph"), "stimulus": scenario.get("stimulus")}

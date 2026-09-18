@@ -126,6 +126,12 @@ def _unsupported_replay_errors(entry, exc, label):
         "unsupported_type": exc.node_type,
         "detail": exc.detail,
     }
+    errors += _diagnostic_field_errors(entry, expected_diagnostic, label)
+    return errors
+
+
+def _diagnostic_field_errors(entry, expected_diagnostic, label):
+    errors = []
     for key, expected in expected_diagnostic.items():
         if entry.get(key) != expected:
             errors.append(

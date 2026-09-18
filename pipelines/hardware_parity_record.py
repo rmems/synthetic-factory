@@ -162,9 +162,8 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
             else contract.VERDICT_MISMATCH
         ),
     }
-    # A run that touched silicon is hardware-in-the-loop; one that did not is
-    # simulated. Deriving this from the target that actually executed keeps the
-    # record from describing one execution two different ways.
+    # A recorded physical target is a claim inside untrusted capture bytes.
+    # The current adapter proves internal integrity only, so it cannot assign HIL.
     deployment_target = (deployment_run or {}).get("execution_target")
     scenario_evidence = {
         "model": scenario["model_float"],
@@ -173,7 +172,7 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
     if requested_deployment is not None:
         scenario_evidence["requested_deployment"] = requested_deployment
     provenance = {
-        "kind": "hil" if deployment_target in PHYSICAL_TARGETS else "simulated",
+        "kind": "unknown" if deployment_target in PHYSICAL_TARGETS else "simulated",
         "tool": VALIDATOR,
         "tool_version": SCHEMA_VERSION,
         "contract_version": contract.CONTRACT_VERSION,
@@ -258,7 +257,7 @@ def _paired_result(scenario, software_run, deployment_run):
     capture_digest = _capture_evidence_digest(deployment_run)
     if capture_digest is not None:
         derived_from.append(capture_digest)
-    return {
+    result = {
         "oracle_backed": True,
         "verdict": verdict,
         "reason_codes": reason_codes,
@@ -266,11 +265,16 @@ def _paired_result(scenario, software_run, deployment_run):
         "parity": parity,
         "summary": _summarize(scenario, parity, verdict, deployment_run),
     }
+    if capture_digest is not None:
+        result["evidence_basis"] = "reference_execution_and_unverified_capture"
+    return result
 
 
 def _summarize(scenario, parity, verdict, deployment_run):
     bitmap = parity["spike_bitmap"]
     target = deployment_run.get("execution_target")
+    if target in PHYSICAL_TARGETS:
+        target = f"capture claiming {target} (physical execution unverified)"
     agreement = bitmap.get("agreement")
     agreement_text = f"{agreement:.4f}" if isinstance(agreement, float) else "n/a"
     return (
@@ -311,7 +315,7 @@ def _unavailable_evidence_digest(unavailable):
 
 
 def _capture_evidence_digest(deployment_run):
-    """Fingerprint a physical capture's provenance for the lineage list.
+    """Fingerprint an unverified capture's claims for the lineage list.
 
     ``deployment_run["output_digest"]`` covers only the behavioural outcome
     (spikes/events/membrane/action/arithmetic). Two captures with identical
@@ -327,7 +331,7 @@ def _capture_evidence_digest(deployment_run):
         return None
     return digest(
         {
-            "evidence_kind": "capture_physical_provenance",
+            "evidence_kind": "unverified_capture_claims",
             "hardware": deployment_run.get("hardware"),
             "bitstream": deployment_run.get("bitstream"),
             "capture_manifest_sha256": capture.get("manifest_sha256"),

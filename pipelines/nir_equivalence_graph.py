@@ -40,9 +40,41 @@ def serialize(graph):
 def parse(text):
     """Parse canonical graph text back into a graph object."""
     graph = json.loads(text)
-    if not isinstance(graph, dict) or "nodes" not in graph or "edges" not in graph:
+    if not _has_graph_fields(graph):
         raise GraphError("graph must be an object with `nodes` and `edges`")
     return graph
+
+
+def _has_graph_fields(graph):
+    return isinstance(graph, dict) and {"nodes", "edges"} <= graph.keys()
+
+
+def _valid_node(name, node):
+    return isinstance(name, str) and isinstance(node, dict)
+
+
+def _valid_edge(edge):
+    if not isinstance(edge, list) or len(edge) != 2:
+        return False
+    return all(isinstance(item, str) for item in edge)
+
+
+def _graph_components(graph):
+    if not isinstance(graph, dict):
+        raise GraphError("graph must be an object")
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+    if not isinstance(nodes, dict):
+        raise GraphError("graph.nodes must be an object")
+    if not isinstance(edges, list):
+        raise GraphError("graph.edges must be an array")
+    return nodes, edges
+
+
+def _validate_nodes(nodes):
+    for name, node in nodes.items():
+        if not _valid_node(name, node):
+            raise GraphError("graph nodes must map string names to objects")
 
 
 def structural_digest(graph):
@@ -52,23 +84,9 @@ def structural_digest(graph):
     structure comparison answers "is this the same graph" rather than "is this
     the same file".
     """
-    if not isinstance(graph, dict):
-        raise GraphError("graph must be an object")
-    nodes = graph.get("nodes")
-    edges = graph.get("edges")
-    if not isinstance(nodes, dict):
-        raise GraphError("graph.nodes must be an object")
-    if not isinstance(edges, list):
-        raise GraphError("graph.edges must be an array")
-    for name, node in nodes.items():
-        if not isinstance(name, str) or not isinstance(node, dict):
-            raise GraphError("graph nodes must map string names to objects")
-    if any(
-        not isinstance(edge, list)
-        or len(edge) != 2
-        or not all(isinstance(item, str) for item in edge)
-        for edge in edges
-    ):
+    nodes, edges = _graph_components(graph)
+    _validate_nodes(nodes)
+    if any(not _valid_edge(edge) for edge in edges):
         raise GraphError("graph edges must be [source, target] string pairs")
     structure = {
         "nodes": sorted(
@@ -140,27 +158,33 @@ def evaluation_order(graph, cycle_break_order):
         names = sorted(names, reverse=True)
     elif cycle_break_order != "insertion":
         raise GraphError(f"unknown cycle_break_order {cycle_break_order!r}")
-    successors = _successors(graph)
-    rank = {name: index for index, name in enumerate(names)}
-    state = {name: 0 for name in names}
-    order = []
-    recurrent = set()
-
-    def visit(node):
-        state[node] = 1
-        for nxt in sorted(successors[node], key=lambda item: rank[item]):
-            if state[nxt] == 0:
-                visit(nxt)
-            elif state[nxt] == 1:
-                recurrent.add((node, nxt))
-        state[node] = 2
-        order.append(node)
-
+    traversal = _DepthFirstOrder(graph, names)
     for name in names:
-        if state[name] == 0:
-            visit(name)
-    order.reverse()
-    return order, recurrent
+        if traversal.state[name] == 0:
+            traversal.visit(name)
+    traversal.order.reverse()
+    return traversal.order, traversal.recurrent
+
+
+class _DepthFirstOrder:
+    """Depth-first state and back edges for one graph traversal."""
+
+    def __init__(self, graph, names):
+        self.successors = _successors(graph)
+        self.rank = {name: index for index, name in enumerate(names)}
+        self.state = {name: 0 for name in names}
+        self.order = []
+        self.recurrent = set()
+
+    def visit(self, node):
+        self.state[node] = 1
+        for nxt in sorted(self.successors[node], key=lambda item: self.rank[item]):
+            if self.state[nxt] == 0:
+                self.visit(nxt)
+            elif self.state[nxt] == 1:
+                self.recurrent.add((node, nxt))
+        self.state[node] = 2
+        self.order.append(node)
 
 
 if __package__:

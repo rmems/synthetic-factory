@@ -60,15 +60,10 @@ def relevant_conventions(graph, entries):
     analysis, so a convention is only a candidate when the graph contains the
     construct it applies to and, for reset, when a spike actually fired.
     """
-    nodes = (graph or {}).get("nodes") or {}
-    types = {node.get("type") for node in nodes.values()}
+    types = _node_types(graph)
     executed = _executed(entries)
-    spiked = any(
-        ((entry.get("outputs") or {}).get("spike_count") or 0) > 0 for entry in executed
-    )
-    has_recurrence = any(
-        (entry.get("outputs") or {}).get("recurrent_edges") for entry in executed
-    )
+    spiked = any(_has_spikes(entry) for entry in executed)
+    has_recurrence = any(_has_recurrence(entry) for entry in executed)
     relevant = set()
     if types & {"LIF", "IF"} and spiked:
         relevant.add("reset")
@@ -77,6 +72,38 @@ def relevant_conventions(graph, entries):
     if has_recurrence:
         relevant.add("cycle_break_order")
     return relevant
+
+
+def _output_field(entry, key):
+    """Read optional output evidence consistently for absent output blocks."""
+    return (entry.get("outputs") or {}).get(key)
+
+
+def _node_types(graph):
+    nodes = (graph or {}).get("nodes") or {}
+    return {node.get("type") for node in nodes.values()}
+
+
+def _final_state(entry):
+    return _output_field(entry, "final_membrane") or {}
+
+
+def _has_spikes(entry):
+    return (_output_field(entry, "spike_count") or 0) > 0
+
+
+def _has_recurrence(entry):
+    return _output_field(entry, "recurrent_edges")
+
+
+def _membrane_values(blob):
+    return (blob or {}).get("v") or []
+
+
+def _maximum_error(values_a, values_b, initial=0.0):
+    for value_a, value_b in zip(values_a, values_b):
+        initial = max(initial, abs(value_a - value_b))
+    return initial
 
 
 def _candidate_causes(delta, relevant, output_agree, state_agree):
@@ -100,18 +127,17 @@ def _state_error(entry_a, entry_b):
     Returns ``(max_error, comparable)``. Nodes present on only one side make
     the comparison incomparable rather than silently partial.
     """
-    state_a = (entry_a.get("outputs") or {}).get("final_membrane") or {}
-    state_b = (entry_b.get("outputs") or {}).get("final_membrane") or {}
+    state_a = _final_state(entry_a)
+    state_b = _final_state(entry_b)
     if set(state_a) != set(state_b):
         return None, False
     max_error = 0.0
     for name, blob_a in state_a.items():
         values_a = blob_a.get("v") or []
-        values_b = (state_b[name] or {}).get("v") or []
+        values_b = _membrane_values(state_b[name])
         if len(values_a) != len(values_b):
             return None, False
-        for value_a, value_b in zip(values_a, values_b):
-            max_error = max(max_error, abs(value_a - value_b))
+        max_error = _maximum_error(values_a, values_b, max_error)
     return max_error, True
 
 
@@ -120,8 +146,8 @@ def _compare_pair(entry_a, entry_b):
     # reaches here, but compare_runtimes is also called on freshly generated
     # entries, so missing keys degrade to "not comparable" rather than raising
     # and taking down the scan of a whole run directory.
-    trace_a = (entry_a.get("outputs") or {}).get("output_trace")
-    trace_b = (entry_b.get("outputs") or {}).get("output_trace")
+    trace_a = _output_field(entry_a, "output_trace")
+    trace_b = _output_field(entry_b, "output_trace")
     if not isinstance(trace_a, list) or not isinstance(trace_b, list):
         return _incomparable_pair(entry_a, entry_b)
     pair = _pair_identity(entry_a, entry_b)
@@ -165,8 +191,8 @@ def _incomparable_pair(entry_a, entry_b):
         "b": entry_b.get("runtime"),
         "agree": False,
         "shape_match": False,
-        "spike_count_a": (entry_a.get("outputs") or {}).get("spike_count"),
-        "spike_count_b": (entry_b.get("outputs") or {}).get("spike_count"),
+        "spike_count_a": _output_field(entry_a, "spike_count"),
+        "spike_count_b": _output_field(entry_b, "spike_count"),
         "digest_a": entry_a.get("output_digest"),
         "digest_b": entry_b.get("output_digest"),
         "state_comparable": False,

@@ -24,6 +24,12 @@ NEXT_SOURCE_STAMPS = (
     ("sha256:f8069de53c4955c474f3b15493c1e044a3444567d931773e6dfc664d7d2fa3d4",
      "0950baba0ef558259f88c43b8fc3a40e71a4f66b36d1c420eca6ebbe0801e628"),
 )
+LATEST_SOURCE_STAMPS = (
+    ("sha256:13d02b4bb48c2a568d14099230020fb1cfc8caa67a1a868b304014bf6ff2cde6",
+     "78acb439bd8c1236ee61e1e6ea467a7f4db7d73b022e556cfd88812ffd43dff8"),
+    ("sha256:033a6a90bbc65a34d5f306c36e25cb411d91bf8206105ab0fe3fb6b200a0cb62",
+     "24c042c31da4c8174560cc0b41fd09888fb2f9e91c2086909917b6b648309fe3"),
+)
 
 
 class HistoricalSourceStamps(unittest.TestCase):
@@ -37,8 +43,12 @@ class HistoricalSourceStamps(unittest.TestCase):
             with self.subTest(family=slug):
                 self.assertEqual(module.validate_records(self._records(slug, checksum)), [])
 
-    def test_second_reviewed_commit_bytes_remain_valid(self):
-        for case, (source, checksum) in zip(CASES, NEXT_SOURCE_STAMPS, strict=True):
+    def test_reviewed_followup_commit_bytes_remain_valid(self):
+        for stamps in (NEXT_SOURCE_STAMPS, LATEST_SOURCE_STAMPS):
+            self._check_followup_stamps(stamps)
+
+    def _check_followup_stamps(self, stamps):
+        for case, (source, checksum) in zip(CASES, stamps, strict=True):
             module, slug, original_checksum = case
             records = self._records(slug, original_checksum)
             previous = records[0]["provenance"]["generator_version"]

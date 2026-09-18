@@ -151,12 +151,12 @@ class ParityMetrics(unittest.TestCase):
         )
         self.assertFalse(metrics["hardware_repeatability_measured"])
 
-    def test_physical_target_does_claim_hardware_repeatability(self):
+    def test_physical_target_label_does_not_prove_hardware_repeatability(self):
         metrics = hp.repeatability_metrics(
             {"repeats": 3, "determinism": {}},
             {"repeats": 3, "determinism": {}, "execution_target": oracle.TARGET_FPGA_HARDWARE},
         )
-        self.assertTrue(metrics["hardware_repeatability_measured"])
+        self.assertFalse(metrics["hardware_repeatability_measured"])
 
 
 class Generation(unittest.TestCase):

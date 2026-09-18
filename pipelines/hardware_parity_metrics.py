@@ -45,30 +45,24 @@ else:
 MEMBRANE_UNITS = "mV_model"
 
 
+def _membrane_field_matches(membranes, field, expected):
+    return all((membrane or {}).get(field) == expected for membrane in membranes)
+
+
+def _same_trace_shape(soft, hard):
+    if not all(_rectangular(trace) for trace in (soft, hard)):
+        return False
+    return (len(soft), len(soft[0])) == (len(hard), len(hard[0]))
+
+
 def _membrane_incomparable_reason(software_membrane, hardware_membrane, soft, hard):
-    """Why the two membrane traces cannot be compared, or None if they can."""
-    if not (software_membrane or {}).get("observable") or not (
-        hardware_membrane or {}
-    ).get("observable"):
+    """Refuse absent observation, incompatible units, or unequal trace shapes."""
+    membranes = (software_membrane, hardware_membrane)
+    if not all((membrane or {}).get("observable") for membrane in membranes):
         return "at least one side does not expose membrane state"
-    if (
-        (software_membrane or {}).get("units") != MEMBRANE_UNITS
-        or (hardware_membrane or {}).get("units") != MEMBRANE_UNITS
-    ):
-        # A recorded capture is untrusted input and may label its observable
-        # trace with another unit (or omit it). Comparing numeric values
-        # across units would produce a numerically valid but dimensionally
-        # meaningless error, so treat a unit mismatch the same as a missing
-        # trace rather than silently comparing raw numbers.
+    if not _membrane_field_matches(membranes, "units", MEMBRANE_UNITS):
         return f"both membrane traces must be {MEMBRANE_UNITS!r} units"
-    if (
-        not _rectangular(soft)
-        or not _rectangular(hard)
-        or len(soft) != len(hard)
-        or len(soft[0]) != len(hard[0])
-    ):
-        # Carries a reason code for the same purpose as the branch above:
-        # deleting membrane evidence must never be quieter than reporting it.
+    if not _same_trace_shape(soft, hard):
         return "membrane traces have different shapes"
     return None
 
@@ -133,7 +127,6 @@ def repeatability_metrics(software_run, hardware_run):
     """Determinism of each side, kept distinct from hardware repeatability."""
     software_det = software_run.get("determinism", {})
     hardware_det = hardware_run.get("determinism", {})
-    physical = hardware_run.get("execution_target") in PHYSICAL_TARGETS
     return {
         "software": {
             "repeats": software_run.get("repeats"),
@@ -145,7 +138,7 @@ def repeatability_metrics(software_run, hardware_run):
             "distinct_digests": hardware_det.get("distinct_digests"),
             "identical_repeats": hardware_det.get("identical_repeats"),
         },
-        "hardware_repeatability_measured": physical,
+        "hardware_repeatability_measured": False,
         "meaning": hardware_det.get("meaning"),
     }
 
@@ -194,40 +187,44 @@ def _deployment_qualification_codes(repeatability, hardware_run):
     if hardware_run.get("execution_target") not in PHYSICAL_TARGETS:
         codes.append("ORACLE_UNAVAILABLE")
     else:
-        # A physical run is not reproducible from software -- that is why it
-        # was run on hardware. Its traces therefore rest on the integrity of
-        # the capture and on the board provenance, and were not re-derived.
-        # This code makes that limitation visible on every hardware-claiming
-        # record instead of leaving such a record looking unqualified.
-        codes.append("DEPLOYMENT_TRACE_NOT_REDERIVABLE")
+        # Self-contained capture hashes prove neither physical execution nor
+        # physical latency. Preserve trace diagnostics without hardware authority.
+        codes.extend(("DEPLOYMENT_TRACE_NOT_REDERIVABLE", "PHYSICAL_EXECUTION_UNATTESTED",
+                      "LATENCY_NOT_MEASURED"))
     return codes
 
 
-def _parity_reason_codes(parity, hardware_run):
-    """Every finding one paired run carries, in the order they are raised.
-
-    The two behavioural disagreements come first because the verdict is
-    drawn from them; the deployment qualifications that follow are carried
-    even on a `match`, so silence is never mistaken for evidence.
-    """
+def _behavioural_reason_codes(parity):
+    """Retain independently observed bitmap and decoded-action disagreement."""
     bitmap = parity["spike_bitmap"]
-    membrane = parity["membrane"]
-    quantization = parity["quantization"]
     codes = []
     if not bitmap.get("comparable") or bitmap.get("hamming_distance", 1) > 0:
         codes.append("SPIKE_BITMAP_DISAGREEMENT")
     if not parity["action"]["agree"]:
         codes.append("ACTION_DISAGREEMENT")
-    if membrane.get("observable") and not membrane.get("within_tolerance"):
-        codes.append("MEMBRANE_DIVERGENCE")
-    if not membrane.get("observable") and membrane.get("reason_code"):
-        codes.append(membrane["reason_code"])
-    if quantization.get("saturated_parameter_count") or quantization.get(
-        "runtime_saturation_events"
-    ):
-        codes.append("QUANTIZATION_SATURATION")
-    return codes + _deployment_qualification_codes(
-        parity["repeatability"], hardware_run
+    return codes
+
+
+def _membrane_reason_codes(membrane):
+    if membrane.get("observable"):
+        return [] if membrane.get("within_tolerance") else ["MEMBRANE_DIVERGENCE"]
+    reason = membrane.get("reason_code")
+    return [reason] if reason else []
+
+
+def _quantization_reason_codes(quantization):
+    saturated = (quantization.get("saturated_parameter_count")
+                 or quantization.get("runtime_saturation_events"))
+    return ["QUANTIZATION_SATURATION"] if saturated else []
+
+
+def _parity_reason_codes(parity, hardware_run):
+    """Keep behavioural, numeric, and evidence-authority diagnostics together."""
+    return (
+        _behavioural_reason_codes(parity)
+        + _membrane_reason_codes(parity["membrane"])
+        + _quantization_reason_codes(parity["quantization"])
+        + _deployment_qualification_codes(parity["repeatability"], hardware_run)
     )
 
 
@@ -239,6 +236,12 @@ def compute_parity(scenario, software_run, hardware_run):
         "SPIKE_BITMAP_DISAGREEMENT" in reason_codes or "ACTION_DISAGREEMENT" in reason_codes
     )
     verdict = contract.VERDICT_MISMATCH if behavioural_mismatch else contract.VERDICT_MATCH
+    if "PHYSICAL_EXECUTION_UNATTESTED" in reason_codes:
+        verdict = contract.VERDICT_INCONCLUSIVE
+        parity["verdict_rule"] = (
+            "physical parity is inconclusive without independently authenticated execution; "
+            "numeric trace comparisons and mismatch diagnostics remain available"
+        )
     return parity, verdict, sorted(set(reason_codes))
 
 

@@ -62,6 +62,33 @@ def _stimulus(name, steps, channels, pattern):
     }
 
 
+def _two_channel_lif_graph(name, weight, tau, threshold):
+    """The shared two-channel topology with explicit per-scenario parameters."""
+    return {
+        "name": name,
+        "dt_s": 0.001,
+        "nodes": {
+            "in": {"type": "Input", "shape": [2], "size": 2},
+            "fc": {
+                "type": "Affine",
+                "size": 2,
+                "weight": weight,
+                "bias": [0.0, 0.0],
+            },
+            "lif": {
+                "type": "LIF",
+                "size": 2,
+                "tau": tau,
+                "r": 1.0,
+                "v_leak": 0.0,
+                "v_threshold": threshold,
+            },
+            "out": {"type": "Output", "size": 2},
+        },
+        "edges": [["in", "fc"], ["fc", "lif"], ["lif", "out"]],
+    }
+
+
 GRAPH_SPECS = (
     {
         "id": "nir-feedforward-threshold",
@@ -137,29 +164,9 @@ GRAPH_SPECS = (
             "reset-by-subtraction versus reset-to-zero changes every later timestep."
         ),
         "hypothesis": "the runtimes diverge on spike timing after the first spike",
-        "graph": {
-            "name": "reset-sensitive",
-            "dt_s": 0.001,
-            "nodes": {
-                "in": {"type": "Input", "shape": [2], "size": 2},
-                "fc": {
-                    "type": "Affine",
-                    "size": 2,
-                    "weight": [[8.0, 0.0], [0.0, 8.0]],
-                    "bias": [0.0, 0.0],
-                },
-                "lif": {
-                    "type": "LIF",
-                    "size": 2,
-                    "tau": 0.002,
-                    "r": 1.0,
-                    "v_leak": 0.0,
-                    "v_threshold": 1.0,
-                },
-                "out": {"type": "Output", "size": 2},
-            },
-            "edges": [["in", "fc"], ["fc", "lif"], ["lif", "out"]],
-        },
+        "graph": _two_channel_lif_graph(
+            "reset-sensitive", [[8.0, 0.0], [0.0, 8.0]], 0.002, 1.0
+        ),
         "pattern": [(1, 0), (2, 0)],
         "intervention": {
             "kind": "convention_probe",
@@ -252,29 +259,9 @@ GRAPH_SPECS = (
             "boundary that implementations tend to guard differently."
         ),
         "hypothesis": "both runtimes fire every timestep; reset residue may differ",
-        "graph": {
-            "name": "boundary",
-            "dt_s": 0.001,
-            "nodes": {
-                "in": {"type": "Input", "shape": [2], "size": 2},
-                "fc": {
-                    "type": "Affine",
-                    "size": 2,
-                    "weight": [[1.0, 0.0], [0.0, 0.0]],
-                    "bias": [0.0, 0.0],
-                },
-                "lif": {
-                    "type": "LIF",
-                    "size": 2,
-                    "tau": 0.001,
-                    "r": 1.0,
-                    "v_leak": 0.0,
-                    "v_threshold": 0.0,
-                },
-                "out": {"type": "Output", "size": 2},
-            },
-            "edges": [["in", "fc"], ["fc", "lif"], ["lif", "out"]],
-        },
+        "graph": _two_channel_lif_graph(
+            "boundary", [[1.0, 0.0], [0.0, 0.0]], 0.001, 0.0
+        ),
         "pattern": [(2, 0), (0, 0)],
         "intervention": {
             "kind": "boundary_probe",
@@ -408,14 +395,17 @@ def _catalog_entry(scenario_id):
     return _GRAPH_CATALOG_BY_ID.get(scenario_id)
 
 
+def _valid_stimulus_steps(steps):
+    if not isinstance(steps, int) or isinstance(steps, bool):
+        return False
+    return steps >= 1
+
+
 def _catalog_stimulus(scenario_id, steps):
     catalog = _catalog_entry(scenario_id)
-    if (
-        catalog is None
-        or not isinstance(steps, int)
-        or isinstance(steps, bool)
-        or steps < 1
-    ):
+    if catalog is None:
+        return None
+    if not _valid_stimulus_steps(steps):
         return None
     return _stimulus(
         f"{scenario_id}-stimulus",

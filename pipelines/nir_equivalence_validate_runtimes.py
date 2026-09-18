@@ -59,23 +59,24 @@ def _check_runtimes(record, where):
             "[RUNTIME_STATUS_UNKNOWN]"
         )
     for entry in runtimes:
-        name = entry.get("runtime") if isinstance(entry, dict) else None
-        label = f"{where}.oracle.runtimes[{name!r}]"
-        if not isinstance(entry, dict):
-            errors.append(f"{where}: every runtime entry must be an object")
-            continue
-        expected_runtime = (
-            _ALL_RUNTIME_BY_NAME.get(name) if isinstance(name, str) else None
-        )
-        if expected_runtime is None:
-            errors.append(
-                f"{label}: runtime is outside the declared inventory "
-                "[RUNTIME_STATUS_UNKNOWN]"
-            )
-            continue
-        errors += _runtime_identity_errors(entry, expected_runtime, label)
-        errors += _runtime_status_errors(entry, label)
-        errors += _runtime_probe_errors(entry, expected_runtime, label)
+        errors += _runtime_entry_errors(entry, where)
+    return errors
+
+
+def _runtime_entry_errors(entry, where):
+    if not isinstance(entry, dict):
+        return [f"{where}: every runtime entry must be an object"]
+    name = entry.get("runtime")
+    label = f"{where}.oracle.runtimes[{name!r}]"
+    expected_runtime = _ALL_RUNTIME_BY_NAME.get(name) if isinstance(name, str) else None
+    if expected_runtime is None:
+        return [
+            f"{label}: runtime is outside the declared inventory "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        ]
+    errors = _runtime_identity_errors(entry, expected_runtime, label)
+    errors += _runtime_status_errors(entry, label)
+    errors += _runtime_probe_errors(entry, expected_runtime, label)
     return errors
 
 
@@ -112,45 +113,41 @@ def _runtime_status_errors(entry, label):
             "[RUNTIME_STATUS_UNKNOWN]"
         )
     if entry.get("status") in (STATUS_UNAVAILABLE, STATUS_UNSUPPORTED):
-        if entry.get("outputs") is not None or entry.get("output_digest") is not None:
-            errors.append(
-                f"{label}: a runtime that did not execute must not carry outputs "
-                "[UNAVAILABLE_RUNTIME_HAS_OUTPUT]"
-            )
-        if not isinstance(entry.get("reason_code"), str) or not entry[
-            "reason_code"
-        ].strip():
-            errors.append(
-                f"{label}: a runtime that did not execute needs a reason code "
-                "[RUNTIME_STATUS_UNKNOWN]"
-            )
-        if not isinstance(entry.get("detail"), str) or not entry["detail"].strip():
-            errors.append(
-                f"{label}: a runtime that did not execute needs a finite text "
-                "diagnostic [ENVELOPE_MALFORMED]"
-            )
+        errors += _nonexecuted_status_errors(entry, label)
     if entry.get("status") == STATUS_EXECUTED:
         errors += _executed_status_errors(entry, label)
+    return errors
+
+
+def _nonempty_text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _nonexecuted_status_errors(entry, label):
+    """Nonexecution forbids outputs and requires a textual diagnostic."""
+    errors = []
+    if entry.get("outputs") is not None or entry.get("output_digest") is not None:
+        errors.append(
+            f"{label}: a runtime that did not execute must not carry outputs "
+            "[UNAVAILABLE_RUNTIME_HAS_OUTPUT]"
+        )
+    if not _nonempty_text(entry.get("reason_code")):
+        errors.append(
+            f"{label}: a runtime that did not execute needs a reason code "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
+    if not _nonempty_text(entry.get("detail")):
+        errors.append(
+            f"{label}: a runtime that did not execute needs a finite text "
+            "diagnostic [ENVELOPE_MALFORMED]"
+        )
     return errors
 
 
 def _executed_status_errors(entry, label):
     """An executed claim must carry outputs and stay falsifiable."""
     errors = []
-    outputs = entry.get("outputs")
-    if not isinstance(outputs, dict):
-        errors.append(f"{label}: an executed runtime must carry outputs")
-    else:
-        missing = [
-            key
-            for key in ("output_trace", "spike_events", "spike_count")
-            if key not in outputs
-        ]
-        if missing:
-            errors.append(
-                f"{label}: executed outputs are missing {missing} "
-                "[ENVELOPE_MALFORMED]"
-            )
+    errors += _executed_output_errors(entry.get("outputs"), label)
     if not entry.get("output_digest"):
         errors.append(f"{label}: an executed runtime must carry an output digest")
     # An `executed` claim naming a runtime this validator cannot
@@ -166,6 +163,24 @@ def _executed_status_errors(entry, label):
     return errors
 
 
+def _executed_output_errors(outputs, label):
+    errors = []
+    if not isinstance(outputs, dict):
+        errors.append(f"{label}: an executed runtime must carry outputs")
+    else:
+        missing = [
+            key
+            for key in ("output_trace", "spike_events", "spike_count")
+            if key not in outputs
+        ]
+        if missing:
+            errors.append(
+                f"{label}: executed outputs are missing {missing} "
+                "[ENVELOPE_MALFORMED]"
+            )
+    return errors
+
+
 def _runtime_probe_errors(entry, expected_runtime, label):
     """Replay the availability probe and hold the entry to what it says."""
     try:
@@ -176,9 +191,7 @@ def _runtime_probe_errors(entry, expected_runtime, label):
             "[RUNTIME_STATUS_UNKNOWN]"
         ]
     available = availability.get("available") if isinstance(availability, dict) else None
-    if not isinstance(availability, dict) or (
-        available is not True and available is not False
-    ):
+    if not _well_formed_availability(availability, available):
         return [
             f"{label}: runtime availability probe returned a malformed capability "
             "[RUNTIME_STATUS_UNKNOWN]"
@@ -196,6 +209,10 @@ def _runtime_probe_errors(entry, expected_runtime, label):
     return []
 
 
+def _well_formed_availability(availability, available):
+    return isinstance(availability, dict) and isinstance(available, bool)
+
+
 def _unavailable_probe_errors(entry, availability, label):
     """Retain historical diagnostics while the runtime still cannot execute."""
     errors = []
@@ -205,6 +222,18 @@ def _unavailable_probe_errors(entry, availability, label):
             f"{STATUS_UNAVAILABLE!r}, not {entry.get('status')!r} "
             "[RUNTIME_STATUS_UNKNOWN]"
         )
+    errors += _unavailable_reason_errors(entry, availability, label)
+    if entry.get("roundtrip") is not None:
+        errors.append(
+            f"{label}: an unavailable runtime cannot claim parse/write evidence "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
+    return errors
+
+
+def _unavailable_reason_errors(entry, availability, label):
+    """Both current capability and recorded history need recognized refusal codes."""
+    errors = []
     expected_reason = availability.get("reason_code")
     if expected_reason not in UNAVAILABLE_REASON_CODES:
         errors.append(
@@ -214,11 +243,6 @@ def _unavailable_probe_errors(entry, availability, label):
     if entry.get("reason_code") not in UNAVAILABLE_REASON_CODES:
         errors.append(
             f"{label}: unavailable reason_code {entry.get('reason_code')!r} is unsupported "
-            "[RUNTIME_STATUS_UNKNOWN]"
-        )
-    if entry.get("roundtrip") is not None:
-        errors.append(
-            f"{label}: an unavailable runtime cannot claim parse/write evidence "
             "[RUNTIME_STATUS_UNKNOWN]"
         )
     return errors

@@ -123,7 +123,7 @@ and intervention cannot be relabelled separately.
 1. Implement a board transport in `FpgaHardwareAdapter.run`
    (`pipelines/neuro_oracle.py`) and set `SPIKENAUT_FPGA_DEVICE` and
    `SPIKENAUT_FPGA_BITSTREAM`.
-2. Or record a capture and replay it:
+2. A recorded capture can be replayed for unverified research diagnostics:
    `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json>`.
    A capture is a JSON object with `execution_target`, `quantization` (the Q8.8
    conversion that produced the bitstream), `hardware`, `bitstream`, a
@@ -134,8 +134,9 @@ and intervention cannot be relabelled separately.
    and refuses a capture taken against a different input fixture. The emitted
    record retains that source and the validator independently re-checks the
    chain, dimensions, value domains, and every projected observation.
-   A wholly fabricated but internally consistent capture remains outside what
-   this repository can detect, as described below.
+   These hashes do not establish physical execution. The record remains
+   unknown/inconclusive with an explicitly unverified attestation, even if
+   every retained trace agrees with the software reference.
 
 Unavailable capture records retain historical diagnostics. The validator checks
 the selected adapter, configuration, supported reason code, diagnostic lineage,
@@ -157,7 +158,7 @@ path-guard foundations. A new parity sibling must be added to that inventory
 before generation can proceed. Ordinary refactors therefore change the source
 stamp. Historical acceptance is explicit: `parity_history.py` currently records
 the independently reviewed source/catalog/authorship tuples from commits
-`0bbeb5e6` and `b2b5366f`. Those records keep their original bytes and remain
+`0bbeb5e6`, `b2b5366f`, and `d4f7d53a`. Those records keep their original bytes and remain
 research-only with training blocked. Every current scenario, measurement,
 availability, and catalog validation still runs; an old source hash alone does
 not authorize a record, and unreviewed historical stamps remain refused.
@@ -240,22 +241,33 @@ Only a runtime this validator can re-execute may be marked `executed`. An
 `executed` claim naming `nir_rs` — which is not installed — is rejected
 outright, because such a claim is unfalsifiable rather than merely unverified.
 
-### The one thing that cannot be re-derived
+### Captures do not establish physical authority
 
-A run on physical silicon is not reproducible from software; that is the point
-of running it on hardware. So for a `fpga_hardware` or `recorded_capture`
-target, the deployment traces rest on two things this repository *can* check —
-the retained capture's internal digest chain and the binding from its payload
-to every recorded observation and board/bitstream field — and on
-one it cannot: that the capture describes a run that actually happened. A
-capture file is trusted input. Nothing here can distinguish a genuine capture
-from a well-formed fabricated one without an out-of-band trust anchor such as a
-signed board attestation.
+The capture adapter verifies the retained source, manifest, payload, repeat
+observations, and their binding to scenario inputs. These checks establish
+internal integrity and support numeric trace comparisons. A producer could
+fabricate the entire file and recompute every hash, so the current revision
+has no basis for authenticating physical execution.
 
-That limitation is not papered over. Every record with a physical target
-carries `DEPLOYMENT_TRACE_NOT_REDERIVABLE` in its reason codes and in its
-training view, so a hardware-claiming record can never read as fully
-corroborated, and `provenance.kind` must be `hil` rather than `simulated`.
+Every physical-target capture therefore has `provenance.kind: unknown`, a
+validator-required `capture.attestation` of `unverified` with basis
+`self_contained_checksums`, and an `inconclusive` final verdict. Its reason
+codes include `PHYSICAL_EXECUTION_UNATTESTED`, `DEPLOYMENT_TRACE_NOT_REDERIVABLE`,
+`REPEATABILITY_UNPROVEN`, and `LATENCY_NOT_MEASURED`. Repeated values and a
+self-reported latency remain in the source evidence; they do not establish
+measured hardware repeatability or latency. Board, bitstream, and execution
+target fields remain reported claims. Prompt and summary text explicitly say
+physical execution is unverified.
+
+The result's `oracle_backed` flag describes the executed software reference
+and recomputed trace comparison, and `evidence_basis` is fixed to
+`reference_execution_and_unverified_capture`. It does not certify the capture's
+physical origin. Numeric mismatch diagnostics are retained even though neither
+physical agreement nor disagreement can be established. A supplied `hil` kind,
+verified attestation, conclusive physical verdict, or complete training view is
+rejected. Research-only and blocked training policy remain unchanged. A future
+physical adapter will need an independently authenticated execution receipt and
+an explicit policy change before any HIL upgrade can be accepted.
 
 ## Training views cannot hide a parity failure
 
@@ -273,8 +285,8 @@ agreed*, which is not the same as *the intended oracles ran*. Without the
 second flag a consumer filtering on `parity_failed` alone would read a clean
 bill of health off a record from a family called
 `hardware-parity-spike-trajectories` whose hardware leg never executed, or
-off a physical/HIL MATCH whose deployment traces cannot be re-derived
-(`DEPLOYMENT_TRACE_NOT_REDERIVABLE`). Every
+off an internally consistent capture whose physical execution is unverified
+(`PHYSICAL_EXECUTION_UNATTESTED`). Every
 record in the committed fixture has `oracle_complete: false`.
 
 ## Running the families

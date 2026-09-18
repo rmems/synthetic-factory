@@ -84,6 +84,13 @@ def _check_stimulus_and_fixture(scenario, oracle, where):
             f"catalog stimulus for {scenario.get('id')!r} "
             "[INPUT_FIXTURE_MISMATCH]"
         )
+    errors += _input_fixture_errors(scenario, oracle, where)
+    return errors, stimulus_shape_valid
+
+
+def _input_fixture_errors(scenario, oracle, where):
+    stimulus = scenario["stimulus"]
+    errors = []
     fixture = scenario.get("input_fixture") or {}
     oracle_fixture = oracle.get("input_fixture") or {}
     recomputed_fixture = digest(stimulus["events"])
@@ -108,7 +115,7 @@ def _check_stimulus_and_fixture(scenario, oracle, where):
             f"{where}: oracle.identical_input_fixture must be exactly true "
             "[INPUT_FIXTURE_MISMATCH]"
         )
-    return errors, stimulus_shape_valid
+    return errors
 
 
 def _check_evidence_scope_field(oracle, where):
@@ -124,11 +131,15 @@ def _check_evidence_scope_field(oracle, where):
     return []
 
 
+def _record_lineage(oracle):
+    if isinstance(oracle, dict) and isinstance(oracle.get("runtimes"), list):
+        return _evidence_lineage(oracle["runtimes"])
+    return None
+
+
 def _validate_record(record, where):
     oracle = record.get("oracle") if isinstance(record, dict) else None
-    lineage = None
-    if isinstance(oracle, dict) and isinstance(oracle.get("runtimes"), list):
-        lineage = _evidence_lineage(oracle["runtimes"])
+    lineage = _record_lineage(oracle)
     errors = contract.check_envelope(record, where, oracle_digests=lineage)
     if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
         return errors
@@ -146,6 +157,11 @@ def _validate_record(record, where):
 
     errors += _check_envelope_identity(record, scenario, where)
 
+    return _scenario_execution_errors(record, scenario, errors, where)
+
+
+def _scenario_execution_errors(record, scenario, errors, where):
+    oracle = record["oracle"]
     graph = scenario.get("graph")
     graph_errors, graph_shape_valid = _check_graph_structure(record, scenario, graph, where)
     errors += graph_errors
@@ -164,13 +180,15 @@ def _validate_record(record, where):
     # traverse the object, so gating on it alone would let one JSONL entry
     # whose digest already failed the catalog binding exhaust memory before
     # its accumulated errors are ever returned.
-    if graph_errors or not graph_shape_valid or not stimulus_shape_valid:
+    if graph_errors:
+        return errors
+    if not graph_shape_valid or not stimulus_shape_valid:
         return errors
     errors += _reexecute_in_repo_runtimes(record, where)
     if errors:
         return errors
 
-    return errors + _recorded_comparison_errors(record, scenario, graph, oracle, where)
+    return errors + _recorded_comparison_errors(record, scenario, oracle, where)
 
 
 def _oracle_pairing_errors(oracle, where):
@@ -199,25 +217,18 @@ def _result_lineage_errors(record, lineage, where):
     ]
 
 
-def _recorded_comparison_errors(record, scenario, graph, oracle, where):
+def _recorded_comparison_errors(record, scenario, oracle, where):
     """The recorded result must reproduce the freshly recomputed comparison."""
     entries = oracle["runtimes"]
     recomputed = compare_runtimes(
-        {"structure_digest": scenario.get("structure_digest"), "graph": graph}, entries
+        {"structure_digest": scenario.get("structure_digest"), "graph": scenario.get("graph")}, entries
     )
     verdict, reason_codes = verdict_for(recomputed)
     result = record.get("result") or {}
     if not isinstance(result, dict):
         return [f"{where}: result must be an object [ENVELOPE_MALFORMED]"]
     errors = []
-    recorded = result.get("comparison")
-    if not isinstance(recorded, dict):
-        errors.append(f"{where}: result.comparison must be an object [COMPARISON_MISMATCH]")
-    elif not _strict_json_equal(recorded, recomputed):
-        errors.append(
-            f"{where}: result.comparison does not exactly match the re-executed "
-            "runtime evidence [COMPARISON_MISMATCH]"
-        )
+    errors += _comparison_block_errors(result, recomputed, where)
     if result.get("verdict") != verdict:
         errors.append(
             f"{where}: result.verdict is {result.get('verdict')!r} but the recorded "
@@ -228,17 +239,36 @@ def _recorded_comparison_errors(record, scenario, graph, oracle, where):
             f"{where}: result.reason_codes records {result.get('reason_codes')!r} but "
             f"re-execution gives {reason_codes!r} [DIVERGENCE_SUPPRESSED]"
         )
+    errors += _suppressed_divergence_errors(result, recomputed, where)
+    expected_summary = _summarize(scenario, recomputed, verdict)
+    if result.get("summary") != expected_summary:
+        errors.append(
+            f"{where}: result.summary is not derived from the re-executed comparison "
+            "[COMPARISON_MISMATCH]"
+        )
+    return errors
+
+
+def _suppressed_divergence_errors(result, recomputed, where):
+    errors = []
     if recomputed["executed_count"] >= 2 and recomputed["output_parity"]["agree"] is False:
         if result.get("verdict") == contract.VERDICT_MATCH:
             errors.append(
                 f"{where}: outputs diverge but the verdict claims a match "
                 "[DIVERGENCE_SUPPRESSED]"
             )
-    expected_summary = _summarize(scenario, recomputed, verdict)
-    if result.get("summary") != expected_summary:
+    return errors
+
+
+def _comparison_block_errors(result, recomputed, where):
+    errors = []
+    recorded = result.get("comparison")
+    if not isinstance(recorded, dict):
+        errors.append(f"{where}: result.comparison must be an object [COMPARISON_MISMATCH]")
+    elif not _strict_json_equal(recorded, recomputed):
         errors.append(
-            f"{where}: result.summary is not derived from the re-executed comparison "
-            "[COMPARISON_MISMATCH]"
+            f"{where}: result.comparison does not exactly match the re-executed "
+            "runtime evidence [COMPARISON_MISMATCH]"
         )
     return errors
 

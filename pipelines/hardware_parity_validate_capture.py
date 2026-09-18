@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The recorded-capture digest chain.
 
-A capture is trusted input: this module checks that its internal chain is
+A capture is untrusted input: this module checks that its internal chain is
 intact and that the record's claims follow from it, which is integrity, not
 attestation. Nothing here can show the capture describes a run that happened.
 """
@@ -248,6 +248,9 @@ def _check_capture_chain(record, deployment, where):
             f"{where}: a physical target needs a capture object with replay source "
             "bytes [HW_PROVENANCE_MISSING]"
         ]
+    expected_attestation = {"status": "unverified", "basis": "self_contained_checksums"}
+    if not contract.strict_json_equal(capture.get("attestation"), expected_attestation):
+        errors.append(f"{where}: capture attestation must remain unverified [HW_PROVENANCE_MISSING]")
     source = capture.get("source")
     if not isinstance(source, dict):
         return [

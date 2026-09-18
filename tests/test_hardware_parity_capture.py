@@ -253,9 +253,9 @@ class RecordedCapturePath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(hp.validate_record(self._record(tmp), WHERE), [])
 
-    def test_capture_derived_record_declares_hil_provenance(self):
+    def test_capture_derived_record_declares_unknown_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(self._record(tmp)["provenance"]["kind"], "hil")
+            self.assertEqual(self._record(tmp)["provenance"]["kind"], "unknown")
 
     def test_capture_evidence_cannot_be_relabelled_as_an_unknown_adapter(self):
         self._assert_relabelled_adapter_rejected(
@@ -665,7 +665,7 @@ class RecordedCapturePath(unittest.TestCase):
                 "DEPLOYMENT_TRACE_NOT_REDERIVABLE", view["reason_codes"]
             )
             self.assertFalse(view["oracle_complete"])
-            self.assertFalse(view["parity_failed"])
+            self.assertTrue(view["parity_failed"])
 
     def test_reference_model_records_are_not_marked_unrederivable(self):
         for record in hp.generate_records(round_number=1, steps=4, repeats=2):

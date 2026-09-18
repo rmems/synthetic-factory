@@ -226,7 +226,7 @@ def _check_record_identity(record, where):
     )
     provenance = record.get("provenance")
     expected_provenance_identity = {
-        "kind": "hil" if deployment_target in PHYSICAL_TARGETS else "simulated",
+        "kind": "unknown" if deployment_target in PHYSICAL_TARGETS else "simulated",
         "tool": VALIDATOR,
         "tool_version": SCHEMA_VERSION,
         "contract_version": contract.CONTRACT_VERSION,

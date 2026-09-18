@@ -74,23 +74,35 @@ def _catalog_prompt_identity(scenario):
     }
 
 
-def training_view(record):
-    scenario = record.get("scenario") or {}
-    result = record.get("result") or {}
-    oracle = record.get("oracle") or {}
+def _execution_claim(executed):
+    if len(executed) >= 2:
+        return f"was executed across runtimes {executed!r}"
+    elif len(executed) == 1:
+        return f"executed on only one runtime, {executed[0]!r}"
+    else:
+        return "did not execute on any runtime"
+
+
+def _runtime_targets(oracle):
     runtimes = oracle.get("runtimes") or []
-    targets = [
+    return [
         f"{entry.get('runtime')}:{entry.get('status')}"
         for entry in runtimes
         if isinstance(entry, dict)
     ]
-    executed = list((result.get("comparison") or {}).get("executed_runtimes") or [])
-    if len(executed) >= 2:
-        execution_claim = f"was executed across runtimes {executed!r}"
-    elif len(executed) == 1:
-        execution_claim = f"executed on only one runtime, {executed[0]!r}"
-    else:
-        execution_claim = "did not execute on any runtime"
+
+
+def _executed_names(result):
+    return list((result.get("comparison") or {}).get("executed_runtimes") or [])
+
+
+def training_view(record):
+    scenario = record.get("scenario") or {}
+    result = record.get("result") or {}
+    oracle = record.get("oracle") or {}
+    targets = _runtime_targets(oracle)
+    executed = _executed_names(result)
+    execution_claim = _execution_claim(executed)
     prompt_identity = _catalog_prompt_identity(scenario)
     prompt = (
         f"NIR graph '{prompt_identity['name']}' (class {prompt_identity['class']}) "
@@ -109,9 +121,7 @@ def training_view(record):
     view = contract.build_training_view(record, prompt, completion, targets)
     view["graph_class"] = prompt_identity["class"]
     view["scenario_id"] = scenario.get("id")
-    view["executed_runtimes"] = list(
-        (result.get("comparison") or {}).get("executed_runtimes") or []
-    )
+    view["executed_runtimes"] = _executed_names(result)
     view["evidence_scope"] = oracle.get("evidence_scope")
     return view
 

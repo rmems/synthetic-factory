@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replaying a recorded hardware capture, and authenticating its digest chain.
 
-A capture is trusted input. This module checks the chain inside it is intact;
+A capture is untrusted input. This module checks the chain inside it is intact;
 nothing here can show the capture describes a run that actually happened, which
 is why a physical claim needs out-of-band attestation as well.
 """
@@ -101,7 +101,7 @@ class RecordedCaptureAdapter(OracleAdapter):
 
     The capture's own ``execution_target`` is preserved verbatim, and the
     payload digest is verified against the manifest before anything is
-    returned, so a hand-edited capture cannot be replayed as a real run.
+    returned. These self-contained checks do not authenticate physical execution.
     """
 
     name = "recorded_capture"
@@ -425,6 +425,7 @@ class RecordedCaptureAdapter(OracleAdapter):
             "bitstream": capture.get("bitstream"),
             "capture": {
                 "path": self.capture_path.name,
+                "attestation": {"status": "unverified", "basis": "self_contained_checksums"},
                 # Keep the replay source on the record so validation can
                 # re-check the same digest chain the adapter checked.  A bare
                 # manifest label is not evidence: without these source bytes a

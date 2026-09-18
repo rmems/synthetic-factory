@@ -33,11 +33,11 @@ class PhysicalTargetClaims(unittest.TestCase):
         errors = hp.validate_record(self._promoted(), WHERE)
         self.assertTrue(any("HW_PROVENANCE_MISSING" in error for error in errors))
 
-    def test_hardware_claim_must_declare_hil_provenance(self):
+    def test_unattested_hardware_claim_must_stay_unknown(self):
         # A record claiming a board while still calling itself `simulated` is
         # not describing one execution consistently.
         errors = hp.validate_record(self._promoted(hil=False), WHERE)
-        self.assertTrue(any("provenance.kind 'hil'" in error for error in errors))
+        self.assertTrue(any("provenance.kind 'unknown'" in error for error in errors))
 
     def _fully_attributed(self):
         """Everything the physical-target gate demands, and nothing more."""

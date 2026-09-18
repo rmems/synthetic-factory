@@ -9,6 +9,7 @@ divergence between them attributable to the convention.
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -18,6 +19,7 @@ if __package__:
     from .nir_equivalence_observation import OutputObservation, final_membrane
     from .nir_equivalence_kernels import (  # noqa: E402
         _integrate_membrane,
+        _sum_drive_parts,
         _step_affine,
         _step_delay,
     )
@@ -39,6 +41,7 @@ else:
     from nir_equivalence_observation import OutputObservation, final_membrane
     from nir_equivalence_kernels import (  # noqa: E402
         _integrate_membrane,
+        _sum_drive_parts,
         _step_affine,
         _step_delay,
     )
@@ -64,18 +67,30 @@ class UnsupportedConstruct(Exception):
         self.detail = detail
 
 
+@dataclass(frozen=True)
+class RuntimeConventions:
+    """The three independent semantic choices of a reference runtime."""
+
+    reset: str
+    delay_unit: str
+    cycle_break_order: str
+
+    def as_dict(self):
+        return {
+            "reset": self.reset,
+            "delay_unit": self.delay_unit,
+            "cycle_break_order": self.cycle_break_order,
+        }
+
+
 class NirReferenceRuntime:
     """A deterministic in-repo NIR interpreter with declared conventions."""
 
     runtime_class = "in_repo_reference"
 
-    def __init__(self, name, reset, delay_unit, cycle_break_order, supported_types):
+    def __init__(self, name, conventions, supported_types):
         self.name = name
-        self.conventions = {
-            "reset": reset,
-            "delay_unit": delay_unit,
-            "cycle_break_order": cycle_break_order,
-        }
+        self.conventions = conventions.as_dict()
         self.supported_types = tuple(sorted(supported_types))
 
     def availability(self):
@@ -118,19 +133,26 @@ class NirReferenceRuntime:
             node_type = node.get("type")
             if node_type not in STATEFUL_TYPES:
                 continue
-            size = int(node.get("size", 0))
-            if size < 1:
-                raise GraphError(f"node {name!r} of type {node_type} needs size >= 1")
-            if node_type == "Delay":
-                depth = int(node.get("delay", 0))
-                if self.conventions["delay_unit"] == "steps_minus_one":
-                    depth = max(depth - 1, 0)
-                state[name] = {"buffer": [[0.0] * size for _ in range(depth)]}
-            else:
-                state[name] = {"v": [0.0] * size}
+            state[name] = self._node_initial_state(name, node)
         return state
 
-    def _node_step(self, name, node, drive, state, dt_s):
+    def _node_initial_state(self, name, node):
+        node_type = node.get("type")
+        size = int(node.get("size", 0))
+        if size < 1:
+            raise GraphError(f"node {name!r} of type {node_type} needs size >= 1")
+        if node_type == "Delay":
+            return self._delay_initial_state(node, size)
+        return {"v": [0.0] * size}
+
+    def _delay_initial_state(self, node, size):
+        depth = int(node.get("delay", 0))
+        if self.conventions["delay_unit"] == "steps_minus_one":
+            depth = max(depth - 1, 0)
+        return {"buffer": [[0.0] * size for _ in range(depth)]}
+
+    def _node_step(self, named_node, drive, state, dt_s):
+        name, node = named_node
         node_type = node["type"]
         if node_type in ("Input", "Output"):
             return list(drive)
@@ -142,13 +164,14 @@ class NirReferenceRuntime:
         if node_type == "Delay":
             return _step_delay(name, drive, state)
         if node_type in ("LIF", "LI", "IF"):
-            return self._step_neuron(name, node, drive, state, dt_s)
+            return self._step_neuron(named_node, drive, state, dt_s)
         raise UnsupportedConstruct(name, node_type, "no implementation")
 
-    def _step_neuron(self, name, node, drive, state, dt_s):
+    def _step_neuron(self, named_node, drive, state, dt_s):
         """Integrate one LIF/LI/IF node and emit its output for this step."""
+        name, node = named_node
         membrane = state[name]["v"]
-        _integrate_membrane(name, node, membrane, drive, dt_s)
+        _integrate_membrane(named_node, membrane, drive, dt_s)
         if node["type"] == "LI":
             return list(membrane)
         return self._emit_spikes(membrane, float(node["v_threshold"]))
@@ -195,7 +218,7 @@ class NirReferenceRuntime:
             size = node.get("size")
             if size is None and node.get("shape"):
                 size = node["shape"][0]
-            if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+            if not _positive_integer_size(size):
                 raise GraphError(f"node {name!r} must declare an integer size >= 1")
             sizes[name] = size
         return sizes
@@ -206,48 +229,75 @@ class NirReferenceRuntime:
         parts = []
         for source, is_recurrent in sources:
             parts.append(previous[source] if is_recurrent else current[source])
-        if not parts:
-            raise GraphError(f"node {name!r} has no inputs")
-        width = len(parts[0])
-        if any(len(part) != width for part in parts):
-            raise GraphError(f"node {name!r} sums inputs of different widths")
-        return [sum(part[k] for part in parts) for k in range(width)]
+        return _sum_drive_parts(name, parts)
 
     def execute(self, graph, stimulus):
         """Run one graph against one stimulus. Raises on unsupported constructs."""
-        self._check_supported(graph)
-        order, recurrent = evaluation_order(graph, self.conventions["cycle_break_order"])
-        state = self._init_state(graph)
-        dt_s = float(graph.get("dt_s", 1e-3))
-        incoming = {name: [] for name in graph["nodes"]}
-        for source, target in graph["edges"]:
-            incoming[target].append((source, (source, target) in recurrent))
-        output_nodes, _input_nodes = self._io_nodes(graph)
-        sizes = self._declared_sizes(graph)
-        previous = {name: [0.0] * sizes[name] for name in graph["nodes"]}
+        return _GraphExecution(self, graph, stimulus).run()
 
-        observation = OutputObservation(graph, output_nodes[0])
-        for step in range(stimulus["steps"]):
-            current = {}
-            for name in order:
-                node = graph["nodes"][name]
-                if node["type"] == "Input":
-                    drive = [float(value) for value in stimulus["events"][step]]
-                else:
-                    drive = self._summed_drive(name, incoming[name], previous, current)
-                current[name] = self._node_step(name, node, drive, state, dt_s)
-            previous = current
-            observation.append(current[output_nodes[0]])
+
+def _positive_integer_size(size):
+    if not isinstance(size, int) or isinstance(size, bool):
+        return False
+    return size >= 1
+
+
+class _GraphExecution:
+    """State and ordered traversal for a single interpreter invocation."""
+
+    def __init__(self, runtime, graph, stimulus):
+        self.runtime = runtime
+        self.graph = graph
+        self.stimulus = stimulus
+        runtime._check_supported(graph)
+        self.order, self.recurrent = evaluation_order(
+            graph, runtime.conventions["cycle_break_order"]
+        )
+        self.state = runtime._init_state(graph)
+        self.dt_s = float(graph.get("dt_s", 1e-3))
+        self.incoming = _incoming_edges(graph, self.recurrent)
+        output_nodes, _input_nodes = runtime._io_nodes(graph)
+        self.output_node = output_nodes[0]
+        sizes = runtime._declared_sizes(graph)
+        self.previous = {name: [0.0] * sizes[name] for name in graph["nodes"]}
+        self.observation = OutputObservation(graph, self.output_node)
+
+    def run(self):
+        for step in range(self.stimulus["steps"]):
+            self.previous = self._evaluate_step(step)
+            self.observation.append(self.previous[self.output_node])
         return {
-            "steps": stimulus["steps"],
-            "output_node": output_nodes[0],
-            "output_trace": observation.trace,
-            "spike_events": observation.events,
-            "spike_count": len(observation.events),
-            "final_membrane": final_membrane(state),
-            "evaluation_order": list(order),
-            "recurrent_edges": sorted([source, target] for source, target in recurrent),
+            "steps": self.stimulus["steps"],
+            "output_node": self.output_node,
+            "output_trace": self.observation.trace,
+            "spike_events": self.observation.events,
+            "spike_count": len(self.observation.events),
+            "final_membrane": final_membrane(self.state),
+            "evaluation_order": list(self.order),
+            "recurrent_edges": sorted([source, target] for source, target in self.recurrent),
         }
+
+    def _evaluate_step(self, step):
+        current = {}
+        for name in self.order:
+            node = self.graph["nodes"][name]
+            drive = self._node_drive(name, node, current, step)
+            current[name] = self.runtime._node_step(
+                (name, node), drive, self.state, self.dt_s
+            )
+        return current
+
+    def _node_drive(self, name, node, current, step):
+        if node["type"] == "Input":
+            return [float(value) for value in self.stimulus["events"][step]]
+        return self.runtime._summed_drive(name, self.incoming[name], self.previous, current)
+
+
+def _incoming_edges(graph, recurrent):
+    incoming = {name: [] for name in graph["nodes"]}
+    for source, target in graph["edges"]:
+        incoming[target].append((source, (source, target) in recurrent))
+    return incoming
 
 
 if __package__:

@@ -1,9 +1,9 @@
 """Explicitly reviewed historical source/catalog identities for current replay.
 
 The snapshots below were independently recomputed from Git source blobs at the
-two reviewed commits. The first immutable fixture bytes live under
-tests/fixtures/parity-history/0bbeb5e6; the second differs only in source stamps.
-Both byte representations are pinned by raw SHA-256 in the tests.
+reviewed commits. The first immutable fixture bytes live under
+tests/fixtures/parity-history/0bbeb5e6; later snapshots differ only in source stamps.
+Every byte representation is pinned by raw SHA-256 in the tests.
 Only provenance stamp comparison uses these values. Every current envelope,
 scenario, measurement, availability, and complete-catalog check still runs.
 """
@@ -16,6 +16,7 @@ from .import_twins import bind_import_twin
 REVIEWED_COMMITS = (
     "0bbeb5e6436f4e30208e5067ee17c5ad676c6003",
     "b2b5366fc94b2d17ea31309210141edf8dcbc696",
+    "d4f7d53ad6a11d0fed21cde7d767177810e4c47c",
 )
 _POLICY = (
     ("mode", "frontier_session"),
@@ -51,6 +52,16 @@ _REVIEWED = (
         "NIR cross-runtime graph catalogs were authored in a frontier-model "
         "session; every resulting record is research-only.",
     ),
+    ('synthetic-factory.hardware_parity.scenario_catalog',
+     'sha256:13d02b4bb48c2a568d14099230020fb1cfc8caa67a1a868b304014bf6ff2cde6',
+     'sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e',
+     'Hardware-parity scenario catalogs were authored in a frontier-model session; every resulting '
+     'record is research-only.'),
+    ('synthetic-factory.nir_equivalence.graph_catalog',
+     'sha256:033a6a90bbc65a34d5f306c36e25cb411d91bf8206105ab0fe3fb6b200a0cb62',
+     'sha256:526d256fb3c3ee21306feb5b81700f2f9befec0d28bf1dcd7e78a10e95400920',
+     'NIR cross-runtime graph catalogs were authored in a frontier-model session; every resulting '
+     'record is research-only.'),
 )
 
 

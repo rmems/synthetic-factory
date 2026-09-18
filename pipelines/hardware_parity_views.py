@@ -59,6 +59,12 @@ def training_view(record):
             f"fixture {fixture_sha}. Requested deployment adapter {requested!r} did not "
             "execute. Is paired deployment parity established?"
         )
+    if isinstance(deployment, dict) and "capture" in deployment:
+        prompt = (
+            f"A recorded trace claims deployment target {deployment.get('execution_target')!r} "
+            f"for scenario {scenario.get('name')!r} and encoded input fixture {fixture_sha}. "
+            "Its physical execution is unverified. What do the retained traces establish?"
+        )
     completion = _expected_summary(record)
     view = contract.build_training_view(record, prompt, completion, targets)
     view["stress"] = scenario.get("stress")

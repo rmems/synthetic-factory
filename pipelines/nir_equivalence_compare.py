@@ -149,12 +149,15 @@ def _parse_write_parity(entries):
     }
     return {
         "per_runtime": per_runtime,
-        "agree": all(
-            value and value.get("parse_ok") and value.get("canonical_stable")
-            and value.get("structure_stable")
-            for value in per_runtime.values()
-        ) if per_runtime else False,
+        "agree": all(_roundtrip_agrees(value) for value in per_runtime.values())
+        if per_runtime else False,
     }
+
+
+def _roundtrip_agrees(value):
+    if not value:
+        return value
+    return value.get("parse_ok") and value.get("canonical_stable") and value.get("structure_stable")
 
 
 def _structure_parity(scenario, entries):

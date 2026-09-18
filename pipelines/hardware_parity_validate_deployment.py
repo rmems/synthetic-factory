@@ -166,14 +166,12 @@ def _check_physical_claim(record, where):
         return errors
     errors = _physical_adapter_identity_errors(deployment, target, where)
     errors += _physical_provenance_field_errors(deployment, target, where)
-    # A run on physical silicon is hardware-in-the-loop by definition. A record
-    # that claims a board while still declaring itself `simulated` is not
-    # describing one execution consistently, and the mismatch is exactly what a
-    # relabelled reference-model run looks like.
+    # No current adapter authenticates a physical receipt independently of its
+    # capture. Internally consistent traces must stay unknown, never HIL.
     kind = (record.get("provenance") or {}).get("kind")
-    if kind != "hil":
+    if kind != "unknown":
         errors.append(
-            f"{where}: a {target} claim requires provenance.kind 'hil', got {kind!r} "
+            f"{where}: an unverified {target} claim requires provenance.kind 'unknown', got {kind!r} "
             "[HW_PROVENANCE_MISSING]"
         )
     errors += _physical_observation_errors(

@@ -150,6 +150,22 @@ def _evidence_digests(entries):
     return [item["digest"] for item in _evidence_lineage(entries)]
 
 
+def _recorded_scenario(scenario):
+    """Project catalog inputs while keeping fixture metadata independently mutable."""
+    return {
+        "id": scenario["id"],
+        "name": scenario["name"],
+        "family": scenario["family"],
+        "class": scenario["class"],
+        "description": scenario["description"],
+        "graph": scenario["graph"],
+        "graph_sha256": scenario["graph_sha256"],
+        "structure_digest": scenario["structure_digest"],
+        "stimulus": scenario["stimulus"],
+        "input_fixture": copy.deepcopy(scenario["input_fixture"]),
+    }
+
+
 def build_record(scenario, entries, round_number):
     comparison = compare_runtimes(scenario, entries)
     verdict, reason_codes = verdict_for(comparison)
@@ -168,18 +184,7 @@ def build_record(scenario, entries, round_number):
         # a mutable sub-object: an edit to one would otherwise silently rewrite
         # the other, which is precisely the failure mode these records catch.
         "generator": copy.deepcopy(GENERATOR_BLOCK),
-        "scenario": {
-            "id": scenario["id"],
-            "name": scenario["name"],
-            "family": scenario["family"],
-            "class": scenario["class"],
-            "description": scenario["description"],
-            "graph": scenario["graph"],
-            "graph_sha256": scenario["graph_sha256"],
-            "structure_digest": scenario["structure_digest"],
-            "stimulus": scenario["stimulus"],
-            "input_fixture": copy.deepcopy(scenario["input_fixture"]),
-        },
+        "scenario": _recorded_scenario(scenario),
         "intervention": copy.deepcopy(scenario["intervention"]),
         "candidate_prediction": prediction,
         "oracle": {

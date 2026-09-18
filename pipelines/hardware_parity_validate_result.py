@@ -19,6 +19,7 @@ if __package__:
         CAPTURE_DETERMINISM_MEANING,
         REFERENCE_DETERMINISM_MEANING,
         TARGET_FIXED_POINT_MODEL,
+        PHYSICAL_TARGETS,
         digest,
     )
     from .hardware_parity_terms import (  # noqa: E402
@@ -54,6 +55,7 @@ else:
         CAPTURE_DETERMINISM_MEANING,
         REFERENCE_DETERMINISM_MEANING,
         TARGET_FIXED_POINT_MODEL,
+        PHYSICAL_TARGETS,
         digest,
     )
     from hardware_parity_terms import (  # noqa: E402
@@ -192,6 +194,9 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
             f"{where}: a paired record must carry exactly an empty "
             "oracle.unavailable list [ENVELOPE_MALFORMED]"
         )
+    if deployment.get("execution_target") in PHYSICAL_TARGETS:
+        if result.get("evidence_basis") != "reference_execution_and_unverified_capture":
+            errors.append(f"{where}: capture result must name its unverified evidence basis [HW_PROVENANCE_MISSING]")
     errors += _check_quantization(record, where)
     errors += _reexecute_reference_sides(record, where)
     errors += _check_determinism(
@@ -203,8 +208,8 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
     )
     # The deployment side binds to its adapter-owned meaning just like both
     # reference sides: a fixed-point reference deployment must describe
-    # bit-determinism, and a capture-backed one must describe the measured
-    # variability of its recorded runs. Without the bind, a deterministic
+    # bit-determinism, and a capture-backed one must describe the variability
+    # of its retained values, without asserting measured physical variability. Without the bind, a deterministic
     # simulator could relabel its repeats as measured hardware variability
     # and mirror that text into result.parity.repeatability unchallenged.
     # An unknown target is already [HW_TARGET_UNKNOWN]; grading it against

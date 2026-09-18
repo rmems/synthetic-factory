@@ -134,10 +134,11 @@
       "type": "object",
       "required": ["oracle_backed", "verdict", "reason_codes", "derived_from"],
       "properties": {
-        "oracle_backed": { "const": true },
+        "oracle_backed": { "const": true, "description": "Reference execution and recomputed comparisons; does not authenticate physical capture origin." },
+        "evidence_basis": { "const": "reference_execution_and_unverified_capture", "description": "Required for physical-target captures." },
         "verdict": {
           "enum": ["match", "mismatch", "unsupported", "inconclusive"],
-          "description": "`mismatch` iff the spike bitmaps differ or the decoded actions differ. Membrane, quantization, repeatability and latency findings ride as reason codes even on a `match`."
+          "description": "Physical-target captures are inconclusive without independently authenticated execution. Reference-model comparisons are mismatch iff spike bitmaps or decoded actions differ. Numeric comparison diagnostics remain available."
         },
         "reason_codes": { "type": "array", "items": { "type": "string" } },
         "derived_from": {
@@ -193,7 +194,7 @@
             },
             "repeatability": {
               "type": "object",
-              "description": "hardware_repeatability_measured is false unless the deployment side was a physical target; determinism of a reference model is not hardware repeatability.",
+              "description": "hardware_repeatability_measured is false for every current adapter: repeated reference or captured traces do not authenticate physical execution.",
               "properties": {
                 "hardware_repeatability_measured": { "type": "boolean" }
               }
@@ -208,7 +209,7 @@
       "properties": {
         "kind": {
           "enum": ["designed", "simulated", "hil", "unknown"],
-          "description": "schemas/provenance.md vocabulary. A genuine FPGA run is `hil`; a reference-model run is `simulated`. `real` is never emitted."
+          "description": "Shared provenance vocabulary. Current physical-target captures must be `unknown` because their origin is unverified; reference-model runs are `simulated`. This revision does not authenticate HIL, and never emits `real`."
         },
         "units": { "type": "object" }
       }

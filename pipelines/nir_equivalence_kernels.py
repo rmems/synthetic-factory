@@ -27,6 +27,15 @@ else:
         GraphError,
     )
 
+def _sum_drive_parts(name, parts):
+    if not parts:
+        raise GraphError(f"node {name!r} has no inputs")
+    width = len(parts[0])
+    if any(len(part) != width for part in parts):
+        raise GraphError(f"node {name!r} sums inputs of different widths")
+    return [sum(part[k] for part in parts) for k in range(width)]
+
+
 def _step_affine(name, node, drive):
     """Affine/Linear node: weight @ drive + bias."""
     weight = node["weight"]
@@ -49,12 +58,13 @@ def _step_delay(name, drive, state):
     return out
 
 
-def _integrate_membrane(name, node, membrane, drive, dt_s):
+def _integrate_membrane(named_node, membrane, drive, dt_s):
     """Advance a neuron's membrane one step, in place.
 
     IF integrates the drive directly; LIF/LI additionally leak toward v_leak
     over the node's tau.
     """
+    name, node = named_node
     resistance = float(node.get("r", 1.0))
     if node["type"] == "IF":
         for index in range(len(membrane)):
