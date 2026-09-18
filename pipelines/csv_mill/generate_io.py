@@ -19,13 +19,66 @@ else:
 __all__ = ["write_run_files"]
 
 
-def _publish(parent: Path, staged: Path, destination: Path) -> None:
+def _identity(metadata):
+    return metadata.st_dev, metadata.st_ino
+
+
+def _same_entry(path, descriptor):
+    try:
+        return _identity(path.lstat()) == _identity(os.fstat(descriptor))
+    except OSError:
+        return False
+
+
+class _OwnedStage:
+    """Hold the created directory and files until publication or owned cleanup."""
+
+    def __init__(self, parent):
+        self.path = Path(tempfile.mkdtemp(prefix=".csv-stage-", dir=parent))
+        self.descriptor = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        self.files = {}
+
+    def write(self, name, payload):
+        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o666, dir_fd=self.descriptor)
+        self.files[name] = descriptor
+        with os.fdopen(descriptor, "w", encoding="utf-8", closefd=False) as handle:
+            handle.write(payload)
+
+    def _unlink_owned(self, name, descriptor):
+        try:
+            current = os.stat(name, dir_fd=self.descriptor, follow_symlinks=False)
+            if _identity(current) == _identity(os.fstat(descriptor)):
+                os.unlink(name, dir_fd=self.descriptor)
+        except OSError:
+            # Never broaden cleanup after an ownership or filesystem failure.
+            pass
+
+    def cleanup(self):
+        for name, descriptor in self.files.items():
+            self._unlink_owned(name, descriptor)
+        if _same_entry(self.path, self.descriptor):
+            try:
+                os.rmdir(self.path)
+            except OSError:
+                # Unknown content or a changed entry stays intact.
+                pass
+
+    def close(self):
+        for descriptor in self.files.values():
+            os.close(descriptor)
+        os.close(self.descriptor)
+
+
+def _publish(parent: Path, staged: Path, destination: Path, stage_descriptor: int) -> None:
     descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
         # This detects observable relocation before commit. A directory FD
         # pins an inode, not its namespace: another actor can still move that
         # inode between this check and rename, or after publication succeeds.
         verify_parent(destination, parent)
+        if not _same_entry(staged, stage_descriptor):
+            raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
         rename_noreplace(descriptor, staged.name, destination.name)
     except FileExistsError as exc:
         raise CsvRefusal(
@@ -37,17 +90,16 @@ def _publish(parent: Path, staged: Path, destination: Path) -> None:
 
 def _stage_and_publish(parent: Path, destination: Path, files: dict[str, str]) -> Path:
     published = parent.resolve(strict=True) / destination.name
-    # After rename, this old stage name can belong to another writer. Cleanup is
-    # restricted to the precommit failure path, never the published destination.
-    staging = tempfile.TemporaryDirectory(prefix=".csv-stage-", dir=parent, delete=False)
+    stage = _OwnedStage(parent)
     try:
-        staged = Path(staging.name)
         for name, payload in files.items():
-            (staged / name).write_text(payload, encoding="utf-8")
-        _publish(parent, staged, destination)
+            stage.write(name, payload)
+        _publish(parent, stage.path, destination, stage.descriptor)
     except BaseException:
-        staging.cleanup()
+        stage.cleanup()
         raise
+    finally:
+        stage.close()
     return published
 
 

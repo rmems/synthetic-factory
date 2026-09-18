@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pipelines.csv_mill import catalog, generate
+from pipelines.csv_mill import catalog, generate, generate_io
 from pipelines.csv_mill._contract import CsvRefusal, FACTORY, RECORD_PREFIX
 from tests.test_csv import COMMITTED, TINY_PAIR, _dict_source, invoke
 
@@ -135,7 +135,7 @@ class OutputBoundaries(unittest.TestCase):
     def test_staging_write_failure_is_a_single_json_refusal(self):
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp) / "run"
-            with patch.object(Path, "write_text", side_effect=OSError("quota exceeded")):
+            with patch.object(generate_io._OwnedStage, "write", side_effect=OSError("quota exceeded")):
                 code, out, err = invoke(["generate", "--all", "--out", str(destination), "--json"])
             self.assertEqual(code, 2)
             self.assertEqual(err, "")

@@ -37,6 +37,7 @@ else:
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 
 dumps_exact_json = _exact_json.dumps_exact_json
+json_integer_is_bounded = _exact_json.json_integer_is_bounded
 envelope = _oracle_grounded.envelope
 is_under_raw = _raw_tree_guard.is_under_raw
 

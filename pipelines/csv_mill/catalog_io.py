@@ -50,7 +50,7 @@ def _read_metadata(path: Path) -> Any:
     payload = _read_bytes(path)
     try:
         return load_strict_json(payload.decode("utf-8"))
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise CsvRefusal(
             FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
         ) from exc

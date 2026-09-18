@@ -22,17 +22,17 @@ class CsvOutputTransaction(unittest.TestCase):
             generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
 
     def test_each_write_failure_cleans_staging_and_allows_retry(self):
-        original = Path.write_text
+        original = generate_io._OwnedStage.write
         for filename in ("records.jsonl", "NOTES.md", "RUN.json"):
             with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temp:
                 dest = Path(temp) / "run"
 
-                def write(path, *args, failing_name=filename, **kwargs):
-                    if path.name == failing_name:
+                def write(stage, name, payload, failing_name=filename):
+                    original(stage, name, payload)
+                    if name == failing_name:
                         raise OSError("injected disk failure")
-                    return original(path, *args, **kwargs)
 
-                with patch.object(Path, "write_text", write):
+                with patch.object(generate_io._OwnedStage, "write", write):
                     request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
                     with self.assertRaisesRegex(CsvRefusal, "injected disk failure"):
                         generate.run(request)
@@ -55,9 +55,9 @@ class CsvOutputTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / "run"
 
-            def publish(parent, staged, destination):
+            def publish(parent, staged, destination, descriptor):
                 destination.mkdir()
-                original(parent, staged, destination)
+                original(parent, staged, destination, descriptor)
 
             with patch.object(generate_io, "_publish", publish):
                 request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
