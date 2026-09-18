@@ -115,6 +115,14 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "validate_run_reward_total",
     "validate_run_outcomes",
     "validate_run_thalamic",
+    "validate_run_episode",
+    "validate_run_episode_turns",
+    "validate_run_multi_agent",
+    "validate_run_multi_agent_roster",
+    "validate_run_preference",
+    "validate_run_preference_context",
+    "validate_run_routes",
+    "validate_run_cli",
     "compose_contract",
     "compose_curated",
     "compose_curated_calibration",
@@ -207,8 +215,13 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "reward_parse_values",
     "reward_parse_patterns",
     "validate_run_episode",
+    "validate_run_episode_turns",
     "validate_run_multi_agent",
+    "validate_run_multi_agent_roster",
     "validate_run_preference",
+    "validate_run_preference_context",
+    "validate_run_routes",
+    "validate_run_cli",
 ))
 
 
