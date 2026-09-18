@@ -51,6 +51,8 @@ class OracleAuditTests(unittest.TestCase):
         self.assertEqual(report["oracle"]["evidence_only_records"], 1)
         self.assertEqual(report["oracle"]["invalid_records"], 0)
         self.assertTrue(report["oracle"]["ineligibility_reasons"], report["oracle"])
+        self.assertEqual(report["identity"]["top_level_id_records"], 2)
+        self.assertEqual(report["identity"]["coverage_pct"], 100.0)
 
     def test_evidence_only_oracle_record_blocks_the_export(self):
         """A retained-but-ineligible oracle row must not be published.

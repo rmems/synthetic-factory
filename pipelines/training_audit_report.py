@@ -193,11 +193,14 @@ def _factory_report(factories):
 
 
 def _identity_report(state, eligible_records):
+    identity_records = eligible_records + sum(
+        state[kind].get("evidence_only_records", 0) for kind in ("oracle", "code_repair")
+    )
     return {
         "top_level_id_records": state["root_id_records"],
         "unique_top_level_ids": len(state["root_ids"]),
         "coverage_pct": (
-            round(100 * state["root_id_records"] / eligible_records, 1) if eligible_records else 0
+            round(100 * state["root_id_records"] / identity_records, 1) if identity_records else 0
         ),
         "legacy_meta_fallback_records": (state["canonical_id_records"] - state["root_id_records"]),
         "missing_top_level": len(state["missing_root_ids"]),
