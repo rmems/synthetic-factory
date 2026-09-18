@@ -804,6 +804,8 @@ class RelayReflexSimulator(FaultOracle):
                 raise oc.ContractError(
                     f"system {key} must be {expected}, got {value!r}"
                 )
+        if system["hard_deadline_ms"] <= system["deadline_ms"]:
+            raise oc.ContractError("system hard_deadline_ms must exceed deadline_ms")
         RelayReflexSimulator._check_thermal_ladder(system)
         RelayReflexSimulator._check_system_channels(system)
 
@@ -880,7 +882,7 @@ class RelayReflexSimulator(FaultOracle):
         reasons: list[str] = []
         if state["integrity_violation"]:
             reasons.append("MALFORMED_STREAM_QUARANTINED")
-        if corrupt_ratio >= float(system["corruption_quarantine_ratio"]):
+        if corrupt_ratio > 0 and corrupt_ratio >= float(system["corruption_quarantine_ratio"]):
             reasons.append("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD")
         return reasons
 
@@ -1148,6 +1150,15 @@ def _result_measurements(
     return measurements
 
 
+def _trace_summary(result: FaultResult) -> dict[str, int | float]:
+    return {
+        "ticks": len(result.trace),
+        "max_staleness_ms": result.max_staleness_ms,
+        "max_jitter_ms": result.max_jitter_ms,
+        "saturated_ticks": result.saturated_ticks,
+    }
+
+
 def _oracle_result(
     result: FaultResult, intervention: dict[str, Any], prediction: dict[str, Any],
     meters: dict[str, str],
@@ -1164,12 +1175,7 @@ def _oracle_result(
         reason_codes=list(result.reason_codes),
         prediction_agreement=agreement,
         integrity_violation=result.integrity_violation,
-        trace_summary={
-            "ticks": len(result.trace),
-            "max_staleness_ms": result.max_staleness_ms,
-            "max_jitter_ms": result.max_jitter_ms,
-            "saturated_ticks": result.saturated_ticks,
-        },
+        trace_summary=_trace_summary(result),
     )
 
 
@@ -1233,6 +1239,15 @@ def _derived_measurements(result: "FaultResult") -> dict[str, int | float | None
     }
 
 
+def _valid_trace_counts(summary: Any) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    return (type(summary.get("ticks")) is int
+            and type(summary.get("saturated_ticks")) is int
+            and oc.is_number(summary.get("max_staleness_ms"))
+            and oc.is_number(summary.get("max_jitter_ms")))
+
+
 def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> list[str]:
     """The recorded label, reasons and integrity flag against the replay."""
 
@@ -1243,6 +1258,10 @@ def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> lis
             f"{result.get('outcome')!r} but re-running the simulator over this "
             f"scenario yields {replay.outcome!r}"
         )
+    summary = result.get("trace_summary")
+    expected_summary = _trace_summary(replay)
+    if summary != expected_summary or not _valid_trace_counts(summary):
+        errors.append(f"{where}.result.trace_summary: OUTCOME_NOT_REPRODUCIBLE")
     recorded_reasons = result.get("reason_codes")
     if isinstance(recorded_reasons, list) and sorted(
         str(reason) for reason in recorded_reasons
