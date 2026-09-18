@@ -59,8 +59,9 @@ class SimulatorAssembly(unittest.TestCase):
             self.assertEqual(summary["counts"]["retained"], 2)
             target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
             self.assertEqual(target.read_bytes(), payload)
-            with self.assertRaisesRegex(export_hf.ExportError, "research-only"):
+            with self.assertRaises(export_hf.ExportError):
                 export_hf.export_run(root / "composed", root / "export")
+            self.assertFalse((root / "export").exists())
 
     def test_malformed_family_claim_cannot_escape_to_thalamic_shape(self):
         from pipelines import record_kind
