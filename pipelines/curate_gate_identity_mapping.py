@@ -34,7 +34,6 @@ if __package__:
     from . import curate_gate_identity_gate as _identity_gate
     from . import curate_gate_merge as _merge
     from . import curate_identity
-    from .curate_gate_rights import replay_gate_identity
     from .check_records import canonical_record_id
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -48,7 +47,6 @@ else:
     import curate_gate_identity_gate as _identity_gate
     import curate_gate_merge as _merge
     import curate_identity
-    from curate_gate_rights import replay_gate_identity
     from check_records import canonical_record_id
 
 GateError = _contract.GateError
@@ -59,6 +57,11 @@ _MISSING = _merge._MISSING
 _mapping_value = _identity_gate._mapping_value
 _canonical_identity_output_id = _identity_gate._canonical_identity_output_id
 _claimed_identity_source_evidence = _identity_gate._claimed_identity_source_evidence
+
+if __package__:
+    from .curate_gate_rights import replay_gate_identity
+else:
+    from curate_gate_rights import replay_gate_identity
 
 
 @dataclass

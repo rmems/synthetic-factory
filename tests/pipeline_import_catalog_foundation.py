@@ -1147,26 +1147,6 @@ def _package_validate_run_cli() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
-def _direct_reward_parse_values() -> ModuleType:
-    import reward_parse_values as module
-    return module
-
-
-def _package_reward_parse_values() -> ModuleType:
-    import pipelines.reward_parse_values as module
-    return module
-
-
-def _direct_reward_parse_patterns() -> ModuleType:
-    import reward_parse_patterns as module
-    return module
-
-
-def _package_reward_parse_patterns() -> ModuleType:
-    import pipelines.reward_parse_patterns as module
-    return module
-
-
 def _direct_rights_record() -> ModuleType:
     import rights_record as module
 
@@ -1227,8 +1207,41 @@ def _package_training_audit_rights_manifest() -> ModuleType:
     return module
 
 
+def _direct_training_audit_rights_coverage() -> ModuleType:
+    import training_audit_rights_coverage as module
+
+    return module
+
+
+def _package_training_audit_rights_coverage() -> ModuleType:
+    import pipelines.training_audit_rights_coverage as module
+
+    return module
+
+
+def _direct_reward_parse_values() -> ModuleType:
+    import reward_parse_values as module
+    return module
+
+
+def _package_reward_parse_values() -> ModuleType:
+    import pipelines.reward_parse_values as module
+    return module
+
+
+def _direct_reward_parse_patterns() -> ModuleType:
+    import reward_parse_patterns as module
+    return module
+
+
+def _package_reward_parse_patterns() -> ModuleType:
+    import pipelines.reward_parse_patterns as module
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "training_audit_rights_manifest": (_direct_training_audit_rights_manifest, _package_training_audit_rights_manifest),
+    "training_audit_rights_coverage": (_direct_training_audit_rights_coverage, _package_training_audit_rights_coverage),
     "rights_record": (_direct_rights_record, _package_rights_record),
     "training_audit_rights": (_direct_training_audit_rights, _package_training_audit_rights),
     "compose_curated_rights": (_direct_compose_curated_rights, _package_compose_curated_rights),

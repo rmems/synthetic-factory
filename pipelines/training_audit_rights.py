@@ -22,6 +22,7 @@ if __package__:
     _assert_direct_sibling("training_audit_rights")
     from .curate_identity_registry import default_registry
     from .curate_identity_json import sha256_json
+    from . import training_audit_rights_coverage as _coverage
     from . import training_audit_rights_manifest as _manifest
     from .rights_record import (
         BLOCKER_PREFIX,
@@ -37,6 +38,7 @@ else:
     )
     from curate_identity_registry import default_registry
     from curate_identity_json import sha256_json
+    import training_audit_rights_coverage as _coverage
     import training_audit_rights_manifest as _manifest
     from rights_record import (
         BLOCKER_PREFIX,
@@ -116,7 +118,7 @@ def _identity_tree_blockers(path: Path, payload: bytes, files: Mapping[str, byte
         from curate_identity import validate_identity_tree
     validate_identity_tree(path.parent, expected_manifest_digest=hashlib.sha256(payload).hexdigest())
     entries = _manifest._load_identity_manifest(payload)
-    _manifest._require_identity_coverage(entries, files)
+    _coverage._require_identity_coverage(entries, files)
     return _blockers_for_entries(entries)
 
 
@@ -136,7 +138,8 @@ def _captured_manifest_audit(run_dir: Path, path: Path, files, composed: bool) -
     source_run, compose_digest = _manifest._compose_source(run_dir) if composed else (None, None)
     if composed:
         entries = _manifest._load_jsonl_objects(payload)
-        _manifest._require_compose_coverage(entries, _manifest._record_payloads(run_dir) if files is None else files)
+        records = _manifest._record_payloads(run_dir) if files is None else files
+        _coverage._require_compose_coverage(entries, records)
         blockers = _blockers_for_entries(entries)
     else:
         blockers = _identity_tree_blockers(

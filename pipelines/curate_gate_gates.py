@@ -43,7 +43,6 @@ if __package__:
     from . import curate_gate_reward as _reward
     from . import curate_gate_reward_sidecars as _reward_sidecars
     from . import training_audit
-    from .curate_gate_rights import evaluate_rights
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_gates"
@@ -58,7 +57,6 @@ else:
     import curate_gate_reward as _reward
     import curate_gate_reward_sidecars as _reward_sidecars
     import training_audit
-    from curate_gate_rights import evaluate_rights
 
 GateError = _contract.GateError
 TOOL_NAME = _contract.TOOL_NAME
@@ -71,6 +69,11 @@ _output_evidence_gate = _bindings._output_evidence_gate
 _identity_mapping_gate = _identity_mapping._identity_mapping_gate
 _reward_ontology_gate = _reward._reward_ontology_gate
 _reward_sidecar_gate = _reward_sidecars._reward_sidecar_gate
+
+if __package__:
+    from .curate_gate_rights import evaluate_rights
+else:
+    from curate_gate_rights import evaluate_rights
 
 
 # ---------------------------------------------------------------------------
