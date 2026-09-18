@@ -1,0 +1,29 @@
+tests/test_compose_procedural_rights.py
+  s_5660553172852b::t_58ea8c6a0f92b1 1-99
+pipelines/compose_curated_rights.py
+  s_5660553172852b::t_26806fc68d951c 129
+tests/test_rights_record.py
+  s_5660553172852b::t_26806fc68d951c 106-108,110,115-117,119
+pipelines/training_audit_rights.py
+  s_5660553172852b::t_26806fc68d951c 133-147,158
+pipelines/curate_gate_identity_gate.py
+  s_5660553172852b::t_58ea8c6a0f92b1 34,46,270-279,285-286
+pipelines/rights_record.py
+  s_5660553172852b::t_26806fc68d951c 159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e5a4fedc0d4dc792c904d970849c2399b0abd2f2",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
