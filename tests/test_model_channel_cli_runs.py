@@ -10,6 +10,8 @@ from unittest import mock
 from pipelines.model_channel import cli, generate, openai_client
 from test_model_channel import NANO, PHI, TASK, episode_payload
 
+OUTSIDE_MSG = "outside the working, home and temp trees"
+
 STAMP = "2026-09-18T00:00:00Z"
 
 
@@ -116,3 +118,38 @@ class CandidateRuns(unittest.TestCase):
         self.assertIn("rename refused", stderr)
         self.assertEqual(list(self.root.iterdir()), [self.task])
         self.assertEqual(self._run(response)[0], 0)
+
+    def test_outside_task_is_refused_before_any_sink(self):
+        stderr = StringIO()
+        with mock.patch("sys.stderr", stderr), self.assertRaises(SystemExit) as raised:
+            cli.run(
+                [
+                    "generate",
+                    "--path-id",
+                    NANO,
+                    "--task",
+                    "/etc/passwd",
+                    "--endpoint",
+                    "http://localhost/v1",
+                    "--out",
+                    str(self.out),
+                ]
+            )
+        self.assertEqual(raised.exception.code, 2)
+        text = stderr.getvalue()
+        self.assertIn("error:", text)
+        self.assertIn("--task:", text)
+        self.assertIn(OUTSIDE_MSG, text)
+        self.assertNotIn("passwd", text)
+        self.assertFalse(self.out.exists())
+
+    def test_outside_snapshot_is_refused_before_any_sink(self):
+        stderr = StringIO()
+        with mock.patch("sys.stderr", stderr), self.assertRaises(SystemExit) as raised:
+            cli.run(["discover-openrouter", "--snapshot", "/etc/passwd"])
+        self.assertEqual(raised.exception.code, 2)
+        text = stderr.getvalue()
+        self.assertIn("error:", text)
+        self.assertIn("--snapshot:", text)
+        self.assertIn(OUTSIDE_MSG, text)
+        self.assertNotIn("passwd", text)

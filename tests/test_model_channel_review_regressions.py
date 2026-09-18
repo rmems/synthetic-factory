@@ -1,15 +1,22 @@
 """Model-channel input, candidate, and output publication boundaries."""
 
 import json
+import os
 from io import StringIO
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
-from pipelines.model_channel import cli, generate
-from pipelines import rights_classifier, rights_policy
+from pipelines.model_channel import _contract as contract
+from pipelines.model_channel import cli, generate, openrouter
+from pipelines import rights_classifier, rights_policy, validate_run, validate_run_episode
+from pipelines import validate_run_episode_turns as episode_turns
 from test_model_channel import NANO, episode_payload
+
+OUTSIDE_PATHS = ("/etc/passwd", os.getcwd() + "/../" * 12 + "etc/passwd")
+OUTSIDE_NEW = Path("/etc/model-channel-new-out")
+OUTSIDE_MSG = "outside the working, home and temp trees"
 
 
 def completion(record):
@@ -194,3 +201,105 @@ class OllamaVocabulary(unittest.TestCase):
                     source_sha256="sha256:" + "a" * 64,
                     factory_registry_sha256="sha256:" + "b" * 64,
                 )
+
+
+class FacadeCompatibility(unittest.TestCase):
+    def test_direct_spelling_keeps_the_same_facade_bindings(self):
+        import model_channel._contract as direct
+
+        self.assertIs(direct.check_episode, validate_run.check_episode)
+        self.assertIs(direct.normalized_key, episode_turns._normalized_hidden_key)
+        self.assertIs(direct.check_episode, contract.check_episode)
+
+    def test_facade_kwargs_still_refuse_terminal_mismatch(self):
+        mismatched = episode_payload(outcome="failed")
+        errors = contract.check_episode(
+            mismatched,
+            "candidate episode",
+            forbid_hidden_thought=True,
+            enforce_terminal_outcome=True,
+        )
+        self.assertTrue(any("outcome must agree" in item for item in errors))
+        with self.assertRaises(generate.GenerateError):
+            generate._require_episode(mismatched)
+
+    def test_staged_check_episode_rejects_the_legacy_kwargs(self):
+        with self.assertRaises(TypeError):
+            validate_run_episode.check_episode(
+                episode_payload(),
+                "candidate episode",
+                forbid_hidden_thought=True,
+                enforce_terminal_outcome=True,
+            )
+
+
+class OperatorPathGuards(unittest.TestCase):
+    def test_input_object_refuses_outside_paths_without_reading_them(self):
+        reads = []
+        original = Path.read_bytes
+
+        def spy(self, *args, **kwargs):
+            reads.append(os.fspath(self))
+            return original(self, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_bytes", spy):
+            for candidate in OUTSIDE_PATHS:
+                with self.subTest(candidate=candidate):
+                    with self.assertRaisesRegex(ValueError, OUTSIDE_MSG):
+                        cli._input_object(Path(candidate), argument="--task")
+        self.assertEqual(reads, [])
+
+    def test_read_snapshot_refuses_outside_paths_without_reading_them(self):
+        reads = []
+        original = Path.read_bytes
+
+        def spy(self, *args, **kwargs):
+            reads.append(os.fspath(self))
+            return original(self, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_bytes", spy):
+            for candidate in OUTSIDE_PATHS:
+                with self.subTest(candidate=candidate):
+                    with self.assertRaisesRegex(openrouter.OpenRouterError, OUTSIDE_MSG):
+                        openrouter._read_snapshot(Path(candidate))
+        self.assertEqual(reads, [])
+
+    def test_publish_run_refuses_an_outside_destination_before_opening_it(self):
+        opened = []
+        original_open = os.open
+
+        def spy(path, flags, *args, **kwargs):
+            opened.append(path)
+            return original_open(path, flags, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(os, "open", spy):
+            staged = Path(tmp) / "staged"
+            staged.mkdir()
+            with self.assertRaisesRegex(generate.GenerateError, OUTSIDE_MSG):
+                generate._publish_run(staged, OUTSIDE_NEW)
+        self.assertEqual(opened, [])
+        self.assertFalse(OUTSIDE_NEW.exists())
+
+    def test_write_run_refuses_an_outside_destination_without_creating_it(self):
+        with self.assertRaisesRegex(generate.GenerateError, OUTSIDE_MSG):
+            generate.write_run(
+                OUTSIDE_NEW,
+                path_id=NANO,
+                records=[episode_payload()],
+                attempted=1,
+                rejected=[],
+                produced_at="2026-09-18T00:00:00Z",
+            )
+        self.assertFalse(OUTSIDE_NEW.exists())
+
+    def test_input_object_and_snapshot_refuse_symlinked_leaves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "payload.json"
+            real.write_text('{"goal":"repair the fixture","data":[{"id":"x"}]}', encoding="utf-8")
+            link = root / "linked.json"
+            link.symlink_to(real)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                cli._input_object(link, argument="--task")
+            with self.assertRaisesRegex(openrouter.OpenRouterError, "symlink"):
+                openrouter._read_snapshot(link)

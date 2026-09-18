@@ -6,6 +6,7 @@ Aliases, ``:free``/``:batch`` suffixes, and provider fallbacks fail closed.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,11 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from ._contract import bind_import_twin, freeze, load_strict_json
+
+if __name__.startswith("pipelines."):
+    from ..operator_paths import operator_path
+else:
+    from operator_paths import operator_path
 
 DISTILLABLE_URL = "https://openrouter.ai/api/v1/models?distillable=true"
 _ALIAS_MARKERS = ("~", ":free", ":batch")
@@ -33,9 +39,13 @@ def _is_alias_id(model_id: str) -> bool:
     return any(marker in model_id for marker in (":free", ":batch"))
 
 
-def _read_snapshot(path: Path) -> tuple[bytes, dict]:
+def _read_snapshot(path: Path, *, argument: str = "--openrouter-snapshot") -> tuple[bytes, dict]:
     try:
-        raw = path.read_bytes()
+        confined = operator_path(path, argument=argument)
+    except argparse.ArgumentTypeError as exc:
+        raise OpenRouterError(str(exc)) from exc
+    try:
+        raw = confined.read_bytes()
         payload = load_strict_json(raw.decode("utf-8"))
     except (OSError, ValueError) as exc:
         raise OpenRouterError(f"distillable snapshot unreadable or invalid: {exc}") from exc
@@ -51,9 +61,9 @@ def _snapshot_data(payload: Mapping) -> tuple:
     return freeze(data)
 
 
-def load_snapshot(path: Path) -> Mapping[str, Any]:
+def load_snapshot(path: Path, *, argument: str = "--openrouter-snapshot") -> Mapping[str, Any]:
     """Load exact bytes of a generation-time distillable catalog snapshot."""
-    raw, payload = _read_snapshot(path)
+    raw, payload = _read_snapshot(path, argument=argument)
     return MappingProxyType({
         "retrieved_at": payload.get("retrieved_at"),
         "source_url": payload.get("source_url", DISTILLABLE_URL),

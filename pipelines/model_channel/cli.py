@@ -18,6 +18,20 @@ from . import openrouter
 from . import source_policy as policy
 from . import vllm as vllm_mod
 
+if __name__.startswith("pipelines."):
+    from ..operator_paths import confine_named, operator_path
+else:
+    from operator_paths import confine_named, operator_path
+
+_GENERATE_PATHS = {
+    "task": "--task",
+    "out": "--out",
+    "openrouter_snapshot": "--openrouter-snapshot",
+    "runtime_json": "--runtime-json",
+}
+_DISCOVER_PATHS = {"snapshot": "--snapshot"}
+_GENERATE_DESTINATIONS = frozenset({"out"})
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="model_channel_cli.py", description=__doc__)
@@ -61,18 +75,35 @@ def _print(payload: Any, as_json: bool) -> None:
     sys.stdout.write(str(payload) + "\n")
 
 
-def _input_object(path: Path) -> dict:
-    payload = load_strict_json(path.read_bytes())
+def _input_object(path: Path, *, argument: str) -> dict:
+    try:
+        confined = operator_path(path, argument=argument)
+    except argparse.ArgumentTypeError as exc:
+        raise ValueError(str(exc)) from exc
+    payload = load_strict_json(confined.read_bytes())
     if not isinstance(payload, dict):
-        raise ValueError(f"{path} must contain a JSON object")
+        raise ValueError(f"{confined} must contain a JSON object")
     return payload
 
 
+def _confine_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.command == "generate":
+        confined = confine_named(
+            parser, args, _GENERATE_PATHS, _GENERATE_DESTINATIONS
+        )
+    elif args.command == "discover-openrouter":
+        confined = confine_named(parser, args, _DISCOVER_PATHS)
+    else:
+        return
+    for name, value in confined.items():
+        setattr(args, name, value)
+
+
 def _run_generate(args: argparse.Namespace) -> int:
-    task = _input_object(args.task)
+    task = _input_object(args.task, argument="--task")
     runtime = None
     if args.runtime_json is not None:
-        runtime = _input_object(args.runtime_json)
+        runtime = _input_object(args.runtime_json, argument="--runtime-json")
     attempted = 1
     rejected: list[str] = []
     accepted: list[dict[str, Any]] = []
@@ -117,7 +148,7 @@ def record_stamp(accepted: list[dict[str, Any]]) -> str:
 
 
 def _run_discover(args: argparse.Namespace) -> int:
-    snapshot = openrouter.load_snapshot(args.snapshot)
+    snapshot = openrouter.load_snapshot(args.snapshot, argument="--snapshot")
     admitted = {row["model_id"] for row in policy.reviewed_rows()
                 if row["channel"] == "openrouter_api"}
     listing = []
@@ -156,6 +187,7 @@ def _run_vllm_spec(args: argparse.Namespace) -> int:
 def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _confine_args(parser, args)
     try:
         if args.command == "generate":
             return _run_generate(args)
@@ -175,7 +207,6 @@ def run(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"{exc}\n")
         return 2
     parser.error(f"unknown command {args.command}")
-    return 2
 
 
 if __name__ == "__main__":

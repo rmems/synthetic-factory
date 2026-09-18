@@ -6,6 +6,7 @@ and hidden-thought keys before a record is accepted.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -24,6 +25,11 @@ from . import openai_client
 from . import openrouter
 from . import source_policy as policy
 from . import vllm as vllm_spec
+
+if __name__.startswith("pipelines."):
+    from ..operator_paths import KIND_DESTINATION, operator_path
+else:
+    from operator_paths import KIND_DESTINATION, operator_path
 
 THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 FORBIDDEN_KEYS = frozenset({
@@ -296,10 +302,14 @@ def write_run(out_dir: Path, **kwargs) -> dict[str, Any]:
     """Atomically publish candidates to a new destination outside outputs/raw."""
     output = RunOutput(**kwargs)
     destination = Path(out_dir)
-    if is_under_raw(destination):
-        raise GenerateError(f"{destination} names or aliases the raw tree")
     if os.path.lexists(destination):
         raise GenerateError(f"{destination} already exists")
+    try:
+        destination = operator_path(destination, argument="--out", kind=KIND_DESTINATION)
+    except argparse.ArgumentTypeError as exc:
+        raise GenerateError(str(exc)) from exc
+    if is_under_raw(destination):
+        raise GenerateError(f"{destination} names or aliases the raw tree")
     destination.parent.mkdir(parents=True, exist_ok=True)
     summary = _run_summary(output)
     with tempfile.TemporaryDirectory(prefix=f".{destination.name}-", dir=destination.parent) as tmp:
@@ -326,11 +336,15 @@ def _write_run_files(directory: Path, records: list[Mapping[str, Any]], summary:
 
 
 def _publish_run(staged: Path, destination: Path) -> None:
-    parent = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        rename_noreplace(parent, staged.name, destination.name)
+        confined = operator_path(destination, argument="--out", kind=KIND_DESTINATION)
+    except argparse.ArgumentTypeError as exc:
+        raise GenerateError(str(exc)) from exc
+    parent = os.open(confined.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        rename_noreplace(parent, staged.name, confined.name)
     except FileExistsError as exc:
-        raise GenerateError(f"{destination} already exists") from exc
+        raise GenerateError(f"{confined} already exists") from exc
     finally:
         os.close(parent)
 
