@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
-from sir.catalog import CATALOG  # noqa: E402
+from sir.catalog import CATALOG, load_catalog  # noqa: E402
 from sir.catalog_extract import (  # noqa: E402
     SHAPE_PAIR_6TUPLES,
     catalog_document,
@@ -145,18 +145,12 @@ class SirSkeletonTests(unittest.TestCase):
         self.assertEqual(catalog_sources()[0].catalog_first, 31)
         self.assertEqual(catalog_sources()[3].kind, cv.KIND_LEFTOVER_PAIRS)
         self.assertEqual(catalog_sources()[4].n_hops, 11)
-        self.assertEqual(
-            catalog_sources()[1].loads_sibling, "experiments/sir-mill-r31.py"
-        )
+        self.assertEqual(catalog_sources()[1].loads_sibling, "experiments/sir-mill-r31.py")
 
     def test_no_vendored_mill_scripts(self):
         hits = []
         for pattern in cv.FORBIDDEN_MILL_GLOBS:
-            hits.extend(
-                path
-                for path in REPO.rglob(pattern)
-                if "legacy-mill-lane" not in str(path)
-            )
+            hits.extend(path for path in REPO.rglob(pattern) if "legacy-mill-lane" not in str(path))
         self.assertEqual(hits, [])
 
     def test_refuse_vendor_paths(self):
@@ -201,9 +195,7 @@ class SirSkeletonTests(unittest.TestCase):
         self.assertEqual(extracted["n_rows"], 1)
         self.assertEqual(extracted["n_hops"], 0)
         self.assertEqual(extracted["first_slug"], "meili-swap-leftover3-rebuild")
-        self.assertEqual(
-            extracted["pairs"][0]["fail_slug"], "meili-drop-index-leftover3-handoff"
-        )
+        self.assertEqual(extracted["pairs"][0]["fail_slug"], "meili-drop-index-leftover3-handoff")
         self.assertTrue(extracted["pairs"][0]["fail_handoff"])
         self.assertEqual(extracted["hops"], [])
         self.assertEqual(extracted["loads_sibling"], "")
@@ -213,9 +205,7 @@ class SirSkeletonTests(unittest.TestCase):
         )
 
     def test_extractor_records_sourcefileloader_sibling_without_loading(self):
-        extracted = extract_mill_catalog(
-            _CHAIN_SNIPPET, path="experiments/sir-mill-r52.py"
-        )
+        extracted = extract_mill_catalog(_CHAIN_SNIPPET, path="experiments/sir-mill-r52.py")
         self.assertEqual(extracted["loads_sibling"], "experiments/sir-mill-r31.py")
         self.assertEqual(extracted["n_rows"], 1)
         self.assertEqual(extracted["factory"], cv.FACTORY)
@@ -228,6 +218,74 @@ class SirSkeletonTests(unittest.TestCase):
             "CATALOG_FIRST = 72\n"
             "PAIRS = [leftover_pair()]\n"
         )
+        with self.assertRaises(ValueError):
+            extract_mill_catalog(source, path="experiments/sir-mill-leftover3-r72.py")
+
+    def test_extractor_refuses_nonliteral_reassignment(self):
+        for assignment in ("PAIRS = rebuild()", "PAIRS = alias = rebuild()"):
+            with self.subTest(assignment=assignment), self.assertRaises(ValueError):
+                extract_mill_catalog(
+                    _LEFTOVER_SNIPPET + f"\n{assignment}\n",
+                    path="experiments/sir-mill-leftover3-r72.py",
+                )
+
+    def test_extractor_preserves_value_after_annotation_without_assignment(self):
+        extracted = extract_mill_catalog(
+            _LEFTOVER_SNIPPET + "\nPAIRS: list\n",
+            path="experiments/sir-mill-leftover3-r72.py",
+        )
+        self.assertEqual(extracted["first_slug"], "meili-swap-leftover3-rebuild")
+
+    def test_loader_refuses_non_lf_pair_framing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "CATALOG.json").write_bytes(catalog_json_path().read_bytes())
+            for separator in (b"\r\n", b"\x0b", b"\x1e", b"\xc2\x85"):
+                with self.subTest(separator=separator):
+                    pairs = pairs_jsonl_path().read_bytes().replace(b"\n", separator, 1)
+                    (directory / "pairs.jsonl").write_bytes(pairs)
+                    with self.assertRaises(ValueError):
+                        load_catalog(directory / "CATALOG.json")
+
+    def test_loader_preserves_unicode_separators_inside_json_strings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "CATALOG.json").write_bytes(catalog_json_path().read_bytes())
+            lines = pairs_jsonl_path().read_text(encoding="utf-8").split("\n")
+            row = json.loads(lines[0])
+            ticket = "Keep \u0085, \u2028, and \u2029 within the ticket."
+            row["success_ticket"] = ticket
+            lines[0] = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+            (directory / "pairs.jsonl").write_text("\n".join(lines), encoding="utf-8")
+            loaded = load_catalog(directory / "CATALOG.json")
+            self.assertEqual(loaded.mills[row["mill_id"]].pairs[0]["success_ticket"], ticket)
+
+    def test_loader_refuses_unknown_pair_mill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            header = catalog_json_path().read_text(encoding="utf-8")
+            pairs = pairs_jsonl_path().read_text(encoding="utf-8")
+            row = json.loads(pairs.splitlines()[0])
+            row["mill_id"] = "unknown-mill"
+            (directory / "CATALOG.json").write_text(header, encoding="utf-8")
+            (directory / "pairs.jsonl").write_text(pairs + json.dumps(row) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "mill IDs"):
+                load_catalog(directory / "CATALOG.json")
+
+    def test_loader_refuses_drifted_mill_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
+            for field in ("factory", "generator", "shape"):
+                with self.subTest(field=field):
+                    header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+                    header["mills"]["sir-mill-r31"][field] = "other"
+                    (directory / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "vocabulary"):
+                        load_catalog(directory / "CATALOG.json")
+
+    def test_extractor_refuses_empty_pairs(self):
+        source = "FACTORY = 'search-index-rebuild-factory'\nGEN = 'grok-4.6'\nCATALOG_FIRST = 72\nPAIRS = []\n"
         with self.assertRaises(ValueError):
             extract_mill_catalog(source, path="experiments/sir-mill-leftover3-r72.py")
 

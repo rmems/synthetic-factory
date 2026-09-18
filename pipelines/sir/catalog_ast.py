@@ -16,41 +16,49 @@ UNSET = object()
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     """Return ``(name, value)`` for a simple ``NAME = value`` statement."""
 
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return node.target.id, node.value
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target = node.targets[0]
-        if isinstance(target, ast.Name):
-            return target.id, node.value
+    targets = _assignment_targets(node)
+    if len(targets) == 1 and isinstance(targets[0], ast.Name):
+        return targets[0].id, node.value
     return None, None
 
 
 def assignment_names(node: ast.stmt) -> tuple[str, ...]:
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return (node.target.id,)
+    return tuple(target.id for target in _assignment_targets(node) if isinstance(target, ast.Name))
+
+
+def _assignment_targets(node: ast.stmt) -> tuple[ast.expr, ...]:
+    if isinstance(node, ast.AnnAssign):
+        return (node.target,)
     if isinstance(node, ast.Assign):
-        return tuple(target.id for target in node.targets if isinstance(target, ast.Name))
+        return tuple(node.targets)
     return ()
 
 
-def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
+def literal_value(node: ast.AST | None, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, and literal containers; else ``UNSET``."""
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
+        return bound.get(node.id, UNSET)
+    if isinstance(node, ast.UnaryOp):
+        return _negative_number(node, bound)
+    return _container_value(node, bound)
+
+
+def _negative_number(node: ast.UnaryOp, bound: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.USub):
+        return UNSET
+    inner = literal_value(node.operand, bound)
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _container_value(node: ast.AST | None, bound: Mapping[str, Any]) -> Any:
+    constructors = {ast.Tuple: tuple, ast.List: list, ast.Set: set}
+    constructor = constructors.get(type(node))
+    if constructor is not None:
+        return _sequence(node.elts, bound, constructor)
     if isinstance(node, ast.Dict):
         return _mapping(node, bound)
     return UNSET
@@ -69,8 +77,6 @@ def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
 def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
     out: dict[Any, Any] = {}
     for key_node, value_node in zip(node.keys, node.values, strict=True):
-        if key_node is None:
-            return UNSET
         key = literal_value(key_node, env)
         value = literal_value(value_node, env)
         if key is UNSET or value is UNSET:
@@ -80,10 +86,6 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
 
 
 def module_docstring(tree: ast.AST) -> str:
-    if not isinstance(tree, ast.Module) or not tree.body:
+    if not isinstance(tree, ast.Module):
         return ""
-    first = tree.body[0]
-    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
-        value = first.value.value
-        return value if isinstance(value, str) else ""
-    return ""
+    return ast.get_docstring(tree, clean=False) or ""
