@@ -56,9 +56,11 @@ those generators in `.gitignore` but used `pipelines/*_mill.py` and
 
 Production entrypoints (`scripts/publish_grok46_hub.py`,
 `pipelines/curate_preferences.py`, compose/export) keep importing
-`leftover_mill`. They must not import a module named in
-`historical_generator_policy.archived_paths`, the full set of matching Python
-paths at the recorded `provenance_commit`. Examples are documentation only.
+`leftover_mill`. They must not import a module named in the pinned
+`historical_generator_policy.archived_paths` list. That list is bound to
+`provenance_commit`, a path count, and a SHA-256 digest
+(`archive_provenance_matches`); the guard does not check out the provenance
+commit. Examples are documentation only.
 The guard checks the actual root `.gitignore` and parsed Qlty TOML rules: extra
 production exclusions fail, and every archived path must match both files.
 Historical `experiments/*-loop-r*.py` publishers are included in all policy lists.

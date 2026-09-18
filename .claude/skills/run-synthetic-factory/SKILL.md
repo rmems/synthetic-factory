@@ -44,7 +44,6 @@ python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<da
 # import archived experiments/*_mill.py generators from legacy-mill-lane.
 python3 pipelines/leftover_mill.py outputs/raw/<date>   # add --strict to gate
 python3 pipelines/mill_script_inventory.py --check      # mill-script classification guard
-python3 pipelines/mill_script_inventory.py --check      # mill-script classification guard
 ```
 
 `validate` is structural/invariant evidence. `audit` additionally checks reward

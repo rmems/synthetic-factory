@@ -3,12 +3,22 @@
 import contextlib
 import io
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.test_mill_script_inventory import REPO, msi
+
+
+def _repo_gitdir(repo: Path) -> Path:
+    marker = repo / ".git"
+    if marker.is_file():
+        for line in marker.read_text(encoding="utf-8").splitlines():
+            if line.startswith("gitdir:"):
+                return Path(line.split(":", 1)[1].strip())
+    return marker
 
 
 class InventorySchemaRefusals(unittest.TestCase):
@@ -75,6 +85,34 @@ class InventoryEvidenceRefusals(unittest.TestCase):
         tracked = msi.tracked_paths(REPO)
         self.assertIn("pipelines/mill_script_inventory.py", tracked)
         self.assertIn("config/MILL-SCRIPT-INVENTORY.json", tracked)
+
+    def test_linked_worktree_gitfile_reads_the_worktree_index(self):
+        gitdir = _repo_gitdir(REPO)
+        self.assertTrue((gitdir / "index").is_file())
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+            tracked = msi.tracked_paths(root)
+            self.assertIn("pipelines/mill_script_inventory.py", tracked)
+            self.assertIn("config/MILL-SCRIPT-INVENTORY.json", tracked)
+
+    def test_relative_gitfile_pointer_reads_the_worktree_index(self):
+        gitdir = _repo_gitdir(REPO)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            linked = root / "linked-gitdir"
+            linked.mkdir()
+            shutil.copy(gitdir / "index", linked / "index")
+            (root / ".git").write_text("gitdir: linked-gitdir\n", encoding="utf-8")
+            tracked = msi.tracked_paths(root)
+            self.assertIn("pipelines/mill_script_inventory.py", tracked)
+
+    def test_malformed_gitfile_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".git").write_text("not a gitdir\n", encoding="utf-8")
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"):
+                msi.tracked_paths(root)
 
     def test_non_repository_cannot_be_reported_as_clean_scope(self):
         with tempfile.TemporaryDirectory() as temp:

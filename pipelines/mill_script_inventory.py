@@ -49,6 +49,7 @@ MAX_INVENTORY_BYTES = _schema.MAX_INVENTORY_BYTES
 MillScriptInventoryError = _schema.MillScriptInventoryError
 load_inventory_bytes = _schema.load_inventory_bytes
 PRODUCTION_ROOTS = ("pipelines/", "scripts/", ".claude/skills/")
+GITIGNORE_NAME = ".gitignore"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_PATH = REPO_ROOT / "config" / "MILL-SCRIPT-INVENTORY.json"
 
@@ -85,8 +86,34 @@ def matching_paths(paths: Iterable[str], patterns: Sequence[str]) -> tuple[str, 
     return tuple(sorted(set(hits)))
 
 
+def _resolve_gitdir_pointer(marker: Path, raw: str) -> Path:
+    gitdir = Path(raw.strip())
+    return gitdir if gitdir.is_absolute() else (marker.parent / gitdir).resolve()
+
+
+def _gitdir_from_gitfile(marker: Path) -> Path | None:
+    for line in marker.read_text(encoding="utf-8").splitlines():
+        if line.startswith("gitdir:"):
+            return _resolve_gitdir_pointer(marker, line.split(":", 1)[1])
+    return None
+
+
+def _git_dir(repo: Path) -> Path:
+    marker = Path(repo).resolve() / ".git"
+    if marker.is_file():
+        found = _gitdir_from_gitfile(marker)
+        if found is not None:
+            return found
+    if marker.is_dir():
+        return marker
+    raise MillScriptInventoryError("git is required for inventory scope checks")
+
+
 def _git_available(repo: Path | None = None) -> bool:
-    return (Path(repo or REPO_ROOT).resolve() / ".git" / "index").is_file()
+    try:
+        return (_git_dir(Path(repo or REPO_ROOT)) / "index").is_file()
+    except MillScriptInventoryError:
+        return False
 
 
 def _require_git(repo: Path | None = None) -> None:
@@ -122,7 +149,7 @@ def _wildcard_regex(pattern: str) -> re.Pattern[str]:
 
 
 def _gitignore_rules(root: Path) -> tuple[tuple[str, str, str, bool, re.Pattern[str]], ...]:
-    path = Path(root) / ".gitignore"
+    path = Path(root) / GITIGNORE_NAME
     if not path.is_file():
         return ()
     rules = []
@@ -132,7 +159,7 @@ def _gitignore_rules(root: Path) -> tuple[tuple[str, str, str, bool, re.Pattern[
             continue
         negated = line.startswith("!")
         pattern = line[1:] if negated else line
-        rules.append((".gitignore", str(number), line, negated, _wildcard_regex(pattern)))
+        rules.append((GITIGNORE_NAME, str(number), line, negated, _wildcard_regex(pattern)))
     return tuple(rules)
 
 
@@ -173,7 +200,7 @@ def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
 
 
 def _read_git_index(repo: Path) -> tuple[str, ...]:
-    payload = (Path(repo).resolve() / ".git" / "index").read_bytes()
+    payload = (_git_dir(repo) / "index").read_bytes()
     count = _git_index_header(payload)
     offset = 12
     paths: list[str] = []
@@ -407,7 +434,7 @@ def patterns_hitting(patterns: Sequence[str], paths: Iterable[str]) -> tuple[tup
 def gitignore_lines(root: Path | None = None) -> tuple[str, ...]:
     """Return non-comment gitignore rules from the repository root."""
 
-    text = (root or REPO_ROOT).joinpath(".gitignore").read_text(encoding="utf-8")
+    text = (root or REPO_ROOT).joinpath(GITIGNORE_NAME).read_text(encoding="utf-8")
     rules = []
     for raw in text.splitlines():
         stripped = raw.strip()
