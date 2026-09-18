@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 from oracle_grounded import canon, families, oracles, record
-from oracle_grounded.rng import seed_from_label
+from oracle_grounded.rng import MAX_SEED, seed_from_label
 
 
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
@@ -885,6 +885,8 @@ def _header_field_errors(context):
         context.report(f"round must be an integer in [1, {MAX_ROUND}]")
     if not _plain_int(header.master_seed):
         context.report("seed must be an integer")
+    elif not 0 <= header.master_seed <= MAX_SEED:
+        context.report(f"seed must lie in [0, {MAX_SEED}] (a 64-bit integer)")
     if not header.count_ok:
         context.report(f"count_per_family must be an integer in [1, {MAX_RUN_RECORDS}]")
     if not oracles.is_source_commit(header.commit):

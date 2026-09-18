@@ -7,6 +7,7 @@ curated data: payload-first classification, the validate_run shape route,
 the sealed procedural registry row, and the preserving identity lane.
 """
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -77,6 +78,29 @@ class OracleRegistryTests(unittest.TestCase):
             tampered.write_bytes(raw)
             with self.assertRaises(oracle_policy.SourcePolicyError):
                 oracle_policy.load_policy(tampered)
+
+    def test_catalog_sha256_authenticates_the_committed_package(self):
+        """The pin must match a recomputation, not merely be well-formed.
+
+        The domain excludes source_policy.py: that module is the trust anchor
+        carrying POLICY_SHA256, so hashing it into the catalog the anchor seals
+        would make the digest a self-referential cycle with no stable value.
+        """
+        package = REPO / "pipelines/oracle_grounded"
+        domain = sorted(
+            (path for path in package.glob("*.py") if path.name != "source_policy.py"),
+            key=lambda path: path.name,
+        )
+        digest = hashlib.sha256()
+        for path in domain:
+            digest.update(path.read_bytes())
+        self.assertEqual(oracle_policy.POLICY["catalog_sha256"], digest.hexdigest())
+
+    def test_programs_sha256_pins_the_pipeline_entry_points(self):
+        digest = hashlib.sha256()
+        for name in ("oracle_generate.py", "oracle_validate.py"):
+            digest.update((REPO / "pipelines" / name).read_bytes())
+        self.assertEqual(oracle_policy.POLICY["programs_sha256"], digest.hexdigest())
 
     def test_mutated_row_fails_registry_load(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))

@@ -37,7 +37,7 @@ import stat
 import sys
 from pathlib import Path
 
-from oracle_grounded import canon, families, oracles, record
+from oracle_grounded import canon, families, oracles, record, rng
 from oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
 
 DEFAULT_SEED = 20260823
@@ -413,6 +413,12 @@ def _argument_errors(args):
     if not 1 <= args.round_number <= MAX_ROUND:
         print(
             f"oracle_generate: --round must be in [1, {MAX_ROUND}]",
+            file=sys.stderr,
+        )
+        return 2
+    if not 0 <= args.seed <= rng.MAX_SEED:
+        print(
+            f"oracle_generate: --seed must be in [0, {rng.MAX_SEED}] (a 64-bit integer)",
             file=sys.stderr,
         )
         return 2

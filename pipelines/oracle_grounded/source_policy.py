@@ -11,9 +11,12 @@ cannot authorize a new source or generator. The snapshot loaded at import
 remains immutable for the process lifetime.
 
 Pin semantics (recompute on any reviewed change):
-- catalog_sha256: SHA-256 over the concatenated exact bytes of
-  pipelines/oracle_grounded/*.py in sorted name order (the measured
-  generation semantics).
+- catalog_sha256: SHA-256 over the concatenated exact bytes of every
+  pipelines/oracle_grounded/*.py in sorted name order except this module
+  (the measured generation semantics). This module is the trust anchor that
+  seals the policy carrying the digest, so including it would make the value
+  a self-referential cycle with no stable fixpoint; it is the seal, not part
+  of what is sealed.
 - programs_sha256: SHA-256 over pipelines/oracle_generate.py followed by
   pipelines/oracle_validate.py (the pipeline entry points).
 """
@@ -31,7 +34,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "f17d843e4889b5b845194c271d95fdd275307d1a7c7cea734e75bdbfe8019d89"
+POLICY_SHA256 = "c82ffca58ac7dc48811243dcaffcdcc9c0d0391c2eb4427a1a1225f1a1c6f531"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",

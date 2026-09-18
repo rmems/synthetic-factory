@@ -9,8 +9,8 @@
   "path_id": "oracle-grounded",
   "catalog_id": "oracle-grounded-v1",
   "catalog_relative_path": "pipelines/oracle_grounded",
-  "catalog_sha256": "7e940f989690b1679e41f2068ed47fdc474228f359a9241f12bd2b12670c04b1",
-  "programs_sha256": "d12d90494f703ffcc20fb1e75e361a36cee909a3dd2ddc3fd167d9a9d4676ff6",
+  "catalog_sha256": "63a61728134b0df8860ed69a51d72433126d66a9e7eed750e6f3dfc6478b1392",
+  "programs_sha256": "34d9969c8a841fc4908a20eda78b9659b8e60b4df9888a6e5857b01947d145d3",
   "source_license_evidence": {
     "repository": "rmems/synthetic-factory",
     "path": "pipelines/oracle_grounded",
