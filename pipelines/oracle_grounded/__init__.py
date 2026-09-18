@@ -23,9 +23,15 @@ __all__ = [
 ]
 
 from .import_twins import bind_import_twin
+from .source_snapshot import install as _install_source_snapshot
 
 # The CLI name (``oracle_grounded``) and the package name
 # (``pipelines.oracle_grounded``) stay one object. Declared submodules are
 # not imported here, so a star import still loads them by name and an
 # explicit sibling import is unchanged.
 bind_import_twin(__name__)
+
+# Capture before any measurement module is imported or can read a stale pyc.
+
+_install_source_snapshot(__name__)
+del _install_source_snapshot

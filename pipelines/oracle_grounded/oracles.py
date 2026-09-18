@@ -30,7 +30,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import canon
+from . import canon, source_snapshot
 
 PROTOCOL = "sf-oracle/1"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +56,7 @@ IMPLEMENTATION_SOURCES = (
 )
 MODULE_PATH = "pipelines/oracle_grounded"
 
-_MODULE_DIGEST_CACHE = {}
+_IMPLEMENTATION_SNAPSHOT = source_snapshot.loaded_snapshot(__package__)
 _SOURCE_COMMIT_CACHE = {}
 RUNTIME_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 SOURCE_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
@@ -96,14 +96,8 @@ def _reject_duplicate_object_keys(pairs):
 
 
 def module_digest():
-    """sha256 over the oracle implementation sources, cached per process."""
-    key = "implementation"
-    if key not in _MODULE_DIGEST_CACHE:
-        here = Path(__file__).resolve().parent
-        _MODULE_DIGEST_CACHE[key] = canon.digest_files(
-            str(here / name) for name in IMPLEMENTATION_SOURCES
-        )
-    return _MODULE_DIGEST_CACHE[key]
+    """Identify the immutable source bytes compiled for this measurement process."""
+    return source_snapshot.snapshot_digest(_IMPLEMENTATION_SNAPSHOT)
 
 
 def env_key(runtime):
