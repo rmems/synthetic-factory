@@ -1,0 +1,22 @@
+pipelines/oracle_grounded/sim.py
+  s_5660553172852b::t_2a511d3294bda5 518-520,525
+pipelines/oracle_grounded/source_policy.py
+  s_5660553172852b::t_9097f1779fff1a 14-17,72-79
+  s_5660553172852b::t_b54a6070af4dbd 23-24,84,88-89,91-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f239b8bbdcb02ea4bd35d35b1e9860d3829148bd",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}

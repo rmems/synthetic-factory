@@ -1,0 +1,25 @@
+pipelines/oracle_validate.py
+  s_5660553172852b::t_20c32abd570010 563-576,616,971-972,992-993,1007-1008,1014-1015,1102-1103
+pipelines/oracle_grounded/source_policy.py
+  s_5660553172852b::t_9097f1779fff1a 14-17,72-79
+  s_5660553172852b::t_b54a6070af4dbd 23-24,84,88-89,93-94
+tests/test_oracle_validate_metadata.py
+  s_5660553172852b::t_589781591b8a76 205,209
+  s_5660553172852b::t_15616bf9af9998 206-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "debf02f0938d964e1020caba74cdaef5b1454985",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}

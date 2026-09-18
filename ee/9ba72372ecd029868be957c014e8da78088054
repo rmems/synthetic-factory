@@ -1,0 +1,34 @@
+tests/test_oracle_parent_creation.py
+  s_5660553172852b::t_ae9e50fdf574e3 1-82
+pipelines/oracle_grounded/source_policy.py
+  s_5660553172852b::t_9097f1779fff1a 14-17,72-79
+pipelines/oracle_generate.py
+  s_5660553172852b::t_a7933bcb1b7466 40-41,43-45,711
+  s_5660553172852b::t_e100b9bfa37d6a 42,712
+  s_5660553172852b::t_86ea628dfbe267 84-85,91-92,115,118,123-127,129,624,634
+  s_5660553172852b::t_ab07d3f81440b3 87,106,113,636-640
+  s_5660553172852b::t_24330c36b6515f 128,130,510-513,221
+  s_5660553172852b::t_9859acac2b8063 320,194-195,207-208,228-229
+  s_5660553172852b::t_2a511d3294bda5 506-507,528
+  s_5660553172852b::t_4bb768abf3bfef 617,651-656,664,705-707,724-725
+tests/test_oracle_snapshot_membership.py
+  s_5660553172852b::t_d0f30364aa04a4 17-28
+pipelines/oracle_validate.py
+  s_5660553172852b::t_20c32abd570010 549-562,602
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ee9ba72372ecd029868be957c014e8da78088054",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}

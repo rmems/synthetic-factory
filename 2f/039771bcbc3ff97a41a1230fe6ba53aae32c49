@@ -1,0 +1,43 @@
+tests/test_oracle_grounded_cli.py
+  s_5660553172852b::t_5284e343e84575 33,248,279-282,288-289,427-429,1064-1066,1082-1084
+  s_5660553172852b::t_771f500e43ba7c 1254,1256,1269,1272-1274
+  s_5660553172852b::t_b6582dbdbdbadb 1517-1519,1521-1522,1591-1593,1595-1596
+pipelines/oracle_generate.py
+  s_5660553172852b::t_a7933bcb1b7466 41-42,44-46,714
+  s_5660553172852b::t_e100b9bfa37d6a 43,715
+  s_5660553172852b::t_86ea628dfbe267 85-86,92-93,116,119,124-128,130,627,637
+  s_5660553172852b::t_ab07d3f81440b3 88,107,114,639-643
+  s_5660553172852b::t_24330c36b6515f 129,131,513-516,222
+  s_5660553172852b::t_9859acac2b8063 321,195-196,208-209,229-230
+  s_5660553172852b::t_2a511d3294bda5 509-510,531
+  s_5660553172852b::t_4bb768abf3bfef 620,654-659,667,708-710,727-728,394
+  s_5660553172852b::t_6356875f8434e0 38-39,383-384,387,389-393,395-399,731
+pipelines/oracle_grounded/source_policy.py
+  s_5660553172852b::t_9097f1779fff1a 14-17,72-79
+  s_5660553172852b::t_b54a6070af4dbd 23-24,84,88-89,91-92
+docs/oracle-grounded-datasets.md
+  s_5660553172852b::t_4433945c419c66 152-159
+  s_5660553172852b::t_ab07d3f81440b3 318,335-337
+  s_5660553172852b::t_771f500e43ba7c 327-334
+tests/test_oracle_schema_seal.py
+  s_5660553172852b::t_1b3d70dc33e537 1-21,25-60,74-76,73
+  s_5660553172852b::t_b54a6070af4dbd 23-24,62-72
+tests/test_oracle_curation_wiring.py
+  s_5660553172852b::t_b54a6070af4dbd 108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2f039771bcbc3ff97a41a1230fe6ba53aae32c49",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
