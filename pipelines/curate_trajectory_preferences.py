@@ -70,7 +70,7 @@ if __package__:
         strip_hidden_thought_keys,
     )
     from .curate_preferences import PreferenceCurationError, write_run
-    from .operator_paths import operator_path
+    from .operator_paths import confine_named
     from .trajectory_pair_curation import (
         changed_top_level_fields,
         curate_trajectory_pair,
@@ -150,7 +150,7 @@ else:
         strip_hidden_thought_keys,
     )
     from curate_preferences import PreferenceCurationError, write_run
-    from operator_paths import operator_path
+    from operator_paths import confine_named
     from trajectory_pair_curation import (
         changed_top_level_fields,
         curate_trajectory_pair,
@@ -569,14 +569,13 @@ def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs
     library callers that hand it an unresolved ``Path``.
     """
 
-    def optional(name: str) -> Path | None:
-        value = getattr(args, name, None)
-        return None if value is None else operator_path(str(value))
-
-    try:
-        return Inputs(*(optional(name) for name in Inputs._fields))
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    paths = confine_named(
+        parser,
+        args,
+        {name: name for name in Inputs._fields},
+        destinations=frozenset({"output", "manifest"}),
+    )
+    return Inputs(*(paths[name] for name in Inputs._fields))
 
 
 def _render_scan(run: CurationRun, as_json: bool) -> str:

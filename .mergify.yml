@@ -28,11 +28,9 @@
 #      commenting `@mergify queue`. Either way the merge_conditions below still
 #      have to pass.
 #
-# Gate policy. Unit tests, operator smoke and patch coverage are hard gates
-# everywhere. CodeScene and qlty are advisory (land-stacked-prs/SKILL.md).
-# Codacy and Qodana are evidence-based, judged per finding rather than by
-# dashboard colour. cubic and DeepSource are quota-exhausted noise. Only the
-# hard gates appear below; the rest stay human judgement.
+# Gate policy: every configured CI and quality gate must pass on the head
+# being merged. Neutral/skipped informational reviewers are not success gates.
+# Owner opt-in and resolved reviews are required in addition to green CI.
 
 queue_rules:
   - name: default
@@ -45,12 +43,18 @@ queue_rules:
       # also left the general queue label on it.
       - -label=queue-mill
     merge_conditions:
-      # The three hard gates. `check-success` matches check runs and commit
-      # statuses alike, so codecov/patch (a status, posted asynchronously
-      # several minutes after the test job finishes) is covered.
+      # Explicit success conditions also wait for asynchronously posted checks.
       - check-success=@github-actions/unittest (Python 3.14)
       - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
+      - check-success=@github-actions/qodana
+      - check-success=Qodana for Python
+      - check-success=Codacy Static Code Analysis
+      - check-success=CodeScene Code Health Review (main)
+      - check-success=qlty check
+      - check-success=qlty fmt
+      - check-success=CodeRabbit
+      - check-success=@sonarqubecloud/SonarCloud Code Analysis
       # The raw-release workflow is path-filtered, so require its check only
       # when this pull request changes one of its watched paths.
       - or:
@@ -67,9 +71,7 @@ queue_rules:
     # large stacks.
     update_method: merge
 
-  # SonarCloud's new-code duplication gate is hard for the mill/catalog cohort
-  # only (it is what pipelines/mill_support exists to fix). Queue those PRs with
-  # the `queue-mill` label to add that gate on top of the three above.
+  # Keep the existing mill routing label; both queues enforce all quality gates.
   - name: mill
     queue_conditions:
       - base=main
@@ -80,6 +82,13 @@ queue_rules:
       - check-success=@github-actions/unittest (Python 3.14)
       - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
+      - check-success=@github-actions/qodana
+      - check-success=Qodana for Python
+      - check-success=Codacy Static Code Analysis
+      - check-success=CodeScene Code Health Review (main)
+      - check-success=qlty check
+      - check-success=qlty fmt
+      - check-success=CodeRabbit
       - check-success=@sonarqubecloud/SonarCloud Code Analysis
       - or:
           - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
