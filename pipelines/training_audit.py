@@ -387,7 +387,7 @@ class _CorpusAudit:
         self.totals["bytes"] += len(payload)
 
         try:
-            raw_lines = strict_lf_jsonl_records(payload, rel.as_posix())
+            raw_lines = self._audit_jsonl_records(rel, payload)
         except StrictJsonlError as exc:
             self.record_errors.append(str(exc))
             return
@@ -397,13 +397,31 @@ class _CorpusAudit:
         if self.code_repair["records"] > procedural_before:
             self._observe_completed_procedural_file(rel, payload, procedural_before)
 
-    def _observe_completed_procedural_file(self, rel, payload, previous_records):
+    def _completed_published_payload(self, rel, payload) -> bool:
         if __package__:
-            from .code_repair.publication_export import completed_batch_matches
+            from .code_repair.publication_export import completed_published_batch_matches
         else:
-            from code_repair.publication_export import completed_batch_matches
+            from code_repair.publication_export import completed_published_batch_matches
         source_root = self.completion_source or self.run_dir
-        if completed_batch_matches(source_root / rel, payload):
+        return completed_published_batch_matches(source_root, rel, payload)
+
+    def _physical_jsonl_records(self, payload):
+        if __package__:
+            from .compose_curated_run_lines import jsonl_physical_lines
+        else:
+            from compose_curated_run_lines import jsonl_physical_lines
+        return jsonl_physical_lines(payload)
+
+    def _audit_jsonl_records(self, rel, payload):
+        try:
+            return strict_lf_jsonl_records(payload, rel.as_posix())
+        except StrictJsonlError:
+            if self._completed_published_payload(rel, payload):
+                return self._physical_jsonl_records(payload)
+            raise
+
+    def _observe_completed_procedural_file(self, rel, payload, previous_records):
+        if self._completed_published_payload(rel, payload):
             self.code_repair["completed_records"] += self.code_repair["records"] - previous_records
 
     def _observe_line(self, raw_line, line_number, rel, factory):

@@ -6,10 +6,14 @@ import unittest
 from pathlib import Path
 
 from tests.code_repair_admission_test_support import build_generated_admission_evidence
+from tests.compose_curated_test_support import build_source_run
 from code_repair import publication
+from code_repair.publication_export import physical_completed_batch
 import compose_curated
 import export_hf
 import training_audit
+import training_audit_rights
+from rights_record import ENVELOPE_FIELD, LANE_FIELD
 
 
 class CompletedProceduralRights(unittest.TestCase):
@@ -81,7 +85,6 @@ class CompletedProceduralRights(unittest.TestCase):
             self.assertEqual(fixture.integrate(), 2)
 
     def test_outer_rights_verdict_rejects_integer_in_place_of_boolean(self):
-        import training_audit_rights
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "outputs/raw/2099-01-01"
@@ -97,3 +100,60 @@ class CompletedProceduralRights(unittest.TestCase):
             manifest.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
             blockers = training_audit_rights.collect_rights_blockers(curated / "records")
             self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
+
+    def test_factory_root_compose_keeps_completed_procedural_records(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            factory = root / "python-function-repair-factory"
+            factory.mkdir(parents=True)
+            publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
+            curated = root / "curated"
+            summary = compose_curated.compose_run(factory, curated)
+            audit = summary["audit"]
+            self.assertTrue(audit["training_ready"], audit["blockers"])
+            self.assertEqual(
+                audit["code_repair"]["completed_records"],
+                audit["code_repair"]["records"],
+            )
+            exported = export_hf.export_run(curated, root / "export")
+            self.assertTrue(exported["training_ready"])
+
+    def test_transplanted_procedural_proof_cannot_authorize_hosted_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            hosted = root / "hosted"
+            compose_curated.compose_run(build_source_run(root / "hosted-source"), hosted)
+            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
+            factory.mkdir(parents=True)
+            publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
+            procedural = root / "procedural"
+            compose_curated.compose_run(factory.parent, procedural)
+            hosted_path = hosted / "manifest/compose-manifest.jsonl"
+            hosted_entries = [
+                json.loads(line) for line in hosted_path.read_text().split("\n") if line
+            ]
+            procedural_entries = [
+                json.loads(line)
+                for line in (procedural / "manifest/compose-manifest.jsonl").read_text().split("\n")
+                if line
+            ]
+            hosted_retained = next(entry for entry in hosted_entries if entry["action"] == "retained")
+            procedural_retained = next(
+                entry for entry in procedural_entries if entry["action"] == "retained"
+            )
+            hosted_retained["stages"] = procedural_retained["stages"]
+            hosted_retained[ENVELOPE_FIELD] = procedural_retained[ENVELOPE_FIELD]
+            hosted_retained[LANE_FIELD] = procedural_retained[LANE_FIELD]
+            hosted_path.write_text("".join(json.dumps(entry) + "\n" for entry in hosted_entries))
+            blockers = training_audit_rights.collect_rights_blockers(hosted / "records")
+            self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
+            report = training_audit.audit_run(hosted / "records")
+            self.assertFalse(report["training_ready"])
+            self.assertTrue(any(item.startswith("rights:") for item in report["blockers"]))
+
+    def test_physical_completed_batch_strips_factory_prefix_only_when_rooted_there(self):
+        factory = Path("/tmp/python-function-repair-factory")
+        relative = Path("python-function-repair-factory/batch-r01.jsonl")
+        self.assertEqual(physical_completed_batch(factory, relative), factory / "batch-r01.jsonl")
+        run_root = Path("/tmp/2099-01-01")
+        self.assertEqual(physical_completed_batch(run_root, relative), run_root / relative)

@@ -12,7 +12,7 @@ if __package__:
     _assert_direct_sibling("training_audit_rights_coverage")
     from .curate_identity_json import sha256_json
     from .rights_mapping import parse_strict_json_bytes
-    from .strict_jsonl import strict_lf_jsonl_records
+    from .strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
     from .training_audit_rights_manifest import _retained_entries
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -20,7 +20,7 @@ else:
     )
     from curate_identity_json import sha256_json
     from rights_mapping import parse_strict_json_bytes
-    from strict_jsonl import strict_lf_jsonl_records
+    from strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
     from training_audit_rights_manifest import _retained_entries
 
 
@@ -39,15 +39,39 @@ def _file_coordinates(relative: str, lines: Sequence[bytes]):
     }
 
 
+def _completed_physical_lines(relative: str, payload: bytes, source_root):
+    if source_root is None:
+        return None
+    if __package__:
+        from .code_repair.publication_export import completed_published_batch_matches
+        from .compose_curated_run_lines import jsonl_physical_lines
+    else:
+        from code_repair.publication_export import completed_published_batch_matches
+        from compose_curated_run_lines import jsonl_physical_lines
+    if not completed_published_batch_matches(source_root, relative, payload):
+        return None
+    return jsonl_physical_lines(payload)
+
+
+def _compose_record_lines(relative: str, payload: bytes, source_root):
+    try:
+        return strict_lf_jsonl_records(payload, relative)
+    except StrictJsonlError:
+        lines = _completed_physical_lines(relative, payload, source_root)
+        if lines is None:
+            raise
+        return lines
+
+
 def _output_coordinates(
-    files: Mapping[str, bytes], *, preserve_gaps: bool = False,
+    files: Mapping[str, bytes], *, preserve_gaps: bool = False, source_root=None,
 ) -> dict[tuple[str, int], str]:
     coordinates = {}
     for relative, payload in files.items():
         if preserve_gaps:
             lines = payload.split(b"\n")
         else:
-            lines = strict_lf_jsonl_records(payload, relative)
+            lines = _compose_record_lines(relative, payload, source_root)
         coordinates.update(_file_coordinates(relative, lines))
     return coordinates
 
@@ -74,11 +98,13 @@ def _unique_outputs(entries: Sequence[Mapping], coordinate_of, *, duplicate: str
     return declared
 
 
-def _require_compose_coverage(entries: Sequence[Mapping], files: Mapping[str, bytes]) -> None:
+def _require_compose_coverage(
+    entries: Sequence[Mapping], files: Mapping[str, bytes], source_root=None,
+) -> None:
     declared = _unique_outputs(
         entries, _compose_coordinate, duplicate="duplicate retained output coordinate",
     )
-    if declared != _output_coordinates(files):
+    if declared != _output_coordinates(files, source_root=source_root):
         raise ValueError("rights manifest does not cover exact audited records")
 
 

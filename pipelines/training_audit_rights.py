@@ -82,6 +82,24 @@ def _replay_envelope(mapping: Mapping, registry, *, composed: bool):
     return replay.mapping.get(ENVELOPE_FIELD)
 
 
+def _outer_source(entry: Mapping) -> tuple[object, object, object]:
+    if "source" in entry:
+        source = entry["source"]
+        if not isinstance(source, Mapping):
+            raise ValueError("identity source must be an object")
+        return source.get("path"), source.get("line"), entry.get("output_id")
+    return entry.get("source_path"), entry.get("source_line"), entry.get("output_id")
+
+
+def _require_bound_identity_proof(entry: Mapping, mapping: Mapping) -> None:
+    source = mapping.get("source")
+    if not isinstance(source, Mapping):
+        raise ValueError("identity proof lacks source coordinates")
+    inner = (source.get("path"), source.get("line"), mapping.get("output_id"))
+    if inner != _outer_source(entry):
+        raise ValueError("identity proof is not bound to the audited entry")
+
+
 def _entry_defect(entry: Mapping, registry) -> str | None:
     mapping = _identity_detail(entry)
     envelope = mapping.get(ENVELOPE_FIELD)
@@ -89,6 +107,7 @@ def _entry_defect(entry: Mapping, registry) -> str | None:
         return _DEFECT_MISSING
     try:
         expected = _replay_envelope(mapping, registry, composed="source" not in entry)
+        _require_bound_identity_proof(entry, mapping)
     except ValueError:
         return _DEFECT_INVALID
     if sha256_json(envelope) != sha256_json(expected):
@@ -139,7 +158,7 @@ def _captured_manifest_audit(run_dir: Path, path: Path, files, composed: bool) -
     if composed:
         entries = _manifest._load_jsonl_objects(payload)
         records = _manifest._record_payloads(run_dir) if files is None else files
-        _coverage._require_compose_coverage(entries, records)
+        _coverage._require_compose_coverage(entries, records, source_run)
         blockers = _blockers_for_entries(entries)
     else:
         blockers = _identity_tree_blockers(
