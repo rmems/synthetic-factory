@@ -110,7 +110,14 @@ def _without_terminal_dots(text: str) -> str:
 
 
 def _refuse_leaf(leaf: Path, argument: str | None) -> None:
-    """Refuse a leaf that is a symlink or a special file, before following it."""
+    """Refuse a leaf that is a symlink or a special file, before following it.
+
+    Fail closed: ``Path.is_symlink`` and ``os.path.lexists`` swallow
+    ``OSError`` internally, so a single ``os.lstat`` either classifies the
+    leaf or refuses it. An uninspectable symlink, FIFO, or device node can
+    never be accepted. Only a genuinely missing leaf (``FileNotFoundError``)
+    is accepted, since destinations name files that do not exist yet.
+    """
 
     try:
         mode = os.lstat(leaf).st_mode
