@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -107,6 +108,25 @@ class OracleRegistryTests(unittest.TestCase):
             REPO / "pipelines", ("oracle_generate.py", "oracle_validate.py")
         )
         self.assertEqual(oracle_policy.POLICY["programs_sha256"], digest)
+
+    def test_admission_recomputes_the_sealed_digests(self):
+        """Admission rehashes the installed bytes, not just the registry strings.
+
+        Repeating a digest in the registry row proves nothing about the files
+        on disk, so ``row_findings`` recomputes both domains and refuses a
+        package that differs from the reviewed catalog.
+        """
+        from oracle_grounded import admission
+
+        row = identity.default_registry().by_path_id["oracle-grounded"]
+        self.assertEqual(admission.row_findings(row), [])
+
+        with mock.patch.object(
+            oracle_policy, "catalog_digest", return_value="0" * 64
+        ):
+            findings = admission.row_findings(row)
+        self.assertEqual([code for code, _ in findings], ["ORACLE_ROUTE_UNAUTHORIZED"])
+        self.assertIn("catalog digest", findings[0][1])
 
     def test_mutated_row_fails_registry_load(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))

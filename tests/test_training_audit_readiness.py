@@ -631,6 +631,42 @@ class TrainingAuditReadinessReport(unittest.TestCase):
         self.assertEqual(report["oracle"]["invalid_records"], 0)
         self.assertTrue(report["oracle"]["ineligibility_reasons"], report["oracle"])
 
+    def test_evidence_only_oracle_record_blocks_the_export(self):
+        """A retained-but-ineligible oracle row must not be published.
+
+        The exporter copies every curated row without filtering, so an
+        evidence-only record would otherwise reach the train/eval splits.
+        """
+        accepted = oracle_record_for(index=0)
+        rejected = oracle_record_for(index=1)
+        rejected["result"]["measured"]["probes"] = {
+            name: json.loads(json.dumps(rejected["result"]["measured"]["baseline"]))
+            for name in rejected["result"]["measured"]["probes"]
+        }
+        rejected["result_hash"] = oracle_canon.digest(rejected["result"])
+        rejected["validation"] = oracle_record.assess(rejected)
+        self.assertEqual(rejected["validation"]["status"], "rejected")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "oracle-grounded"
+            write(
+                root / "temporal-memory-spike-challenges" / "accepted-r01.jsonl",
+                [accepted],
+            )
+            write(
+                root / "temporal-memory-spike-challenges" / "rejected-r01.jsonl",
+                [rejected],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["oracle"]["eligible_records"], 1)
+        self.assertEqual(report["oracle"]["evidence_only_records"], 1)
+        self.assertFalse(report["training_ready"])
+        self.assertIn(
+            "oracle records are ineligible and must not be exported",
+            report["blockers"],
+        )
+
     def test_tampered_oracle_result_blocks_the_audit(self):
         """Editing the measured result while keeping the accepted stamp fails closed."""
         tampered = oracle_record_for(index=0)
@@ -649,16 +685,29 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             report["blockers"],
         )
 
-    def test_unrelated_oracle_shaped_record_under_a_foreign_factory_is_not_oracle_routed(self):
-        """The oracle route is registry-gated, so a foreign row keeps its own kind."""
+    def test_oracle_shaped_record_under_a_foreign_factory_is_refused(self):
+        """An oracle-schema record is oracle-routed wherever it lands, then refused.
+
+        Routing keys on the payload's own schema, not on registry authority:
+        if it were registry-gated, a schema-matching record under a factory
+        that does not authorize oracle would fall through to the generic path
+        and be counted eligible before any oracle invariant ran.
+        """
         record = oracle_record_for(index=0)
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "thalamic-trajectory-factory"
-            write(root / "batch-r01.jsonl", [record])
+            root = Path(td) / "run"
+            write(root / "thalamic" / "batch-r01.jsonl", [record])
             report = training_audit.audit_run(root)
 
-        self.assertIsNone(report.get("oracle"))
-        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["oracle"]["records"], 1)
+        self.assertEqual(report["oracle"]["eligible_records"], 0)
+        self.assertEqual(report["oracle"]["invalid_records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertFalse(report["training_ready"])
+        self.assertIn(
+            "oracle records failed validation and are not admissible",
+            report["blockers"],
+        )
 
 
 if __name__ == "__main__":

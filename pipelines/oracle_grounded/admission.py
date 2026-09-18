@@ -50,11 +50,22 @@ def row_findings(row: Any) -> list[tuple[str, str]]:
         return [
             ("ORACLE_ROUTE_UNAUTHORIZED", "row differs from sealed source authority")
         ]
+    # The row repeating the sealed digests proves nothing about the installed
+    # bytes, so the reviewed generation semantics are recomputed here too.
+    try:
+        source_policy.verify_source_bytes()
+    except source_policy.SourcePolicyError as exc:
+        return [("ORACLE_ROUTE_UNAUTHORIZED", str(exc))]
     return []
 
 
 def _factory_findings(record: Mapping[str, Any], row: Any) -> list[tuple[str, str]]:
     """A path-selected row must not authorize a payload naming another factory."""
+    if row is None:
+        # No authorized oracle row resolves for this path; ``row_findings``
+        # already reports ORACLE_ROUTE_UNAUTHORIZED, and there is no row
+        # payload_factory to contradict. Refusing is fail-closed either way.
+        return []
     meta = record.get("meta")
     if isinstance(meta, Mapping) and meta.get("factory") not in (None, row.payload_factory):
         return [

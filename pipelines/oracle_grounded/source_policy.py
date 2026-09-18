@@ -36,7 +36,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "13c596ea8579593755cc587684b35ad4c90218c2c7ab74303f86eb44fc055aa8"
+POLICY_SHA256 = "b03f439df5d3f36ec7a82e44926762ab2571989b536d4efa90f865776123867b"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -79,6 +79,34 @@ def catalog_digest(package: Path) -> str:
 def programs_digest(pipelines: Path, names: Sequence[str]) -> str:
     """The reviewed ``programs_sha256`` for the pipeline entry points."""
     return framed_digest((name, (pipelines / name).read_bytes()) for name in names)
+
+
+# The pinned entry points, in the reviewed order the digest was taken.
+PROGRAM_NAMES = ("oracle_generate.py", "oracle_validate.py")
+
+
+def verify_source_bytes() -> None:
+    """Recompute both sealed digest domains from the installed files.
+
+    ``validate_registry_row`` only proves the registry repeats the strings in
+    the sealed policy. Without this check a dirty or mispackaged checkout can
+    differ from the reviewed generation semantics while the registry still
+    grants identity authority, because the recomputation otherwise lives only
+    in tests. Every admission request rechecks the bytes.
+    """
+    try:
+        catalog = catalog_digest(ROOT / POLICY["catalog_relative_path"])
+        programs = programs_digest(ROOT / "pipelines", PROGRAM_NAMES)
+    except OSError as exc:
+        raise SourcePolicyError(f"oracle source package unreadable: {exc}") from exc
+    if catalog != POLICY["catalog_sha256"]:
+        raise SourcePolicyError(
+            "oracle source package differs from the reviewed catalog digest"
+        )
+    if programs != POLICY["programs_sha256"]:
+        raise SourcePolicyError(
+            "oracle pipeline entry points differ from the reviewed digest"
+        )
 
 
 def _freeze(value: Any) -> Any:

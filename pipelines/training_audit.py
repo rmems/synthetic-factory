@@ -457,22 +457,21 @@ class _CorpusAudit:
         )
 
     @staticmethod
-    def _registered_oracle_route(obj, factory):
-        """Return whether path-derived registry authority permits oracle validation."""
+    def _oracle_shaped(obj):
+        """Whether the record carries the oracle-grounded schema.
+
+        Registry authority is deliberately not part of this test: routing is
+        decided by the payload's own schema, and ``natural_eligibility`` (which
+        refuses a row that is not the sealed authority) makes the admit/refuse
+        call. Gating the route on registry authority instead would let a
+        schema-matching record fall through to the generic path, where it is
+        counted eligible before any oracle invariant runs.
+        """
         if __package__:
-            from .curate_identity import default_registry
             from .oracle_grounded.record import SCHEMA_ID
         else:
-            from curate_identity import default_registry
             from oracle_grounded.record import SCHEMA_ID
-        if not isinstance(obj, dict) or obj.get("schema") != SCHEMA_ID:
-            return False
-        row = default_registry().by_path_id.get(factory)
-        return (
-            row is not None
-            and row.identity_authoritative
-            and "oracle" in row.record_kinds
-        )
+        return isinstance(obj, dict) and obj.get("schema") == SCHEMA_ID
 
     def _observe_oracle(self, obj, where, factory, bucket):
         if __package__:
@@ -506,7 +505,7 @@ class _CorpusAudit:
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
             return
-        if self._registered_oracle_route(obj, factory):
+        if self._oracle_shaped(obj):
             self._observe_oracle(obj, where, factory, bucket)
             return
         self.totals["eligible_records"] += 1
@@ -801,6 +800,15 @@ class _CorpusAudit:
             }
             if self.oracle["invalid_records"]:
                 report["blockers"].append("oracle records failed validation and are not admissible")
+                report["training_ready"] = False
+            if self.oracle["evidence_only_records"]:
+                # The exporter copies every curated row without filtering, so an
+                # ineligible-but-retained record would reach the training/eval
+                # splits. Blocking here is what keeps an honestly rejected
+                # measurement out of the published dataset.
+                report["blockers"].append(
+                    "oracle records are ineligible and must not be exported"
+                )
                 report["training_ready"] = False
         return report
 
