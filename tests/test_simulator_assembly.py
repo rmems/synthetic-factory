@@ -45,6 +45,23 @@ class SimulatorAssembly(unittest.TestCase):
                 export_hf.export_run(root / "composed", root / "export")
             self.assertFalse((root / "export").exists())
 
+    def test_crlf_and_unterminated_native_source_bytes_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records = fault_oracle.build_records(97531, 2, produced_at="2026-09-18T12:00:00.000Z")
+            first = json.dumps(records[0], separators=(",", ":")).encode()
+            second = json.dumps(records[1], separators=(",", ":")).encode()
+            payload = first + b"\r\n" + second
+            source = root / "source" / FACTORY / "fresh.jsonl"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(payload)
+            summary = compose_curated.compose_run(source.parent.parent, root / "composed")
+            self.assertEqual(summary["counts"]["retained"], 2)
+            target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
+            self.assertEqual(target.read_bytes(), payload)
+            with self.assertRaisesRegex(export_hf.ExportError, "research-only"):
+                export_hf.export_run(root / "composed", root / "export")
+
     def test_malformed_family_claim_cannot_escape_to_thalamic_shape(self):
         from pipelines import record_kind
 
