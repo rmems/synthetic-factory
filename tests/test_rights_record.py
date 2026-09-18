@@ -103,25 +103,20 @@ class RightsRecordTests(unittest.TestCase):
 
     def test_tampered_source_binding_fails_closed(self):
         envelope = self._hosted()
+        evidence = BoundRights(source_bytes=b'{"id":"forged"}\n',
+                               factory_registry_bytes=self.registry.raw_bytes,
+                               row=self.hosted_row)
         with self.assertRaises(RightsPolicyError):
-            verify_bound_envelope(
-                envelope,
-                BoundRights(source_bytes=b'{"id":"forged"}\n',
-                factory_registry_bytes=self.registry.raw_bytes,
-                row=self.hosted_row),
-            )
+            verify_bound_envelope(envelope, evidence)
 
     def test_stale_policy_digest_fails_closed(self):
         envelope = self._procedural(eligible=True)
         envelope["rights_policy_sha256"] = "sha256:" + ("0" * 64)
+        evidence = BoundRights(source_bytes=self.SOURCE_BYTES,
+                               factory_registry_bytes=self.registry.raw_bytes,
+                               row=self.procedural_row, eligible=True)
         with self.assertRaises(RightsPolicyError):
-            verify_bound_envelope(
-                envelope,
-                BoundRights(source_bytes=self.SOURCE_BYTES,
-                factory_registry_bytes=self.registry.raw_bytes,
-                row=self.procedural_row,
-                eligible=True),
-            )
+            verify_bound_envelope(envelope, evidence)
 
     def test_matching_hosted_bytes_still_cannot_export(self):
         envelope = self._hosted()

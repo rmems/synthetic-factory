@@ -156,7 +156,7 @@ class RecordRights:
     ineligibility_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if type(self.eligible) is not bool:
+        if not isinstance(self.eligible, bool):
             raise policy_error(_WHERE, "procedural eligibility must be a boolean")
         if not all(is_exact_string(reason) for reason in self.ineligibility_reasons):
             raise policy_error(_WHERE, "ineligibility reasons must be strings")

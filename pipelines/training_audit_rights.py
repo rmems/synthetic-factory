@@ -130,6 +130,21 @@ class RightsAudit:
     compose_sha256: str | None = None
 
 
+def _captured_manifest_audit(run_dir: Path, path: Path, files, composed: bool) -> RightsAudit:
+    payload = path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    source_run, compose_digest = _manifest._compose_source(run_dir) if composed else (None, None)
+    if composed:
+        entries = _manifest._load_jsonl_objects(payload)
+        _manifest._require_compose_coverage(entries, _manifest._record_payloads(run_dir) if files is None else files)
+        blockers = _blockers_for_entries(entries)
+    else:
+        blockers = _identity_tree_blockers(
+            path, payload, _manifest._record_payloads(run_dir) if files is None else files,
+        )
+    return RightsAudit(tuple(blockers), digest, source_run, compose_digest)
+
+
 def capture_rights_audit(run_dir: Path, files: Mapping[str, bytes] | None = None) -> RightsAudit:
     """Capture and audit rights evidence once, before scanning record payloads."""
     run_dir = Path(run_dir)
@@ -140,20 +155,9 @@ def capture_rights_audit(run_dir: Path, files: Mapping[str, bytes] | None = None
         blockers = (missing_envelope_blocker(1),) if _manifest._missing_rights_manifest(run_dir) else ()
         return RightsAudit(blockers)
     try:
-        payload = path.read_bytes()
-        digest = hashlib.sha256(payload).hexdigest()
-        source_run, compose_digest = _manifest._compose_source(run_dir) if compose_path is not None else (None, None)
-        if compose_path is not None:
-            entries = _manifest._load_jsonl_objects(payload)
-            _manifest._require_compose_coverage(entries, _manifest._record_payloads(run_dir) if files is None else files)
-            blockers = _blockers_for_entries(entries)
-        else:
-            blockers = _identity_tree_blockers(
-                path, payload, _manifest._record_payloads(run_dir) if files is None else files,
-            )
+        return _captured_manifest_audit(run_dir, path, files, compose_path is not None)
     except (OSError, ValueError):
         return RightsAudit((invalid_envelope_blocker(1),))
-    return RightsAudit(tuple(blockers), digest, source_run, compose_digest)
 
 
 def collect_rights_blockers(run_dir: Path) -> list[str]:
