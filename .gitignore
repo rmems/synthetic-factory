@@ -50,3 +50,5 @@ scripts/*_mill/
 scripts/*_mill.py
 pipelines/*_mill_leftover*.py
 /mill_*_r*.py
+
+experiments/*-loop-r*.py

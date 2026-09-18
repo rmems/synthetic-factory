@@ -16,8 +16,10 @@ import ast
 import fnmatch
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
@@ -31,204 +33,21 @@ else:
     )
 
 
-SCHEMA_VERSION = "mill-script-inventory-v1"
-CLASSIFICATIONS = frozenset(
-    {
-        "production",
-        "retained_historical_generator",
-        "removable_duplicate",
-    }
-)
-QUALITY_SCOPES = frozenset({"production", "archived"})
-MAX_INVENTORY_BYTES = 256_000
-IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-PRODUCTION_ROOTS = ("pipelines/", "scripts/", ".claude/skills/")
+if __package__:
+    from . import mill_script_inventory_schema as _schema
+else:
+    import mill_script_inventory_schema as _schema
 
+SCHEMA_VERSION = _schema.SCHEMA_VERSION
+CLASSIFICATIONS = _schema.CLASSIFICATIONS
+QUALITY_SCOPES = _schema.QUALITY_SCOPES
+MAX_INVENTORY_BYTES = _schema.MAX_INVENTORY_BYTES
+MillScriptInventoryError = _schema.MillScriptInventoryError
+load_inventory_bytes = _schema.load_inventory_bytes
+IDENTIFIER_RE = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
+PRODUCTION_ROOTS = ("pipelines/", "scripts/", ".claude/skills/")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_PATH = REPO_ROOT / "config" / "MILL-SCRIPT-INVENTORY.json"
-
-
-class MillScriptInventoryError(Exception):
-    """Fail-closed inventory or guard refusal."""
-
-
-def _reject_duplicate_keys(pairs: list[tuple[object, object]]) -> dict:
-    seen: dict[object, object] = {}
-    for key, value in pairs:
-        if key in seen:
-            raise MillScriptInventoryError(f"duplicate key {key!r}")
-        seen[key] = value
-    return seen
-
-
-def _require_mapping(value: object, where: str) -> dict:
-    if not isinstance(value, dict):
-        raise MillScriptInventoryError(f"{where} must be an object")
-    return value
-
-
-def _require_str(value: object, where: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise MillScriptInventoryError(f"{where} must be a nonempty string")
-    return value
-
-
-def _require_str_list(value: object, where: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or not value:
-        raise MillScriptInventoryError(f"{where} must be a nonempty array of strings")
-    return tuple(_require_str(item, f"{where}[{index}]") for index, item in enumerate(value))
-
-
-def _require_path(value: object, where: str) -> str:
-    path = _require_str(value, where).replace("\\", "/")
-    if path.startswith("/") or path.startswith("../") or "/../" in path or path == "..":
-        raise MillScriptInventoryError(f"{where} must be a repo-relative path")
-    return path
-
-
-def _validate_script(entry: object, index: int) -> dict:
-    row = _require_mapping(entry, f"scripts[{index}]")
-    classification = _require_str(row.get("classification"), f"scripts[{index}].classification")
-    if classification not in CLASSIFICATIONS:
-        raise MillScriptInventoryError(
-            f"scripts[{index}].classification must be one of {sorted(CLASSIFICATIONS)}"
-        )
-    scope = _require_str(row.get("quality_scope"), f"scripts[{index}].quality_scope")
-    if scope not in QUALITY_SCOPES:
-        raise MillScriptInventoryError(
-            f"scripts[{index}].quality_scope must be one of {sorted(QUALITY_SCOPES)}"
-        )
-    if classification == "production" and scope != "production":
-        raise MillScriptInventoryError(
-            f"scripts[{index}]: production classification requires quality_scope production"
-        )
-    if classification != "production" and scope != "archived":
-        raise MillScriptInventoryError(
-            f"scripts[{index}]: archived classifications require quality_scope archived"
-        )
-    replacement = row.get("canonical_replacement")
-    if replacement is not None:
-        _require_str(replacement, f"scripts[{index}].canonical_replacement")
-    return {
-        "path": _require_path(row.get("path"), f"scripts[{index}].path"),
-        "classification": classification,
-        "owner": _require_str(row.get("owner"), f"scripts[{index}].owner"),
-        "status": _require_str(row.get("status"), f"scripts[{index}].status"),
-        "canonical_replacement": replacement,
-        "quality_scope": scope,
-        "provenance": _require_str(row.get("provenance"), f"scripts[{index}].provenance"),
-    }
-
-
-def _validate_family(entry: object, index: int) -> dict:
-    row = _require_mapping(entry, f"mill_families[{index}]")
-    classification = _require_str(
-        row.get("classification"), f"mill_families[{index}].classification"
-    )
-    if classification not in CLASSIFICATIONS:
-        raise MillScriptInventoryError(
-            f"mill_families[{index}].classification must be one of {sorted(CLASSIFICATIONS)}"
-        )
-    return {
-        "family": _require_str(row.get("family"), f"mill_families[{index}].family"),
-        "owner": _require_str(row.get("owner"), f"mill_families[{index}].owner"),
-        "classification": classification,
-        "provenance": _require_str(row.get("provenance"), f"mill_families[{index}].provenance"),
-    }
-
-
-def _validate_historical_policy(value: object) -> dict:
-    row = _require_mapping(value, "historical_generator_policy")
-    classification = _require_str(
-        row.get("classification"), "historical_generator_policy.classification"
-    )
-    if classification != "retained_historical_generator":
-        raise MillScriptInventoryError(
-            "historical_generator_policy.classification must be retained_historical_generator"
-        )
-    scope = _require_str(row.get("quality_scope"), "historical_generator_policy.quality_scope")
-    if scope != "archived":
-        raise MillScriptInventoryError(
-            "historical_generator_policy.quality_scope must be archived"
-        )
-    return {
-        "classification": classification,
-        "status": _require_str(row.get("status"), "historical_generator_policy.status"),
-        "quality_scope": scope,
-        "canonical_owner": _require_str(
-            row.get("canonical_owner"), "historical_generator_policy.canonical_owner"
-        ),
-        "canonical_replacement": _require_str(
-            row.get("canonical_replacement"),
-            "historical_generator_policy.canonical_replacement",
-        ),
-        "provenance_ref": _require_str(
-            row.get("provenance_ref"), "historical_generator_policy.provenance_ref"
-        ),
-        "location": _require_str(row.get("location"), "historical_generator_policy.location"),
-        "example_paths": _require_str_list(
-            row.get("example_paths"), "historical_generator_policy.example_paths"
-        ),
-        "notes": _require_str(row.get("notes"), "historical_generator_policy.notes"),
-    }
-
-
-def _validate_quality_policy(value: object) -> dict:
-    row = _require_mapping(value, "quality_policy")
-    return {
-        "historical_ref": _require_str(row.get("historical_ref"), "quality_policy.historical_ref"),
-        "gitignore_patterns": _require_str_list(
-            row.get("gitignore_patterns"), "quality_policy.gitignore_patterns"
-        ),
-        "archived_exclude_patterns": _require_str_list(
-            row.get("archived_exclude_patterns"),
-            "quality_policy.archived_exclude_patterns",
-        ),
-        "forbidden_blanket_patterns": _require_str_list(
-            row.get("forbidden_blanket_patterns"),
-            "quality_policy.forbidden_blanket_patterns",
-        ),
-    }
-
-
-def load_inventory_bytes(payload: bytes, *, where: str = "mill-script inventory") -> dict:
-    """Strictly decode and validate mill-script inventory bytes."""
-
-    if not isinstance(payload, bytes):
-        raise MillScriptInventoryError(f"{where} must be bytes")
-    if len(payload) > MAX_INVENTORY_BYTES:
-        raise MillScriptInventoryError(f"{where} exceeds {MAX_INVENTORY_BYTES} bytes")
-    try:
-        document = json.loads(payload.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise MillScriptInventoryError(f"{where}: invalid JSON: {exc}") from exc
-    mapping = _require_mapping(document, where)
-    version = _require_str(mapping.get("schema_version"), "schema_version")
-    if version != SCHEMA_VERSION:
-        raise MillScriptInventoryError(f"schema_version must be {SCHEMA_VERSION}")
-    scripts = mapping.get("scripts")
-    if not isinstance(scripts, list) or not scripts:
-        raise MillScriptInventoryError("scripts must be a nonempty array")
-    families = mapping.get("mill_families")
-    if not isinstance(families, list) or not families:
-        raise MillScriptInventoryError("mill_families must be a nonempty array")
-    validated_scripts = tuple(_validate_script(entry, index) for index, entry in enumerate(scripts))
-    paths = [row["path"] for row in validated_scripts]
-    if len(paths) != len(set(paths)):
-        raise MillScriptInventoryError("scripts paths must be unique")
-    return {
-        "schema_version": version,
-        "notes": _require_str(mapping.get("notes"), "notes"),
-        "match_patterns": _require_str_list(mapping.get("match_patterns"), "match_patterns"),
-        "scripts": validated_scripts,
-        "historical_generator_policy": _validate_historical_policy(
-            mapping.get("historical_generator_policy")
-        ),
-        "mill_families": tuple(
-            _validate_family(entry, index) for index, entry in enumerate(families)
-        ),
-        "quality_policy": _validate_quality_policy(mapping.get("quality_policy")),
-    }
 
 
 def load_inventory(path: Path | None = None) -> dict:
@@ -242,8 +61,14 @@ def path_matches(path: str, pattern: str) -> bool:
     """Return whether a repo-relative path matches one inventory glob."""
 
     normalized = path.replace("\\", "/")
+    anchored = pattern.startswith("/")
+    pattern = pattern.removeprefix("/")
+    if pattern.endswith("/"):
+        pattern += "**"
     name = normalized.rsplit("/", 1)[-1]
-    return fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(name, pattern)
+    if anchored or "/" in pattern:
+        return fnmatch.fnmatch(normalized, pattern)
+    return fnmatch.fnmatch(name, pattern)
 
 
 def matching_paths(paths: Iterable[str], patterns: Sequence[str]) -> tuple[str, ...]:
@@ -257,18 +82,45 @@ def matching_paths(paths: Iterable[str], patterns: Sequence[str]) -> tuple[str, 
     return tuple(sorted(set(hits)))
 
 
+def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
+    executable = shutil.which("git")
+    if executable is None:
+        raise MillScriptInventoryError("git is required for inventory scope checks")
+    result = subprocess.run(
+        [executable, *arguments],
+        cwd=repo,
+        input=payload,
+        capture_output=True,
+        check=False,
+    )
+    accepted = {"ls-files": (0,), "check-ignore": (0, 1)}[arguments[0]]
+    if result.returncode not in accepted:
+        raise MillScriptInventoryError(result.stderr.decode(errors="replace"))
+    return result.stdout
+
+
 def tracked_paths(root: Path | None = None) -> tuple[str, ...]:
     """Return git-tracked paths for inventory completeness."""
 
-    repo = root or REPO_ROOT
-    result = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=repo,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    payload = _git_output(root or REPO_ROOT, ["ls-files", "-z"])
+    return tuple(filter(None, payload.decode().split("\0")))
+
+
+def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, str, str]]:
+    """Use Git's effective ignore rules, including negation and ancestor rules."""
+
+    payload = "\0".join(sorted(paths)).encode() + b"\0"
+    output = _git_output(root, ["check-ignore", "--no-index", "-z", "-v", "--stdin"], payload)
+    fields = output.decode().split("\0")[:-1]
+    return {
+        fields[i + 3]: (fields[i], fields[i + 1], fields[i + 2]) for i in range(0, len(fields), 4)
+    }
+
+
+def _ignored_paths(matches: Mapping[str, tuple[str, str, str]]) -> frozenset[str]:
+    return frozenset(
+        path for path, (_source, _line, rule) in matches.items() if not rule.startswith("!")
     )
-    return tuple(item.replace("\\", "/") for item in result.stdout.decode().split("\0") if item)
 
 
 def script_index(inventory: Mapping[str, object]) -> dict[str, dict]:
@@ -287,9 +139,7 @@ def unclassified_paths(tracked: Sequence[str], inventory: Mapping[str, object]) 
     if not isinstance(patterns, (list, tuple)):
         raise MillScriptInventoryError("match_patterns must be an array")
     classified = script_index(inventory)
-    return tuple(
-        path for path in matching_paths(tracked, patterns) if path not in classified
-    )
+    return tuple(path for path in matching_paths(tracked, patterns) if path not in classified)
 
 
 def production_script_paths(inventory: Mapping[str, object]) -> frozenset[str]:
@@ -322,18 +172,15 @@ def _stem_identifier(path: str) -> str | None:
     return None
 
 
-def archived_module_names(inventory: Mapping[str, object]) -> frozenset[str]:
-    """Importable module names that would reach archived mill generators."""
-
-    names = {name for path in archived_script_paths(inventory) if (name := _stem_identifier(path))}
+def historical_paths(inventory: Mapping[str, object]) -> frozenset[str]:
     policy = inventory["historical_generator_policy"]
-    if not isinstance(policy, Mapping):
-        raise MillScriptInventoryError("historical_generator_policy must be an object")
-    for path in policy["example_paths"]:
-        name = _stem_identifier(str(path))
-        if name is not None:
-            names.add(name)
-    return frozenset(names)
+    return frozenset(policy["archived_paths"]) | archived_script_paths(inventory)
+
+
+def archived_module_names(inventory: Mapping[str, object]) -> frozenset[str]:
+    """Names derived from the full pinned archive, not illustrative examples."""
+
+    return frozenset(filter(None, map(_stem_identifier, historical_paths(inventory))))
 
 
 def imported_module_names(source: str) -> frozenset[str]:
@@ -367,9 +214,7 @@ def production_python_paths(tracked: Sequence[str]) -> tuple[str, ...]:
     """Tracked Python files under production roots."""
 
     return tuple(
-        path
-        for path in tracked
-        if path.endswith(".py") and path.startswith(PRODUCTION_ROOTS)
+        path for path in tracked if path.endswith(".py") and path.startswith(PRODUCTION_ROOTS)
     )
 
 
@@ -377,10 +222,7 @@ def patterns_hitting(patterns: Sequence[str], paths: Iterable[str]) -> tuple[tup
     """Return (pattern, path) pairs where a quality glob hits a path."""
 
     return tuple(
-        (pattern, path)
-        for pattern in patterns
-        for path in paths
-        if path_matches(path, pattern)
+        (pattern, path) for pattern in patterns for path in paths if path_matches(path, pattern)
     )
 
 
@@ -399,13 +241,18 @@ def gitignore_lines(root: Path | None = None) -> tuple[str, ...]:
 def qlty_exclude_patterns(root: Path | None = None) -> tuple[str, ...]:
     """Return exclude_patterns strings from ``.qlty/qlty.toml``."""
 
-    text = (root or REPO_ROOT).joinpath(".qlty", "qlty.toml").read_text(encoding="utf-8")
-    block = text.split("exclude_patterns = [", 1)[1].split("]", 1)[0]
-    return tuple(
-        line.split("\"", 2)[1]
-        for line in block.splitlines()
-        if "\"" in line
-    )
+    path = (root or REPO_ROOT) / ".qlty" / "qlty.toml"
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    patterns = document.get("exclude_patterns", [])
+    if not isinstance(patterns, list):
+        raise MillScriptInventoryError("Qlty exclude_patterns must be an array")
+    return tuple(_schema._require_str(pattern, "exclude_patterns") for pattern in patterns)
+
+
+def _gitignore_evidence(
+    anomalies: Iterable[str], matches: Mapping[str, tuple[str, str, str]]
+) -> tuple[tuple[str, ...], ...]:
+    return tuple((path, *matches[path]) for path in sorted(anomalies) if path in matches)
 
 
 def check_inventory(
@@ -423,39 +270,40 @@ def check_inventory(
     policy = loaded["quality_policy"]
     if not isinstance(policy, Mapping):
         raise MillScriptInventoryError("quality_policy must be an object")
-    gitignore_hits = patterns_hitting(policy["gitignore_patterns"], production)
-    qlty_hits = patterns_hitting(policy["archived_exclude_patterns"], production)
+    gitignore_rules = gitignore_lines(repo)
+    qlty_rules = qlty_exclude_patterns(repo)
+    archived = historical_paths(loaded)
+    matches = gitignore_matches(repo, production | archived)
+    ignored = _ignored_paths(matches)
+    gitignore_hits = tuple((matches[path][2], path) for path in sorted(production & ignored))
+    qlty_hits = patterns_hitting(qlty_rules, production)
     missing_gitignore = tuple(
-        pattern
-        for pattern in policy["gitignore_patterns"]
-        if pattern not in gitignore_lines(repo)
+        pattern for pattern in policy["gitignore_patterns"] if pattern not in gitignore_rules
     )
     missing_qlty = tuple(
-        pattern
-        for pattern in policy["archived_exclude_patterns"]
-        if pattern not in qlty_exclude_patterns(repo)
+        pattern for pattern in policy["archived_exclude_patterns"] if pattern not in qlty_rules
     )
     forbidden_present = tuple(
-        pattern
-        for pattern in policy["forbidden_blanket_patterns"]
-        if pattern in gitignore_lines(repo)
+        pattern for pattern in policy["forbidden_blanket_patterns"] if pattern in gitignore_rules
     )
-    return {
+    report = {
         "unclassified": unclassified,
         "gitignore_hits_on_production": gitignore_hits,
         "qlty_hits_on_production": qlty_hits,
         "missing_gitignore_patterns": missing_gitignore,
         "missing_qlty_patterns": missing_qlty,
         "forbidden_blanket_patterns_present": forbidden_present,
-        "ok": not (
-            unclassified
-            or gitignore_hits
-            or qlty_hits
-            or missing_gitignore
-            or missing_qlty
-            or forbidden_present
-        ),
+        "uncovered_gitignore_archived_paths": tuple(sorted(archived - ignored)),
+        "uncovered_qlty_archived_paths": uncovered_paths(qlty_rules, archived),
     }
+    anomalies = (production & ignored) | (archived - ignored)
+    evidence = _gitignore_evidence(anomalies, matches)
+    return {**report, "ok": not any(report.values()), "gitignore_rule_evidence": evidence}
+
+
+def uncovered_paths(patterns: Sequence[str], paths: Iterable[str]) -> tuple[str, ...]:
+    covered = {path for _pattern, path in patterns_hitting(patterns, paths)}
+    return tuple(sorted(set(paths) - covered))
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:

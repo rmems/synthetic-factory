@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import copy
+import shutil
 import json
+import tempfile
+from unittest.mock import patch
 import subprocess
 import sys
 import unittest
@@ -28,6 +33,17 @@ def _git_ignored(path: str) -> bool:
     return result.returncode == 0
 
 
+@contextlib.contextmanager
+def _scope_repo():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        shutil.copy(REPO / ".gitignore", root / ".gitignore")
+        (root / ".qlty").mkdir()
+        shutil.copy(REPO / ".qlty/qlty.toml", root / ".qlty/qlty.toml")
+        yield root
+
+
 class InventoryLoad(unittest.TestCase):
     def test_committed_inventory_is_loaded_and_bound_to_its_exact_bytes(self):
         self.assertEqual(msi.INVENTORY_BYTES, msi.INVENTORY_PATH.read_bytes())
@@ -42,6 +58,14 @@ class InventoryLoad(unittest.TestCase):
             msi.load_inventory_bytes(b'{"schema_version":"x","schema_version":"y"}\n')
         with self.assertRaisesRegex(msi.MillScriptInventoryError, "schema_version"):
             msi.load_inventory_bytes(b'{"schema_version":"other"}\n')
+
+    def test_archive_pin_and_paths_are_validated(self):
+        for key, value in (("provenance_commit", "main"), ("archived_paths", ["../outside.py"])):
+            with self.subTest(key=key):
+                document = json.loads(msi.INVENTORY_BYTES)
+                document["historical_generator_policy"][key] = value
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.load_inventory_bytes(json.dumps(document).encode())
 
 
 class Completeness(unittest.TestCase):
@@ -72,9 +96,7 @@ class Completeness(unittest.TestCase):
 
     def test_historical_examples_match_the_guard_patterns(self):
         examples = self.inventory["historical_generator_policy"]["example_paths"]
-        matched = msi.matching_paths(
-            examples, self.inventory["match_patterns"]
-        )
+        matched = msi.matching_paths(examples, self.inventory["match_patterns"])
         self.assertEqual(matched, tuple(sorted(examples)))
 
 
@@ -135,6 +157,87 @@ class QualityScope(unittest.TestCase):
         self.assertEqual(hits, ())
 
 
+class ScopeRegressions(unittest.TestCase):
+    def test_added_gitignore_rule_cannot_hide_production(self):
+        with _scope_repo() as root:
+            path = root / ".gitignore"
+            path.write_text(path.read_text() + "\npipelines/leftover_mill.py\n")
+            report = msi.check_inventory(root, tracked=())
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            ("pipelines/leftover_mill.py", "pipelines/leftover_mill.py"),
+            report["gitignore_hits_on_production"],
+        )
+
+    def test_production_reinclusion_is_not_reported_as_ignored(self):
+        production = "pipelines/leftover_mill.py"
+        with _scope_repo() as root:
+            path = root / ".gitignore"
+            path.write_text(path.read_text() + "\n" + production + "\n!" + production + "\n")
+            report = msi.check_inventory(root, tracked=())
+        self.assertEqual(report["gitignore_hits_on_production"], ())
+        self.assertTrue(report["ok"])
+
+    def test_archived_reinclusion_is_not_reported_as_ignored(self):
+        archived = "experiments/ewr_leftover3_mill.py"
+        with _scope_repo() as root:
+            path = root / ".gitignore"
+            path.write_text(path.read_text() + "\n!" + archived + "\n")
+            report = msi.check_inventory(root, tracked=())
+        self.assertFalse(report["ok"])
+        self.assertIn(archived, report["uncovered_gitignore_archived_paths"])
+        evidence = next(row for row in report["gitignore_rule_evidence"] if row[0] == archived)
+        self.assertEqual(evidence[1], ".gitignore")
+        self.assertTrue(evidence[2].isdigit())
+        self.assertEqual(evidence[3], "!" + archived)
+
+    def test_added_qlty_rule_cannot_hide_production(self):
+        rules = msi.qlty_exclude_patterns(REPO) + ("**/*_mill.py",)
+        with patch.object(msi, "qlty_exclude_patterns", return_value=rules):
+            report = msi.check_inventory(REPO)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            ("**/*_mill.py", "pipelines/leftover_mill.py"), report["qlty_hits_on_production"]
+        )
+
+    def test_archived_row_must_be_covered_by_both_exclusion_files(self):
+        inventory = copy.deepcopy(msi.INVENTORY)
+        archived = dict(
+            inventory["scripts"][0],
+            path="pipelines/foo_mill.py",
+            classification="retained_historical_generator",
+            quality_scope="archived",
+        )
+        inventory["scripts"] += (archived,)
+        report = msi.check_inventory(REPO, inventory=inventory)
+        self.assertFalse(report["ok"])
+        self.assertIn(archived["path"], report["uncovered_gitignore_archived_paths"])
+        self.assertIn(archived["path"], report["uncovered_qlty_archived_paths"])
+
+    def test_legacy_loops_are_matched_and_excluded(self):
+        path = "experiments/rag-loop-r343.py"
+        self.assertTrue(msi.matching_paths((path,), msi.INVENTORY["match_patterns"]))
+        self.assertTrue(_git_ignored(path))
+        self.assertTrue(msi.patterns_hitting(msi.qlty_exclude_patterns(REPO), (path,)))
+
+    def test_archived_imports_include_nonexample_generators(self):
+        archived = msi.archived_module_names(msi.INVENTORY)
+        self.assertEqual(
+            msi.archived_import_hits("import ewr_leftover3_mill", archived), ("ewr_leftover3_mill",)
+        )
+        paths = msi.INVENTORY["historical_generator_policy"]["archived_paths"]
+        self.assertIn("experiments/rag-loop-r343.py", paths)
+
+    def test_qlty_rules_use_toml_not_double_quote_line_splitting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".qlty").mkdir()
+            (root / ".qlty/qlty.toml").write_text(
+                "exclude_patterns = ['pipelines/leftover_mill.py']\n"
+            )
+            self.assertEqual(msi.qlty_exclude_patterns(root), ("pipelines/leftover_mill.py",))
+
+
 class ImportGraph(unittest.TestCase):
     def test_archived_module_helper_detects_a_leftover_mill_import(self):
         archived = msi.archived_module_names(msi.INVENTORY)
@@ -158,12 +261,8 @@ class ImportGraph(unittest.TestCase):
 
     def test_production_consumers_still_import_leftover_mill(self):
         publisher = (REPO / "scripts" / "publish_grok46_hub.py").read_text(encoding="utf-8")
-        preferences = (REPO / "pipelines" / "curate_preferences.py").read_text(
-            encoding="utf-8"
-        )
-        names = msi.imported_module_names(publisher) | msi.imported_module_names(
-            preferences
-        )
+        preferences = (REPO / "pipelines" / "curate_preferences.py").read_text(encoding="utf-8")
+        names = msi.imported_module_names(publisher) | msi.imported_module_names(preferences)
         self.assertIn("leftover_mill", names)
 
 

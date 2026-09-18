@@ -1039,7 +1039,38 @@ def _package_validate_run_thalamic() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
+
+
+def _direct_mill_script_inventory() -> ModuleType:
+    import mill_script_inventory as module
+
+    return module
+
+
+def _package_mill_script_inventory() -> ModuleType:
+    import pipelines.mill_script_inventory as module
+
+    return module
+
+
+def _direct_mill_script_inventory_schema() -> ModuleType:
+    import mill_script_inventory_schema as module
+
+    return module
+
+
+def _package_mill_script_inventory_schema() -> ModuleType:
+    import pipelines.mill_script_inventory_schema as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "mill_script_inventory": (_direct_mill_script_inventory, _package_mill_script_inventory),
+    "mill_script_inventory_schema": (
+        _direct_mill_script_inventory_schema,
+        _package_mill_script_inventory_schema,
+    ),
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
     "coding_constants": (_direct_coding_constants, _package_coding_constants),
@@ -1176,8 +1207,14 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "operator_paths": (_direct_operator_paths, _package_operator_paths),
     "curate_gate_promotion": (_direct_curate_gate_promotion, _package_curate_gate_promotion),
     "curate_identity_json": (_direct_curate_identity_json, _package_curate_identity_json),
-    "curate_identity_registry": (_direct_curate_identity_registry, _package_curate_identity_registry),
-    "curate_identity_registry_fields": (_direct_curate_identity_registry_fields, _package_curate_identity_registry_fields),
+    "curate_identity_registry": (
+        _direct_curate_identity_registry,
+        _package_curate_identity_registry,
+    ),
+    "curate_identity_registry_fields": (
+        _direct_curate_identity_registry_fields,
+        _package_curate_identity_registry_fields,
+    ),
     "curate_identity_registry_rows": (
         _direct_curate_identity_registry_rows,
         _package_curate_identity_registry_rows,
@@ -1185,7 +1222,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "round_txn_agentic": (_direct_round_txn_agentic, _package_round_txn_agentic),
     "round_txn_agentic_terms": (_direct_round_txn_agentic_terms, _package_round_txn_agentic_terms),
     "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
-    "round_txn_agentic_cascade": (_direct_round_txn_agentic_cascade, _package_round_txn_agentic_cascade),
+    "round_txn_agentic_cascade": (
+        _direct_round_txn_agentic_cascade,
+        _package_round_txn_agentic_cascade,
+    ),
     "validate_run_safety": (_direct_validate_run_safety, _package_validate_run_safety),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
