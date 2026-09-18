@@ -84,11 +84,21 @@ def _require_bounded_int(value: int, where: str, code: str) -> None:
         raise CsvRefusal(code, f"{where} exceeds the exact-JSON integer domain")
 
 
+def _plant_field(row: dict[str, Any], key: str, where: str) -> Any:
+    if key not in row:
+        raise CsvRefusal(FINDING_PLANT_FIELD_MISSING, f"{where}.{key} is missing")
+    return row[key]
+
+
+def _plant_text_field(row: dict[str, Any], key: str, where: str) -> str:
+    return _require_text(_plant_field(row, key, where), f"{where}.{key}", FINDING_PLANT_FIELD_INVALID)
+
+
 def _plant_identity(row: dict[str, Any], where: str) -> tuple[str, str]:
-    mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
+    mill_id = _plant_text_field(row, "mill_id", where)
     if not MILL_ID_RE.fullmatch(mill_id):
         raise CsvRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not csv_rNNN")
-    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
+    plant_id = _plant_text_field(row, "plant_id", where)
     expected = f"{mill_id}:{row['slug']}"
     if plant_id != expected:
         raise CsvRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
@@ -97,7 +107,7 @@ def _plant_identity(row: dict[str, Any], where: str) -> tuple[str, str]:
 
 def _plant_pair_fields(row: dict[str, Any], where: str) -> dict[str, str]:
     fields = {
-        key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
+        key: _plant_text_field(row, key, where)
         for key in PAIR_KEYS
     }
     _require_pair_identifiers(fields, where)
@@ -123,11 +133,11 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     plant = Plant(
         plant_id=plant_id,
         mill_id=mill_id,
-        source=_require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING),
+        source=_plant_text_field(row, "source", where),
         base_round=_require_int(
-            row.get("base_round"), 1, f"{where}.base_round", FINDING_PLANT_FIELD_INVALID
+            _plant_field(row, "base_round", where), 1, f"{where}.base_round", FINDING_PLANT_FIELD_INVALID
         ),
-        index=_require_int(row.get("index"), 0, f"{where}.index", FINDING_PLANT_FIELD_INVALID),
+        index=_require_int(_plant_field(row, "index", where), 0, f"{where}.index", FINDING_PLANT_FIELD_INVALID),
         **fields,
     )
     _require_bounded_int(

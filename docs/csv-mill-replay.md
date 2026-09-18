@@ -1,7 +1,8 @@
 # CSV mill catalog replay
 
 `python3 -m pipelines.csv_mill.cli catalog-check --json` checks the recovered
-CSV catalog. Its source is
+CSV catalog. Exit status is 0 for success, 1 for catalog findings, and 2 for
+a coded refusal or usage error. Its source is
 `experiments/mill_leftover_leftover_leftover_csv_r114.py` at commit
 `813f93f1969c1c4421e5663492e9663739efa642` on `legacy-mill-lane`. Extraction
 reads the AST without executing the archived program. The loader requires
@@ -37,8 +38,16 @@ checks do not provide an atomic pathname-location guarantee against such moves.
 Staged entry names, original file identities, and written bytes are checked before
 publication, but another process under the same UID can still alter content
 between that check and rename. Keep the containing directory and staged content
-stable during publication; the generator does not
-roll back by deleting paths that another writer may have replaced.
+stable through staging, publication, and cleanup. The generator does not attempt
+post-publication rollback.
+
+Cleanup preserves replaced entries observed by its identity/content checks and
+refuses to recursively remove unknown content. Those checks are separate from
+`unlink` and `rmdir`: a noncooperating same-UID actor can replace an entry between
+the check and deletion, and the replacement may then be removed. The private
+0700 stage is not isolation from other processes with the same filesystem access.
+No atomic identity-bound deletion or adversarial same-UID safety is claimed;
+an advisory lock would only constrain writers that cooperate with it.
 
 ## Source rounds and publication
 
@@ -64,3 +73,10 @@ tool executions.
 Before projection, the original AST is compiled only to validate Python constraints,
 including deferred function bodies. Its code object is discarded without execution.
 Both source text and its path must be builtin strings before parsing or hashing.
+
+`Catalog.meta` is a recursive snapshot: mappings are read-only copies and JSON
+sequences become tuples. Mutating the caller's constructor input cannot alter it.
+Generation uses the validated plant/mill values; CLI JSON reports its explicit
+summary fields rather than serializing the metadata view. Absent required plant
+fields report `PLANT_FIELD_MISSING`; present invalid values report
+`PLANT_FIELD_INVALID`, including numeric and Unicode checks.

@@ -41,6 +41,15 @@ class Mill:
     plant_count: int
 
 
+def _metadata_snapshot(value):
+    """Copy JSON containers so caller mutation cannot rewrite catalog metadata."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _metadata_snapshot(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_metadata_snapshot(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True)
 class Catalog:
     catalog_id: str
@@ -55,6 +64,7 @@ class Catalog:
     _by_mill: Mapping[str, tuple[Plant, ...]] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "meta", _metadata_snapshot(self.meta))
         groups: dict[str, list[Plant]] = defaultdict(list)
         for plant in self.plants:
             groups[plant.mill_id].append(plant)

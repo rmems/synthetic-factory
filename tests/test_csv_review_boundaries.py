@@ -117,7 +117,7 @@ class CatalogBoundaries(unittest.TestCase):
                                  "--out", str(self.directory / "run"), "--json"])
         self.assertEqual(code, 2)
         self.assertEqual(err, "")
-        self.assertEqual(json.loads(out)["code"], "PLANT_FIELD_MISSING")
+        self.assertEqual(json.loads(out)["code"], "PLANT_FIELD_INVALID")
         self.assertFalse((self.directory / "run").exists())
 
 

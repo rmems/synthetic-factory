@@ -36,7 +36,7 @@ def _remove_empty_entry(path, identity):
         if _identity(path.lstat()) == identity:
             os.rmdir(path)
     except OSError:
-        # Changed entries and directories containing unknown content stay intact.
+        # Replacements observed before the check and nonempty directories stay.
         pass
 
 
@@ -109,6 +109,7 @@ class _OwnedStage:
                 raise CsvRefusal(FINDING_DESTINATION_INVALID, f"staged file {name} changed")
 
     def _unlink_owned(self, name, owned):
+        # A same-UID actor can still replace the entry between this check and unlink.
         try:
             if owned.matches(self.descriptor, name):
                 os.unlink(name, dir_fd=self.descriptor)

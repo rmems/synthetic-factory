@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """CSV mill commands: catalog-check and generate.
 
-Exit codes: 0 on success, 2 on a coded refusal or usage error. ``--json``
+Exit codes: 0 on success, 1 on catalog findings, and 2 on a coded refusal
+or usage error. ``--json``
 prints one object so an agent never parses prose. Invoke as
 ``python3 -m pipelines.csv_mill.cli`` so the stdlib ``csv`` module stays intact.
 """
