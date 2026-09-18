@@ -47,6 +47,11 @@ def _sbox_increment_source(increment):
 
 
 class LiteralCatalogExtract(unittest.TestCase):
+    def test_encoding_cookie_applies_to_the_authenticated_bytes(self):
+        source = "# coding: latin-1\n" + SSL_SOURCE.replace("fixture docs", "café")
+        constants = module_constants(source, path=SSL_PATH)
+        self.assertEqual(constants["PAIRS"][0]["docs"], "cafÃ©")
+
     def test_escaped_surrogates_are_refused_in_catalog_text(self):
         for field, original in (("slug", "bind"), ("docs", "fixture docs")):
             for escaped in (r"\ud800", r"\udfff"):

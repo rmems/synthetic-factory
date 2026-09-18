@@ -27,7 +27,7 @@ _ANNOTATION_NAMES = frozenset({"str", "int", "float", "bool", "list", "dict", "t
 
 def module_constants(source: str, *, path: str) -> dict[str, Any]:
     payload = source_payload(source, path=path)
-    tree = _validated_tree(source)
+    tree = _validated_tree(payload)
     _require_future_header(tree)
     archive = _ARCHIVE_SOURCE_PINS.get(path) == hashlib.sha256(payload).hexdigest()
     env: dict[str, Any] = {}
