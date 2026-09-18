@@ -205,7 +205,10 @@ class LeafSafety(unittest.TestCase):
             target.mkdir()
             alias = root / "alias"
             alias.symlink_to(target, target_is_directory=True)
-            for suffix in ("/missing/..", "/missing/../", "/missing/../."):
+            for suffix in (
+                "/missing/..", "/missing/../", "/missing/../.",
+                "/missing-a/missing-b/../..", "/missing-a/missing-b/../../.",
+            ):
                 with self.subTest(suffix=suffix), self.assertRaises(argparse.ArgumentTypeError):
                     operator_path(str(alias) + suffix, argument="--run-dir")
             self.assertEqual(operator_path(str(target) + "/missing/.."), target)

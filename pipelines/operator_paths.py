@@ -91,17 +91,22 @@ def _inspectable_leaf(text: str) -> Path:
 
 def _without_terminal_dots(text: str) -> str:
     """Remove only the terminal syntax; interior symlink parents stay intact."""
-    while True:
-        text = text.rstrip(os.sep) or os.sep
-        parent, name = os.path.split(text)
-        if name == os.curdir and parent:
-            text = parent
-            continue
-        prefix, previous = os.path.split(parent)
-        if name == os.pardir and previous not in ("", os.curdir, os.pardir):
-            text = prefix or os.curdir
-            continue
-        return text
+    path = Path(text)
+    parts = list(path.parts)
+    pending = 0
+    while parts:
+        if not pending and parts[-1] != os.pardir:
+            break
+        component = parts.pop()
+        if component == os.pardir:
+            pending += 1
+        elif component == path.anchor:
+            parts.append(component)
+            pending = 0
+            break
+        else:
+            pending -= 1
+    return str(Path(*parts, *([os.pardir] * pending)))
 
 
 def _refuse_leaf(leaf: Path, argument: str | None) -> None:
