@@ -86,18 +86,31 @@ def matching_paths(paths: Iterable[str], patterns: Sequence[str]) -> tuple[str, 
     return tuple(sorted(set(hits)))
 
 
+# Exact argv only: inventory completeness uses tracked files, quality scope uses
+# Git's effective ignore rules. Extra verbs or flags are refused before spawn.
+_GIT_COMMANDS: dict[tuple[str, ...], tuple[int, ...]] = {
+    ("ls-files", "-z"): (0,),
+    ("check-ignore", "--no-index", "-z", "-v", "--stdin"): (0, 1),
+}
+
+
 def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
     executable = shutil.which("git")
     if executable is None:
         raise MillScriptInventoryError("git is required for inventory scope checks")
+    accepted = _GIT_COMMANDS.get(tuple(arguments))
+    if accepted is None:
+        raise MillScriptInventoryError(
+            "inventory git helper accepts only ls-files or check-ignore"
+        )
     result = subprocess.run(
         [executable, *arguments],
-        cwd=repo,
+        cwd=Path(repo).resolve(),
         input=payload,
         capture_output=True,
         check=False,
+        shell=False,
     )
-    accepted = {"ls-files": (0,), "check-ignore": (0, 1)}[arguments[0]]
     if result.returncode not in accepted:
         raise MillScriptInventoryError(result.stderr.decode(errors="replace"))
     return result.stdout
