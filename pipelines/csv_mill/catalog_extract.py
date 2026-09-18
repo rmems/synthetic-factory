@@ -20,6 +20,7 @@ from .catalog_validation import (
     _claim_unique,
     _distinct_episode_slugs,
     _require_pair_identifiers,
+    _require_mill_round,
     _require_int,
     _require_text,
 )
@@ -117,7 +118,8 @@ def _source_base(
         base = _const_eval(assignments["CATALOG_FIRST"])
     if base is None:
         base = _suffix_round(mill_id)
-    return _require_int(base, 1, f"{source} CATALOG_FIRST", FINDING_PLANT_FIELD_INVALID)
+    base = _require_int(base, 1, f"{source} CATALOG_FIRST", FINDING_PLANT_FIELD_INVALID)
+    return _require_mill_round(mill_id, base, FINDING_PLANT_FIELD_INVALID)
 
 
 def _suffix_round(mill_id: str) -> int:

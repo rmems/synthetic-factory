@@ -22,6 +22,9 @@ __all__ = ["write_run_files"]
 def _publish(parent: Path, staged: Path, destination: Path) -> None:
     descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
+        # This detects observable relocation before commit. A directory FD
+        # pins an inode, not its namespace: another actor can still move that
+        # inode between this check and rename, or after publication succeeds.
         verify_parent(destination, parent)
         rename_noreplace(descriptor, staged.name, destination.name)
     except FileExistsError as exc:

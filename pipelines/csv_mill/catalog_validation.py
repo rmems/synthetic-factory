@@ -62,6 +62,10 @@ def _require_text(value: Any, where: str, code: str) -> str:
         raise CsvRefusal(code, f"{where} must be a non-empty stripped string")
     if not value or value != value.strip():
         raise CsvRefusal(code, f"{where} must be a non-empty stripped string")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise CsvRefusal(code, f"{where} must contain Unicode scalar values") from exc
     return value
 
 
@@ -148,8 +152,12 @@ def _mill_from_row(row: Any, where: str) -> Mill:
 
 def _mill_round(row: Any, mill_id: str, where: str) -> int:
     base = _mill_positive_int(row, "base_round", where)
+    return _require_mill_round(mill_id, base, FINDING_CATALOG_FIELD_INVALID)
+
+
+def _require_mill_round(mill_id: str, base: int, code: str) -> int:
     if mill_id.removeprefix("csv_r").lstrip("0") != str(base):
-        raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, "mill_id suffix must match base_round")
+        raise CsvRefusal(code, "mill_id suffix must match base_round")
     return base
 
 

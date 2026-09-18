@@ -16,10 +16,14 @@ FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
 
 def _outside_raw(descriptor: int) -> Path:
     anchor = Path(f"/proc/self/fd/{descriptor}")
+    _require_outside_raw(anchor)
+    return anchor
+
+
+def _require_outside_raw(anchor: Path) -> None:
     anchor.resolve(strict=True)
     if is_under_raw(anchor):
         raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, "pinned output parent aliases the raw tree")
-    return anchor
 
 
 def _existing_parent(parent: Path) -> tuple[int, list[str]]:
@@ -70,6 +74,7 @@ def verify_parent(destination: Path, anchor: Path) -> None:
         raise CsvRefusal(FINDING_DESTINATION_INVALID, "output parent is no longer accessible") from exc
     if (requested.st_dev, requested.st_ino) != (pinned.st_dev, pinned.st_ino):
         raise CsvRefusal(FINDING_DESTINATION_INVALID, "output parent changed during publication")
+    _require_outside_raw(anchor)
 
 
 @contextmanager

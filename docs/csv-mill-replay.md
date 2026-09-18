@@ -13,6 +13,15 @@ pairs, a run summary, and notes. It stages all three files before publishing
 the new directory and refuses an existing destination or `outputs/raw/`.
 The hosted factory remains research-only and blocked from training.
 
+Publication checks the pinned parent inode and its resolved location immediately
+before the no-replace rename. The successful rename is the commit point; the CLI
+reports `published_destination` separately from the requested `destination`.
+A directory descriptor does not lock its pathname: another process can move the
+containing directory between the final check and rename, or after success. These
+checks do not provide an atomic pathname-location guarantee against such moves.
+Keep the containing directory stable during publication; the generator does not
+roll back by deleting paths that another writer may have replaced.
+
 ## Source rounds and publication
 
 The default rounds 114–129 preserve this archived mill's source identity.

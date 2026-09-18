@@ -34,7 +34,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def _shared_arguments() -> argparse.ArgumentParser:
-    common = _Parser(add_help=False)
+    common = _Parser(add_help=False, allow_abbrev=False)
     common.add_argument("--catalog", type=Path, default=None)
     common.add_argument("--json", action="store_true")
     return common
@@ -53,14 +53,14 @@ def _generation_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = _Parser(prog="pipelines.csv_mill.cli", description=__doc__)
+    parser = _Parser(prog="pipelines.csv_mill.cli", description=__doc__, allow_abbrev=False)
     subcommands = parser.add_subparsers(dest="command", required=True)
     common = _shared_arguments()
     for name, handler, help_text in (
         ("catalog-check", _catalog_check, "load the pinned catalog and verify pins"),
         ("generate", _generate, "success/handoff pairs into a new directory"),
     ):
-        command = subcommands.add_parser(name, parents=[common], help=help_text)
+        command = subcommands.add_parser(name, parents=[common], help=help_text, allow_abbrev=False)
         command.set_defaults(handler=handler)
         if name == "generate":
             _generation_arguments(command)

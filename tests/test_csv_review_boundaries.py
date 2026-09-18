@@ -103,6 +103,23 @@ class CatalogBoundaries(unittest.TestCase):
             catalog.plants_from_source(source, mill_id="csv_r" + "9" * 5000, source="recovered.py")
         self.assertEqual(caught.exception.code, "PLANT_FIELD_INVALID")
 
+    def test_extracted_base_round_must_match_mill_suffix(self):
+        source = _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX, CATALOG_FIRST=114)
+        for mill_id, explicit in (("csv_r999", None), ("csv_r114", 999)):
+            with self.subTest(mill_id=mill_id, base=explicit), self.assertRaises(CsvRefusal):
+                catalog.plants_from_source(source, mill_id=mill_id, source="recovered.py", base_round=explicit)
+
+    def test_unpaired_surrogate_catalog_text_is_refused_before_generation(self):
+        rows = [json.loads(line) for line in (self.directory / "plants.jsonl").read_text().splitlines()]
+        rows[0]["domain"] = "bad\ud800text"
+        self._save(rows)
+        code, out, err = invoke(["generate", "--catalog", str(self.directory), "--all",
+                                 "--out", str(self.directory / "run"), "--json"])
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "")
+        self.assertEqual(json.loads(out)["code"], "PLANT_FIELD_MISSING")
+        self.assertFalse((self.directory / "run").exists())
+
 
 class OutputBoundaries(unittest.TestCase):
     def test_parent_file_is_a_structured_refusal(self):
@@ -140,3 +157,9 @@ class OutputBoundaries(unittest.TestCase):
         record = generate.fail_episode(114, plant, "csv-lll-v1")
         self.assertEqual(record["meta"]["domain"], plant.fail)
         self.assertIn("domain=" + plant.fail, generate.notes_markdown(114, plant))
+
+    def test_abbreviated_json_flags_are_not_supported_parser_spellings(self):
+        from pipelines.csv_mill import cli
+        for flag in ("--j", "--js"):
+            with self.subTest(flag=flag), self.assertRaises(CsvRefusal):
+                cli.build_parser().parse_args(["catalog-check", flag])

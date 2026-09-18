@@ -111,3 +111,22 @@ class ParentBinding(unittest.TestCase):
             self._run(self.alias / "run")
         self.assertEqual(list(self.safe.iterdir()), [])
         self.assertEqual(list(self.raw.iterdir()), [])
+
+    def test_relocated_parent_with_restored_alias_is_refused_before_publish(self):
+        original = Path.write_text
+        (self.safe / "foreign").write_text("preserve")
+        relocated = self.raw / "relocated"
+
+        def write(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path.name == "RUN.json":
+                self.safe.rename(relocated)
+                self.alias.unlink()
+                self.alias.symlink_to(relocated, target_is_directory=True)
+            return result
+
+        with patch.object(Path, "write_text", write), self.assertRaises(CsvRefusal) as caught:
+            self._run(self.alias / "run")
+        self.assertEqual(caught.exception.code, "DESTINATION_UNDER_RAW")
+        self.assertEqual((relocated / "foreign").read_text(), "preserve")
+        self.assertEqual([path.name for path in relocated.iterdir()], ["foreign"])
