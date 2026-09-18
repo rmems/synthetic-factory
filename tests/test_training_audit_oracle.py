@@ -9,7 +9,6 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from training_audit_test_helpers import REPO, write
 sys.path.insert(0, str(REPO / "pipelines"))
-from oracle_grounded import canon as oracle_canon
 from oracle_grounded import record as oracle_record
 import training_audit
 
@@ -31,15 +30,7 @@ class OracleAuditTests(unittest.TestCase):
         record lands in evidence_only_records rather than eligible_records.
         """
         accepted = oracle_record_for(index=0)
-        rejected = oracle_record_for(index=1)
-        # Ablating every probe to the baseline removes the temporal dependence
-        # the family requires, so the family invariants fail honestly.
-        rejected["result"]["measured"]["probes"] = {
-            name: json.loads(json.dumps(rejected["result"]["measured"]["baseline"]))
-            for name in rejected["result"]["measured"]["probes"]
-        }
-        rejected["result_hash"] = oracle_canon.digest(rejected["result"])
-        rejected["validation"] = oracle_record.assess(rejected)
+        rejected = oracle_record_for(index=5)
         self.assertEqual(rejected["validation"]["status"], "rejected")
 
         with tempfile.TemporaryDirectory() as td:
@@ -68,13 +59,7 @@ class OracleAuditTests(unittest.TestCase):
         evidence-only record would otherwise reach the train/eval splits.
         """
         accepted = oracle_record_for(index=0)
-        rejected = oracle_record_for(index=1)
-        rejected["result"]["measured"]["probes"] = {
-            name: json.loads(json.dumps(rejected["result"]["measured"]["baseline"]))
-            for name in rejected["result"]["measured"]["probes"]
-        }
-        rejected["result_hash"] = oracle_canon.digest(rejected["result"])
-        rejected["validation"] = oracle_record.assess(rejected)
+        rejected = oracle_record_for(index=5)
         self.assertEqual(rejected["validation"]["status"], "rejected")
 
         with tempfile.TemporaryDirectory() as td:

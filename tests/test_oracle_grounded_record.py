@@ -1530,8 +1530,11 @@ class AuthoritativeRecordSemantics(unittest.TestCase):
             }
         item["result_hash"] = canon.digest(item["result"])
         item["validation"] = record.assess(item)
+        # Draft schema integer semantics accept these numeric values, while
+        # exact execution replay still rejects a changed result representation.
+        self.assertEqual(schema_validation.validate_record_schemas(item, item["family"]), [])
         layers = record.classify(item)
-        self.assertEqual(layers["envelope"], [])
+        self.assertTrue(any("reference replay mismatch" in error for error in layers["envelope"]))
         self.assertEqual(layers["status"], [])
 
     def test_every_shipped_schema_uses_only_enforced_keywords(self):

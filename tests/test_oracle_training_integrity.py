@@ -37,9 +37,8 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
                     admission.natural_eligibility(item, self._row())
                 item["validation"] = record.assess(item)
                 self.assertEqual(item["validation"]["status"], "rejected")
-                eligible, reasons = admission.natural_eligibility(item, self._row())
-                self.assertFalse(eligible)
-                self.assertTrue(reasons)
+                with self.assertRaises(admission.OracleAdmissionError):
+                    admission.natural_eligibility(item, self._row())
 
     def test_runtime_measurements_require_authenticated_replay_without_implicit_execution(self):
         reference = build(families.CREDIT_FAMILY)

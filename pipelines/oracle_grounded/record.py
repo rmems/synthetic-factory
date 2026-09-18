@@ -419,14 +419,14 @@ def classify(record, require_named_runtime=False, check_declared_status=True, ex
             "family": [],
             "status": [],
         }
-    if not family_findings:
-        family_findings = _reference_replay_findings(record)
-    status = _validate_declared_status(record, family_findings) if check_declared_status else []
+    envelope.extend(_reference_replay_findings(record))
+    status = (_validate_declared_status(record, family_findings)
+              if check_declared_status and not envelope else [])
     return {"envelope": envelope, "family": family_findings, "status": status}
 
 
 def _reference_replay_findings(record):
-    """Check the full reference measurement after proposal and resource checks."""
+    """Authenticate reference execution after bounded proposal and family checks."""
     if record["oracle"]["implementation"] != "reference":
         return []
     try:

@@ -18,7 +18,6 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import validate_run  # noqa: E402
-from oracle_grounded import canon as oracle_canon  # noqa: E402
 from oracle_grounded import record as oracle_record  # noqa: E402
 from oracle_grounded import source_policy as oracle_policy  # noqa: E402
 from record_kind import classify_kind  # noqa: E402
@@ -161,12 +160,12 @@ class OracleCurationTests(unittest.TestCase):
     def test_rejected_record_retained_but_ineligible(self):
         # A genuine family-invariant failure (envelope still valid) is honest
         # evidence: retained for context, ineligible as a training candidate.
-        filtered = _build()
-        filtered["result"]["measured"]["encoding_b"] = dict(
-            filtered["result"]["measured"]["encoding_a"]
+        filtered = next(
+            item for index in range(20)
+            if (item := oracle_record.build_record(
+                "temporal-memory-spike-challenges", index, 7, round_number=1,
+            ))["validation"]["status"] == "rejected"
         )
-        filtered["result_hash"] = oracle_canon.digest(filtered["result"])
-        filtered["validation"] = oracle_record.assess(filtered)
         self.assertEqual(filtered["validation"]["status"], "rejected")
         self.assertEqual(
             filtered["validation"]["checks"],
