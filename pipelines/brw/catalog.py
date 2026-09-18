@@ -1,0 +1,1002 @@
+#!/usr/bin/env python3
+"""AST-extracted plant catalogs for the browser-tool-use family.
+
+r193 lives as the sixteen inline pair dicts from
+``origin/legacy-mill-lane:experiments/brw-mill-r193.py``. Leftover mills r212,
+r383, r395, and the seventeen ``brw-mill-r395-extra*`` mills live as compact
+JSONL under ``config/brw/`` (1916 pairs). Leftover mill publisher paths and
+``*mill*.py`` / ``*loop*.py`` filenames are not copied here.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from ._contract import CATALOG_FIRST, BrwError
+
+__all__ = [
+    "PAIRS",
+    "LEFTOVER_HEADER",
+    "LEFTOVER_PAIR_COUNT",
+    "LEFTOVER_PAIRS",
+    "R212_CATALOG_FIRST",
+    "R212_HEADER",
+    "R212_PAIRS",
+    "R212_PAIR_COUNT",
+    "R383_CATALOG_FIRST",
+    "R383_PAIR_COUNT",
+    "R383_PAIRS",
+    "R395_CATALOG_FIRST",
+    "R395_PAIR_COUNT",
+    "R395_PAIRS",
+    "R395_EXTRA_CATALOG_FIRST",
+    "R395_EXTRA_PAIR_COUNT",
+    "R395_EXTRA_PAIRS",
+    "pair_at",
+    "pair_by_ok_slug",
+    "pair_for_round",
+    "r212_pair_at",
+    "r212_pair_for_round",
+    "r212_slugs",
+    "r383_pair_at",
+    "r383_pair_for_round",
+    "r383_slugs",
+    "r395_pair_at",
+    "r395_pair_for_round",
+    "r395_slugs",
+    "slugs",
+]
+
+PAIRS: tuple[dict[str, Any], ...] = tuple([
+    {
+        "shape": "shift",
+        "css": "offset-anchor:right 50%",
+        "css_short": "offset-anchor",
+        "ok_host": "branleat",
+        "bad_host": "coppermere",
+        "sub": "hops",
+        "title": "Hops",
+        "verb": "Keep",
+        "noun": "kiln",
+        "item": "HP-4",
+        "item_b": "HP-9",
+        "item_fail": "HP-2",
+        "ref": "c4",
+        "ref_b": "c9",
+        "ref_fail": "c2",
+        "trig": "Anchor right",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "offsetAnchor",
+        "from_v": "auto",
+        "to_v": "right 50%",
+        "x0": 220,
+        "x1": 148,
+        "y": 96,
+        "code": 410,
+        "err": "anchor_gone",
+        "ok_id": "BL-19321",
+        "seed_ok": "css-offset-anchor-right-shift",
+        "seed_bad": "css-offset-anchor-stale-x-410",
+        "ok_slug": "branleat-offset-anchor",
+        "bad_slug": "coppermere-oa-410",
+        "novel": "`offset-anchor:right 50%` pins the path point to the element's right edge so stored center x is a different kiln.",
+        "not": "Not r164 offset-path/distance (motion along the path). Anchor is which point rides the path.",
+        "teach": "offset-anchor is the attachment point. Center-on-path x after right 50% is HP-9, not HP-4.",
+        "next": "mask-image luminance hole vs hit box.",
+        "gate": '{"must":"offset-anchor right 50% box","gone":"auto-center x"}',
+        "warn": "right-edge on path; center x stale",
+        "fail_body": '{"code":"HP-2","x":220,"anchor":"auto"}',
+        "reflect": "offset-anchor moves the used box without changing offset-distance.",
+        "coverage": 16,
+    },
+    {
+        "shape": "visual",
+        "css": "mask-image + mask-mode:luminance",
+        "css_short": "mask-image",
+        "ok_host": "dunlinbar",
+        "bad_host": "elverholt",
+        "sub": "weirs",
+        "title": "Weirs",
+        "verb": "Raise",
+        "noun": "gate",
+        "item": "WR-7",
+        "item_b": "WR-3",
+        "item_fail": "WR-1",
+        "ref": "g7",
+        "ref_b": "g3",
+        "ref_fail": "g1",
+        "trig": "Apply mask",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "maskMode",
+        "from_v": "match-source",
+        "to_v": "luminance",
+        "x0": 160,
+        "x1": 160,
+        "y": 120,
+        "code": 422,
+        "err": "mask_swallowed",
+        "ok_id": "DB-19417",
+        "seed_ok": "css-mask-image-luminance-hole",
+        "seed_bad": "css-mask-image-clickthrough-422",
+        "ok_slug": "dunlinbar-mask-image",
+        "bad_slug": "elverholt-mask-422",
+        "novel": "`mask-image` with `mask-mode:luminance` paints a hole; unlike clip-path the border box still receives hits.",
+        "not": "Not r129 clip-path (clip punches hit-testing). Mask paint is gone; the box still eats the click.",
+        "teach": "A luminance hole is not a pass-through. Click the a11y ref, not the painted neighbor in the hole.",
+        "next": "filter:url() displacement vs unfiltered hit box.",
+        "gate": '{"must":"masked overlay box","fail":"click painted hole as neighbor"}',
+        "warn": "mask does not punch hit-test; hole still WR-7",
+        "fail_body": '{"code":"WR-3","x":160,"y":120,"via":"visual_hole"}',
+        "reflect": "mask-image erases paint. Hit-testing still uses the border box.",
+        "coverage": 16,
+        "filter_id": "luma-hole",
+    },
+    {
+        "shape": "visual",
+        "css": "filter:url(#displace)",
+        "css_short": "filter:url",
+        "ok_host": "fenberry",
+        "bad_host": "gromwell",
+        "sub": "stills",
+        "title": "Stills",
+        "verb": "Charge",
+        "noun": "pot",
+        "item": "ST-5",
+        "item_b": "ST-8",
+        "item_fail": "ST-5",
+        "ref": "p5",
+        "ref_b": "p8",
+        "ref_fail": "p5",
+        "trig": "Engage displace",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "filter",
+        "from_v": "none",
+        "to_v": "url(\"#displace\")",
+        "x0": 200,
+        "x1": 200,
+        "y": 140,
+        "code": 404,
+        "err": "displaced_miss",
+        "ok_id": "FB-19508",
+        "seed_ok": "css-filter-url-displace-visual",
+        "seed_bad": "css-filter-url-visual-x-404",
+        "ok_slug": "fenberry-filter-url",
+        "bad_slug": "gromwell-filt-404",
+        "novel": "`filter:url(#displace)` (feDisplacementMap) shifts pixels; hit-testing uses the unfiltered box.",
+        "not": "Not r109 CSS zoom and not r185 image-set device px. This is an SVG filter, not a scale.",
+        "teach": "Displaced paint is not the used box. Click the pot ref, not the screenshot blob.",
+        "next": "display:contents removes the parent box.",
+        "gate": '{"must":"unfiltered box","fail":"screenshot-displaced x"}',
+        "warn": "feDisplacementMap is paint-only",
+        "fail_body": '{"code":"ST-5","x":248,"y":140,"via":"displaced_pixels"}',
+        "reflect": "SVG filters move pixels. getBoundingClientRect stays pre-filter.",
+        "coverage": 15,
+        "visual_x": 248,
+    },
+    {
+        "shape": "box",
+        "css": "display:contents",
+        "css_short": "display:contents",
+        "ok_host": "harebell",
+        "bad_host": "inkstone",
+        "sub": "skeins",
+        "title": "Skeins",
+        "verb": "Bind",
+        "noun": "skein",
+        "item": "SK-6",
+        "item_b": "SK-1",
+        "item_fail": "SK-6",
+        "ref": "k6",
+        "ref_b": "k1",
+        "ref_fail": "k6",
+        "trig": "Promote children",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "display",
+        "from_v": "grid",
+        "to_v": "contents",
+        "x0": 180,
+        "x1": 0,
+        "y": 88,
+        "code": 424,
+        "err": "empty_box",
+        "ok_id": "HB-19614",
+        "seed_ok": "css-display-contents-child-ref",
+        "seed_bad": "css-display-contents-parent-424",
+        "ok_slug": "harebell-display-contents",
+        "bad_slug": "inkstone-dc-424",
+        "novel": "`display:contents` deletes the element's box; children promote. Parent getBoundingClientRect is 0×0.",
+        "not": "Not r136 contain:strict and not r156 interactivity:inert. The box is gone, not inert.",
+        "teach": "A contents parent is not a click target. Bind the child skein ref.",
+        "next": "subgrid tracks follow the parent; parent resize restacks.",
+        "gate": '{"must":"child used box","failedDependency":"parent 0x0"}',
+        "warn": "contents parent has no box",
+        "fail_body": '{"code":"SK-6","x":180,"y":88,"target":"parent"}',
+        "reflect": "display:contents removes the principal box. Children paint in the grandparent.",
+        "coverage": 15,
+    },
+    {
+        "shape": "shift",
+        "css": "grid-template-columns:subgrid",
+        "css_short": "subgrid",
+        "ok_host": "jessamine",
+        "bad_host": "knarrfen",
+        "sub": "lasts",
+        "title": "Lasts",
+        "verb": "Stamp",
+        "noun": "last",
+        "item": "LS-3",
+        "item_b": "LS-8",
+        "item_fail": "LS-3",
+        "ref": "l3",
+        "ref_b": "l8",
+        "ref_fail": "l3",
+        "trig": "Collapse rail",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "gridTemplateColumns",
+        "from_v": "subgrid",
+        "to_v": "subgrid",
+        "x0": 264,
+        "x1": 188,
+        "y": 110,
+        "code": 428,
+        "err": "track_mismatch",
+        "ok_id": "JS-19722",
+        "seed_ok": "css-subgrid-parent-track-shift",
+        "seed_bad": "css-subgrid-stale-col-428",
+        "ok_slug": "jessamine-subgrid",
+        "bad_slug": "knarrfen-sub-428",
+        "novel": "Nested `grid-template-columns: subgrid` follows parent tracks. Collapsing the rail restacks child lasts.",
+        "not": "Not r165 masonry pack and not r139 @container size. Subgrid shares the parent's tracks.",
+        "teach": "Subgrid items do not own columns. After a parent track change, remeasure or click the last ref.",
+        "next": "100dvh vs 100svh when the URL bar hides.",
+        "gate": '{"must":"current parent tracks","precondition":"pre-collapse col x"}',
+        "warn": "child columns died with the rail",
+        "fail_body": '{"code":"LS-3","col":3,"x":264}',
+        "reflect": "subgrid tracks are the parent's. A rail collapse is a child reflow.",
+        "coverage": 15,
+    },
+    {
+        "shape": "viewport",
+        "css": "height:100dvh vs 100svh",
+        "css_short": "dvh",
+        "vp_label": "svh / closed-chrome",
+        "ok_host": "lampwick",
+        "bad_host": "merestone",
+        "sub": "maltings",
+        "title": "Maltings",
+        "verb": "Turn",
+        "noun": "floor",
+        "item": "MF-2",
+        "item_b": "MF-9",
+        "item_fail": "MF-2",
+        "ref": "f2",
+        "ref_b": "f9",
+        "ref_fail": "f2",
+        "trig": "Hide chrome",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "height",
+        "from_v": "100svh",
+        "to_v": "100dvh",
+        "x0": 40,
+        "x1": 40,
+        "y": 640,
+        "y1": 704,
+        "code": 507,
+        "err": "svh_stale",
+        "ok_id": "LW-19819",
+        "seed_ok": "css-dvh-vs-svh-chrome",
+        "seed_bad": "css-svh-stale-y-507",
+        "ok_slug": "lampwick-dvh",
+        "bad_slug": "merestone-svh-507",
+        "novel": "`100dvh` grows when the mobile URL bar hides; a stored `100svh` y sits under chrome or on the wrong floor.",
+        "not": "Not r180 env(safe-area-inset-bottom) (notch) and not r107 visualViewport keyboard.",
+        "teach": "svh is the small viewport. After chrome hides, click the floor ref or remeasure dvh.",
+        "next": "::target-text fragment overlay vs Custom Highlight.",
+        "gate": '{"must":"dvh box after chrome hide","stale":"svh y"}',
+        "warn": "URL bar hide lengthens dvh; svh y is leftover",
+        "fail_body": '{"code":"MF-2","y":640,"unit":"svh"}',
+        "reflect": "dvh tracks the dynamic viewport. svh does not grow when chrome hides.",
+        "coverage": 15,
+    },
+    {
+        "shape": "overlay",
+        "css": "::target-text",
+        "css_short": "::target-text",
+        "ok_host": "nakerbar",
+        "bad_host": "ochrewharf",
+        "sub": "codices",
+        "title": "Codices",
+        "verb": "Cite",
+        "noun": "folio",
+        "item": "CX-8",
+        "item_b": "CX-1",
+        "item_fail": "CX-8",
+        "ref": "x8",
+        "ref_b": "x1",
+        "ref_fail": "x8",
+        "trig": "Clear fragment",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "webkitTextFillColor",
+        "from_v": "mark",
+        "to_v": "mark",
+        "x0": 72,
+        "x1": 72,
+        "y": 210,
+        "code": 451,
+        "err": "fragment_overlay",
+        "ok_id": "NK-19925",
+        "seed_ok": "css-target-text-fragment-ref",
+        "seed_bad": "css-target-text-overlay-451",
+        "ok_slug": "nakerbar-target-text",
+        "bad_slug": "ochrewharf-tt-451",
+        "novel": "`::target-text` styles a `:~:text=` fragment. With pointer-events:auto it is a hit overlay, not Custom Highlight.",
+        "not": "Not r190 ::highlight(search) (CSS Custom Highlight API). This is the UA text-fragment pseudo.",
+        "teach": "A text fragment can be a hit target. Cite the folio ref, not the yellow overlay.",
+        "next": "backdrop-filter frost that captures clicks.",
+        "gate": '{"must":"folio ref under fragment","unavailable":"click ::target-text"}',
+        "warn": "fragment highlight is painted and hittable",
+        "fail_body": '{"code":"CX-8","x":72,"y":210,"via":"target-text"}',
+        "reflect": "::target-text is the UA fragment highlight. It is not ::highlight().",
+        "coverage": 15,
+    },
+    {
+        "shape": "overlay",
+        "css": "backdrop-filter:blur(16px)",
+        "css_short": "backdrop-filter",
+        "ok_host": "partridge",
+        "bad_host": "redshank",
+        "sub": "saltings",
+        "title": "Saltings",
+        "verb": "Pan",
+        "noun": "pan",
+        "item": "SA-4",
+        "item_b": "SA-0",
+        "item_fail": "SA-4",
+        "ref": "s4",
+        "ref_b": "s0",
+        "ref_fail": "s4",
+        "trig": "Lift frost",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "backdropFilter",
+        "from_v": "blur(16px)",
+        "to_v": "none",
+        "x0": 96,
+        "x1": 96,
+        "y": 300,
+        "code": 423,
+        "err": "frost_capture",
+        "ok_id": "PT-20031",
+        "seed_ok": "css-backdrop-filter-dismiss-then-pan",
+        "seed_bad": "css-backdrop-filter-capture-423",
+        "ok_slug": "partridge-backdrop-filter",
+        "bad_slug": "redshank-bf-423",
+        "novel": "A full-viewport `backdrop-filter` frost with pointer-events:auto captures clicks; the pan looks clickable underneath.",
+        "not": "Not r111 pointer-events:none frost (passthrough) and not r191 overlay:auto top layer.",
+        "teach": "backdrop-filter is a used box. Lift the frost, then Pan the salting ref.",
+        "next": "box-decoration-break:clone fragments.",
+        "gate": '{"must":"frost dismissed","locked":"click through blur"}',
+        "warn": "frost is auto-hit; not pe:none",
+        "fail_body": '{"code":"SA-4","x":96,"y":300,"via":"frost"}',
+        "reflect": "backdrop-filter paints glass. The frost element still sits in the hit tree.",
+        "coverage": 15,
+    },
+    {
+        "shape": "box",
+        "css": "box-decoration-break:clone",
+        "css_short": "box-decoration-break",
+        "ok_host": "sallowfen",
+        "bad_host": "tansyholt",
+        "sub": "osiers",
+        "title": "Osiers",
+        "verb": "Cut",
+        "noun": "withy",
+        "item": "OS-5",
+        "item_b": "OS-6",
+        "item_fail": "OS-5",
+        "ref": "w5",
+        "ref_b": "w6",
+        "ref_fail": "w5",
+        "trig": "Split line",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "boxDecorationBreak",
+        "from_v": "slice",
+        "to_v": "clone",
+        "x0": 40,
+        "x1": 40,
+        "y": 180,
+        "code": 422,
+        "err": "clone_fragment",
+        "ok_id": "SF-20116",
+        "seed_ok": "css-box-decoration-break-clone-ref",
+        "seed_bad": "css-box-decoration-break-clone-422",
+        "ok_slug": "sallowfen-box-decoration-break",
+        "bad_slug": "tansyholt-bdb-422",
+        "novel": "`box-decoration-break:clone` repeats padding/border on each fragment so a wrapped withy looks like two buttons.",
+        "not": "Not r141 text-wrap:balance and not r187 hanging-punctuation. This is cloned decoration, not wrap policy.",
+        "teach": "Clone fragments are one element. Click the withy ref, not the second painted chip.",
+        "next": "word-break:auto-phrase wrap.",
+        "gate": '{"must":"single element box","fail":"second fragment px"}',
+        "warn": "clone paints a second padding box",
+        "fail_body": '{"code":"OS-5","x":40,"y":214,"fragment":2}',
+        "reflect": "clone copies border and padding onto every fragment. Slice does not.",
+        "coverage": 14,
+    },
+    {
+        "shape": "text",
+        "css": "word-break:auto-phrase",
+        "css_short": "word-break:auto-phrase",
+        "ok_host": "umberquay",
+        "bad_host": "vernalspit",
+        "sub": "ledgers",
+        "title": "Ledgers",
+        "verb": "Post",
+        "noun": "line",
+        "item": "LG-9",
+        "item_b": "LG-2",
+        "item_fail": "LG-9",
+        "ref": "n9",
+        "ref_b": "n2",
+        "ref_fail": "n9",
+        "trig": "Phrase wrap",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "wordBreak",
+        "from_v": "normal",
+        "to_v": "auto-phrase",
+        "x0": 120,
+        "x1": 120,
+        "y": 250,
+        "code": 415,
+        "err": "phrase_ocr",
+        "ok_id": "UQ-20227",
+        "seed_ok": "css-word-break-auto-phrase-ref",
+        "seed_bad": "css-word-break-auto-phrase-415",
+        "ok_slug": "umberquay-auto-phrase",
+        "bad_slug": "vernalspit-wb-415",
+        "novel": "`word-break:auto-phrase` wraps at phrase boundaries so a CJK ledger label covers Post; OCR reads a fragment.",
+        "not": "Not r189 hyphenate-limit-chars, not r182 text-autospace, not r159 text-wrap:pretty.",
+        "teach": "auto-phrase is a wrap opportunity, not hyphenation. Post the line ref, not the OCR fragment.",
+        "next": "overflow-clip-margin paint outside clip.",
+        "gate": '{"must":"full line token","unsupportedMedia":"OCR fragment"}',
+        "warn": "phrase wrap is not a new control",
+        "fail_body": '{"code":"締","via":"ocr_fragment"}',
+        "reflect": "auto-phrase wraps on phrase boundaries. The verb is still one control.",
+        "coverage": 14,
+    },
+    {
+        "shape": "box",
+        "css": "overflow-clip-margin:32px",
+        "css_short": "overflow-clip-margin",
+        "ok_host": "woldmere",
+        "bad_host": "xylembar",
+        "sub": "tanneries",
+        "title": "Tanneries",
+        "verb": "Tan",
+        "noun": "hide",
+        "item": "TN-1",
+        "item_b": "TN-4",
+        "item_fail": "TN-1",
+        "ref": "h1",
+        "ref_b": "h4",
+        "ref_fail": "h1",
+        "trig": "Expand clip margin",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "overflowClipMargin",
+        "from_v": "0px",
+        "to_v": "32px",
+        "x0": 300,
+        "x1": 300,
+        "y": 160,
+        "code": 404,
+        "err": "clip_margin_miss",
+        "ok_id": "WM-20312",
+        "seed_ok": "css-overflow-clip-margin-ref",
+        "seed_bad": "css-overflow-clip-margin-404",
+        "ok_slug": "woldmere-overflow-clip-margin",
+        "bad_slug": "xylembar-ocm-404",
+        "novel": "`overflow-clip-margin:32px` lets paint leak past `overflow:clip`. The lobe is not a second hide.",
+        "not": "Not r112 overflow:clip (scrollIntoView noop) and not r129 clip-path hole.",
+        "teach": "Clip-margin paint is still the clipped element. Tan the hide ref, not the leaked lobe x.",
+        "next": "will-change:transform containing block for fixed descendants.",
+        "gate": '{"must":"inside clip edge","fail":"lobe x"}',
+        "warn": "32px paint is not a new hit island",
+        "fail_body": '{"code":"TN-1","x":332,"y":160,"via":"clip_lobe"}',
+        "reflect": "overflow-clip-margin grows the paint clip. The layout box stays put.",
+        "coverage": 14,
+    },
+    {
+        "shape": "viewport",
+        "css": "will-change:transform containing block",
+        "css_short": "will-change:transform",
+        "vp_label": "viewport-fixed y",
+        "ok_host": "yarefen",
+        "bad_host": "zosterholt",
+        "sub": "beacons",
+        "title": "Beacons",
+        "verb": "Light",
+        "noun": "cresset",
+        "item": "BC-3",
+        "item_b": "BC-7",
+        "item_fail": "BC-3",
+        "ref": "b3",
+        "ref_b": "b7",
+        "ref_fail": "b3",
+        "trig": "Scroll stage",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "willChange",
+        "from_v": "transform",
+        "to_v": "transform",
+        "x0": 24,
+        "x1": 24,
+        "y": 520,
+        "y1": 320,
+        "code": 412,
+        "err": "fixed_contained",
+        "ok_id": "YF-20418",
+        "seed_ok": "css-will-change-fixed-containing-block",
+        "seed_bad": "css-will-change-fixed-412",
+        "ok_slug": "yarefen-will-change",
+        "bad_slug": "zosterholt-wc-412",
+        "novel": "`will-change:transform` on the stage makes `position:fixed` cressets contain to the stage, not the viewport.",
+        "not": "Not r109 CSS zoom and not r180 safe-area. This is a containing-block promotion.",
+        "teach": "will-change:transform is a containing block. Viewport y after scroll is a different cresset.",
+        "next": "backface-visibility:hidden after rotateY.",
+        "gate": '{"must":"stage-fixed box","precondition":"viewport-fixed y"}',
+        "warn": "fixed is trapped by will-change:transform",
+        "fail_body": '{"code":"BC-3","y":520,"coord":"viewport"}',
+        "reflect": "will-change:transform promotes a containing block for fixed descendants.",
+        "coverage": 14,
+    },
+    {
+        "shape": "visual",
+        "css": "backface-visibility:hidden + rotateY(180deg)",
+        "css_short": "backface-visibility",
+        "ok_host": "brimstone",
+        "bad_host": "cresswell",
+        "sub": "cards",
+        "title": "Cards",
+        "verb": "Flip",
+        "noun": "card",
+        "item": "CD-2",
+        "item_b": "CD-2",
+        "item_fail": "CD-2",
+        "ref": "d2",
+        "ref_b": "d2",
+        "ref_fail": "d2",
+        "trig": "Show face",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "backfaceVisibility",
+        "from_v": "hidden",
+        "to_v": "hidden",
+        "x0": 140,
+        "x1": 140,
+        "y": 160,
+        "code": 403,
+        "err": "backface_hidden",
+        "ok_id": "BS-20509",
+        "seed_ok": "css-backface-hidden-flip-then-ref",
+        "seed_bad": "css-backface-hidden-403",
+        "ok_slug": "brimstone-backface",
+        "bad_slug": "cresswell-bfv-403",
+        "novel": "`backface-visibility:hidden` plus `rotateY(180deg)` hides paint; the node stays in the a11y tree.",
+        "not": "Not r178 mix-blend empty screenshot and not r168 light-dark. The face is rotated away.",
+        "teach": "A hidden backface is not Flip. Rotate to the face, then use the card ref.",
+        "next": "grid-auto-flow:dense hole fill.",
+        "gate": '{"must":"face rotateY(0)","forbidden":"click hidden backface"}',
+        "warn": "a11y lists the card; paint is the back",
+        "fail_body": '{"code":"CD-2","rotateY":180,"via":"a11y"}',
+        "reflect": "backface-visibility hides the rotated face. The accessibility node remains.",
+        "coverage": 14,
+    },
+    {
+        "shape": "shift",
+        "css": "grid-auto-flow:dense",
+        "css_short": "grid-auto-flow:dense",
+        "ok_host": "dockleaf",
+        "bad_host": "eiderholt",
+        "sub": "crates",
+        "title": "Crates",
+        "verb": "Stow",
+        "noun": "crate",
+        "item": "CR-5",
+        "item_b": "CR-2",
+        "item_fail": "CR-5",
+        "ref": "r5",
+        "ref_b": "r2",
+        "ref_fail": "r5",
+        "trig": "Pack dense",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "gridAutoFlow",
+        "from_v": "row",
+        "to_v": "row dense",
+        "x0": 280,
+        "x1": 80,
+        "y": 90,
+        "code": 428,
+        "err": "dense_slot",
+        "ok_id": "DL-20621",
+        "seed_ok": "css-grid-auto-flow-dense-ref",
+        "seed_bad": "css-grid-auto-flow-dense-428",
+        "ok_slug": "dockleaf-dense",
+        "bad_slug": "eiderholt-dense-428",
+        "novel": "`grid-auto-flow:dense` backfills holes after a tall crate, so row-major slot 5 is visually slot 2.",
+        "not": "Not r165 masonry pack (shortest column) and not r172 sibling-count gap.",
+        "teach": "Dense packing is not source order. Stow the crate ref after pack.",
+        "next": "env(keyboard-inset-height).",
+        "gate": '{"must":"dense used slot","precondition":"row-major index"}',
+        "warn": "dense moved CR-5 into the hole",
+        "fail_body": '{"code":"CR-5","slot":5,"flow":"row"}',
+        "reflect": "dense fills earlier holes. Source index is not a screen slot.",
+        "coverage": 14,
+    },
+    {
+        "shape": "viewport",
+        "css": "env(keyboard-inset-height)",
+        "css_short": "keyboard-inset",
+        "vp_label": "closed-keyboard y",
+        "ok_host": "fritillary",
+        "bad_host": "galingale",
+        "sub": "kettles",
+        "title": "Kettles",
+        "verb": "Brew",
+        "noun": "kettle",
+        "item": "KT-6",
+        "item_b": "KT-0",
+        "item_fail": "KT-6",
+        "ref": "t6",
+        "ref_b": "t0",
+        "ref_fail": "t6",
+        "trig": "Focus field",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "bottom",
+        "from_v": "0px",
+        "to_v": "env(keyboard-inset-height)",
+        "x0": 48,
+        "x1": 48,
+        "y": 620,
+        "y1": 340,
+        "code": 507,
+        "err": "keyboard_inset",
+        "ok_id": "FR-20714",
+        "seed_ok": "css-env-keyboard-inset-height",
+        "seed_bad": "css-env-keyboard-inset-507",
+        "ok_slug": "fritillary-keyboard-inset",
+        "bad_slug": "galingale-kb-507",
+        "novel": "`bottom: env(keyboard-inset-height)` lifts the CTA when the virtual keyboard opens. Portrait y is under the keyboard.",
+        "not": "Not r180 safe-area-inset-bottom (home indicator) and not r107 visualViewport resize alone.",
+        "teach": "keyboard-inset-height is UA env, not visualViewport. Brew the kettle ref after the lift.",
+        "next": ":nth-child(An+B of S).",
+        "gate": '{"must":"inset-lifted box","stale":"closed-keyboard y"}',
+        "warn": "IME chrome is not safe-area",
+        "fail_body": '{"code":"KT-6","y":620,"keyboard":"closed"}',
+        "reflect": "env(keyboard-inset-height) tracks the virtual keyboard, not the notch.",
+        "coverage": 13,
+    },
+    {
+        "shape": "shift",
+        "css": ":nth-child(2 of .ready)",
+        "css_short": ":nth-child of",
+        "ok_host": "hornbeam",
+        "bad_host": "isinglass",
+        "sub": "spools",
+        "title": "Spools",
+        "verb": "Wind",
+        "noun": "spool",
+        "item": "SP-4",
+        "item_b": "SP-7",
+        "item_fail": "SP-4",
+        "ref": "u4",
+        "ref_b": "u7",
+        "ref_fail": "u4",
+        "trig": "Drop ready",
+        "trig_ref": "e4",
+        "act_ref": "e5",
+        "note_ref": "e6",
+        "js_prop": "outlineColor",
+        "from_v": "ready",
+        "to_v": "idle",
+        "x0": 210,
+        "x1": 210,
+        "y": 130,
+        "code": 422,
+        "err": "of_selector",
+        "ok_id": "HN-20816",
+        "seed_ok": "css-nth-child-of-ready-ref",
+        "seed_bad": "css-nth-child-of-ready-422",
+        "ok_slug": "hornbeam-nth-of",
+        "bad_slug": "isinglass-nth-422",
+        "novel": "`:nth-child(2 of .ready)` restyles when a spool loses `.ready`, so the painted 2nd-ready is a different spool.",
+        "not": "Not r173 sibling-index() z-order and not r140 :has sibling lock.",
+        "teach": "The `of` selector filters the list. After a class drop, Wind the spool ref.",
+        "next": "font-variation-settings wdth reflow.",
+        "gate": '{"must":"current 2 of .ready","fail":"pre-drop index"}',
+        "warn": "of-filter is not DOM index",
+        "fail_body": '{"code":"SP-4","nth":"2 of .ready","class":"idle"}',
+        "reflect": ":nth-child(An+B of S) counts only matching siblings.",
+        "coverage": 13,
+    },
+])
+
+
+def slugs() -> tuple[str, ...]:
+    return tuple(pair["ok_slug"] for pair in PAIRS)
+
+
+def pair_at(index: int) -> dict[str, Any]:
+    """Return the pair at ``index`` (0..15). Raises ``BrwError`` if out of range."""
+
+    if type(index) is not int or not 0 <= index < len(PAIRS):
+        raise BrwError(f"unknown_pair_index: {index!r}")
+    return PAIRS[index]
+
+
+def pair_by_ok_slug(slug: str) -> dict[str, Any]:
+    """Return the unique pair with ``ok_slug``. Raises ``BrwError`` if unknown."""
+
+    if type(slug) is not str or not slug:
+        raise BrwError(f"unknown_pair: {slug!r}")
+    for pair in PAIRS:
+        if pair["ok_slug"] == slug:
+            return pair
+    raise BrwError(f"unknown_pair: {slug!r}")
+
+
+def pair_for_round(rnd: int) -> dict[str, Any]:
+    """Return the pair whose catalog index is ``rnd - CATALOG_FIRST``."""
+
+    if type(rnd) is not int:
+        raise BrwError(f"invalid_round: {rnd!r}")
+    idx = rnd - CATALOG_FIRST
+    if idx < 0 or idx >= len(PAIRS):
+        raise BrwError(
+            f"no catalog entry for r{rnd} (first={CATALOG_FIRST} "
+            f"last={CATALOG_FIRST + len(PAIRS) - 1})"
+        )
+    return PAIRS[idx]
+
+
+LEFTOVER_DIR = Path(__file__).resolve().parents[2] / "config" / "brw"
+LEFTOVER_HEADER_NAME = "CATALOG.json"
+LEFTOVER_PAIRS_NAME = "pairs.jsonl"
+LEFTOVER_SOURCE_REF = "origin/legacy-mill-lane"
+R212_DIR = LEFTOVER_DIR
+R212_HEADER_NAME = LEFTOVER_HEADER_NAME
+R212_PAIRS_NAME = LEFTOVER_PAIRS_NAME
+R212_SOURCE_PATH = "experiments/brw-mill-r212.py"
+R212_SOURCE_REF = LEFTOVER_SOURCE_REF
+R212_CATALOG_FIRST = 212
+R212_PAIR_COUNT = 171
+R383_CATALOG_FIRST = 383
+R383_PAIR_COUNT = 12
+R383_SOURCE_PATH = "experiments/brw-mill-r383.py"
+R395_CATALOG_FIRST = 395
+R395_PAIR_COUNT = 60
+R395_SOURCE_PATH = "experiments/brw-mill-r395.py"
+R395_EXTRA_CATALOG_FIRST = 455
+_R395_EXTRA_MILL_COUNTS: tuple[tuple[str, int], ...] = (
+    ("brw-mill-r395-extra", 58),
+    ("brw-mill-r395-extra2", 58),
+    ("brw-mill-r395-extra3", 52),
+    ("brw-mill-r395-extra4", 26),
+    ("brw-mill-r395-extra5", 54),
+    ("brw-mill-r395-extra6", 26),
+    ("brw-mill-r395-extra7", 16),
+    ("brw-mill-r395-extra8", 101),
+    ("brw-mill-r395-extra9", 111),
+    ("brw-mill-r395-extra10", 111),
+    ("brw-mill-r395-extra11", 112),
+    ("brw-mill-r395-extra12", 167),
+    ("brw-mill-r395-extra13", 180),
+    ("brw-mill-r395-extra14", 180),
+    ("brw-mill-r395-extra15", 120),
+    ("brw-mill-r395-extra16", 200),
+    ("brw-mill-r395-extra17", 101),
+)
+R395_EXTRA_PAIR_COUNT = sum(count for _, count in _R395_EXTRA_MILL_COUNTS)
+LEFTOVER_PAIR_COUNT = (
+    R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT + R395_EXTRA_PAIR_COUNT
+)
+_MILL_ORDER = (
+    ("brw-mill-r212", R212_PAIR_COUNT),
+    ("brw-mill-r383", R383_PAIR_COUNT),
+    ("brw-mill-r395", R395_PAIR_COUNT),
+) + _R395_EXTRA_MILL_COUNTS
+R212_PAIR_KEYS = frozenset(
+    {
+        "aux",
+        "bad_place",
+        "btn",
+        "code",
+        "css",
+        "err",
+        "err_slug",
+        "fail_item",
+        "fref",
+        "from",
+        "item",
+        "js",
+        "keep",
+        "neigh",
+        "new",
+        "next",
+        "not",
+        "note",
+        "nref",
+        "ok_place",
+        "path",
+        "prefix",
+        "ref",
+        "seed_bad",
+        "seed_ok",
+        "teach",
+        "title",
+        "to",
+        "verb",
+        "widget",
+        "x0",
+        "x1",
+        "y",
+    }
+)
+
+
+def _sha256_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _load_leftover_header() -> dict[str, Any]:
+    path = LEFTOVER_DIR / LEFTOVER_HEADER_NAME
+    if not path.is_file():
+        raise BrwError(f"missing leftover header: {path}")
+    header = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(header, dict):
+        raise BrwError("leftover header must be an object")
+    mills = header.get("mills")
+    if not isinstance(mills, list) or len(mills) != len(_MILL_ORDER):
+        raise BrwError("leftover header mill row count drifted")
+    expected_rows = 0
+    for (mill_id, row_count), mill in zip(_MILL_ORDER, mills, strict=True):
+        if mill.get("mill_id") != mill_id:
+            raise BrwError(f"unexpected mill_id: {mill.get('mill_id')!r}")
+        if mill.get("n_rows_committed") != row_count:
+            raise BrwError(f"{mill_id} committed row count drifted")
+        expected_rows += row_count
+    if header.get("n_pair_rows_committed") != expected_rows:
+        raise BrwError("leftover header committed row count drifted")
+    if expected_rows != LEFTOVER_PAIR_COUNT:
+        raise BrwError("leftover pair count constant drifted")
+    return header
+
+
+def _load_leftover_pairs(header: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    path = LEFTOVER_DIR / LEFTOVER_PAIRS_NAME
+    if not path.is_file():
+        raise BrwError(f"missing leftover pairs: {path}")
+    raw = path.read_bytes()
+    if b"\r" in raw:
+        raise BrwError("leftover pairs.jsonl contains CR")
+    if not raw.endswith(b"\n"):
+        raise BrwError("leftover pairs.jsonl missing trailing newline")
+    digest = _sha256_bytes(raw)
+    expected = header.get("pairs_sha256")
+    if digest != expected:
+        raise BrwError(f"leftover pairs sha256 mismatch: {digest} != {expected}")
+    rows: list[dict[str, Any]] = []
+    for line in raw.decode("utf-8").splitlines():
+        if not line or line[:1] in {" ", "\t"}:
+            raise BrwError("leftover pairs.jsonl is not compact")
+        row = json.loads(line)
+        if not isinstance(row, dict) or set(row) != R212_PAIR_KEYS:
+            raise BrwError("leftover pair keys drifted")
+        rows.append(row)
+    committed = header.get("n_pair_rows_committed")
+    if len(rows) != committed:
+        raise BrwError(f"leftover pair count {len(rows)} != {committed}")
+    return tuple(rows)
+
+
+LEFTOVER_HEADER = _load_leftover_header()
+LEFTOVER_PAIRS: tuple[dict[str, Any], ...] = _load_leftover_pairs(LEFTOVER_HEADER)
+R212_HEADER = LEFTOVER_HEADER
+R212_PAIRS = LEFTOVER_PAIRS[:R212_PAIR_COUNT]
+R383_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT : R212_PAIR_COUNT + R383_PAIR_COUNT]
+R395_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT : R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT]
+R395_EXTRA_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT :]
+
+
+def r212_slugs() -> tuple[str, ...]:
+    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R212_PAIRS)
+
+
+def r212_pair_at(index: int) -> dict[str, Any]:
+    if type(index) is not int or not 0 <= index < len(R212_PAIRS):
+        raise BrwError(f"unknown_r212_index: {index!r}")
+    return R212_PAIRS[index]
+
+
+def r212_pair_for_round(rnd: int) -> dict[str, Any]:
+    if type(rnd) is not int:
+        raise BrwError(f"invalid_round: {rnd!r}")
+    idx = rnd - R212_CATALOG_FIRST
+    if idx < 0 or idx >= len(R212_PAIRS):
+        last = R212_CATALOG_FIRST + len(R212_PAIRS) - 1
+        raise BrwError(
+            f"no r212 catalog entry for r{rnd} (first={R212_CATALOG_FIRST} last={last})"
+        )
+    return R212_PAIRS[idx]
+
+
+def r383_slugs() -> tuple[str, ...]:
+    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R383_PAIRS)
+
+
+def r383_pair_at(index: int) -> dict[str, Any]:
+    if type(index) is not int or not 0 <= index < len(R383_PAIRS):
+        raise BrwError(f"unknown_r383_index: {index!r}")
+    return R383_PAIRS[index]
+
+
+def r383_pair_for_round(rnd: int) -> dict[str, Any]:
+    if type(rnd) is not int:
+        raise BrwError(f"invalid_round: {rnd!r}")
+    idx = rnd - R383_CATALOG_FIRST
+    if idx < 0 or idx >= len(R383_PAIRS):
+        last = R383_CATALOG_FIRST + len(R383_PAIRS) - 1
+        raise BrwError(
+            f"no r383 catalog entry for r{rnd} (first={R383_CATALOG_FIRST} last={last})"
+        )
+    return R383_PAIRS[idx]
+
+
+def r395_slugs() -> tuple[str, ...]:
+    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R395_PAIRS)
+
+
+def r395_pair_at(index: int) -> dict[str, Any]:
+    if type(index) is not int or not 0 <= index < len(R395_PAIRS):
+        raise BrwError(f"unknown_r395_index: {index!r}")
+    return R395_PAIRS[index]
+
+
+def r395_pair_for_round(rnd: int) -> dict[str, Any]:
+    if type(rnd) is not int:
+        raise BrwError(f"invalid_round: {rnd!r}")
+    idx = rnd - R395_CATALOG_FIRST
+    if idx < 0 or idx >= len(R395_PAIRS):
+        last = R395_CATALOG_FIRST + len(R395_PAIRS) - 1
+        raise BrwError(
+            f"no r395 catalog entry for r{rnd} (first={R395_CATALOG_FIRST} last={last})"
+        )
+    return R395_PAIRS[idx]

@@ -108,11 +108,38 @@ def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
     return state.originals[program.program_id]
 
 
+def _unlimited(report: ex.PhaseReport) -> bool:
+    """Whether this phase must stop the run rather than cost one candidate.
+
+    Refuse on the parent-validated limits evidence, never on matching prose: ``detail``
+    can carry a program's own exception message, and a program whose text happens
+    to contain the finding name would otherwise kill the run.
+
+    A phase the child *ran* must claim the limits positively.
+    ``record_validation._phase_runtime_contract`` stores a ``PHASE_OK`` phase
+    only when ``limits_applied`` is True -- whether or not the module loaded --
+    so anything else is an unusable phase, not a survivable one. The status, not
+    ``ok``, is the test: a load error is ``PHASE_OK`` with ``ok`` False, and
+    keying on ``ok`` would let exactly that shape through. `Executor` never
+    returns one without the claim, but ``run`` takes an injected executor and
+    one may.
+
+    A phase that never got that far and states nothing told us nothing: the
+    limits go on before ``_harness._run`` reads or imports the program, so that
+    child either never reached program code or reached it under them. That is
+    the one candidate's harness error. The executor stamps explicit setup
+    failures from the out-of-band attestation as ``limits_applied: False``.
+    """
+
+    claimed = report.environment.get("limits_applied")
+    ran = report.status == cv.PHASE_OK
+    return claimed is not True and (ran or "limits_applied" in report.environment)
+
+
 def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
     report = state.executor.run(job)
     cv.refuse_when(
-        cv.FINDING_SANDBOX_UNAVAILABLE in report.detail
-        or (report.ok and report.environment.get("limits_applied") is not True),
+        _unlimited(report),
         cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required resource limits",
     )
     return report
@@ -215,7 +242,7 @@ def run(request: RunRequest, executor: ex.Executor | None = None) -> dict[str, A
 
     stamp = _check_request(request)
     catalog = cat.load_catalog(request.catalog_dir)
-    engine = ex.Executor(timeout_s=request.timeout_s) if executor is None else executor
+    engine = ex.executor_for(catalog, timeout_s=request.timeout_s, supplied=executor)
     plan = planning.ProposalPlan(catalog, request.seed, request.per_program_cap)
     policy = catalog.split_policy
     policy_sha256 = None if policy is None else policy.sha256

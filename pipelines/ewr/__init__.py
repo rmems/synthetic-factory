@@ -11,7 +11,14 @@ from ._contract import (
     GENERATOR,
     bind_import_twin,
 )
-from .catalog import Catalog, Pair, ast_extract_catalog, catalog_check, load_catalog
+from .catalog import (
+    Catalog,
+    MappingPair,
+    Pair,
+    ast_extract_catalog_rows,
+    catalog_check,
+    load_catalog,
+)
 from . import generate
 from .generate import BuiltPair, build_pair
 
@@ -21,8 +28,9 @@ __all__ = [
     "FACTORY",
     "FAMILY_PREFIX",
     "GENERATOR",
+    "MappingPair",
     "Pair",
-    "ast_extract_catalog",
+    "ast_extract_catalog_rows",
     "bind_import_twin",
     "build_pair",
     "catalog_check",

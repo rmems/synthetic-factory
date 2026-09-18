@@ -22,11 +22,15 @@ from code_repair_test_support import (  # noqa: E402
 )
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
-# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for the
-# exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
-# for digests on passing rows (Codex on #196, round 3).
+# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for
+# the exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197),
+# then for digests on passing rows (Codex on #196, round 3), then for the parent-stamped
+# sandbox identity on the oracle fingerprint (#201).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-GOLDEN_SHA256 = "1b977de64ba94d655b92fa8d0d06aad56aa15cedd4aa372fe1e1d9ff11b14de0"
+# Harness protocol v2 (#213): out-of-band limits attestation line before program load.
+# bwrap OS boundary + #200 repr update move the harness fingerprint.
+# Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
+GOLDEN_SHA256 = "ad548000fdd72169f9ea5feba31ed1e70a3aa694efc320606987a63606493f51"
 
 
 def accepting_executor():

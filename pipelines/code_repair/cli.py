@@ -88,7 +88,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
 
 def _catalog_check(args: argparse.Namespace) -> int:
     catalog = cat.load_catalog(args.catalog)
-    findings = cc.catalog_check(catalog, ex.Executor(timeout_s=args.timeout_s))
+    findings = cc.catalog_check(catalog, ex.executor_for(catalog, timeout_s=args.timeout_s))
     status = "findings" if findings else "ok"
     lines = [f"{f['code']} {f['program_id']}: {f['detail']}" for f in findings]
     text = "\n".join(lines) or f"catalog-check ok: {len(catalog.programs)} programs pass"

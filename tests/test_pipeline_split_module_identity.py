@@ -79,6 +79,9 @@ NEW_SPLIT_MODULES = (
     "raw_tree_guard",
     "preference_context",
     "reward_mapping",
+    "reward_parse",
+    "reward_parse_values",
+    "reward_parse_patterns",
     "reward_policy",
     "training_audit_record",
     "training_audit_reasoning",
@@ -125,6 +128,14 @@ NEW_SPLIT_MODULES = (
     "validate_run_thalamic",
     "validate_run_outcomes",
     "validate_run_reward_total",
+    "validate_run_episode",
+    "validate_run_episode_turns",
+    "validate_run_multi_agent",
+    "validate_run_multi_agent_roster",
+    "validate_run_preference",
+    "validate_run_preference_context",
+    "validate_run_routes",
+    "validate_run_cli",
 )
 RUN_SUPPORT_MODULES = (
     "compose_curated_run_cli",
@@ -183,6 +194,10 @@ class SplitModuleIdentityContracts(unittest.TestCase):
                 packaged["reward_mapping"].RewardOntologyError,
             )
             self.assertIs(
+                direct["reward_parse"].RewardOntologyError,
+                packaged["reward_mapping"].RewardOntologyError,
+            )
+            self.assertIs(
                 direct["validate_run_provenance"].check_provenance,
                 packaged["validate_run_provenance"].check_provenance,
             )
@@ -213,6 +228,18 @@ class SplitModuleIdentityContracts(unittest.TestCase):
             self.assertIs(
                 direct["validate_run"].check_line,
                 packaged["validate_run"].check_line,
+            )
+            self.assertIs(
+                direct["validate_run_episode"].check_episode,
+                packaged["validate_run_episode"].check_episode,
+            )
+            self.assertIs(
+                direct["validate_run_preference"].staging_preference_goal_errors,
+                packaged["validate_run_preference"].staging_preference_goal_errors,
+            )
+            self.assertIs(
+                direct["validate_run_routes"].check_line,
+                packaged["validate_run_routes"].check_line,
             )
 
     def _assert_identity_export_twins(self, direct, packaged) -> None:

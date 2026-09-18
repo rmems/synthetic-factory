@@ -201,7 +201,7 @@ load_registry = _identity_registry.load_registry
 default_registry = _identity_registry.default_registry
 
 
-def _normalize_source_path(value: str) -> tuple[str, str]:
+def _normalize_source_path(value: object) -> tuple[str, str]:
     if not isinstance(value, str) or not value.strip():
         raise IdentityCurationError("source_path must be a non-empty relative path")
     raw = value

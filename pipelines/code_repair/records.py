@@ -19,15 +19,13 @@ from typing import Any
 from . import catalog as cat
 from . import executor as ex
 from . import mutate
+from . import sandbox as sb
 from . import verify
 from . import vocabulary as cv
 from ._contract import bind_import_twin, oc
 
 ORACLE_COMMIT = None
-ORACLE_ISOLATION = (
-    "rlimits and a fresh working directory only: no filesystem or network isolation "
-    "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only modules"
-)
+ORACLE_ISOLATION = sb.isolation_prose(sb.IDENTITY_RLIMITS_ONLY)
 
 __all__ = [
     "Batch", "Candidate", "ORACLE_COMMIT", "ORACLE_ISOLATION", "build_record", "candidate_seed",
@@ -98,16 +96,18 @@ def new_batch(
 
 
 def fingerprint(batch: Batch, original: ex.PhaseReport) -> dict[str, Any]:
-    """The oracle's environment identity: interpreter major.minor, platform, harness, limits."""
+    """The oracle's environment identity: interpreter, platform, harness, limits, sandbox."""
 
     environment = original.environment
     version = str(environment.get("python", ""))
+    identity = environment.get("sandbox_identity") or sb.IDENTITY_RLIMITS_ONLY
     return {
         "python": ".".join(version.split(".")[:2]),
         "implementation": environment.get("implementation"),
         "platform": environment.get("platform"),
         "harness_sha256": batch.harness_sha256,
         "limits_applied": environment.get("limits_applied"),
+        "sandbox_identity": identity,
     }
 
 
@@ -158,6 +158,7 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
     identity = oc.OracleIdentity(
         cv.ORACLE_NAME, cv.ORACLE_TYPE, cv.ORACLE_IMPLEMENTATION, cv.ORACLE_VERSION
     )
+    environment = fingerprint(batch, candidate.phases.original)
     configuration = {
         "timeout_s": batch.timeout_s,
         "limits": {
@@ -169,9 +170,8 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
             "reference_sha256": program.reference.sha256,
             "cases": [dict(case) for case in program.cases],
         },
-        "isolation": ORACLE_ISOLATION,
+        "isolation": sb.isolation_prose(environment["sandbox_identity"]),
     }
-    environment = fingerprint(batch, candidate.phases.original)
     run = oc.OracleRun(configuration, candidate.seed, ORACLE_COMMIT, environment)
     return oc.new_oracle(identity, run)
 

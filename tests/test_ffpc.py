@@ -180,6 +180,63 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(plants[0].site, "Cloro del Banco MH-2")
         self.assertEqual(plants[0].root_cause, "cal-gas parked as live O2")
 
+    def test_plants_from_source_reads_pairs_dict_calls(self):
+        source = (
+            "FACTORY = 'failure-as-fuel-preference-cascade'\n"
+            "ROUND = 62\n"
+            "P1_STATE = {'sim_or_real': 'designed', 'domain': 'CCR reforming',\n"
+            "            'environment': {'unit': 'Reforma Norte K-401'}}\n"
+            "P2_STATE = {'sim_or_real': 'designed', 'domain': 'ammonia heater',\n"
+            "            'environment': {'site': 'Ammonia Sur SUH-1'}}\n"
+            "P3_STATE = {'sim_or_real': 'designed', 'domain': 'sulfuric acid',\n"
+            "            'environment': {'plant': 'AcidKeep K-3'}}\n"
+            "PAIRS = [\n"
+            "  dict(index=1, pair_id='ffpc-r62-001', goal='g1', failure_mode='f1', state=P1_STATE),\n"
+            "  dict(index=2, pair_id='ffpc-r62-002', goal='g2', failure_mode='f2', state=P2_STATE),\n"
+            "  dict(index=3, pair_id='ffpc-r62-003', goal='g3', failure_mode='f3', state=P3_STATE),\n"
+            "]\n"
+        )
+        plants = cat.plants_from_source(source, "ffpc-r62-build.py")
+        self.assertEqual([p.record_id for p in plants], [
+            "ffpc-r62-001",
+            "ffpc-r62-002",
+            "ffpc-r62-003",
+        ])
+        self.assertEqual(plants[0].site, "Reforma Norte K-401")
+
+    def test_plants_from_source_reads_rec_constants(self):
+        source = (
+            "ROUND = 67\n"
+            "FACTORY = 'failure-as-fuel-preference-cascade'\n"
+            "REC_01 = {\n"
+            '  "id": "ffpc-r67-001",\n'
+            '  "state": {"sim_or_real": "designed", "domain": "styrene furnace",\n'
+            '            "environment": {"unit": "Estireno F-8"}},\n'
+            '  "proposed_action": {"summary": "keep firing"},\n'
+            '  "meta": meta_block(1, "training_load_as_tube_metal", "ACCEPT_keep"),\n'
+            "}\n"
+            "REC_02 = {\n"
+            '  "id": "ffpc-r67-002",\n'
+            '  "state": {"sim_or_real": "designed", "domain": "Kroll sponge",\n'
+            '            "environment": {"site": "Titanio R-2"}},\n'
+            '  "proposed_action": {"summary": "cut heat"},\n'
+            '  "meta": meta_block(2, "vacuum_as_shell_temp", "REJECT_heat"),\n'
+            "}\n"
+            "REC_03 = {\n"
+            '  "id": "ffpc-r67-003",\n'
+            '  "state": {"sim_or_real": "designed", "domain": "LNG tank",\n'
+            '            "environment": {"unit": "TK-9"}},\n'
+            '  "proposed_action": {"summary": "stop fill"},\n'
+            '  "meta": meta_block(3, "rollover_watch", "MODIFY_fill"),\n'
+            "}\n"
+            "def meta_block(index, archetype, gate_flaw):\n"
+            "    return {'failure_archetype': archetype, 'gate_flaw_class': gate_flaw}\n"
+        )
+        plants = cat.plants_from_source(source, "ffpc_r67_session_a.py")
+        self.assertEqual(len(plants), 3)
+        self.assertEqual(plants[0].failure_mode, "training_load_as_tube_metal")
+        self.assertEqual(plants[0].site, "Estireno F-8")
+
 
 class CommittedCatalog(unittest.TestCase):
     def test_catalog_is_a_three_stride(self):
@@ -189,7 +246,9 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["plants"], len(loaded.plants))
         self.assertEqual(report["plants"] % 3, 0)
-        self.assertGreaterEqual(report["triples"], 17)
+        self.assertGreaterEqual(report["triples"], 35)
+        self.assertIn(33, report["rounds"])
+        self.assertIn(67, report["rounds"])
         self.assertEqual(report["first_round"], 1)
         self.assertIn(15, report["rounds"])
         self.assertEqual(loaded.plants[0].record_id[:5], "ffpc-")
@@ -284,7 +343,7 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertGreaterEqual(payload["plants"], 51)
+        self.assertGreaterEqual(payload["plants"], 105)
 
     def test_generate_stdout_and_a_raw_refusal(self):
         code, out, err = invoke(["generate", "--round", "15"])

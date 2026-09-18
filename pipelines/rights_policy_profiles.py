@@ -31,6 +31,7 @@ POLICY_VERSION = _rights_mapping.POLICY_VERSION
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
+is_exact_string = _rights_mapping.is_exact_string
 policy_error = _rights_mapping.policy_error
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_unique_strings = _rights_mapping.require_unique_strings
@@ -169,7 +170,7 @@ def _profile_value(
     profile: dict, field_name: str, vocabulary: frozenset[str], where: str
 ) -> str:
     value = profile.get(field_name)
-    if not isinstance(value, str) or value not in vocabulary:
+    if not is_exact_string(value) or value not in vocabulary:
         raise policy_error(
             where,
             f"profile {profile['id']!r} has unknown {field_name}",

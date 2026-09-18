@@ -24,13 +24,28 @@ Draw conservation is `count = records + sum(skips except MUTATION_NO_SITES)`.
 
 Every stored phase includes the executed `module_sha256` and `limits_applied`,
 alongside `status`, `load_ok`, public and hidden rows, and the row digest `sha256`.
+The harness emits `code-repair-harness/2` reports. Before `program.py` is read it
+writes one out-of-band attestation line on stdout (`code-repair-limits-attestation/1`);
+the parent treats that line as authoritative for `limits_applied`, not the in-band
+`environment` field the candidate shares an interpreter with. The JSON report is
+written to an inherited unlinked fd after atexit handlers are cleared, not to a
+workdir path the candidate can reopen.
 Rows preserve their bounded `got` text and `truncated` flag as well as the full
 observation `got_sha256`. The digest of the complete phase map binds these fields.
 The new `original_repeat` phase executes the same original source in a fresh
 process before mutants run. Differing stable observations reject with
 `SOURCE_NONDETERMINISTIC`; a restored repair must also reproduce those observations.
 Reference checks certify hidden wants independently. Resource limits must be
-reported as applied before generation continues.
+attested before generation continues. An explicit false out-of-band attestation
+refuses the run with `SANDBOX_UNAVAILABLE`; the executor preserves that trusted
+failure as structured environment evidence. Candidate-controlled error text and
+JSON `limits_applied` values cannot override the attestation.
+A child that crashes after applying limits and loses its JSON environment is a
+candidate-level harness error, not a run-wide sandbox failure. The catch-all
+includes the exception type so an empty-message `MemoryError` is diagnosable.
+Missing or malformed protocol evidence cannot certify any phase. Injected
+executors must also provide a true limits claim on every `PHASE_OK` report,
+including a module-load failure; explicit non-true claims refuse the run.
 
 Stored evidence is locally checked by re-deriving the decision and public
 projection. This is an integrity check, not authentication of a consistently
