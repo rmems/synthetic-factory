@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """The sandboxed child and its parent: real subprocess evidence (no fakes here)."""
 
-import atexit
 import doctest
 import hashlib
 import inspect
@@ -194,6 +193,7 @@ class TamperResistance(unittest.TestCase):
         "    os.ftruncate(fd, len(payload))\n"
         "atexit.register(_forge)\n\n"
     )
+    _ATEXIT_CLEAR_NOOP = "import atexit\natexit._clear = lambda: None\n" + _ATEXIT_REPORT_FD
 
     def _run_forged_pass(self, preamble: str) -> ex.PhaseReport:
         module = preamble + "def f(n):\n    return 999\n"
@@ -208,6 +208,12 @@ class TamperResistance(unittest.TestCase):
 
     def test_atexit_cannot_forge_passing_rows_via_inherited_report_fd(self):
         report = self._run_forged_pass(self._ATEXIT_REPORT_FD)
+        self.assertEqual(report.status, cv.PHASE_OK, report.detail)
+        self.assertTrue(report.load_ok)
+        self.assertEqual(report.hidden[0]["status"], "fail")
+
+    def test_replacing_atexit_clear_cannot_keep_a_report_fd_forge_alive(self):
+        report = self._run_forged_pass(self._ATEXIT_CLEAR_NOOP)
         self.assertEqual(report.status, cv.PHASE_OK, report.detail)
         self.assertTrue(report.load_ok)
         self.assertEqual(report.hidden[0]["status"], "fail")
@@ -581,7 +587,7 @@ class LimitsAttestation(unittest.TestCase):
                 mock.patch.object(os, "dup2", spec=os.dup2), \
                 mock.patch.object(sys, "stdout", stdout), \
                 mock.patch.object(sys, "stderr", io.StringIO()), \
-                mock.patch.object(atexit, "_clear"), \
+                mock.patch.object(harness, "_ATEXIT_CLEAR"), \
                 mock.patch.dict(os.environ, {harness.REPORT_FD_ENV: str(report_file.fileno())}):
             code = harness.main(["_harness.py", str(workdir)])
         report_file.seek(0)
@@ -629,7 +635,9 @@ class LimitsAttestation(unittest.TestCase):
         self.assertIn("usage:", stderr.getvalue())
 
     def test_write_protocol_report_round_trips_sorted_json(self):
-        with tempfile.TemporaryFile() as report_file, mock.patch.object(atexit, "_clear") as clearer:
+        with tempfile.TemporaryFile() as report_file, mock.patch.object(
+            harness, "_ATEXIT_CLEAR"
+        ) as clearer:
             with mock.patch.dict(os.environ, {harness.REPORT_FD_ENV: str(report_file.fileno())}):
                 harness._write_protocol_report({"z": 1, "a": 2}, json.dumps)
             report_file.seek(0)

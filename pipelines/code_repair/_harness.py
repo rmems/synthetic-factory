@@ -29,6 +29,10 @@ import traceback
 import types
 from pathlib import Path
 
+# Bound before program.py can replace the module attributes.
+_ATEXIT_CLEAR = getattr(atexit, "_clear", lambda: None)
+_OS_EXIT = os._exit
+
 PROTOCOL = "code-repair-harness/2"
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
 REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
@@ -281,7 +285,7 @@ def _write_limits_attestation(stream, limits_applied: bool) -> None:
 def _write_protocol_report(report: dict, dumps) -> None:
     """JSON report on the inherited capture fd after dropping candidate atexit hooks."""
 
-    getattr(atexit, "_clear", lambda: None)()
+    _ATEXIT_CLEAR()
     data = dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True).encode("utf-8")
     fd = int(os.environ[REPORT_FD_ENV])
     os.lseek(fd, 0, os.SEEK_SET)
@@ -358,4 +362,4 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    _OS_EXIT(main(sys.argv))
