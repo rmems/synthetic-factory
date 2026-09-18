@@ -1,0 +1,58 @@
+pipelines/code_repair/generate.py
+  s_1c8db4e0a35a28::t_485e982e9f6070 28
+  s_1c8db4e0a35a28::t_c3484e59a04e30 140-148,155-157
+pipelines/code_repair/_sandbox.py
+  s_1c8db4e0a35a28::t_1e23861835e968 2,4-6,16-17,52,78,92,102,122,125,129,138,141,147-149,151-160,200-201,203-206,208,217,219-220,222-228,230,232,234,236,262
+  s_1c8db4e0a35a28::t_3d6ea2a09f619a 163,182-184,188-189,196-199,202,207,209-216,218,221,231
+  s_1c8db4e0a35a28::t_49509c44f8c108 164-181
+  s_1c8db4e0a35a28::t_5f1d6f6af97030 81-82,85-86,88
+  s_1c8db4e0a35a28::t_e362c9311ed537 233
+  s_1c8db4e0a35a28::t_6a06a694b22e23 54
+  s_1c8db4e0a35a28::t_f96952bf8e6fa3 235,237
+  s_1c8db4e0a35a28::t_430f7770e26eb4 229
+tests/test_code_repair_records.py
+  s_1c8db4e0a35a28::t_905aac8a008bef 33
+  s_1c8db4e0a35a28::t_aca42ca78bbd44 34
+tests/test_code_repair_review_boundaries.py
+  s_1c8db4e0a35a28::t_4251ddfde064f5 175
+pipelines/code_repair/_harness.py
+  s_1c8db4e0a35a28::t_c64139f1cea49f 329-334
+  s_1c8db4e0a35a28::t_76ef9a8f27956e 284-299
+  s_1c8db4e0a35a28::t_fc180c363bf52e 370
+tests/test_code_repair_vertical_regressions.py
+  s_1c8db4e0a35a28::t_c3eb7326d23efd 224-228
+tests/test_code_repair_sandbox.py
+  s_1c8db4e0a35a28::t_aa13414c0e5865 152
+  s_1c8db4e0a35a28::t_ee6a6eba422831 143-151,153-155
+  s_1c8db4e0a35a28::t_468b61378cfa47 21
+  s_1c8db4e0a35a28::t_37b3fb261f3c56 118-119
+pipelines/code_repair/executor.py
+  s_1c8db4e0a35a28::t_07041319c964b4 92-95
+  s_1c8db4e0a35a28::t_4386e92db20b7d 215
+  s_1c8db4e0a35a28::t_ca917b7a9acac2 55
+  s_1c8db4e0a35a28::t_cf7c29df0c7e95 294-297
+  s_1c8db4e0a35a28::t_c3695e5181d2e7 31
+  s_1c8db4e0a35a28::t_c713082b60d5b4 202,205
+  s_1c8db4e0a35a28::t_37ac7bbc6e2e0e 309-310
+  s_1c8db4e0a35a28::t_8d9bbcc6307ab8 41-42
+  s_1c8db4e0a35a28::t_548d1badbbefd7 33
+  s_1c8db4e0a35a28::t_08cc1de2b585a0 201
+  s_1c8db4e0a35a28::t_b694974bb9808e 256-259
+  s_1c8db4e0a35a28::t_9e2ac12f64be3c 190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "94b13914a8bf3af89b29e62bfe550fe8cf2e95ef",
+  "prompts": {},
+  "sessions": {
+    "s_1c8db4e0a35a28": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aae50134-199b-4004-b47e-2c098cd84541",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
