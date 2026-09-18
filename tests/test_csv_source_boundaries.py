@@ -27,6 +27,13 @@ class SourceBoundaries(unittest.TestCase):
             with self.subTest(suffix=suffix):
                 self._refuses(self.source + '\n' + suffix)
 
+    def test_source_path_content_must_be_loadable_catalog_text(self):
+        for source in ("", " literal.py", "literal.py ", "\ud800"):
+            with self.subTest(source=source):
+                with self.assertRaises(CsvRefusal) as caught:
+                    catalog.plants_from_source(self.source, mill_id="csv_r114", source=source)
+                self.assertEqual(caught.exception.code, "SOURCE_NOT_PARSEABLE")
+
     def test_source_path_must_be_a_plain_string(self):
         class ForgedPath(str):
             def __eq__(self, other):

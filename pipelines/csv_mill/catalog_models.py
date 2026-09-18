@@ -11,6 +11,7 @@ from types import MappingProxyType
 
 from ._contract import (
     CsvRefusal,
+    FINDING_CATALOG_FIELD_INVALID,
     FINDING_MILL_NOT_FOUND,
     FINDING_PLANT_NOT_FOUND,
     PAIR_KEYS,
@@ -41,12 +42,14 @@ class Mill:
     plant_count: int
 
 
-def _metadata_snapshot(value):
+def _metadata_snapshot(value, depth=0):
     """Copy JSON containers so caller mutation cannot rewrite catalog metadata."""
+    if depth > 128:
+        raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, "catalog metadata exceeds 128 nesting levels")
     if isinstance(value, Mapping):
-        return MappingProxyType({key: _metadata_snapshot(item) for key, item in value.items()})
+        return MappingProxyType({key: _metadata_snapshot(item, depth + 1) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
-        return tuple(_metadata_snapshot(item) for item in value)
+        return tuple(_metadata_snapshot(item, depth + 1) for item in value)
     return value
 
 

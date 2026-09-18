@@ -11,6 +11,15 @@ from tests.test_csv import COMMITTED, invoke
 
 
 class MetadataContract(unittest.TestCase):
+    def test_excessive_metadata_depth_has_a_coded_refusal(self):
+        original = catalog.load_catalog(COMMITTED)
+        nested = "leaf"
+        for _ in range(800):
+            nested = [nested]
+        with self.assertRaises(CsvRefusal) as caught:
+            replace(original, meta={"extra": nested})
+        self.assertEqual(caught.exception.code, "CATALOG_FIELD_INVALID")
+
     def test_loaded_metadata_is_recursively_read_only(self):
         loaded = catalog.load_catalog(COMMITTED)
         with self.assertRaises(TypeError):

@@ -8,6 +8,8 @@ from itertools import takewhile
 
 from ._contract import CsvRefusal, FINDING_SOURCE_NOT_PARSEABLE, LEGACY_SOURCE, bind_import_twin
 
+from .catalog_validation import _require_text
+
 # Independently hashed Git bytes at LEGACY_COMMIT, not caller-reported metadata.
 _ARCHIVE_SHA256 = "98faa233ffe331fbd1d563c0aa3e190b48e40f18c5939939eab07d078d0ba570"
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
@@ -24,6 +26,7 @@ def _refuse(detail):
 def _parse_source(text, source):
     if type(text) is not str or type(source) is not str:
         _refuse("catalog source and path must be plain strings")
+    _require_text(source, "catalog source path", FINDING_SOURCE_NOT_PARSEABLE)
     try:
         tree = ast.parse(text, filename="<catalog-source>")
         compile(tree, "<catalog-source>", "exec", dont_inherit=True)
