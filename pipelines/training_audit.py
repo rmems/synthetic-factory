@@ -588,39 +588,13 @@ class _CorpusAudit:
 
     @staticmethod
     def _strict_agentic(obj):
-        if not isinstance(obj, dict):
-            return False
-        keys = obj.keys()
-        direct = any(
-            required <= keys
-            for required in (
-                {"case_type"},
-                {"transcript", "agents"},
-                {"steps", "outcome", "reward"},
-            )
-        )
-        preference = {"chosen", "rejected"} <= keys and any(
-            episode_like(obj.get(side)) for side in ("chosen", "rejected")
-        )
-        return direct or preference
+        return _record_audit.strict_agentic(obj, episode_like)
 
     def _observe_embedded_episodes(self, obj, kind, where):
-        for embedded_path, embedded in wrapped_agentic_episodes(obj, kind):
-            embedded_where = f"{where}.{embedded_path}"
-            if "steps" in embedded:
-                errors, _kind = shape_check(
-                    embedded,
-                    embedded_where,
-                    factory_staging=True,
-                )
-            else:
-                errors = check_episode(
-                    embedded,
-                    embedded_where,
-                    forbid_hidden_thought=True,
-                    enforce_terminal_outcome=True,
-                )
-            self.record_errors.extend(errors)
+        readers = _record_audit.EmbeddedEpisodeReaders(
+            wrapped_agentic_episodes, shape_check, check_episode,
+        )
+        self.record_errors.extend(_record_audit.embedded_episode_errors(obj, kind, where, readers))
 
     def _observe_warnings(self, warnings):
         ignored = (
@@ -748,7 +722,11 @@ class _CorpusAudit:
         )
 
     def report(self):
-        report = build_report(
+        return build_report(
+            code_repair=self.code_repair,
+            code_repair_reasons=self.code_repair_reasons,
+            oracle=self.oracle,
+            oracle_reasons=self.oracle_reasons,
             run_dir=self.run_dir,
             factories=self.factories,
             totals=self.totals,
@@ -777,40 +755,6 @@ class _CorpusAudit:
             record_errors=self.record_errors,
             unresolved_record_warnings=self.unresolved_record_warnings,
         )
-        if self.code_repair:
-            report["code_repair"] = {
-                **{key: self.code_repair[key] for key in (
-                    "records", "eligible_records", "evidence_only_records", "invalid_records",
-                    "completed_records",
-                )},
-                "ineligibility_reasons": dict(sorted(self.code_repair_reasons.items())),
-                "validation_scope": "pure_inspection",
-                "fresh_publication_gate_required": True,
-            }
-            if self.code_repair["completed_records"] != self.code_repair["records"]:
-                report["blockers"].append("code_repair requires fresh replay and round completion gate")
-                report["training_ready"] = False
-        if self.oracle:
-            report["oracle"] = {
-                **{key: self.oracle[key] for key in (
-                    "records", "eligible_records", "evidence_only_records", "invalid_records",
-                )},
-                "ineligibility_reasons": dict(sorted(self.oracle_reasons.items())),
-                "validation_scope": "recomputed_from_measurement",
-            }
-            if self.oracle["invalid_records"]:
-                report["blockers"].append("oracle records failed validation and are not admissible")
-                report["training_ready"] = False
-            if self.oracle["evidence_only_records"]:
-                # The exporter copies every curated row without filtering, so an
-                # ineligible-but-retained record would reach the training/eval
-                # splits. Blocking here is what keeps an honestly rejected
-                # measurement out of the published dataset.
-                report["blockers"].append(
-                    "oracle records are ineligible and must not be exported"
-                )
-                report["training_ready"] = False
-        return report
 
 
 def audit_run(

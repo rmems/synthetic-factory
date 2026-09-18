@@ -173,11 +173,8 @@ def claims_oracle_route(raw: Any) -> bool:
     """Identify this authority's single row without touching hosted rows."""
     if not isinstance(raw, Mapping):
         return False
-    return (
-        raw.get("source_type") == "procedural"
-        and raw.get("path_id") == "oracle-grounded"
-        and raw.get("payload_factory") == "oracle-grounded"
-    )
+    route = (raw.get("source_type"), raw.get("path_id"), raw.get("payload_factory"))
+    return route == ("procedural", "oracle-grounded", "oracle-grounded")
 
 
 bind_import_twin(__name__)
