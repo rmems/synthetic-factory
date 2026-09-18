@@ -1,0 +1,21 @@
+pipelines/sir/catalog_extract.py
+  s_5660553172852b::t_a15563debfabeb 191,197-201
+tests/test_sir_review_regressions.py
+  s_5660553172852b::t_a15563debfabeb 32-48,51,53-54,56-57,59-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1ebdcd3cb810baa0da39c4f62ccc9daffe12ce7c",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
