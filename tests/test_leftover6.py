@@ -259,13 +259,27 @@ class Leftover6CatalogTests(unittest.TestCase):
         with clean_package_imports(), direct_pipeline_path():
             import leftover6.catalog as direct
             import pipelines.leftover6.catalog as packaged
+            import leftover6.catalog_ast as direct_ast
+            import pipelines.leftover6.catalog_ast as packaged_ast
+            import leftover6.catalog_literals as direct_literals
+            import pipelines.leftover6.catalog_literals as packaged_literals
             self.assertIs(direct, packaged)
             self.assertIs(direct.CatalogError, packaged.CatalogError)
+            self.assertIs(direct_ast, packaged_ast)
+            self.assertIs(direct_ast.UNSET, packaged_ast.UNSET)
+            self.assertIs(direct_literals, packaged_literals)
         with clean_package_imports(), direct_pipeline_path():
             import pipelines.leftover6.catalog as packaged_first
             import leftover6.catalog as direct_second
+            import pipelines.leftover6.catalog_ast as packaged_ast_first
+            import leftover6.catalog_ast as direct_ast_second
+            import pipelines.leftover6.catalog_literals as packaged_literals_first
+            import leftover6.catalog_literals as direct_literals_second
             self.assertIs(packaged_first, direct_second)
             self.assertIs(packaged_first.CatalogError, direct_second.CatalogError)
+            self.assertIs(packaged_ast_first, direct_ast_second)
+            self.assertIs(packaged_ast_first.UNSET, direct_ast_second.UNSET)
+            self.assertIs(packaged_literals_first, direct_literals_second)
 
     def test_jsonl_stays_compact(self):
         for path, expected in ((PAIRS_JSONL, 32), (PLANTS_JSONL, 65)):

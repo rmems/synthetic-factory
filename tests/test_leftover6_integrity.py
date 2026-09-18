@@ -11,6 +11,13 @@ from tests import test_leftover6 as support
 
 
 class CatalogIntegrity(unittest.TestCase):
+    def test_extraction_statement_cannot_claim_execution(self):
+        header = json.loads(support.CATALOG_JSON.read_bytes())
+        header['extraction'] = 'mill was executed'
+        with support._fixture(header=json.dumps(header)) as root:
+            with self.assertRaisesRegex(catalog.CatalogError, 'extraction'):
+                catalog.load_catalog(root)
+
     def test_self_consistent_truncation_is_refused(self):
         header = json.loads(support.CATALOG_JSON.read_bytes())
         rows = support._catalog_rows()

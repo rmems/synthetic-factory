@@ -1,8 +1,10 @@
 """Literal extraction works and fails closed without fetched archival Git refs."""
 
+import ast
 import unittest
 
-from pipelines.leftover6.catalog_extract import SBOX_PATH, SSL_PATH, extract_source
+from pipelines.leftover6.catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH, extract_source
+from tests.test_leftover6 import _GQL_SNIPPET
 
 
 SSL_SOURCE = '''
@@ -10,9 +12,9 @@ FACTORY = 'stateful-service-lineage-factory'
 GEN = 'grok-4.6'
 START = 164
 N_ROUNDS = 1
-PAIRS = [dict(slug='bind', lslug='lose', stack='api', lstack='stale-api',
-    obj='record', naive='ignore', fix='bind', docs='fixture docs',
-    novel=1, new_vs='prior fixture', ticket='SSL-164')]
+PAIRS = [{'slug': 'bind', 'lslug': 'lose', 'stack': 'api', 'lstack': 'stale-api',
+    'obj': 'record', 'naive': 'ignore', 'fix': 'bind', 'docs': 'fixture docs',
+    'novel': 1, 'new_vs': 'prior fixture', 'ticket': 'SSL-164'}]
 '''
 
 SBOX_SOURCE = '''
@@ -43,7 +45,7 @@ class LiteralCatalogExtract(unittest.TestCase):
         invalid = (
             SSL_SOURCE.replace('N_ROUNDS = 1', 'N_ROUNDS = 2'),
             SSL_SOURCE.replace('START = 164', 'START = True'),
-            SSL_SOURCE.replace('novel=1', 'novel="1"'),
+            SSL_SOURCE.replace("'novel': 1", "'novel': '1'"),
             SSL_SOURCE.replace("GEN = 'grok-4.6'", 'GEN = 42'),
             SSL_SOURCE + '\nPAIRS = []\n',
             SSL_SOURCE + '\nPAIRS = [None]\n',
@@ -84,7 +86,9 @@ class LiteralCatalogExtract(unittest.TestCase):
         definitions = ('def publish(value=PAIRS.clear()):\n    pass',
                        '@decorate(PAIRS.clear())\ndef publish():\n    pass',
                        'class Publisher:\n    PAIRS.clear()',
-                       'publish = lambda value=PAIRS.clear(): None')
+                       'publish = lambda value=PAIRS.clear(): None',
+                       'def publish() -> PAIRS.clear():\n    pass',
+                       'async def publish() -> PAIRS.clear():\n    pass')
         for definition in definitions:
             with self.subTest(definition=definition), self.assertRaises(ValueError):
                 extract_source(SSL_SOURCE + '\n' + definition, path=SSL_PATH)
@@ -99,3 +103,72 @@ class LiteralCatalogExtract(unittest.TestCase):
         source = SSL_SOURCE + '\nALIAS = PAIRS\nALIAS = ALIAS.clear()'
         with self.assertRaises(ValueError):
             extract_source(source, path=SSL_PATH)
+
+    def test_source_line_count_includes_final_unterminated_line(self):
+        for source in (SSL_SOURCE, SSL_SOURCE.rstrip(), SSL_SOURCE.replace('\n', '\r\n')):
+            with self.subTest(source=source):
+                self.assertEqual(extract_source(source, path=SSL_PATH)['source_lines'],
+                                 len(source.splitlines()))
+
+    def test_extracted_integer_ranges_match_loader_contract(self):
+        cases = ((SSL_SOURCE, SSL_PATH, 'START = 164', 'START = -1'),
+                 (SSL_SOURCE, SSL_PATH, "'novel': 1", "'novel': 0"),
+                 (SSL_SOURCE, SSL_PATH, "'novel': 1", "'novel': -1"),
+                 (SBOX_SOURCE, SBOX_PATH, "'live-bin', 4", "'live-bin', 0"),
+                 (SBOX_SOURCE, SBOX_PATH, "'live-bin', 4", "'live-bin', -1"))
+        for source, path, old, new in cases:
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                extract_source(source.replace(old, new), path=path)
+        self.assertEqual(extract_source(SSL_SOURCE.replace('START = 164', 'START = 0'),
+                                        path=SSL_PATH)['catalog_first'], 0)
+
+    def test_reported_shapes_require_the_original_ast_constructor(self):
+        cases = ((_GQL_SNIPPET, GQL_PATH, 'PAIRS'), (SSL_SOURCE, SSL_PATH, 'PAIRS'),
+                 (SBOX_SOURCE, SBOX_PATH, '_ROWS'))
+        for source, path, name in cases:
+            row = extract_source(source, path=path)['rows'][0]
+            fields = {key: value for key, value in row.items() if key not in ('kind', 'round')}
+            syntax = ('dict(' + ', '.join(f'{key}={value!r}' for key, value in fields.items()) + ')'
+                      if path == SSL_PATH else repr(fields))
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                extract_source(source + f'\n{name} = [{syntax}]', path=path)
+
+    def test_named_expressions_cannot_preserve_overwritten_bindings(self):
+        for expression in ('X = (PAIRS := [])', 'X = [(PAIRS := [])]',
+                           'X = (ALIAS := PAIRS.clear())'):
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + expression, path=SSL_PATH)
+
+    def test_pattern_and_exception_names_invalidate_prior_catalog_bindings(self):
+        statements = ('match []:\n    case PAIRS: pass',
+                      'match []:\n    case [*PAIRS]: pass',
+                      'match {}:\n    case {**PAIRS}: pass',
+                      'try:\n    raise Exception()\nexcept Exception as PAIRS:\n    pass')
+        for statement in statements:
+            with self.subTest(statement=statement), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + statement, path=SSL_PATH)
+
+    def test_extracted_strings_cannot_be_whitespace_only(self):
+        for field in ('slug', 'stack', 'docs'):
+            tree = ast.parse(SSL_SOURCE)
+            pairs = tree.body[-1].value
+            row = pairs.elts[0]
+            index = next(i for i, key in enumerate(row.keys) if key.value == field)
+            row.values[index] = ast.Constant(value=' \t\n ')
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                extract_source(ast.unparse(tree), path=SSL_PATH)
+
+    def test_invoked_local_code_cannot_preserve_prior_catalog_values(self):
+        definition = '\ndef clear():\n    PAIRS.clear()\n'
+        for call in ('clear()', 'X = clear()', 'alias = (clear,)\nalias[0]()'):
+            with self.subTest(call=call), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + definition + call, path=SSL_PATH)
+        with self.assertRaises(ValueError):
+            extract_source(SSL_SOURCE + '\nclear = lambda: PAIRS.clear()\nclear()', path=SSL_PATH)
+
+    def test_script_entry_body_is_deferred_and_import_else_is_checked(self):
+        source = SSL_SOURCE + '\ndef clear():\n    PAIRS.clear()\n'
+        guarded = source + "if __name__ == '__main__':\n    clear()\n"
+        self.assertEqual(extract_source(guarded, path=SSL_PATH)['n_rows'], 1)
+        with self.assertRaises(ValueError):
+            extract_source(guarded + 'else:\n    clear()\n', path=SSL_PATH)

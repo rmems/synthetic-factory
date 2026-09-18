@@ -23,6 +23,7 @@ FAMILY = "leftover6"
 GENERATOR = "grok-4.6"
 SOURCE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 LEGACY_REF = "origin/legacy-mill-lane"
+EXTRACTION = "AST literals only; leftover6 mills were never imported or executed"
 # Canonical descriptor digests verified against each immutable preserve commit.
 _MILL_DESCRIPTOR_PINS = (
     "b2e98084101057ff76893c76e11fdd63f7f219dccdad66e8ef653016960e4bf3",
@@ -360,6 +361,7 @@ def _refuse_identity(catalog: Catalog) -> None:
     _expect((catalog.family, catalog.slice), (FAMILY, "full"), "catalog identity does not match leftover6")
     _expect((catalog.generator, catalog.source_commit), (GENERATOR, SOURCE_COMMIT), "catalog pin drifted from leftover6 archive 813f93f1")
     _expect(catalog.source_branch, LEGACY_REF, "catalog source_branch is not origin/legacy-mill-lane")
+    _expect(catalog.extraction, EXTRACTION, "catalog extraction statement differs from AST-only provenance")
 
 
 def _expect(actual: Any, expected: Any, message: str) -> None:

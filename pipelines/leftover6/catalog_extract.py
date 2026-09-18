@@ -7,7 +7,6 @@ Does not import, compile, or exec leftover6 mills.
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 from collections.abc import Mapping
@@ -15,9 +14,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from ._contract import bind_import_twin
-
-UNSET = object()
-
+from .catalog_ast import (
+    assignment_of as assignment_of,
+    module_constants as module_constants,
+)
+from .catalog_literals import SBOX_PLANT_FIELDS, UNSET as UNSET, _LiteralMapping, literal_value as literal_value
 
 @dataclass(frozen=True)
 class SourceContext:
@@ -56,209 +57,18 @@ SSL_PAIR_FIELDS = (
     "new_vs",
     "ticket",
 )
-SBOX_PLANT_FIELDS = (
-    "family",
-    "dump",
-    "miss_dump",
-    "secret",
-    "pin",
-    "pin_path",
-    "pin_needle",
-    "grep_hit",
-    "distinct",
-    "ext",
-    "miss_ext",
-    "live_bin",
-    "inc",
-    "over_slug",
-    "miss_slug",
-    "proc",
-    "allow",
-    "rotate",
-)
+
 
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return node.target.id, node.value
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target = node.targets[0]
-        if isinstance(target, ast.Name):
-            return target.id, node.value
-    return None, None
-
-
-def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    bound = env or {}
-    value = _atomic_literal(node, bound)
-    if value is not UNSET:
-        return value
-    return _compound_literal(node, bound)
-
-
-def _atomic_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return env[node.id] if node.id in env else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, env)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    return UNSET
-
-
-def _compound_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
-    if isinstance(node, (ast.Tuple, ast.List)):
-        constructor = tuple if isinstance(node, ast.Tuple) else list
-        return _sequence(node.elts, env, constructor)
-    if isinstance(node, ast.Dict):
-        return _mapping(node, env)
-    if isinstance(node, ast.Call):
-        return _literal_call(node, env)
-    return UNSET
-
-
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
-    values: list[Any] = []
-    for elt in elts:
-        item = literal_value(elt, env)
-        if item is UNSET:
-            return UNSET
-        values.append(item)
-    return ctor(values)
-
-
-def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
-    out: dict[Any, Any] = {}
-    for key_node, value_node in zip(node.keys, node.values, strict=True):
-        if key_node is None:
-            return UNSET
-        key = literal_value(key_node, env)
-        value = literal_value(value_node, env)
-        if key is UNSET or value is UNSET:
-            return UNSET
-        try:
-            if key in out:
-                return UNSET
-            out[key] = value
-        except TypeError:
-            return UNSET
-    return out
-
-
-def _literal_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.func, ast.Name):
-        return UNSET
-    parsers = {"dict": _dict_call, "_row": _row_call}
-    parser = parsers.get(node.func.id)
-    return UNSET if parser is None else parser(node, env)
-
-
-def _dict_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
-    if node.args or any(keyword.arg is None for keyword in node.keywords):
-        return UNSET
-    values: dict[str, Any] = {}
-    for keyword in node.keywords:
-        name = keyword.arg
-        if name is None or name in values:
-            return UNSET
-        value = literal_value(keyword.value, env)
-        if value is UNSET:
-            return UNSET
-        values[name] = value
-    return values
-
-
-def _row_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
-    if node.keywords or len(node.args) != len(SBOX_PLANT_FIELDS):
-        return UNSET
-    values = _sequence(node.args, env, list)
-    return UNSET if values is UNSET else dict(zip(SBOX_PLANT_FIELDS, values, strict=True))
-
-
-def module_constants(source: str, *, path: str) -> dict[str, Any]:
-    tree = ast.parse(source, filename=path)
-    env: dict[str, Any] = {}
-    for node in tree.body:
-        name, value = assignment_of(node)
-        if name is None:
-            _invalidate_names(env, _statement_names(node))
-            continue
-        if value is None:
-            continue
-        resolved = literal_value(value, env)
-        if resolved is not UNSET:
-            env[name] = resolved
-        else:
-            # Assignment is authoritative: never retain an earlier literal
-            # after the source replaces it with an expression we refuse to run.
-            _invalidate_names(env, _call_names(value))
-            env.pop(name, None)
-    return env
-
-
-def _statement_names(node: ast.AST) -> list[str]:
-    """Invalidate unsupported top-level uses without running publisher bodies."""
-    scoped = _scope_names(node)
-    if scoped is not None:
-        return scoped
-    if isinstance(node, ast.Name):
-        return [node.id]
-    if isinstance(node, ast.alias):
-        return [node.asname or node.name.partition(".")[0]]
-    return _child_names(node)
-
-
-def _scope_names(node: ast.AST) -> list[str] | None:
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        expressions = [node.args, *node.decorator_list]
-        return [node.name, *(name for expr in expressions for name in _statement_names(expr))]
-    if isinstance(node, ast.ClassDef):
-        return [node.name, *_child_names(node)]
-    if isinstance(node, ast.Lambda):
-        return _statement_names(node.args)
-    return None
-
-
-def _child_names(node: ast.AST) -> list[str]:
-    return [name for child in ast.iter_child_nodes(node) for name in _statement_names(child)]
-
-
-def _mutable_identities(value: Any) -> set[int]:
-    if not isinstance(value, (dict, list, set, tuple)):
-        return set()
-    items = value.values() if isinstance(value, dict) else value
-    identities = set() if isinstance(value, tuple) else {id(value)}
-    for item in items:
-        identities.update(_mutable_identities(item))
-    return identities
-
-
-def _call_names(node: ast.AST) -> list[str]:
-    if isinstance(node, ast.Lambda):
-        return _call_names(node.args)
-    if isinstance(node, ast.Call):
-        return _statement_names(node)
-    return [name for child in ast.iter_child_nodes(node) for name in _call_names(child)]
-
-
-def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
-    """Invalidate aliases too when an unsupported operation touches mutable data."""
-    affected = set().union(*(_mutable_identities(env.get(name)) for name in names))
-    for name, value in tuple(env.items()):
-        if name in names or affected.intersection(_mutable_identities(value)):
-            env.pop(name)
-
-
 def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, Any]:
     payload = source.encode()
     constants = module_constants(source, path=path)
     digest = sha256_bytes(payload)
-    lines = source.count("\n")
+    lines = _source_line_count(source)
     context = SourceContext(path, blob_sha, digest, lines)
     for suffix, builder in (("mill_gql_leftover6_r260.py", _gql_record), ("ssl_r164_leftover6_mill.py", _ssl_record), ("sbox-mill-plants-leftover6.py", _sbox_record)):
         if path.endswith(suffix):
@@ -266,15 +76,22 @@ def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, A
     raise ValueError(f"unsupported leftover6 source {path}")
 
 
+def _source_line_count(source: str) -> int:
+    normalized = source.replace("\r\n", "\n").replace("\r", "\n")
+    return len(normalized.removesuffix("\n").split("\n")) if normalized else 0
+
+
 def _require_str(value: Any, context: str) -> str:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{context} is not a non-empty string")
     return value
 
 
-def _require_int(value: Any, context: str) -> int:
+def _require_int(value: Any, context: str, minimum: int = 1) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{context} is not an int")
+    if value < minimum:
+        raise ValueError(f"{context} is below the minimum {minimum}")
     return value
 
 
@@ -306,7 +123,7 @@ def _ssl_record(constants: Mapping[str, Any], context: SourceContext) -> dict[st
     pairs_raw = constants.get("PAIRS")
     rows = _mapping_rows(pairs_raw, SSL_PAIR_FIELDS, path=path, name="PAIRS")
     n_rounds = _require_int(constants.get("N_ROUNDS"), f"{path} N_ROUNDS")
-    start = _require_int(constants.get("START"), f"{path} START")
+    start = _require_int(constants.get("START"), f"{path} START", minimum=0)
     if n_rounds != len(rows):
         raise ValueError(f"{path} N_ROUNDS={n_rounds} disagrees with {len(rows)} pairs")
     return {
@@ -363,8 +180,10 @@ def _mapping_rows(
 
 
 def _typed_mapping(item: Any, fields: tuple[str, ...], context: str) -> dict[str, Any]:
-    if not isinstance(item, dict):
-        raise ValueError(f"{context} is not a literal mapping")
+    expected = {GQL_PAIR_FIELDS: "dict-kwargs", SSL_PAIR_FIELDS: "literal-dicts",
+                SBOX_PLANT_FIELDS: "row-ctor"}[fields]
+    if not isinstance(item, _LiteralMapping) or item.shape != expected:
+        raise ValueError(f"{context} does not use the expected {expected} syntax")
     if set(item) != set(fields):
         raise ValueError(f"{context} keys drifted from {fields}")
     return {field: _field_value(field, item[field], context) for field in fields}
