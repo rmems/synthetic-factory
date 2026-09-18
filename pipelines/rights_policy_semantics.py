@@ -40,6 +40,7 @@ _TRAINING_CANDIDATE_PROFILE_IDS = frozenset(
 _HOSTED_FRONTIER_VERDICT = ("research_only", "blocked", {"unresolved"})
 _BLOCKED_DECISION = ("research_only", "blocked")
 _ALLOWED_DECISION = ("training_candidate", "allowed")
+_CANDIDATE_EVIDENCE_STATUSES = ("allowed", "allowed", "unresolved", "unresolved", "unresolved")
 
 
 def _decision_pair(profile: dict) -> tuple[str, str]:
@@ -89,11 +90,19 @@ def _require_training_candidate_verdicts(profiles: dict[str, dict], where: str) 
     for profile_id in _TRAINING_CANDIDATE_PROFILE_IDS:
         candidate = profiles[profile_id]
         _require_candidate_reasons(candidate, where)
+        _require_candidate_evidence_statuses(candidate, where)
         if _decision_pair(candidate) != _ALLOWED_DECISION:
             raise policy_error(
                 where,
                 f"profile {profile_id!r} must be training_candidate/allowed",
             )
+
+
+def _require_candidate_evidence_statuses(profile: dict, where: str) -> None:
+    statuses = tuple(profile["evidence_statuses"][field]
+                     for field in _rights_mapping.EVIDENCE_STATUS_FIELDS)
+    if statuses != _CANDIDATE_EVIDENCE_STATUSES:
+        raise policy_error(where, "training-candidate evidence statuses differ from reviewed policy")
 
 
 def validate_required_profile_semantics(profiles: dict[str, dict], where: str) -> None:

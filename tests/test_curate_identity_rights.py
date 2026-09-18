@@ -377,16 +377,10 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
         ):
             _load_temp_registry(tmp, payload)
 
-    def test_attested_procedural_hosted_row_classifies_as_allowed(self):
+    def test_generic_procedural_attestation_requires_a_reviewed_source_assignment(self):
         with tempfile.TemporaryDirectory() as tmp:
-            loaded = _load_temp_registry(tmp, _registry_payload([_attested_procedural_row()]))
-        row = loaded.by_path_id["procedural-attested-factory"]
-        self.assertEqual(row.provider, "procedural")
-        self.assertEqual(row.channel, "local")
-        self.assertEqual(row.rights_profile_id, "procedural-local-attested-v1")
-        self.assertEqual(row.intended_use, "training_candidate")
-        self.assertEqual(row.project_training_policy, "allowed")
-        self.assertEqual(row.catalog_authorship, "human-authored")
+            with self.assertRaisesRegex(identity.IdentityCurationError, "no independently reviewed source"):
+                _load_temp_registry(tmp, _registry_payload([_attested_procedural_row()]))
 
     def test_simulator_pin_substitution_is_refused_for_copied_registries(self):
         document = json.loads(identity.FACTORY_REGISTRY_PATH.read_text())
@@ -469,4 +463,3 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
         for row in hosted:
             self.assertEqual(row.intended_use, "research_only")
             self.assertEqual(row.project_training_policy, "blocked")
-

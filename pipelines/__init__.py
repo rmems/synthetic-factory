@@ -102,6 +102,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "rights_policy_placeholders",
     "rights_policy_semantics",
     "curate_identity_registry_evidence",
+    "curate_identity_registry_sources",
 
     "exact_json_encoding",
     "exact_json",

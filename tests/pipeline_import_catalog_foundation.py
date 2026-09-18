@@ -1105,7 +1105,23 @@ def _package_curate_identity_registry_evidence() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_registry_sources() -> ModuleType:
+    import curate_identity_registry_sources as module
+
+    return module
+
+
+def _package_curate_identity_registry_sources() -> ModuleType:
+    import pipelines.curate_identity_registry_sources as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "curate_identity_registry_sources": (
+        _direct_curate_identity_registry_sources,
+        _package_curate_identity_registry_sources,
+    ),
     "rights_policy_placeholders": (_direct_rights_policy_placeholders, _package_rights_policy_placeholders),
     "rights_policy_semantics": (_direct_rights_policy_semantics, _package_rights_policy_semantics),
     "curate_identity_registry_evidence": (_direct_curate_identity_registry_evidence, _package_curate_identity_registry_evidence),

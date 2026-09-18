@@ -12,6 +12,7 @@ if __package__:
 
     _assert_direct_sibling("curate_identity_registry_evidence")
     from .curate_identity_json import IdentityCurationError
+    from .curate_identity_registry_sources import require_simulator_sources
     from .rights_mapping import (
         PROCEDURAL_PROFILE_ID,
         SHA256_RE,
@@ -22,6 +23,7 @@ else:
         "curate_identity_registry_evidence"
     )
     from curate_identity_json import IdentityCurationError
+    from curate_identity_registry_sources import require_simulator_sources
     from rights_mapping import (
         PROCEDURAL_PROFILE_ID,
         SHA256_RE,
@@ -92,6 +94,26 @@ def _require_procedural_evidence(raw: Mapping[str, Any], index: int) -> None:
     _require_catalog_authorship(raw, index)
     _require_prefixed_digest(raw, "generator_source_digest", index)
     _reject_unexpected_evidence(raw, index, ("commit_sha", "module_digest"))
+    raise IdentityCurationError(
+        f"factories[{index}] procedural-attested has no independently reviewed source assignment; "
+        "use the separately sealed v0.3 code-repair route"
+    )
+
+
+def _require_simulator_assignment(raw: Mapping[str, Any], index: int) -> None:
+    expected = {
+        "path_id": "fault-recovery-simulator-factory",
+        "payload_factory": "fault-recovery-simulator-factory",
+        "record_kinds": ["thalamic"],
+        "identity_authoritative": True,
+        "publication_target": None,
+        "training_ready_policy": "never",
+        "allowed_curation_lanes": ["curate_identity"],
+        "provenance_contract_by_kind": {"thalamic": "require_state_claim"},
+    }
+    for field, value in expected.items():
+        if raw.get(field) != value:
+            raise IdentityCurationError(f"factories[{index}].{field} differs from reviewed simulator assignment")
 
 
 def _require_simulator_evidence(raw: Mapping[str, Any], index: int) -> None:
@@ -102,6 +124,8 @@ def _require_simulator_evidence(raw: Mapping[str, Any], index: int) -> None:
     _reject_unexpected_evidence(
         raw, index, ("catalog_authorship", "generator_source_digest")
     )
+    _require_simulator_assignment(raw, index)
+    require_simulator_sources()
 
 
 _PROFILE_EVIDENCE_CHECKERS = {
