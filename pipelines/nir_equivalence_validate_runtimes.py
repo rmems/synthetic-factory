@@ -197,7 +197,7 @@ def _runtime_probe_errors(entry, expected_runtime, label):
 
 
 def _unavailable_probe_errors(entry, availability, label):
-    """An unavailable probe pins the entry's status, reason, and detail."""
+    """Retain historical diagnostics while the runtime still cannot execute."""
     errors = []
     if entry.get("status") != STATUS_UNAVAILABLE:
         errors.append(
@@ -211,17 +211,10 @@ def _unavailable_probe_errors(entry, availability, label):
             f"{label}: runtime probe returned unsupported reason_code "
             f"{expected_reason!r} [RUNTIME_STATUS_UNKNOWN]"
         )
-    elif entry.get("reason_code") != expected_reason:
+    if entry.get("reason_code") not in UNAVAILABLE_REASON_CODES:
         errors.append(
-            f"{label}: unavailable reason_code {entry.get('reason_code')!r} "
-            f"does not match the runtime probe {expected_reason!r} "
+            f"{label}: unavailable reason_code {entry.get('reason_code')!r} is unsupported "
             "[RUNTIME_STATUS_UNKNOWN]"
-        )
-    expected_detail = availability.get("detail")
-    if entry.get("detail") != expected_detail:
-        errors.append(
-            f"{label}: unavailable diagnostic detail does not match the "
-            "runtime probe [RUNTIME_STATUS_UNKNOWN]"
         )
     if entry.get("roundtrip") is not None:
         errors.append(

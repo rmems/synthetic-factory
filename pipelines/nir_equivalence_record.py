@@ -32,7 +32,6 @@ if __package__:
     from .nir_equivalence_runtimes import (  # noqa: E402
         IN_REPO_RUNTIMES,
         UPSTREAM_RUNTIMES,
-        _runtime_capability,
     )
     from .nir_equivalence_terms import (  # noqa: E402
         FACTORY_SLUG,
@@ -67,7 +66,6 @@ else:
     from nir_equivalence_runtimes import (  # noqa: E402
         IN_REPO_RUNTIMES,
         UPSTREAM_RUNTIMES,
-        _runtime_capability,
     )
     from nir_equivalence_terms import (  # noqa: E402
         FACTORY_SLUG,
@@ -101,9 +99,9 @@ def _evidence_lineage(entries):
     """Derive one ordered identity-bearing lineage item per runtime entry.
 
     Each persisted item binds the runtime, status, and evidence digest. For an
-    unavailable runtime the digest comes from this validator's adapter probe,
-    not record-authored prose, so changing a capability code cannot authenticate
-    itself by recomputing the record.
+    unavailable runtime the digest binds its recorded diagnostic. A fresh
+    probe independently checks whether the runtime remains unavailable;
+    installing an unimplemented package must not rewrite historical evidence.
     """
     lineage = []
     for entry in entries:
@@ -125,14 +123,14 @@ def _evidence_lineage(entries):
             }
             evidence_digest = _safe_digest(diagnostic)
         elif status == STATUS_UNAVAILABLE:
-            capability = _runtime_capability(entry.get("runtime"))
             diagnostic = {
                 "evidence_kind": "runtime_capability",
                 "runtime": entry.get("runtime"),
                 "runtime_class": entry.get("runtime_class"),
                 "status": status,
-                "available": capability["available"],
-                "reason_code": capability["reason_code"],
+                "available": False,
+                "reason_code": entry.get("reason_code"),
+                "detail": entry.get("detail"),
             }
             evidence_digest = _safe_digest(diagnostic)
         else:

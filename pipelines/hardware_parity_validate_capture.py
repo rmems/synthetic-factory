@@ -181,24 +181,30 @@ def _capture_identity_errors(source, deployment, payload, where):
                 f"{where}: oracle.deployment.{key} does not match capture.source.{key} "
                 "[HW_PROVENANCE_MISSING]"
             )
+    return errors + _capture_quantization_errors(source, deployment, payload, where)
+
+
+def _capture_quantization_errors(source, deployment, payload, where):
+    """Distinguish an absent quantization pin from a present invalid value."""
+    payload = payload if isinstance(payload, dict) else {}
+    has_both = "quantization" in source and "quantization" in payload
     top = source.get("quantization")
-    nested = payload.get("quantization") if isinstance(payload, dict) else None
-    if top and nested and not contract.strict_json_equal(top, nested):
-        errors.append(
+    nested = payload.get("quantization")
+    if has_both and not contract.strict_json_equal(top, nested):
+        return [
             f"{where}: capture.source.quantization disagrees with "
             "capture.source.payload.quantization [Q88_PROVENANCE_MISMATCH]"
-        )
-        return errors
-    source_quantization = top or nested
+        ]
+    source_quantization = top if "quantization" in source else nested
     # Strict JSON typing: an ordinary `!=` treats False as 0, letting a
     # capture source violate the documented quantization types while still
     # binding to the deployment.
     if not contract.strict_json_equal(source_quantization, deployment.get("quantization")):
-        errors.append(
+        return [
             f"{where}: deployment quantization is not the conversion stored with the "
             "capture [Q88_PROVENANCE_MISMATCH]"
-        )
-    return errors
+        ]
+    return []
 
 
 def _capture_projection_errors(deployment, payload, where):

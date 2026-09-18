@@ -38,6 +38,10 @@ PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 # thalamic/episode key names. They are not identity-lane payloads, so they stay
 # out of KIND_ORDER (and therefore out of SUPPORTED_RECORD_KINDS).
 DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
+DECLARED_FACTORY_KINDS = {
+    "hardware-parity-spike-trajectories": "hardware_parity",
+    "nir-cross-runtime-equivalence": "nir_equivalence",
+}
 
 _PAYLOAD_KEY_RULES = (
     ("thalamic", frozenset(THALAMIC_REQUIRED)),

@@ -15,7 +15,6 @@ from nir_equivalence_support import (  # noqa: E402
     WHERE,
     fixture_records as _fixture_records,
     rebuild_scenario as _rebuild_scenario,
-    refresh_result as _refresh_result,
 )
 
 import nir_equivalence as nir  # noqa: E402
@@ -499,14 +498,14 @@ class Validation(unittest.TestCase):
                     "unsupported_type": entry["unsupported_type"],
                 }
             else:
-                capability = nir._runtime_capability(entry["runtime"])
                 diagnostic = {
                     "evidence_kind": "runtime_capability",
                     "runtime": entry["runtime"],
                     "runtime_class": entry["runtime_class"],
                     "status": entry["status"],
-                    "available": capability["available"],
-                    "reason_code": capability["reason_code"],
+                    "available": False,
+                    "reason_code": entry["reason_code"],
+                    "detail": entry["detail"],
                 }
             expected_digests.append(nir.digest(diagnostic))
 
@@ -607,7 +606,7 @@ class Validation(unittest.TestCase):
                     any("graph catalog" in error for error in errors), errors
                 )
 
-    def test_unavailable_detail_must_match_the_runtime_probe(self):
+    def test_recorded_unavailable_detail_is_bound_to_its_lineage(self):
         record = copy.deepcopy(self.records[0])
         original_lineage = copy.deepcopy(record["result"]["derived_from"])
         entry = next(
@@ -616,15 +615,14 @@ class Validation(unittest.TestCase):
             if item["runtime"] == "nir_rs"
         )
         entry["detail"] = "host-specific diagnostic wording"
-        _refresh_result(record)
         self.assertEqual(record["result"]["derived_from"], original_lineage)
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(
-            any("diagnostic detail does not match" in error for error in errors),
+            any("RESULT_DIGEST_UNLINKED" in error for error in errors),
             errors,
         )
 
-    def test_unavailable_reason_cannot_switch_and_self_rehash(self):
+    def test_recorded_unavailable_reason_is_bound_to_its_lineage(self):
         record = copy.deepcopy(self.records[0])
         original_lineage = copy.deepcopy(record["result"]["derived_from"])
         entry = next(
@@ -640,12 +638,11 @@ class Validation(unittest.TestCase):
         )
         entry["reason_code"] = alternate_reason
         entry["detail"] = "self-authenticated alternate capability"
-        _refresh_result(record)
         self.assertEqual(record["result"]["derived_from"], original_lineage)
 
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(
-            any("does not match the runtime probe" in error for error in errors),
+            any("RESULT_DIGEST_UNLINKED" in error for error in errors),
             errors,
         )
 

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 if __package__:
+    from .record_kind import DECLARED_FACTORY_KINDS
     from .exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -42,6 +43,7 @@ else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    from record_kind import DECLARED_FACTORY_KINDS
     from exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -839,10 +841,23 @@ def _claim_record_id(record_id, where, seen_ids):
     return []
 
 
+def _declared_path_kind(path):
+    """Bind explicit parity factory directories independently of record claims."""
+    return next((DECLARED_FACTORY_KINDS[parent.name] for parent in Path(path).parents
+                 if parent.name in DECLARED_FACTORY_KINDS), None)
+
+
+def _factory_kind_errors(expected_kind, kind, where):
+    if expected_kind is not None and kind != expected_kind:
+        return [f"{where}: factory directory requires {expected_kind!r}, got {kind!r}"]
+    return []
+
+
 def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     errors, warnings = [], []
     kinds = {}
     records = 0
+    expected_kind = _declared_path_kind(path)
     if seen_ids is None:
         seen_ids = {}
     try:
@@ -874,6 +889,7 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
         )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
+        errors.extend(_factory_kind_errors(expected_kind, kind, where))
         errors.extend(rec_errs)
         warnings.extend(rec_warns)
         errors.extend(_claim_record_id(record_id, where, seen_ids))

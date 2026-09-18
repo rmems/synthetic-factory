@@ -38,7 +38,7 @@ METER = "python_subprocess_harness"
 SOURCE_KIND = "synthetic_mutation_of_public_source"
 SOLVER_NAME = "inverse-mutation"
 CATALOG_FORMAT = "code-repair-catalog/1"
-HARNESS_PROTOCOL = "code-repair-harness/1"
+HARNESS_PROTOCOL = "code-repair-harness/2"
 REPAIR_METHOD = "inverse of the generator's own mutation (original span restored)"
 
 # Actor roles (the VSET idea from #159, carried as family vocabulary under

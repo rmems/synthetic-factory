@@ -47,6 +47,7 @@ if __package__:
 
     _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
+    from .record_kind import DECLARED_FACTORY_KINDS
     from .operator_paths import operator_path
     from . import round_txn_agentic as _round_txn_agentic
     from . import round_txn_agentic_terms as _round_txn_agentic_terms
@@ -61,6 +62,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
+    from record_kind import DECLARED_FACTORY_KINDS
     from operator_paths import operator_path
     import round_txn_agentic as _round_txn_agentic
     import round_txn_agentic_terms as _round_txn_agentic_terms
@@ -1680,7 +1682,9 @@ def _validate_staged_batch(batch, factory_dir, expected, round_number):
     _stage_checks.validate_counts(
         records, kinds,
         _stage_checks.BatchPolicy(
-            factory_dir.name, expected, AGENTIC_FACTORY_KINDS.get(factory_dir.name), TransactionError,
+            factory_dir.name, expected,
+            DECLARED_FACTORY_KINDS.get(factory_dir.name, AGENTIC_FACTORY_KINDS.get(factory_dir.name)),
+            TransactionError,
         ),
     )
     envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)

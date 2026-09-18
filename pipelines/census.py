@@ -26,7 +26,7 @@ if __package__:
         factory_identity_for_path as shared_factory_identity_for_path,
         summarize as summarize_mill_mix,
     )
-    from .record_kind import DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
+    from .record_kind import DECLARED_FACTORY_KINDS, DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
     from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from .validate_run import reject_json_constant
 else:
@@ -40,7 +40,7 @@ else:
         factory_identity_for_path as shared_factory_identity_for_path,
         summarize as summarize_mill_mix,
     )
-    from record_kind import DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
+    from record_kind import DECLARED_FACTORY_KINDS, DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
     from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from validate_run import reject_json_constant
 
@@ -189,7 +189,7 @@ def factory_identity_for_path(
         # all-foreign batch redefine the destination from its own payload
         # declaration -- so this report-only audit would miss the very
         # contamination it exists to surface. Matches curate_agentic.
-        known_factories=default_registry().by_path_id,
+        known_factories=set(default_registry().by_path_id) | DECLARED_FACTORY_KINDS.keys(),
     )
 
 

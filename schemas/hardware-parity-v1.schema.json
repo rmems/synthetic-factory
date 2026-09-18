@@ -376,11 +376,19 @@
               "type": "object",
               "required": [
                 "execution_target",
-                "quantization",
                 "hardware",
                 "bitstream",
                 "manifest",
                 "payload"
+              ],
+              "anyOf": [
+                { "required": ["quantization"] },
+                {
+                  "properties": {
+                    "payload": { "type": "object", "required": ["quantization"] }
+                  },
+                  "required": ["payload"]
+                }
               ]
             }
           }
