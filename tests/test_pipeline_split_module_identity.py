@@ -23,6 +23,7 @@ NEW_SPLIT_MODULES = (
     "oracle_validate",
     "oracle_record_stages",
     "oracle_record_envelope",
+    "oracle_record_generator",
     "oracle_validate_records",
     "oracle_validate_tree",
     "oracle_validate_manifest",

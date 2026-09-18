@@ -17,3 +17,4 @@ pipelines/compose_destination_rename.py text eol=lf
 pipelines/compose_destination_directory.py text eol=lf
 pipelines/compose_contract.py text eol=lf
 pipelines/oracle_record_envelope.py text eol=lf
+pipelines/oracle_record_generator.py text eol=lf
