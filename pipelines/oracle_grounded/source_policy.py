@@ -37,7 +37,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "8c13098fe12af2bdb33a8c5806b259e69fe023f9c0a7a27476d7a7337ca1c19c"
+POLICY_SHA256 = "0ef836dbedcc6ad7bfa4bff34fef5338926f75c4029a3f0536562fb0c262de1e"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -90,6 +90,7 @@ PROGRAM_NAMES = (
     "oracle_generate.py", "oracle_validate.py",
     "oracle_validate_manifest.py", "oracle_validate_manifest_records.py",
     "oracle_validate_tree.py", "oracle_validate_records.py",
+    "oracle_record_stages.py",
     "compose_destination_rename.py",
     "compose_destination_directory.py", "compose_contract.py",
 )

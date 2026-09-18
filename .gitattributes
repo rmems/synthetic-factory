@@ -8,6 +8,7 @@ schemas/oracle-grounded-v1.schema.json text eol=lf
 schemas/oracle-grounded/*.schema.json text eol=lf
 pipelines/oracle_generate.py text eol=lf
 pipelines/oracle_validate.py text eol=lf
+pipelines/oracle_record_stages.py text eol=lf
 pipelines/oracle_validate_records.py text eol=lf
 pipelines/oracle_validate_tree.py text eol=lf
 pipelines/oracle_validate_manifest.py text eol=lf
