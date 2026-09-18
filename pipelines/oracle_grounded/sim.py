@@ -9,8 +9,10 @@ that occupy the same position in the pipeline.
 
 They are labelled `implementation: "reference"` in every record they produce.
 A reference measurement is a real measurement of a real (if small) model; it
-is *not* a measurement from the named runtime, and `record.py` refuses to mark
-such records publishable.
+is *not* a measurement from the named runtime or physical hardware. Reference
+records can be publishable when record validation and authenticated source
+provenance pass; training admission additionally requires the reviewed source
+and license policy, exact reference replay, and the family eligibility gates.
 
 Every function here is pure and deterministic: same inputs, same floats.
 """

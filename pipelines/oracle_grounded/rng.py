@@ -122,15 +122,16 @@ def seed_from_label(seed, label):
 class Rng:
     """SplitMix64. Identical stream on every platform and Python version."""
 
-    __slots__ = ("_state",)
+    __slots__ = ("_seed", "_state")
 
     def __init__(self, seed):
         check_seed(seed)
+        self._seed = seed
         self._state = seed
 
     def derive(self, label):
         """A fresh independent stream, stable for this (seed, label) pair."""
-        return Rng(seed_from_label(self._state, label))
+        return Rng(seed_from_label(self._seed, label))
 
     def next_u64(self):
         self._state = (self._state + _GAMMA) & MASK64

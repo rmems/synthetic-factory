@@ -23,9 +23,11 @@ from oracle_grounded.rng import Rng, seed_from_label  # noqa: E402
 
 class DeterministicRng(unittest.TestCase):
     def test_same_seed_gives_the_same_stream(self):
-        left = [Rng(7).random() for _ in range(5)]
-        right = [Rng(7).random() for _ in range(5)]
+        left_rng, right_rng = Rng(7), Rng(7)
+        left = [left_rng.random() for _ in range(5)]
+        right = [right_rng.random() for _ in range(5)]
         self.assertEqual(left, right)
+        self.assertGreater(len(set(left)), 1)
 
     def test_different_seeds_diverge(self):
         self.assertNotEqual(
@@ -62,6 +64,15 @@ class DeterministicRng(unittest.TestCase):
         base = Rng(99)
         self.assertEqual(base.derive("a").next_u64(), Rng(99).derive("a").next_u64())
         self.assertNotEqual(base.derive("a").next_u64(), base.derive("b").next_u64())
+
+    def test_derived_stream_is_independent_of_parent_draw_position(self):
+        parent = Rng(99)
+        before = parent.derive("scenario")
+        expected = [before.next_u64() for _ in range(5)]
+        for _ in range(17):
+            parent.next_u64()
+        after = parent.derive("scenario")
+        self.assertEqual([after.next_u64() for _ in range(5)], expected)
 
     def test_seed_from_label_is_deterministic(self):
         self.assertEqual(seed_from_label(1, "x"), seed_from_label(1, "x"))
