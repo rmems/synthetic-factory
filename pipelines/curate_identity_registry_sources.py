@@ -27,6 +27,13 @@ else:
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 SIMULATOR_SOURCE_PINS = MappingProxyType({
+    "pipelines/oracle_grounded/distill_blocks.py": "7dcbd942dfb8383370c6f68347e24c4332692b5016769014d2353f1c079eae69",
+    "pipelines/oracle_grounded/distill_energy_claims.py": "16a1fe6aa0d50bc5e53439f29a6c57809588a88091b865ccd0ac686ac0cc70e2",
+    "pipelines/oracle_grounded/distill_measurements.py": "dc2fd89567db0cb1a8ff0a9310f723ff8e80c5bf5e5f62149a788a55a707c2d2",
+    "pipelines/oracle_grounded/fault_oracle.py": "a87611c2b25b91e72471190841227f207a41c2315edb7462634473ca57210828",
+    "pipelines/oracle_grounded/fault_scenario.py": "4c81a14d479996b9cd76bb689782c0adaed62416154d906e14806d6421bc1fa5",
+    "pipelines/oracle_grounded/rng.py": "3050e7c8b784f2ef0de79a2189f1944df516ea6d2f8af52ed52892e0635a8703",
+
     "pipelines/validate_run_provenance.py": "4bd36bc7c96336593eb4eaf330845db43add367b13772f7013aa4470fd2e1d28",
     "pipelines/validate_run_spikes.py": "6883519c0806996a6921116eadcb972fea07b6ee73e8db243c0a1c232e5f3a7f",
     "pipelines/exact_json.py": "ac923100a7bd857e2401355ce2cd05ef3ec6eeb835a3ab73f392392d80ec057d",
@@ -45,8 +52,9 @@ SIMULATOR_SOURCE_PINS = MappingProxyType({
 })
 
 
-def require_simulator_sources() -> None:
-    """Refuse registry authority if any reviewed executable dependency changed."""
+def simulator_source_snapshot() -> dict[str, bytes]:
+    """Capture exactly the authenticated bytes that a replay may execute."""
+    snapshot = {}
     for relative, expected in SIMULATOR_SOURCE_PINS.items():
         try:
             payload = (_REPO_ROOT / relative).read_bytes()
@@ -55,6 +63,13 @@ def require_simulator_sources() -> None:
             raise IdentityCurationError(f"reviewed simulator source is unavailable: {relative}") from exc
         if hashlib.sha256(normalized.encode("utf-8")).hexdigest() != expected:
             raise IdentityCurationError(f"reviewed simulator source digest differs: {relative}")
+        snapshot[relative] = normalized.encode("utf-8")
+    return snapshot
+
+
+def require_simulator_sources() -> None:
+    """Refuse registry authority if any reviewed executable dependency changed."""
+    simulator_source_snapshot()
 
 
 if __package__:

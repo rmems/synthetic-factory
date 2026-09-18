@@ -21,6 +21,7 @@ THALAMIC_REQUIRED = (
 
 KIND_ORDER = (
     "code_repair",
+    "fault_recovery",
     "thalamic",
     "preference",
     "bridge_pair",
@@ -44,19 +45,26 @@ _PAYLOAD_KEY_RULES = (
 )
 
 
+def _is_fault_recovery(record: Mapping[str, Any]) -> bool:
+    return (record.get("family"), record.get("schema_version")) == (
+        "neuromorphic-fault-recovery", "oracle-grounded/1.0.0",
+    )
+
+
 def classify_kind(obj: Any) -> str:
     """Name a record from payload keys, never from a directory slug.
 
     Order (census/agentic, issue #32 comment 5377279101):
 
     1. code_repair — ``family`` is ``python-function-repair``
-    2. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    3. preference — ``chosen`` and ``rejected``
-    4. bridge_pair — ``language_view`` and ``spike_events``
-    5. safety_case — ``case_type``
-    6. multi_agent — ``transcript`` and ``agents``
-    7. episode — ``goal`` and ``steps``
-    8. unknown
+    2. fault_recovery — native neuromorphic-fault-recovery oracle envelope
+    3. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    4. preference — ``chosen`` and ``rejected``
+    5. bridge_pair — ``language_view`` and ``spike_events``
+    6. safety_case — ``case_type``
+    7. multi_agent — ``transcript`` and ``agents``
+    8. episode — ``goal`` and ``steps``
+    9. unknown
     """
 
     kind = "unknown"
@@ -64,6 +72,8 @@ def classify_kind(obj: Any) -> str:
         # A malformed claimant stays in its family and fails that family's validator.
         if obj.get("family") == "python-function-repair":
             kind = "code_repair"
+        elif _is_fault_recovery(obj):
+            kind = "fault_recovery"
         else:
             keys = obj.keys()
             kind = next(

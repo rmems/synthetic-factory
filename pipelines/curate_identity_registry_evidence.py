@@ -104,12 +104,12 @@ def _require_simulator_assignment(raw: Mapping[str, Any], index: int) -> None:
     expected = {
         "path_id": "fault-recovery-simulator-factory",
         "payload_factory": "fault-recovery-simulator-factory",
-        "record_kinds": ["thalamic"],
+        "record_kinds": ["fault_recovery"],
         "identity_authoritative": True,
         "publication_target": None,
         "training_ready_policy": "never",
         "allowed_curation_lanes": ["curate_identity"],
-        "provenance_contract_by_kind": {"thalamic": "require_state_claim"},
+        "provenance_contract_by_kind": {"fault_recovery": "replay_fault_recovery"},
     }
     for field, value in expected.items():
         if raw.get(field) != value:

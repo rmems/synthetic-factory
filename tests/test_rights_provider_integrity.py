@@ -10,7 +10,9 @@ from unittest.mock import patch
 from tests.test_curate_identity_rights import (
     _attested_procedural_row, _load_temp_registry, _registry_payload, identity,
 )
-from tests.test_rights_policy import mutable_policy_document, rights_policy
+from tests.test_rights_policy import (
+    mutable_policy_document, rights_policy, rights_classifier, RightsPolicyTestCase,
+)
 from pipelines import curate_identity_registry_sources as source_pins
 
 
@@ -98,6 +100,7 @@ class SimulatorExecutableClosure(unittest.TestCase):
             dependencies = self._relative_dependencies(path)
             with self.subTest(source=relative):
                 self.assertTrue(dependencies.issubset(declared), dependencies - declared)
+        self.assertIn("pipelines/oracle_grounded/fault_oracle.py", declared)
         self.assertIn("pipelines/oracle_grounded/__init__.py", declared)
         self.assertIn("schemas/thalamic-trajectory.schema.json", declared)
 
@@ -137,3 +140,19 @@ class SimulatorExecutableClosure(unittest.TestCase):
         with patch.object(Path, "read_bytes", side_effect=FileNotFoundError):
             with self.assertRaises(identity.IdentityCurationError):
                 source_pins.require_simulator_sources()
+
+
+class TrustedCandidateRoute(RightsPolicyTestCase):
+    def test_candidate_envelope_cannot_choose_its_own_expected_route(self):
+        trusted = self.classify().route
+        for provider, profile in (("procedural", rights_policy.PROCEDURAL_PROFILE_ID),
+                                  ("simulator", rights_policy.SIMULATOR_PROFILE_ID)):
+            with self.subTest(provider=provider):
+                decision = self.classify(provider, "local", profile)
+                with self.assertRaisesRegex(rights_policy.RightsPolicyError, "trusted expected route"):
+                    rights_classifier.verify_rights_envelope(
+                        decision.public_payload,
+                        source_bytes=self.SOURCE_BYTES,
+                        factory_registry_bytes=self.REGISTRY_BYTES,
+                        verification=self.verification(route=trusted),
+                    )

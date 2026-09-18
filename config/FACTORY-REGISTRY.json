@@ -1281,7 +1281,7 @@
       "commit_sha": "6ca641465bbf8ce8339de1dce6ce77f77186e34a",
       "module_digest": "sha256:be267e0720662cf1f8c79b24384bd335df9ec127fce8184459e2e64e31c8d3e4",
       "record_kinds": [
-        "thalamic"
+        "fault_recovery"
       ],
       "identity_authoritative": true,
       "publication_target": null,
@@ -1290,7 +1290,7 @@
         "curate_identity"
       ],
       "provenance_contract_by_kind": {
-        "thalamic": "require_state_claim"
+        "fault_recovery": "replay_fault_recovery"
       }
     }
     ,{

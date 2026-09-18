@@ -997,6 +997,32 @@ def _curate_code_repair(original, row, mapping):
     return CurationResult("retained", curated, mapping)
 
 
+def _curate_fault_recovery(original, row, mapping):
+    if __package__:
+        from .curate_identity_simulator import require_replayed_record
+    else:
+        from curate_identity_simulator import require_replayed_record
+    try:
+        require_replayed_record(original, row)
+    except IdentityCurationError as exc:
+        return _exclude(mapping, "identity.simulator_replay_invalid", details=[str(exc)])
+    curated = copy.deepcopy(original)
+    output_id = curated["id"]
+    mapping.update(
+        action="retained", reason_codes=["identity.preserved", "provenance.preserved"],
+        output_id=output_id, output_sha256=sha256_json(curated),
+        id_mappings=[{"owner_path": "/", "output_id": output_id}], provenance_mappings=[],
+        simulator_authority={"basis": "reviewed_producer_replay"},
+    )
+    return CurationResult("retained", curated, mapping)
+
+
+_PRESERVED_ORACLE_HANDLERS = {
+    "code_repair": _curate_code_repair,
+    "fault_recovery": _curate_fault_recovery,
+}
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1037,8 +1063,8 @@ def curate_record(
         )
     elif row is None:
         result = _exclude(mapping, "identity.unknown_factory")
-    elif kind == "code_repair":
-        result = _curate_code_repair(original, row, mapping)
+    elif kind in _PRESERVED_ORACLE_HANDLERS:
+        result = _PRESERVED_ORACLE_HANDLERS[kind](original, row, mapping)
     else:
         context = _identity_stages.CurationContext(
             original=original,
@@ -1500,8 +1526,8 @@ def _validate_manifest_ids(
 ) -> None:
     expected_result = replay.result
     expected_mapping = expected_result.mapping
-    if expected_mapping.get("record_kind") == "code_repair":
-        _require_canonical_json_equal(mapping, expected_mapping, "procedural identity mapping")
+    if expected_mapping.get("record_kind") in _PRESERVED_ORACLE_HANDLERS:
+        _require_canonical_json_equal(mapping, expected_mapping, "preserved oracle identity mapping")
         _require_canonical_json_equal(record, expected_result.record, "preserved oracle envelope")
         return
     if expected_result.action != "retained" or expected_result.record is None:

@@ -1117,7 +1117,46 @@ def _package_curate_identity_registry_sources() -> ModuleType:
     return module
 
 
+def _direct_curate_identity_simulator() -> ModuleType:
+    import curate_identity_simulator as module
+
+    return module
+
+
+def _package_curate_identity_simulator() -> ModuleType:
+    import pipelines.curate_identity_simulator as module
+
+    return module
+
+
+def _direct_curate_identity_simulator_process() -> ModuleType:
+    import curate_identity_simulator_process as module
+
+    return module
+
+
+def _package_curate_identity_simulator_process() -> ModuleType:
+    import pipelines.curate_identity_simulator_process as module
+
+    return module
+
+
+def _direct_curate_identity_simulator_worker() -> ModuleType:
+    import curate_identity_simulator_worker as module
+
+    return module
+
+
+def _package_curate_identity_simulator_worker() -> ModuleType:
+    import pipelines.curate_identity_simulator_worker as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "curate_identity_simulator_worker": (_direct_curate_identity_simulator_worker, _package_curate_identity_simulator_worker),
+    "curate_identity_simulator_process": (_direct_curate_identity_simulator_process, _package_curate_identity_simulator_process),
+    "curate_identity_simulator": (_direct_curate_identity_simulator, _package_curate_identity_simulator),
     "curate_identity_registry_sources": (
         _direct_curate_identity_registry_sources,
         _package_curate_identity_registry_sources,

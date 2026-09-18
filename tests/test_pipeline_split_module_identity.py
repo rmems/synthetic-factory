@@ -24,6 +24,9 @@ NEW_SPLIT_MODULES = (
     "rights_policy_semantics",
     "curate_identity_registry_evidence",
     "curate_identity_registry_sources",
+    "curate_identity_simulator",
+    "curate_identity_simulator_process",
+    "curate_identity_simulator_worker",
 
     "compose_contract",
     "compose_curated",
