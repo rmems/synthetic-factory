@@ -11,6 +11,11 @@ branch and are never executed.
 
 from __future__ import annotations
 
+if __name__.startswith("pipelines."):
+    from ..oracle_grounded.import_twins import bind_import_twin
+else:
+    from oracle_grounded.import_twins import bind_import_twin
+
 FAMILY = "sir"
 FAMILY_PREFIX = "sir"
 FACTORY = "search-index-rebuild-factory"
@@ -77,3 +82,5 @@ PAIR_FIELD_ORDER = (
     "fail_url",
     "fail_handoff",
 )
+
+bind_import_twin(__name__)

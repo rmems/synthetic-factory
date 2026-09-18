@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+if __name__.startswith("pipelines."):
+    from ..oracle_grounded.import_twins import bind_import_twin
+else:
+    from oracle_grounded.import_twins import bind_import_twin
+
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -40,3 +45,5 @@ __all__ = [
     "is_vendor_filename",
     "refuse_vendor_paths",
 ]
+
+bind_import_twin(__name__)

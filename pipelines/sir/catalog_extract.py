@@ -11,6 +11,11 @@ loop publishers are never imported or executed and stay off this branch.
 
 from __future__ import annotations
 
+if __name__.startswith("pipelines."):
+    from ..oracle_grounded.import_twins import bind_import_twin
+else:
+    from oracle_grounded.import_twins import bind_import_twin
+
 import ast
 import hashlib
 import json
@@ -283,3 +288,5 @@ def write_catalog_files(mills: list[dict[str, Any]], package_dir: Path | None = 
         dumps_catalog(catalog_document(mills)), encoding="utf-8"
     )
     pairs_jsonl_path(package_dir).write_text(dumps_pairs(mills), encoding="utf-8")
+
+bind_import_twin(__name__)

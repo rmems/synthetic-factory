@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib
 import json
 import sys
 import tempfile
@@ -155,6 +156,14 @@ class SirReviewRegressions(unittest.TestCase):
                 _extract(effect)
         deferred = 'def unused():\n    unrelated()\ncallback = lambda: unrelated()'
         self.assertEqual(_extract(deferred)['n_rows'], 1)
+
+    def test_public_module_twins_share_runtime_state(self):
+        for leaf in ("catalog_extract", "identity", "vocabulary"):
+            for prefixes in (("pipelines.sir", "sir"), ("sir", "pipelines.sir")):
+                with self.subTest(leaf=leaf, prefixes=prefixes), clean_package_imports(), direct_pipeline_path():
+                    first = importlib.import_module(f"{prefixes[0]}.{leaf}")
+                    second = importlib.import_module(f"{prefixes[1]}.{leaf}")
+                    self.assertIs(first, second)
 
     def test_catalog_class_identity_survives_both_import_orders(self):
         for package_first in (True, False):
