@@ -1567,6 +1567,33 @@ def _check_intervention(record: dict[str, Any], where: str) -> list[str]:
         kind, intervention.get("parameters"), where
     )
     errors += _check_disturbance_kind_match(record, kind, where)
+    if kind == "burst_corruption":
+        errors += _check_requested_corruption(record, where)
+    return errors
+
+
+def _check_requested_corruption(record: dict[str, Any], where: str) -> list[str]:
+    """Requested severity is a restatement of the intervention, not a new reading."""
+
+    parameters = record["intervention"].get("parameters")
+    result = record.get("result")
+    if not isinstance(parameters, dict) or not isinstance(result, dict):
+        return []
+    target = parameters.get("corrupt_ratio")
+    if not oc.is_number(target):
+        return []
+    measurements = result.get("measurements")
+    errors: list[str] = []
+    for item in measurements if isinstance(measurements, list) else []:
+        if not isinstance(item, dict) or item.get("quantity") != "corrupt_ratio":
+            continue
+        detail = item.get("detail")
+        requested = detail.get("requested") if isinstance(detail, dict) else None
+        if not oc.is_number(requested) or requested != target:
+            errors.append(
+                f"{where}.result.measurements.corrupt_ratio.detail.requested "
+                "must match intervention.parameters.corrupt_ratio"
+            )
     return errors
 
 
@@ -1581,6 +1608,11 @@ def _check_candidate_prediction(record: dict[str, Any], where: str) -> list[str]
             errors.append(
                 f"{where}.candidate_prediction.predicted_outcome must be one of "
                 f"{sorted(OUTCOMES)}, got {predicted!r}"
+            )
+        elif isinstance(predicted, str) and prediction.get("predicted_outcome_label") != OUTCOME_LABELS[predicted]:
+            errors.append(
+                f"{where}.candidate_prediction.predicted_outcome_label must be "
+                f"{OUTCOME_LABELS[predicted]!r}"
             )
     return errors
 
