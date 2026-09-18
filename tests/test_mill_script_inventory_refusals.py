@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.test_mill_script_inventory import GIT, REPO, msi
+from tests.test_mill_script_inventory import REPO, msi
 
 
 class InventorySchemaRefusals(unittest.TestCase):
@@ -59,7 +59,7 @@ class InventorySchemaRefusals(unittest.TestCase):
 
 class InventoryEvidenceRefusals(unittest.TestCase):
     def test_missing_git_cannot_be_reported_as_clean_scope(self):
-        with patch.object(msi.shutil, "which", return_value=None):
+        with patch.object(msi, "_git_available", return_value=False):
             with self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"):
                 msi.tracked_paths()
 
@@ -71,14 +71,13 @@ class InventoryEvidenceRefusals(unittest.TestCase):
                 ):
                     msi._git_output(REPO, arguments)
 
-    def test_git_helper_spawns_the_resolved_git_binary_without_a_shell(self):
+    def test_git_helper_spawns_usr_bin_git_without_a_shell(self):
         with patch.object(msi.subprocess, "run", wraps=msi.subprocess.run) as run:
             tracked = msi.tracked_paths(REPO)
         self.assertTrue(tracked)
         kwargs = run.call_args.kwargs
         argv = run.call_args.args[0]
-        self.assertEqual(argv[0], GIT)
-        self.assertEqual(tuple(argv[1:]), ("ls-files", "-z"))
+        self.assertEqual(tuple(argv), ("/usr/bin/git", "ls-files", "-z"))
         self.assertFalse(kwargs.get("shell", False))
         self.assertEqual(kwargs["cwd"], REPO.resolve())
 

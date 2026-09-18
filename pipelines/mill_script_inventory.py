@@ -15,7 +15,6 @@ import argparse
 import ast
 import fnmatch
 import json
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -86,40 +85,62 @@ def matching_paths(paths: Iterable[str], patterns: Sequence[str]) -> tuple[str, 
     return tuple(sorted(set(hits)))
 
 
-# Exact argv only: inventory completeness uses tracked files, quality scope uses
-# Git's effective ignore rules. Extra verbs or flags are refused before spawn.
-_GIT_COMMANDS: dict[tuple[str, ...], tuple[int, ...]] = {
-    ("ls-files", "-z"): (0,),
-    ("check-ignore", "--no-index", "-z", "-v", "--stdin"): (0, 1),
-}
+def _git_available() -> bool:
+    return Path("/usr/bin/git").is_file()
 
 
-def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
-    executable = shutil.which("git")
-    if executable is None:
+def _require_git() -> None:
+    if not _git_available():
         raise MillScriptInventoryError("git is required for inventory scope checks")
-    accepted = _GIT_COMMANDS.get(tuple(arguments))
-    if accepted is None:
-        raise MillScriptInventoryError(
-            "inventory git helper accepts only ls-files or check-ignore"
-        )
-    result = subprocess.run(
-        [executable, *arguments],
-        cwd=Path(repo).resolve(),
-        input=payload,
-        capture_output=True,
-        check=False,
-        shell=False,
-    )
+
+
+def _git_completed(result: subprocess.CompletedProcess[bytes], accepted: tuple[int, ...]) -> bytes:
     if result.returncode not in accepted:
         raise MillScriptInventoryError(result.stderr.decode(errors="replace"))
     return result.stdout
 
 
+def _git_ls_files(repo: Path) -> bytes:
+    _require_git()
+    return _git_completed(
+        subprocess.run(
+            ["/usr/bin/git", "ls-files", "-z"],
+            cwd=Path(repo).resolve(),
+            capture_output=True,
+            check=False,
+            shell=False,
+        ),
+        (0,),
+    )
+
+
+def _git_check_ignore(repo: Path, payload: bytes) -> bytes:
+    _require_git()
+    return _git_completed(
+        subprocess.run(
+            ["/usr/bin/git", "check-ignore", "--no-index", "-z", "-v", "--stdin"],
+            cwd=Path(repo).resolve(),
+            input=payload,
+            capture_output=True,
+            check=False,
+            shell=False,
+        ),
+        (0, 1),
+    )
+
+
+def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
+    if tuple(arguments) == ("ls-files", "-z"):
+        return _git_ls_files(repo)
+    if tuple(arguments) == ("check-ignore", "--no-index", "-z", "-v", "--stdin"):
+        return _git_check_ignore(repo, b"" if payload is None else payload)
+    raise MillScriptInventoryError("inventory git helper accepts only ls-files or check-ignore")
+
+
 def tracked_paths(root: Path | None = None) -> tuple[str, ...]:
     """Return git-tracked paths for inventory completeness."""
 
-    payload = _git_output(root or REPO_ROOT, ["ls-files", "-z"])
+    payload = _git_ls_files(root or REPO_ROOT)
     return tuple(filter(None, payload.decode().split("\0")))
 
 
@@ -127,7 +148,7 @@ def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, 
     """Use Git's effective ignore rules, including negation and ancestor rules."""
 
     payload = "\0".join(sorted(paths)).encode() + b"\0"
-    output = _git_output(root, ["check-ignore", "--no-index", "-z", "-v", "--stdin"], payload)
+    output = _git_check_ignore(root, payload)
     fields = output.decode().split("\0")[:-1]
     return {
         fields[i + 3]: (fields[i], fields[i + 1], fields[i + 2]) for i in range(0, len(fields), 4)
@@ -236,22 +257,46 @@ def _dynamic_import_functions(tree: ast.AST) -> frozenset[str]:
     return frozenset(functions)
 
 
-def _import_function_aliases(node: ast.AST) -> tuple[str, ...]:
+def _aliased_importlib_names(node: ast.Import) -> tuple[str, ...]:
     modules = {"importlib": "import_module", "builtins": "__import__"}
+    return tuple(
+        f"{alias.asname or alias.name}.{modules[alias.name]}"
+        for alias in node.names
+        if alias.name in modules
+    )
+
+
+def _aliased_from_import_names(node: ast.ImportFrom) -> tuple[str, ...]:
+    modules = {"importlib": "import_module", "builtins": "__import__"}
+    if node.module not in modules:
+        return ()
+    expected = modules[node.module]
+    return tuple(alias.asname or alias.name for alias in node.names if alias.name == expected)
+
+
+def _import_function_aliases(node: ast.AST) -> tuple[str, ...]:
     if isinstance(node, ast.Import):
-        return tuple(f"{alias.asname or alias.name}.{modules[alias.name]}"
-                     for alias in node.names if alias.name in modules)
-    if isinstance(node, ast.ImportFrom) and node.module in modules:
-        return tuple(alias.asname or alias.name for alias in node.names if alias.name == modules[node.module])
+        return _aliased_importlib_names(node)
+    if isinstance(node, ast.ImportFrom):
+        return _aliased_from_import_names(node)
     return ()
 
 
-def _dynamic_import_targets(node: ast.AST, functions: frozenset[str]) -> tuple[str, ...]:
-    if not isinstance(node, ast.Call) or ast.unparse(node.func) not in functions:
-        return ()
+def _call_string_argument(node: ast.Call) -> tuple[str, ...]:
     arguments = node.args[:1] or [item.value for item in node.keywords if item.arg == "name"]
-    return tuple(argument.value for argument in arguments
-                 if isinstance(argument, ast.Constant) and isinstance(argument.value, str))
+    return tuple(
+        argument.value
+        for argument in arguments
+        if isinstance(argument, ast.Constant) and isinstance(argument.value, str)
+    )
+
+
+def _dynamic_import_targets(node: ast.AST, functions: frozenset[str]) -> tuple[str, ...]:
+    if not isinstance(node, ast.Call):
+        return ()
+    if ast.unparse(node.func) not in functions:
+        return ()
+    return _call_string_argument(node)
 
 
 def imported_module_names(source: str) -> frozenset[str]:

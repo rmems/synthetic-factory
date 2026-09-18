@@ -5,20 +5,17 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import io
 import shutil
 import json
 import tempfile
 from unittest.mock import patch
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
-GIT = shutil.which("git")
-if GIT is None:
-    raise RuntimeError("git is required for inventory integration tests")
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
@@ -26,21 +23,25 @@ import mill_script_inventory as msi  # noqa: E402
 
 
 def _git_ignored(path: str) -> bool:
-    result = subprocess.run(
-        [GIT, "check-ignore", "--no-index", "-q", path],
-        cwd=REPO,
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    match = msi.gitignore_matches(REPO, (path,)).get(path)
+    return match is not None and not match[2].startswith("!")
+
+
+def _init_git_dir(root: Path) -> None:
+    git = root / ".git"
+    (git / "objects").mkdir(parents=True)
+    (git / "refs" / "heads").mkdir(parents=True)
+    (git / "HEAD").write_text("ref: refs/heads/master\n", encoding="utf-8")
+    (git / "config").write_text(
+        "[core]\n\trepositoryformatversion = 0\n\tbare = false\n", encoding="utf-8"
     )
-    return result.returncode == 0
 
 
 @contextlib.contextmanager
 def _scope_repo():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        subprocess.run([GIT, "init", "-q", str(root)], check=True)
+        _init_git_dir(root)
         shutil.copy(REPO / ".gitignore", root / ".gitignore")
         (root / ".qlty").mkdir()
         shutil.copy(REPO / ".qlty/qlty.toml", root / ".qlty/qlty.toml")
@@ -272,16 +273,10 @@ class ImportGraph(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def test_check_cli_exits_zero_on_the_committed_tree(self):
-        result = subprocess.run(
-            [sys.executable, str(PIPELINES / "mill_script_inventory.py"), "--check"],
-            cwd=REPO,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        payload = json.loads(result.stdout)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(msi.main(["--check"]), 0)
+        payload = json.loads(output.getvalue())
         self.assertTrue(payload["ok"])
 
 
