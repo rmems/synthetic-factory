@@ -190,9 +190,12 @@ workload, behind `pipelines/energy_preferences.py:EnergyOracle`:
 - `RecordedEnergyMeter` — replays a measurement recorded by a real metered run
   elsewhere, keyed by `workload_key(policy_id, scenario, ...)`, which binds
   the policy to the scenario state *and* to the solver configuration
-  (`fine_steps`/`coarse_steps`, plus the policy-suite version), so a reading
+  (`fine_steps`/`coarse_steps`, plus the policy-suite version) and measurement
+  protocol (`repeats`/`warmup`, defaulting to 5/1), so a reading
   is only valid for the exact workload it was taken over. Fails closed on an
-  unknown key.
+  unknown key. Keys created before the protocol binding are not accepted;
+  recordings need keys derived from their actual capture settings. Do not
+  relabel recordings whose original protocol is unknown.
   `build_records` uses this path automatically when the meter exposes
   `lookup`, which is how a host with no readable energy counter still produces
   a joule-denominated corpus: the recording supplies the cost, while task

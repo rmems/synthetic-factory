@@ -851,6 +851,8 @@ def workload_key(
     policy_id: str,
     scenario: dict[str, Any],
     *,
+    repeats: int = 5,
+    warmup: int = 1,
     fine_steps: int = DEFAULT_FINE_STEPS,
     coarse_steps: int = DEFAULT_COARSE_STEPS,
 ) -> str:
@@ -858,16 +860,21 @@ def workload_key(
 
     A recorded measurement is only valid for the workload it was taken over,
     so the key binds the policy to the scenario state *and* to the solver
-    parameters that shape the executed search. Without the solver binding, a
+    parameters that shape the executed search and the repeat/warmup protocol. Without the solver binding, a
     recording taken at one grid resolution replays cleanly against another:
     the grid policy runs a different allocation search while the old energy
     reading is attached to it, which can silently change the preference.
     """
 
+    _check_run_knobs({
+        "repeats": repeats, "warmup": warmup,
+        "fine_steps": fine_steps, "coarse_steps": coarse_steps,
+    })
     state = scenario.get("state") if isinstance(scenario, dict) else None
     payload = {
         "state": state,
         "policy_suite": POLICY_SUITE_VERSION,
+        "measurement_protocol": {"repeats": repeats, "warmup": warmup},
         "solver": {
             "fine_steps": int(fine_steps),
             "coarse_steps": int(coarse_steps),
@@ -903,6 +910,8 @@ def _read_cost(
             workload_key(
                 policy_id,
                 scenario,
+                repeats=repeats,
+                warmup=warmup,
                 fine_steps=fine_steps,
                 coarse_steps=coarse_steps,
             )
