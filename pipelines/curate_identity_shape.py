@@ -137,6 +137,13 @@ _SIMPLE_VALIDATORS = {
 }
 
 
+def _simple_shape_errors(record: Mapping[str, Any], kind: str) -> list[str]:
+    validator = _SIMPLE_VALIDATORS.get(kind)
+    if validator is None:
+        return []
+    return validator(record, "record")
+
+
 def shape_validation_errors(
     record: Mapping[str, Any],
     kind: str,
@@ -152,8 +159,7 @@ def shape_validation_errors(
         return _bridge_pair_shape_errors(record)
     if kind == "thalamic":
         return _structural_thalamic_errors(record, "record")
-    validator = _SIMPLE_VALIDATORS.get(kind)
-    return validator(record, "record") if validator else []
+    return _simple_shape_errors(record, kind)
 
 
 if __package__:
