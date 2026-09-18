@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/gor`` skeleton (no vendored mills)."""
+"""PR-a/PR-b: AST catalog extract, skeleton, and deferred ``pairs.jsonl``."""
 
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from gor.catalog import CATALOG  # noqa: E402
+from gor.catalog import CATALOG, load_catalog  # noqa: E402
 from gor.catalog_extract import (  # noqa: E402
     SHAPE_ADD,
     SHAPE_GITCFG,
@@ -23,10 +24,14 @@ from gor.catalog_extract import (  # noqa: E402
     SHAPE_S_H,
     catalog_document,
     catalog_json_path,
+    deferred_pair_rows,
     dumps_catalog,
+    dumps_pairs_jsonl,
     extract_companion_path,
     extract_mill_catalog,
     mill_summary,
+    pair_identity,
+    pairs_jsonl_path,
 )
 from gor.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from gor.sources import MILL_SOURCES, catalog_sources, gen_sources, loop_sources  # noqa: E402
@@ -213,7 +218,15 @@ class GorSkeletonTests(unittest.TestCase):
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "gor"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "catalog.py",
+            "identity.py",
+            "sources.py",
+            "vocabulary.py",
+            "__init__.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
 
@@ -286,11 +299,61 @@ class GorSkeletonTests(unittest.TestCase):
         self.assertEqual(r946.last_slug, "scalar-reconfigure-leftover")
         self.assertEqual(len(r946.pairs), 27)
         self.assertTrue(r946.pairs[0]["fail_handoff"])
-        self.assertEqual(CATALOG.mills["gor-mill-r1460"].n_rows, 528)
+        self.assertEqual(CATALOG.n_deferred_pair_rows, cv.DEFERRED_PAIR_ROWS)
+        bulky = CATALOG.mills[cv.BULKY_MILL_ID]
+        self.assertEqual(bulky.n_rows, cv.BULKY_N_ROWS)
+        self.assertEqual(len(bulky.pairs), cv.BULKY_N_ROWS)
+        self.assertEqual(bulky.first_slug, "apply-whitespace-error")
+        self.assertEqual(bulky.last_slug, "fmtmail-sigfile-w12a")
         self.assertEqual(CATALOG.mills["gor-mill-r1127"].n_new, 32)
         self.assertEqual(CATALOG.mills["gor-mill-r1127"].n_more, 16)
         self.assertEqual(CATALOG.mills["gor-mill-r1230"].n_rows, 16)
-        self.assertFalse(CATALOG.mills["gor-mill-r1460"].pairs)
+
+    def test_header_omits_deferred_pair_bodies(self):
+        header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        self.assertEqual(header["slice"], cv.SLICE_ID)
+        self.assertEqual(header["n_pair_rows"], 988)
+        for mill_id, row in header["mills"].items():
+            if mill_id == cv.SLICE_MILL_ID:
+                self.assertEqual(len(row["pairs"]), 27)
+            else:
+                self.assertNotIn("pairs", row, mill_id)
+
+    def test_pairs_jsonl_stays_compact(self):
+        path = pairs_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.DEFERRED_PAIR_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        parsed = []
+        seen = set()
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(cv.PAIR_ROW_KEYS))
+            key = (row["mill_id"], row["success_slug"])
+            self.assertNotIn(key, seen)
+            seen.add(key)
+            parsed.append(row)
+        self.assertNotIn(cv.SLICE_MILL_ID, {row["mill_id"] for row in parsed})
+        bulky_rows = [row for row in parsed if row["mill_id"] == cv.BULKY_MILL_ID]
+        self.assertEqual(len(bulky_rows), cv.BULKY_N_ROWS)
+        self.assertEqual(bulky_rows[0]["success_slug"], "apply-whitespace-error")
+        self.assertEqual(bulky_rows[-1]["success_slug"], "fmtmail-sigfile-w12a")
+
+    def test_loader_fails_closed_on_a_missing_pair_field(self):
+        header = catalog_json_path().read_text(encoding="utf-8")
+        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        del first["success_slug"]
+        lines[0] = json.dumps(first, separators=(",", ":"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(header, encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "keys differ"):
+                load_catalog(dest / "CATALOG.json")
 
 
 class GorLegacyExtractTests(unittest.TestCase):
@@ -298,6 +361,7 @@ class GorLegacyExtractTests(unittest.TestCase):
         if not _legacy_available():
             self.skipTest("origin/legacy-mill-lane is not fetched")
         mills = []
+        extracts = []
         for source in catalog_sources():
             text = subprocess.check_output(
                 ["git", "show", f"{cv.LEGACY_REF}:{source.path}"],
@@ -318,12 +382,22 @@ class GorLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
+            self.assertEqual(
+                [pair_identity(pair) for pair in live["pairs"]],
+                list(committed.pairs),
+                source.mill_id,
+            )
+            extracts.append(live)
             mills.append(
-                mill_summary(live, include_pairs=source.mill_id == "gor-mill-r946")
+                mill_summary(live, include_pairs=source.mill_id == cv.SLICE_MILL_ID)
             )
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_pairs_jsonl(deferred_pair_rows(extracts)),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
         )
 
     def test_loop_and_gen_scripts_name_companion_mills(self):

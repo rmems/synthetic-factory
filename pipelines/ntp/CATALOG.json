@@ -1,0 +1,16 @@
+{
+  "extraction": "AST literals only; orch/unique-lll/unique-llll pair identities in pairs.jsonl; unique-db/dbm mills stay unmilled.",
+  "factory": "notebook-to-pipeline-factory",
+  "generator": "grok-4.6",
+  "leftover_filename": "leftover.jsonl",
+  "mills_filename": "mills.jsonl",
+  "n_mills": 38,
+  "n_pair_identity_rows_committed": 3260,
+  "n_pair_rows": 1625,
+  "pairs_filename": "pairs.jsonl",
+  "preserve_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+  "schema": "ntp-catalog-extract/v1",
+  "slice": "leftover",
+  "source_ref": "origin/legacy-mill-lane",
+  "themes_filename": "themes.jsonl"
+}

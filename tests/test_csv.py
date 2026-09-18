@@ -11,7 +11,6 @@ import io
 import json
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,8 +24,8 @@ LEGACY_MILL = "experiments/mill_leftover_leftover_leftover_csv_r114.py"
 FIRST_SLUG = "xlsx-definedname-leftover-vs-usedrange"
 FIRST_PLANT = f"csv_r114:{FIRST_SLUG}"
 
-from pipelines.csv import catalog, cli, generate  # noqa: E402
-from pipelines.csv._contract import (  # noqa: E402
+from pipelines.csv_mill import catalog, cli, generate  # noqa: E402
+from pipelines.csv_mill._contract import (  # noqa: E402
     FACTORY,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
@@ -103,6 +102,25 @@ TINY_PAIR = {
     "dshort": "xlsdn",
     "first_wrong": "skip_dn",
 }
+
+
+class RuntimeExecutionVisitor(ast.NodeVisitor):
+    """Collect source-execution calls and runpy imports without executing source."""
+
+    def __init__(self):
+        self.hits = []
+
+    def visit_Import(self, node):
+        self.hits.extend(alias.name for alias in node.names if alias.name.split(".")[0] == "runpy")
+
+    def visit_ImportFrom(self, node):
+        if (node.module or "").split(".")[0] == "runpy":
+            self.hits.append(node.module)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id in {"exec", "eval", "compile"}:
+            self.hits.append(node.func.id)
+        self.generic_visit(node)
 
 
 class CatalogLoading(unittest.TestCase):
@@ -189,29 +207,30 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(LEGACY_SOURCE, LEGACY_MILL)
 
     def test_package_tree_has_no_vendored_mill_or_loop_scripts(self):
-        hits = list((REPO / "pipelines" / "csv").rglob("*mill*.py"))
-        hits += list((REPO / "pipelines" / "csv").rglob("*-loop-*.py"))
+        hits = list((REPO / "pipelines" / "csv_mill").rglob("*mill*.py"))
+        hits += list((REPO / "pipelines" / "csv_mill").rglob("*-loop-*.py"))
         hits += list((REPO / "config" / "csv").rglob("*.py"))
         self.assertEqual(hits, [])
-        forbidden_calls = frozenset({"exec", "eval", "compile"})
-        for path in (REPO / "pipelines" / "csv").glob("*.py"):
+
+    def test_package_never_executes_recovered_source(self):
+        for path in (REPO / "pipelines" / "csv_mill").glob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    runpy_aliases = [
-                        alias.name
-                        for alias in node.names
-                        if alias.name == "runpy" or alias.name.startswith("runpy.")
-                    ]
-                    self.assertEqual(runpy_aliases, [], msg=f"{path.name} imports runpy")
-                if isinstance(node, ast.ImportFrom) and node.module == "runpy":
-                    self.fail(f"{path.name} imports runpy")
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                    self.assertNotIn(
-                        node.func.id,
-                        forbidden_calls,
-                        msg=f"{path.name} calls {node.func.id}",
-                    )
+            visitor = RuntimeExecutionVisitor()
+            visitor.visit(tree)
+            self.assertEqual(visitor.hits, [], msg=path.name)
+
+    def test_source_execution_scan_detects_calls_and_imports(self):
+        for source in (
+            "import runpy",
+            "from runpy import run_path",
+            "f(exec('x'))",
+            "eval('x')",
+            "compile('x')",
+        ):
+            with self.subTest(source=source):
+                visitor = RuntimeExecutionVisitor()
+                visitor.visit(ast.parse(source))
+                self.assertTrue(visitor.hits)
 
 
 class GeneratePairs(unittest.TestCase):
@@ -305,10 +324,18 @@ class CliSurface(unittest.TestCase):
 
     def test_generate_json_writes_the_pair(self):
         dest = self.root / "cli-out"
-        code, out, err = invoke([
-            "generate", "--catalog", str(FIXTURE), "--out", str(dest),
-            "--plant", f"csv_r0001:{FIRST_SLUG}", "--json",
-        ])
+        code, out, err = invoke(
+            [
+                "generate",
+                "--catalog",
+                str(FIXTURE),
+                "--out",
+                str(dest),
+                "--plant",
+                f"csv_r0001:{FIRST_SLUG}",
+                "--json",
+            ]
+        )
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
@@ -325,7 +352,7 @@ class CliSurface(unittest.TestCase):
 
 class ImportTwins(unittest.TestCase):
     def test_package_catalog_twin_is_one_object(self):
-        twin = importlib.import_module("csv.catalog")
+        twin = importlib.import_module("csv_mill.catalog")
         self.assertIs(twin, catalog)
         self.assertTrue(hasattr(stdlib_csv, "reader"))
 

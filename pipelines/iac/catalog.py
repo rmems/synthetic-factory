@@ -9,8 +9,52 @@ from dataclasses import dataclass
 from typing import Any
 
 from .catalog_extract import catalog_json_path
+from .plants_extract import sha256_bytes
 from .sources import MILL_SOURCES, catalog_sources
-from .vocabulary import CATALOG_SCHEMA_ID, FACTORY, GENERATOR, PRESERVE_COMMIT, SLICE_ID
+from .vocabulary import (
+    ARCHIVE_B_COMMIT,
+    ARCHIVE_B_REF,
+    CATALOG_SCHEMA_ID,
+    FACTORY,
+    GENERATOR,
+    PLANTS_BLOB_SHA,
+    PLANTS_B_BLOB_SHA,
+    PLANTS_B_FILENAME,
+    PLANTS_B_SOURCE_PATH,
+    PLANTS_B_SOURCE_SHA256,
+    PLANTS_COMPACT_KEYS,
+    PLANTS_FILENAME,
+    PLANTS_SOURCE_PATH,
+    PLANTS_SOURCE_SHA256,
+    PRESERVE_COMMIT,
+    SLICE_ID,
+)
+
+
+@dataclass(frozen=True)
+class ArchiveBPlant:
+    index: int
+    success_slug: str
+    fail_slug: str
+    success_seed: str
+    fail_seed: str
+    scenario: str
+    ticket: str
+    test: str
+    fail_handoff: bool
+
+
+@dataclass(frozen=True)
+class ArchiveBSource:
+    ref: str
+    commit: str
+    path: str
+    blob_sha: str
+    sha256: str
+    shape: str
+    n_plants: int
+    first_slug: str
+    last_slug: str
 
 
 @dataclass(frozen=True)
@@ -42,6 +86,12 @@ class IacCatalog:
     generator: str
     slice: str
     mills: Mapping[str, MillCatalog]
+    archive_b: ArchiveBSource
+    archive_b_more: ArchiveBSource
+    plants_sha256: str
+    plants_b_sha256: str
+    plants: tuple[ArchiveBPlant, ...]
+    plants_b: tuple[ArchiveBPlant, ...]
 
     @property
     def n_pair_rows(self) -> int:
@@ -60,6 +110,20 @@ def load_catalog(path=None) -> IacCatalog:
     if document.get("slice") != SLICE_ID:
         raise ValueError(f"{catalog_path} slice drifted from vocabulary")
     mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
+    archive_b = _archive_b_from_row(document["archive_b"])
+    archive_b_more = _archive_b_from_row(document["archive_b_more"])
+    plants_path = catalog_path.parent / PLANTS_FILENAME
+    plants_payload = plants_path.read_bytes()
+    plants_sha256 = sha256_bytes(plants_payload)
+    if document.get("plants_sha256") != plants_sha256:
+        raise ValueError(f"{plants_path} digest drifted from CATALOG.json")
+    plants = _plants_from_jsonl(plants_path.read_text(encoding="utf-8"))
+    plants_b_path = catalog_path.parent / PLANTS_B_FILENAME
+    plants_b_payload = plants_b_path.read_bytes()
+    plants_b_sha256 = sha256_bytes(plants_b_payload)
+    if document.get("plants_b_sha256") != plants_b_sha256:
+        raise ValueError(f"{plants_b_path} digest drifted from CATALOG.json")
+    plants_b = _plants_from_jsonl(plants_b_path.read_text(encoding="utf-8"))
     catalog = IacCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -68,8 +132,23 @@ def load_catalog(path=None) -> IacCatalog:
         generator=document["generator"],
         slice=document["slice"],
         mills=mills,
+        archive_b=archive_b,
+        archive_b_more=archive_b_more,
+        plants_sha256=plants_sha256,
+        plants_b_sha256=plants_b_sha256,
+        plants=plants,
+        plants_b=plants_b,
     )
     _bind_sources(catalog)
+    _bind_archive_b(catalog, archive_b=archive_b, plants=catalog.plants)
+    _bind_archive_b(
+        catalog,
+        archive_b=archive_b_more,
+        plants=catalog.plants_b,
+        path=PLANTS_B_SOURCE_PATH,
+        blob_sha=PLANTS_B_BLOB_SHA,
+        source_sha256=PLANTS_B_SOURCE_SHA256,
+    )
     return catalog
 
 
@@ -93,6 +172,70 @@ def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
         keep_slugs=tuple(keep) if keep else None,
         pairs=tuple(row.get("pairs") or ()),
     )
+
+
+def _archive_b_from_row(row: Mapping[str, Any]) -> ArchiveBSource:
+    return ArchiveBSource(
+        ref=row["ref"],
+        commit=row["commit"],
+        path=row["path"],
+        blob_sha=row["blob_sha"],
+        sha256=row["sha256"],
+        shape=row["shape"],
+        n_plants=row["n_plants"],
+        first_slug=row["first_slug"],
+        last_slug=row["last_slug"],
+    )
+
+
+def _plants_from_jsonl(text: str) -> tuple[ArchiveBPlant, ...]:
+    rows: list[ArchiveBPlant] = []
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        missing = [key for key in PLANTS_COMPACT_KEYS if key not in payload]
+        if missing:
+            raise ValueError(f"plants.jsonl line {line_no} missing {missing}")
+        rows.append(
+            ArchiveBPlant(
+                index=payload["index"],
+                success_slug=payload["success_slug"],
+                fail_slug=payload["fail_slug"],
+                success_seed=payload["success_seed"],
+                fail_seed=payload["fail_seed"],
+                scenario=payload["scenario"],
+                ticket=payload["ticket"],
+                test=payload["test"],
+                fail_handoff=bool(payload["fail_handoff"]),
+            )
+        )
+    return tuple(rows)
+
+
+def _bind_archive_b(
+    catalog: IacCatalog,
+    *,
+    archive_b: ArchiveBSource,
+    plants: tuple[ArchiveBPlant, ...],
+    path: str = PLANTS_SOURCE_PATH,
+    blob_sha: str = PLANTS_BLOB_SHA,
+    source_sha256: str = PLANTS_SOURCE_SHA256,
+) -> None:
+    del catalog
+    if archive_b.ref != ARCHIVE_B_REF or archive_b.commit != ARCHIVE_B_COMMIT:
+        raise ValueError(f"{path} archive ref/commit drifted from vocabulary")
+    if archive_b.path != path:
+        raise ValueError(f"{path} archive path drifted from vocabulary")
+    if archive_b.blob_sha != blob_sha or archive_b.sha256 != source_sha256:
+        raise ValueError(f"{path} archive source pin drifted from vocabulary")
+    if archive_b.n_plants != len(plants):
+        raise ValueError(f"{path} n_plants does not match committed JSONL")
+    if plants and (
+        plants[0].success_slug != archive_b.first_slug
+        or plants[-1].success_slug != archive_b.last_slug
+    ):
+        raise ValueError(f"{path} first/last slug drifted from committed JSONL")
 
 
 def _bind_sources(catalog: IacCatalog) -> None:

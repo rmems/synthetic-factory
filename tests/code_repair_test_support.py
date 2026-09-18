@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from coded_refusal_test_support import CodedFamily, coded_refusal
 from code_repair_import_probe import MODULES as FAMILY_MODULES
 from distill_contract_test_support import REPO, envelope, oc
-from code_repair import catalog, cli, executor, generate, mutate, records, verify, views, vocabulary
+from code_repair import catalog, cli, executor, generate, mutate, records, sandbox, verify, views, vocabulary
 
 FIXTURE_CATALOG = REPO / "tests" / "fixtures" / "code-repair"
 PINNED_AT = "2026-09-08T00:00:00.000Z"
@@ -79,7 +79,7 @@ def report(public=(), hidden=(), failure=None, detail=""):
 
     environment = {
         "python": "3.14.7", "implementation": "cpython", "platform": "linux",
-        "limits_applied": True,
+        "limits_applied": True, "sandbox_identity": sandbox.IDENTITY_RLIMITS_ONLY,
     }
     status = "ok" if failure in (None, "load") else failure
     return executor.PhaseReport(
@@ -93,6 +93,8 @@ class FakeExecutor:
     def __init__(self, by_phase, timeout_s=2.0):
         self.by_phase = dict(by_phase)
         self.timeout_s = timeout_s
+        self.isolation = sandbox.Isolation.rlimits_only()
+        self.sandbox_identity = sandbox.IDENTITY_RLIMITS_ONLY
         self.harness_sha256 = executor.harness_sha256()
         self.log = []
         self.jobs = []

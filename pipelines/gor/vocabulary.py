@@ -4,7 +4,8 @@
 The reviewed mill prefix ``gor`` maps to ``git-ops-recovery-factory`` in
 ``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts
 catalog identity from the 33 ``legacy-mill-lane`` scripts without
-vendoring ``gor-mill*.py``.
+vendoring ``gor-mill*.py``. PR-b lands the 961 deferred pair identities
+(r973–r1460) as compact ``pairs.jsonl``.
 """
 
 from __future__ import annotations
@@ -21,6 +22,31 @@ DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "a2000438238dd1ac2b68b232430e6fb8f334b58f"
 CATALOG_FILENAME = "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
+DEFERRED_PAIR_ROWS = 961
+BULKY_MILL_ID = "gor-mill-r1460"
+BULKY_N_ROWS = 528
+PAIR_IDENTITY_KEYS = (
+    "fail_handoff",
+    "fail_marker",
+    "fail_slug",
+    "fail_stem",
+    "success_marker",
+    "success_slug",
+    "success_stem",
+)
+PAIR_ROW_KEYS = (
+    "fail_handoff",
+    "fail_marker",
+    "fail_slug",
+    "fail_stem",
+    "i",
+    "mill_id",
+    "path",
+    "success_marker",
+    "success_slug",
+    "success_stem",
+)
 
 BANNED = (
     "thought",

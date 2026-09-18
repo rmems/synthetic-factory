@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import Any, NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -17,7 +16,6 @@ if __package__:
         EVIDENCE_STATUS_FIELDS,
         is_exact_string,
         policy_error,
-        protect_frozen_slots,
         require_hash,
         sha256_digest,
     )
@@ -40,7 +38,6 @@ else:
         EVIDENCE_STATUS_FIELDS,
         is_exact_string,
         policy_error,
-        protect_frozen_slots,
         require_hash,
         sha256_digest,
     )
@@ -80,9 +77,7 @@ _VERDICT_STRING_FIELDS = (
 )
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsRoute:  # noqa: D203,D211
+class RightsRoute(NamedTuple):  # noqa: D203,D211
     """Canonical provider/channel/profile coordinates for one decision."""
 
     provider: str
@@ -90,26 +85,20 @@ class RightsRoute:  # noqa: D203,D211
     rights_profile_id: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsVerification:
+class RightsVerification(NamedTuple):  # noqa: D203,D211
     """Trusted route and optional policy bytes for envelope verification."""
 
     expected_route: RightsRoute
     policy_bytes: bytes | None = None
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _BoundDigests:
+class _BoundDigests(NamedTuple):
     source_sha256: str
     factory_registry_sha256: str
     rights_policy_sha256: str
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class RightsDecision:  # noqa: D203,D211
+class RightsDecision(NamedTuple):  # noqa: D203,D211
     """Immutable rights verdict with byte-bound evidence identifiers."""
 
     route: RightsRoute
@@ -280,9 +269,7 @@ def _bound_bytes(value: object, field: str) -> bytes:
     return value
 
 
-@protect_frozen_slots
-@dataclass(frozen=True, slots=True)
-class _EnvelopeBytes:
+class _EnvelopeBytes(NamedTuple):
     source: bytes
     registry: bytes
     policy: bytes

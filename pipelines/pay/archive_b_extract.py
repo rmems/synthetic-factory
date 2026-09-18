@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""AST-extract Archive B pair bodies from ``mill_plants.py``. Never exec."""
+
+from __future__ import annotations
+
+import ast
+from collections.abc import Mapping
+from typing import Any
+
+from ._contract import (
+    FINDING_AST_NOT_A_PAIR,
+    FINDING_PAIR_FIELD_MISSING,
+    FINDING_SOURCE_NOT_PARSEABLE,
+    SOURCE_PATH,
+    bind_import_twin,
+    refuse,
+    refuse_when,
+)
+
+SIDE_REQUIRED = ("slug",)
+_APPEND_LISTS = frozenset({"PAIRS", "MORE"})
+
+__all__ = ["pairs_from_chained_source", "pairs_from_source"]
+
+
+def _const_eval(node: ast.AST) -> Any:
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_const_eval(node.operand)
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for piece in node.values:
+            if isinstance(piece, ast.Constant):
+                parts.append(str(piece.value))
+            elif isinstance(piece, ast.FormattedValue):
+                parts.append(str(_const_eval(piece.value)))
+        return "".join(parts)
+    if isinstance(node, ast.List):
+        return [_const_eval(item) for item in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        refuse_when(
+            any(key is None for key in node.keys),
+            FINDING_AST_NOT_A_PAIR,
+            f"{SOURCE_PATH} uses dict unpacking",
+        )
+        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values, strict=True)}
+    if isinstance(node, ast.Call):
+        func = node.func
+        if (
+            isinstance(func, ast.Name)
+            and func.id in {"dict", "_ok", "_fail"}
+            and not node.args
+            and all(keyword.arg is not None for keyword in node.keywords)
+        ):
+            return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
+    refuse(FINDING_AST_NOT_A_PAIR, f"{SOURCE_PATH} has non-literal plant fragment {ast.dump(node)[:80]}")
+
+
+def _validate_side(
+    side: Mapping[str, Any], *, role: str, index: int, source: str = SOURCE_PATH
+) -> None:
+    missing = [key for key in SIDE_REQUIRED if key not in side]
+    if missing:
+        refuse(
+            FINDING_PAIR_FIELD_MISSING,
+            f"{source} pair[{index}].{role} missing {missing[0]}",
+        )
+
+
+def _pair_from_tuple(pair: Any, *, source: str, index: int) -> dict[str, Any]:
+    refuse_when(
+        not isinstance(pair, tuple) or len(pair) != 2,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} pair[{index}] expects (ok, fail) tuple",
+    )
+    ok, fail = pair
+    refuse_when(
+        not isinstance(ok, dict) or not isinstance(fail, dict),
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} pair[{index}] sides must be dicts",
+    )
+    _validate_side(ok, role="ok", index=index, source=source)
+    _validate_side(fail, role="fail", index=index, source=source)
+    return {"ok": ok, "fail": fail}
+
+
+def _pair_from_append_call(call: ast.Call, *, source: str, index: int) -> dict[str, Any] | None:
+    if not (isinstance(call.func, ast.Attribute) and call.func.attr == "append"):
+        return None
+    if not (isinstance(call.func.value, ast.Name) and call.func.value.id in _APPEND_LISTS):
+        return None
+    refuse_when(
+        len(call.args) != 1,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} {call.func.value.id}.append must take one tuple argument",
+    )
+    return _pair_from_tuple(_const_eval(call.args[0]), source=source, index=index)
+
+
+def _pair_from_pair_call(call: ast.Call, *, source: str, index: int) -> dict[str, Any] | None:
+    if not (isinstance(call.func, ast.Name) and call.func.id == "pair"):
+        return None
+    refuse_when(
+        len(call.args) != 2,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} pair() expects two arguments",
+    )
+    ok = _const_eval(call.args[0])
+    fail = _const_eval(call.args[1])
+    _validate_side(ok, role="ok", index=index, source=source)
+    _validate_side(fail, role="fail", index=index, source=source)
+    return {"ok": ok, "fail": fail}
+
+
+def pairs_from_chained_source(
+    text: str,
+    *,
+    source: str,
+    expected_rows: int,
+) -> tuple[dict[str, Any], ...]:
+    """Extract literal ``MORE``/``PAIRS`` appends and top-level ``pair()`` calls."""
+
+    refuse_when(expected_rows < 1, FINDING_AST_NOT_A_PAIR, f"{source} expected_rows must be positive")
+    try:
+        tree = ast.parse(text, filename=source)
+    except SyntaxError as exc:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}")
+    rows: list[dict[str, Any]] = []
+    for node in tree.body:
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        row = _pair_from_append_call(call, source=source, index=len(rows))
+        if row is None:
+            row = _pair_from_pair_call(call, source=source, index=len(rows))
+        if row is None:
+            continue
+        rows.append(row)
+        if len(rows) >= expected_rows:
+            break
+    refuse_when(
+        len(rows) != expected_rows,
+        FINDING_AST_NOT_A_PAIR,
+        f"{source} extracted {len(rows)} pairs, expected {expected_rows}",
+    )
+    return tuple(rows)
+
+
+def pairs_from_source(text: str, *, source: str = SOURCE_PATH) -> tuple[dict[str, Any], ...]:
+    """Return ``({"ok": ..., "fail": ...}, ...)`` from ``PAIRS.append`` calls."""
+
+    try:
+        tree = ast.parse(text, filename=source)
+    except SyntaxError as exc:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}")
+    rows: list[dict[str, Any]] = []
+    for node in tree.body:
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if not (isinstance(call.func, ast.Attribute) and call.func.attr == "append"):
+            continue
+        if not (isinstance(call.func.value, ast.Name) and call.func.value.id == "PAIRS"):
+            continue
+        rows.append(_pair_from_append_call(call, source=source, index=len(rows)))
+    refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS.append rows")
+    return tuple(rows)
+
+
+if __package__:
+    bind_import_twin(__name__)
