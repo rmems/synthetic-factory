@@ -614,7 +614,7 @@ def _confined_path(value: str) -> Path:
     try:
         return operator_path(value)
     except argparse.ArgumentTypeError as exc:
-        raise GateError(f"{value}: {exc}") from exc
+        raise GateError(str(exc)) from exc
 
 
 def _confined_destination(value: str, label: str) -> Path:

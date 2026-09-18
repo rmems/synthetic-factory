@@ -65,6 +65,14 @@ class RoundTxnFunnel(_FunnelCase):
             )
         self.assertEqual(confined, Path(os.path.realpath(td)))
 
+    def test_a_missing_factory_dir_is_refused_as_empty(self):
+        stderr = io.StringIO()
+        args = SimpleNamespace(factory_dir=None)
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            round_txn._confined_factory_dir(self.parser, args)
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("factory_dir: the path is empty", stderr.getvalue())
+
     def test_parse_args_still_returns_the_namespace(self):
         args = round_txn.parse_args(["frontier", "some-dir"])
         self.assertEqual(args.command, "frontier")
