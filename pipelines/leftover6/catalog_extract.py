@@ -13,12 +13,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from . import catalog_ast as _catalog_ast
+from . import catalog_literals as _catalog_literals
 from ._contract import bind_import_twin
-from .catalog_ast import (
-    assignment_of as assignment_of,
-    module_constants as module_constants,
-)
-from .catalog_literals import SBOX_PLANT_FIELDS, UNSET as UNSET, _LiteralMapping, literal_value as literal_value
+from .catalog_ast import module_constants
+from .catalog_literals import SBOX_PLANT_FIELDS, _LiteralMapping
+
+assignment_of = _catalog_ast.assignment_of
+UNSET = _catalog_literals.UNSET
+literal_value = _catalog_literals.literal_value
 
 @dataclass(frozen=True)
 class SourceContext:
