@@ -1,0 +1,29 @@
+{
+  "catalog_id": "ttf-recover-v1",
+  "factory": "thalamic-trajectory-factory",
+  "family": "ttf",
+  "generator": "grok-4.6",
+  "intended_use": "research_only",
+  "legacy_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+  "legacy_ref": "origin/legacy-mill-lane",
+  "note": "Recover-grok AST extract (git show + ast.parse, exec: false). experiments/ttf* is absent on legacy-mill-lane. Compact identities only.",
+  "plants": 35,
+  "plants_filename": "plants.jsonl",
+  "plants_sha256": "169334ab534105aaafe64c520a774fea6a97651937a125a94bf1b41ca27c0d52",
+  "project_training_policy": "blocked",
+  "quota_per_slice": 5,
+  "rounds": [
+    2,
+    3,
+    4,
+    12,
+    24,
+    72
+  ],
+  "run": "2026-09-02-final-heavy",
+  "schema": "ttf-plants-v1",
+  "source_catalogs": 7,
+  "source_commit": "e5206e72fa829931162944648e1e180949baaf0b",
+  "source_ref": "origin/codex/recover-grok-01a06111",
+  "source_tree": "recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/recovered_sources/by-original-path"
+}

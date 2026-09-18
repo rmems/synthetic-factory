@@ -990,6 +990,42 @@ def _package_validate_run_safety() -> ModuleType:
     return module
 
 
+def _direct_validate_run_episode() -> ModuleType:
+    import validate_run_episode as module
+
+    return module
+
+
+def _package_validate_run_episode() -> ModuleType:
+    import pipelines.validate_run_episode as module
+
+    return module
+
+
+def _direct_validate_run_preference() -> ModuleType:
+    import validate_run_preference as module
+
+    return module
+
+
+def _package_validate_run_preference() -> ModuleType:
+    import pipelines.validate_run_preference as module
+
+    return module
+
+
+def _direct_validate_run_multi_agent() -> ModuleType:
+    import validate_run_multi_agent as module
+
+    return module
+
+
+def _package_validate_run_multi_agent() -> ModuleType:
+    import pipelines.validate_run_multi_agent as module
+
+    return module
+
+
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1051,6 +1087,26 @@ def _package_validate_run_thalamic() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
+def _direct_reward_parse_values() -> ModuleType:
+    import reward_parse_values as module
+    return module
+
+
+def _package_reward_parse_values() -> ModuleType:
+    import pipelines.reward_parse_values as module
+    return module
+
+
+def _direct_reward_parse_patterns() -> ModuleType:
+    import reward_parse_patterns as module
+    return module
+
+
+def _package_reward_parse_patterns() -> ModuleType:
+    import pipelines.reward_parse_patterns as module
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
@@ -1160,6 +1216,8 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "reward_mapping": (_direct_reward_mapping, _package_reward_mapping),
     "reward_ontology": (_direct_reward_ontology, _package_reward_ontology),
     "reward_parse": (_direct_reward_parse, _package_reward_parse),
+    "reward_parse_patterns": (_direct_reward_parse_patterns, _package_reward_parse_patterns),
+    "reward_parse_values": (_direct_reward_parse_values, _package_reward_parse_values),
     "reward_policy": (_direct_reward_policy, _package_reward_policy),
     "reward_units": (_direct_reward_units, _package_reward_units),
     "reward_vocabulary": (_direct_reward_vocabulary, _package_reward_vocabulary),
@@ -1200,6 +1258,12 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
     "round_txn_agentic_cascade": (_direct_round_txn_agentic_cascade, _package_round_txn_agentic_cascade),
     "validate_run_safety": (_direct_validate_run_safety, _package_validate_run_safety),
+    "validate_run_episode": (_direct_validate_run_episode, _package_validate_run_episode),
+    "validate_run_preference": (_direct_validate_run_preference, _package_validate_run_preference),
+    "validate_run_multi_agent": (
+        _direct_validate_run_multi_agent,
+        _package_validate_run_multi_agent,
+    ),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (

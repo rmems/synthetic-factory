@@ -1,35 +1,50 @@
 #!/usr/bin/env python3
-"""Canonical immutable parsers for the reward ontology contract.
-
-Units, vocabulary entries, policy-reference hashes, finite numeric values, and
-arithmetic-signature compatibility are validated here so mapping, policy,
-vocabulary, units, and document modules do not re-state those fail-closed
-checks. Refusal messages stay byte-stable; callers pass the existing codes.
-"""
+"""Canonical reward contract parsing facade and arithmetic compatibility."""
 
 from __future__ import annotations
 
-import math
-import re
 import sys
-from decimal import Decimal, InvalidOperation
+import re
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
-
     _assert_direct_sibling("reward_parse")
+    from . import reward_parse_values as _values
+    from . import reward_parse_patterns as _patterns
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "reward_parse"
     )
+    import reward_parse_values as _values
+    import reward_parse_patterns as _patterns
 
 
-class RewardOntologyError(ValueError):
-    """Raised when a reward document violates ontology-v1 invariants."""
-
-
-class MagnitudeNotComparable(RewardOntologyError):
-    """Raised when a caller asks an uncalibrated record for magnitudes."""
+RewardOntologyError = _values.RewardOntologyError
+MagnitudeNotComparable = _values.MagnitudeNotComparable
+_policy_error = _values._policy_error
+_unique_nonempty_strings = _values._unique_nonempty_strings
+_require_unique_string_codes = _values._require_unique_string_codes
+_mapping_str = _values._mapping_str
+_mapping_str_list = _values._mapping_str_list
+_mapping_object = _values._mapping_object
+_decimal = _values._decimal
+_json_number = _values._json_number
+_reject_nonfinite_numbers = _values._reject_nonfinite_numbers
+_require_finite_decimal = _values._require_finite_decimal
+_require_positive_decimal = _values._require_positive_decimal
+_mapping_positive = _values._mapping_positive
+_require_integer = _values._require_integer
+_mapping_integer = _values._mapping_integer
+_pattern_numeric_group = _patterns._pattern_numeric_group
+_mapping_pattern = _patterns._mapping_pattern
+_numeric_capture = _patterns._numeric_capture
+_escape_signature_token = _patterns._escape_signature_token
+_unescape_signature_token = _patterns._unescape_signature_token
+_split_signature = _patterns._split_signature
+_signature_members = _patterns._signature_members
+_arithmetic_methods_for_signature = _patterns._arithmetic_methods_for_signature
+PatternOptions = _patterns.PatternOptions
 
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -52,117 +67,22 @@ _SHAPE_STATUS_METHODS = {
 }
 
 
-def _policy_error(where, message):
-    return RewardOntologyError(f"{where}: {message}")
+class NamedObjectContract(NamedTuple):
+    """Error locations and messages for a named vocabulary entry."""
+
+    names_where: str
+    names_message: str
+    entry_where: str
+    entry_message: str
 
 
-def _unique_nonempty_strings(value, *, require_text=False):
-    if not isinstance(value, list) or not value:
-        return None
-    if not all(isinstance(item, str) for item in value):
-        return None
-    if require_text and not all(item.strip() for item in value):
-        return None
-    if len(set(value)) != len(value):
-        return None
-    return value
+class ArithmeticContract(NamedTuple):
+    """Method vocabulary and compatibility constraints for one arithmetic entry."""
 
-
-def _require_unique_string_codes(reasons, *, empty_message):
-    if _unique_nonempty_strings(reasons) is None:
-        raise RewardOntologyError(empty_message)
-    return reasons
-
-
-def _mapping_str(container, key, where, *, prefix=None):
-    value = container.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise _policy_error(where, f"{key} must be a nonempty string")
-    if prefix is not None and not value.startswith(prefix):
-        raise _policy_error(where, f"{key} must start with {prefix!r}")
-    return value
-
-
-def _mapping_str_list(container, key, where):
-    value = _unique_nonempty_strings(container.get(key), require_text=True)
-    if value is None:
-        raise _policy_error(where, f"{key} must be a unique nonempty list of strings")
-    return tuple(value)
-
-
-def _mapping_object(container, key, where):
-    value = container.get(key)
-    if not isinstance(value, dict) or not value:
-        raise _policy_error(where, f"{key} must be a nonempty object")
-    return value
-
-
-def _decimal(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
-        return None
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    try:
-        result = Decimal(str(value))
-    except InvalidOperation:
-        return None
-    return result if result.is_finite() else None
-
-
-def _json_number(value: Decimal) -> float:
-    return float(value)
-
-
-def _reject_nonfinite_numbers(value, *, where):
-    if isinstance(value, float) and not math.isfinite(value):
-        raise RewardOntologyError(f"{where}: non-finite JSON number")
-    if isinstance(value, dict):
-        for child in value.values():
-            _reject_nonfinite_numbers(child, where=where)
-    elif isinstance(value, list):
-        for child in value:
-            _reject_nonfinite_numbers(child, where=where)
-
-
-def _require_finite_decimal(value, message):
-    number = _decimal(value)
-    if number is None:
-        raise RewardOntologyError(message)
-    return number
-
-
-def _require_positive_decimal(value, message):
-    number = _require_finite_decimal(value, message)
-    if number <= 0:
-        raise RewardOntologyError(message)
-    return number
-
-
-def _mapping_positive(container, key, where):
-    value = container.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise _policy_error(where, f"{key} must be a number")
-    try:
-        number = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise _policy_error(where, f"{key} must be a finite number") from exc
-    if not number.is_finite() or number <= 0:
-        raise _policy_error(where, f"{key} must be positive and finite")
-    return number
-
-
-def _require_integer(value, message, *, minimum=0):
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise RewardOntologyError(message)
-    return value
-
-
-def _mapping_integer(container, key, where, *, minimum=0):
-    value = container.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        qualifier = "nonnegative" if minimum == 0 else f">= {minimum}"
-        raise _policy_error(where, f"{key} must be an integer {qualifier}")
-    return value
+    methods: object
+    where: str
+    allowed_methods: object = None
+    check_status_pair: bool = False
 
 
 def _require_sha256(value, message):
@@ -194,163 +114,37 @@ def _add_unique(item, seen, error):
     return item
 
 
-def _require_named_object(
-    key, entry, *, names_where, names_message, entry_where, entry_message
-):
+def _require_named_object(key, entry, contract):
     if not isinstance(key, str) or not key:
-        raise _policy_error(names_where, names_message)
+        raise _policy_error(contract.names_where, contract.names_message)
     if not isinstance(entry, dict) or not entry:
-        raise _policy_error(entry_where, entry_message)
+        raise _policy_error(contract.entry_where, contract.entry_message)
     return entry
 
 
-def _pattern_numeric_group(compiled, key, where):
-    haystacks = (
-        "rounded to 3-decimal 1 reward unit = USD 10,000.5 abc",
-        "xyz",
-        "rounded to xyz decimal",
-    )
-    saw_numeric = False
-    for haystack in haystacks:
-        match = compiled.search(haystack)
-        if match is None:
-            continue
-        try:
-            Decimal(str(match.group(1)).replace(",", ""))
-        except (InvalidOperation, TypeError, IndexError, ArithmeticError) as exc:
-            raise _policy_error(
-                where, f"{key} capture group must be numeric"
-            ) from exc
-        saw_numeric = True
-    if not saw_numeric:
+def _require_signature_method(method, contract):
+    if contract.allowed_methods is None:
+        return
+    if method not in contract.allowed_methods:
         raise _policy_error(
-            where, f"{key} capture group must match a numeric sample"
-        )
+            contract.where, f"arithmetic method {method!r} is incompatible with signature")
 
 
-def _mapping_pattern(container, key, where, *, groups=0, numeric_group=False):
-    pattern = _mapping_str(container, key, where)
-    try:
-        compiled = re.compile(pattern, re.I)
-    except re.error as exc:
+def _require_status_pair(status, method, contract):
+    if not contract.check_status_pair:
+        return
+    if method not in _SHAPE_STATUS_METHODS.get(status, ()):
         raise _policy_error(
-            where, f"{key} is not a valid regular expression: {exc}"
-        ) from exc
-    if compiled.groups != groups:
-        raise _policy_error(where, f"{key} must declare exactly {groups} capture group(s)")
-    if numeric_group:
-        _pattern_numeric_group(compiled, key, where)
-    return compiled
+            contract.where, f"arithmetic status {status!r} is incompatible with method {method!r}")
 
 
-def _numeric_capture(match, *, integer=False):
-    try:
-        token = str(match.group(1)).replace(",", "")
-        value = int(token) if integer else Decimal(token)
-    except (InvalidOperation, TypeError, ValueError, IndexError, ArithmeticError) as exc:
-        raise RewardOntologyError("numeric regex capture is not a number") from exc
-    return value
-
-
-def _escape_signature_token(token):
-    return str(token).replace("\\", "\\\\").replace("|", "\\|").replace(":", "\\:")
-
-
-def _unescape_signature_token(token):
-    out = []
-    escaped = False
-    for character in token:
-        if escaped:
-            out.append(character)
-            escaped = False
-        elif character == "\\":
-            escaped = True
-        else:
-            out.append(character)
-    if escaped:
-        out.append("\\")
-    return "".join(out)
-
-
-def _split_signature(signature, separator):
-    parts = []
-    buf = []
-    escaped = False
-    for character in signature:
-        if escaped:
-            buf.append(character)
-            escaped = False
-            continue
-        if character == "\\":
-            buf.append(character)
-            escaped = True
-            continue
-        if character == separator:
-            parts.append("".join(buf))
-            buf = []
-            continue
-        buf.append(character)
-    parts.append("".join(buf))
-    return parts
-
-
-def _signature_members(signature, where):
-    members = {}
-    for part in _split_signature(signature, "|"):
-        pieces = _split_signature(part, ":")
-        if len(pieces) != 2:
-            raise _policy_error(where, "signature contains an invalid member")
-        key = _unescape_signature_token(pieces[0])
-        member_type = _unescape_signature_token(pieces[1])
-        if not member_type or key in members:
-            raise _policy_error(where, "signature contains an invalid member")
-        members[key] = member_type
-    return members
-
-
-def _arithmetic_methods_for_signature(signature, arithmetic, where):
-    """Return the arithmetic methods the structural signature can select."""
-    if signature == "":
-        return frozenset({"no_numeric_total"})
-    if ":" not in signature:
-        return frozenset({"non_object_reward"})
-
-    members = _signature_members(signature, where)
-    total_type = members.get(arithmetic["declared_total_field"])
-    if total_type not in {"int", "float"}:
-        return frozenset({"no_numeric_total"})
-    if members.get(arithmetic["weights_field"]) == "object":
-        return frozenset(
-            {"declared_weighted_sum", "declared_weighted_sum_unresolved"}
-        )
-    return frozenset(
-        {"unweighted_component_sum", "unweighted_component_sum_unresolved"}
-    )
-
-
-def _require_arithmetic_status_method(
-    status,
-    method,
-    *,
-    methods,
-    where,
-    allowed_methods=None,
-    check_status_pair=False,
-):
+def _require_arithmetic_status_method(status, method, contract):
     if status not in ARITHMETIC_STATUSES:
-        raise _policy_error(where, f"unknown arithmetic status {status!r}")
-    if method not in methods:
-        raise _policy_error(where, f"unknown arithmetic method {method!r}")
-    if allowed_methods is not None and method not in allowed_methods:
-        raise _policy_error(
-            where,
-            f"arithmetic method {method!r} is incompatible with signature",
-        )
-    if check_status_pair and method not in _SHAPE_STATUS_METHODS.get(status, ()):
-        raise _policy_error(
-            where,
-            f"arithmetic status {status!r} is incompatible with method {method!r}",
-        )
+        raise _policy_error(contract.where, f"unknown arithmetic status {status!r}")
+    if method not in contract.methods:
+        raise _policy_error(contract.where, f"unknown arithmetic method {method!r}")
+    _require_signature_method(method, contract)
+    _require_status_pair(status, method, contract)
     return status, method
 
 

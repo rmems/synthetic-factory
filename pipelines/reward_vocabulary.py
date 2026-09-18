@@ -21,6 +21,8 @@ if __package__:
         _add_unique,
         _require_arithmetic_status_method,
         _require_named_object,
+        NamedObjectContract,
+        ArithmeticContract,
         _unknown_members,
     )
 else:
@@ -39,6 +41,8 @@ else:
         _add_unique,
         _require_arithmetic_status_method,
         _require_named_object,
+        NamedObjectContract,
+        ArithmeticContract,
         _unknown_members,
     )
 
@@ -71,10 +75,8 @@ def _validate_one_component_key(key, entry, arithmetic, reward_instances, vocabu
     _require_named_object(
         key,
         entry,
-        names_where=vocabulary_where,
-        names_message="component key names must be nonempty",
-        entry_where=entry_where,
-        entry_message="entry must be a nonempty object",
+        NamedObjectContract(vocabulary_where, "component key names must be nonempty",
+                            entry_where, "entry must be a nonempty object"),
     )
     disposition = _mapping_str(entry, "disposition", entry_where)
     if disposition not in COMPONENT_DISPOSITIONS:
@@ -157,10 +159,7 @@ def _validate_shape_outcome(
     _require_arithmetic_status_method(
         status,
         method,
-        methods=arithmetic["methods"],
-        where=where,
-        allowed_methods=allowed_methods,
-        check_status_pair=True,
+        ArithmeticContract(arithmetic["methods"], where, allowed_methods, True),
     )
     _add_unique(
         (status, method),
@@ -259,7 +258,7 @@ def _validate_vocabulary_arithmetic(vocabulary, arithmetic, reward_instances, vo
         status = _mapping_str(row, "status", row_where)
         method = _mapping_str(row, "method", row_where)
         _require_arithmetic_status_method(
-            status, method, methods=arithmetic["methods"], where=row_where
+            status, method, ArithmeticContract(arithmetic["methods"], row_where)
         )
         _add_unique(
             (status, method),
@@ -328,10 +327,8 @@ def _validate_factory_entry(factory, entry, expected_where, classes, reason_code
     _require_named_object(
         factory,
         entry,
-        names_where=expected_where,
-        names_message="factory names must be nonempty strings",
-        entry_where=factory_where,
-        entry_message="entry must be a nonempty object",
+        NamedObjectContract(expected_where, "factory names must be nonempty strings",
+                            factory_where, "entry must be a nonempty object"),
     )
     entry_records = _mapping_integer(entry, "records", factory_where)
     entry_comparability = _mapping_object(

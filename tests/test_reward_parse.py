@@ -118,9 +118,7 @@ class VocabularyAndCompatibilityParserTests(unittest.TestCase):
             reward_parse._require_arithmetic_status_method(
                 "unsupported",
                 "declared_weighted_sum",
-                methods=methods,
-                where="shape",
-                check_status_pair=True,
+                contract=reward_parse.ArithmeticContract(methods, "shape", check_status_pair=True),
             )
         with self.assertRaisesRegex(
             reward_parse.RewardOntologyError, "incompatible with signature"
@@ -128,10 +126,8 @@ class VocabularyAndCompatibilityParserTests(unittest.TestCase):
             reward_parse._require_arithmetic_status_method(
                 "valid",
                 "declared_weighted_sum",
-                methods=methods,
-                where="shape",
-                allowed_methods=frozenset({"unweighted_component_sum"}),
-                check_status_pair=True,
+                contract=reward_parse.ArithmeticContract(
+                    methods, "shape", frozenset({"unweighted_component_sum"}), True),
             )
 
     def test_duplicate_keys_and_distinct_fields_fail_closed(self):

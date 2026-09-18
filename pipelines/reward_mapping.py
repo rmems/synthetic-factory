@@ -124,7 +124,6 @@ _mapping_str_list = _reward_parse._mapping_str_list
 _mapping_object = _reward_parse._mapping_object
 _mapping_positive = _reward_parse._mapping_positive
 _mapping_integer = _reward_parse._mapping_integer
-_mapping_pattern = _reward_parse._mapping_pattern
 _numeric_capture = _reward_parse._numeric_capture
 _escape_signature_token = _reward_parse._escape_signature_token
 _arithmetic_methods_for_signature = _reward_parse._arithmetic_methods_for_signature
@@ -136,6 +135,12 @@ _UNSET = object()
 RUN_MANIFEST_FILENAME = "manifest.json"
 RUN_SIDECAR_FILENAME = "reward-sidecars.jsonl"
 RUN_CALIBRATION_FILENAME = "units-migration.json"
+
+
+def _mapping_pattern(container, key, where, **options):
+    """Preserve legacy keyword flags while grouping the canonical contract."""
+    return _reward_parse._mapping_pattern(
+        container, key, where, _reward_parse.PatternOptions(**options))
 
 
 def _pointer_escape(token) -> str:

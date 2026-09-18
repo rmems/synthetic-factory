@@ -1,0 +1,4 @@
+{"bad_domain":"rke2-eval","bad_kind":"cluster","bad_slug":"rke2-config-stale-o66v","index":0,"ok_domain":"rancher-eval","ok_kind":"cluster","ok_slug":"rancher-cluster-stale-n65u","source":"scripts/eval_harness_unique_mill/mill_plants_n.py"}
+{"bad_domain":"gke-eval","bad_kind":"cluster","bad_slug":"gke-cluster-stale-q68x","index":1,"ok_domain":"eksctl-eval","ok_kind":"cluster","ok_slug":"eksctl-cluster-stale-p67w","source":"scripts/eval_harness_unique_mill/mill_plants_n.py"}
+{"bad_domain":"oc-eval","bad_kind":"cluster","bad_slug":"oc-cluster-stale-s70z","index":2,"ok_domain":"aks-eval","ok_kind":"cluster","ok_slug":"aks-cluster-stale-r69y","source":"scripts/eval_harness_unique_mill/mill_plants_n.py"}
+{"bad_domain":"kubeadm-eval","bad_kind":"cluster","bad_slug":"kubeadm-cfg-stale-u72b","index":3,"ok_domain":"kops-eval","ok_kind":"cluster","ok_slug":"kops-cluster-stale-t71a","source":"scripts/eval_harness_unique_mill/mill_plants_n.py"}

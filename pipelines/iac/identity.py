@@ -16,6 +16,10 @@ def is_vendor_filename(name: str) -> bool:
         return False
     if name.startswith(VENDOR_PREFIXES):
         return True
+    if name.startswith("mill_plants") and name.endswith(".py"):
+        return True
+    if name.startswith("infra_as_code_mill"):
+        return True
     return name.startswith("iac_") and name.endswith("_mill.py")
 
 

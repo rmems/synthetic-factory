@@ -1,0 +1,95 @@
+{
+  "schema_id": "qbp-catalog/v1",
+  "family_prefix": "qbp",
+  "factory": "queue-backpressure-factory",
+  "generator": "grok-4.6",
+  "quota_per_round": 2,
+  "n_mills": 6,
+  "n_pairs": 100,
+  "pairs_filename": "pairs.jsonl",
+  "pairs_sha256": "6e4d27cc3fbf16bbb1e7e3dc7e10c41e22a2f5ce281a1c5d255e5709576e5170",
+  "source": {
+    "lane": "legacy-mill-lane",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642"
+  },
+  "mills": [
+    {
+      "mill_id": "qbp-mill-leftover3-r42",
+      "path": "experiments/qbp-mill-leftover3-r42.py",
+      "sha256": "d291ce517fb80e855f6be9ba278fd3c04e90b1ec49116c08c1593f1efa6f4f12",
+      "plants": "experiments/qbp-plants-leftover3.py",
+      "plants_sha256": "9193406db332d2e633f84dde034602885c238d90c04a84b68780e51aaf512779",
+      "catalog_first": 42,
+      "n_pairs": 16,
+      "ban": [
+        "chronicle-cycle-handoff",
+        "disruptor-buffer-vs-timeout"
+      ]
+    },
+    {
+      "mill_id": "qbp-mill-leftover3-r58",
+      "path": "experiments/qbp-mill-leftover3-r58.py",
+      "sha256": "9f7455a9be3e6840e453edeff7db05bffe5ca9ece343c147be8dab97c419f80c",
+      "plants": "experiments/qbp-plants-leftover3-r58.py",
+      "plants_sha256": "6aa4a028ef07b2a0f6a25cb6e2235cf41533132e86c574ae8a5179a5a00be4f1",
+      "catalog_first": 58,
+      "n_pairs": 16,
+      "ban": [
+        "chronicle-cycle-handoff",
+        "disruptor-buffer-vs-timeout"
+      ]
+    },
+    {
+      "mill_id": "qbp-mill-leftover3-r74",
+      "path": "experiments/qbp-mill-leftover3-r74.py",
+      "sha256": "a965e178e9c99c7024aa3e8804e6c3ca438fba7559395984c7a54794bdd7b4c4",
+      "plants": "experiments/qbp-plants-leftover3-r74.py",
+      "plants_sha256": "6735cd5c79c11d9093a69360f4a8c15c23a2870eae3b6fa2f1924b27f38b90d1",
+      "catalog_first": 74,
+      "n_pairs": 16,
+      "ban": [
+        "chronicle-cycle-handoff",
+        "disruptor-buffer-vs-timeout"
+      ]
+    },
+    {
+      "mill_id": "qbp-mill-r74",
+      "path": "experiments/qbp-mill-r74.py",
+      "sha256": "274944cf47fdb3088798b5529a242064da5b66ba94c004866fd6ad970bafe8fd",
+      "plants": "experiments/qbp-plants-r74.py",
+      "plants_sha256": "a4033cff41539162c78b5bd8da4e677cd0e35a5ea4744aa17181ded71da58d8b",
+      "catalog_first": 74,
+      "n_pairs": 20,
+      "ban": [
+        "chronicle-cycle-handoff",
+        "disruptor-buffer-vs-timeout"
+      ]
+    },
+    {
+      "mill_id": "qbp-mill-leftover-lll-r77",
+      "path": "experiments/qbp-mill-leftover-lll-r77.py",
+      "sha256": "6ea92813e89e552a4623ace3d21fe643f4c2638d9e56ae55faa36a7cc9b4bb45",
+      "plants": "experiments/qbp-plants-leftover-lll-r77.py",
+      "plants_sha256": "ff312b8b8772b206137f7c9eb18114971e68fda3d456ac5ff3fe07896740d1ef",
+      "catalog_first": 77,
+      "n_pairs": 16,
+      "ban": [
+        "chronicle-cycle-handoff",
+        "disruptor-buffer-vs-timeout"
+      ]
+    },
+    {
+      "mill_id": "qbp-mill-r94",
+      "path": "experiments/qbp-mill-r94.py",
+      "sha256": "4d98c0a4a67a311e6f2fbf2545a56a4b3277ed2fd7d89518b3245f6c21bd4a5d",
+      "plants": "experiments/qbp-plants-r94.py",
+      "plants_sha256": "2bd489102d1e4e89d9bae6f7e0bb7f7297e376bd4efb6138f1b0f320db8f7a30",
+      "catalog_first": 94,
+      "n_pairs": 16,
+      "ban": [
+        "chronicle-cycle-handoff",
+        "disruptor-buffer-vs-timeout"
+      ]
+    }
+  ]
+}
