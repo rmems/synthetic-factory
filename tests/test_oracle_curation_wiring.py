@@ -105,7 +105,7 @@ class OracleRegistryTests(unittest.TestCase):
 
     def test_programs_sha256_pins_the_pipeline_entry_points(self):
         digest = oracle_policy.programs_digest(
-            REPO / "pipelines", ("oracle_generate.py", "oracle_validate.py")
+            REPO / "pipelines", oracle_policy.PROGRAM_NAMES
         )
         self.assertEqual(oracle_policy.POLICY["programs_sha256"], digest)
 

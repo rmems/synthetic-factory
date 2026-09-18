@@ -20,8 +20,8 @@ Pin semantics (recompute on any reviewed change):
   policy carrying the digest, so including it would make the value a
   self-referential cycle with no stable fixpoint; it is the seal, not part of
   what is sealed.
-- programs_sha256: SHA-256 over pipelines/oracle_generate.py followed by
-  pipelines/oracle_validate.py (the pipeline entry points), framed the same way.
+- programs_sha256: SHA-256 over the pipeline entry points and the reviewed
+  shared staging-quarantine helpers in PROGRAM_NAMES, framed the same way.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "cab9fd5e6071984e474486437f295c7f2d37f08e94a2851e83dff8229eb9ff67"
+POLICY_SHA256 = "cbb79abd6495deca41f87c468c80c7114763fd2be3c2cbd50fafc198a4a3a86c"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -81,12 +81,15 @@ def catalog_digest(package: Path) -> str:
 
 
 def programs_digest(pipelines: Path, names: Sequence[str]) -> str:
-    """The reviewed ``programs_sha256`` for the pipeline entry points."""
+    """The reviewed digest for entry points and named transaction helpers."""
     return framed_digest((name, (pipelines / name).read_bytes()) for name in names)
 
 
-# The pinned entry points, in the reviewed order the digest was taken.
-PROGRAM_NAMES = ("oracle_generate.py", "oracle_validate.py")
+# The reviewed entry points and shared transaction helper implementation.
+PROGRAM_NAMES = (
+    "oracle_generate.py", "oracle_validate.py", "compose_destination_rename.py",
+    "compose_destination_directory.py", "compose_contract.py",
+)
 
 
 def verify_source_bytes() -> None:

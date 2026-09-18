@@ -19,10 +19,9 @@ class OracleSchemaSealTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         for directory in ("pipelines/oracle_grounded", "schemas/oracle-grounded"):
             shutil.copytree(source_policy.ROOT / directory, self.root / directory)
-        for relative in (
-            "schemas/oracle-grounded-v1.schema.json", "pipelines/oracle_generate.py",
-            "pipelines/oracle_validate.py",
-        ):
+        relatives = ["schemas/oracle-grounded-v1.schema.json"]
+        relatives.extend(f"pipelines/{name}" for name in source_policy.PROGRAM_NAMES)
+        for relative in relatives:
             shutil.copyfile(source_policy.ROOT / relative, self.root / relative)
         patcher = mock.patch.object(source_policy, "ROOT", self.root)
         patcher.start()
@@ -59,6 +58,18 @@ class OracleSchemaSealTests(unittest.TestCase):
         (self.root / "schemas/oracle-grounded/unreviewed.schema.json").write_text("{}")
         with self.assertRaises(source_policy.SourcePolicyError):
             source_policy.verify_source_bytes()
+
+    def test_shared_quarantine_helpers_are_sealed(self):
+        for name in (
+            "compose_destination_rename.py", "compose_destination_directory.py", "compose_contract.py",
+        ):
+            with self.subTest(helper=name):
+                path = self.root / "pipelines" / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n# unreviewed helper change\n")
+                with self.assertRaises(source_policy.SourcePolicyError):
+                    source_policy.verify_source_bytes()
+                path.write_bytes(original)
 
 
 if __name__ == "__main__":

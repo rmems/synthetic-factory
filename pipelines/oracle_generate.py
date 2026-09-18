@@ -31,11 +31,12 @@ import fcntl
 import json
 import os
 import secrets
-import shutil
 import stat
 import sys
 from pathlib import Path
 
+from compose_contract import ComposeError
+from compose_destination_rename import quarantine_owned_entry
 from oracle_grounded import canon, families, oracles, record, rng
 from oracle_grounded.generation_output import (
     _output_descriptor,
@@ -379,21 +380,23 @@ def publish_noreplace(staging, out_dir, expected_identity=None):
         )
 
 
-def _cleanup_staging(staging, staging_identity):
-    """Remove only the staging inode whose identity was authenticated.
-
-    If a non-cooperating writer renamed our staging tree away and created
-    its own directory at the same path, that replacement is not ours to
-    delete; leave it and let the failed transaction report the problem.
-    """
+def _cleanup_staging(staging, staging_identity, parent_fd=None):
+    """Quarantine failed staging for recovery without deleting any inode."""
     if staging is None or staging_identity is None:
         return
+    owned_fd = None
     try:
-        if _directory_identity(staging) == staging_identity:
-            shutil.rmtree(staging)
-    except OSError:
-        # Already gone, or replaced by something that is not our directory.
-        pass
+        if parent_fd is None:
+            owned_fd = os.open(staging.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            parent_fd = owned_fd
+        quarantine_owned_entry(
+            parent_fd, staging.name, (*staging_identity, stat.S_IFDIR), "oracle staging recovery"
+        )
+    except (OSError, ComposeError) as exc:
+        print(f"oracle_generate: staging retained for recovery: {exc}", file=sys.stderr)
+    finally:
+        if owned_fd is not None:
+            os.close(owned_fd)
 
 
 def build_manifest(args, selected, availability, commit, dirty, generated, files):
@@ -725,7 +728,7 @@ def main(argv=None):
                 os.close(staging_fd)
             # Cleanup addresses the staging tree through the still-open parent
             # descriptor, so it must run before that descriptor is closed.
-            _cleanup_staging(staging, staging_identity)
+            _cleanup_staging(staging, staging_identity, parent_fd)
         finally:
             fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
             os.close(lock_descriptor)

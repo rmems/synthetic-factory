@@ -1251,9 +1251,9 @@ class GenerateCli(unittest.TestCase):
             )
             self.assertFalse(out.exists())
 
-    def test_staging_cleanup_only_removes_the_authenticated_inode(self):
+    def test_staging_cleanup_only_quarantines_the_authenticated_inode(self):
         # The pre-publication counterpart of the publication race: cleanup
-        # must delete only the staging inode it created, never a directory
+        # must quarantine only the staging inode it created, never delete a directory
         # another writer swapped in at the same path.
         with tempfile.TemporaryDirectory(prefix="oracle-staging-race-") as temp:
             staging = Path(temp) / "staging"
@@ -1266,9 +1266,12 @@ class GenerateCli(unittest.TestCase):
             oracle_generate._cleanup_staging(staging, identity)
             self.assertTrue(staging.exists())
             self.assertEqual((staging / "payload.txt").read_text(), "theirs")
-            # The authenticated inode itself is still removed.
+            # The authenticated inode is detached for recovery, not deleted.
             oracle_generate._cleanup_staging(moved, identity)
             self.assertFalse(moved.exists())
+            quarantines = list(Path(temp).glob(".synthetic-factory-rollback-*"))
+            self.assertEqual(len(quarantines), 1)
+            self.assertEqual(oracle_generate._directory_identity(quarantines[0]), identity)
             # And an unknown identity never deletes anything.
             oracle_generate._cleanup_staging(staging, None)
             self.assertTrue(staging.exists())
@@ -1511,9 +1514,12 @@ class GenerateCli(unittest.TestCase):
                 )
             self.assertEqual(status, 1)
             self.assertFalse(out.exists())
+            quarantines = list(Path(temp).glob(".synthetic-factory-rollback-*"))
+            self.assertEqual(len(quarantines), 1)
+            self.assertTrue(quarantines[0].is_dir())
             self.assertEqual(
-                sorted(path.name for path in Path(temp).iterdir()),
-                [".run.oracle-generate.lock"],
+                {path for path in Path(temp).iterdir()},
+                {quarantines[0], Path(temp) / ".run.oracle-generate.lock"},
             )
 
     def test_a_stale_lock_path_does_not_block_a_new_kernel_lock(self):
@@ -1582,9 +1588,12 @@ class GenerateCli(unittest.TestCase):
                 )
             self.assertEqual(status, 1)
             self.assertEqual((out / "other-writer.txt").read_text(), "must survive\n")
+            quarantines = list(Path(temp).glob(".synthetic-factory-rollback-*"))
+            self.assertEqual(len(quarantines), 1)
+            self.assertTrue((quarantines[0] / "manifest.json").is_file())
             self.assertEqual(
-                sorted(path.name for path in Path(temp).iterdir()),
-                [".run.oracle-generate.lock", "run"],
+                {path for path in Path(temp).iterdir()},
+                {quarantines[0], Path(temp) / ".run.oracle-generate.lock", out},
             )
 
     def test_a_replaced_staging_inode_is_never_reported_as_published(self):

@@ -324,9 +324,14 @@ its content is never replaced. If the no-replace primitive is unavailable, the
 generator fails closed rather than falling back to overwrite-capable `rename`.
 The staging directory's device/inode identity is authenticated immediately
 before and after rename; a substituted source is quarantined rather than
-reported as the published run. Any generation or staging failure removes the
-private staging tree and leaves no generator-authored run at the requested
-output path. A fatal runtime, generation, or envelope error stops remaining
+reported as the published run. A staging failure atomically moves the owned
+private tree to a unique `.synthetic-factory-rollback-*` sibling for recovery;
+it never recursively deletes a path that another writer could replace. A
+raced foreign replacement is restored when possible without overwriting any
+entry, and otherwise retained under its quarantine name. If atomic quarantine
+is unavailable, the staging tree remains in place with a recovery diagnostic.
+These failed artifacts are not published runs: no generator-authored run is
+left at the requested output path. A fatal runtime, generation, or envelope error stops remaining
 proposals and families in that atomic run; honest rejected measurements remain
 retained evidence and do not stop generation. Separate campaign lanes are
 independent of this transaction. A stdout failure after publication reports that the run already
