@@ -27,6 +27,7 @@ if str(PIPELINES) not in sys.path:
 import curate_rewards  # noqa: E402
 import reward_parse  # noqa: E402
 import reward_units  # noqa: E402
+import reward_vocabulary  # noqa: E402
 
 
 class RewardParseOwnershipTests(unittest.TestCase):
@@ -201,6 +202,28 @@ class SignatureEscapingTests(unittest.TestCase):
             with self.subTest(key=key):
                 signature = reward_parse._escape_signature_token(key) + ":int"
                 self.assertEqual(reward_parse._signature_members(signature, "shape"), {key: "int"})
+
+
+class FactoryNameContractTests(unittest.TestCase):
+    def _validate_factory(self, name):
+        entry = {"records": 1, "comparability": {"class": 1}, "reason_codes": {"reason": 1}}
+        return reward_vocabulary._validate_factory_entry(name, entry, "policy", {"class"}, {"reason"})
+
+    def test_factory_names_follow_the_existing_schema_pattern(self):
+        for name in (" ", "\t", "Factory", "factory_name", "factory/name", "-factory", "factory\n"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(reward_parse.RewardOntologyError, "factory names must match"):
+                    self._validate_factory(name)
+        for name in ("factory", "factory-2", "2factory", "x-"):
+            with self.subTest(name=name):
+                self.assertEqual(self._validate_factory(name)[0], 1)
+
+    def test_source_component_names_remain_literal(self):
+        contract = reward_parse.NamedObjectContract("keys", "bad key", "entry", "bad entry")
+        entry = {"observed": 1}
+        for name in (" ", "\t", "Raw/Key", "Capitalized"):
+            with self.subTest(name=name):
+                self.assertIs(reward_parse._require_named_object(name, entry, contract), entry)
 
 
 if __name__ == "__main__":

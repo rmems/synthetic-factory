@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 if __package__:
@@ -322,6 +323,11 @@ def _validate_expected_totals(expected, expected_where, classes, reason_codes, r
     return records, comparability, expected_reasons
 
 
+def _require_factory_name(factory, where):
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", factory) is None:
+        raise _policy_error(where, "factory names must match ^[a-z0-9][a-z0-9-]*$")
+
+
 def _validate_factory_entry(factory, entry, expected_where, classes, reason_codes):
     factory_where = f"{expected_where}.by_factory[{factory!r}]"
     _require_named_object(
@@ -330,6 +336,7 @@ def _validate_factory_entry(factory, entry, expected_where, classes, reason_code
         NamedObjectContract(expected_where, "factory names must be nonempty strings",
                             factory_where, "entry must be a nonempty object"),
     )
+    _require_factory_name(factory, expected_where)
     entry_records = _mapping_integer(entry, "records", factory_where)
     entry_comparability = _mapping_object(
         entry, "comparability", factory_where
