@@ -298,22 +298,17 @@ def _catalog_dir(path: Path) -> Path:
 def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
     directory = _catalog_dir(path)
     row = _mapping(_load_json(directory / CATALOG_FILENAME), "catalog", _HEADER_KEYS)
-    raw_mills = row["catalogs"]
-    if not isinstance(raw_mills, list) or len(raw_mills) != 3:
-        raise CatalogError("catalog.catalogs must list the three leftover6 mills")
-    mills = tuple(_mill(item, f"catalog.catalogs[{index}]") for index, item in enumerate(raw_mills))
-    expected_paths = (GQL_PATH, SSL_PATH, SBOX_PATH)
-    if tuple(mill.source_path for mill in mills) != expected_paths:
-        raise CatalogError("catalog mill order drifted from leftover6 sources")
-    pairs = tuple(
-        _pair_row(item, f"{PAIRS_FILENAME}:{index + 1}")
-        for index, item in enumerate(_load_jsonl(directory / PAIRS_FILENAME))
-    )
-    plants = tuple(
-        _plant_row(item, f"{PLANTS_FILENAME}:{index + 1}")
-        for index, item in enumerate(_load_jsonl(directory / PLANTS_FILENAME))
-    )
-    catalog = Catalog(
+    catalog = _catalog_from_header(row, directory)
+    _refuse_identity(catalog)
+    _bind_counts(catalog, row)
+    return catalog
+
+
+def _catalog_from_header(row: Mapping[str, Any], directory: Path) -> Catalog:
+    mills = _load_mills(row["catalogs"])
+    pairs = _load_rows(directory / PAIRS_FILENAME, _pair_row)
+    plants = _load_rows(directory / PLANTS_FILENAME, _plant_row)
+    return Catalog(
         schema_version=_text(row["schema_version"], "catalog.schema_version"),
         family=_text(row["family"], "catalog.family"),
         slice=_text(row["slice"], "catalog.slice"),
@@ -321,13 +316,22 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
         source_branch=_text(row["source_branch"], "catalog.source_branch"),
         source_commit=_text(row["source_commit"], "catalog.source_commit"),
         extraction=_text(row["extraction"], "catalog.extraction"),
-        catalogs=mills,
-        pairs=pairs,
-        plants=plants,
-    )
-    _refuse_identity(catalog)
-    _bind_counts(catalog, row)
-    return catalog
+        catalogs=mills, pairs=pairs, plants=plants)
+
+
+def _load_mills(raw_mills: Any) -> tuple[MillSource, ...]:
+    if not isinstance(raw_mills, list) or len(raw_mills) != 3:
+        raise CatalogError("catalog.catalogs must list the three leftover6 mills")
+    mills = tuple(_mill(item, f"catalog.catalogs[{index}]") for index, item in enumerate(raw_mills))
+    expected_paths = (GQL_PATH, SSL_PATH, SBOX_PATH)
+    if tuple(mill.source_path for mill in mills) != expected_paths:
+        raise CatalogError("catalog mill order drifted from leftover6 sources")
+    return mills
+
+
+def _load_rows(path: Path, decoder):
+    return tuple(decoder(item, f"{path.name}:{index + 1}")
+                 for index, item in enumerate(_load_jsonl(path)))
 
 
 def _refuse_identity(catalog: Catalog) -> None:
@@ -400,25 +404,23 @@ def _validate_source_bindings(bound: BoundSources) -> None:
 
 
 def _validate_endpoints(bound: BoundSources) -> None:
-    gql_pairs, ssl_pairs, plants = bound.gql_pairs, bound.ssl_pairs, bound.plants
-    gql, ssl, sbox = bound.gql, bound.ssl, bound.sbox
-    if gql_pairs[0]["slug"] != gql.first_slug or gql_pairs[-1]["slug"] != gql.last_slug:
-        raise CatalogError("gql leftover6 slugs drifted from header")
-    if ssl_pairs[0]["slug"] != ssl.first_slug or ssl_pairs[-1]["slug"] != ssl.last_slug:
-        raise CatalogError("ssl leftover6 slugs drifted from header")
-    if plants[0]["family"] != sbox.first_slug:
-        raise CatalogError("sbox leftover6 first plant drifted from header")
-    if plants[-1]["family"] != sbox.last_slug:
-        raise CatalogError("sbox leftover6 last plant drifted from header")
+    _endpoint(bound.gql_pairs, bound.gql, "slug", "gql")
+    _endpoint(bound.ssl_pairs, bound.ssl, "slug", "ssl")
+    _endpoint(bound.plants, bound.sbox, "family", "sbox")
+
+
+def _endpoint(rows, source, field: str, label: str) -> None:
+    if rows[0][field] != source.first_slug or rows[-1][field] != source.last_slug:
+        raise CatalogError(f"{label} leftover6 slugs drifted from header")
 def _validate_row_sources(bound: BoundSources) -> None:
-    gql_pairs, ssl_pairs, plants = bound.gql_pairs, bound.ssl_pairs, bound.plants
-    gql, ssl, sbox = bound.gql, bound.ssl, bound.sbox
-    if any(row["source_path"] != gql.source_path for row in gql_pairs):
-        raise CatalogError("gql leftover6 pair source_path drifted")
-    if any(row["source_path"] != ssl.source_path for row in ssl_pairs):
-        raise CatalogError("ssl leftover6 pair source_path drifted")
-    if any(row["source_path"] != sbox.source_path for row in plants):
-        raise CatalogError("sbox leftover6 plant source_path drifted")
+    _source_rows(bound.gql_pairs, bound.gql, "gql")
+    _source_rows(bound.ssl_pairs, bound.ssl, "ssl")
+    _source_rows(bound.plants, bound.sbox, "sbox")
+
+
+def _source_rows(rows, source, label: str) -> None:
+    if any(row["source_path"] != source.source_path for row in rows):
+        raise CatalogError(f"{label} leftover6 pair source_path drifted")
 
 
 CATALOG = load_catalog()
