@@ -244,7 +244,7 @@ class Validation(unittest.TestCase):
         record = copy.deepcopy(self.records[0])
         record["scenario"]["stimulus"]["events"][0][0] ^= 1
         stimulus = record["scenario"]["stimulus"]
-        fixture_sha = oracle.digest(stimulus["events"])
+        fixture_sha = oracle.stimulus_fixture(stimulus)["sha256"]
         record["scenario"]["input_fixture"]["sha256"] = fixture_sha
         record["oracle"]["input_fixture"]["sha256"] = fixture_sha
         errors = hp.validate_record(record, WHERE)

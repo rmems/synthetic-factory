@@ -32,12 +32,12 @@ class ScenarioCatalog(unittest.TestCase):
                 run = oracle.simulate_float(scenario["model_float"], scenario["stimulus"])
                 self.assertEqual(len(run["spikes"]), scenario["stimulus"]["steps"])
 
-    def test_input_fixture_digest_matches_the_event_grid(self):
+    def test_input_fixture_digest_matches_the_complete_stimulus(self):
         for scenario in hp.build_scenarios():
             with self.subTest(scenario=scenario["id"]):
                 self.assertEqual(
                     scenario["input_fixture"]["sha256"],
-                    oracle.digest(scenario["stimulus"]["events"]),
+                    oracle.digest(scenario["stimulus"]),
                 )
 
     def test_the_control_scenario_actually_spikes(self):

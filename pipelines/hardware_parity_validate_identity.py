@@ -17,7 +17,7 @@ if __package__:
     _assert_direct_sibling("hardware_parity_validate_identity")
     from .neuro_oracle import (  # noqa: E402
         PHYSICAL_TARGETS,
-        digest,
+        stimulus_fixture,
     )
     from .hardware_parity_terms import (  # noqa: E402
         FACTORY_SLUG,
@@ -37,7 +37,7 @@ else:
     )
     from neuro_oracle import (  # noqa: E402
         PHYSICAL_TARGETS,
-        digest,
+        stimulus_fixture,
     )
     from hardware_parity_terms import (  # noqa: E402
         FACTORY_SLUG,
@@ -63,15 +63,15 @@ def _check_input_fixture(record, where):
     if not isinstance(stimulus, dict) or not isinstance(stimulus.get("events"), list):
         return [f"{where}: scenario.stimulus.events missing [INPUT_FIXTURE_MISMATCH]"]
     try:
-        recomputed = digest(stimulus["events"])
-    except (TypeError, ValueError, OverflowError) as exc:
+        recomputed = stimulus_fixture(stimulus)["sha256"]
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         return [
-            f"{where}: scenario.stimulus.events is not canonical finite JSON: {exc} "
+            f"{where}: scenario.stimulus is not a complete finite input: {exc} "
             "[INPUT_FIXTURE_MISMATCH]"
         ]
     if fixture.get("sha256") != recomputed:
         errors.append(
-            f"{where}: scenario.input_fixture.sha256 does not match the recorded events "
+            f"{where}: scenario.input_fixture.sha256 does not match the complete recorded stimulus "
             "[INPUT_FIXTURE_MISMATCH]"
         )
     if not contract.strict_json_equal(oracle_fixture, fixture):

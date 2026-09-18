@@ -160,7 +160,10 @@ def _check_physical_claim(record, where):
             f"{where}: unknown deployment execution_target {target!r} [HW_TARGET_UNKNOWN]"
         ]
     if target not in PHYSICAL_TARGETS:
-        return _reference_latency_claim_errors(deployment, target, where)
+        errors = _reference_latency_claim_errors(deployment, target, where)
+        if "capture" in deployment:
+            errors.append(f"{where}: non-physical deployment cannot carry capture evidence [HW_PROVENANCE_MISSING]")
+        return errors
     errors = _physical_adapter_identity_errors(deployment, target, where)
     errors += _physical_provenance_field_errors(deployment, target, where)
     # A run on physical silicon is hardware-in-the-loop by definition. A record

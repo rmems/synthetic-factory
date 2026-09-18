@@ -320,7 +320,9 @@ def _capture_evidence_digest(deployment_run):
     Returns ``None`` for a non-physical (e.g. fixed-point model) deployment,
     which has no capture envelope to fingerprint.
     """
-    capture = deployment_run.get("capture") if isinstance(deployment_run, dict) else None
+    if not isinstance(deployment_run, dict) or deployment_run.get("execution_target") not in PHYSICAL_TARGETS:
+        return None
+    capture = deployment_run.get("capture")
     if not isinstance(capture, dict):
         return None
     return digest(

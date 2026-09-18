@@ -118,7 +118,7 @@ class RecordedCaptureAdapter(OracleAdapter):
         # ValueError covers json.JSONDecodeError and UnicodeDecodeError, both
         # of which derive from it, along with the refusals the two parse hooks
         # raise directly for non-standard and non-finite numbers.
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             self._error = ("CAPTURE_UNREADABLE", str(exc))
         # Keyed on the error, not on `self._capture`: a capture file whose
         # whole content is `null` parses to None, which is also the "nothing
@@ -250,12 +250,13 @@ class RecordedCaptureAdapter(OracleAdapter):
         otherwise the adapter would silently prefer the top-level block while
         retaining a conflicting payload conversion in the authenticated source.
         """
+        payload = payload if isinstance(payload, dict) else {}
         top = self._capture.get("quantization")
-        nested = payload.get("quantization") if isinstance(payload, dict) else None
+        nested = payload.get("quantization")
         # Presence, not truthiness: a top-level `{}` or `[]` used to skip this
         # comparison, and `top or nested` then quietly selected the payload's
         # block -- a conflicting conversion left in the authenticated source.
-        if top is not None and nested is not None:
+        if "quantization" in self._capture and "quantization" in payload:
             try:
                 if canonical_json(top) != canonical_json(nested):
                     raise OracleUnavailable(
@@ -270,7 +271,7 @@ class RecordedCaptureAdapter(OracleAdapter):
                 ) from exc
             quantization = top
         else:
-            quantization = top if top is not None else nested
+            quantization = top if "quantization" in self._capture else nested
         if not quantization:
             raise OracleUnavailable(
                 "CAPTURE_QUANTIZATION_MISSING",

@@ -132,14 +132,14 @@ def normalize_stimulus(stimulus, inputs):
 
 def stimulus_fixture(stimulus):
     """The identical-input contract: the digest both sides must agree on."""
-    return {
+    fixture = {
         "name": stimulus["name"],
         "encoding": stimulus["encoding"],
         "steps": stimulus["steps"],
         "channels": stimulus["channels"],
         "dt_ms": stimulus["dt_ms"],
-        "sha256": digest(stimulus["events"]),
     }
+    return {**fixture, "sha256": digest({**fixture, "events": stimulus["events"]})}
 
 
 if __package__:
