@@ -144,7 +144,6 @@ def run(argv: list[str] | None = None) -> int:
         return args.handler(args)
     except CsvRefusal as exc:
         return _refused(args, exc)
-    return 2
 
 
 def main() -> None:

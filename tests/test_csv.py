@@ -323,10 +323,14 @@ class CliSurface(unittest.TestCase):
     def test_catalog_check_json_on_the_fixture(self):
         code, out, err = invoke(["catalog-check", "--catalog", str(FIXTURE), "--json"])
         self.assertEqual((code, err), (0, ""))
-        payload = json.loads(out)
-        self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 1)
-        self.assertEqual(payload["findings"], [])
+        self.assertEqual(json.loads(out), {
+            "command": "catalog-check",
+            "status": "ok",
+            "catalog_id": "csv-fixture-v1",
+            "plants": 1,
+            "mills": 1,
+            "findings": [],
+        })
 
     def test_generate_json_writes_the_pair(self):
         dest = self.root / "cli-out"
