@@ -62,7 +62,7 @@ except ImportError:  # pragma: no cover - publish imports from the repo tree
     check_safety_case = None
 
 
-from operator_paths import operator_path  # noqa: E402
+from operator_paths import confine  # noqa: E402
 from verify_execution_shapes import (  # noqa: E402
     verify_record_execution,
 )
@@ -234,17 +234,20 @@ def audit_run(run_dir: Path, strict: bool = False):
 def _confined(parser, args):
     """The run, record and batch paths, each confined to the working, home and temp trees.
 
-    An absent argument stays ``None``; the funnel runs right after parsing so
-    no sink below reads ``args`` for a path again.
+    Only the selected mode's path is confined. ``--record`` and ``--batch``
+    take precedence over the optional positional run directory, so an ignored
+    positional spelling cannot reject an invocation or reach a sink.
     """
 
-    def optional(value):
-        return None if value is None else operator_path(value)
-
-    try:
-        return optional(args.run_dir), optional(args.record), optional(args.batch)
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    if args.record is not None:
+        return None, confine(parser, args.record, argument="--record"), None
+    if args.batch is not None:
+        return None, None, confine(parser, args.batch, argument="--batch")
+    return (
+        confine(parser, args.run_dir, argument="run_dir"),
+        None,
+        None,
+    )
 
 
 def main(argv=None):

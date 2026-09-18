@@ -13,7 +13,6 @@ if __package__:
         MAGNITUDE_COMPARABLE,
         ONTOLOGY_VERSION,
         POLICY_DOCUMENT_TYPE,
-        SHA256_RE,
         SIGN_ORDER_ONLY,
         MagnitudeNotComparable,
         RewardOntologyError,
@@ -22,6 +21,15 @@ if __package__:
         _json_number,
         _reject_nonfinite_numbers,
         _sha256,
+    )
+    from .reward_parse import (
+        _add_unique,
+        _require_finite_decimal,
+        _require_integer,
+        _require_positive_decimal,
+        _require_sha256,
+        _require_unique_string_codes,
+        _unknown_members,
     )
     from .reward_policy import (
         ANNOTATION_FIELD,
@@ -57,7 +65,6 @@ else:
     MAGNITUDE_COMPARABLE,
     ONTOLOGY_VERSION,
     POLICY_DOCUMENT_TYPE,
-    SHA256_RE,
     SIGN_ORDER_ONLY,
     MagnitudeNotComparable,
     RewardOntologyError,
@@ -66,6 +73,15 @@ else:
     _json_number,
     _reject_nonfinite_numbers,
     _sha256,
+    )
+    from reward_parse import (
+    _add_unique,
+    _require_finite_decimal,
+    _require_integer,
+    _require_positive_decimal,
+    _require_sha256,
+    _require_unique_string_codes,
+    _unknown_members,
     )
     from reward_policy import (
     ANNOTATION_FIELD,
@@ -96,17 +112,6 @@ else:
     )
 
 
-def _require_unique_string_codes(reasons, *, empty_message):
-    if (
-        not isinstance(reasons, list)
-        or not reasons
-        or not all(isinstance(code, str) for code in reasons)
-        or len(reasons) != len(set(reasons))
-    ):
-        raise RewardOntologyError(empty_message)
-    return reasons
-
-
 def _validate_magnitude_value(value):
     if not isinstance(value, dict):
         raise RewardOntologyError("invalid canonical magnitude value")
@@ -116,15 +121,15 @@ def _validate_magnitude_value(value):
         "conversion_factor",
         "canonical_value",
     ):
-        if _decimal(value.get(field)) is None:
-            raise RewardOntologyError(
-                f"canonical magnitude {field} must be finite"
-            )
-    if (
-        _decimal(value["source_unit_usd"]) <= 0
-        or _decimal(value["conversion_factor"]) <= 0
-    ):
-        raise RewardOntologyError("canonical magnitude scale must be positive")
+        _require_finite_decimal(
+            value.get(field), f"canonical magnitude {field} must be finite"
+        )
+    _require_positive_decimal(
+        value["source_unit_usd"], "canonical magnitude scale must be positive"
+    )
+    _require_positive_decimal(
+        value["conversion_factor"], "canonical magnitude scale must be positive"
+    )
     expected_factor = (
         _decimal(value["source_unit_usd"]) / CANONICAL_UNIT_USD
     )
@@ -184,60 +189,50 @@ def _validate_training_annotation(document):
     _require_declared_verdict(
         comparability, reasons, scope=_annotation_scope(document)
     )
-    if not SHA256_RE.fullmatch(str(document.get("source_sidecar_id", ""))):
-        raise RewardOntologyError("invalid source_sidecar_id")
-    source_reward_count = document.get("source_reward_count")
-    if (
-        isinstance(source_reward_count, bool)
-        or not isinstance(source_reward_count, int)
-        or source_reward_count < 0
-    ):
-        raise RewardOntologyError("source_reward_count must be nonnegative")
+    _require_sha256(
+        document.get("source_sidecar_id", ""), "invalid source_sidecar_id"
+    )
+    _require_integer(
+        document.get("source_reward_count"),
+        "source_reward_count must be nonnegative",
+    )
     _validate_annotation_payload(document, comparability)
     return document
 
 
 def _validate_sidecar_identity(document):
-    sidecar_id = document.get("sidecar_id")
-    if not SHA256_RE.fullmatch(str(sidecar_id or "")):
-        raise RewardOntologyError("invalid sidecar_id")
+    sidecar_id = _require_sha256(document.get("sidecar_id") or "", "invalid sidecar_id")
     sidecar_body = dict(document)
     sidecar_body.pop("sidecar_id", None)
     if _sha256(sidecar_body) != sidecar_id:
         raise RewardOntologyError("sidecar_id content hash mismatch")
     source = document.get("source")
-    if not isinstance(source, dict) or not SHA256_RE.fullmatch(
-        str(source.get("record_sha256", ""))
-    ):
+    if not isinstance(source, dict):
         raise RewardOntologyError("invalid sidecar source")
+    _require_sha256(source.get("record_sha256", ""), "invalid sidecar source")
 
 
 def _validate_sidecar_reward_entry(reward):
     if (
         not isinstance(reward, dict)
-        or not SHA256_RE.fullmatch(str(reward.get("value_sha256", "")))
         or not isinstance(reward.get("json_pointer"), str)
         or not reward["json_pointer"].startswith("/")
         or "value" not in reward
     ):
         raise RewardOntologyError("invalid source reward entry")
+    _require_sha256(reward.get("value_sha256", ""), "invalid source reward entry")
 
 
 def _validate_sidecar_classification(classification):
-    reason_codes = (
-        classification.get("reason_codes")
-        if isinstance(classification, dict)
-        else None
-    )
     if (
         not isinstance(classification, dict)
         or classification.get("comparability") not in COMPARABILITY_CLASSES
-        or not isinstance(reason_codes, list)
-        or not reason_codes
-        or not all(isinstance(code, str) for code in reason_codes)
-        or len(reason_codes) != len(set(reason_codes))
     ):
         raise RewardOntologyError("invalid sidecar classification")
+    reason_codes = _require_unique_string_codes(
+        classification.get("reason_codes"),
+        empty_message="invalid sidecar classification",
+    )
     _require_catalogued_reasons(reason_codes)
     return reason_codes
 
@@ -342,8 +337,9 @@ def curate_record(
     """Return ``(annotated_record, reversible_sidecar)`` without mutating input."""
     if not isinstance(record, dict):
         raise RewardOntologyError("record must be an object")
-    if isinstance(source_line, bool) or not isinstance(source_line, int) or source_line < 1:
-        raise RewardOntologyError("source_line must be a positive integer")
+    _require_integer(
+        source_line, "source_line must be a positive integer", minimum=1
+    )
     source_path = str(source_path).replace("\\", "/")
     if not source_path:
         raise RewardOntologyError("source_path must be nonempty")
@@ -455,8 +451,11 @@ def canonical_magnitudes(record):
     if not isinstance(values, list):
         raise RewardOntologyError("magnitude values must be a list")
     pointers = [value.get("json_pointer") for value in values]
-    if len(pointers) != len(set(pointers)):
-        raise RewardOntologyError("duplicate magnitude json_pointer")
+    seen_pointers = set()
+    for pointer in pointers:
+        _add_unique(
+            pointer, seen_pointers, RewardOntologyError("duplicate magnitude json_pointer")
+        )
     if len(pointers) != annotation["source_reward_count"]:
         raise RewardOntologyError(
             "magnitude values must match source_reward_count"
@@ -555,7 +554,7 @@ def reward_census(records, *, scope_keys=None):
     if scope_keys is None:
         scope_keys = SOURCE_VOCABULARY.get("scope_keys") or [CANONICAL_SCOPE[1:]]
     scope_keys = frozenset(scope_keys)
-    unknown = sorted(scope_keys - REWARD_KEYS)
+    unknown = _unknown_members(scope_keys, REWARD_KEYS)
     if unknown:
         raise RewardOntologyError(f"census scope names non-reward keys: {unknown}")
 

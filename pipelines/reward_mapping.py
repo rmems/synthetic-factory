@@ -3,15 +3,14 @@
 
 Field accessors, JSON-pointer helpers, and static vocabulary names live here so
 policy validation and record classification can stay in smaller modules.
+Contract parsers (units, vocabulary entries, finite numbers, hashes, and
+arithmetic compatibility) are owned by ``reward_parse`` and re-exported.
 """
 
 from __future__ import annotations
 
 import hashlib
-import math
-import re
 import sys
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 if __package__:
@@ -19,11 +18,13 @@ if __package__:
 
     _assert_direct_sibling("reward_mapping")
     from .exact_json import dumps_exact_json
+    from . import reward_parse as _reward_parse
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "reward_mapping"
     )
     from exact_json import dumps_exact_json
+    import reward_parse as _reward_parse
 
 ONTOLOGY_VERSION = "reward-ontology-v1"
 # The classifier's own behavioral revision, recorded as the lane's declared
@@ -76,7 +77,7 @@ VALUE_TYPES = frozenset(
     }
 )
 
-ARITHMETIC_STATUSES = frozenset({"valid", "invalid", "unsupported"})
+ARITHMETIC_STATUSES = _reward_parse.ARITHMETIC_STATUSES
 RULE_SCOPES = frozenset({"any", "preference", "single"})
 REQUIRED_CLASSIFICATION_RULE_IDS = frozenset(
     {"R00"}
@@ -113,41 +114,33 @@ REQUIRED_ARITHMETIC_METHODS = frozenset(
     }
 )
 
-SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+SHA256_RE = _reward_parse.SHA256_RE
+RewardOntologyError = _reward_parse.RewardOntologyError
+MagnitudeNotComparable = _reward_parse.MagnitudeNotComparable
+_SHAPE_STATUS_METHODS = _reward_parse._SHAPE_STATUS_METHODS
+_policy_error = _reward_parse._policy_error
+_mapping_str = _reward_parse._mapping_str
+_mapping_str_list = _reward_parse._mapping_str_list
+_mapping_object = _reward_parse._mapping_object
+_mapping_positive = _reward_parse._mapping_positive
+_mapping_integer = _reward_parse._mapping_integer
+_numeric_capture = _reward_parse._numeric_capture
+_escape_signature_token = _reward_parse._escape_signature_token
+_arithmetic_methods_for_signature = _reward_parse._arithmetic_methods_for_signature
+_decimal = _reward_parse._decimal
+_json_number = _reward_parse._json_number
+_reject_nonfinite_numbers = _reward_parse._reject_nonfinite_numbers
 
 _UNSET = object()
 RUN_MANIFEST_FILENAME = "manifest.json"
 RUN_SIDECAR_FILENAME = "reward-sidecars.jsonl"
 RUN_CALIBRATION_FILENAME = "units-migration.json"
 
-_SHAPE_STATUS_METHODS = {
-    "valid": {
-        "declared_weighted_sum",
-        "unweighted_component_sum",
-    },
-    "invalid": {
-        "declared_weighted_sum",
-        "unweighted_component_sum",
-    },
-    "unsupported": {
-        "declared_weighted_sum_unresolved",
-        "unweighted_component_sum_unresolved",
-        "no_numeric_total",
-        "non_object_reward",
-    },
-}
 
-
-class RewardOntologyError(ValueError):
-    """Raised when a reward document violates ontology-v1 invariants."""
-
-
-class MagnitudeNotComparable(RewardOntologyError):
-    """Raised when a caller asks an uncalibrated record for magnitudes."""
-
-
-def _policy_error(where, message):
-    return RewardOntologyError(f"{where}: {message}")
+def _mapping_pattern(container, key, where, **options):
+    """Preserve legacy keyword flags while grouping the canonical contract."""
+    return _reward_parse._mapping_pattern(
+        container, key, where, _reward_parse.PatternOptions(**options))
 
 
 def _pointer_escape(token) -> str:
@@ -160,177 +153,6 @@ def _pointer_unescape(token) -> str:
 
 def _pointer(tokens) -> str:
     return "/" + "/".join(_pointer_escape(token) for token in tokens)
-
-
-def _mapping_str(container, key, where, *, prefix=None):
-    value = container.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise _policy_error(where, f"{key} must be a nonempty string")
-    if prefix is not None and not value.startswith(prefix):
-        raise _policy_error(where, f"{key} must start with {prefix!r}")
-    return value
-
-
-def _mapping_str_list(container, key, where):
-    value = container.get(key)
-    if (
-        not isinstance(value, list)
-        or not value
-        or not all(isinstance(item, str) and item.strip() for item in value)
-        or len(set(value)) != len(value)
-    ):
-        raise _policy_error(where, f"{key} must be a unique nonempty list of strings")
-    return tuple(value)
-
-
-def _mapping_object(container, key, where):
-    value = container.get(key)
-    if not isinstance(value, dict) or not value:
-        raise _policy_error(where, f"{key} must be a nonempty object")
-    return value
-
-
-def _mapping_positive(container, key, where):
-    value = container.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise _policy_error(where, f"{key} must be a number")
-    try:
-        number = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise _policy_error(where, f"{key} must be a finite number") from exc
-    if not number.is_finite() or number <= 0:
-        raise _policy_error(where, f"{key} must be positive and finite")
-    return number
-
-
-def _mapping_integer(container, key, where, *, minimum=0):
-    value = container.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        qualifier = "nonnegative" if minimum == 0 else f">= {minimum}"
-        raise _policy_error(where, f"{key} must be an integer {qualifier}")
-    return value
-
-
-def _pattern_numeric_group(compiled, key, where):
-    haystacks = (
-        "rounded to 3-decimal 1 reward unit = USD 10,000.5 abc",
-        "xyz",
-        "rounded to xyz decimal",
-    )
-    saw_numeric = False
-    for haystack in haystacks:
-        match = compiled.search(haystack)
-        if match is None:
-            continue
-        try:
-            Decimal(str(match.group(1)).replace(",", ""))
-        except (InvalidOperation, TypeError, IndexError, ArithmeticError) as exc:
-            raise _policy_error(
-                where, f"{key} capture group must be numeric"
-            ) from exc
-        saw_numeric = True
-    if not saw_numeric:
-        raise _policy_error(
-            where, f"{key} capture group must match a numeric sample"
-        )
-
-
-def _mapping_pattern(container, key, where, *, groups=0, numeric_group=False):
-    pattern = _mapping_str(container, key, where)
-    try:
-        compiled = re.compile(pattern, re.I)
-    except re.error as exc:
-        raise _policy_error(where, f"{key} is not a valid regular expression: {exc}") from exc
-    if compiled.groups != groups:
-        raise _policy_error(where, f"{key} must declare exactly {groups} capture group(s)")
-    if numeric_group:
-        _pattern_numeric_group(compiled, key, where)
-    return compiled
-
-
-def _numeric_capture(match, *, integer=False):
-    try:
-        token = str(match.group(1)).replace(",", "")
-        value = int(token) if integer else Decimal(token)
-    except (InvalidOperation, TypeError, ValueError, IndexError, ArithmeticError) as exc:
-        raise RewardOntologyError("numeric regex capture is not a number") from exc
-    return value
-
-
-def _escape_signature_token(token):
-    return str(token).replace("\\", "\\\\").replace("|", "\\|").replace(":", "\\:")
-
-
-def _unescape_signature_token(token):
-    out = []
-    escaped = False
-    for character in token:
-        if escaped:
-            out.append(character)
-            escaped = False
-        elif character == "\\":
-            escaped = True
-        else:
-            out.append(character)
-    if escaped:
-        out.append("\\")
-    return "".join(out)
-
-
-def _split_signature(signature, separator):
-    parts = []
-    buf = []
-    escaped = False
-    for character in signature:
-        if escaped:
-            buf.append(character)
-            escaped = False
-            continue
-        if character == "\\":
-            buf.append(character)
-            escaped = True
-            continue
-        if character == separator:
-            parts.append("".join(buf))
-            buf = []
-            continue
-        buf.append(character)
-    parts.append("".join(buf))
-    return parts
-
-
-def _signature_members(signature, where):
-    members = {}
-    for part in _split_signature(signature, "|"):
-        pieces = _split_signature(part, ":")
-        if len(pieces) != 2:
-            raise _policy_error(where, "signature contains an invalid member")
-        key = _unescape_signature_token(pieces[0])
-        member_type = _unescape_signature_token(pieces[1])
-        if not member_type or key in members:
-            raise _policy_error(where, "signature contains an invalid member")
-        members[key] = member_type
-    return members
-
-
-def _arithmetic_methods_for_signature(signature, arithmetic, where):
-    """Return the arithmetic methods the structural signature can select."""
-    if signature == "":
-        return frozenset({"no_numeric_total"})
-    if ":" not in signature:
-        return frozenset({"non_object_reward"})
-
-    members = _signature_members(signature, where)
-    total_type = members.get(arithmetic["declared_total_field"])
-    if total_type not in {"int", "float"}:
-        return frozenset({"no_numeric_total"})
-    if members.get(arithmetic["weights_field"]) == "object":
-        return frozenset(
-            {"declared_weighted_sum", "declared_weighted_sum_unresolved"}
-        )
-    return frozenset(
-        {"unweighted_component_sum", "unweighted_component_sum_unresolved"}
-    )
 
 
 def _policy_disposition(key, observed_types, arithmetic):
@@ -375,33 +197,6 @@ def _canonical_bytes(value) -> bytes:
 
 def _sha256(value) -> str:
     return "sha256:" + hashlib.sha256(canonical_bytes(value)).hexdigest()
-
-
-def _decimal(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
-        return None
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    try:
-        result = Decimal(str(value))
-    except InvalidOperation:
-        return None
-    return result if result.is_finite() else None
-
-
-def _json_number(value: Decimal) -> float:
-    return float(value)
-
-
-def _reject_nonfinite_numbers(value, *, where):
-    if isinstance(value, float) and not math.isfinite(value):
-        raise RewardOntologyError(f"{where}: non-finite JSON number")
-    if isinstance(value, dict):
-        for child in value.values():
-            _reject_nonfinite_numbers(child, where=where)
-    elif isinstance(value, list):
-        for child in value:
-            _reject_nonfinite_numbers(child, where=where)
 
 
 def _canonical_record_id(record):
