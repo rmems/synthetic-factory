@@ -31,6 +31,13 @@ LATEST_SOURCE_STAMPS = (
      "24c042c31da4c8174560cc0b41fd09888fb2f9e91c2086909917b6b648309fe3"),
 )
 
+RECENT_SOURCE_STAMPS = (
+    ("sha256:ebe175c583a73488c5fdc23fcacb51a60c3088743fdf0d788090b72a9168a600",
+     "088aaa8476bb97d9217253b894258f13f7647e65e1fd89992fa3dddbc43eb7ab"),
+    ("sha256:1973de002f744fceeddff9c2e13bb4f8dcc9256ef2cdc2663d66cc6a03faa5f6",
+     "515c4e444aaa83c472d4a5e5701d4b3bff2381f7d2737f9203a9f4e5992c3f41"),
+)
+
 
 class HistoricalSourceStamps(unittest.TestCase):
     def _records(self, slug, expected_hash):
@@ -44,7 +51,7 @@ class HistoricalSourceStamps(unittest.TestCase):
                 self.assertEqual(module.validate_records(self._records(slug, checksum)), [])
 
     def test_reviewed_followup_commit_bytes_remain_valid(self):
-        for stamps in (NEXT_SOURCE_STAMPS, LATEST_SOURCE_STAMPS):
+        for stamps in (NEXT_SOURCE_STAMPS, LATEST_SOURCE_STAMPS, RECENT_SOURCE_STAMPS):
             self._check_followup_stamps(stamps)
 
     def _check_followup_stamps(self, stamps):

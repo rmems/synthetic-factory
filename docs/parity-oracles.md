@@ -124,7 +124,13 @@ and intervention cannot be relabelled separately.
    (`pipelines/neuro_oracle.py`) and set `SPIKENAUT_FPGA_DEVICE` and
    `SPIKENAUT_FPGA_BITSTREAM`.
 2. A recorded capture can be replayed for unverified research diagnostics:
-   `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json>`.
+   `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json> --scenario hp-representable-margin --steps 12`.
+   Select the catalog scenario and stimulus window used by the capture. The command
+   emits one `scenario-<id>-rNN.jsonl` diagnostic and explicitly reports that it is
+   not a complete catalog round. A missing scenario or mismatched capture refuses
+   before output is written. Complete catalog validation for training-view batches
+   still rejects this partial diagnostic; a single capture is never reused for the
+   other five scenarios.
    A capture is a JSON object with `execution_target`, `quantization` (the Q8.8
    conversion that produced the bitstream), `hardware`, `bitstream`, a
    `manifest` carrying `payload_sha256` and `input_fixture_sha256`, and a

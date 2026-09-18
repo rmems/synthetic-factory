@@ -25,7 +25,8 @@ if __package__:
         FACTORY_SLUG,
         contract,
     )
-    from .hardware_parity_record import generate_records  # noqa: E402
+    from .hardware_parity_catalog import SCENARIO_SPECS, build_scenario  # noqa: E402
+    from .hardware_parity_record import build_record, generate_records, run_pair  # noqa: E402
     from .hardware_parity_validate_result import validate_records  # noqa: E402
     from .hardware_parity_views import build_training_views  # noqa: E402
 else:
@@ -43,7 +44,8 @@ else:
         FACTORY_SLUG,
         contract,
     )
-    from hardware_parity_record import generate_records  # noqa: E402
+    from hardware_parity_catalog import SCENARIO_SPECS, build_scenario  # noqa: E402
+    from hardware_parity_record import build_record, generate_records, run_pair  # noqa: E402
     from hardware_parity_validate_result import validate_records  # noqa: E402
     from hardware_parity_views import build_training_views  # noqa: E402
 
@@ -77,6 +79,8 @@ def parse_args(argv=None):
     gen.add_argument("--repeats", type=int, default=3)
     gen.add_argument("--target", default=None, help="deployment-side adapter name")
     gen.add_argument("--capture", default=None, help="recorded hardware capture JSON")
+    gen.add_argument("--scenario", choices=[spec["id"] for spec in SCENARIO_SPECS],
+                     help="emit one scenario diagnostic; required with --capture")
     val = sub.add_parser("validate", help="validate a JSONL file of records")
     val.add_argument("path")
     view = sub.add_parser("training-view", help="emit training views for a JSONL file")
@@ -84,15 +88,42 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def _cmd_generate(args):
-    """Write one validated round, refusing bad arguments and overwrites."""
+def _generation_argument_error(args):
     if args.steps < 1:
-        print(
-            f"hardware_parity: --steps must be a positive integer, got {args.steps}",
-            file=sys.stderr,
+        return f"--steps must be a positive integer, got {args.steps}"
+    if args.capture and args.scenario is None:
+        return "--capture requires --scenario because a capture is bound to one input fixture"
+    return None
+
+
+def _generation_destination(args):
+    name = f"scenario-{args.scenario}" if args.scenario else "batch"
+    return Path(args.out_dir) / FACTORY_SLUG / f"{name}-r{args.round:02d}.jsonl"
+
+
+def _requested_records(args, adapter):
+    if args.scenario is None:
+        return generate_records(
+            round_number=args.round, steps=args.steps,
+            deployment_adapter=adapter, repeats=args.repeats,
         )
+    spec = next(spec for spec in SCENARIO_SPECS if spec["id"] == args.scenario)
+    scenario = build_scenario(spec, steps=args.steps)
+    software, deployment, unavailable = run_pair(scenario, adapter, repeats=args.repeats)
+    if args.capture and unavailable:
+        raise ValueError(f"selected capture cannot execute: {unavailable['reason_code']}: {unavailable['detail']}")
+    env = {} if isinstance(adapter, FixedPointReferenceAdapter) else None
+    fpga_status = availability_report(env=env)["spikenaut_fpga"]
+    return [build_record(scenario, software, deployment, unavailable, args.round, fpga_status)]
+
+
+def _cmd_generate(args):
+    """Write a validated catalog round or an explicitly selected diagnostic."""
+    argument_error = _generation_argument_error(args)
+    if argument_error:
+        print(f"hardware_parity: {argument_error}", file=sys.stderr)
         return 2
-    out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
+    out = _generation_destination(args)
     raw_error = contract.raw_tree_destination_error(out)
     if raw_error:
         print(f"hardware_parity: {raw_error}", file=sys.stderr)
@@ -108,12 +139,15 @@ def _cmd_generate(args):
     except (KeyError, TypeError) as exc:
         print(f"hardware_parity: {exc}", file=sys.stderr)
         return 2
-    records = generate_records(
-        round_number=args.round,
-        steps=args.steps,
-        deployment_adapter=adapter,
-        repeats=args.repeats,
-    )
+    try:
+        records = _requested_records(args, adapter)
+    except ValueError as exc:
+        print(f"hardware_parity: {exc}", file=sys.stderr)
+        return 1
+    return _write_generated_records(args, out, records)
+
+
+def _write_generated_records(args, out, records):
     errors = validate_records(records, source="generated")
     if errors:
         for error in errors:
@@ -133,6 +167,9 @@ def _cmd_generate(args):
         verdict = record["result"]["verdict"]
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
     print(json.dumps({"written": str(out), "records": len(records),
+                      "scope": "single_scenario" if args.scenario else "catalog_round",
+                      "scenario": args.scenario,
+                      "complete_catalog_round": args.scenario is None,
                       "by_verdict": verdicts}, indent=2, sort_keys=True))
     return 0
 
