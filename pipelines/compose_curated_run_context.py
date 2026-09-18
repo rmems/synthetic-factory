@@ -94,6 +94,7 @@ class SourceLineContext:
     catalog: Mapping[str, Any] | None
     emitted: list[str]
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+    terminator: bytes = b"\n"
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ class RetainedLineContext:
     relative: str
     location: str
     emitted: list[str]
+    terminator: str = "\n"
 
 
 @dataclass(frozen=True)

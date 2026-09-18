@@ -25,8 +25,10 @@ from compose_contract import (  # noqa: E402
     ComposeError,
     default_units_migration_path,
     published_source_snapshot,
+    retained_emitted_record,
     retained_json_line,
 )
+from compose_curated_run_lines import jsonl_framed_lines, jsonl_terminator_text  # noqa: E402
 from curate_identity_simulator_process import replay_session  # noqa: E402
 from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
@@ -97,6 +99,7 @@ class _LineReplay:
     source_file_sha256: str
     catalog: Any
     mill_finding: Any
+    terminator: str = "\n"
 
 
 @dataclass(frozen=True)
@@ -113,6 +116,12 @@ def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
     """Split LF-framed JSONL exactly as the compose writer framed it."""
 
     return compose_curated.jsonl_physical_lines(raw_file)
+
+
+def _replay_framed_lines(raw_file: bytes) -> list[tuple[bytes, bytes]]:
+    """Preserve the same (payload, terminator) pairs compose writes."""
+
+    return jsonl_framed_lines(raw_file)
 
 
 def _replayed_manifest_entry(
@@ -158,6 +167,7 @@ def _record_replayed_retained_context(
 
     try:
         line = retained_json_line(decision)
+        emitted = retained_emitted_record(decision, replay.terminator)
     except ComposeError as exc:
         raise ExportError(str(exc)) from exc
     _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
@@ -173,7 +183,7 @@ def _record_replayed_retained_context(
     if decision.reward_sidecar is not None:
         entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
         state.expected_sidecars.append(decision.reward_sidecar)
-    return line
+    return emitted
 
 
 def _record_replayed_retained(
@@ -287,7 +297,9 @@ def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: li
     """Record the output file one replayed source file would have produced."""
 
     output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
-    payload = "".join(line + "\n" for line in emitted).encode("utf-8")
+    if any(not line.endswith("\n") for line in emitted[:-1]):
+        raise ExportError("unterminated native source cannot precede another composed record")
+    payload = "".join(emitted).encode("utf-8")
     state.expected_payloads[output_path] = payload
     state.expected_outputs.append(
         {
@@ -316,7 +328,7 @@ def _replay_source_file_context(
     state.counts["source_files"] += 1
     emitted: list[str] = []
 
-    for line_number, physical_line in enumerate(_replay_physical_lines(replay.raw_file), 1):
+    for line_number, (physical_line, terminator) in enumerate(_replay_framed_lines(replay.raw_file), 1):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
@@ -330,6 +342,7 @@ def _replay_source_file_context(
                 source_file_sha256=source_file_sha256,
                 catalog=replay.catalog,
                 mill_finding=replay.mill_findings.get((replay.relative, line_number)),
+                terminator=jsonl_terminator_text(terminator),
             ),
         )
         if emitted_line is not None:

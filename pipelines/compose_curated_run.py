@@ -64,7 +64,9 @@ _account_lane_actions = _lines.account_lane_actions
 _line_decision = _lines.line_decision
 _without_terminal_cr = _lines.without_terminal_cr
 claim_output_id = _lines.claim_output_id
+jsonl_framed_lines = _lines.jsonl_framed_lines
 jsonl_physical_lines = _lines.jsonl_physical_lines
+jsonl_terminator_text = _lines.jsonl_terminator_text
 mill_quarantined_decision = _lines.mill_quarantined_decision
 new_manifest_entry = _lines.new_manifest_entry
 record_excluded_line = _lines.record_excluded_line
@@ -108,6 +110,7 @@ def compose_one_line(
             context.relative,
             f"{context.relative}:{context.line_number}",
             context.emitted,
+            _lines.jsonl_terminator_text(context.terminator),
         )
         active.record_retained_line(state, decision, retained_context)
     else:
@@ -125,7 +128,11 @@ def compose_source_file(
     source_file_sha256 = sha256_hex(context.raw_file)
     state.counts["source_files"] += 1
     emitted: list[str] = []
-    for line_number, physical_line in enumerate(active.jsonl_physical_lines(context.raw_file), 1):
+    framed = _lines.jsonl_framed_lines(context.raw_file)
+    hooked = active.jsonl_physical_lines(context.raw_file)
+    if hooked != [payload for payload, _terminator in framed]:
+        framed = [(payload, b"\n") for payload in hooked]
+    for line_number, (physical_line, terminator) in enumerate(framed, 1):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
@@ -136,6 +143,7 @@ def compose_source_file(
             context.catalog,
             emitted,
             context.mill_findings,
+            terminator,
         )
         active.compose_one_line(
             state,
@@ -362,7 +370,7 @@ _write_source_members _write_transaction authenticate_composed_artifacts
 capture_source_snapshot captured_source_payloads claim_output_id
 commit_compose_summary compose_one_line compose_run compose_run_summary
 compose_source_file default_run_hooks facade_run_hooks facade_run_services
-jsonl_physical_lines main mill_quarantined_decision new_manifest_entry
+jsonl_framed_lines jsonl_physical_lines main mill_quarantined_decision new_manifest_entry
 parse_args record_excluded_line record_retained_line write_compose_provenance
 write_emitted_records
 """.split()
