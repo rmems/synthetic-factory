@@ -19,6 +19,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run")
+    from .curate_identity_simulator_process import replay_session
     from . import compose_contract as _contract
     from . import compose_curated_run_artifacts as _artifacts
     from . import compose_curated_run_context as _run_context
@@ -28,6 +29,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run"
     )
+    from curate_identity_simulator_process import replay_session
     import compose_contract as _contract
     import compose_curated_run_artifacts as _artifacts
     import compose_curated_run_context as _run_context
@@ -238,6 +240,7 @@ def _write_transaction(
     return summary
 
 
+@replay_session()
 def compose_run(
     context: ComposeRunContext,
     services: ComposeRunServices,

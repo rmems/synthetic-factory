@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Mapping
 
 if __package__:
+    from .curate_identity_simulator_process import replay_session
     from . import distillation_audit as _distillation_audit
     from . import training_audit_record as _record_audit
     from . import training_audit_snapshot as _snapshot
@@ -55,6 +56,7 @@ if __package__:
     from .tag_jsonutil import reject_duplicate_object_keys
     from .validate_run import check_episode, episode_like
 else:
+    from curate_identity_simulator_process import replay_session
     import distillation_audit as _distillation_audit
     import training_audit_record as _record_audit
     import training_audit_snapshot as _snapshot
@@ -459,8 +461,11 @@ class _CorpusAudit:
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
             return
-        self.totals["eligible_records"] += 1
-        bucket["eligible_records"] += 1
+        research_only = isinstance(obj, dict) and obj.get("family") == "neuromorphic-fault-recovery"
+        self.totals["research_only_records"] += int(research_only)
+        if not research_only:
+            self.totals["eligible_records"] += 1
+            bucket["eligible_records"] += 1
         kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1
         bucket["by_kind"][kind] += 1
@@ -744,6 +749,7 @@ class _CorpusAudit:
         return report
 
 
+@replay_session()
 def audit_run(
     run_dir: Path,
     *,

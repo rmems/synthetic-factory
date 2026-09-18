@@ -3,7 +3,9 @@
 
 Oracle implementation pins come from 6ca641465bbf8ce8339de1dce6ce77f77186e34a.
 The package initializer includes the reviewed import-identity repair from
-f98dd3e8facd282744136ca91040ae595cfdc6b7. No source is executed to verify it.
+f98dd3e8facd282744136ca91040ae595cfdc6b7. The worker pin seals this PR's
+reviewed streaming adapter separately; it is not historical producer evidence.
+No source is executed to verify it.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ else:
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 SIMULATOR_SOURCE_PINS = MappingProxyType({
+    "pipelines/curate_identity_simulator_worker.py": "7644045bb4d1e4673604154c6d8288cdc1ba168a3a7864e16c20d072f0f937d9",
     "pipelines/oracle_grounded/distill_blocks.py": "7dcbd942dfb8383370c6f68347e24c4332692b5016769014d2353f1c079eae69",
     "pipelines/oracle_grounded/distill_energy_claims.py": "16a1fe6aa0d50bc5e53439f29a6c57809588a88091b865ccd0ac686ac0cc70e2",
     "pipelines/oracle_grounded/distill_measurements.py": "dc2fd89567db0cb1a8ff0a9310f723ff8e80c5bf5e5f62149a788a55a707c2d2",

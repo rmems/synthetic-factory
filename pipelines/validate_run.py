@@ -23,6 +23,7 @@ if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("validate_run")
+    from .curate_identity_simulator_process import replay_session
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
     from . import validate_run_rewards as _validate_run_rewards
@@ -34,6 +35,7 @@ if __package__:
     from . import validate_run_preference as _validate_run_preference
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
 else:
+    from curate_identity_simulator_process import replay_session
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
     import validate_run_rewards as _validate_run_rewards
@@ -435,12 +437,32 @@ def _route_code_repair(obj, where):
     return sealed_record_findings(obj, where), "code_repair"
 
 
+def _route_fault_recovery(obj, where):
+    if __package__:
+        from .curate_identity_simulator import record_findings
+    else:
+        from curate_identity_simulator import record_findings
+    return record_findings(obj, where), "fault_recovery"
+
+
+_NATIVE_ROUTES = {
+    "python-function-repair": _route_code_repair,
+    "neuromorphic-fault-recovery": _route_fault_recovery,
+}
+
+
+def _native_checker(obj):
+    family = obj.get("family")
+    return _NATIVE_ROUTES.get(family) if isinstance(family, str) else None
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-    if obj.get("family") == "python-function-repair":
-        return _route_code_repair(obj, where)
+    native = _native_checker(obj)
+    if native is not None:
+        return native(obj, where)
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):
             continue
@@ -464,6 +486,7 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+@replay_session()
 def main(argv=None):
     args = parse_args(argv)
     run_dir = Path(args.run_dir).resolve()

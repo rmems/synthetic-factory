@@ -25,7 +25,9 @@ from compose_contract import (  # noqa: E402
     ComposeError,
     default_units_migration_path,
     published_source_snapshot,
+    retained_json_line,
 )
+from curate_identity_simulator_process import replay_session  # noqa: E402
 from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 from export_calibration import _authenticated_calibration  # noqa: E402
@@ -154,7 +156,10 @@ def _record_replayed_retained_context(
 ) -> str:
     """Account one replayed record that compose would have emitted."""
 
-    line = compose_curated.canonical_json(decision.record)
+    try:
+        line = retained_json_line(decision)
+    except ComposeError as exc:
+        raise ExportError(str(exc)) from exc
     _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
     entry.update(
         {
@@ -402,6 +407,7 @@ def _require_coherent_capture(
             )
 
 
+@replay_session()
 def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
     """Run every source JSONL line back through compose and record what it yields."""
 

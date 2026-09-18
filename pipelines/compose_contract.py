@@ -75,6 +75,31 @@ class ComposeError(RuntimeError):
     """Raised when composition input, output, or run integrity is unsafe."""
 
 
+def retained_json_line(decision: ComposeDecision) -> str:
+    """Authenticated native simulator output retains its original JSON text."""
+    if curate_identity.classify_kind(decision.record) != "fault_recovery":
+        return canonical_json(decision.record)
+    source = next((stage["detail"]["source"] for stage in decision.stages
+                   if stage["lane"] == "identity"), None)
+    if source is None:
+        raise ComposeError("preserved simulator output has no identity evidence")
+    return _preserved_source_line(decision.record, source)
+
+
+def _preserved_source_line(record, source):
+    original = source.get("original")
+    if not isinstance(original, str):
+        raise ComposeError("preserved simulator output has no exact source text")
+    supplied = curate_identity.SourceRecord(
+        record, source["path"], source["line"], source["sha256"], source_json=original,
+    )
+    try:
+        curate_identity._source_identity(supplied)
+    except curate_identity.IdentityCurationError as exc:
+        raise ComposeError(f"preserved simulator source text is unauthenticated: {exc}") from exc
+    return original
+
+
 def default_units_migration_path(source_root: Path) -> Path:
     """Return the canonical calibration candidate for either supported root."""
 

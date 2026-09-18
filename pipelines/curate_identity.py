@@ -36,6 +36,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_identity")
+    from .curate_identity_simulator_process import replay_session
     from . import curate_identity_output as _identity_output
     from . import curate_identity_checks as _identity_checks
     from . import curate_identity_json as _identity_json
@@ -61,6 +62,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity"
     )
+    from curate_identity_simulator_process import replay_session
     import curate_identity_output as _identity_output
     import curate_identity_checks as _identity_checks
     import curate_identity_json as _identity_json
@@ -272,7 +274,7 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
     if original is not None:
         _identity_checks.validate_source_json(original, canonical_source, _identity_check_dependencies())
     if source.source_sha256 is None:
-        preserve_source = original is not None and classify_kind(source.record) == "code_repair"
+        preserve_source = original is not None and classify_kind(source.record) in {"code_repair", "fault_recovery"}
         original = original if preserve_source else canonical_source
         digest = sha256_bytes(original.encode("utf-8"))
         basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"
@@ -1098,6 +1100,7 @@ def curate_record(
     return result
 
 
+@replay_session()
 def curate_records(
     records: Iterable[SourceRecord],
     registry: FactoryRegistry | None = None,
@@ -1205,7 +1208,8 @@ def _hash_verified_manifest_source(source_meta: Mapping[str, Any], index: int) -
     if hash_basis == "canonical-json-sha256" and original != canonical_json(original_record):
         raise IdentityTreeError(f"{where}.original does not match canonical-json-sha256 basis")
     digest = None if hash_basis == "canonical-json-sha256" else source_sha256
-    return SourceRecord(original_record, source_path, source_line, digest, original)
+    return SourceRecord(original_record, source_path, source_line, digest,
+                        None if hash_basis == "canonical-json-sha256" else original)
 
 
 def _validate_presence_snapshot(snapshot: Any, where: str) -> tuple[bool, Any]:
@@ -1613,7 +1617,7 @@ def _validate_identity_outputs(expected_outputs, actual_paths, registry) -> None
         preserved_sources = {
             line_no: replay.source.original.encode("utf-8")
             for line_no, (_, _, replay) in expected_by_line.items()
-            if replay.result.mapping.get("record_kind") == "code_repair"
+            if replay.result.mapping.get("record_kind") in _PRESERVED_ORACLE_HANDLERS
         }
         actual_by_line = _identity_output.read_identity_output(
             actual_paths[rel], rel, preserved_sources, dependencies)

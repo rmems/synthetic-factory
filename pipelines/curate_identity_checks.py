@@ -282,7 +282,7 @@ def retained_source_lines(results, deps: Dependencies):
             deps.curation_error,
         )
         by_line[source_meta["line"]] = (
-            source_meta["original"] if result.mapping["record_kind"] == "code_repair"
+            source_meta["original"] if result.mapping["record_kind"] in {"code_repair", "fault_recovery"}
             else deps.canonical_json(result.record)
         )
     return retained_by_rel

@@ -18,6 +18,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("curate_identity_output")
+    from .curate_identity_simulator_process import replay_session
 else:
     def _ignore_package_sibling(_name):
         return None
@@ -28,6 +29,7 @@ else:
         "_join_package_sibling",
         _ignore_package_sibling,
     )("curate_identity_output")
+    from curate_identity_simulator_process import replay_session
 
 
 @dataclass(frozen=True)
@@ -99,14 +101,15 @@ def _record_source_coordinate(source, entry, seen_coordinates, dependencies):
     seen_coordinates[coordinate] = entry.index
 
 
-def _record_preserved_code_repair_id(expected_mapping, preserved_ids, dependencies):
-    """Enforce global identity for retained code-repair evidence."""
+def _record_preserved_oracle_id(expected_mapping, preserved_ids, dependencies):
+    """Enforce global identity for retained native oracle evidence."""
 
-    if expected_mapping.get("record_kind") != "code_repair":
+    if expected_mapping.get("record_kind") not in {"code_repair", "fault_recovery"}:
         return
     preserved_id = expected_mapping["output_id"]
     if preserved_id in preserved_ids:
-        raise dependencies.identity_tree_error(f"duplicate preserved code_repair ID: {preserved_id}")
+        raise dependencies.identity_tree_error(
+            f"duplicate preserved {expected_mapping['record_kind']} ID: {preserved_id}")
     preserved_ids.add(preserved_id)
 
 
@@ -132,6 +135,7 @@ def _index_expected_identity_output(expected, entry, replay, dependencies):
     by_line[source.line] = (entry.index, entry.mapping, replay)
 
 
+@replay_session()
 def expected_identity_outputs(manifest, registry, dependencies):
     """Replay retained manifest entries and index their expected output slots."""
 
@@ -143,7 +147,7 @@ def expected_identity_outputs(manifest, registry, dependencies):
         replay = _replay_identity_manifest_entry(entry, registry, dependencies)
         _record_source_coordinate(replay.source, entry, seen_coordinates, dependencies)
         if replay.result.action == "retained":
-            _record_preserved_code_repair_id(
+            _record_preserved_oracle_id(
                 replay.result.mapping,
                 preserved_ids,
                 dependencies,

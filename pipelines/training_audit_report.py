@@ -193,11 +193,12 @@ def _factory_report(factories):
 
 
 def _identity_report(state, eligible_records):
+    observed_records = eligible_records + state["totals"].get("research_only_records", 0)
     return {
         "top_level_id_records": state["root_id_records"],
         "unique_top_level_ids": len(state["root_ids"]),
         "coverage_pct": (
-            round(100 * state["root_id_records"] / eligible_records, 1) if eligible_records else 0
+            round(100 * state["root_id_records"] / observed_records, 1) if observed_records else 0
         ),
         "legacy_meta_fallback_records": (state["canonical_id_records"] - state["root_id_records"]),
         "missing_top_level": len(state["missing_root_ids"]),
@@ -260,7 +261,7 @@ def _tag_report(tags):
 
 def _report_blockers(state, eligible_records, provenance_total):
     provenance = state["provenance"]
-    return build_blockers(
+    blockers = build_blockers(
         record_errors=state["record_errors"],
         eligible_records=eligible_records,
         quarantined_records=state["totals"]["quarantined"],
@@ -274,6 +275,10 @@ def _report_blockers(state, eligible_records, provenance_total):
         exact_duplicates=state["exact_duplicates"],
         episodes=state["episodes"],
     )
+
+    if state["totals"].get("research_only_records", 0):
+        blockers.append("research-only fault-recovery records have training_ready_policy never")
+    return blockers
 
 
 def build_report(**state):

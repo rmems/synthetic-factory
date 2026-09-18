@@ -57,5 +57,18 @@ def require_replayed_record(record, row) -> None:
         raise IdentityCurationError("fault-recovery envelope differs from reviewed producer replay")
 
 
+def record_findings(record, where):
+    """Shape validation authenticates the native producer, without training consent."""
+    if __package__:
+        from .curate_identity_registry import default_registry
+    else:
+        from curate_identity_registry import default_registry
+    try:
+        require_replayed_record(record, default_registry().by_path_id[FACTORY])
+    except IdentityCurationError as exc:
+        return [f"{where}: {exc}"]
+    return []
+
+
 if __package__:
     _expose_package_sibling(__name__)

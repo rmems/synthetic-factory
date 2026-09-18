@@ -105,6 +105,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "curate_identity_registry_sources",
     "curate_identity_simulator",
     "curate_identity_simulator_process",
+    "curate_gate_simulator_identity",
     "curate_identity_simulator_worker",
 
     "exact_json_encoding",
