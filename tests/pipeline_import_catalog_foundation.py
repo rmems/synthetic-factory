@@ -642,6 +642,18 @@ def _package_reward_ontology() -> ModuleType:
     return module
 
 
+def _direct_reward_parse() -> ModuleType:
+    import reward_parse as module
+
+    return module
+
+
+def _package_reward_parse() -> ModuleType:
+    import pipelines.reward_parse as module
+
+    return module
+
+
 def _direct_reward_policy() -> ModuleType:
     import reward_policy as module
 
@@ -1075,6 +1087,26 @@ def _package_validate_run_thalamic() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
+def _direct_reward_parse_values() -> ModuleType:
+    import reward_parse_values as module
+    return module
+
+
+def _package_reward_parse_values() -> ModuleType:
+    import pipelines.reward_parse_values as module
+    return module
+
+
+def _direct_reward_parse_patterns() -> ModuleType:
+    import reward_parse_patterns as module
+    return module
+
+
+def _package_reward_parse_patterns() -> ModuleType:
+    import pipelines.reward_parse_patterns as module
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
@@ -1183,6 +1215,9 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "reward_document": (_direct_reward_document, _package_reward_document),
     "reward_mapping": (_direct_reward_mapping, _package_reward_mapping),
     "reward_ontology": (_direct_reward_ontology, _package_reward_ontology),
+    "reward_parse": (_direct_reward_parse, _package_reward_parse),
+    "reward_parse_patterns": (_direct_reward_parse_patterns, _package_reward_parse_patterns),
+    "reward_parse_values": (_direct_reward_parse_values, _package_reward_parse_values),
     "reward_policy": (_direct_reward_policy, _package_reward_policy),
     "reward_units": (_direct_reward_units, _package_reward_units),
     "reward_vocabulary": (_direct_reward_vocabulary, _package_reward_vocabulary),
