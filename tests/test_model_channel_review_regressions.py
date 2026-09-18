@@ -13,6 +13,7 @@ from pipelines.model_channel import cli, generate, openrouter
 from pipelines import rights_classifier, rights_policy, validate_run, validate_run_episode
 from pipelines import validate_run_episode_turns as episode_turns
 from test_model_channel import NANO, episode_payload
+import model_channel._contract as direct_contract
 
 OUTSIDE_PATHS = ("/etc/passwd", os.getcwd() + "/../" * 12 + "etc/passwd")
 OUTSIDE_NEW = Path("/etc/model-channel-new-out")
@@ -205,11 +206,9 @@ class OllamaVocabulary(unittest.TestCase):
 
 class FacadeCompatibility(unittest.TestCase):
     def test_direct_spelling_keeps_the_same_facade_bindings(self):
-        import model_channel._contract as direct
-
-        self.assertIs(direct.check_episode, validate_run.check_episode)
-        self.assertIs(direct.normalized_key, episode_turns._normalized_hidden_key)
-        self.assertIs(direct.check_episode, contract.check_episode)
+        self.assertIs(direct_contract.check_episode, validate_run.check_episode)
+        self.assertIs(direct_contract.normalized_key, episode_turns._normalized_hidden_key)
+        self.assertIs(direct_contract.check_episode, contract.check_episode)
 
     def test_facade_kwargs_still_refuse_terminal_mismatch(self):
         mismatched = episode_payload(outcome="failed")
@@ -228,8 +227,10 @@ class FacadeCompatibility(unittest.TestCase):
             validate_run_episode.check_episode(
                 episode_payload(),
                 "candidate episode",
-                forbid_hidden_thought=True,
-                enforce_terminal_outcome=True,
+                **{
+                    "forbid_hidden_thought": True,
+                    "enforce_terminal_outcome": True,
+                },
             )
 
 
