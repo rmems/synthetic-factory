@@ -1,0 +1,13 @@
+pipelines/oracle_grounded/__init__.py
+  c867db0fccb08099 24-31
+tests/test_oracle_grounded_package_surface.py
+  c867db0fccb08099 7-9,14,16-18,20,23-29,42-47,61-144
+tests/oracle_grounded_package_probe.py
+  c867db0fccb08099 1-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a511c136c9450c8253d45fba5d14bd2fa1708684",
+  "prompts": {}
+}
