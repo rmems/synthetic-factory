@@ -87,6 +87,7 @@ NEW_SPLIT_MODULES = (
     "training_audit",
     "training_audit_rights",
     "training_audit_rights_manifest",
+    "training_audit_rights_coverage",
     "compose_curated_rights",
     "curate_gate_rights",
     "training_audit_record",

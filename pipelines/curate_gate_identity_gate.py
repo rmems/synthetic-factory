@@ -31,7 +31,6 @@ if __package__:
     from . import curate_gate_digest as _digest
     from . import curate_gate_merge as _merge
     from . import curate_identity
-    from .curate_gate_rights import replay_gate_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_identity_gate"
@@ -43,11 +42,15 @@ else:
     import curate_gate_digest as _digest
     import curate_gate_merge as _merge
     import curate_identity
-    from curate_gate_rights import replay_gate_identity
 
 GateError = _contract.GateError
 record_sha256 = _digest.record_sha256
 _same_json = _merge._same_json
+
+if __package__:
+    from .curate_gate_rights import replay_gate_identity
+else:
+    from curate_gate_rights import replay_gate_identity
 
 # Record kinds whose top-level object carries its own provenance mapping in
 # addition to the per-owner state mappings.

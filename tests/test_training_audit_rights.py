@@ -60,6 +60,14 @@ class RightsManifestRefusal(unittest.TestCase):
         blockers = training_audit_rights.collect_rights_blockers(self.destination)
         self.assertTrue(any("research-only" in item for item in blockers), blockers)
 
+    def test_boolean_identity_source_line_cannot_impersonate_a_coordinate(self):
+        entries = json.loads(self.manifest.read_text())
+        retained = next(entry for entry in entries if entry.get("action") == "retained")
+        retained["source"]["line"] = True
+        self.manifest.write_text(json.dumps(entries))
+        blockers = training_audit_rights.collect_rights_blockers(self.destination)
+        self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
+
 
 class RightsAuditSnapshot(unittest.TestCase):
     def setUp(self):
@@ -89,6 +97,13 @@ class RightsAuditSnapshot(unittest.TestCase):
     def test_removed_compose_manifest_cannot_reclassify_records_as_raw(self):
         self.manifest.unlink()
         self.assertTrue(self._blockers())
+
+    def test_boolean_output_line_cannot_impersonate_a_coordinate(self):
+        retained = next(entry for entry in self.entries if entry["action"] == "retained")
+        retained["output_line"] = True
+        self._write_entries(self.entries)
+        blockers = self._blockers()
+        self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
 
     def test_malformed_identity_stage_fails_closed(self):
         retained = next(entry for entry in self.entries if entry["action"] == "retained")
