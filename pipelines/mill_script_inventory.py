@@ -136,35 +136,50 @@ def _gitignore_rules(root: Path) -> tuple[tuple[str, str, str, bool, re.Pattern[
     return tuple(rules)
 
 
-def _read_git_index(repo: Path) -> tuple[str, ...]:
-    payload = (Path(repo).resolve() / ".git" / "index").read_bytes()
+def _git_index_header(payload: bytes) -> int:
     if payload[:4] != b"DIRC":
         raise MillScriptInventoryError("git index is not parseable")
     version = int.from_bytes(payload[4:8], "big")
-    count = int.from_bytes(payload[8:12], "big")
     if version != 2:
         raise MillScriptInventoryError("unsupported git index version")
+    return int.from_bytes(payload[8:12], "big")
+
+
+def _nul_terminated(payload: bytes, offset: int) -> tuple[str, int]:
+    end = payload.index(b"\0", offset)
+    return payload[offset:end].decode(), end + 1
+
+
+def _counted_path(payload: bytes, offset: int, path_len: int) -> tuple[str, int]:
+    path = payload[offset : offset + path_len].decode()
+    offset += path_len
+    if offset < len(payload) and payload[offset] == 0:
+        offset += 1
+    return path, offset
+
+
+def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
+    if offset + 62 > len(payload):
+        raise MillScriptInventoryError("git index is truncated")
+    flags = int.from_bytes(payload[offset + 60 : offset + 62], "big")
+    start = offset
+    offset += 62
+    if flags & 0xFFF == 0xFFF:
+        path, offset = _nul_terminated(payload, offset)
+    else:
+        path, offset = _counted_path(payload, offset, flags & 0xFFF)
+    pad = (8 - ((offset - start) % 8)) % 8
+    return path.replace("\\", "/"), offset + pad
+
+
+def _read_git_index(repo: Path) -> tuple[str, ...]:
+    payload = (Path(repo).resolve() / ".git" / "index").read_bytes()
+    count = _git_index_header(payload)
     offset = 12
     paths: list[str] = []
     for _ in range(count):
-        if offset + 62 > len(payload):
-            raise MillScriptInventoryError("git index is truncated")
-        flags = int.from_bytes(payload[offset + 60 : offset + 62], "big")
-        path_len = flags & 0xFFF
-        start = offset
-        offset += 62
-        if path_len == 0xFFF:
-            end = payload.index(b"\0", offset)
-            path = payload[offset:end].decode()
-            offset = end + 1
-        else:
-            path = payload[offset : offset + path_len].decode()
-            offset += path_len
-            if offset < len(payload) and payload[offset] == 0:
-                offset += 1
-        pad = (8 - ((offset - start) % 8)) % 8
-        offset += pad
-        paths.append(path.replace("\\", "/"))
+        path, offset = _git_index_entry(payload, offset)
+        paths.append(path)
     return tuple(paths)
 
 
