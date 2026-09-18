@@ -1,0 +1,28 @@
+pipelines/code_repair/_sandbox.py
+  s_6c48b57722cd73::t_e5a40df97b9e7c 53-67,69-70
+  s_6c48b57722cd73::t_2eee5caa6657b1 12,14
+  s_6c48b57722cd73::t_26a04af06529ca 51-52
+  s_6c48b57722cd73::t_0ac6148a398bfa 68
+pipelines/code_repair/_sandbox_paths.py
+  s_6c48b57722cd73::t_c1e6f6e0c9a3c7 1-58
+pipelines/code_repair/executor.py
+  s_6c48b57722cd73::t_5fca2965be683a 175
+  s_6c48b57722cd73::t_e2e31d1cb1a306 206
+  s_6c48b57722cd73::t_8bba1fa8234635 43-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dae8bb9482a98addfda23ccfe984a773ad701610",
+  "prompts": {},
+  "sessions": {
+    "s_6c48b57722cd73": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a4641229-0596-423c-906b-7b46db50a117",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
