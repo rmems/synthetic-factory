@@ -307,9 +307,10 @@ class OracleStagingRoute(unittest.TestCase):
         )
 
     def test_a_honest_rejection_filed_as_rejected_is_not_a_staging_error(self):
-        record = self._fabricated()
-        record["validation"] = oracle_record.assess(record)
+        record = self._record(index=5)
         self.assertEqual(record["validation"]["status"], "rejected")
+        self.assertTrue(record["validation"]["checks"]["envelope"])
+        self.assertEqual(oracle_record.reproduce(record, environ={})[0], "reproduced")
 
         where = "oracle-grounded/temporal-memory-spike-challenges/rejected-r01.jsonl:1"
         self.assertEqual(validate_run._route_oracle(record, where, None), [])
