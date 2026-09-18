@@ -9,8 +9,9 @@ factory package: the executor copies it next to ``_harness.py``.
 from __future__ import annotations
 
 import ctypes
+import importlib.util
 import os
-import sys
+from pathlib import Path
 
 MECHANISM = "landlock"
 MIN_ABI = 3
@@ -47,9 +48,26 @@ RW_ACCESS = (
     FS_EXECUTE | FS_WRITE_FILE | FS_READ_FILE | FS_READ_DIR | FS_REMOVE_DIR | FS_REMOVE_FILE
     | FS_MAKE_DIR | FS_MAKE_REG | FS_MAKE_SYM
 )
-DEV_NODES = ("/dev/null", "/dev/zero", "/dev/urandom", "/dev/random")
-SYSTEM_LIB_ROOTS = ("/lib", "/lib64", "/usr/lib", "/usr/lib64")
-HOST_CANARIES = ("/etc/passwd", "/etc/hosts", "/proc/1/environ")
+
+
+def _paths():
+    spec = importlib.util.spec_from_file_location(
+        "_sandbox_paths", Path(__file__).with_name("_sandbox_paths.py"),
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError("landlock path helpers are missing")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_paths_mod = _paths()
+DEV_NODES = _paths_mod.DEV_NODES
+SYSTEM_LIB_ROOTS = _paths_mod.SYSTEM_LIB_ROOTS
+HOST_CANARIES = _paths_mod.HOST_CANARIES
+_runtime_prefixes = _paths_mod.runtime_prefixes
+_read_roots = _paths_mod.read_roots
+_open_allowed = _paths_mod.open_allowed
 
 __all__ = ["MECHANISM", "MIN_ABI", "applied", "apply", "available", "token_for"]
 
@@ -148,30 +166,6 @@ def _open_ruleset(abi: int) -> tuple[object, int, tuple[int, int, int]] | None:
     return libc, ruleset, numbers
 
 
-def _runtime_prefixes() -> set[str]:
-    prefixes = {
-        os.path.realpath(path)
-        for path in (
-            sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix, sys.executable,
-        )
-        if path
-    }
-    resolved = {path if os.path.isdir(path) else os.path.dirname(path) for path in prefixes}
-    return {path for path in resolved if path and path != "/"}
-
-
-def _read_roots() -> set[str]:
-    """Interpreter prefixes plus fixed system library roots; never ``/``."""
-
-    roots = set(_runtime_prefixes())
-    for root in SYSTEM_LIB_ROOTS:
-        if os.path.isdir(root):
-            resolved = os.path.realpath(root)
-            if resolved and resolved != "/":
-                roots.add(resolved)
-    return roots
-
-
 class _ActiveRuleset:
     libc = None
     fd = 0
@@ -191,15 +185,6 @@ def _bind_ruleset(opened, abi: int) -> _ActiveRuleset:
     active.handled_fs = _handled_rights(abi)[0]
     active.ioctl = FS_IOCTL_DEV if abi >= 5 else 0
     return active
-
-
-def _open_allowed(path: str, allowed: set[str]) -> int | None:
-    """Open ``path`` only when it is a device node or sits under an allowed root."""
-
-    resolved = os.path.realpath(path)
-    if resolved not in DEV_NODES and not any(_beneath(resolved, root) for root in allowed):
-        return None
-    return os.open(resolved, os.O_PATH | os.O_CLOEXEC)
 
 
 def _add_path(active: _ActiveRuleset, path: str, access: int, allowed: set[str]) -> bool:
@@ -249,12 +234,6 @@ def _restrict_filesystem(workdir: str, abi: int) -> bool:
         return int(active.libc.syscall(active.restrict, active.fd, 0)) == 0
     finally:
         os.close(active.fd)
-
-
-def _beneath(path: str, root: str) -> bool:
-    root = os.path.realpath(root)
-    path = os.path.realpath(path)
-    return path == root or path.startswith(root.rstrip("/") + "/")
 
 
 def _host_paths_are_closed(workdir: str) -> bool:

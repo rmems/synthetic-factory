@@ -40,6 +40,8 @@ HARNESS_FILENAME = "_harness.py"
 HARNESS_PATH = Path(__file__).with_name(HARNESS_FILENAME)
 SANDBOX_FILENAME = "_sandbox.py"
 SANDBOX_PATH = Path(__file__).with_name(SANDBOX_FILENAME)
+SANDBOX_PATHS_FILENAME = "_sandbox_paths.py"
+SANDBOX_PATHS_PATH = Path(__file__).with_name(SANDBOX_PATHS_FILENAME)
 INTERPRETER_FLAGS = ("-P", "-s", "-S", "-B", "-X", "utf8")
 CHILD_ENV = {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
 FLOAT_REL_TOL = 1e-9
@@ -170,6 +172,7 @@ class Executor:
         self.isolation = isolation if isolation is not None else sb.Isolation.rlimits_only()
         self._harness_bytes = HARNESS_PATH.read_bytes()
         self._sandbox_bytes = SANDBOX_PATH.read_bytes()
+        self._sandbox_paths_bytes = SANDBOX_PATHS_PATH.read_bytes()
         self.harness_sha256 = hashlib.sha256(self._harness_bytes).hexdigest()
         self.log: list[dict[str, Any]] = []
 
@@ -200,6 +203,7 @@ class Executor:
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
             _write_child(workdir, HARNESS_FILENAME, self._harness_bytes)
             _write_child(workdir, SANDBOX_FILENAME, self._sandbox_bytes)
+            _write_child(workdir, SANDBOX_PATHS_FILENAME, self._sandbox_paths_bytes)
             executed = _copy_report(
                 self._execute(job, workdir),
                 module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest(),
