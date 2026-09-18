@@ -71,13 +71,10 @@ class InventoryEvidenceRefusals(unittest.TestCase):
                 ):
                     msi._git_output(REPO, arguments)
 
-    def test_git_helper_spawns_usr_bin_git_without_a_shell(self):
-        with patch.object(msi.os, "posix_spawn", wraps=msi.os.posix_spawn) as spawn:
-            tracked = msi.tracked_paths(REPO)
-        self.assertTrue(tracked)
-        argv = spawn.call_args.args[1]
-        self.assertEqual(spawn.call_args.args[0], "/usr/bin/git")
-        self.assertEqual(tuple(argv), ("/usr/bin/git", "ls-files", "-z"))
+    def test_git_helper_lists_tracked_paths_from_the_index(self):
+        tracked = msi.tracked_paths(REPO)
+        self.assertIn("pipelines/mill_script_inventory.py", tracked)
+        self.assertIn("config/MILL-SCRIPT-INVENTORY.json", tracked)
 
     def test_non_repository_cannot_be_reported_as_clean_scope(self):
         with tempfile.TemporaryDirectory() as temp:

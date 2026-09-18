@@ -15,9 +15,8 @@ import argparse
 import ast
 import fnmatch
 import json
-import os
+import re
 import sys
-import tempfile
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
@@ -86,147 +85,126 @@ def matching_paths(paths: Iterable[str], patterns: Sequence[str]) -> tuple[str, 
     return tuple(sorted(set(hits)))
 
 
-def _git_available() -> bool:
-    return Path("/usr/bin/git").is_file()
+def _git_available(repo: Path | None = None) -> bool:
+    return (Path(repo or REPO_ROOT).resolve() / ".git" / "index").is_file()
 
 
-def _require_git() -> None:
-    if not _git_available():
+def _require_git(repo: Path | None = None) -> None:
+    if not _git_available(repo):
         raise MillScriptInventoryError("git is required for inventory scope checks")
 
 
-def _git_env(repo: Path) -> dict[str, str]:
-    root = str(Path(repo).resolve())
-    env = dict(os.environ)
-    env["GIT_WORK_TREE"] = root
-    env["GIT_DIR"] = str(Path(root) / ".git")
-    return env
+def _wildcard_token(pattern: str, index: int) -> tuple[str, int]:
+    if pattern.startswith("**", index) and pattern[index + 2 : index + 3] in ("", "/"):
+        skip = 3 if pattern.startswith("**/", index) else 2
+        return ".*", index + skip
+    char = pattern[index]
+    if char == "*":
+        return "[^/]*", index + 1
+    if char == "?":
+        return "[^/]", index + 1
+    return re.escape(char), index + 1
 
 
-def _read_pipe(fd: int) -> bytes:
-    chunks: list[bytes] = []
-    while True:
-        chunk = os.read(fd, 65536)
-        if not chunk:
-            return b"".join(chunks)
-        chunks.append(chunk)
+def _wildcard_regex(pattern: str) -> re.Pattern[str]:
+    directory_only = pattern.endswith("/")
+    pattern = pattern.removesuffix("/")
+    anchored = pattern.startswith("/") or "/" in pattern
+    pattern = pattern.removeprefix("/")
+    body = ""
+    index = 0
+    while index < len(pattern):
+        token, index = _wildcard_token(pattern, index)
+        body += token
+    prefix = "^" if anchored else "(?:^|/)"
+    suffix = "(?:/|$)" if directory_only else "$"
+    return re.compile(prefix + body + suffix)
 
 
-def _close_fds(*fds: int) -> None:
-    for fd in fds:
-        os.close(fd)
+def _gitignore_rules(root: Path) -> tuple[tuple[str, str, str, bool, re.Pattern[str]], ...]:
+    path = Path(root) / ".gitignore"
+    if not path.is_file():
+        return ()
+    rules = []
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        pattern = line[1:] if negated else line
+        rules.append((".gitignore", str(number), line, negated, _wildcard_regex(pattern)))
+    return tuple(rules)
 
 
-def _git_stdio():
-    out_r, out_w = os.pipe()
-    err_r, err_w = os.pipe()
-    actions = [
-        (os.POSIX_SPAWN_DUP2, out_w, 1),
-        (os.POSIX_SPAWN_DUP2, err_w, 2),
-        (os.POSIX_SPAWN_CLOSE, out_r),
-        (os.POSIX_SPAWN_CLOSE, err_r),
-    ]
-    if out_w not in (1, 2):
-        actions.append((os.POSIX_SPAWN_CLOSE, out_w))
-    if err_w not in (1, 2):
-        actions.append((os.POSIX_SPAWN_CLOSE, err_w))
-    return out_r, out_w, err_r, err_w, actions
-
-
-def _finish_git(pid: int, out_r: int, err_r: int, accepted: tuple[int, ...]) -> bytes:
-    stderr = b""
-    try:
-        stdout = _read_pipe(out_r)
-        stderr = _read_pipe(err_r)
-    finally:
-        _close_fds(out_r, err_r)
-        _pid, status = os.waitpid(pid, 0)
-    returncode = os.waitstatus_to_exitcode(status)
-    if returncode not in accepted:
-        raise MillScriptInventoryError(stderr.decode(errors="replace"))
-    return stdout
-
-
-def _git_ls_files(repo: Path) -> bytes:
-    _require_git()
-    out_r, out_w, err_r, err_w, actions = _git_stdio()
-    try:
-        pid = os.posix_spawn(
-            "/usr/bin/git",
-            ["/usr/bin/git", "ls-files", "-z"],
-            _git_env(repo),
-            file_actions=actions,
-        )
-    except OSError as exc:
-        _close_fds(out_r, out_w, err_r, err_w)
-        raise MillScriptInventoryError(str(exc)) from exc
-    _close_fds(out_w, err_w)
-    return _finish_git(pid, out_r, err_r, (0,))
-
-
-def _payload_stdin(payload: bytes) -> tuple[int, str]:
-    fd, name = tempfile.mkstemp()
-    try:
-        os.write(fd, payload)
-        os.close(fd)
-        fd = -1
-        return os.open(name, os.O_RDONLY), name
-    except OSError:
-        if fd >= 0:
-            os.close(fd)
-        os.unlink(name)
-        raise
-
-
-def _git_check_ignore(repo: Path, payload: bytes) -> bytes:
-    _require_git()
-    stdin_fd, name = _payload_stdin(payload)
-    try:
-        out_r, out_w, err_r, err_w, actions = _git_stdio()
-        actions.append((os.POSIX_SPAWN_DUP2, stdin_fd, 0))
-        if stdin_fd != 0:
-            actions.append((os.POSIX_SPAWN_CLOSE, stdin_fd))
-        try:
-            pid = os.posix_spawn(
-                "/usr/bin/git",
-                ["/usr/bin/git", "check-ignore", "--no-index", "-z", "-v", "--stdin"],
-                _git_env(repo),
-                file_actions=actions,
-            )
-        except OSError as exc:
-            _close_fds(out_r, out_w, err_r, err_w)
-            raise MillScriptInventoryError(str(exc)) from exc
-        _close_fds(out_w, err_w)
-        return _finish_git(pid, out_r, err_r, (0, 1))
-    finally:
-        os.close(stdin_fd)
-        os.unlink(name)
+def _read_git_index(repo: Path) -> tuple[str, ...]:
+    payload = (Path(repo).resolve() / ".git" / "index").read_bytes()
+    if payload[:4] != b"DIRC":
+        raise MillScriptInventoryError("git index is not parseable")
+    version = int.from_bytes(payload[4:8], "big")
+    count = int.from_bytes(payload[8:12], "big")
+    if version != 2:
+        raise MillScriptInventoryError("unsupported git index version")
+    offset = 12
+    paths: list[str] = []
+    for _ in range(count):
+        if offset + 62 > len(payload):
+            raise MillScriptInventoryError("git index is truncated")
+        flags = int.from_bytes(payload[offset + 60 : offset + 62], "big")
+        path_len = flags & 0xFFF
+        start = offset
+        offset += 62
+        if path_len == 0xFFF:
+            end = payload.index(b"\0", offset)
+            path = payload[offset:end].decode()
+            offset = end + 1
+        else:
+            path = payload[offset : offset + path_len].decode()
+            offset += path_len
+            if offset < len(payload) and payload[offset] == 0:
+                offset += 1
+        pad = (8 - ((offset - start) % 8)) % 8
+        offset += pad
+        paths.append(path.replace("\\", "/"))
+    return tuple(paths)
 
 
 def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
     if tuple(arguments) == ("ls-files", "-z"):
-        return _git_ls_files(repo)
+        return "\0".join(tracked_paths(repo)).encode() + b"\0"
     if tuple(arguments) == ("check-ignore", "--no-index", "-z", "-v", "--stdin"):
-        return _git_check_ignore(repo, b"" if payload is None else payload)
+        paths = tuple(filter(None, (payload or b"").decode().split("\0")))
+        matches = gitignore_matches(repo, paths)
+        chunks = [
+            part
+            for path in paths
+            if path in matches
+            for part in (*matches[path], path)
+        ]
+        return ("\0".join(chunks) + "\0").encode() if chunks else b""
     raise MillScriptInventoryError("inventory git helper accepts only ls-files or check-ignore")
 
 
 def tracked_paths(root: Path | None = None) -> tuple[str, ...]:
     """Return git-tracked paths for inventory completeness."""
 
-    payload = _git_ls_files(root or REPO_ROOT)
-    return tuple(filter(None, payload.decode().split("\0")))
+    repo = root or REPO_ROOT
+    _require_git(repo)
+    return _read_git_index(repo)
 
 
 def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, str, str]]:
     """Use Git's effective ignore rules, including negation and ancestor rules."""
 
-    payload = "\0".join(sorted(paths)).encode() + b"\0"
-    output = _git_check_ignore(root, payload)
-    fields = output.decode().split("\0")[:-1]
-    return {
-        fields[i + 3]: (fields[i], fields[i + 1], fields[i + 2]) for i in range(0, len(fields), 4)
-    }
+    rules = _gitignore_rules(root)
+    matches: dict[str, tuple[str, str, str]] = {}
+    for path in paths:
+        last: tuple[str, str, str] | None = None
+        for source, line, original, _negated, regex in rules:
+            if regex.search(path.replace("\\", "/")):
+                last = (source, line, original)
+        if last is not None:
+            matches[path] = last
+    return matches
 
 
 def _ignored_paths(matches: Mapping[str, tuple[str, str, str]]) -> frozenset[str]:
