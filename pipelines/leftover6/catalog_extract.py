@@ -69,7 +69,7 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, Any]:
-    payload = source.encode()
+    payload = _catalog_ast.source_payload(source)
     _require_blob_identity(payload, blob_sha)
     constants = module_constants(source, path=path)
     digest = sha256_bytes(payload)

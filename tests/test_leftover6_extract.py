@@ -6,6 +6,7 @@ import hashlib
 import unittest
 
 from pipelines.leftover6.catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH, extract_source
+from pipelines.leftover6.catalog_ast import module_constants
 from tests.test_leftover6 import _GQL_SNIPPET
 
 
@@ -45,6 +46,20 @@ def _sbox_increment_source(increment):
 
 
 class LiteralCatalogExtract(unittest.TestCase):
+    def test_source_encoding_cannot_be_overridden(self):
+        class ForgedSource(str):
+            def encode(self, *args, **kwargs):
+                return SSL_SOURCE.encode('utf-8')
+
+        forged = ForgedSource(SSL_SOURCE.replace("'bind'", "'forged'"))
+        for extract in (extract_source, module_constants):
+            with self.subTest(extract=extract.__name__), self.assertRaisesRegex(ValueError, 'source'):
+                extract(forged, path=SSL_PATH)
+        plain = SSL_SOURCE.replace('\n', '\r\n')
+        found = extract_source(plain, path=SSL_PATH)
+        self.assertEqual(found['n_rows'], 1)
+        self.assertEqual(found['sha256'], hashlib.sha256(plain.encode('utf-8')).hexdigest())
+
     def test_blob_identity_does_not_trust_custom_equality(self):
         class ForgedBlob(str):
             def __eq__(self, other):

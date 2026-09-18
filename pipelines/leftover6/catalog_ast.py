@@ -26,16 +26,23 @@ _ANNOTATION_NAMES = frozenset({"str", "int", "float", "bool", "list", "dict", "t
 
 
 def module_constants(source: str, *, path: str) -> dict[str, Any]:
+    payload = source_payload(source)
     tree = ast.parse(source, filename=path)
     _require_future_header(tree)
-    archive = _ARCHIVE_SOURCE_PINS.get(path) == hashlib.sha256(source.encode()).hexdigest()
+    archive = _ARCHIVE_SOURCE_PINS.get(path) == hashlib.sha256(payload).hexdigest()
     env: dict[str, Any] = {}
     for node in _catalog_statements(tree.body):
-        if archive:
-            _bind_statement(env, node)
-        else:
-            _bind_literal_statement(env, node)
+        if not archive:
+            require_literal_statement(node, env)
+        _bind_statement(env, node)
     return env
+
+
+def source_payload(source: str) -> bytes:
+    """Bind parsing and hashing to text whose encoding cannot be overridden."""
+    if type(source) is not str:
+        raise ValueError("catalog source must be a plain string")
+    return source.encode("utf-8")
 
 
 def _require_future_header(tree):
@@ -47,12 +54,6 @@ def _require_future_header(tree):
 
 def _is_future_import(node):
     return isinstance(node, ast.ImportFrom) and node.module == "__future__"
-
-
-def _bind_literal_statement(env, node):
-    """Prove unpinned module-time behavior before preserving any literal binding."""
-    require_literal_statement(node, env)
-    _bind_statement(env, node)
 
 
 def _bind_statement(env, node):
