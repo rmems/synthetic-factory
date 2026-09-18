@@ -41,6 +41,9 @@ queue_rules:
       - base=main
       - -draft
       - -conflict
+      # A mill-labelled pull request must take the mill queue even if someone
+      # also left the general queue label on it.
+      - -label=queue-mill
     merge_conditions:
       # The three hard gates. `check-success` matches check runs and commit
       # statuses alike, so codecov/patch (a status, posted asynchronously
@@ -48,8 +51,14 @@ queue_rules:
       - check-success=unittest (Python 3.14)
       - check-success=operator smoke + fixture census
       - check-success=codecov/patch
-      # Nothing outstanding from a reviewer.
+      # The raw-release workflow is path-filtered, so require its check only
+      # when this pull request changes one of its watched paths.
+      - or:
+          - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
+          - check-success=verify five public datasets
+      # Nothing outstanding from a reviewer, including inline threads.
       - "#changes-requested-reviews-by=0"
+      - "#review-threads-unresolved=0"
     merge_method: squash
     # Update the branch to main before the queue evaluates it, so the checks
     # that gate the merge ran against what main is about to become. `merge`
@@ -65,12 +74,17 @@ queue_rules:
       - base=main
       - -draft
       - -conflict
+      - label=queue-mill
     merge_conditions:
       - check-success=unittest (Python 3.14)
       - check-success=operator smoke + fixture census
       - check-success=codecov/patch
       - check-success=SonarCloud Code Analysis
+      - or:
+          - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
+          - check-success=verify five public datasets
       - "#changes-requested-reviews-by=0"
+      - "#review-threads-unresolved=0"
     merge_method: squash
     update_method: merge
 
@@ -82,6 +96,7 @@ pull_request_rules:
       - -closed
       - -conflict
       - label=queue
+      - -label=queue-mill
     actions:
       queue:
         name: default
