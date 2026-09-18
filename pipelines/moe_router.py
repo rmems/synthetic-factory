@@ -1690,6 +1690,25 @@ def _check_measurement_reconciliation(
     }
     measurements = result.get("measurements")
     reconciled: set[str] = set()
+    for item, quantity, expected in _numeric_router_measurements(measurements, expected_measurements):
+        if oc.is_true(item.get("measured")):
+            # A `measured: false` reading is a modelled value wearing a
+            # promised router target's name — it does not satisfy the
+            # completeness requirement below.
+            reconciled.add(quantity)
+        if abs(float(item["value"]) - float(expected)) > 1e-6:
+            errors.append(
+                f"{where}.result: measured {quantity} is {item['value']} but the "
+                f"recorded routing says {expected}"
+            )
+    return errors + _missing_promised_measurements(
+        expected_measurements, reconciled, where
+    )
+
+
+def _numeric_router_measurements(measurements, expected_measurements):
+    """Yield numeric readings whose quantities are promised by the routing."""
+
     for item in measurements if isinstance(measurements, list) else []:
         if not isinstance(item, dict):
             continue
@@ -1704,19 +1723,7 @@ def _check_measurement_reconciliation(
             continue
         if not oc.is_number(item.get("value")):
             continue
-        if oc.is_true(item.get("measured")):
-            # A `measured: false` reading is a modelled value wearing a
-            # promised router target's name — it does not satisfy the
-            # completeness requirement below.
-            reconciled.add(quantity)
-        if abs(float(item["value"]) - float(expected)) > 1e-6:
-            errors.append(
-                f"{where}.result: measured {quantity} is {item['value']} but the "
-                f"recorded routing says {expected}"
-            )
-    return errors + _missing_promised_measurements(
-        expected_measurements, reconciled, where
-    )
+        yield item, quantity, expected
 
 
 def _missing_promised_measurements(

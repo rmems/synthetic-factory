@@ -611,6 +611,54 @@ class RelayReflexSimulator(FaultOracle):
         """Value ranges whose violation would also run as a silent no-op."""
 
         RelayReflexSimulator._check_declared_channel_list(kind, parameters)
+        RelayReflexSimulator._check_parameter_floors(kind, parameters)
+        if "peak_c" in parameters and not oc.is_number(parameters["peak_c"]):
+            raise oc.ContractError(
+                f"{kind} peak_c must be a finite number, got "
+                f"{parameters['peak_c']!r}"
+            )
+        if kind == "malformed_spike_burst":
+            RelayReflexSimulator._check_malformed_burst(parameters)
+        if kind == "burst_corruption":
+            RelayReflexSimulator._check_corruption_ratio(parameters)
+
+    @staticmethod
+    def _check_malformed_burst(parameters: dict[str, Any]) -> None:
+        count = parameters.get("malformed_count")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise oc.ContractError(
+                f"malformed_count must be an integer >= 1, got {count!r}; "
+                "a burst of zero events is a no-op"
+            )
+        # The tick loop branches on this value. A typo used to fall through
+        # to the `unknown_channel` arm, so `negative_amplitdue` became a
+        # dropped event and produced `degrade_gracefully` — an authoritative
+        # label for a disturbance the simulator never defined.
+        variant = parameters.get("malformed_kind")
+        if not oc.is_enum_value(variant, MALFORMED_KINDS):
+            raise oc.ContractError(
+                f"malformed_kind must be one of {sorted(MALFORMED_KINDS)}, "
+                f"got {variant!r}"
+            )
+
+    @staticmethod
+    def _check_corruption_ratio(parameters: dict[str, Any]) -> None:
+        # The tick comparison can never mark an event corrupt for a ratio
+        # below 0, so a negative (or NaN) ratio runs the declared
+        # disturbance as a no-op and the simulator emits an authoritative
+        # `continue` for a corruption that was requested but never applied.
+        ratio = parameters.get("corrupt_ratio")
+        if not oc.is_number(ratio) or not 0.0 <= float(ratio) <= 1.0:
+            raise oc.ContractError(
+                f"corrupt_ratio must be a finite number in [0, 1], got "
+                f"{ratio!r}; outside that range the declared corruption "
+                "cannot be applied"
+            )
+
+    @staticmethod
+    def _check_parameter_floors(kind: str, parameters: dict[str, Any]) -> None:
+        """Require finite values within each disturbance parameter's domain."""
+
         for key, floor, exclusive in RelayReflexSimulator._PARAMETER_FLOORS:
             if key not in parameters:
                 continue
@@ -622,40 +670,6 @@ class RelayReflexSimulator(FaultOracle):
                     f"{kind} {key} must be a finite number "
                     f"{'>' if exclusive else '>='} {floor}, got {value!r}; "
                     "outside that range the declared disturbance cannot occur"
-                )
-        if "peak_c" in parameters and not oc.is_number(parameters["peak_c"]):
-            raise oc.ContractError(
-                f"{kind} peak_c must be a finite number, got "
-                f"{parameters['peak_c']!r}"
-            )
-        if kind == "malformed_spike_burst":
-            count = parameters.get("malformed_count")
-            if not isinstance(count, int) or isinstance(count, bool) or count < 1:
-                raise oc.ContractError(
-                    f"malformed_count must be an integer >= 1, got {count!r}; "
-                    "a burst of zero events is a no-op"
-                )
-            # The tick loop branches on this value. A typo used to fall through
-            # to the `unknown_channel` arm, so `negative_amplitdue` became a
-            # dropped event and produced `degrade_gracefully` — an authoritative
-            # label for a disturbance the simulator never defined.
-            variant = parameters.get("malformed_kind")
-            if not oc.is_enum_value(variant, MALFORMED_KINDS):
-                raise oc.ContractError(
-                    f"malformed_kind must be one of {sorted(MALFORMED_KINDS)}, "
-                    f"got {variant!r}"
-                )
-        if kind == "burst_corruption":
-            # The tick comparison can never mark an event corrupt for a ratio
-            # below 0, so a negative (or NaN) ratio runs the declared
-            # disturbance as a no-op and the simulator emits an authoritative
-            # `continue` for a corruption that was requested but never applied.
-            ratio = parameters.get("corrupt_ratio")
-            if not oc.is_number(ratio) or not 0.0 <= float(ratio) <= 1.0:
-                raise oc.ContractError(
-                    f"corrupt_ratio must be a finite number in [0, 1], got "
-                    f"{ratio!r}; outside that range the declared corruption "
-                    "cannot be applied"
                 )
 
     @staticmethod
