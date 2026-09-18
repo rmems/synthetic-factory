@@ -310,8 +310,9 @@ def _ewah_repeat(rlw: int, index: int, bits: list[int]) -> int:
 
 
 def _ewah_literals(
-    words: Sequence[int], rlw: int, cursor: int, index: int, bits: list[int]
+    words: Sequence[int], rlw: int, pos: tuple[int, int], bits: list[int]
 ) -> tuple[int, int]:
+    cursor, index = pos
     for _ in range(rlw >> 33):
         cursor, index = _ewah_literal(words, cursor, index, bits)
     return cursor, index
@@ -327,7 +328,7 @@ def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
         rlw = words[cursor]
         cursor += 1
         index = _ewah_repeat(rlw, index, bits)
-        cursor, index = _ewah_literals(words, rlw, cursor, index, bits)
+        cursor, index = _ewah_literals(words, rlw, (cursor, index), bits)
     return frozenset(bit for bit in bits if bit < bit_size)
 
 
