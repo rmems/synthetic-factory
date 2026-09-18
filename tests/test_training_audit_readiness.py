@@ -27,7 +27,20 @@ from training_audit_test_helpers import (  # noqa: E402
     write,
 )
 
+if str(REPO / "pipelines") not in sys.path:
+    sys.path.insert(0, str(REPO / "pipelines"))
+
+from oracle_grounded import canon as oracle_canon  # noqa: E402
+from oracle_grounded import record as oracle_record  # noqa: E402
+
 import training_audit  # noqa: E402
+
+
+def oracle_record_for(family="temporal-memory-spike-challenges", index=0):
+    """One genuine reference-simulator oracle record in the committed shape."""
+    return json.loads(
+        json.dumps(oracle_record.build_record(family, index, 7, round_number=1))
+    )
 
 
 class FacadeSeamReached(Exception):
@@ -579,6 +592,73 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             ),
             report["record_invariants"],
         )
+
+
+    def test_oracle_records_are_revalidated_not_counted_blind(self):
+        """A rejected oracle row is evidence, not an eligible training record.
+
+        The audit recomputes eligibility from the measured content instead of
+        counting every structurally valid oracle line, so an honestly rejected
+        record lands in evidence_only_records rather than eligible_records.
+        """
+        accepted = oracle_record_for(index=0)
+        rejected = oracle_record_for(index=1)
+        # Ablating every probe to the baseline removes the temporal dependence
+        # the family requires, so the family invariants fail honestly.
+        rejected["result"]["measured"]["probes"] = {
+            name: json.loads(json.dumps(rejected["result"]["measured"]["baseline"]))
+            for name in rejected["result"]["measured"]["probes"]
+        }
+        rejected["result_hash"] = oracle_canon.digest(rejected["result"])
+        rejected["validation"] = oracle_record.assess(rejected)
+        self.assertEqual(rejected["validation"]["status"], "rejected")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "oracle-grounded"
+            write(
+                root / "temporal-memory-spike-challenges" / "accepted-r01.jsonl",
+                [accepted],
+            )
+            write(
+                root / "temporal-memory-spike-challenges" / "rejected-r01.jsonl",
+                [rejected],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["oracle"]["records"], 2)
+        self.assertEqual(report["oracle"]["eligible_records"], 1)
+        self.assertEqual(report["oracle"]["evidence_only_records"], 1)
+        self.assertEqual(report["oracle"]["invalid_records"], 0)
+        self.assertTrue(report["oracle"]["ineligibility_reasons"], report["oracle"])
+
+    def test_tampered_oracle_result_blocks_the_audit(self):
+        """Editing the measured result while keeping the accepted stamp fails closed."""
+        tampered = oracle_record_for(index=0)
+        tampered["result"]["measured"]["injected"] = 1.0
+        self.assertEqual(tampered["validation"]["status"], "accepted")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "oracle-grounded"
+            write(root / "temporal-memory-spike-challenges" / "accepted-r01.jsonl", [tampered])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["oracle"]["invalid_records"], 1)
+        self.assertIn(
+            "oracle records failed validation and are not admissible",
+            report["blockers"],
+        )
+
+    def test_unrelated_oracle_shaped_record_under_a_foreign_factory_is_not_oracle_routed(self):
+        """The oracle route is registry-gated, so a foreign row keeps its own kind."""
+        record = oracle_record_for(index=0)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "thalamic-trajectory-factory"
+            write(root / "batch-r01.jsonl", [record])
+            report = training_audit.audit_run(root)
+
+        self.assertIsNone(report.get("oracle"))
+        self.assertEqual(report["totals"]["records"], 1)
 
 
 if __name__ == "__main__":
