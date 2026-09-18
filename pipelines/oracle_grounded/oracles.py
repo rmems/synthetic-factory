@@ -414,6 +414,7 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
     chunks = {"stdout": [], "stderr": []}
     overflow = []
     io_errors = []
+    timed_out_streams = []
 
     def remaining():
         return max(0.0, deadline - time.monotonic())
@@ -467,9 +468,11 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
             while True:
                 wait = remaining()
                 if wait <= 0:
+                    timed_out_streams.append(name)
                     break
                 ready, _, _ = select.select([fd], [], [], wait)
                 if not ready:
+                    timed_out_streams.append(name)
                     break
                 try:
                     chunk = os.read(fd, PROTOCOL_READ_BYTES)
@@ -550,7 +553,8 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
     except subprocess.TimeoutExpired as exc:
         reap()
         raise OracleError(f"{runtime}: timed out after {timeout_s}s") from exc
-    if join_readers(remaining()):
+    readers_hung = join_readers(remaining())
+    if readers_hung or timed_out_streams:
         reap()
         raise OracleError(
             f"{runtime}: timed out after {timeout_s}s waiting for inherited pipes to close"
