@@ -1,0 +1,29 @@
+tests/test_cli_path_confinement_preventive.py
+  s_5660553172852b::t_7752395470bca7 92-97
+  s_5660553172852b::t_37dc809d47cf00 86-91
+tests/test_curate_gate.py
+  s_5660553172852b::t_8b7680534a9eab 43-55
+pipelines/curate_trajectory_preferences.py
+  s_5660553172852b::t_37dc809d47cf00 573-576
+tests/test_curate_trajectory_preferences_sources.py
+  s_5660553172852b::t_00ad0a339e55b3 17
+  s_5660553172852b::t_764e3c3808bc68 213-219,229-230
+pipelines/curate_gate.py
+  s_5660553172852b::t_37dc809d47cf00 617
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "51ba6a1c03dd61f5d1d28b99e1996a21b78bcef1",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
