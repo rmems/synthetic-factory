@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from iac.catalog import CATALOG  # noqa: E402
+from iac.plants_extract import extract_archive_b_more_plants, extract_archive_b_plants  # noqa: E402
 from iac.catalog_extract import (  # noqa: E402
     SHAPE_K8S_CLI_SPEC,
     SHAPE_LEFTOVER,
@@ -91,6 +93,53 @@ PAIRS: list[tuple[dict, dict]] = [k8s_pair(*row) for row in K8S] + CLI
 """
 
 
+def _archive_b_available() -> bool:
+    for ref in (
+        "e5206e72fa829931162944648e1e180949baaf0b",
+        cv.ARCHIVE_B_COMMIT,
+    ):
+        try:
+            subprocess.check_output(
+                [
+                    "git",
+                    "show",
+                    f"{ref}:{cv.PLANTS_SOURCE_PATH}",
+                ],
+                cwd=REPO,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            continue
+    try:
+        subprocess.check_output(
+            ["git", "show", f"{cv.ARCHIVE_B_REF}:{cv.PLANTS_SOURCE_PATH}"],
+            cwd=REPO,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _archive_b_text() -> str:
+    for spec in (
+        f"e5206e72fa829931162944648e1e180949baaf0b:{cv.PLANTS_SOURCE_PATH}",
+        f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_SOURCE_PATH}",
+        f"{cv.ARCHIVE_B_REF}:{cv.PLANTS_SOURCE_PATH}",
+    ):
+        try:
+            return subprocess.check_output(
+                ["git", "show", spec],
+                cwd=REPO,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            continue
+    raise AssertionError("archive B mill_plants.py is not available via git show")
+
+
 def _legacy_available() -> bool:
     try:
         subprocess.check_output(
@@ -146,6 +195,8 @@ class IacSkeletonTests(unittest.TestCase):
         self.assertTrue(is_vendor_filename("iac-mill-r609.py"))
         self.assertTrue(is_vendor_filename("iac-loop-r609.py"))
         self.assertTrue(is_vendor_filename("_gen_iac_plants_r1132.py"))
+        self.assertTrue(is_vendor_filename("mill_plants.py"))
+        self.assertTrue(is_vendor_filename("mill_plants_b.py"))
         self.assertFalse(is_vendor_filename("catalog_extract.py"))
         with self.assertRaises(SystemExit):
             refuse_vendor_paths([Path("experiments/iac-mill-r609.py")])
@@ -153,7 +204,13 @@ class IacSkeletonTests(unittest.TestCase):
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "iac"
         hits = []
-        for name in ("catalog_ast.py", "catalog_extract.py", "catalog.py", "identity.py"):
+        for name in (
+            "catalog_ast.py",
+            "catalog_extract.py",
+            "plants_extract.py",
+            "catalog.py",
+            "identity.py",
+        ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
 
@@ -199,8 +256,19 @@ class IacSkeletonTests(unittest.TestCase):
     def test_committed_catalog_counts(self):
         self.assertEqual(len(CATALOG.mills), 7)
         self.assertEqual(CATALOG.n_pair_rows, 1986)
-        self.assertEqual(CATALOG.slice, "r609")
+        self.assertEqual(CATALOG.slice, "mill_plants")
         self.assertEqual(CATALOG.preserve_commit, cv.PRESERVE_COMMIT)
+        self.assertEqual(len(CATALOG.plants), 8)
+        self.assertEqual(len(CATALOG.plants_b), 8)
+        self.assertEqual(CATALOG.archive_b.path, cv.PLANTS_SOURCE_PATH)
+        self.assertEqual(CATALOG.archive_b.n_plants, 8)
+        self.assertEqual(CATALOG.archive_b_more.path, cv.PLANTS_B_SOURCE_PATH)
+        self.assertEqual(CATALOG.archive_b_more.n_plants, 8)
+        self.assertEqual(CATALOG.plants[0].success_slug, "ansible-skip-if-unused")
+        self.assertEqual(CATALOG.plants[-1].success_slug, "tf-already-used-address")
+        self.assertEqual(CATALOG.plants_b[0].success_slug, "bicep-whatif-leftover-skip")
+        self.assertEqual(CATALOG.plants_b[-1].success_slug, "nomad-system-skip")
+        self.assertTrue(CATALOG.plants[0].fail_handoff)
         r609 = CATALOG.mills["iac-mill-r609"]
         self.assertEqual(r609.n_rows, 34)
         self.assertEqual(r609.catalog_first, 625)
@@ -212,6 +280,85 @@ class IacSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["iac-mill-r683"].n_keep, 9)
         self.assertEqual(CATALOG.mills["iac-mill-r777"].n_rows, 355)
         self.assertFalse(CATALOG.mills["iac-mill-r1514"].pairs)
+
+
+class IacArchiveBExtractTests(unittest.TestCase):
+    def test_archive_b_plants_do_not_overlap_r609_slugs(self):
+        r609 = {pair["success_slug"] for pair in CATALOG.mills["iac-mill-r609"].pairs}
+        plant_slugs = {plant.success_slug for plant in CATALOG.plants}
+        self.assertEqual(plant_slugs & r609, set())
+
+    def test_archive_b_more_plants_do_not_overlap_r609_or_archive_b(self):
+        r609 = {pair["success_slug"] for pair in CATALOG.mills["iac-mill-r609"].pairs} | {
+            pair["fail_slug"] for pair in CATALOG.mills["iac-mill-r609"].pairs
+        }
+        archive_slugs = {plant.success_slug for plant in CATALOG.plants} | {
+            plant.fail_slug for plant in CATALOG.plants
+        }
+        more_slugs = {plant.success_slug for plant in CATALOG.plants_b} | {
+            plant.fail_slug for plant in CATALOG.plants_b
+        }
+        self.assertEqual(more_slugs & r609, set())
+        self.assertEqual(more_slugs & archive_slugs, set())
+
+    def test_committed_plants_match_live_ast_extract(self):
+        if not _archive_b_available():
+            self.skipTest("archive B mill_plants.py is not available via git show")
+        text = _archive_b_text()
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_SOURCE_PATH}"],
+            cwd=REPO,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        self.assertEqual(blob, cv.PLANTS_BLOB_SHA)
+        live = extract_archive_b_plants(text)
+        self.assertEqual(live["n_plants"], 8)
+        self.assertEqual(live["sha256"], cv.PLANTS_SOURCE_SHA256)
+        self.assertEqual(
+            [(row["success_slug"], row["fail_slug"]) for row in live["plants"]],
+            [(plant.success_slug, plant.fail_slug) for plant in CATALOG.plants],
+        )
+
+    def test_committed_plants_b_match_live_ast_extract(self):
+        if not _archive_b_more_available():
+            self.skipTest("archive B mill_plants_b.py is not available via git show")
+        text = _archive_b_more_text()
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_B_SOURCE_PATH}"],
+            cwd=REPO,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        self.assertEqual(blob, cv.PLANTS_B_BLOB_SHA)
+        live = extract_archive_b_more_plants(text)
+        self.assertEqual(live["n_plants"], 8)
+        self.assertEqual(live["sha256"], cv.PLANTS_B_SOURCE_SHA256)
+        self.assertEqual(
+            [(row["success_slug"], row["fail_slug"]) for row in live["plants"]],
+            [(plant.success_slug, plant.fail_slug) for plant in CATALOG.plants_b],
+        )
+
+
+def _archive_b_more_available() -> bool:
+    try:
+        subprocess.check_output(
+            ["git", "show", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_B_SOURCE_PATH}"],
+            cwd=REPO,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _archive_b_more_text() -> str:
+    return subprocess.check_output(
+        ["git", "show", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_B_SOURCE_PATH}"],
+        cwd=REPO,
+        text=True,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 class IacLegacyExtractTests(unittest.TestCase):
@@ -242,10 +389,11 @@ class IacLegacyExtractTests(unittest.TestCase):
             mills.append(
                 mill_summary(live, include_pairs=source.mill_id == "iac-mill-r609")
             )
-        self.assertEqual(
-            dumps_catalog(catalog_document(mills)),
-            catalog_json_path().read_text(encoding="utf-8"),
-        )
+        committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        live_doc = catalog_document(mills)
+        self.assertEqual(live_doc["mills"], committed["mills"])
+        self.assertEqual(live_doc["n_mills"], committed["n_mills"])
+        self.assertEqual(live_doc["n_pair_rows"], committed["n_pair_rows"])
 
     def test_loop_and_gen_scripts_name_companion_mills(self):
         if not _legacy_available():

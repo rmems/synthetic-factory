@@ -185,6 +185,42 @@
       "canonical_replacement": null,
       "quality_scope": "production",
       "provenance": "main:tests/test_mill_script_inventory.py"
+    },
+    {
+      "path": "pipelines/hopper/catalog_episode_mill.py",
+      "classification": "production",
+      "owner": "pipelines/hopper",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/hopper/catalog_episode_mill.py \u2014 hopper catalog extraction and replay validation"
+    },
+    {
+      "path": "pipelines/hopper/catalog_mill.py",
+      "classification": "production",
+      "owner": "pipelines/hopper",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:pipelines/hopper/catalog_mill.py \u2014 hopper catalog extraction and replay validation"
+    },
+    {
+      "path": "tests/test_hopper_catalog_mill.py",
+      "classification": "production",
+      "owner": "pipelines/hopper",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_hopper_catalog_mill.py \u2014 hopper catalog extraction and replay validation"
+    },
+    {
+      "path": "tests/test_hopper_episode_catalog_mill.py",
+      "classification": "production",
+      "owner": "pipelines/hopper",
+      "status": "active",
+      "canonical_replacement": null,
+      "quality_scope": "production",
+      "provenance": "main:tests/test_hopper_episode_catalog_mill.py \u2014 hopper catalog extraction and replay validation"
     }
   ],
   "historical_generator_policy": {
