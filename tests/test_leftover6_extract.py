@@ -47,6 +47,14 @@ def _sbox_increment_source(increment):
 
 
 class LiteralCatalogExtract(unittest.TestCase):
+    def test_escaped_surrogates_are_refused_in_catalog_text(self):
+        for field, original in (("slug", "bind"), ("docs", "fixture docs")):
+            for escaped in (r"\ud800", r"\udfff"):
+                source = SSL_SOURCE.replace(f"'{field}': '{original}'", f"'{field}': '{escaped}'")
+                with self.subTest(field=field, escaped=escaped):
+                    with self.assertRaisesRegex(ValueError, "Unicode"):
+                        extract_source(source, path=SSL_PATH)
+
     def test_source_path_must_be_a_plain_string(self):
         path = SSL_PATH
 

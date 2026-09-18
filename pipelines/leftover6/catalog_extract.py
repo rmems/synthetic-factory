@@ -100,6 +100,10 @@ def _source_line_count(source: str) -> int:
 def _require_str(value: Any, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{context} is not a non-empty string")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{context} must contain Unicode scalar values") from exc
     return value
 
 
