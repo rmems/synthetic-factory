@@ -4,6 +4,7 @@
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 if __package__:
@@ -105,6 +106,14 @@ def emit_report(manifest):
     return 1 if manifest["errors"] else 0
 
 
+def _write_manifest(run_dir, manifest):
+    payload = json.dumps(manifest, indent=2) + "\n"
+    with tempfile.TemporaryDirectory(dir=run_dir, prefix=".manifest-") as raw:
+        staged = Path(raw) / "manifest.json"
+        staged.write_text(payload)
+        staged.replace(run_dir / "manifest.json")
+
+
 def main(argv=None, *, check_line, parse_record=None):
     """Run the public CLI. ``check_line`` is the facade's live router."""
     parse_record = _default_parse_record if parse_record is None else parse_record
@@ -112,7 +121,7 @@ def main(argv=None, *, check_line, parse_record=None):
     run_dir = Path(args.run_dir).resolve()
     manifest = assemble_manifest(run_dir, check_line, parse_record)
     if args.write:
-        (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        _write_manifest(run_dir, manifest)
     sys.exit(emit_report(manifest))
 
 
