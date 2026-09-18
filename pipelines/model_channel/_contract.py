@@ -8,6 +8,8 @@ Both import forms are supported (``model_channel.x`` with ``pipelines/`` on
 from __future__ import annotations
 
 import json
+from types import MappingProxyType
+from typing import Any
 
 if __name__.startswith("pipelines."):
     from ..exact_json import ExactJSONFloat, dumps_exact_json
@@ -24,6 +26,7 @@ __all__ = [
     "ExactJSONFloat",
     "bind_import_twin",
     "dumps_exact_json",
+    "freeze",
     "is_under_raw",
     "load_strict_json",
 ]
@@ -37,6 +40,15 @@ def load_strict_json(payload: str | bytes):
         parse_constant=reject_json_constant,
         parse_float=ExactJSONFloat,
     )
+
+
+def freeze(value: Any) -> Any:
+    """Keep loaded model policy and generation-time snapshots immutable."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(freeze(item) for item in value)
+    return value
 
 
 bind_import_twin(__name__)

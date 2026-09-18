@@ -94,13 +94,13 @@ def _run_generate(args: argparse.Namespace) -> int:
         records=accepted,
         attempted=attempted,
         rejected=rejected,
-        produced_at=args.produced_at or record_stamp(accepted, rejected),
+        produced_at=args.produced_at or record_stamp(accepted),
     )
     _print(summary, args.json)
     return 0 if accepted else 2
 
 
-def record_stamp(accepted: list[dict[str, Any]], rejected: list[str]) -> str:
+def record_stamp(accepted: list[dict[str, Any]]) -> str:
     if accepted:
         meta = accepted[0].get("meta") or {}
         stamp = meta.get("generated_at")

@@ -418,7 +418,7 @@ def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
     )
 
 
-def _parse_model_channel_row(raw: Any, index: int) -> FactoryRow:
+def _validated_model_channel_row(raw: Any, index: int) -> Mapping:
     policy = _model_channel_policy()
     try:
         policy.validate_registry_row(raw)
@@ -429,6 +429,11 @@ def _parse_model_channel_row(raw: Any, index: int) -> FactoryRow:
     missing = [key for key in _REQUIRED_ROW_FIELDS if key not in raw]
     if missing:
         raise IdentityCurationError(f"factories[{index}] missing fields: {missing}")
+    return raw
+
+
+def _parse_model_channel_row(raw: Any, index: int) -> FactoryRow:
+    raw = _validated_model_channel_row(raw, index)
     _apply_field_rules(raw, _PATH_RULES, index)
     identity = _generator_identity(raw, index)
     _apply_field_rules(raw, _MODEL_CHANNEL_RIGHTS_RULES, index)

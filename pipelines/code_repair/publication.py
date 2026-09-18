@@ -220,7 +220,9 @@ def fresh_gate(factory: Path, batch: Path, round_number: int) -> dict:
     try:
         binding, positives, catalog = inspect_inputs(factory, batch, round_number)
         for record in positives:
-            engine = executor.Executor(timeout_s=record["oracle"]["configuration"]["timeout_s"])
+            engine = executor.executor_for(
+                catalog, timeout_s=record["oracle"]["configuration"]["timeout_s"],
+            )
             result = replay.replay_record(record, catalog, engine)
             if (result.get("code") != cv.REPLAY_PASSED
                     or result.get("fresh_evidence_sha256") != record["result"]["evidence_sha256"]):

@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any, Mapping
 
-from ._contract import bind_import_twin, load_strict_json
+from ._contract import bind_import_twin, freeze, load_strict_json
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/model-channel-source-policy-v1.json"
@@ -30,14 +29,6 @@ class SourcePolicyError(ValueError):
     """A model-channel authority differs from the reviewed source policy."""
 
 
-def _freeze(value: Any) -> Any:
-    if isinstance(value, dict):
-        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
-    if isinstance(value, list):
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
 def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
     """Read exact trusted bytes; alternate paths have no independent authority."""
     try:
@@ -51,7 +42,7 @@ def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
         raise SourcePolicyError(
             "model-channel policy differs from independently reviewed bytes"
         )
-    return _freeze(value)
+    return freeze(value)
 
 
 POLICY = load_policy()
@@ -64,21 +55,24 @@ def _catalog_rows() -> tuple[Mapping[str, Any], ...]:
     return rows
 
 
+def _public_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(row)
+    result.update(
+        source_type="model_channel", payload_factory=row["path_id"],
+        model_channel_policy_sha256=POLICY_SHA256,
+        source_license_evidence=dict(row["source_license_evidence"]),
+        record_kinds=list(row["record_kinds"]),
+        allowed_curation_lanes=list(row["allowed_curation_lanes"]),
+        provenance_contract_by_kind=dict(row["provenance_contract_by_kind"]),
+    )
+    return result
+
+
 def reviewed_row(path_id: str) -> dict[str, Any]:
     """Fresh registry representation of one sealed, approved model-channel route."""
     for row in _catalog_rows():
         if row["path_id"] == path_id:
-            result = {key: row[key] for key in row}
-            result.update(
-                source_type="model_channel",
-                payload_factory=row["path_id"],
-                model_channel_policy_sha256=POLICY_SHA256,
-                source_license_evidence=dict(row["source_license_evidence"]),
-                record_kinds=list(row["record_kinds"]),
-                allowed_curation_lanes=list(row["allowed_curation_lanes"]),
-                provenance_contract_by_kind=dict(row["provenance_contract_by_kind"]),
-            )
-            return result
+            return _public_row(row)
     raise SourcePolicyError(f"unknown reviewed model-channel path_id: {path_id}")
 
 
@@ -96,6 +90,10 @@ def validate_registry_row(raw: Any) -> None:
     path_id = raw.get("path_id")
     if not isinstance(path_id, str) or not path_id:
         raise SourcePolicyError("model-channel registry row must name a path_id")
+    _require_reviewed_row(raw, path_id)
+
+
+def _require_reviewed_row(raw: Mapping, path_id: str) -> None:
     if dict(raw) != reviewed_row(path_id):
         raise SourcePolicyError(
             "model-channel registry row drifts from independently sealed policy"

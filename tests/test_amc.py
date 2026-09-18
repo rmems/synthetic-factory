@@ -5,6 +5,7 @@ import ast
 import json
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 from pipelines.amc import (
@@ -69,13 +70,13 @@ class AmcCatalogTests(unittest.TestCase):
         self.assertEqual(QUOTA_PER_ROUND, 2)
         self.assertEqual(SUCCESS_STEPS, 16)
 
-    def test_catalog_pins_extracted_counts_and_representative_subset(self):
+    def test_catalog_pins_extracted_counts_and_committed_identities(self):
         pairs = list(CATALOG.pairs())
         self.assertEqual(len(CATALOG.catalogs), 12)
         self.assertEqual(len(CATALOG.loops), 11)
         self.assertEqual(CATALOG.n_pair_rows_extracted, 1401)
-        self.assertEqual(CATALOG.n_pair_rows_committed, 24)
-        self.assertEqual(len(pairs), 24)
+        self.assertEqual(CATALOG.n_pair_rows_committed, 1401)
+        self.assertEqual(len(pairs), 1401)
         self.assertEqual(
             {mill.mill_id: mill.n_rows_extracted for mill in CATALOG.catalogs},
             EXTRACTED_COUNTS,
@@ -96,7 +97,15 @@ class AmcCatalogTests(unittest.TestCase):
         leftover = CATALOG.mills["mill_amc_leftover_r688"]
         self.assertEqual(leftover.shape, "leftover-dict")
         self.assertEqual(leftover.max_rounds, 16)
-        self.assertIn("deferred", CATALOG.extraction)
+        self.assertIn("1377 deferred", CATALOG.extraction)
+
+    def test_committed_role_counts_cover_the_extracted_set(self):
+        roles = Counter(pair.role for pair in CATALOG.pairs())
+        self.assertEqual(dict(roles), {"first": 12, "last": 12, "deferred": 1377})
+        self.assertEqual(len(CATALOG.mills["amc-mill-r424"].pairs), 999)
+        leftover = CATALOG.mills["mill_amc_leftover_r688"]
+        self.assertEqual(leftover.pairs[0].success_slug, leftover.first_slug)
+        self.assertEqual(leftover.pairs[1].success_slug, leftover.last_slug)
 
     def test_loop_pins_name_companion_mills(self):
         companions = {loop.companion_mill_path for loop in CATALOG.loops}
@@ -150,12 +159,32 @@ class AmcCatalogTests(unittest.TestCase):
     def test_pairs_jsonl_stays_compact(self):
         text = PAIRS_JSONL.read_text(encoding="utf-8")
         lines = text.splitlines()
-        self.assertEqual(len(lines), 24)
+        self.assertEqual(len(lines), 1401)
         self.assertTrue(text.endswith("\n"))
         self.assertNotIn("\r", text)
         for line in lines:
             self.assertFalse(line.startswith((" ", "\t")))
             json.loads(line)
+
+    def test_pairs_jsonl_keeps_bookends_then_deferred_slice(self):
+        lines = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
+        bookend_roles = [json.loads(line)["role"] for line in lines[:24]]
+        deferred_roles = [json.loads(line)["role"] for line in lines[24:]]
+        self.assertEqual(bookend_roles.count("first"), 12)
+        self.assertEqual(bookend_roles.count("last"), 12)
+        self.assertEqual(deferred_roles, ["deferred"] * 1377)
+        r424 = '"mill_id":"amc-mill-r424"'
+        self.assertEqual(PAIRS_JSONL.read_text(encoding="utf-8").count(r424), 999)
+
+    def test_loader_fails_closed_when_deferred_identities_are_dropped(self):
+        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
+        bookends = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()[:24]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(bookends) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(CatalogError, "committed 2 identities"):
+                load_catalog(dest)
 
     def test_loader_fails_closed_on_a_missing_case_field(self):
         header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))

@@ -472,6 +472,27 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
+def dumps_rows(
+    tables: Mapping[str, Any],
+    *,
+    start_index: int = 0,
+) -> str:
+    """One compact JSON object per catalog row. No pretty indent. Trailing LF."""
+
+    width = len(tables[TABLE_NAMES[0]])
+    if width < 1:
+        raise ValueError("dumps_rows requires at least one catalog row")
+    if any(len(tables[name]) != width for name in TABLE_NAMES):
+        raise ValueError("dumps_rows table widths drifted")
+    lines = []
+    for offset in range(width):
+        record = {"i": start_index + offset}
+        for name in TABLE_NAMES:
+            record[name] = list(tables[name][offset])
+        lines.append(json.dumps(record, ensure_ascii=True, separators=(",", ":")))
+    return "\n".join(lines) + "\n"
+
+
 def catalog_json_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / CATALOG_FILENAME

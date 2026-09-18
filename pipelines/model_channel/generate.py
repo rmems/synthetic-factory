@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -109,29 +110,37 @@ def _extract_json_object(content: str) -> dict[str, Any]:
     return payload
 
 
-def _assistant_content(response: Mapping[str, Any]) -> str:
+def _first_message(response: Mapping[str, Any]) -> dict:
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
         raise GenerateError("completion is missing choices")
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     if not isinstance(message, dict):
         raise GenerateError("completion is missing message")
-    content = message.get("content")
+    return message
+
+
+def _assistant_content(response: Mapping[str, Any]) -> str:
+    content = _first_message(response).get("content")
     if not isinstance(content, str) or not content.strip():
         raise GenerateError("completion content is empty")
     return content
 
 
-def _require_episode(record: Mapping[str, Any]) -> None:
-    for key in ("goal", "steps", "outcome", "reward"):
-        if key not in record:
-            raise GenerateError(f"candidate episode missing {key!r}")
+def _require_episode_shape(record: Mapping[str, Any]) -> None:
     steps = record.get("steps")
     if not isinstance(steps, list) or not steps:
         raise GenerateError("candidate episode steps must be a non-empty list")
     reward = record.get("reward")
     if not isinstance(reward, dict) or not isinstance(reward.get("success"), bool):
         raise GenerateError("candidate episode reward.success must be a boolean")
+
+
+def _require_episode(record: Mapping[str, Any]) -> None:
+    for key in ("goal", "steps", "outcome", "reward"):
+        if key not in record:
+            raise GenerateError(f"candidate episode missing {key!r}")
+    _require_episode_shape(record)
 
 
 def _task_hash(task: Mapping[str, Any]) -> str:
@@ -151,15 +160,15 @@ def _usage(response: Mapping[str, Any]) -> dict[str, Any]:
     return kept
 
 
-def _attach_provenance(
-    record: dict[str, Any],
-    *,
-    row: Mapping[str, Any],
-    task: Mapping[str, Any],
-    generated_at: str,
-    runtime: Mapping[str, Any],
-    openrouter_evidence: Mapping[str, str] | None,
-) -> dict[str, Any]:
+@dataclass(frozen=True)
+class ProvenanceContext:
+    task: Mapping[str, Any]
+    generated_at: str
+    runtime: Mapping[str, Any]
+    openrouter_evidence: Mapping[str, str] | None
+
+
+def _attach_provenance(record: dict[str, Any], row: Mapping[str, Any], context: ProvenanceContext) -> dict[str, Any]:
     meta = dict(record.get("meta") or {})
     meta.update(
         factory=row["path_id"],
@@ -171,13 +180,13 @@ def _attach_provenance(
         model_revision=row["model_revision"],
         generation_surface=row["generation_surface"],
         runtime_tag=row["runtime_tag"],
-        prompt_task_sha256=_task_hash(task),
-        generated_at=generated_at,
+        prompt_task_sha256=_task_hash(context.task),
+        generated_at=context.generated_at,
         candidate_only=True,
     )
-    meta.update({f"runtime_{key}": value for key, value in runtime.items()})
-    if openrouter_evidence is not None:
-        meta.update(openrouter_evidence)
+    meta.update({f"runtime_{key}": value for key, value in context.runtime.items()})
+    if context.openrouter_evidence is not None:
+        meta.update(context.openrouter_evidence)
     record["meta"] = meta
     return record
 
@@ -204,78 +213,83 @@ def _messages(task: Mapping[str, Any]) -> list[dict[str, str]]:
     ]
 
 
-def generate_candidate(
-    path_id: str,
-    task: Mapping[str, Any],
-    *,
-    endpoint: str,
-    api_key: str | None = None,
-    runtime: Mapping[str, Any] | None = None,
-    openrouter_snapshot: Path | None = None,
-    generated_at: str | None = None,
-) -> dict[str, Any]:
-    """Call one reviewed generator and return an accepted candidate or raise."""
-    row = policy.reviewed_row(path_id)
-    stamp = generated_at or _utc_now()
-    extra: dict[str, Any] = {}
-    openrouter_evidence = None
-    if row["channel"] == "openrouter_api":
-        if openrouter_snapshot is None:
-            raise GenerateError("OpenRouter generation requires a distillable snapshot")
-        snapshot = openrouter.load_snapshot(openrouter_snapshot)
-        entry = openrouter.catalog_entry(snapshot, row["model_id"])
-        extra.update(openrouter.provider_extra())
-        terms = row["source_license_evidence"]["openrouter_terms_sha256"]
-        license_hash = row["source_license_evidence"]["license_sha256"]
-        openrouter_evidence = openrouter.evidence(
-            model_id=row["model_id"],
-            snapshot=snapshot,
-            entry=entry,
-            terms_sha256=terms,
-            underlying_license_sha256=license_hash,
-            generated_at=stamp,
-        )
-    elif row["channel"] == "local_vllm":
-        vllm_spec.require_plain_generation(runtime or {"require_tool_parser": False})
-    response = openai_client.chat_completions(
-        endpoint,
-        row["runtime_tag"] if row["channel"] == "local_vllm" else row["model_id"],
-        _messages(task),
-        api_key=api_key,
-        extra=extra or None,
+@dataclass(frozen=True, kw_only=True)
+class GenerationOptions:
+    endpoint: str
+    api_key: str | None = None
+    runtime: Mapping[str, Any] | None = None
+    openrouter_snapshot: Path | None = None
+    generated_at: str | None = None
+
+
+def _openrouter_evidence(row: Mapping, options: GenerationOptions, stamp: str) -> dict:
+    if options.openrouter_snapshot is None:
+        raise GenerateError("OpenRouter generation requires a distillable snapshot")
+    snapshot = openrouter.load_snapshot(options.openrouter_snapshot)
+    entry = openrouter.catalog_entry(snapshot, row["model_id"])
+    license_evidence = row["source_license_evidence"]
+    return openrouter.evidence(
+        model_id=row["model_id"], snapshot=snapshot, entry=entry,
+        terms_sha256=license_evidence["openrouter_terms_sha256"],
+        underlying_license_sha256=license_evidence["license_sha256"], generated_at=stamp,
     )
+
+
+def _route_evidence(row: Mapping, options: GenerationOptions, stamp: str) -> dict | None:
     if row["channel"] == "openrouter_api":
+        return _openrouter_evidence(row, options, stamp)
+    if row["channel"] == "local_vllm":
+        vllm_spec.require_plain_generation(options.runtime or {"require_tool_parser": False})
+    return None
+
+
+def _completion(row: Mapping, task: Mapping, options: GenerationOptions) -> dict:
+    remote = row["channel"] == "openrouter_api"
+    response = openai_client.chat_completions(
+        options.endpoint,
+        row["runtime_tag"] if row["channel"] == "local_vllm" else row["model_id"],
+        _messages(task), api_key=options.api_key,
+        extra=openrouter.provider_extra() if remote else None,
+    )
+    if remote:
         openrouter.refuse_fallback(row["model_id"], response.get("model"))
+    return response
+
+
+def _accepted_record(response: Mapping) -> dict:
     record = _extract_json_object(_assistant_content(response))
     if _contains_self_certify(record):
         raise GenerateError("candidate attempted to self-certify oracle or training truth")
     record = strip_untrainable(record)
     _require_episode(record)
-    attached = _attach_provenance(
-        record,
-        row=row,
-        task=task,
-        generated_at=stamp,
-        runtime=dict(runtime or {}),
-        openrouter_evidence=openrouter_evidence,
-    )
-    attached["_generation"] = {
-        "usage": _usage(response),
-        "response_model": response.get("model"),
-    }
+    return record
+
+
+def generate_candidate(path_id: str, task: Mapping[str, Any], **kwargs) -> dict[str, Any]:
+    """Call one reviewed generator; keyword options follow GenerationOptions."""
+    options = GenerationOptions(**kwargs)
+    row = policy.reviewed_row(path_id)
+    stamp = options.generated_at or _utc_now()
+    evidence = _route_evidence(row, options, stamp)
+    response = _completion(row, task, options)
+    context = ProvenanceContext(task, stamp, dict(options.runtime or {}), evidence)
+    attached = _attach_provenance(_accepted_record(response), row, context)
+    attached["_generation"] = {"usage": _usage(response), "response_model": response.get("model")}
     return attached
 
 
-def write_run(
-    out_dir: Path,
-    *,
-    path_id: str,
-    records: list[Mapping[str, Any]],
-    attempted: int,
-    rejected: list[str],
-    produced_at: str,
-) -> dict[str, Any]:
+@dataclass(frozen=True, kw_only=True)
+class RunOutput:
+    path_id: str
+    records: list[Mapping[str, Any]]
+    attempted: int
+    rejected: list[str]
+    produced_at: str
+
+
+def write_run(out_dir: Path, **kwargs) -> dict[str, Any]:
     """Write accepted candidates to a brand-new destination outside outputs/raw."""
+    output = RunOutput(**kwargs)
     destination = Path(out_dir)
     if is_under_raw(destination):
         raise GenerateError(f"{destination} names or aliases the raw tree")
@@ -283,7 +297,7 @@ def write_run(
         raise GenerateError(f"{destination} already exists")
     destination.mkdir(parents=True)
     accepted = []
-    for record in records:
+    for record in output.records:
         payload = dict(record)
         payload.pop("_generation", None)
         accepted.append(payload)
@@ -293,12 +307,12 @@ def write_run(
             handle.write(dumps_exact_json(record) + "\n")
     summary = {
         "format": "model-channel-run/1",
-        "path_id": path_id,
-        "produced_at": produced_at,
-        "attempted": attempted,
+        "path_id": output.path_id,
+        "produced_at": output.produced_at,
+        "attempted": output.attempted,
         "accepted": len(accepted),
-        "rejected": len(rejected),
-        "rejected_reasons": rejected,
+        "rejected": len(output.rejected),
+        "rejected_reasons": output.rejected,
         "candidate_only": True,
         "self_certified_oracle": False,
     }

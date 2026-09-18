@@ -4,6 +4,7 @@ from __future__ import annotations
 import http.client
 import json
 import ssl
+from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
@@ -32,23 +33,21 @@ def _connection(scheme: str, host: str, port: int, timeout: float):
     return http.client.HTTPConnection(host, port, timeout=timeout)
 
 
-def chat_completions(
-    base_url: str,
-    model: str,
-    messages: list[Mapping[str, str]],
-    *,
-    api_key: str | None = None,
-    extra: Mapping[str, Any] | None = None,
-    timeout_s: float = DEFAULT_TIMEOUT_S,
-) -> dict[str, Any]:
-    """POST ``/chat/completions`` and return the decoded JSON object."""
-    if not isinstance(model, str) or not model.strip() or model != model.strip():
-        raise OpenAIClientError("model must be a non-empty exact tag; no silent rewrite")
-    scheme, host, port, prefix = _split_url(base_url)
-    payload: dict[str, Any] = {"model": model, "messages": list(messages)}
+@dataclass(frozen=True, kw_only=True)
+class ClientOptions:
+    api_key: str | None = None
+    extra: Mapping[str, Any] | None = None
+    timeout_s: float = DEFAULT_TIMEOUT_S
+
+
+def _request_body(model: str, messages: list[Mapping[str, str]], extra: Mapping | None) -> bytes:
+    payload = {"model": model, "messages": list(messages)}
     if extra:
-        payload.update(dict(extra))
-    body = json.dumps(payload, allow_nan=False).encode("utf-8")
+        payload.update(extra)
+    return json.dumps(payload, allow_nan=False).encode("utf-8")
+
+
+def _request_headers(body: bytes, api_key: str | None) -> dict[str, str]:
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -56,24 +55,47 @@ def chat_completions(
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    conn = _connection(scheme, host, port, timeout_s)
+    return headers
+
+
+def _read_response(conn, path: str, body: bytes, headers: dict) -> bytes:
     try:
-        conn.request("POST", f"{prefix}/chat/completions", body=body, headers=headers)
+        conn.request("POST", path, body=body, headers=headers)
         response = conn.getresponse()
         raw = response.read()
+        if not 200 <= response.status < 300:
+            raise OpenAIClientError(f"OpenAI-compatible HTTP {response.status}: {raw[:200]!r}")
+        return raw
     finally:
         conn.close()
-    if response.status < 200 or response.status >= 300:
-        raise OpenAIClientError(
-            f"OpenAI-compatible HTTP {response.status}: {raw[:200]!r}"
-        )
+
+
+def _decode_response(raw: bytes) -> dict[str, Any]:
     try:
         decoded = load_strict_json(raw.decode("utf-8"))
-    except (UnicodeError, ValueError) as exc:
+    except ValueError as exc:
         raise OpenAIClientError(f"OpenAI-compatible response is not JSON: {exc}") from exc
     if not isinstance(decoded, dict):
         raise OpenAIClientError("OpenAI-compatible response must be a JSON object")
     return decoded
+
+
+def _require_model(model: str) -> None:
+    if not isinstance(model, str) or not model.strip():
+        raise OpenAIClientError("model must be a non-empty exact tag; no silent rewrite")
+    if model != model.strip():
+        raise OpenAIClientError("model must be a non-empty exact tag; no silent rewrite")
+
+
+def chat_completions(base_url: str, model: str, messages: list[Mapping[str, str]], **kwargs) -> dict[str, Any]:
+    """POST chat completions with keyword options described by ClientOptions."""
+    options = ClientOptions(**kwargs)
+    _require_model(model)
+    scheme, host, port, prefix = _split_url(base_url)
+    body = _request_body(model, messages, options.extra)
+    headers = _request_headers(body, options.api_key)
+    conn = _connection(scheme, host, port, options.timeout_s)
+    return _decode_response(_read_response(conn, f"{prefix}/chat/completions", body, headers))
 
 
 bind_import_twin(__name__)

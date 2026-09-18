@@ -35,6 +35,7 @@ POLICY_VERSION = _rights_mapping.POLICY_VERSION
 PROJECT_TRAINING_POLICIES = _rights_mapping.PROJECT_TRAINING_POLICIES
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
+is_exact_string = _rights_mapping.is_exact_string
 policy_error = _rights_mapping.policy_error
 require_nonempty_string = _rights_mapping.require_nonempty_string
 require_unique_strings = _rights_mapping.require_unique_strings
@@ -175,7 +176,7 @@ def _profile_value(
     profile: dict, field_name: str, vocabulary: frozenset[str], where: str
 ) -> str:
     value = profile.get(field_name)
-    if not isinstance(value, str) or value not in vocabulary:
+    if not is_exact_string(value) or value not in vocabulary:
         raise policy_error(
             where,
             f"profile {profile['id']!r} has unknown {field_name}",
@@ -237,9 +238,7 @@ def _profiles_by_id(document: dict, where: str) -> dict[str, dict]:
     return {profile["id"]: profile for profile in document["profiles"]}
 
 
-def _validate_required_profile_semantics(
-    profiles: dict[str, dict], where: str
-) -> None:
+def _require_defining_reasons(profiles: dict[str, dict], where: str) -> None:
     for profile_id, defining_reason in _REQUIRED_PROFILE_REASONS.items():
         if defining_reason not in profiles[profile_id]["reason_codes"]:
             raise policy_error(
@@ -247,6 +246,9 @@ def _validate_required_profile_semantics(
                 f"profile {profile_id!r} is missing its required defining reason "
                 f"{defining_reason!r}",
             )
+
+
+def _require_hosted_verdict(profiles: dict[str, dict], where: str) -> None:
     hosted = profiles[HOSTED_FRONTIER_PROFILE_ID]
     hosted_verdict = (
         hosted["intended_use"],
@@ -258,6 +260,9 @@ def _validate_required_profile_semantics(
             where,
             "hosted-frontier profile must be research_only/blocked with all statuses unresolved",
         )
+
+
+def _require_unknown_verdict(profiles: dict[str, dict], where: str) -> None:
     unknown = profiles[UNKNOWN_PROVENANCE_PROFILE_ID]
     unknown_verdict = (
         unknown["intended_use"],
@@ -265,6 +270,9 @@ def _validate_required_profile_semantics(
     )
     if unknown_verdict != ("research_only", "blocked"):
         raise policy_error(where, "unknown-provenance profile must fail closed")
+
+
+def _require_candidate_verdicts(profiles: dict[str, dict], where: str) -> None:
     for profile_id in (
         OPEN_WEIGHT_LOCAL_PROFILE_ID,
         OPENROUTER_DISTILLABLE_PROFILE_ID,
@@ -279,6 +287,14 @@ def _validate_required_profile_semantics(
                 where,
                 f"profile {profile_id!r} must be training_candidate/allowed",
             )
+
+
+
+def _validate_required_profile_semantics(profiles: dict[str, dict], where: str) -> None:
+    _require_defining_reasons(profiles, where)
+    _require_hosted_verdict(profiles, where)
+    _require_unknown_verdict(profiles, where)
+    _require_candidate_verdicts(profiles, where)
 
 
 def _validate_profiles(
