@@ -67,15 +67,29 @@ def _bounded_digest(payload, limit):
     return digest.hexdigest()
 
 
-def _verify_staged_manifest(root_fd, expected):
+def _file_identity(state):
+    return (state.st_dev, state.st_ino, state.st_mode, state.st_size,
+            state.st_mtime_ns, state.st_ctime_ns, state.st_nlink)
+
+
+def _authenticated_digest(parent_fd, name, limit):
     descriptor = os.open(
-        "manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root_fd
+        name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd
     )
-    with os.fdopen(descriptor, "rb") as manifest:
-        state = os.fstat(manifest.fileno())
-        if not stat.S_ISREG(state.st_mode) or state.st_size != len(expected):
-            raise OSError(errno.ESTALE, "staging manifest type or size changed")
-        actual_digest = _bounded_digest(manifest, len(expected))
+    with os.fdopen(descriptor, "rb") as payload:
+        before = os.fstat(payload.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise OSError(errno.EINVAL, "staging entry must be a singly linked regular file")
+        digest = _bounded_digest(payload, limit)
+        after = os.fstat(payload.fileno())
+        named = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if not (_file_identity(before) == _file_identity(after) == _file_identity(named)):
+            raise OSError(errno.ESTALE, "staging entry changed during authentication")
+    return digest
+
+
+def _verify_staged_manifest(root_fd, expected):
+    actual_digest = _authenticated_digest(root_fd, "manifest.json", len(expected))
     if actual_digest != hashlib.sha256(expected).hexdigest():
         raise OSError(errno.ESTALE, "staging manifest changed before publication")
 
@@ -88,13 +102,7 @@ def _verify_staged_payloads(root_fd, files, max_bytes):
             path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd
         )
         try:
-            descriptor = os.open(
-                path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=family_fd
-            )
-            with os.fdopen(descriptor, "rb") as payload:
-                if not stat.S_ISREG(os.fstat(payload.fileno()).st_mode):
-                    raise OSError(errno.EINVAL, "staging payload is not a regular file")
-                digest = _bounded_digest(payload, max_bytes)
+            digest = _authenticated_digest(family_fd, path.name, max_bytes)
             if digest != expected["sha256"]:
                 raise OSError(errno.ESTALE, "staging payload changed before publication")
         finally:

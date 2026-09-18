@@ -19,7 +19,7 @@ class OracleSchemaSealTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         for directory in ("pipelines/oracle_grounded", "schemas/oracle-grounded"):
             shutil.copytree(source_policy.ROOT / directory, self.root / directory)
-        relatives = ["schemas/oracle-grounded-v1.schema.json"]
+        relatives = ["schemas/oracle-grounded-v1.schema.json", "LICENSE"]
         relatives.extend(f"pipelines/{name}" for name in source_policy.PROGRAM_NAMES)
         for relative in relatives:
             shutil.copyfile(source_policy.ROOT / relative, self.root / relative)
@@ -58,6 +58,19 @@ class OracleSchemaSealTests(unittest.TestCase):
         (self.root / "schemas/oracle-grounded/unreviewed.schema.json").write_text("{}")
         with self.assertRaises(source_policy.SourcePolicyError):
             source_policy.verify_source_bytes()
+
+    def test_missing_or_changed_license_invalidates_source_authority(self):
+        path = self.root / "LICENSE"
+        original = path.read_bytes()
+        for contents in (None, original + b"\nUnreviewed license change\n"):
+            with self.subTest(missing=contents is None):
+                path.unlink(missing_ok=True)
+                if contents is not None:
+                    path.write_bytes(contents)
+                with self.assertRaises(source_policy.SourcePolicyError):
+                    source_policy.verify_source_bytes()
+                path.write_bytes(original)
+        source_policy.verify_source_bytes()
 
     def test_shared_quarantine_helpers_are_sealed(self):
         for name in (
