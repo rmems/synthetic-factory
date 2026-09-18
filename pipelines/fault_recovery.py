@@ -271,6 +271,8 @@ def _corruption_ticks(spec: _DisturbanceSpec, system: dict[str, Any]) -> frozens
     """Keep the existing phase, with one real event when a positive burst misses it."""
     if spec.kind != "burst_corruption" or spec.corrupt_ratio == 0:
         return frozenset()
+    if not spec.affected:
+        raise oc.ContractError("positive corruption requires a sampled primary channel")
     eligible = [tick for tick in range(int(system["ticks"]))
                 if spec.in_window(tick * float(system["tick_ms"]))]
     if not eligible:

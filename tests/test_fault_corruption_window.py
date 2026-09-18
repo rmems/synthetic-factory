@@ -23,6 +23,19 @@ class CorruptionWindow(unittest.TestCase):
                 self.assertNotEqual(result.outcome, "continue")
                 self.assertIsNotNone(result.detection_latency_ms)
 
+    def test_positive_burst_requires_a_sampled_channel(self):
+        with self.assertRaises(fr.oc.ContractError):
+            fr.RelayReflexSimulator().run(
+                scenario(fallback_source="backup"),
+                disturbance(
+                    "burst_corruption",
+                    channels=["backup"],
+                    onset_ms=4.0,
+                    duration_ms=10.0,
+                    corrupt_ratio=0.2,
+                ),
+            )
+
     def test_zero_requested_ratio_stays_uncorrupted(self):
         result = fr.RelayReflexSimulator().run(
             scenario(),
