@@ -46,6 +46,7 @@ else:
 
 KINDS = (
     "code_repair",
+    "fault_recovery",
     "thalamic",
     "preference",
     "bridge_pair",
