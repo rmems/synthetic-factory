@@ -115,8 +115,15 @@ def _source_base(
     if base is None and "CATALOG_FIRST" in assignments:
         base = _const_eval(assignments["CATALOG_FIRST"])
     if base is None:
-        base = int(mill_id[len("csv_r") :])
+        base = _suffix_round(mill_id)
     return _require_int(base, 1, f"{source} CATALOG_FIRST", FINDING_PLANT_FIELD_INVALID)
+
+
+def _suffix_round(mill_id: str) -> int:
+    try:
+        return int(mill_id[len("csv_r") :])
+    except ValueError as exc:
+        raise CsvRefusal(FINDING_PLANT_FIELD_INVALID, "mill round suffix exceeds the integer limit") from exc
 
 
 def _pair_keys(mapping: dict[str, Any], where: str) -> None:

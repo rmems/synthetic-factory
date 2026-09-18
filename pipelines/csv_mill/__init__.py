@@ -19,6 +19,7 @@ __all__ = [
     "cli",
     "generate",
     "generate_io",
+    "generate_parent",
     "steps",
     "steps_templates",
 ]

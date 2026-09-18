@@ -71,6 +71,19 @@ class CatalogBoundaries(unittest.TestCase):
         with self.assertRaises(CsvRefusal):
             catalog.load_catalog(self.directory)
 
+    def test_plant_source_must_match_its_owning_mill(self):
+        rows = [json.loads(line) for line in (self.directory / "plants.jsonl").read_text().splitlines()]
+        rows[0]["source"] = "experiments/contradictory-source.py"
+        self._save(rows)
+        with self.assertRaisesRegex(CsvRefusal, "source"):
+            catalog.load_catalog(self.directory)
+
+    def test_extractor_translates_an_oversized_numeric_suffix(self):
+        source = _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX)
+        with self.assertRaises(CsvRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="csv_r" + "9" * 5000, source="recovered.py")
+        self.assertEqual(caught.exception.code, "PLANT_FIELD_INVALID")
+
 
 class OutputBoundaries(unittest.TestCase):
     def test_parent_file_is_a_structured_refusal(self):

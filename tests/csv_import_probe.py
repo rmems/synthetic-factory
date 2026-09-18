@@ -15,6 +15,7 @@ MODULES = (
     "cli",
     "generate",
     "generate_io",
+    "generate_parent",
     "steps",
     "steps_templates",
 )
@@ -29,14 +30,14 @@ def _forget_family() -> None:
 
 def _direct_family():
     import csv_mill as package
-    from csv_mill import _contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, steps, steps_templates
-    return package, (_contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, steps, steps_templates)
+    from csv_mill import _contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, generate_parent, steps, steps_templates
+    return package, (_contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, generate_parent, steps, steps_templates)
 
 
 def _packaged_family():
     import pipelines.csv_mill as package
-    from pipelines.csv_mill import _contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, steps, steps_templates
-    return package, (_contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, steps, steps_templates)
+    from pipelines.csv_mill import _contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, generate_parent, steps, steps_templates
+    return package, (_contract, catalog, catalog_extract, catalog_io, catalog_models, catalog_validation, cli, generate, generate_io, generate_parent, steps, steps_templates)
 
 
 def _stdlib_csv():

@@ -140,6 +140,10 @@ def _group_plants(plants: tuple[Plant, ...]) -> dict[str, list[Plant]]:
 
 def _check_mill_base(mill: Mill, plants: list[Plant]) -> None:
     for plant in plants:
+        if plant.source != mill.source:
+            raise CsvRefusal(
+                FINDING_CATALOG_FIELD_INVALID, f"{plant.plant_id} source != mill source"
+            )
         if plant.base_round != mill.base_round:
             raise CsvRefusal(
                 FINDING_CATALOG_FIELD_INVALID, f"{plant.plant_id} base_round != mill base_round"
