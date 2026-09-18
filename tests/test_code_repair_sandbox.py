@@ -153,6 +153,12 @@ class LandlockTokens(unittest.TestCase):
 
     def test_runtime_prefixes_never_include_root(self):
         self.assertNotIn("/", landlock._runtime_prefixes())
+        self.assertNotIn("/", landlock._read_roots())
+        self.assertNotIn("/", landlock.SYSTEM_LIB_ROOTS)
+
+    def test_open_allowed_refuses_host_canaries(self):
+        self.assertIsNone(landlock._open_allowed("/etc/passwd", set(landlock._read_roots())))
+        self.assertIsNone(landlock._open_allowed("/etc/passwd", set(landlock.DEV_NODES)))
 
 
 if __name__ == "__main__":

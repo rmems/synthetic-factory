@@ -11,7 +11,6 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-from pathlib import Path
 
 MECHANISM = "landlock"
 MIN_ABI = 3
@@ -49,6 +48,7 @@ RW_ACCESS = (
     | FS_MAKE_DIR | FS_MAKE_REG | FS_MAKE_SYM
 )
 DEV_NODES = ("/dev/null", "/dev/zero", "/dev/urandom", "/dev/random")
+SYSTEM_LIB_ROOTS = ("/lib", "/lib64", "/usr/lib", "/usr/lib64")
 HOST_CANARIES = ("/etc/passwd", "/etc/hosts", "/proc/1/environ")
 
 __all__ = ["MECHANISM", "MIN_ABI", "applied", "apply", "available", "token_for"]
@@ -160,6 +160,18 @@ def _runtime_prefixes() -> set[str]:
     return {path for path in resolved if path and path != "/"}
 
 
+def _read_roots() -> set[str]:
+    """Interpreter prefixes plus fixed system library roots; never ``/``."""
+
+    roots = set(_runtime_prefixes())
+    for root in SYSTEM_LIB_ROOTS:
+        if os.path.isdir(root):
+            resolved = os.path.realpath(root)
+            if resolved and resolved != "/":
+                roots.add(resolved)
+    return roots
+
+
 class _ActiveRuleset:
     libc = None
     fd = 0
@@ -181,8 +193,19 @@ def _bind_ruleset(opened, abi: int) -> _ActiveRuleset:
     return active
 
 
-def _add_path(active: _ActiveRuleset, path: str, access: int) -> bool:
-    fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+def _open_allowed(path: str, allowed: set[str]) -> int | None:
+    """Open ``path`` only when it is a device node or sits under an allowed root."""
+
+    resolved = os.path.realpath(path)
+    if resolved not in DEV_NODES and not any(_beneath(resolved, root) for root in allowed):
+        return None
+    return os.open(resolved, os.O_PATH | os.O_CLOEXEC)
+
+
+def _add_path(active: _ActiveRuleset, path: str, access: int, allowed: set[str]) -> bool:
+    fd = _open_allowed(path, allowed)
+    if fd is None:
+        return False
     try:
         attr = _PathBeneath(access, fd)
         rule = active.libc.syscall(
@@ -196,29 +219,20 @@ def _add_path(active: _ActiveRuleset, path: str, access: int) -> bool:
 def _allow_roots(active: _ActiveRuleset, workdir: str) -> bool:
     ro = (RO_ACCESS | FS_REFER) & active.handled_fs
     rw = (RW_ACCESS | FS_REFER | FS_TRUNCATE) & active.handled_fs
-    if not _add_path(active, workdir, rw):
+    work = {os.path.realpath(workdir)}
+    if not _add_path(active, workdir, rw, work):
         return False
-    for prefix in _runtime_prefixes():
-        if not os.path.isdir(prefix) or not _add_path(active, prefix, ro):
+    for prefix in _read_roots():
+        if not os.path.isdir(prefix) or not _add_path(active, prefix, ro, {prefix}):
             return False
     return True
 
 
-def _allow_extra_mapped(active: _ActiveRuleset, workdir: str, path: str) -> None:
-    prefixes = _runtime_prefixes()
-    if _beneath(path, workdir) or any(_beneath(path, prefix) for prefix in prefixes):
-        return
-    extra = (FS_READ_FILE | FS_EXECUTE | active.ioctl) & active.handled_fs
-    _add_path(active, path, extra)
-
-
-def _allow_devices_and_maps(active: _ActiveRuleset, workdir: str) -> bool:
+def _allow_devices(active: _ActiveRuleset) -> bool:
     access = FS_READ_FILE | active.ioctl
     for node in DEV_NODES:
-        if os.path.exists(node) and not _add_path(active, node, access):
+        if os.path.exists(node) and not _add_path(active, node, access, set(DEV_NODES)):
             return False
-    for mapped in _mapped_files():
-        _allow_extra_mapped(active, workdir, mapped)
     return True
 
 
@@ -228,25 +242,13 @@ def _restrict_filesystem(workdir: str, abi: int) -> bool:
         return False
     active = _bind_ruleset(opened, abi)
     try:
-        if not _allow_roots(active, workdir) or not _allow_devices_and_maps(active, workdir):
+        if not _allow_roots(active, workdir) or not _allow_devices(active):
             return False
         if active.libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             return False
         return int(active.libc.syscall(active.restrict, active.fd, 0)) == 0
     finally:
         os.close(active.fd)
-
-
-def _mapped_files() -> set[str]:
-    mapped: set[str] = set()
-    for line in Path("/proc/self/maps").read_text(encoding="utf-8", errors="replace").splitlines():
-        parts = line.split()
-        if len(parts) < 6 or not parts[-1].startswith("/"):
-            continue
-        path = os.path.realpath(parts[-1])
-        if os.path.isfile(path):
-            mapped.add(path)
-    return mapped
 
 
 def _beneath(path: str, root: str) -> bool:
