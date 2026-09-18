@@ -322,6 +322,8 @@ class _CorpusAudit:
         self.totals = Counter()
         self.code_repair = Counter()
         self.code_repair_reasons = Counter()
+        self.oracle = Counter()
+        self.oracle_reasons = Counter()
         self.kinds = Counter()
         self.record_errors = []
         self.unresolved_record_warnings = []
@@ -454,10 +456,58 @@ class _CorpusAudit:
             and "code_repair" in row.record_kinds
         )
 
+    @staticmethod
+    def _registered_oracle_route(obj, factory):
+        """Return whether path-derived registry authority permits oracle validation."""
+        if __package__:
+            from .curate_identity import default_registry
+            from .oracle_grounded.record import SCHEMA_ID
+        else:
+            from curate_identity import default_registry
+            from oracle_grounded.record import SCHEMA_ID
+        if not isinstance(obj, dict) or obj.get("schema") != SCHEMA_ID:
+            return False
+        row = default_registry().by_path_id.get(factory)
+        return (
+            row is not None
+            and row.identity_authoritative
+            and "oracle" in row.record_kinds
+        )
+
+    def _observe_oracle(self, obj, where, factory, bucket):
+        if __package__:
+            from .curate_identity import default_registry
+            from .oracle_grounded.admission import OracleAdmissionError, natural_eligibility
+        else:
+            from curate_identity import default_registry
+            from oracle_grounded.admission import OracleAdmissionError, natural_eligibility
+        self.kinds["oracle"] += 1
+        bucket["by_kind"]["oracle"] += 1
+        self.oracle["records"] += 1
+        row = default_registry().by_path_id.get(factory)
+        try:
+            eligible, reasons = natural_eligibility(obj, row)
+        except OracleAdmissionError as exc:
+            self.oracle["invalid_records"] += 1
+            self.record_errors.append(f"{where}: {exc}")
+            return
+        self._observe_identity(obj, obj.get("id"), where)
+        self._observe_duplicate(obj, where)
+        if not eligible:
+            self.oracle["evidence_only_records"] += 1
+            self.oracle_reasons.update(reasons)
+            return
+        self.oracle["eligible_records"] += 1
+        self.totals["eligible_records"] += 1
+        bucket["eligible_records"] += 1
+
     def _observe_valid_record(self, obj, where, factory):
         bucket = self.factories[factory]
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
+            return
+        if self._registered_oracle_route(obj, factory):
+            self._observe_oracle(obj, where, factory, bucket)
             return
         self.totals["eligible_records"] += 1
         bucket["eligible_records"] += 1
@@ -740,6 +790,17 @@ class _CorpusAudit:
             }
             if self.code_repair["completed_records"] != self.code_repair["records"]:
                 report["blockers"].append("code_repair requires fresh replay and round completion gate")
+                report["training_ready"] = False
+        if self.oracle:
+            report["oracle"] = {
+                **{key: self.oracle[key] for key in (
+                    "records", "eligible_records", "evidence_only_records", "invalid_records",
+                )},
+                "ineligibility_reasons": dict(sorted(self.oracle_reasons.items())),
+                "validation_scope": "recomputed_from_measurement",
+            }
+            if self.oracle["invalid_records"]:
+                report["blockers"].append("oracle records failed validation and are not admissible")
                 report["training_ready"] = False
         return report
 
