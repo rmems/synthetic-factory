@@ -112,10 +112,11 @@ _FNV_PRIME = 0x100000001B3
 
 def seed_from_label(seed, label):
     """Derive a stable 64-bit sub-seed from an integer seed and a text label."""
+    check_seed(seed)
     digest = _FNV_OFFSET
     for byte in str(label).encode("utf-8"):
         digest = ((digest ^ byte) * _FNV_PRIME) & MASK64
-    return (digest ^ (int(seed) & MASK64)) & MASK64
+    return (digest ^ seed) & MASK64
 
 
 class Rng:
@@ -124,7 +125,8 @@ class Rng:
     __slots__ = ("_state",)
 
     def __init__(self, seed):
-        self._state = int(seed) & MASK64
+        check_seed(seed)
+        self._state = seed
 
     def derive(self, label):
         """A fresh independent stream, stable for this (seed, label) pair."""

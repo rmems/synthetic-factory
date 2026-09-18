@@ -105,17 +105,14 @@ def _generator_findings(record: Mapping[str, Any]) -> list[tuple[str, str]]:
 
 
 def _measurement_eligibility(record: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
-    """Authenticate reference output without implicitly executing runtime commands."""
-    from . import record as oracle_record
+    """Use the fresh classification replay; runtime receipts remain unavailable.
 
+    Called only after _require_consistent_validation proves this accepted
+    reference record through classify's exact replay. Nothing in the payload
+    can replace that invocation or supply a cached successful receipt.
+    """
     if record["oracle"]["implementation"] != "reference":
         return False, ("authenticated runtime replay required",)
-    try:
-        status, detail = oracle_record.reproduce(record, environ={})
-    except Exception as exc:  # final boundary around one untrusted record
-        _refuse("ORACLE_VALIDATION_INVALID", f"reference replay raised {type(exc).__name__}")
-    if status != "reproduced":
-        _refuse("ORACLE_VALIDATION_INVALID", f"reference replay {status}: {detail}")
     return True, ()
 
 

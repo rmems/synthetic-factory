@@ -25,8 +25,7 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
         item = build(families.ENCODER_FAMILY)
         with mock.patch.object(record, "reproduce", wraps=record.reproduce) as replay:
             self.assertEqual(admission.natural_eligibility(item, self._row()), (True, ()))
-        self.assertTrue(replay.call_args_list)
-        self.assertTrue(all(call == mock.call(item, environ={}) for call in replay.call_args_list))
+        replay.assert_called_once_with(item, environ={})
 
     def test_recomputed_hash_cannot_authenticate_an_invented_measurement_label(self):
         for family in (families.NEURON_FAMILY, families.MESH_FAMILY):
