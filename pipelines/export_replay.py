@@ -23,6 +23,7 @@ import compose_curated  # noqa: E402
 import compose_mill  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
+    EmittedRecord,
     default_units_migration_path,
     published_source_snapshot,
 )
@@ -95,6 +96,7 @@ class _LineReplay:
     source_file_sha256: str
     catalog: Any
     mill_finding: Any
+    source_terminator: str = "\n"
 
 
 @dataclass(frozen=True)
@@ -151,10 +153,14 @@ def _record_replayed_retained_context(
     decision: Any,
     entry: dict[str, Any],
     replay: _LineReplay,
-) -> str:
+) -> EmittedRecord:
     """Account one replayed record that compose would have emitted."""
 
-    line = compose_curated.canonical_json(decision.record)
+    if __package__:
+        from .compose_contract import retained_json_line, emitted_record_line
+    else:
+        from compose_contract import retained_json_line, emitted_record_line
+    line = retained_json_line(decision)
     _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
     entry.update(
         {
@@ -168,7 +174,7 @@ def _record_replayed_retained_context(
     if decision.reward_sidecar is not None:
         entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
         state.expected_sidecars.append(decision.reward_sidecar)
-    return line
+    return emitted_record_line(decision, line, replay.source_terminator)
 
 
 def _record_replayed_retained(
@@ -215,7 +221,7 @@ def _replay_one_line_context(
     state: _ReplayState,
     physical_line: bytes,
     replay: _LineReplay,
-) -> str | None:
+) -> EmittedRecord | None:
     """Replay one non-blank source line through the compose lanes."""
 
     state.counts["source_records"] += 1
@@ -278,11 +284,15 @@ def _replay_one_line(
         emitted.append(emitted_line)
 
 
-def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[str]) -> None:
+def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[EmittedRecord]) -> None:
     """Record the output file one replayed source file would have produced."""
 
     output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
-    payload = "".join(line + "\n" for line in emitted).encode("utf-8")
+    if __package__:
+        from .compose_contract import emitted_records_text
+    else:
+        from compose_contract import emitted_records_text
+    payload = emitted_records_text(emitted).encode("utf-8")
     state.expected_payloads[output_path] = payload
     state.expected_outputs.append(
         {
@@ -309,7 +319,12 @@ def _replay_source_file_context(
         }
     )
     state.counts["source_files"] += 1
-    emitted: list[str] = []
+    emitted: list[EmittedRecord] = []
+    if __package__:
+        from .compose_contract import source_terminators
+    else:
+        from compose_contract import source_terminators
+    terminators = source_terminators(replay.raw_file)
 
     for line_number, physical_line in enumerate(_replay_physical_lines(replay.raw_file), 1):
         if not physical_line.strip():
@@ -325,6 +340,7 @@ def _replay_source_file_context(
                 source_file_sha256=source_file_sha256,
                 catalog=replay.catalog,
                 mill_finding=replay.mill_findings.get((replay.relative, line_number)),
+                source_terminator=terminators[line_number - 1],
             ),
         )
         if emitted_line is not None:

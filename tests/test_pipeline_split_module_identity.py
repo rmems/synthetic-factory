@@ -110,6 +110,8 @@ NEW_SPLIT_MODULES = (
     "validate_run_provenance",
     "curate_identity_registry_fields",
     "curate_identity_registry_rows",
+    "curate_parity_policy",
+    "curate_parity",
     "curate_identity_registry",
     "curate_identity_json",
     "curate_gate_promotion",

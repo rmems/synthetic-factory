@@ -269,6 +269,23 @@ def _output_summary(relative: str, target: Path, records: list[dict[str, Any]]) 
     }
 
 
+def _composed_line(item):
+    record = item["record"]
+    if record.get("record_kind") in {"hardware_parity", "nir_equivalence"}:
+        payload = item.get("source_bytes")
+        if not isinstance(payload, bytes) or record_sha256(record) != item["source_record_sha256"]:
+            raise GateError("native parity composition must preserve authenticated source bytes")
+        return payload
+    return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _composed_payload(records):
+    lines = [_composed_line(item) for item in records]
+    if any(not line.endswith(b"\n") for line in lines[:-1]):
+        raise GateError("unterminated native source cannot precede another composed record")
+    return b"".join(lines)
+
+
 def _write_composed_path(
     destination: Path, relative: str, records: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -276,11 +293,7 @@ def _write_composed_path(
     records.sort(key=lambda item: (item["source_path"], item["source_line"]))
     target = destination / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = "".join(
-        dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True) + "\n"
-        for item in records
-    )
-    target.write_text(payload, encoding="utf-8", newline="\n")
+    target.write_bytes(_composed_payload(records))
     bindings = [
         _record_binding(relative, output_line, item) for output_line, item in enumerate(records, 1)
     ]

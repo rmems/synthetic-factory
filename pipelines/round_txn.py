@@ -47,6 +47,8 @@ if __package__:
 
     _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
+    from .record_kind import DECLARED_FACTORY_KINDS
+    from .oracle_grounded.parity_publication import batch_errors as parity_batch_errors
     from .operator_paths import operator_path
     from . import round_txn_agentic as _round_txn_agentic
     from . import round_txn_agentic_terms as _round_txn_agentic_terms
@@ -61,6 +63,8 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
+    from record_kind import DECLARED_FACTORY_KINDS
+    from oracle_grounded.parity_publication import batch_errors as parity_batch_errors
     from operator_paths import operator_path
     import round_txn_agentic as _round_txn_agentic
     import round_txn_agentic_terms as _round_txn_agentic_terms
@@ -730,6 +734,7 @@ def validate_legacy_baseline_payloads(
                 f"invalid legacy payload covered by marker baseline: {path}"
                 + (f"\n{details}" if details else "")
             )
+        _enforce_parity_batch(path, factory_dir, round_number)
         records_by_round[round_number] = records_by_round.get(round_number, 0) + records
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
     for round_number, records in records_by_round.items():
@@ -1664,6 +1669,15 @@ def validate_novel_coverage(
     return None
 
 
+def _enforce_parity_batch(batch, factory_dir, round_number):
+    kind = DECLARED_FACTORY_KINDS.get(factory_dir.name)
+    if kind is None:
+        return
+    errors = parity_batch_errors(batch, kind, round_number)
+    if errors:
+        raise TransactionError("parity batch is incomplete or misbound:\n" + "\n".join(errors))
+
+
 def _validate_staged_batch(batch, factory_dir, expected, round_number):
     errors, warnings, kinds, records = check_jsonl(
         batch,
@@ -1680,7 +1694,9 @@ def _validate_staged_batch(batch, factory_dir, expected, round_number):
     _stage_checks.validate_counts(
         records, kinds,
         _stage_checks.BatchPolicy(
-            factory_dir.name, expected, AGENTIC_FACTORY_KINDS.get(factory_dir.name), TransactionError,
+            factory_dir.name, expected,
+            DECLARED_FACTORY_KINDS.get(factory_dir.name, AGENTIC_FACTORY_KINDS.get(factory_dir.name)),
+            TransactionError,
         ),
     )
     envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
@@ -1690,6 +1706,7 @@ def _validate_staged_batch(batch, factory_dir, expected, round_number):
             + "\n".join(f"ERROR: {error}" for error in envelope_errors)
         )
     enforce_bridge_envelope(batch, factory_dir, TransactionError)
+    _enforce_parity_batch(batch, factory_dir, round_number)
     return kinds, records
 
 

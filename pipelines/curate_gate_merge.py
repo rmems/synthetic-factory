@@ -16,6 +16,7 @@ compares it by identity.
 from __future__ import annotations
 
 import copy
+import io
 import json
 import sys
 from pathlib import Path
@@ -52,6 +53,12 @@ _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 _assert_no_symlink = _paths._assert_no_symlink
 
 
+def _source_line_payload(physical_line):
+    if physical_line.endswith(b"\n"):
+        return physical_line[:-1].removesuffix(b"\r")
+    return physical_line
+
+
 def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, Any]]:
     """Load the immutable source bytes used as the three-way merge base."""
     records: dict[tuple[str, int], dict[str, Any]] = {}
@@ -65,8 +72,8 @@ def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, An
             path,
             "source JSONL",
         )
-        for line_number, terminated in enumerate(payload.split(b"\n"), 1):
-            raw_line = terminated[:-1] if terminated.endswith(b"\r") else terminated
+        for line_number, physical_line in enumerate(io.BytesIO(payload), 1):
+            raw_line = _source_line_payload(physical_line)
             if not raw_line.strip():
                 continue
             record: Any = None
@@ -85,6 +92,7 @@ def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, An
             records[(relative, line_number)] = {
                 "record": record,
                 "source_hash": sha256_hex(raw_line),
+                "source_bytes": physical_line,
                 "parse_error": parse_error,
             }
     return records

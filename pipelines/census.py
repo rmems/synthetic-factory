@@ -26,7 +26,7 @@ if __package__:
         factory_identity_for_path as shared_factory_identity_for_path,
         summarize as summarize_mill_mix,
     )
-    from .record_kind import THALAMIC_REQUIRED, classify_kind
+    from .record_kind import DECLARED_FACTORY_KINDS, DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
     from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from .validate_run import reject_json_constant
 else:
@@ -40,7 +40,7 @@ else:
         factory_identity_for_path as shared_factory_identity_for_path,
         summarize as summarize_mill_mix,
     )
-    from record_kind import THALAMIC_REQUIRED, classify_kind
+    from record_kind import DECLARED_FACTORY_KINDS, DECLARED_KINDS, THALAMIC_REQUIRED, classify_kind
     from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from validate_run import reject_json_constant
 
@@ -52,11 +52,14 @@ KINDS = (
     "multi_agent",
     "safety_case",
     "episode",
+    "hardware_parity",
+    "nir_equivalence",
     "unknown",
 )
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
 
 __all__ = [
+    "DECLARED_KINDS",
     "KINDS",
     "SIM_BUCKETS",
     "THALAMIC_REQUIRED",
@@ -186,7 +189,7 @@ def factory_identity_for_path(
         # all-foreign batch redefine the destination from its own payload
         # declaration -- so this report-only audit would miss the very
         # contamination it exists to surface. Matches curate_agentic.
-        known_factories=default_registry().by_path_id,
+        known_factories=set(default_registry().by_path_id) | DECLARED_FACTORY_KINDS.keys(),
     )
 
 
@@ -229,7 +232,7 @@ def _read_census_records(path: Path, source: str):
             decoded.append(
                 (lineno, json.loads(line, parse_constant=reject_json_constant))
             )
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             parse_failures += 1
     return decoded, parse_failures, unreadable
 
@@ -237,8 +240,20 @@ def _read_census_records(path: Path, source: str):
 def _record_simulation_buckets(obj) -> Counter:
     values = list(iter_sim_or_real(obj))
     if not values:
+        values = _parity_provenance_values(obj)
+    if not values:
         return Counter({"<missing>": 1})
     return Counter(bucket_sim_or_real(value) for value in values)
+
+
+def _parity_provenance_values(obj) -> list[str]:
+    if not isinstance(obj, dict) or obj.get("record_kind") not in ("hardware_parity", "nir_equivalence"):
+        return []
+    provenance = obj.get("provenance")
+    if not isinstance(provenance, dict):
+        return []
+    value = provenance.get("kind")
+    return [value] if isinstance(value, str) else []
 
 
 class _CensusTotals:

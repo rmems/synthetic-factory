@@ -18,6 +18,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("curate_identity_output")
+    from .record_kind import PRESERVED_NATIVE_KINDS
 else:
     def _ignore_package_sibling(_name):
         return None
@@ -28,6 +29,7 @@ else:
         "_join_package_sibling",
         _ignore_package_sibling,
     )("curate_identity_output")
+    from record_kind import PRESERVED_NATIVE_KINDS
 
 
 @dataclass(frozen=True)
@@ -102,11 +104,11 @@ def _record_source_coordinate(source, entry, seen_coordinates, dependencies):
 def _record_preserved_code_repair_id(expected_mapping, preserved_ids, dependencies):
     """Enforce global identity for retained code-repair evidence."""
 
-    if expected_mapping.get("record_kind") != "code_repair":
+    if expected_mapping.get("record_kind") not in PRESERVED_NATIVE_KINDS:
         return
     preserved_id = expected_mapping["output_id"]
     if preserved_id in preserved_ids:
-        raise dependencies.identity_tree_error(f"duplicate preserved code_repair ID: {preserved_id}")
+        raise dependencies.identity_tree_error(f"duplicate preserved native ID: {preserved_id}")
     preserved_ids.add(preserved_id)
 
 
