@@ -11,10 +11,19 @@ import ast
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 UNSET = object()
+
+
+@dataclass(frozen=True)
+class SourceContext:
+    path: str
+    blob_sha: str
+    digest: str
+    lines: int
 
 GQL_PATH = "experiments/mill_gql_leftover6_r260.py"
 SSL_PATH = "experiments/ssl_r164_leftover6_mill.py"
@@ -84,21 +93,32 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     bound = env or {}
+    value = _atomic_literal(node, bound)
+    if value is not UNSET:
+        return value
+    return _compound_literal(node, bound)
+
+
+def _atomic_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
+        return env[node.id] if node.id in env else UNSET
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
+        inner = literal_value(node.operand, env)
         return -inner if isinstance(inner, (int, float)) else UNSET
+    return UNSET
+
+
+def _compound_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
+        return _sequence(node.elts, env, tuple)
     if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
+        return _sequence(node.elts, env, list)
     if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
+        return _mapping(node, env)
     if isinstance(node, ast.Call):
-        return _literal_call(node, bound)
+        return _literal_call(node, env)
     return UNSET
 
 
@@ -128,27 +148,23 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
 def _literal_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if not isinstance(node.func, ast.Name):
         return UNSET
-    name = node.func.id
-    if name == "dict":
-        if node.args:
-            return UNSET
-        out: dict[str, Any] = {}
-        for keyword in node.keywords:
-            if keyword.arg is None:
-                return UNSET
-            value = literal_value(keyword.value, env)
-            if value is UNSET:
-                return UNSET
-            out[keyword.arg] = value
-        return out
-    if name == "_row":
-        if node.keywords or len(node.args) != len(SBOX_PLANT_FIELDS):
-            return UNSET
-        values = _sequence(node.args, env, list)
-        if values is UNSET:
-            return UNSET
-        return dict(zip(SBOX_PLANT_FIELDS, values, strict=True))
-    return UNSET
+    parsers = {"dict": _dict_call, "_row": _row_call}
+    parser = parsers.get(node.func.id)
+    return UNSET if parser is None else parser(node, env)
+
+
+def _dict_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
+    if node.args or any(keyword.arg is None for keyword in node.keywords):
+        return UNSET
+    values = {keyword.arg: literal_value(keyword.value, env) for keyword in node.keywords}
+    return UNSET if any(value is UNSET for value in values.values()) else values
+
+
+def _row_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
+    if node.keywords or len(node.args) != len(SBOX_PLANT_FIELDS):
+        return UNSET
+    values = _sequence(node.args, env, list)
+    return UNSET if values is UNSET else dict(zip(SBOX_PLANT_FIELDS, values, strict=True))
 
 
 def module_constants(source: str, *, path: str) -> dict[str, Any]:
@@ -173,12 +189,10 @@ def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, A
     constants = module_constants(source, path=path)
     digest = sha256_bytes(payload)
     lines = source.count("\n")
-    if path.endswith("mill_gql_leftover6_r260.py"):
-        return _gql_record(constants, path=path, blob_sha=blob_sha, digest=digest, lines=lines)
-    if path.endswith("ssl_r164_leftover6_mill.py"):
-        return _ssl_record(constants, path=path, blob_sha=blob_sha, digest=digest, lines=lines)
-    if path.endswith("sbox-mill-plants-leftover6.py"):
-        return _sbox_record(constants, path=path, blob_sha=blob_sha, digest=digest, lines=lines)
+    context = SourceContext(path, blob_sha, digest, lines)
+    for suffix, builder in (("mill_gql_leftover6_r260.py", _gql_record), ("ssl_r164_leftover6_mill.py", _ssl_record), ("sbox-mill-plants-leftover6.py", _sbox_record)):
+        if path.endswith(suffix):
+            return builder(constants, context)
     raise ValueError(f"unsupported leftover6 source {path}")
 
 
@@ -194,14 +208,8 @@ def _require_int(value: Any, context: str) -> int:
     return value
 
 
-def _gql_record(
-    constants: Mapping[str, Any],
-    *,
-    path: str,
-    blob_sha: str,
-    digest: str,
-    lines: int,
-) -> dict[str, Any]:
+def _gql_record(constants: Mapping[str, Any], context: SourceContext) -> dict[str, Any]:
+    path, blob_sha, digest, lines = context.path, context.blob_sha, context.digest, context.lines
     pairs_raw = constants.get("PAIRS")
     rows = _mapping_rows(pairs_raw, GQL_PAIR_FIELDS, path=path, name="PAIRS")
     return {
@@ -223,14 +231,8 @@ def _gql_record(
     }
 
 
-def _ssl_record(
-    constants: Mapping[str, Any],
-    *,
-    path: str,
-    blob_sha: str,
-    digest: str,
-    lines: int,
-) -> dict[str, Any]:
+def _ssl_record(constants: Mapping[str, Any], context: SourceContext) -> dict[str, Any]:
+    path, blob_sha, digest, lines = context.path, context.blob_sha, context.digest, context.lines
     pairs_raw = constants.get("PAIRS")
     rows = _mapping_rows(pairs_raw, SSL_PAIR_FIELDS, path=path, name="PAIRS")
     n_rounds = _require_int(constants.get("N_ROUNDS"), f"{path} N_ROUNDS")
@@ -256,14 +258,8 @@ def _ssl_record(
     }
 
 
-def _sbox_record(
-    constants: Mapping[str, Any],
-    *,
-    path: str,
-    blob_sha: str,
-    digest: str,
-    lines: int,
-) -> dict[str, Any]:
+def _sbox_record(constants: Mapping[str, Any], context: SourceContext) -> dict[str, Any]:
+    path, blob_sha, digest, lines = context.path, context.blob_sha, context.digest, context.lines
     rows = _mapping_rows(constants.get("_ROWS"), SBOX_PLANT_FIELDS, path=path, name="_ROWS")
     first_inc = _require_int(rows[0]["inc"], f"{path} _ROWS[0].inc")
     return {
@@ -292,21 +288,21 @@ def _mapping_rows(
 ) -> list[dict[str, Any]]:
     if not isinstance(raw, list) or not raw:
         raise ValueError(f"{path} {name} is not a non-empty literal list")
-    rows: list[dict[str, Any]] = []
-    for index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise ValueError(f"{path} {name}[{index}] is not a literal mapping")
-        if set(item) != set(fields):
-            raise ValueError(f"{path} {name}[{index}] keys drifted from {fields}")
-        row: dict[str, Any] = {}
-        for field in fields:
-            value = item[field]
-            if field in {"inc", "novel"}:
-                row[field] = _require_int(value, f"{path} {name}[{index}].{field}")
-            else:
-                row[field] = _require_str(value, f"{path} {name}[{index}].{field}")
-        rows.append(row)
-    return rows
+    return [_typed_mapping(item, fields, f"{path} {name}[{index}]")
+            for index, item in enumerate(raw)]
+
+
+def _typed_mapping(item: Any, fields: tuple[str, ...], context: str) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        raise ValueError(f"{context} is not a literal mapping")
+    if set(item) != set(fields):
+        raise ValueError(f"{context} keys drifted from {fields}")
+    return {field: _field_value(field, item[field], context) for field in fields}
+
+
+def _field_value(field: str, value: Any, context: str) -> Any:
+    checker = _require_int if field in {"inc", "novel"} else _require_str
+    return checker(value, f"{context}.{field}")
 
 
 def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
