@@ -54,6 +54,28 @@ class ShapeDesignedPlan(NamedTuple):
     root_original_ids: list[dict[str, Any]]
 
 
+class NestedIdsPlan(NamedTuple):
+    """The inputs needed to assign IDs to a curated record and its owners."""
+
+    curated: dict[str, Any]
+    original: Mapping[str, Any]
+    source: Any
+    kind: str
+    owner_specs: list[tuple[str, Mapping[str, Any]]]
+    output_id: str
+    root_original_ids: list[dict[str, Any]]
+
+
+class NestedWrapperMappingPlan(NamedTuple):
+    """The aggregate provenance inputs for a nested trajectory wrapper."""
+
+    curated: dict[str, Any]
+    original: Mapping[str, Any]
+    canonical_provenances: list[dict[str, Any]]
+    provenance_mappings: list[dict[str, Any]]
+    equal: Callable[..., bool]
+
+
 class ApplyIds(NamedTuple):
     """Live identity helpers the apply step reads from the facade."""
 
@@ -86,30 +108,23 @@ def _owner_provenance_original(owner: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def assign_nested_ids(
-    curated: dict[str, Any],
-    original: Mapping[str, Any],
-    source: Any,
-    kind: str,
-    owner_specs: list[tuple[str, Mapping[str, Any]]],
-    output_id: str,
-    root_original_ids: list[dict[str, Any]],
-    ids: ApplyIds,
-) -> list[dict[str, Any]]:
+def assign_nested_ids(plan: NestedIdsPlan, ids: ApplyIds) -> list[dict[str, Any]]:
     id_mappings: list[dict[str, Any]] = [
         {
             "owner_path": "/",
-            "original_ids": root_original_ids,
-            "output_id": output_id,
+            "original_ids": plan.root_original_ids,
+            "output_id": plan.output_id,
         }
     ]
-    curated_owners = dict(ids.owner_specs(curated, kind)) if owner_specs else {}
-    for owner_path, _owner in owner_specs:
+    curated_owners = (
+        dict(ids.owner_specs(plan.curated, plan.kind)) if plan.owner_specs else {}
+    )
+    for owner_path, _owner in plan.owner_specs:
         if owner_path == "/":
             continue
-        nested_id = ids.canonical_id(source, kind, owner_path)
+        nested_id = ids.canonical_id(plan.source, plan.kind, owner_path)
         curated_owners[owner_path]["id"] = nested_id
-        original_owner = dict(ids.owner_specs(original, kind))[owner_path]
+        original_owner = dict(ids.owner_specs(plan.original, plan.kind))[owner_path]
         id_mappings.append(
             {
                 "owner_path": owner_path,
@@ -181,25 +196,21 @@ def _nested_wrapper_kind(
     return wrapper_kind, claims
 
 
-def _append_nested_wrapper_mapping(
-    curated: dict[str, Any],
-    original: Mapping[str, Any],
-    canonical_provenances: list[dict[str, Any]],
-    provenance_mappings: list[dict[str, Any]],
-    equal: Callable[..., bool],
-) -> None:
-    wrapper_kind, wrapper_claimed = _nested_wrapper_kind(canonical_provenances, equal)
-    curated["provenance"] = {
+def _append_nested_wrapper_mapping(plan: NestedWrapperMappingPlan) -> None:
+    wrapper_kind, wrapper_claimed = _nested_wrapper_kind(
+        plan.canonical_provenances, plan.equal
+    )
+    plan.curated["provenance"] = {
         "kind": wrapper_kind,
         "claimed": copy.deepcopy(wrapper_claimed),
     }
-    provenance_mappings.append(
+    plan.provenance_mappings.append(
         seal_provenance_mapping(
             {
                 "owner_path": "/",
                 "basis": "nested_trajectory_aggregate",
-                "original": _owner_provenance_original(original),
-                "canonical": copy.deepcopy(curated["provenance"]),
+                "original": _owner_provenance_original(plan.original),
+                "canonical": copy.deepcopy(plan.curated["provenance"]),
             }
         )
     )
@@ -233,13 +244,15 @@ def apply_resolved_state(plan: ResolvedStatePlan, ids: ApplyIds):
     """Stamp canonical state provenance onto ``plan.curated``."""
 
     id_mappings = assign_nested_ids(
-        plan.curated,
-        plan.original,
-        plan.source,
-        plan.kind,
-        plan.native_owner_specs,
-        plan.output_id,
-        plan.root_original_ids,
+        NestedIdsPlan(
+            plan.curated,
+            plan.original,
+            plan.source,
+            plan.kind,
+            plan.native_owner_specs,
+            plan.output_id,
+            plan.root_original_ids,
+        ),
         ids,
     )
     curated_owners = curated_resolve_owners(
@@ -258,11 +271,13 @@ def apply_resolved_state(plan: ResolvedStatePlan, ids: ApplyIds):
 
     if plan.kind in {"preference", "bridge_pair"}:
         _append_nested_wrapper_mapping(
-            plan.curated,
-            plan.original,
-            canonical_provenances,
-            provenance_mappings,
-            ids.canonical_json_equal,
+            NestedWrapperMappingPlan(
+                plan.curated,
+                plan.original,
+                canonical_provenances,
+                provenance_mappings,
+                ids.canonical_json_equal,
+            )
         )
     elif plan.kind in {"episode", "safety_case", "multi_agent"} and plan.resolutions:
         _append_root_resolution_mapping(
@@ -303,13 +318,15 @@ def apply_shape_designed(plan: ShapeDesignedPlan, ids: ApplyIds):
     designed = _designed_provenance(plan.kind, ids)
     plan.curated["provenance"] = copy.deepcopy(designed)
     id_mappings = assign_nested_ids(
-        plan.curated,
-        plan.original,
-        plan.source,
-        plan.kind,
-        plan.owner_specs,
-        plan.output_id,
-        plan.root_original_ids,
+        NestedIdsPlan(
+            plan.curated,
+            plan.original,
+            plan.source,
+            plan.kind,
+            plan.owner_specs,
+            plan.output_id,
+            plan.root_original_ids,
+        ),
         ids,
     )
     provenance_mappings = [

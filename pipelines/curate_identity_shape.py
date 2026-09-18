@@ -130,6 +130,13 @@ def _bridge_pair_shape_errors(record: Mapping[str, Any]) -> list[str]:
     return errors
 
 
+_SIMPLE_VALIDATORS = {
+    "episode": check_episode,
+    "safety_case": check_safety_case,
+    "multi_agent": check_multi_agent,
+}
+
+
 def shape_validation_errors(
     record: Mapping[str, Any],
     kind: str,
@@ -139,19 +146,14 @@ def shape_validation_errors(
 ) -> list[str]:
     """Return structural shape errors for one classified identity record."""
 
-    if kind == "thalamic":
-        return _structural_thalamic_errors(record, "record")
-    if kind == "episode":
-        return check_episode(record, "record")
     if kind == "preference":
         return _preference_shape_errors(record, owner_specs, owner_specs_fn)
     if kind == "bridge_pair":
         return _bridge_pair_shape_errors(record)
-    if kind == "safety_case":
-        return check_safety_case(record, "record")
-    if kind == "multi_agent":
-        return check_multi_agent(record, "record")
-    return []
+    if kind == "thalamic":
+        return _structural_thalamic_errors(record, "record")
+    validator = _SIMPLE_VALIDATORS.get(kind)
+    return validator(record, "record") if validator else []
 
 
 if __package__:

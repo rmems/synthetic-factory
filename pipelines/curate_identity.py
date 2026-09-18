@@ -689,13 +689,15 @@ def _assign_nested_ids(
     root_original_ids: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     return _identity_apply.assign_nested_ids(
-        curated,
-        original,
-        source,
-        kind,
-        owner_specs,
-        output_id,
-        root_original_ids,
+        _identity_apply.NestedIdsPlan(
+            curated,
+            original,
+            source,
+            kind,
+            owner_specs,
+            output_id,
+            root_original_ids,
+        ),
         _apply_ids(),
     )
 
