@@ -15,6 +15,7 @@ MODULES = (
     "lineage",
     "ast_scan",
     "records",
+    "catalog",
     "cli",
 )
 
@@ -31,8 +32,14 @@ def _forget_repository_modules() -> None:
     ]
 
 
+def _import_family_modules(prefix: str) -> None:
+    for name in MODULES:
+        __import__(f"{prefix}.{name}")
+
+
 def _cli_form() -> Any:
     sys.path.insert(0, str(PIPELINES))
+    _import_family_modules("actf")
     from actf import cli as flat
 
     return flat
@@ -40,6 +47,7 @@ def _cli_form() -> Any:
 
 def _package_form() -> Any:
     sys.path.insert(0, str(REPO))
+    _import_family_modules("pipelines.actf")
     from pipelines.actf import cli as packaged
 
     return packaged

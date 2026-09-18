@@ -27,21 +27,31 @@ else:
     from raw_tree_guard import is_under_raw
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 
-SCHEMA_ID = "wsr-catalog/v1"
+SCHEMA_ID = "wsr-catalog/v2"
 FAMILY_PREFIX = "wsr"
 FACTORY = "websocket-reconnect-factory"
 GENERATOR = "grok-4.6"
 START_ROUND = 41
-N_ROUNDS = 16
+N_ROUNDS = 32
 QUOTA_PER_ROUND = 2
 SUCCESS_STEPS = 16
 HANDOFF_STEPS = 17
-DEFAULT_CATALOG = Path("config") / "wsr" / "catalog.json"
+DEFAULT_CATALOG = Path("pipelines") / "wsr" / "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
+PAIRS_SHA256 = "67c956ff8c8de27a7b5c36e861b16849709a2420ed6e814a404c318676e13447"
+LEFTOVER3_START_ROUND = 41
+LEFTOVER3_N_ROUNDS = 16
 LEGACY_PLANTS = "experiments/wsr-mill-leftover3-r41.py"
 LEGACY_MILL = LEGACY_PLANTS
 LEGACY_COMMIT = "fec0f5f398a4cf22a5f6c2b2ef4cdc89b6d00202"
 LEGACY_PLANTS_SHA256 = "7a01aeebabccee9ac1ce38216463012321367483578af6f52cc09e704c4b4b82"
 LEGACY_MILL_SHA256 = LEGACY_PLANTS_SHA256
+LLL_MILL = "experiments/wsr_r89_leftover_leftover_leftover.py"
+LLL_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+LLL_MILL_SHA256 = "21ac3d2e113eb624ae349b3b8413a41cea9e116db9a87bc60910e1f4ecda32cb"
+LLL_START_ROUND = 89
+LLL_N_ROUNDS = 16
+REFUSED_MILL = "experiments/wsr-plants-r73.py"
 
 BANNED_SLUGS = frozenset(
     {
@@ -132,11 +142,21 @@ __all__ = [
     "FINDING_CODES",
     "GENERATOR",
     "HANDOFF_STEPS",
+    "LEFTOVER3_N_ROUNDS",
+    "LEFTOVER3_START_ROUND",
     "LEGACY_COMMIT",
     "LEGACY_MILL",
     "LEGACY_MILL_SHA256",
     "LEGACY_PLANTS",
     "LEGACY_PLANTS_SHA256",
+    "LLL_COMMIT",
+    "LLL_MILL",
+    "LLL_MILL_SHA256",
+    "LLL_N_ROUNDS",
+    "LLL_START_ROUND",
+    "PAIRS_FILENAME",
+    "PAIRS_SHA256",
+    "REFUSED_MILL",
     "MAX_DECISION_BASIS",
     "N_ROUNDS",
     "PLACEHOLDER_GOALS",

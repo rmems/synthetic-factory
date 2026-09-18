@@ -1,0 +1,18 @@
+{
+  "catalog_id": "cei-fixture-v1",
+  "factory": "csv-excel-ingest-factory",
+  "format": "cei-catalog/1",
+  "mill_prefix": "cei",
+  "mills": [
+    {
+      "base_round": 1,
+      "mill_id": "cei_r0001",
+      "plant_count": 1,
+      "source": "fixture"
+    }
+  ],
+  "plant_count": 1,
+  "plants_sha256": "9c093ac61bead37004f8d7250e7955c0765746e54fa769d7927498906b0a32dd",
+  "quota_per_round": 2,
+  "record_kind": "episode"
+}
