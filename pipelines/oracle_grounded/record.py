@@ -26,7 +26,7 @@ oracle result is rejected, never downgraded to "probably fine".
 import re
 from dataclasses import dataclass
 
-from . import canon, families, generators, oracles, schema_validation
+from . import canon, families, generators, oracles, schema_validation, source_policy
 from .envelope import (
     GENERATOR_SECTIONS,
     MAX_RESERVED_KEY_HITS,
@@ -320,6 +320,18 @@ def _simulator_publication_blockers(record, oracle):
     return reasons
 
 
+def _identity_publication_blockers(record):
+    """Custom provenance may describe diagnostics, but not reviewed authority."""
+    generator, meta = record.get("generator"), record.get("meta")
+    if not isinstance(generator, dict) or not isinstance(meta, dict):
+        return ["generator and factory identity must match the reviewed procedural policy"]
+    claims = (generator.get("name"), generator.get("version"), meta.get("factory"))
+    expected = tuple(source_policy.POLICY[key] for key in ("generator", "generator_version", "family"))
+    if claims != expected:
+        return ["generator and factory identity must match the reviewed procedural policy"]
+    return []
+
+
 def publishability(record, findings=()):
     """Whether this record may be published as an authoritative measurement.
 
@@ -332,7 +344,7 @@ def publishability(record, findings=()):
     """
     oracle = record["oracle"]
     implementation = oracle["implementation"]
-    reasons = []
+    reasons = _identity_publication_blockers(record)
     if not is_enum_value(implementation, PUBLISHABLE_REASONS):
         reasons.append(f"unknown oracle.implementation: {implementation!r}")
     elif implementation != "named-runtime":

@@ -51,6 +51,10 @@ publishable, and its `publishable_reason` says that it is a reproducible
 simulation, not a runtime attestation. A record whose digest the current
 sources cannot reproduce, whose commit or dirty state is unresolved, or that
 failed validation keeps `publishable: false`, with the reason spelled out.
+Publication also requires the generator name/version and factory identity to
+match the reviewed procedural policy. Caller-supplied model or factory names
+remain valid diagnostic metadata but cannot claim that policy's publication
+authority; training admission independently enforces the exact registry route.
 Binding a named runtime remains optional stronger evidence and is recorded
 exactly as before. `pipelines/oracle_grounded/*.py` is pinned to LF line
 endings in `.gitattributes` so the digest reproduces across checkouts.
