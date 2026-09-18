@@ -294,19 +294,9 @@ def episode_like(obj):
 _episode_like = episode_like
 
 
-def check_episode(
-    obj,
-    where,
-    require_goal=True,
-    forbid_hidden_thought=False,
-    enforce_terminal_outcome=False,
-):
-    """Compatibility facade for episode validation (see validate_run_episode)."""
-    options = _validate_run_episode.EpisodeOptions(
-        require_goal=require_goal,
-        forbid_hidden_thought=forbid_hidden_thought,
-        enforce_terminal_outcome=enforce_terminal_outcome,
-    )
+def check_episode(obj, where, *flags, **overrides):
+    """Adapt legacy positional/keyword flags to the episode option contract."""
+    options = _validate_run_episode.EpisodeOptions(*flags, **overrides)
     return _validate_run_episode.check_episode(
         obj,
         where,
