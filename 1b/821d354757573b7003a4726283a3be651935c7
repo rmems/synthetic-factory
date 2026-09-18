@@ -1,0 +1,41 @@
+pipelines/sir/sources.py
+  s_5660553172852b::t_e02364c71c0237 2,8-9,16-21,45
+pipelines/sir/catalog.py
+  s_5660553172852b::t_e02364c71c0237 198-199
+  s_5660553172852b::t_f65de406d6a316 18,99,130,132,136-141,143-144
+  s_5660553172852b::t_4ce37eadba249b 142,145-149,203-212
+  s_5660553172852b::t_990c904372dbb7 106-109,111-112,213-214,219,224
+tests/test_sir.py
+  s_5660553172852b::t_30926c8670cad0 130,141,143-145,153-156,216-218,222,263,342,353-355,373,385,438
+  s_5660553172852b::t_19d993ec2875f7 18,124-129,131-133,279-285
+  s_5660553172852b::t_f77083e02a7fe4 249-262,264-278,286-298
+pipelines/sir/catalog_extract.py
+  s_5660553172852b::t_9e09b8052e4611 61
+  s_5660553172852b::t_e02364c71c0237 45-47
+  s_5660553172852b::t_f65de406d6a316 20,65,115
+pipelines/sir/__init__.py
+  s_5660553172852b::t_e02364c71c0237 2,4-7
+pipelines/sir/README.md
+  s_5660553172852b::t_30926c8670cad0 1-22
+pipelines/sir/vocabulary.py
+  s_5660553172852b::t_e02364c71c0237 2,6-7,21
+pipelines/sir/catalog_ast.py
+  s_5660553172852b::t_9e09b8052e4611 16,18-23,25,27-29
+  s_5660553172852b::t_f65de406d6a316 17,24,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1b821d354757573b7003a4726283a3be651935c7",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
