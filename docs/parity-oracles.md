@@ -137,6 +137,14 @@ and intervention cannot be relabelled separately.
    A wholly fabricated but internally consistent capture remains outside what
    this repository can detect, as described below.
 
+Unavailable capture records retain historical diagnostics. The validator checks
+the selected adapter, configuration, supported reason code, diagnostic lineage,
+and inconclusive result, but never opens a capture path supplied by a record.
+These paths and details are historical claims, not proof of current file state
+or physical execution. Executed captures still require validation of their
+embedded source and measurement chain; live FPGA claims still require a fresh
+adapter probe.
+
 No capture is committed to this repository. Committing a synthetic one would
 be indistinguishable from committing a fabricated hardware result.
 

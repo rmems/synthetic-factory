@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Is the deployment oracle actually available, and does the record agree?
 
-Availability is re-probed here rather than read off the record, so a stale
-or forged absence claim cannot survive on a host where the runtime exists.
+Live adapter availability is re-probed. Historical recorded-capture absence
+remains an inconclusive claim; its record-controlled path is never opened.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ if __package__:
     from . import neuro_oracle  # noqa: E402
     from .neuro_oracle import (  # noqa: E402
         FpgaHardwareAdapter,
-        OracleUnavailable,
         RecordedCaptureAdapter,
     )
     from .hardware_parity_terms import (  # noqa: E402
@@ -31,7 +30,6 @@ else:
     import neuro_oracle  # noqa: E402
     from neuro_oracle import (  # noqa: E402
         FpgaHardwareAdapter,
-        OracleUnavailable,
         RecordedCaptureAdapter,
     )
     from hardware_parity_terms import (  # noqa: E402
@@ -106,8 +104,8 @@ def _check_fpga_environment(record, where):
     return errors
 
 
-def _replayed_adapter_probe(record, oracle, requested, where):
-    """Re-derive the selected adapter's current diagnostic.
+def _replayed_adapter_probe(_record, oracle, requested, where):
+    """Probe live adapters; shape-check historical capture diagnostics as data.
 
     Returns ``(current, fatal)``: the probe result to authenticate against,
     or a fatal error list when the diagnostic cannot be replayed at all.
@@ -122,40 +120,41 @@ def _replayed_adapter_probe(record, oracle, requested, where):
             f"{where}: recorded_capture unavailability must retain its capture "
             "path [ORACLE_UNAVAILABLE]"
         ]
-    adapter = RecordedCaptureAdapter(capture_path)
-    scenario = record.get("scenario") or {}
-    software = oracle.get("software") or {}
-    try:
-        adapter.run(
-            scenario.get("model_float"),
-            scenario.get("stimulus"),
-            repeats=software.get("repeats", 1),
-        )
-    except OracleUnavailable as exc:
-        return {
-            "available": False,
-            "execution_target": adapter.execution_target,
-            "reason_code": exc.reason_code,
-            "detail": exc.detail,
-        }, []
-    except (
-        ValueError,
-        TypeError,
-        KeyError,
-        IndexError,
-        AttributeError,
-        OverflowError,
-    ) as exc:
-        return None, [
-            f"{where}: recorded_capture diagnostic is not reproducible: {exc} "
-            "[ORACLE_UNAVAILABLE]"
-        ]
+    return _historical_capture_probe(oracle, requested, where)
+
+
+_CAPTURE_REASON_CODES = frozenset({
+    "CAPTURE_FILE_ABSENT", "CAPTURE_UNREADABLE", "CAPTURE_TARGET_UNKNOWN",
+    "CAPTURE_DIGEST_MISMATCH", "CAPTURE_INPUT_FIXTURE_MISMATCH",
+    "CAPTURE_QUANTIZATION_CONFLICT", "CAPTURE_QUANTIZATION_MISSING",
+})
+
+
+def _historical_capture_probe(oracle, requested, where):
+    """Retain an inconclusive diagnostic without dereferencing its opaque path."""
+    entry = oracle["unavailable"][0]
+    config = requested["adapter_config"]
+    reason = entry.get("reason_code")
+    detail = entry.get("detail")
+    target = requested.get("execution_target")
+    if not _valid_capture_diagnostic(reason, detail, target) or set(config) != {"capture_path"}:
+        return None, [f"{where}: unsupported historical capture diagnostic [ORACLE_UNAVAILABLE]"]
     return {
-        "available": True,
-        "execution_target": adapter.execution_target,
-        "reason_code": None,
-        "detail": "capture executes for the recorded scenario",
+        "available": False,
+        "execution_target": target,
+        "reason_code": reason,
+        "detail": detail,
     }, []
+
+
+def _valid_capture_diagnostic(reason, detail, target):
+    if not isinstance(reason, str) or reason not in _CAPTURE_REASON_CODES:
+        return False
+    if not isinstance(detail, str) or not detail.strip():
+        return False
+    if target is None:
+        return True
+    return isinstance(target, str) and target in neuro_oracle.EXECUTION_TARGETS
 
 
 def _check_unavailable_deployment(record, where):
@@ -216,7 +215,7 @@ def _check_unavailable_deployment(record, where):
     )
     if not contract.strict_json_equal(entry, expected_entry):
         errors.append(
-            f"{where}: oracle.unavailable[0] must exactly match the current "
+            f"{where}: oracle.unavailable[0] must exactly match the "
             "selected-adapter diagnostic [ORACLE_UNAVAILABLE]"
         )
     return errors

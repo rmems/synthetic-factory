@@ -162,6 +162,8 @@ class CensusRouting(unittest.TestCase):
         result = census.census_dir(FIXTURE_RUN)
         self.assertEqual(result["parse_failures"], 0)
         self.assertEqual(result["by_kind"]["unknown"], 0)
+        self.assertEqual(result["sim_or_real"]["<missing>"], 0)
+        self.assertEqual(result["sim_or_real"]["sim*"], 15)
         self.assertEqual(
             result["by_kind"]["hardware_parity"], len(_records(HARDWARE_BATCH))
         )

@@ -232,7 +232,7 @@ def _read_census_records(path: Path, source: str):
             decoded.append(
                 (lineno, json.loads(line, parse_constant=reject_json_constant))
             )
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             parse_failures += 1
     return decoded, parse_failures, unreadable
 
@@ -240,8 +240,20 @@ def _read_census_records(path: Path, source: str):
 def _record_simulation_buckets(obj) -> Counter:
     values = list(iter_sim_or_real(obj))
     if not values:
+        values = _parity_provenance_values(obj)
+    if not values:
         return Counter({"<missing>": 1})
     return Counter(bucket_sim_or_real(value) for value in values)
+
+
+def _parity_provenance_values(obj) -> list[str]:
+    if not isinstance(obj, dict) or obj.get("record_kind") not in ("hardware_parity", "nir_equivalence"):
+        return []
+    provenance = obj.get("provenance")
+    if not isinstance(provenance, dict):
+        return []
+    value = provenance.get("kind")
+    return [value] if isinstance(value, str) else []
 
 
 class _CensusTotals:

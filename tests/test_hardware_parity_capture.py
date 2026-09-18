@@ -588,8 +588,8 @@ class RecordedCapturePath(unittest.TestCase):
                 record["oracle"]["unavailable"][0]["reason_code"],
                 "CAPTURE_UNREADABLE",
             )
-            # Validation replays the availability probe against the capture
-            # path, so it must run while the capture file still exists.
+            # The diagnostic remains inconclusive historical data; validation
+            # must never reopen its record-controlled capture path.
             self.assertEqual(hp.validate_record(record, WHERE), [])
 
     def test_repeat_digest_binds_the_complete_retained_observation(self):
