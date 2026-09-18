@@ -128,12 +128,19 @@ def _split_signature(signature, separator):
     return parts
 
 
+def _signature_token(token, where):
+    decoded = _unescape_signature_token(token)
+    if _escape_signature_token(decoded) != token:
+        raise _policy_error(where, _INVALID_SIGNATURE_MEMBER)
+    return decoded
+
+
 def _signature_member(part, where):
     pieces = _split_signature(part, ":")
     if len(pieces) != 2:
         raise _policy_error(where, _INVALID_SIGNATURE_MEMBER)
-    key = _unescape_signature_token(pieces[0])
-    member_type = _unescape_signature_token(pieces[1])
+    key = _signature_token(pieces[0], where)
+    member_type = _signature_token(pieces[1], where)
     if not member_type:
         raise _policy_error(where, _INVALID_SIGNATURE_MEMBER)
     return key, member_type

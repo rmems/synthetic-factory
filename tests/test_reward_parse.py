@@ -183,5 +183,25 @@ class PolicyReferenceAndUnitTests(unittest.TestCase):
             )
 
 
+class SignatureEscapingTests(unittest.TestCase):
+    def test_noncanonical_escapes_cannot_select_arithmetic_methods(self):
+        arithmetic = {"declared_total_field": "total", "weights_field": "weights"}
+        signatures = (r"\total:int", r"total:\int", "total:int\\", r"total:int|\weights:object")
+        for signature in signatures:
+            with self.subTest(signature=signature):
+                with self.assertRaisesRegex(
+                    reward_parse.RewardOntologyError,
+                    "shape: signature contains an invalid member",
+                ):
+                    reward_parse._arithmetic_methods_for_signature(signature, arithmetic, "shape")
+
+    def test_canonical_escaped_keys_roundtrip_without_aliasing(self):
+        keys = (r"\total", "a|b", "a:b", "trailing\\", "total")
+        for key in keys:
+            with self.subTest(key=key):
+                signature = reward_parse._escape_signature_token(key) + ":int"
+                self.assertEqual(reward_parse._signature_members(signature, "shape"), {key: "int"})
+
+
 if __name__ == "__main__":
     unittest.main()
