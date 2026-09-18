@@ -719,7 +719,7 @@ POLICY_DESCRIPTIONS = {
 def _allocation_state(rng: random.Random) -> dict[str, Any]:
     """One randomly drawn capped-allocation problem."""
 
-    n = 4
+    n = MAX_ACTUATORS
     weights = [round(rng.uniform(0.6, 2.4), 3) for _ in range(n)]
     demand = round(rng.uniform(0.8, 1.6), 3)
     headroom = rng.uniform(1.25, 1.8)
@@ -1290,6 +1290,7 @@ class _CandidateContext:
 # would let one record buy an arbitrarily large replay. The builder defaults
 # are 48 and 8.
 MAX_REPLAY_STEPS = 128
+MAX_ACTUATORS = 4
 
 
 
@@ -1415,6 +1416,11 @@ def _check_scenario_state(scenario: Any, where: str) -> list[str]:
         errors.append(
             f"{where}.scenario.state.actuator_caps must be a non-empty array "
             "of numbers"
+        )
+    if isinstance(caps, list) and len(caps) > MAX_ACTUATORS:
+        errors.append(
+            f"{where}.scenario.state.actuator_caps must contain at most {MAX_ACTUATORS} "
+            "actuators for bounded policy replay"
         )
     weights = state.get("actuator_weights")
     if not (
@@ -1583,7 +1589,7 @@ def _safety_derivation_inputs(scenario: Any) -> tuple[bool, Any, Any]:
     demand = state.get("demand") if isinstance(state, dict) else None
     can_derive_safety = (
         isinstance(caps, list)
-        and bool(caps)
+        and 1 <= len(caps) <= MAX_ACTUATORS
         and all(oc.is_number(cap) for cap in caps)
         and oc.is_number(demand)
     )
