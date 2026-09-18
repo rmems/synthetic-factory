@@ -48,14 +48,14 @@ queue_rules:
       # The three hard gates. `check-success` matches check runs and commit
       # statuses alike, so codecov/patch (a status, posted asynchronously
       # several minutes after the test job finishes) is covered.
-      - check-success=unittest (Python 3.14)
-      - check-success=operator smoke + fixture census
+      - check-success=@github-actions/unittest (Python 3.14)
+      - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
       # The raw-release workflow is path-filtered, so require its check only
       # when this pull request changes one of its watched paths.
       - or:
           - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
-          - check-success=verify five public datasets
+          - check-success=@github-actions/verify five public datasets
       # Nothing outstanding from a reviewer, including inline threads.
       - "#changes-requested-reviews-by=0"
       - "#review-threads-unresolved=0"
@@ -76,13 +76,13 @@ queue_rules:
       - -conflict
       - label=queue-mill
     merge_conditions:
-      - check-success=unittest (Python 3.14)
-      - check-success=operator smoke + fixture census
+      - check-success=@github-actions/unittest (Python 3.14)
+      - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
-      - check-success=SonarCloud Code Analysis
+      - check-success=@sonarqubecloud/SonarCloud Code Analysis
       - or:
           - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
-          - check-success=verify five public datasets
+          - check-success=@github-actions/verify five public datasets
       - "#changes-requested-reviews-by=0"
       - "#review-threads-unresolved=0"
     merge_method: squash
