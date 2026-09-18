@@ -88,6 +88,7 @@ ABSTAIN_NO_MEASUREMENT = "NO_MEASURED_COST_AVAILABLE"
 # a scenario describing a different rule to the student than the one the
 # labels were derived under would pair one decision rule's description with
 # another's outcomes.
+PREFERENCE_OBJECTIVE = "minimise measured cost subject to quality and safety"
 SAFETY_ENVELOPE = "0 <= x_i <= cap_i and sum(x_i) == demand"
 
 # The costs this family's decision rule may minimise: measured joules, or the
@@ -759,7 +760,7 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
                         {"id": policy, "description": description}
                         for policy, description in sorted(POLICY_DESCRIPTIONS.items())
                     ],
-                    "objective": "minimise measured cost subject to quality and safety",
+                    "objective": PREFERENCE_OBJECTIVE,
                 },
             }
         )
@@ -1354,6 +1355,8 @@ def _check_scenario_constraints(
     errors: list[str] = []
     if not isinstance(scenario, dict):
         return errors, None
+    if scenario.get("objective") != PREFERENCE_OBJECTIVE:
+        errors.append(f"{where}.scenario.objective must state {PREFERENCE_OBJECTIVE!r}")
     constraints = scenario.get("constraints")
     if not isinstance(constraints, dict):
         errors.append(f"{where}.scenario.constraints must be an object")
@@ -1874,8 +1877,8 @@ def _check_candidate_measurements(
     # the oracle is `recorded_power_run` while the instrument that actually
     # took the reading stays `external_power_meter`, so pinning cost_meter to
     # oracle.name or meter_probe.selected would reject every recorded run.
-    # The binding that matters — cost_meter against the meter of the
-    # measurement it cites — is enforced against measured_meter.
+    # Bind the candidate to its cited measurement here; the family audit
+    # also binds that instrument to oracle.fingerprint.meter.
     errors += _check_quality_binding(candidate, candidate_id, spot, context)
     errors += _check_cost_binding(candidate, candidate_id, spot, context)
     return errors
@@ -2383,6 +2386,21 @@ def _check_oracle_audit(record: dict[str, Any], where: str) -> list[str]:
     return errors
 
 
+def _check_fingerprinted_meter(
+    record: dict[str, Any], candidates: list[Any], where: str
+) -> list[str]:
+    oracle = record.get("oracle")
+    fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None
+    meter = fingerprint.get("meter") if isinstance(fingerprint, dict) else None
+    if not isinstance(meter, str) or not meter.strip():
+        return [f"{where}.oracle.fingerprint.meter must name the physical instrument"]
+    return [
+        f"{where}.result.candidates[{index}].cost_meter must match oracle.fingerprint.meter"
+        for index, candidate in enumerate(candidates)
+        if isinstance(candidate, dict) and candidate.get("cost_meter") != meter
+    ]
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: measured cost, and a preference that respects limits."""
 
@@ -2401,6 +2419,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.result.candidates must list at least two measured candidates"
         ]
 
+    errors += _check_fingerprinted_meter(record, candidates, where)
     errors += _check_candidate_binding(scenario, candidates, where)
     errors += _check_cost_denomination(result, where)
     measurement_errors, measured_costs = _collect_measured_costs(result, where)
