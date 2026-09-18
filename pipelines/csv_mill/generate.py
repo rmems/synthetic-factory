@@ -25,6 +25,7 @@ from ._contract import (
     FACTORY,
     FINDING_BANNED_KEY,
     FINDING_DESTINATION_EXISTS,
+    FINDING_DESTINATION_INVALID,
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_ROUND_INVALID,
     FINDING_USAGE,
@@ -186,6 +187,12 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
 
 
 def _check_destination(out_dir: Path) -> None:
+    try:
+        str(out_dir).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise CsvRefusal(
+            FINDING_DESTINATION_INVALID, "destination must contain Unicode scalar values"
+        ) from exc
     if is_under_raw(out_dir):
         raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, f"{out_dir} names or aliases the raw tree")
     if out_dir.exists() or out_dir.is_symlink():

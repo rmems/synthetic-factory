@@ -18,6 +18,7 @@ from ._contract import (
     LEGACY_SOURCE,
     bind_import_twin,
     load_strict_json,
+    dumps_exact_json,
     is_integer,
     json_integer_is_bounded,
     repo_root,
@@ -178,7 +179,7 @@ def _mill_round(row: Any, mill_id: str, where: str) -> int:
 
 
 def _require_mill_round(mill_id: str, base: int, code: str) -> int:
-    if mill_id.removeprefix("csv_r").lstrip("0") != str(base):
+    if mill_id.removeprefix("csv_r").lstrip("0") != dumps_exact_json(base):
         raise CsvRefusal(code, "mill_id suffix must match base_round")
     return base
 
