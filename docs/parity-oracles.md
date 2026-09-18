@@ -151,6 +151,17 @@ different unavailable reason on the validating host does not invalidate the
 record. A fresh probe must still report that adapter unavailable; the record
 remains inconclusive and supplies no physical measurement.
 
+Generator versions cover the declared family, its neuro-oracle implementation,
+the shared parity modules, and their explicit JSON, provenance, import, and
+path-guard foundations. A new parity sibling must be added to that inventory
+before generation can proceed. Ordinary refactors therefore change the source
+stamp. Historical acceptance is explicit: `parity_history.py` currently records
+the independently reviewed source/catalog/authorship tuples from commits
+`0bbeb5e6` and `b2b5366f`. Those records keep their original bytes and remain
+research-only with training blocked. Every current scenario, measurement,
+availability, and catalog validation still runs; an old source hash alone does
+not authorize a record, and unreviewed historical stamps remain refused.
+
 No capture is committed to this repository. Committing a synthetic one would
 be indistinguishable from committing a fabricated hardware result.
 

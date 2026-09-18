@@ -30,7 +30,7 @@ from neuro_oracle import digest  # noqa: E402
 def family_sources(root, glob, family, validator):
     """The family's source texts by path, or raise if the directory disagrees."""
 
-    found = tuple(sorted(path.name for path in root.glob(glob)))
+    found = tuple(sorted(path.relative_to(root).as_posix() for path in root.glob(glob)))
     declared = tuple(sorted(family))
     if found != declared:
         raise RuntimeError(
@@ -62,6 +62,49 @@ ORACLE_FAMILY = (
     "neuro_oracle_simulate.py",
 )
 
+PARITY_GLOB = "oracle_grounded/parity_*.py"
+PARITY_FAMILY = (
+    "oracle_grounded/parity_blocks.py",
+    "oracle_grounded/parity_contract.py",
+    "oracle_grounded/parity_destination.py",
+    "oracle_grounded/parity_envelope.py",
+    "oracle_grounded/parity_history.py",
+    "oracle_grounded/parity_jsonl.py",
+    "oracle_grounded/parity_publication.py",
+    "oracle_grounded/parity_terms.py",
+    "oracle_grounded/parity_view_sets.py",
+    "oracle_grounded/parity_views.py",
+)
+SHARED_SOURCES = (
+    "__init__.py",
+    "exact_json.py",
+    "exact_json_encoding.py",
+    "oracle_grounded/__init__.py",
+    "oracle_grounded/envelope.py",
+    "oracle_grounded/family_digest.py",
+    "oracle_grounded/import_twins.py",
+    "raw_tree_guard.py",
+    "tag_jsonutil.py",
+    "validate_run_provenance.py",
+    "validate_run_spikes.py",
+)
+
+SCHEMA_SOURCES = ("schemas/thalamic-trajectory.schema.json",)
+
+
+def _shared_sources(root):
+    """Explicit common foundation closure; adding a parity sibling is fail-closed."""
+    paths = family_sources(root, PARITY_GLOB, PARITY_FAMILY, "parity shared source")
+    paths.extend(
+        {"path": f"pipelines/{name}", "text": (root / name).read_text(encoding="utf-8")}
+        for name in SHARED_SOURCES
+    )
+    paths.extend(
+        {"path": name, "text": (root.parent / name).read_text(encoding="utf-8")}
+        for name in SCHEMA_SOURCES
+    )
+    return paths
+
 
 def module_source_digest(root, glob, family, validator):
     """Immutable digest of the whole family, used as the in-repo generator_version."""
@@ -73,6 +116,7 @@ def generator_version(root, glob, family, validator):
     """The family digest with the oracle sources it executes folded in."""
     paths = family_sources(root, glob, family, validator)
     paths += family_sources(root, ORACLE_GLOB, ORACLE_FAMILY, validator)
+    paths += _shared_sources(root)
     return digest({"paths": paths})
 
 

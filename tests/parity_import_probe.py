@@ -33,6 +33,7 @@ SUBPACKAGE_SIBLINGS = (
     "parity_contract",
     "parity_destination",
     "parity_envelope",
+    "parity_history",
     "parity_jsonl",
     "parity_publication",
     "parity_terms",

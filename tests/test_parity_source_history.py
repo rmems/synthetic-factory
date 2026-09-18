@@ -1,0 +1,100 @@
+"""Reviewed immutable source stamps coexist with complete current validation."""
+
+import copy
+import hashlib
+import json
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+import hardware_parity as hp
+import hardware_parity_provenance as hp_provenance
+import nir_equivalence as nir
+import nir_equivalence_provenance as nir_provenance
+
+ROOT = Path(__file__).resolve().parents[1]
+HISTORY = ROOT / "tests/fixtures/parity-history/0bbeb5e6"
+CASES = (
+    (hp, "hardware-parity-spike-trajectories", "312fa3eb5589413ec3f9804f5235f417ca671fc98cdfd410d4585a7f5d27f9a1"),
+    (nir, "nir-cross-runtime-equivalence", "de0582292c4d2a98eaca91c35998580cc991e466ba953f1cd7c8b0543c59da90"),
+)
+NEXT_SOURCE_STAMPS = (
+    ("sha256:86a54ae338155603aa1e5291f34f843ea2856f3fd7aa24be3fb770792a25f449",
+     "a526b33c278a217a6f3cda319b6664fec2ee9b929a15e4074a1ab4d8a1e4bddc"),
+    ("sha256:f8069de53c4955c474f3b15493c1e044a3444567d931773e6dfc664d7d2fa3d4",
+     "0950baba0ef558259f88c43b8fc3a40e71a4f66b36d1c420eca6ebbe0801e628"),
+)
+
+
+class HistoricalSourceStamps(unittest.TestCase):
+    def _records(self, slug, expected_hash):
+        raw = (HISTORY / slug / "batch-r01.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), expected_hash)
+        return [json.loads(line) for line in raw.split(b"\n") if line]
+
+    def test_reviewed_historical_bytes_pass_complete_current_validation(self):
+        for module, slug, checksum in CASES:
+            with self.subTest(family=slug):
+                self.assertEqual(module.validate_records(self._records(slug, checksum)), [])
+
+    def test_second_reviewed_commit_bytes_remain_valid(self):
+        for case, (source, checksum) in zip(CASES, NEXT_SOURCE_STAMPS, strict=True):
+            module, slug, original_checksum = case
+            records = self._records(slug, original_checksum)
+            previous = records[0]["provenance"]["generator_version"]
+            raw = (HISTORY / slug / "batch-r01.jsonl").read_bytes()
+            next_raw = raw.replace(previous.encode(), source.encode())
+            self.assertEqual(hashlib.sha256(next_raw).hexdigest(), checksum)
+            records = [json.loads(line) for line in next_raw.split(b"\n") if line]
+            with self.subTest(family=slug):
+                self.assertEqual(module.validate_records(records), [])
+
+    def test_historical_stamp_does_not_authorize_catalog_or_policy_tampering(self):
+        changes = (
+            ("generator", "forged.generator"),
+            ("generator_version", "sha256:" + "a" * 64),
+            ("catalog_digest", "sha256:" + "b" * 64),
+            ("catalog_authorship", {"project_training_policy": "allowed"}),
+        )
+        for module, slug, checksum in CASES:
+            original = self._records(slug, checksum)[0]
+            for field, value in changes:
+                record = copy.deepcopy(original)
+                record["provenance"][field] = value
+                with self.subTest(family=slug, field=field):
+                    self.assertTrue(module.validate_record(record, "history"))
+
+    def test_historical_stamp_still_requires_measurement_replay(self):
+        for module, slug, checksum in CASES:
+            record = self._records(slug, checksum)[0]
+            if module is hp:
+                record["oracle"]["software"]["spikes"][0][0] ^= 1
+            else:
+                runtime = next(row for row in record["oracle"]["runtimes"] if row["status"] == "executed")
+                runtime["outputs"]["spike_count"] += 1
+            with self.subTest(family=slug):
+                self.assertTrue(module.validate_record(record, "history"))
+
+
+class SharedSourceClosure(unittest.TestCase):
+    def test_shared_source_changes_change_both_generator_versions(self):
+        shared = (
+            "oracle_grounded/parity_terms.py", "oracle_grounded/envelope.py",
+            "oracle_grounded/family_digest.py", "oracle_grounded/import_twins.py",
+            "exact_json.py", "exact_json_encoding.py", "tag_jsonutil.py", "raw_tree_guard.py",
+            "validate_run_provenance.py", "validate_run_spikes.py",
+            "../schemas/thalamic-trajectory.schema.json",
+        )
+        read_text = Path.read_text
+        for module in (hp_provenance, nir_provenance):
+            before = module._module_source_digest()
+            for relative in shared:
+                target = (ROOT / "pipelines" / relative).resolve()
+
+                def changed(path, *args, target=target, **kwargs):
+                    text = read_text(path, *args, **kwargs)
+                    return text + "\n# source changed\n" if path.resolve() == target else text
+
+                with self.subTest(family=module.__name__, source=relative):
+                    with patch.object(Path, "read_text", new=changed):
+                        self.assertNotEqual(before, module._module_source_digest())

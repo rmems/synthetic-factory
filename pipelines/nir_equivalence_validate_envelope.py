@@ -20,6 +20,7 @@ if __package__:
     from .nir_equivalence_compare import _expected_verdict  # noqa: E402
     from .nir_equivalence_graph import structural_digest  # noqa: E402
     from .nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
+    from .oracle_grounded.parity_history import reviewed_catalog_stamps
     from .nir_equivalence_terms import (  # noqa: E402
         CANONICAL_DATA_ERRORS,
         FACTORY_SLUG,
@@ -38,6 +39,7 @@ else:
     from nir_equivalence_compare import _expected_verdict  # noqa: E402
     from nir_equivalence_graph import structural_digest  # noqa: E402
     from nir_equivalence_provenance import _catalog_provenance_stamps  # noqa: E402
+    from oracle_grounded.parity_history import reviewed_catalog_stamps
     from nir_equivalence_terms import (  # noqa: E402
         CANONICAL_DATA_ERRORS,
         FACTORY_SLUG,
@@ -79,7 +81,7 @@ def _check_envelope_identity(record, scenario, where):
         "contract_version": contract.CONTRACT_VERSION,
         "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
     }
-    expected_provenance_identity.update(_catalog_provenance_stamps())
+    expected_provenance_identity.update(reviewed_catalog_stamps(provenance, _catalog_provenance_stamps()))
     if not isinstance(provenance, dict) or any(
         not _strict_json_equal(provenance.get(key), value)
         for key, value in expected_provenance_identity.items()

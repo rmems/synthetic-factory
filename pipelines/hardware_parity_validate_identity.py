@@ -31,6 +31,7 @@ if __package__:
         build_scenario,
     )
     from .hardware_parity_provenance import _catalog_provenance_stamps  # noqa: E402
+    from .oracle_grounded.parity_history import reviewed_catalog_stamps
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "hardware_parity_validate_identity"
@@ -51,6 +52,7 @@ else:
         build_scenario,
     )
     from hardware_parity_provenance import _catalog_provenance_stamps  # noqa: E402
+    from oracle_grounded.parity_history import reviewed_catalog_stamps
 
 def _check_input_fixture(record, where):
     """Both sides must provably have run the same encoded input."""
@@ -235,7 +237,7 @@ def _check_record_identity(record, where):
             "latency": "ms",
         },
     }
-    expected_provenance_identity.update(_catalog_provenance_stamps())
+    expected_provenance_identity.update(reviewed_catalog_stamps(provenance, _catalog_provenance_stamps()))
     if not isinstance(provenance, dict) or any(
         not contract.strict_json_equal(provenance.get(key), value)
         for key, value in expected_provenance_identity.items()
