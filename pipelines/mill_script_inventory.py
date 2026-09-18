@@ -255,6 +255,28 @@ def _gitignore_evidence(
     return tuple((path, *matches[path]) for path in sorted(anomalies) if path in matches)
 
 
+def _policy_findings(
+    policy: Mapping, gitignore_rules: Sequence[str], qlty_rules: Sequence[str]
+) -> dict:
+    return {
+        "missing_gitignore_patterns": tuple(
+            pattern for pattern in policy["gitignore_patterns"] if pattern not in gitignore_rules
+        ),
+        "missing_qlty_patterns": tuple(
+            pattern for pattern in policy["archived_exclude_patterns"] if pattern not in qlty_rules
+        ),
+        "forbidden_blanket_patterns_present": tuple(
+            pattern
+            for pattern in policy["forbidden_blanket_patterns"]
+            if pattern in gitignore_rules
+        ),
+    }
+
+
+def _gitignore_hits(paths: Iterable[str], matches: Mapping[str, tuple[str, str, str]]) -> tuple:
+    return tuple((matches[path][2], path) for path in sorted(paths))
+
+
 def check_inventory(
     root: Path | None = None,
     inventory: Mapping[str, object] | None = None,
@@ -275,24 +297,13 @@ def check_inventory(
     archived = historical_paths(loaded)
     matches = gitignore_matches(repo, production | archived)
     ignored = _ignored_paths(matches)
-    gitignore_hits = tuple((matches[path][2], path) for path in sorted(production & ignored))
+    gitignore_hits = _gitignore_hits(production & ignored, matches)
     qlty_hits = patterns_hitting(qlty_rules, production)
-    missing_gitignore = tuple(
-        pattern for pattern in policy["gitignore_patterns"] if pattern not in gitignore_rules
-    )
-    missing_qlty = tuple(
-        pattern for pattern in policy["archived_exclude_patterns"] if pattern not in qlty_rules
-    )
-    forbidden_present = tuple(
-        pattern for pattern in policy["forbidden_blanket_patterns"] if pattern in gitignore_rules
-    )
     report = {
         "unclassified": unclassified,
         "gitignore_hits_on_production": gitignore_hits,
         "qlty_hits_on_production": qlty_hits,
-        "missing_gitignore_patterns": missing_gitignore,
-        "missing_qlty_patterns": missing_qlty,
-        "forbidden_blanket_patterns_present": forbidden_present,
+        **_policy_findings(policy, gitignore_rules, qlty_rules),
         "uncovered_gitignore_archived_paths": tuple(sorted(archived - ignored)),
         "uncovered_qlty_archived_paths": uncovered_paths(qlty_rules, archived),
     }

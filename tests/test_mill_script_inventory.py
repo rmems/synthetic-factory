@@ -16,6 +16,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
+GIT = shutil.which("git")
+if GIT is None:
+    raise RuntimeError("git is required for inventory integration tests")
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
@@ -24,7 +27,7 @@ import mill_script_inventory as msi  # noqa: E402
 
 def _git_ignored(path: str) -> bool:
     result = subprocess.run(
-        ["git", "check-ignore", "--no-index", "-q", path],
+        [GIT, "check-ignore", "--no-index", "-q", path],
         cwd=REPO,
         check=False,
         stdout=subprocess.DEVNULL,
@@ -37,7 +40,7 @@ def _git_ignored(path: str) -> bool:
 def _scope_repo():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run([GIT, "init", "-q", str(root)], check=True)
         shutil.copy(REPO / ".gitignore", root / ".gitignore")
         (root / ".qlty").mkdir()
         shutil.copy(REPO / ".qlty/qlty.toml", root / ".qlty/qlty.toml")
