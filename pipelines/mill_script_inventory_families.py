@@ -41,6 +41,12 @@ def expected_family_owners(archived: Iterable[str], tracked: Sequence[str]) -> d
     }
 
 
+def production_family_paths(rows: Sequence[Mapping], tracked: Sequence[str]) -> frozenset[str]:
+    """Protect every tracked file beneath a reviewed production package owner."""
+    owners = tuple(row["owner"] + "/" for row in rows if row["classification"] == "production")
+    return frozenset(path for path in tracked if path.startswith(owners))
+
+
 def family_owner_findings(rows: Sequence[Mapping], expected: Mapping[str, str]) -> tuple:
     declared = {row["family"]: row for row in rows}
     return tuple(

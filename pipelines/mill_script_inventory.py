@@ -35,10 +35,14 @@ else:
 
 if __package__:
     from . import mill_script_inventory_schema as _schema
-    from .mill_script_inventory_families import expected_family_owners, family_owner_findings
+    from .mill_script_inventory_families import (
+        expected_family_owners, family_owner_findings, production_family_paths,
+    )
 else:
     import mill_script_inventory_schema as _schema
-    from mill_script_inventory_families import expected_family_owners, family_owner_findings
+    from mill_script_inventory_families import (
+        expected_family_owners, family_owner_findings, production_family_paths,
+    )
 
 SCHEMA_VERSION = _schema.SCHEMA_VERSION
 CLASSIFICATIONS = _schema.CLASSIFICATIONS
@@ -319,7 +323,7 @@ def check_inventory(
     loaded = dict(inventory) if inventory is not None else load_inventory()
     listed = tracked if tracked is not None else tracked_paths(repo)
     unclassified = unclassified_paths(listed, loaded)
-    production = production_script_paths(loaded)
+    production = production_script_paths(loaded) | production_family_paths(loaded["mill_families"], listed)
     policy = loaded["quality_policy"]
     if not isinstance(policy, Mapping):
         raise MillScriptInventoryError("quality_policy must be an object")

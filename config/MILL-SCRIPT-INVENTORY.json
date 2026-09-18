@@ -21,7 +21,9 @@
     "experiments/*-hop*.py",
     "experiments/*_hop*.py",
     "experiments/*mill*.py",
-    "experiments/**/*mill*.py"
+    "experiments/**/*mill*.py",
+    "experiments/*-chain-*.py",
+    "experiments/irc-pub-r*.py"
   ],
   "scripts": [
     {
@@ -571,6 +573,7 @@
       "experiments/cst_r1369_leftover_mill.py",
       "experiments/cst_r1385_leftover3_mill.py",
       "experiments/cst_r1405_leftover3_mill.py",
+      "experiments/dbc-chain-after-1125.py",
       "experiments/dbc-hop-loop.py",
       "experiments/dbc-hop-qbp-r74.py",
       "experiments/dbc-hop-wsr-r73.py",
@@ -773,6 +776,24 @@
       "experiments/iac-mill-r683.py",
       "experiments/iac-mill-r709.py",
       "experiments/iac-mill-r777.py",
+      "experiments/irc-chain-r3577.py",
+      "experiments/irc-chain-r3657.py",
+      "experiments/irc-chain-r3699.py",
+      "experiments/irc-chain-r3739.py",
+      "experiments/irc-chain-r3779.py",
+      "experiments/irc-chain-r3819.py",
+      "experiments/irc-chain-r3861.py",
+      "experiments/irc-chain-r3901.py",
+      "experiments/irc-chain-r3941.py",
+      "experiments/irc-chain-r3981.py",
+      "experiments/irc-chain-r4021.py",
+      "experiments/irc-chain-r4061.py",
+      "experiments/irc-chain-r4321.py",
+      "experiments/irc-chain-r4441.py",
+      "experiments/irc-chain-r4561.py",
+      "experiments/irc-chain-r4681.py",
+      "experiments/irc-chain-r4761.py",
+      "experiments/irc-chain-r4881.py",
       "experiments/irc-loop-r3577.py",
       "experiments/irc-loop-r3617.py",
       "experiments/irc-loop-r3657.py",
@@ -894,6 +915,7 @@
       "experiments/irc-mill-r4961.py",
       "experiments/irc-mill-r4981.py",
       "experiments/irc-mill-r5001.py",
+      "experiments/irc-pub-r5001.py",
       "experiments/irc_r3366_leftover3_mill.py",
       "experiments/kcl-hop-mill-r1330.py",
       "experiments/kcl-loop-r1007.py",
@@ -1153,6 +1175,8 @@
       "experiments/msd-leftover-loop-r430.py",
       "experiments/msd-leftover-mill-r430.py",
       "experiments/msd_r747_leftover3_mill.py",
+      "experiments/ntp-chain-llll15-26.py",
+      "experiments/ntp-chain-llll27-34.py",
       "experiments/ntp-extend-plants-r1558.py",
       "experiments/ntp-loop-orch-leftover3.py",
       "experiments/ntp-loop-r1326.py",
@@ -1932,7 +1956,9 @@
       "experiments/*-loop*.py",
       "experiments/*_loop*.py",
       "experiments/*-hop*.py",
-      "experiments/*_hop*.py"
+      "experiments/*_hop*.py",
+      "experiments/*-chain-*.py",
+      "experiments/irc-pub-r*.py"
     ],
     "archived_exclude_patterns": [
       "experiments/*mill*.py",
@@ -1950,7 +1976,9 @@
       "experiments/*-loop*.py",
       "experiments/*_loop*.py",
       "experiments/*-hop*.py",
-      "experiments/*_hop*.py"
+      "experiments/*_hop*.py",
+      "experiments/*-chain-*.py",
+      "experiments/irc-pub-r*.py"
     ],
     "forbidden_blanket_patterns": [
       "experiments/",

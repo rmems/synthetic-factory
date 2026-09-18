@@ -104,3 +104,30 @@ class FamilyOwnership(unittest.TestCase):
         for family in ("lhc", "dpr", "dbc", "ntp", "ssr"):
             with self.subTest(family=family):
                 self.assertEqual(owners.get(family), f"pipelines/{family}")
+
+
+class PublisherAndFamilyScope(unittest.TestCase):
+    def test_chain_and_pub_publishers_are_classified_and_excluded(self):
+        paths = ("experiments/dbc-chain-after-1125.py", "experiments/ntp-chain-llll15-26.py",
+                 "experiments/irc-pub-r5001.py")
+        self.assertTrue(set(paths).issubset(msi.historical_paths(msi.INVENTORY)))
+        self.assertEqual(msi.uncovered_paths(msi.INVENTORY["match_patterns"], paths), ())
+        self.assertEqual(msi.uncovered_paths(msi.qlty_exclude_patterns(REPO), paths), ())
+        self.assertEqual(msi._ignored_paths(msi.gitignore_matches(REPO, paths)), set(paths))
+
+    def test_gitignore_cannot_hide_cleaned_production_family_package(self):
+        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+        with _scope_repo() as root:
+            ignore = root / ".gitignore"
+            ignore.write_text(ignore.read_text() + "\npipelines/mill/\n")
+            report = msi.check_inventory(root, tracked=paths)
+        self.assertFalse(report["ok"], report)
+        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
+
+    def test_qlty_cannot_hide_cleaned_production_family_package(self):
+        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+        rules = msi.qlty_exclude_patterns(REPO) + ("pipelines/mill/**",)
+        with patch.object(msi, "qlty_exclude_patterns", return_value=rules):
+            report = msi.check_inventory(REPO, tracked=paths)
+        self.assertFalse(report["ok"], report)
+        self.assertEqual({path for _, path in report["qlty_hits_on_production"]}, set(paths))
