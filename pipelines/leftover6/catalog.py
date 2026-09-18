@@ -29,6 +29,11 @@ _MILL_DESCRIPTOR_PINS = (
     "e4035407942ffe7fb8d635563a39a713467bc41ae2a71e551108990d2a0611d6",
     "a375bbf99d0d5b71efc24b275aaaf9f9374ed192729a66fe63fceda1f90eb342",
 )
+# Canonical complete row lists independently re-extracted from those preserve commits.
+_ROW_CONTENT_PINS = (
+    "3cb7c50f75b1e264f1016e451ac2100458a70f8aac93e8f144b05996040e3904",
+    "7fd5f4032cf8f6723f367471419ab06956d8d4ffeb580f6e2d82041488a87c74",
+)
 
 _HEADER_KEYS = {
     "schema_version",
@@ -179,9 +184,9 @@ class BoundSources:
 
 
 def is_vendor_filename(name: str) -> bool:
-    if not name.endswith(".py"):
-        return False
     lower = name.lower()
+    if not lower.endswith(".py"):
+        return False
     if "leftover6" not in lower:
         return False
     return any(token in lower for token in ("mill", "plants", "loop", "_gen_"))
@@ -385,6 +390,14 @@ def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
     _validate_declared_totals(catalog, header)
     _validate_unique_and_ordered(bound)
     _validate_source_bindings(bound)
+    _require_row_content(catalog)
+
+
+def _require_row_content(catalog: Catalog) -> None:
+    for rows, expected in zip((catalog.pairs, catalog.plants), _ROW_CONTENT_PINS, strict=True):
+        payload = dumps_exact_json([dict(row) for row in rows], sort_keys=True).encode()
+        actual = hashlib.sha256(payload).hexdigest()
+        _expect(actual, expected, "catalog differs from independently pinned row content")
 
 
 def _validate_source_counts(bound: BoundSources) -> None:

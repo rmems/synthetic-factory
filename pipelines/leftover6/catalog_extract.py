@@ -185,7 +185,10 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
     env: dict[str, Any] = {}
     for node in tree.body:
         name, value = assignment_of(node)
-        if name is None or value is None:
+        if name is None:
+            _invalidate_names(env, _statement_names(node))
+            continue
+        if value is None:
             continue
         resolved = literal_value(value, env)
         if resolved is not UNSET:
@@ -193,8 +196,62 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
         else:
             # Assignment is authoritative: never retain an earlier literal
             # after the source replaces it with an expression we refuse to run.
+            _invalidate_names(env, _call_names(value))
             env.pop(name, None)
     return env
+
+
+def _statement_names(node: ast.AST) -> list[str]:
+    """Invalidate unsupported top-level uses without running publisher bodies."""
+    scoped = _scope_names(node)
+    if scoped is not None:
+        return scoped
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.alias):
+        return [node.asname or node.name.partition(".")[0]]
+    return _child_names(node)
+
+
+def _scope_names(node: ast.AST) -> list[str] | None:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        expressions = [node.args, *node.decorator_list]
+        return [node.name, *(name for expr in expressions for name in _statement_names(expr))]
+    if isinstance(node, ast.ClassDef):
+        return [node.name, *_child_names(node)]
+    if isinstance(node, ast.Lambda):
+        return _statement_names(node.args)
+    return None
+
+
+def _child_names(node: ast.AST) -> list[str]:
+    return [name for child in ast.iter_child_nodes(node) for name in _statement_names(child)]
+
+
+def _mutable_identities(value: Any) -> set[int]:
+    if not isinstance(value, (dict, list, set, tuple)):
+        return set()
+    items = value.values() if isinstance(value, dict) else value
+    identities = set() if isinstance(value, tuple) else {id(value)}
+    for item in items:
+        identities.update(_mutable_identities(item))
+    return identities
+
+
+def _call_names(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Lambda):
+        return _call_names(node.args)
+    if isinstance(node, ast.Call):
+        return _statement_names(node)
+    return [name for child in ast.iter_child_nodes(node) for name in _call_names(child)]
+
+
+def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
+    """Invalidate aliases too when an unsupported operation touches mutable data."""
+    affected = set().union(*(_mutable_identities(env.get(name)) for name in names))
+    for name, value in tuple(env.items()):
+        if name in names or affected.intersection(_mutable_identities(value)):
+            env.pop(name)
 
 
 def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, Any]:

@@ -66,3 +66,36 @@ class LiteralCatalogExtract(unittest.TestCase):
     def test_unknown_source_path_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'unsupported leftover6 source'):
             extract_source(SSL_SOURCE, path='experiments/unreviewed.py')
+
+    def test_unsupported_top_level_writes_cannot_preserve_stale_literals(self):
+        mutations = ('PAIRS += build()', 'del PAIRS', 'PAIRS[0] = build()',
+                     'del PAIRS[0]', 'PAIRS.append(build())',
+                     'PAIRS, other = build()', 'import unknown as PAIRS',
+                     'if condition:\n    PAIRS = build()')
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + mutation, path=SSL_PATH)
+
+    def test_unevaluated_function_body_does_not_change_literals(self):
+        source = SSL_SOURCE + '\ndef publish():\n    PAIRS.append(build())\n'
+        self.assertEqual(extract_source(source, path=SSL_PATH)['n_rows'], 1)
+
+    def test_definition_time_expressions_cannot_mutate_extracted_literals(self):
+        definitions = ('def publish(value=PAIRS.clear()):\n    pass',
+                       '@decorate(PAIRS.clear())\ndef publish():\n    pass',
+                       'class Publisher:\n    PAIRS.clear()',
+                       'publish = lambda value=PAIRS.clear(): None')
+        for definition in definitions:
+            with self.subTest(definition=definition), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + definition, path=SSL_PATH)
+
+    def test_mutable_aliases_cannot_preserve_stale_pair_values(self):
+        for alias in ('PAIRS', '[PAIRS]', '{"rows": PAIRS}'):
+            source = SSL_SOURCE + '\nALIAS = ' + alias + '\nALIAS.clear()'
+            with self.subTest(alias=alias), self.assertRaises(ValueError):
+                extract_source(source, path=SSL_PATH)
+
+    def test_overwritten_alias_is_invalidated_before_its_identity_is_lost(self):
+        source = SSL_SOURCE + '\nALIAS = PAIRS\nALIAS = ALIAS.clear()'
+        with self.assertRaises(ValueError):
+            extract_source(source, path=SSL_PATH)

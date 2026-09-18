@@ -317,7 +317,27 @@ class Leftover6CatalogTests(unittest.TestCase):
             1,
         )
         with _fixture(pairs=pairs) as dest:
-            self.assertEqual(load_catalog(dest).pairs[0]["fail"], "dl-drop\u2028cachekey-handoff")
+            rows = leftover6_catalog._load_jsonl(dest / "pairs.jsonl")
+            self.assertEqual(rows[0]["fail"], "dl-drop\u2028cachekey-handoff")
+            with self.assertRaisesRegex(CatalogError, "pinned row content"):
+                load_catalog(dest)
+
+    def test_middle_row_content_is_sealed_without_archive_refs(self):
+        for filename, index, field in (("pairs.jsonl", 7, "fail"),
+                                       ("pairs.jsonl", 22, "docs"),
+                                       ("plants.jsonl", 31, "dump")):
+            with self.subTest(field=field):
+                rows = [json.loads(line) for line in (CONFIG_DIR / filename).read_text().splitlines()]
+                rows[index][field] += " altered"
+                key = "pairs" if filename == "pairs.jsonl" else "plants"
+                with _fixture(**{key: dumps_jsonl(rows)}) as dest:
+                    with self.assertRaisesRegex(CatalogError, "pinned row content"):
+                        load_catalog(dest)
+
+    def test_vendor_extension_is_case_insensitive(self):
+        for name in ("mill_gql_leftover6_r260.PY", "SBOX-MILL-PLANTS-LEFTOVER6.Py"):
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                refuse_vendor_paths([name])
 
     def test_loader_refuses_stale_declared_totals(self):
         header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
