@@ -540,6 +540,22 @@ def _capture_manifested_files(actual, valid_entries, root_fd, errors):
     return snapshots
 
 
+def _run_tree_identity(files):
+    """Comparable membership and stat evidence for one bounded enumeration."""
+    return {
+        relative: _stat_identity_with_mode(status)
+        for relative, (_path, status) in files.items()
+    }
+
+
+def _verify_run_tree_unchanged(run_dir, root_fd, initial, errors):
+    """Refuse files added, replaced, or edited while their peers were captured."""
+    final, findings = _enumerate_run_files(run_dir, root_fd)
+    errors.extend(findings)
+    if _run_tree_identity(initial) != _run_tree_identity(final):
+        errors.append(f"{run_dir}: run tree changed during capture")
+
+
 def _authenticate_manifest_from_root(run_dir, root_fd):
     """Authenticate a run rooted at one already pinned directory descriptor."""
     run_dir = Path(run_dir)
@@ -577,6 +593,7 @@ def _authenticate_manifest_from_root(run_dir, root_fd):
         errors.append(f"{manifest_path}: unmanifested file is present: {relative}")
 
     snapshots = _capture_manifested_files(actual, valid_entries, root_fd, errors)
+    _verify_run_tree_unchanged(run_dir, root_fd, actual, errors)
     return manifest, snapshots, errors
 
 
