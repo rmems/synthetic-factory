@@ -130,3 +130,7 @@ class SandboxFailures(unittest.TestCase):
         for broken in (spec | {"cpu_seconds": "x"}, spec | {"file_size_bytes": None}, {}):
             with self.subTest(spec=broken):
                 self.assertFalse(harness._apply_limits(broken))
+
+
+if __name__ == "__main__":
+    unittest.main()

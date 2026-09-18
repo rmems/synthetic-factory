@@ -516,3 +516,7 @@ class InProcessHarnessBehavior(unittest.TestCase):
         self.assertIn("ValueError: nope", observed["got"])
         self.assertEqual(hidden, {"id": "hidden:1", "status": "error", "kind": "unrepresentable"})
         self.assertEqual(huge, {"id": "hidden:2", "status": "error", "kind": "unrepresentable"})
+
+
+if __name__ == "__main__":
+    unittest.main()
