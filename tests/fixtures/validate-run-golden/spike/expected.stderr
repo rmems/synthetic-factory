@@ -1,0 +1,1 @@
+ERROR: records.jsonl:1: spike_events not globally non-decreasing at index 1 (t_rel_ms 2.5 -> 1.0)
