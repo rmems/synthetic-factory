@@ -17,18 +17,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, boundary_site, envelope, executor as ex,
-    generate, mutate, oc, program, records, refusal, report, rows, smoke_run, verify,
-    vocabulary as cv,
+    FIXTURE_CATALOG, FakeExecutor, PINNED_AT, SEED, boundary_site, envelope, generate, mutate, oc,
+    program, records, refusal, report, rows, smoke_run, verify, vocabulary as cv,
 )
 
 # The pin moves whenever the harness bytes, the fixture catalog or the record layout change:
-# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for the
-# exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197), then
-# for digests on passing rows (Codex on #196, round 3).
+# the harness digest sits inside every record's oracle fingerprint by design. Re-pinned for
+# the exact-integer harness (Codex on #196) and the executed reference phase (Codex on #197),
+# then for digests on passing rows (Codex on #196, round 3), then for the parent-stamped
+# sandbox identity on the oracle fingerprint (#201).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-# Re-pinned for unshare+Landlock isolation (#198): fingerprint.isolation and the configuration string.
-GOLDEN_SHA256 = "9634453643e8727006b71bb937db9f4e0ebe2261ee33960b8d9b8cdadcc7e487"
+# Harness protocol v2 (#213): out-of-band limits attestation line before program load.
+# bwrap OS boundary + #200 repr update move the harness fingerprint.
+# Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
+# Landlock child allowlist on the OS-boundary path changes harness bytes (#339).
+GOLDEN_SHA256 = "2bd8680e305f0a4d4ce42f71b7f6ddad37d9fc6fcf778abd05f1bb820c8f2c59"
 
 
 def accepting_executor():
@@ -112,7 +115,6 @@ class ContractChecks(unittest.TestCase):
         self.assertEqual(provenance["split_lineage"]["lineage_id"], record["scenario"]["source"]["program_id"])
         self.assertEqual(record["oracle"]["fingerprint"]["python"], "3.14")
         self.assertEqual(len(record["oracle"]["fingerprint"]["harness_sha256"]), 64)
-        self.assertTrue(ex.isolation_applied(record["oracle"]["fingerprint"]["isolation"]))
 
     def test_a_rejected_record_is_stored_as_evidence_and_stays_eligible(self):
         fake = FakeExecutor({

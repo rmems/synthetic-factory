@@ -172,8 +172,7 @@ class ReplayBoundaries(unittest.TestCase):
 
     def test_forged_environment_is_refused(self):
         for field, value in (("implementation", "Other"), ("platform", "Other"),
-                             ("limits_applied", False),
-                             ("isolation", "unshare(user,mount,net)+landlock-abi99")):
+                             ("limits_applied", False)):
             record = copy.deepcopy(positives()[0])
             record["oracle"]["fingerprint"][field] = value
             self.assertEqual(replay.replay_record(restamp(record), fixture(), RUNNER)["code"], cv.REPLAY_ENVIRONMENT_DRIFT)

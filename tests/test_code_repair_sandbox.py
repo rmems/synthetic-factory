@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from code_repair_test_support import (  # noqa: E402
     executor as ex, fixture, refusal, vocabulary as cv,
 )
+from code_repair import _sandbox as landlock  # noqa: E402
 from code_repair import catalog_build as cb  # noqa: E402
 from code_repair import catalog_check as cc  # noqa: E402
 from code_repair import replay  # noqa: E402
@@ -114,7 +115,8 @@ class FingerprintIdentity(unittest.TestCase):
 
 class LiveOsBoundary(unittest.TestCase):
     @unittest.skipUnless(
-        sb.os_boundary_available(), "bwrap user-namespace sandbox is not available",
+        sb.os_boundary_available() and landlock.available(),
+        "bwrap and Landlock ABI>=3 are not both available",
     )
     def test_host_files_and_the_network_are_out_of_reach(self):
         secret = sp.ROOT / ".code-repair-os-isolation.secret"
@@ -138,6 +140,19 @@ class LiveOsBoundary(unittest.TestCase):
         self.assertTrue(report.ok, report.detail)
         self.assertEqual(report.environment["sandbox_identity"], sb.IDENTITY_BWRAP)
         self.assertEqual([row["got"].strip() for row in report.public], ["'isolated:isolated'"])
+        self.assertTrue(ex.landlock_applied(report.environment.get("landlock")), report.environment)
+
+
+class LandlockTokens(unittest.TestCase):
+    def test_tokens_require_truncate_mediation(self):
+        self.assertFalse(landlock.applied(None))
+        self.assertFalse(landlock.applied("landlock-abi2"))
+        self.assertTrue(landlock.applied("landlock-abi3"))
+        self.assertEqual(landlock.token_for(4), "landlock-abi4")
+        self.assertIsInstance(landlock.available(), bool)
+
+    def test_runtime_prefixes_never_include_root(self):
+        self.assertNotIn("/", landlock._runtime_prefixes())
 
 
 if __name__ == "__main__":
