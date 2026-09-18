@@ -1,0 +1,975 @@
+tests/test_oracle_grounded_package_surface.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7-9,14,16-18,20,23-29,42-47,61-164
+pipelines/iac/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-7,13,28-29
+tests/test_cli_path_confinement_hardening.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-243
+tests/test_code_repair_harness.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 17-18,21,26-27,38,93-220,263-288,291,293-298,300,302-321,323-325,330,372,375-376,504-518
+pipelines/nelb/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-96
+pipelines/dbc/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 36-37,642-693
+pipelines/ntp/themes.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-890
+pipelines/lrd/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-279
+pipelines/code_repair/harness_report.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-50
+pipelines/validate_run_routes.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-180
+pipelines/nelb/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-159
+pipelines/actf/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-325
+pipelines/ttf/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-300
+pipelines/code_repair/record_validation.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 10,86-87,89-92
+docs/code-repair-replay.md
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 37-39
+pipelines/crp/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-8,112-118,130-133,139-286,344-349
+pipelines/rights_policy_validation.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 27,104-109,121
+pipelines/iac/plants_b.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+pipelines/evh/leftover-plants-c.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-6
+pipelines/sbox/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-411
+config/amc/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 8,10
+tests/test_crp_r729.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-230
+pipelines/dpr/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-277
+pipelines/evh/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1716
+config/ewr/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-67
+pipelines/validate_run_episode_turns.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-125
+pipelines/wsr/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 340-344
+pipelines/ssr/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1588
+tests/fixtures/validate-run-golden/malformed/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+pipelines/curate_rewards.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 56,144,825-834,838-847
+tests/fixtures/kcl/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/test_hopper_catalog_mill.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-131
+tests/test_code_repair_review_regressions.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 102,108,110,114-120,131
+pipelines/lhc/catalog_ast.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-33
+pipelines/pbc/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-92
+tests/test_cli_path_confinement_txn.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 68-75
+pipelines/nelb/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-14
+pipelines/lef/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 5,7-12,23,30-31,34-50,55,147-150
+pipelines/dbc/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 11,15,19-21,25,65-138,151-156,170-180,183,200,219-220,222-225,227,233-250
+pipelines/wsr/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1,3-5
+pipelines/preference_arms.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 63,919-922,925-930
+pipelines/lrd/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-21
+config/brw/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1916
+pipelines/ntp/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,8,10-11,14-15
+pipelines/lhc/catalog_extract_plants.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-143
+pipelines/ttf/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-29
+pipelines/pkg/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-137
+pipelines/ffpc/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 12,17,21,23,27,58,60,73,75,98-108,144,146,176
+tests/fixtures/validate-run-golden/provenance/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+pipelines/acm/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-6,22,25,28,30-31,35,44,54,97,118-134,205-209,252,254-255,273-313
+pipelines/irc/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-37
+tests/fixtures/validate-run-golden/reward/expected.stderr
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/test_cli_path_confinement.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 208,212
+pipelines/tup/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-14
+pipelines/lhc_w4cl/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-143
+pipelines/lhc/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-249
+pipelines/code_leftover3/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-15
+pipelines/search/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 16,21,26,28-29,33-71,85-139,240-249,316-506,511-515
+pipelines/acm/rows.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1044
+pipelines/dpr/sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-308
+pipelines/mdb/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-6,14,26-27,29,33
+pipelines/pkg/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-587
+tests/test_dpr.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-378
+config/crp/plants-r538.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-495
+docs/mill-catalog-encoding-playbook.md
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-390
+config/crp/CATALOG-r995.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/mdb/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 23,25-26
+pipelines/ntp/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7-9,24,28-43
+tests/test_azr.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,7,17,27,29,34-35,301-304,311-357,393,415-421,426-428
+pipelines/round_txn.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 50,64,651,706,1398,2175-2179
+pipelines/irc/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-216
+pipelines/hopper/catalog_mill.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-220
+pipelines/lef/rows.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 49-682
+tests/test_brw_r212.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-200
+pipelines/irc/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-153
+pipelines/irc/specs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-2960
+pipelines/ewr/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 12,30,35-38,42-50,53-56,59-85,100-101,120-121,133-203,224-233,242-245,258-269,274-275,277-285,293,296
+pipelines/reward_policy.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 46-51,86-91,116-121,129-131,141-143,160-162,242-244,264,290,333
+pipelines/ntp/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-8
+pipelines/pbc/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-85
+tests/fixtures/obs/tiny-source/leftover-spec.txt
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-22
+pipelines/pbc/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-99
+pipelines/reward_ontology.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 27,65,249,479
+tests/fixtures/obs/catalog/leftover3-pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/test_code_repair_records.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 20-21,25-28,30-33
+pipelines/sbox/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-675
+pipelines/ttf/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-247
+tests/fixtures/kcl/tiny_source.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-68
+pipelines/acm/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 11,15,19-20,33,37,41-42
+pipelines/azr/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 39-41,50,535-607
+pipelines/evh/leftover-plants-j.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+docs/mill-support-p4-design.md
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-618
+pipelines/lhc/sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-187
+pipelines/search/r72.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-20
+pipelines/actf/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 17-39,89-94,116-121,150-158,185-187,190-199,221-226
+pipelines/mac/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-161
+pipelines/evh/leftover-plants-g.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-19
+tests/test_reward_parse.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-230
+config/crp/CATALOG-leftover3-prior.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/sbox/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-356
+tests/test_crp_r432.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-230
+pipelines/code_repair/trusted_replay.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 58
+tests/test_curate_gate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 43-55
+pipelines/iac/identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 19-22
+pipelines/evh/leftover-plants-i.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+pipelines/reward_parse_patterns.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-179
+tests/fixtures/lrd/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+config/crp/plants-r995.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1968
+tests/test_crp_leftover3_prior.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-188
+tests/test_evh.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7,20,27,32,35-45,261-270,358-359,389,391-401,428-642
+tests/fixtures/validate-run-golden/reward/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+tests/test_rights_classifier.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 28-30,35,38-69,74,77-78
+pipelines/obs/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-966
+config/crp/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-366
+config/mill-usage-burst-plan.pbc-c.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-85
+tests/test_ttf.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-434
+pipelines/code_repair/generate.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 111-138,142-143,245
+pipelines/search/R31.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/validate_run_preference.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,5,10-11,16-17,20-21,25-26,28-30,33-34,36-38,41-46,49-56,59,61,65,68-70,73-78,81-86,90-103,108-109,112-194
+tests/test_lrd.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-445
+config/maos/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-20
+pipelines/crp/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,6-8,19-24,492-588,598,629,633,636-637,655
+pipelines/code_repair/_harness.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 4-12,18,32-34,36-38,45-50,53-60,239-247,254-258,284-302,308,310,344-353,359,361-367,372
+pipelines/hopper/episode_pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-192
+tests/test_ffpc.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 183-239,249-251,346
+pipelines/pbc/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-361
+tests/test_distill_measurements.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 584,586,603-611
+pipelines/code_repair/executor.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 4-11,19,33-34,36,46-48,51-52,86,158-160,163,165,168-171,193-197,201-206,208-216,219,222-224,226-232,234,236,238-241,247-250,256-269,278-279,282,287,290-294,297-307
+tests/test_dbc.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,7,17,28,30,34-35,264-266,270-312,349-351
+pipelines/evh/leftover_plants.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-71
+pipelines/oracle_grounded/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 24-31
+config/crp/plants-leftover3-prior.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-48
+config/lrd/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-97
+pipelines/sbox/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-177
+pipelines/irc/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-415
+tests/test_contract_drift.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 6-7,38-43,114,123-153,159-161,165-169
+config/kcl/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-147
+config/mill-usage-burst-plan.pbc-a.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-85
+pipelines/dpr/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-286
+tests/fixtures/validate-run-golden/provenance/records.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/pbc/mill_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-533
+tests/test_lef.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,18-24,31,42-43,46,190-191,193,197-200,205-211,215-292,339,341,353-355,361-363,387-388,391,394-413,441-446,461-465,468-469,512-607
+pipelines/lhc/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-66
+pipelines/validate_run_cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-129
+pipelines/cei/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 5-9,29,36-37,44-51,61-62,64-65,77,84,136-170,180-182,326-343,398-459,467,469,493-494,499-502,558-668,700-724,764-772,789
+pipelines/wsr/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 30,35,39-43,49-54,145-146,152-159
+tests/fixtures/validate-run-golden/malformed/expected.stderr
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/test_cei.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 29-30,35-38,40,43-51,100-208,247,252-274,278,281-290,293-300,302-307,356-433,448,450-451,459-483,536-565
+pipelines/actf/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/maos/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-502
+tests/fixtures/validate-run-golden/provenance/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/evh/leftover-plants-l.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-12
+tests/test_maos.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-360
+tests/test_code.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-313
+tests/test_obs.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-337
+tests/test_ssr.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7-8,19,27,29,32,184-229,257-262,298-303
+pipelines/irc/pipe_catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-277
+pipelines/lhc/catalog_ast_calls.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-113
+pipelines/oracle_grounded/distill_vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 178-190
+pipelines/curate_trajectory_preferences.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 73,153,572-578
+pipelines/hopper/catalog_episode_mill.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-228
+pipelines/tup/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-506
+tests/test_brw_r383.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-168
+tests/test_rights_policy.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 320
+pipelines/mac/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-367
+pipelines/lhc_w4cl/sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-51
+pipelines/nelb/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-613
+pipelines/lrd/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-219
+pipelines/lhc/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-182
+pipelines/crp/r432.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+tests/test_brw_r395_extra.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-142
+pipelines/code_repair/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 41
+pipelines/coding_constants.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 10,12
+pipelines/evh/leftover_plants_b.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-74
+pipelines/sbox/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-2612
+docs/code-repair-run-v2.md
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 27-32,38-48
+tests/fixtures/validate-run-golden/spike/records.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/actf_import_probe.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 18,35-39,42,50
+pipelines/evh/leftover-plants-f.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-17
+pipelines/nelb/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-218
+tests/test_crp_r538.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-224
+pipelines/iac/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 12,14-57,89-94,113-126,135-140,143-151,177-238
+pipelines/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 13,21-32,41,43,118-125,214-216,218,220,222-224,261-283,307-313,318
+pipelines/lhc/catalog_extract_pairs.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-187
+pipelines/dbc/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1212
+pipelines/ewr/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-7,17,19,28,33,36-38,43-50,54,57-58,98,100-101,103,109-113,118,124-142,146,152,154-163,169,178,187,196,229-237,256,260-262,265-267,270-275,277,280,282-287,291-310,313-323,325-330,334-343,346-349,351,353,355-371,373-397,399,401,403-442,447-463,465,469,475-478,486,488-514,516-526,528-533
+pipelines/pay/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-37
+tests/test_cli_path_confinement_preventive.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 86-98,229,244-248,280-286
+tests/oracle_grounded_package_probe.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-171
+pipelines/lhc/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-291
+tests/test_tup.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-373
+tests/fixtures/obs/catalog/leftover-specs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/acm/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 25-27
+pipelines/validate_run_episode.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,5,10,18,24-29,32-33,35-38,40-45,48-49,51-53,56-60,63-72,74-82,85-101,103-108,113-119,122-126,131-133,137-167
+tests/test_actf_vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 59
+pipelines/dpr/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-89
+pipelines/kcl/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-174
+pipelines/pbc/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+pipelines/evh/leftover-plants-m.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-6
+pipelines/ttf/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-618
+tests/fixtures/validate-run-golden/valid/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+docs/code-repair-admission.md
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 147-150
+pipelines/pay/archive_b_deferred.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-112
+pipelines/wsr/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 45,54-59
+pipelines/reward_units.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 15,40,197-200
+pipelines/tup/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-440
+tests/test_actf_catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-126
+pipelines/ewr/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 14-21,31,33
+pipelines/evh/leftover-plants-k.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-15
+pipelines/lhc/catalog_ast_literals.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-113
+tests/fixtures/validate-run-golden/safety/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/test_sbox.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-355
+pipelines/evh/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 10-17,20-29,34,45,47-49,51-54
+tests/code_repair_import_probe.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 19
+pipelines/next_round.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 25,226
+pipelines/lhc/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1287
+config/lrd/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-118
+pipelines/code_leftover3/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-111
+pipelines/pay/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1,3-6,11,17-18,25
+pipelines/lrd/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-496
+tests/test_code_repair_catalog_build.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 63,97-129
+pipelines/pay/archive_b_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-174
+pipelines/evh/pairs.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-75
+tests/test_gor.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,7,17,27,29,33-34,221-229,302-307,311-356,364,385-390,392,397-400
+pipelines/gor/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7-8,25-49
+config/tup/families.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-138
+pipelines/hopper/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-114
+tests/test_kcl.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-354
+pipelines/kcl/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-38
+pipelines/crp/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 3-6,9
+pipelines/evh/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 34,65-75,624-656,695-699,704-711
+pipelines/code_repair/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 18
+tests/fixtures/validate-run-golden/spike/expected.stderr
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/azr/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-6,11-18,40,46-47
+pipelines/cei/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 32,35,52-53,531-908,910-921,927-956,958-959,961-962,1009
+tests/test_pbc_mill_usage_burst.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-197
+tests/fixtures/obs/catalog/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-53
+pipelines/ewr/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 55-56
+pipelines/validate_run.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-8,39-40,42,52-53,55,156-157,162,274-291,295-312,337-339,343-355,361-362,364-366,370-374
+pipelines/pkg/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-15
+pipelines/curate_preferences.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 65,114,649-659,663-664
+tests/test_validate_run_golden.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-95
+pipelines/actf/lineages.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-63
+pipelines/ffpc/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-105
+tests/fixtures/validate-run-golden/safety/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+config/crp/CATALOG-r729.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/search/R72.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+tests/test_wsr.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,29-30,36-40,42-43,50,58-65,68-73,93-101,108,114-117,123-126,131,137-150,153-157,164,166-167,178-186,236,240
+pipelines/iac/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 361-386
+pipelines/ttf/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-158
+config/obs/hop-plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-175
+pipelines/brw/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,4-8,13-15,20-51,788-1002
+config/obs/leftover3-pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+pipelines/tup/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-189
+tests/actf_test_support.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 12
+pipelines/lef/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-8,15-24,35,38,41,44
+config/tup/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-257
+pipelines/evh/leftover-plants-n.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-4
+tests/fixtures/validate-run-golden/malformed/records.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/ssr/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 8-9,12,16-17,20,24,65-72,76,93-118,132-171,207,209,214-220
+tests/test_pkg.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-356
+pipelines/mac/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-174
+pipelines/azr/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 8,11-17,20-21,23,26,29,69-74,88-89,127,129,132-133,135,138,142,146-184
+pipelines/code_repair/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 91
+pipelines/iac/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 18,22-29,31-43,82-83
+pipelines/code_leftover3/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-101
+tests/test_mdb.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 32-39,196-202,275-316,324,346-349,354-355
+pipelines/lef/plants_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-155
+tests/test_crp_r817.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-189
+pipelines/gor/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 8,11-17,19-30,66-71,85-86,120,122,125-126,128,131,139-177
+pipelines/reward_parse_values.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-164
+tests/fixtures/validate-run-golden/mini-run/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-9
+pipelines/crp/r995.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+config/maos/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-27
+pipelines/curate_gate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 617
+config/crp/CATALOG-r817.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/maos/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-140
+pipelines/validate_run_multi_agent_roster.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-111
+pipelines/tup/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-130
+pipelines/evh/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 8-9,13-16,18-39,78-99,109-113,119-122,136,145-157,160-164,168-246,295,305,309-443
+tests/fixtures/validate-run-golden/safety/records.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/crp/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 19-24,36,39-44,48,66-79
+pipelines/code_repair/catalog_check.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 18,167
+pipelines/lhc/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-30
+config/mill-usage-burst-plan.pbc-b.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-85
+pipelines/validate_run_multi_agent.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,11-12,18-19,22,33-34,36,38-53,55-60,62-65,69-105,108-131,134-143,146-174
+config/cei/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 12-35,38-39,43,47-51
+config/amc/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 25-1401
+tests/fixtures/validate-run-golden/spike/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+config/crp/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/iac/plants_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-143
+pipelines/search/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-8,12-36,44,46-52,57,59,61-63
+tests/fixtures/obs/catalog/hop-plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+tests/fixtures/obs/tiny-source/leftover3-pair.txt
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+pipelines/operator_paths.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 6-8,16-19,26,30,41-45,53-200,202-208
+pipelines/crp/r538.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+pipelines/ffpc/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 5-6,13-14,17,25,30,35-37,40,47-64,81,83,88,170-257,392-560,568,575,579-591,594-599,602-603,609-617,661,663,744-745,747-749,752-753,756-802
+pipelines/obs/__main__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-7
+tests/fixtures/kcl/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-27
+tests/test_search.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 18,20,25-28,30-32,34-53,86-100,113,116,189-190,196-203,344-345,353-498
+pipelines/iac/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+pipelines/mdb/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1284
+config/cei/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 40-89
+pipelines/lef/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 13-14,19,22-25,64-92,118-119,138-139,141-144,146-162,175-176,224,231,239-240,246-247,249-361,411,414-426,430-460
+pipelines/actf/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7
+pipelines/lef/sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 14-27,104-124
+pipelines/ssr/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 5,7-8,21-22,27-28,30-37
+pipelines/evh/leftover-plants-d.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-4
+.github/workflows/python.yml
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 34-40
+pipelines/mac/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1401
+pipelines/rights_policy_profiles.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 34,173
+pipelines/ttf/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-13
+tests/test_curate_trajectory_preferences_sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 17,213-219,229-230
+pipelines/code_repair/replay.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 180,436
+pipelines/gor/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-6,11-17,31,35,37
+pipelines/search/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 5-11,28-29,31-70,73,75,103-110
+tests/test_code_repair_admission_integration.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 319-321
+tests/test_actf_imports.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 22-23,29
+pipelines/evh/leftover-plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-4
+pipelines/lhc/catalog_extract_fn_pair.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-144
+.cursor/Dockerfile
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 15
+tests/fixtures/validate-run-golden/valid/records.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+config/tup/plants-extra.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-2343
+tests/fixtures/validate-run-golden/spike/expected.stdout
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+tests/fixtures/validate-run-golden/valid/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/evh/leftover-plants-h.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-24
+pipelines/dpr/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-65
+pipelines/maos/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-15
+pipelines/evh/leftover-plants-e.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+config/tup/families-r1485.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-95
+pipelines/ntp/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-2240
+tests/fixtures/validate-run-golden/reward/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/ssr/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-6,11-18,39-40,46,50
+pipelines/amc/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 29-30,87-90,223-228,266-269,287-330,335-337,341-348,350-351,355-357,362,378-380,385-388,391-426
+pipelines/dpr/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-491
+pipelines/maos/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-271
+pipelines/pkg/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-190
+tests/fixtures/validate-run-golden/reward/records.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/irc/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-204
+pipelines/kcl/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-815
+pipelines/obs/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+pipelines/reward_parse.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-152
+pipelines/mdb/pairs.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-167
+pipelines/lef/identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 13,17-19
+tests/test_pay.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-181
+pipelines/code_repair/records.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 22,28,99,103,110,161,173
+pipelines/lhc_w4cl/catalog_ast.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-108
+pipelines/ntp/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 45-49,269,297-303,311,314,317-318,341-342,346-373,399-406,410-411,421-422,428-435
+pipelines/pay/archive_b_catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-165
+tests/test_amc.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 8,73,78-79,100-108,162,169-187
+tests/test_mac.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-260
+pipelines/gor/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-961
+tests/fixtures/validate-run-golden/mini-run/expected.stderr
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+pipelines/ntp/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 11-17,28-32,89-92,97-98,100-101,107-118,168-220,259-264,269-274
+pipelines/wsr/generate_lll.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-421
+pipelines/ntp/sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-5
+tests/fixtures/validate-run-golden/malformed/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/dpr/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+tests/test_pipelines_package_imports.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 63
+tests/test_hopper_episode_catalog_mill.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-115
+tests/test_lhc.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-414
+pipelines/ewr/catalog_ast.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-285
+pipelines/ssr/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 30,37,242,255-257,265-286,433-437,444-499,506,509-533
+pipelines/lhc_w4cl/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-43
+pipelines/pbc/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-708
+config/kcl/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-705
+pipelines/hopper/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-110
+pipelines/lhc_w4cl/identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-39
+pipelines/evh/leftover_plants_letter.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-78
+tests/fixtures/validate-run-golden/provenance/expected.stderr
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/kcl/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-289
+pipelines/pbc/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-44
+pipelines/search/r31.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-16
+scripts/vendor_python_repair_catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 36,270-281
+pipelines/lhc_w4cl/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-31
+config/crp/plants-r729.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-216
+pipelines/rights_classifier.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 9,80,88,95,101,272
+pipelines/search/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 11-29,72-85,156-202,204-206
+pipelines/cei/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 3-7
+pipelines/lhc/identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-40
+pipelines/search/r52.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-20
+pipelines/lhc/catalog_extract_jsonl.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-89
+pipelines/mac/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-316
+pipelines/crp/r817.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+pipelines/code_repair/sandbox.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-393
+tests/fixtures/obs/tiny-source/hop-plants.txt
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-18
+tests/test_iac.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7,18,96-142,198-199,207-213,259,261-271,285-363,392-396
+tests/test_code_repair_export_validation.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 315
+pipelines/evh/leftover-plants-b.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-4
+pipelines/pkg/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-256
+pipelines/code_leftover3/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-562
+pipelines/wsr/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-32
+pipelines/nelb/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-142
+pipelines/mac/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-117
+config/crp/CATALOG-r538.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/sbox/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-12
+pipelines/irc/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-210
+pipelines/obs/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-133
+pipelines/wsr/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-30
+tests/test_nelb.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-411
+tests/test_code_repair_sandbox_failures.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-136
+tests/pipeline_import_catalog_foundation.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 645-656,993-1052,1065-1066,1071-1072,1089-1090,1095-1096,1101-1102,1107-1108,1113-1114,1119-1120,1125-1126,1131-1132,1137-1138,1143-1144,1150-1169,1278-1280,1329-1351
+pipelines/code_repair/source_policy.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 24-25
+pipelines/search/identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 9-21,35,47-55,64-65
+pipelines/curate_identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 214
+pipelines/obs/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-180
+pipelines/evh/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 23-161
+pipelines/lrd/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-671
+tests/code_repair_test_support.py
+  s_1c8db4e0a35a28::t_7ceb86b5eff377 24,82,96-97
+pipelines/azr/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 7-8,20,25-45
+tests/validate_run_test_helpers.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 60-70
+pipelines/azr/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1320
+tests/test_lhc_w4cl.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-268
+config/brw/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-319
+pipelines/dbc/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4,7-8,12-18,49,51
+pipelines/pay/archive_b.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-21
+pipelines/dpr/pairs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-727
+config/obs/leftover-specs.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-440
+pipelines/validate_run_preference_context.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-98
+tests/test_crp_r995.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-203
+tests/test_ntp.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,30,32,34,38-40,140,142-146,221-247,319-325,329-331,333-336,342-343,346-348,351-354,360-367,397-408,410,418-425,427-428,431-434
+pipelines/lhc_w4cl/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-107
+tests/test_irc.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-410
+pipelines/verify_execution.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 65,237-239,242-250
+config/obs/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-101
+pipelines/pay/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-121
+config/ewr/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-70
+pipelines/sbox/cli.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-117
+tests/test_code_repair_attestation.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-153
+pipelines/acm/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 36-37,41-42,45-48,59,63-65,72,80,82,84
+pipelines/code_leftover3/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-1235
+pipelines/wsr/catalog.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,4-7,34-35,41-45,47-48,50,62-95,132,220-262,337,339,347,349,358-359,374-386,393-394,397,498,525-528,530,532-580,582,584-616,618-620,622-623,627-646,650,655-662,664,673,679,682-684,688-713,715-720,723,725,728,730,733,735,738,740
+pipelines/verify_hf_release.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 346-353,357
+pipelines/lef/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 110-139,142
+config/crp/plants-r817.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-534
+pipelines/pkg/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-375
+tests/fixtures/validate-run-golden/mini-run/expected.exit
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/kcl/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-692
+pipelines/dpr/pairs.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-163
+pipelines/code_repair/catalog_build.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 35,385-393
+pipelines/reward_document.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 25-33,77-85,124-132,192-198,204,210,212,223,232-235,340-342,454-458,557
+pipelines/ffpc/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-57
+tests/test_rights_policy_guards.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 9,12,221-276
+pipelines/dbc/vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 4-5,8-9,25,27-39
+pipelines/obs/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-405
+pipelines/pkg/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1
+pipelines/tup/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-345
+pipelines/cei/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 38-61,124-162,201-202,215,227-228,237,239-248,262-272,278-279
+pipelines/reward_vocabulary.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 6,21-28,41-48,55,76-81,88,160-169,179-183,261-268,316,326-330,333-339,344,363
+pipelines/code_repair/publication.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 223-225
+pipelines/crp/r729.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+scripts/build_nelb_plants_jsonl.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-226
+pipelines/evh/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2-23,345-1478,1530-1826
+tests/test_pipeline_split_module_identity.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 82-84,129-136,194-197,230-240
+pipelines/nelb/generate.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-378
+pipelines/gor/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 36-38,330-398
+pipelines/maos/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-182
+tests/test_validate_run_manifest.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-54
+pipelines/mac/__init__.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-12
+pipelines/lef/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 475-495
+tests/test_code_repair_sandbox.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-144
+config/tup/families-r1566.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-67
+tests/test_crp.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 59-71
+pipelines/lhc/catalog_ast_assign.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-55
+pipelines/crp/_contract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 12-14,16,20,22,26,35,37,52,54,77,89,96,101,106-118
+tests/test_ewr.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 29-33,38-43,48-49,51,59-66,96,100-102,105,107-115,118-125,129-136,140-141,143,146,148-166,173-175,196,199,201,236-238
+pipelines/evh/plants_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-135
+pipelines/search/sources.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,4,7-9,16-31,64-92,97-104,106-107
+pipelines/lef/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+tests/test_verify_hf_release.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 176-202
+pipelines/lhc_w4cl/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-305
+pipelines/search/R52.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-25
+pipelines/ttf/plants.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-35
+pipelines/lef/plants_b.jsonl
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-8
+tests/test_operator_paths.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 2,5-6,8,12,14-48,55-58,62-316,323-324
+tests/fixtures/lrd/CATALOG.json
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-26
+pipelines/crp/leftover3_prior.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-329
+pipelines/reward_mapping.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 6-7,21,27,80,117-132,140-143
+pipelines/lrd/catalog_extract.py
+  s_1c8db4e0a35a28::t_dfe76df7045f5e 1-524
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bda5cc2fc7186cabb243077f5df96dddf45e1887",
+  "prompts": {},
+  "sessions": {
+    "s_1c8db4e0a35a28": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aae50134-199b-4004-b47e-2c098cd84541",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
