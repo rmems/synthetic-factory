@@ -62,7 +62,7 @@ from typing import Any, NamedTuple
 
 if __package__:
     from . import leftover_mill
-    from .operator_paths import operator_path
+    from .operator_paths import confine_named
     from .preference_audit import (
         AUDIT_NAME,
         AUDIT_SCHEMA_VERSION,
@@ -111,7 +111,7 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     import leftover_mill
-    from operator_paths import operator_path
+    from operator_paths import confine_named
     from preference_audit import (
         AUDIT_NAME,
         AUDIT_SCHEMA_VERSION,
@@ -646,17 +646,22 @@ class Inputs(NamedTuple):
     second: Path | None
 
 
+_PATH_ARGUMENTS = {
+    "source": "source",
+    "output": "--output",
+    "manifest": "--manifest",
+    "expect": "--expect",
+    "first": "first",
+    "second": "second",
+}
+_DESTINATION_FIELDS = frozenset({"output", "manifest"})
+
+
 def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs:
     """Confine every path argument right after parsing; sinks never read ``args`` again."""
 
-    def optional(name: str) -> Path | None:
-        value = getattr(args, name, None)
-        return None if value is None else operator_path(str(value))
-
-    try:
-        return Inputs(*(optional(name) for name in Inputs._fields))
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    paths = confine_named(parser, args, _PATH_ARGUMENTS, _DESTINATION_FIELDS)
+    return Inputs(*(paths[name] for name in Inputs._fields))
 
 
 def _print_audit_text(audit: dict[str, Any]) -> None:

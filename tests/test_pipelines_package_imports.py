@@ -60,6 +60,7 @@ REFACTORED_FACADES = (  # qlty-ignore(qlty:similar-code): unrelated name declara
     "reward_document",
     "reward_mapping",
     "reward_ontology",
+    "reward_parse",
     "reward_policy",
     "reward_units",
     "reward_vocabulary",
