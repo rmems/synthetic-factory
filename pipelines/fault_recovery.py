@@ -267,6 +267,19 @@ class _DisturbanceSpec:
         return self.onset_ms <= now_ms < (self.onset_ms + self.duration_ms)
 
 
+def _corruption_ticks(spec: _DisturbanceSpec, system: dict[str, Any]) -> frozenset[int]:
+    """Keep the existing phase, with one real event when a positive burst misses it."""
+    if spec.kind != "burst_corruption" or spec.corrupt_ratio == 0:
+        return frozenset()
+    eligible = [tick for tick in range(int(system["ticks"]))
+                if spec.in_window(tick * float(system["tick_ms"]))]
+    if not eligible:
+        raise oc.ContractError("positive corruption window contains no sampled event")
+    selected = [tick for tick in eligible
+                if ((tick * 7919) % 1000) / 1000.0 < spec.corrupt_ratio]
+    return frozenset(selected or eligible[:1])
+
+
 class _StreamState:
     """Counters the tick loop accumulates while stepping the event stream."""
 
@@ -284,6 +297,7 @@ class _StreamState:
         self.saturated_ticks = 0
         self.dropped = 0
         self.corrupt = 0
+        self.corruption_ticks: frozenset[int] = frozenset()
         self.total = 0
         self.max_staleness = 0.0
         self.max_jitter = 0.0
@@ -359,10 +373,8 @@ class _StreamState:
             self.max_jitter = max(self.max_jitter, abs(spec.jitter_ms))
 
         if spec.kind == "burst_corruption" and channel in spec.affected and in_window:
-            # Deterministic pseudo-random phase, fine enough that the
-            # realised corruption tracks the requested ratio instead of
-            # snapping to quarters.
-            if ((tick * 7919) % 1000) / 1000.0 < spec.corrupt_ratio:
+            # Selected actual ticks preserve the phase when it realises a hit.
+            if tick in self.corruption_ticks:
                 self.corrupt += 1
 
         if spec.kind == "malformed_spike_burst" and channel in spec.affected:
@@ -830,6 +842,7 @@ class RelayReflexSimulator(FaultOracle):
         live_channels = [channel for channel in channels if channel not in missing]
 
         state = _StreamState(system, channels, live_channels)
+        state.corruption_ticks = _corruption_ticks(spec, system)
         tick_ms = float(system["tick_ms"])
         for tick in range(int(system["ticks"])):
             state.step(spec, tick, tick_ms)
