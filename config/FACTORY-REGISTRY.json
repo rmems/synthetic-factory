@@ -1275,8 +1275,8 @@
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "oracle-grounded-v1",
-      "catalog_sha256": "5bd1e04d82279af8bd14b0f0a1da8dbbf27c719b0d9d85a73b7654183f0ef2cb",
-      "programs_sha256": "07610c4017b4acc1d7bed53098afa056d9025474d44e6084d9e78e3ab6b9f7fe",
+      "catalog_sha256": "221ab0413e4d731d153e372879948fd5002b06ad2ca23fb9c5c8d1fbcff25e0b",
+      "programs_sha256": "38d1225c5cacfac5997aceab4bda159c2e74dd891ac243f9154aa805345d121a",
       "intended_use": "training_candidate",
       "project_training_policy": "allowed",
       "publication_target": null,
@@ -1288,7 +1288,7 @@
         "license": "Apache-2.0",
         "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
       },
-      "procedural_policy_sha256": "b03f439df5d3f36ec7a82e44926762ab2571989b536d4efa90f865776123867b",
+      "procedural_policy_sha256": "ce53ec431bd3888cf96271cd8245592dcca5d40dd20764fd2543316feb4c7a68",
       "record_kinds": [
         "oracle"
       ],

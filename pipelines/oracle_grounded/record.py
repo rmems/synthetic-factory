@@ -36,7 +36,7 @@ from .envelope import (
     proposal_of,
     reserved_key_hits,
 )
-from .rng import Rng, seed_from_label
+from .rng import MAX_SEED, Rng, seed_from_label
 
 SCHEMA_ID = "oracle-grounded/v1"
 ENVELOPE_KEYS = (
@@ -447,6 +447,8 @@ def _validate_generator_side(record):
         record_seed = generator.get("seed")
         if not isinstance(record_seed, int) or isinstance(record_seed, bool):
             findings.append("generator.seed must be an integer")
+        elif not 0 <= record_seed <= MAX_SEED:
+            findings.append("generator.seed must be an unsigned 64-bit integer")
         else:
             expected_generator = generators.generator_block(
                 record_seed,

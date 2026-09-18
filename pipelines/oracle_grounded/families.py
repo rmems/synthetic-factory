@@ -220,6 +220,12 @@ def _encoder_checks(record):
                         "the signal, reconstruction, and spike count"
                     )
         excerpt = state["representation_excerpt"]
+        excerpt_limit = int(record["oracle"]["configuration"]["encoder"]["excerpt_spikes"])
+        if len(excerpt) > excerpt_limit:
+            findings.append(f"{side}.representation_excerpt exceeds the configured excerpt bound")
+            # This invalid state cannot be admitted. Do not amplify an
+            # attacker-controlled event array into one finding per element.
+            continue
         if len(excerpt) > state["spike_count"]:
             findings.append(f"{side}.representation_excerpt exceeds spike_count")
         duration_ms = scenario["sample_count"] * scenario["sample_ms"]

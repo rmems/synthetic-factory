@@ -488,12 +488,14 @@ def simulate_mesh(nodes, edges, events, duration_ms, dt_ms=0.5, max_spikes=4000)
             cell = state[node_id]
             if cell["refractory_left"] > 0:
                 cell["refractory_left"] -= 1
-                cell["v"] = cell["v_reset"]
+                # Keep inhibition delivered during refractoriness until the
+                # next recurrent input; resetting it each step loses resets.
+                cell["v"] = min(cell["v"], cell["v_reset"])
             else:
                 cell["v"] += (-(cell["v"] - cell["v_rest"])) * (dt_ms / cell["tau_ms"])
         for node_id, amount in pending.pop(step, ()):  # deterministic insertion order
             cell = state[node_id]
-            if cell["refractory_left"] <= 0:
+            if cell["refractory_left"] <= 0 or amount < 0:
                 cell["v"] += amount
                 if cell["v"] < cell["v_floor"]:
                     cell["v"] = cell["v_floor"]

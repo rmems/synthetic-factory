@@ -28,7 +28,6 @@ import argparse
 import ctypes
 import errno
 import fcntl
-import hashlib
 import json
 import os
 import secrets
@@ -38,6 +37,12 @@ import sys
 from pathlib import Path
 
 from oracle_grounded import canon, families, oracles, record, rng
+from oracle_grounded.generation_output import (
+    _output_descriptor,
+    _verify_staged_manifest,
+    _verify_staged_payloads,
+    write_jsonl,
+)
 from oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
 
 DEFAULT_SEED = 20260823
@@ -76,11 +81,15 @@ def generate_family(
     dirty,
     require_runtime,
     environ=None,
+    *,
+    byte_budget=None,
 ):
     """Build ``count`` records for one family, split by verdict."""
     accepted = []
     rejected = []
     errors = []
+    byte_budget = byte_budget if byte_budget is not None else [0]
+    file_bytes = {"accepted": 0, "rejected": 0}
     for index in range(count):
         try:
             item = record.build_record(
@@ -103,18 +112,22 @@ def generate_family(
             )
             continue
         if item["validation"]["status"] == "accepted" and not layers["family"]:
+            _charge_record(item, "accepted", file_bytes, byte_budget)
             accepted.append(item)
         else:
+            _charge_record(item, "rejected", file_bytes, byte_budget)
             rejected.append(item)
     return accepted, rejected, errors
 
 
-def write_jsonl(path, records):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    body = "".join(canon.dumps_record(item) + "\n" for item in records)
-    encoded = body.encode("utf-8")
-    path.write_text(body, encoding="utf-8")
-    return hashlib.sha256(encoded).hexdigest(), len(encoded)
+def _charge_record(item, verdict, file_bytes, byte_budget):
+    size = len((canon.dumps_record(item) + "\n").encode("utf-8"))
+    file_bytes[verdict] += size
+    byte_budget[0] += size
+    if file_bytes[verdict] > MAX_JSONL_BYTES:
+        raise ValueError(f"{verdict} payload is exceeding the validator's per-file limit")
+    if byte_budget[0] > MAX_RUN_BYTES:
+        raise ValueError("generated payloads are exceeding the validator's per-run limit")
 
 
 def summarize(records):
@@ -445,16 +458,14 @@ def _select_families(args):
 def _stamp_contradicts_checkout(commit, availability):
     """Whether an explicit --oracle-commit may not be trusted.
 
-    A bound named runtime can make this run's records publishable, so an
-    explicit --oracle-commit may not silently name a different revision than
-    the checkout that actually supplied module_digest and ran the oracle. When
-    git cannot resolve the checkout at all, fall back to trusting the caller's
-    stamp, same as the no-runtime-bound case.
+    Both reference and named-runtime measurements can be publishable, so an
+    explicit stamp must name the checkout supplying the implementation.
     """
-    if not any(probe["bound"] for probe in availability["runtimes"]):
-        return False
     checkout_commit, _checkout_dirty = oracles.resolve_commit()
-    return checkout_commit != "unknown" and checkout_commit != commit
+    return (
+        oracles.resolve_source_commit(commit) is not None
+        and checkout_commit != commit
+    )
 
 
 def _resolve_stamp(args, availability):
@@ -469,7 +480,7 @@ def _resolve_stamp(args, availability):
             checkout_commit, _checkout_dirty = oracles.resolve_commit()
             print(
                 f"oracle_generate: --oracle-commit {commit!r} does not match the "
-                f"checked-out HEAD ({checkout_commit}); a bound named runtime can "
+                f"checked-out HEAD ({checkout_commit}); oracle measurements can "
                 "produce publishable output, so the stamped commit must name the "
                 "checkout that supplied the implementation sources",
                 file=sys.stderr,
@@ -558,6 +569,7 @@ def main(argv=None):
 
     staging = None
     staging_identity = None
+    staging_fd = None
     manifest_text = None
     published = False
     try:
@@ -565,6 +577,7 @@ def main(argv=None):
         # failure aborts the whole run instead of authenticating a partial run.
         generated = {}
         all_errors = []
+        byte_budget = [0]
         for family in selected:
             generated[family] = generate_family(
                 family,
@@ -574,6 +587,7 @@ def main(argv=None):
                 commit,
                 dirty,
                 args.require_runtime,
+                byte_budget=byte_budget,
             )
             all_errors.extend(generated[family][2])
         if all_errors:
@@ -590,6 +604,12 @@ def main(argv=None):
         os.mkdir(staging_name, mode=0o700, dir_fd=parent_fd)
         staging = pinned_parent / staging_name
         staging_identity = _directory_identity(staging)
+        staging_fd = os.open(
+            staging_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd
+        )
+        opened = os.fstat(staging_fd)
+        if (opened.st_dev, opened.st_ino) != staging_identity:
+            raise OSError(errno.ESTALE, "staging identity changed before opening")
         files = {}
         total_bytes = 0
         oversized = []
@@ -597,7 +617,7 @@ def main(argv=None):
             accepted, rejected, _errors = generated[family]
             for verdict, items in (("accepted", accepted), ("rejected", rejected)):
                 relative = Path(family) / f"{verdict}-r{args.round_number:02d}.jsonl"
-                digest, byte_count = write_jsonl(staging / relative, items)
+                digest, byte_count = write_jsonl(relative, items, root_fd=staging_fd)
                 files[relative.as_posix()] = {
                     "sha256": digest,
                     "records": len(items),
@@ -638,13 +658,14 @@ def main(argv=None):
             for error in oversized:
                 print(f"oracle_generate: {error}", file=sys.stderr)
             return 1
-        (staging / "manifest.json").write_text(
-            manifest_text + "\n",
-            encoding="utf-8",
-        )
+        descriptor = _output_descriptor(Path("manifest.json"), staging_fd)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(manifest_text + "\n")
         # The publication point itself is no-replace; a non-cooperating writer
         # that races the reservation cannot have its directory overwritten.
         # The destination is addressed through the pinned parent as well.
+        _verify_staged_payloads(staging_fd, files, MAX_JSONL_BYTES)
+        _verify_staged_manifest(staging_fd, (manifest_text + "\n").encode("utf-8"))
         publish_noreplace(staging, pinned_parent / out_dir.name, staging_identity)
         staging = None
         published = True
@@ -656,6 +677,8 @@ def main(argv=None):
         return 1
     finally:
         try:
+            if staging_fd is not None:
+                os.close(staging_fd)
             # Cleanup addresses the staging tree through the still-open parent
             # descriptor, so it must run before that descriptor is closed.
             _cleanup_staging(staging, staging_identity)

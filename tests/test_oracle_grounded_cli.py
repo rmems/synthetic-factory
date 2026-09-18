@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 from oracle_grounded import canon, families, oracles, record  # noqa: E402
 import oracle_generate  # noqa: E402
 import oracle_validate  # noqa: E402
+from oracle_fixture_replay import replay_diagnostic_fixture  # noqa: E402
 
 GENERATE = REPO / "pipelines" / "oracle_generate.py"
 VALIDATE = REPO / "pipelines" / "oracle_validate.py"
@@ -244,20 +245,7 @@ class GoldenFixture(unittest.TestCase):
     def test_the_fixture_regenerates_byte_for_byte(self):
         with tempfile.TemporaryDirectory(prefix="oracle-golden-") as temp:
             out = Path(temp) / "run"
-            completed = run_cli(
-                GENERATE,
-                "--count",
-                self.manifest["count_per_family"],
-                "--seed",
-                self.manifest["seed"],
-                "--round",
-                self.manifest["round"],
-                "--oracle-commit",
-                self.manifest["oracle_commit"],
-                "--oracle-dirty" if self.manifest["oracle_dirty"] else "--no-oracle-dirty",
-                out,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
+            replay_diagnostic_fixture(self.manifest, out)
             committed = sorted(
                 path.relative_to(GOLDEN) for path in GOLDEN.rglob("*") if path.is_file()
             )
@@ -288,19 +276,17 @@ class GoldenFixture(unittest.TestCase):
             with self.subTest(family=family):
                 self.assertTrue((GOLDEN / family).is_dir())
 
-    def test_fixture_records_are_reference_runs_publishable_only_when_accepted(self):
-        # #171: the in-repo simulator at the current module digest is an
-        # authoritative oracle, so an accepted reference record is publishable
-        # and a rejected one never is; none of them claims a named runtime.
+    def test_historical_fixture_records_are_diagnostic_and_nonpublishable(self):
+        # Replay proves deterministic measurements, not checkout provenance.
+        # Current-checkout publication is tested separately by generation and
+        # sealed procedural curation tests.
         for path in GOLDEN.rglob("*.jsonl"):
             for item in read_jsonl(path):
                 with self.subTest(record=item["id"]):
                     self.assertEqual(item["oracle"]["implementation"], "reference")
                     self.assertFalse(item["oracle"]["runtime_bound"])
-                    self.assertIs(
-                        item["validation"]["publishable"],
-                        item["validation"]["status"] == "accepted",
-                    )
+                    self.assertIsNone(item["oracle"]["dirty"])
+                    self.assertFalse(item["validation"]["publishable"])
 
     def test_accepted_and_rejected_records_are_filed_separately(self):
         for path in GOLDEN.rglob("accepted-*.jsonl"):
@@ -438,9 +424,9 @@ class ValidateCli(unittest.TestCase):
         self.assertEqual(report["invalid"], 0)
         self.assertEqual(report["parse_failures"], 0)
         self.assertEqual(report["records"], report["accepted"] + report["rejected"])
-        # #171: every accepted reference record at the current digest is
-        # publishable; the two rejected temporal-memory records are not.
-        self.assertEqual(report["publishable"], report["accepted"])
+        # Historical fixture replay is deterministic diagnostic evidence;
+        # unresolved checkout provenance never grants publication authority.
+        self.assertEqual(report["publishable"], 0)
         self.assertEqual(report["named_runtime"], 0)
         self.assertEqual(report["mixed_oracle"], 0)
         self.assertEqual(report["reference_oracle"], report["records"])
@@ -1075,10 +1061,9 @@ class GenerateCli(unittest.TestCase):
             self.assertIn("does not match the checked-out HEAD", completed.stderr)
             self.assertFalse(out.exists())
 
-    def test_an_unbound_run_still_accepts_a_stamped_commit_that_does_not_match_the_checkout(self):
-        # The escape hatch stays open when nothing bound could be published:
-        # a reference-only run (e.g. regenerating a historical fixture) may
-        # still stamp any resolvable commit, matching the golden fixture.
+    def test_a_clean_reference_run_refuses_a_stamp_that_does_not_match_the_checkout(self):
+        # Reference measurements can be published, so clean historical stamps
+        # must not authenticate measurements made by the current checkout.
         with tempfile.TemporaryDirectory(prefix="oracle-commit-reference-") as temp:
             out = Path(temp) / "run"
             historical_commit = json.loads((GOLDEN / "manifest.json").read_text())["oracle_commit"]
@@ -1094,9 +1079,9 @@ class GenerateCli(unittest.TestCase):
                 "--no-oracle-dirty",
                 out,
             )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            manifest = json.loads((out / "manifest.json").read_text())
-            self.assertEqual(manifest["oracle_commit"], historical_commit)
+            self.assertEqual(completed.returncode, 2, completed.stderr)
+            self.assertIn("does not match the checked-out HEAD", completed.stderr)
+            self.assertFalse(out.exists())
 
     def test_an_unknown_family_is_a_usage_error(self):
         with tempfile.TemporaryDirectory(prefix="oracle-bad-family-") as temp:

@@ -98,7 +98,7 @@
   "files": {
     "neuromodulator-credit-assignment/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "8432f9225b404640acee01a12a9eb05413c65c8aa8c8e515107bbc2a068ddc0b"
+      "sha256": "a0af7cf402a9202c2a9cdf148373bc4155e9fd58f0dc8af829ff121b5ae49cf2"
     },
     "neuromodulator-credit-assignment/rejected-r01.jsonl": {
       "records": 0,
@@ -106,7 +106,7 @@
     },
     "neuron-dynamics-counterfactuals/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "d9c301260dd800c82cbe9d6698875cc33703e57c093761e47301753b5cd24583"
+      "sha256": "c74368a203b81d90f75b80676eb748d6c6c33181174e9e7f771249d85944128d"
     },
     "neuron-dynamics-counterfactuals/rejected-r01.jsonl": {
       "records": 0,
@@ -114,7 +114,7 @@
     },
     "spike-encoder-equivalence-pairs/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "9dad323b632c66b4ddf9386a7b86684588d3fc8870706ab51e948cbe1b38c74b"
+      "sha256": "450930ca8ffaf450e9346b003f8c4bf0db9d453c278a21eb813bbc2b4c2bc7f4"
     },
     "spike-encoder-equivalence-pairs/rejected-r01.jsonl": {
       "records": 0,
@@ -122,7 +122,7 @@
     },
     "synaptic-delay-causal-trajectories/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "04354fe65fd18f5ded06247fc0df7dd2f7c0c125f6b2cccbad9867391a6c9bda"
+      "sha256": "c75b74f13e7ab15a7696e16dc8fae3b48363634546ff43d0fb348dcc4f17f936"
     },
     "synaptic-delay-causal-trajectories/rejected-r01.jsonl": {
       "records": 0,
@@ -130,35 +130,20 @@
     },
     "temporal-memory-spike-challenges/accepted-r01.jsonl": {
       "records": 2,
-      "sha256": "d4c575fad60d7192e907ad1dd890ce21fdf479252edf51422c708fbe035dfc6b"
+      "sha256": "b4d202f60124bbae7e5e561b09a1d6f35248643aa8b263dfc6ff87c624424b42"
     },
     "temporal-memory-spike-challenges/rejected-r01.jsonl": {
       "records": 2,
-      "sha256": "83b45c46ff8ab184672291ffc3b64f07477240c89ff13b678b6a2f442404e078"
+      "sha256": "146a388bf89b6309e199bd9433de995e2b157f2840c50a9379aff7e010c8bd65"
     }
   },
   "generation_errors": [],
-  "module_digest": "sha256:de9cabac79e351e5ce3055e65fd81c4d795432d89d95e4b135fb18831ed2398d",
-  "note": "Counts describe this run only. Some records are publishable: they were measured by the in-repo reference simulator at the current module digest (#171) or through the named-runtime protocol; check each record's own validation.publishable and validation.publishable_reason for the authoritative per-record determination.",
+  "module_digest": "sha256:3c48122961f0d121b2188f85447729bc6c82effac870793c22877d221b3571c9",
+  "note": "Counts describe this run only; no record here is publishable. Each record's own validation.publishable_reason states why: a validation failure, a module digest the current sources cannot reproduce, or unresolved commit or dirty state.",
   "oracle_availability": {
     "all_bound": false,
     "protocol": "sf-oracle/1",
     "runtimes": [
-      {
-        "binding_env": "SF_ORACLE_AXON_ENCODER_CMD",
-        "bound": false,
-        "runtime": "axon-encoder"
-      },
-      {
-        "binding_env": "SF_ORACLE_NEUROMOD_CMD",
-        "bound": false,
-        "runtime": "neuromod"
-      },
-      {
-        "binding_env": "SF_ORACLE_SYNAPTIC_MESH_CMD",
-        "bound": false,
-        "runtime": "synaptic-mesh"
-      },
       {
         "binding_env": "SF_ORACLE_LIMBIC_CRITIC_CMD",
         "bound": false,
@@ -170,22 +155,37 @@
         "runtime": "plasticity-lab"
       },
       {
+        "binding_env": "SF_ORACLE_NEUROMOD_CMD",
+        "bound": false,
+        "runtime": "neuromod"
+      },
+      {
+        "binding_env": "SF_ORACLE_AXON_ENCODER_CMD",
+        "bound": false,
+        "runtime": "axon-encoder"
+      },
+      {
+        "binding_env": "SF_ORACLE_SYNAPTIC_MESH_CMD",
+        "bound": false,
+        "runtime": "synaptic-mesh"
+      },
+      {
         "binding_env": "SF_ORACLE_RECURRENT_SNN_CMD",
         "bound": false,
         "runtime": "recurrent-snn"
       }
     ],
     "unbound": [
-      "axon-encoder",
-      "neuromod",
-      "synaptic-mesh",
       "limbic-critic",
       "plasticity-lab",
+      "neuromod",
+      "axon-encoder",
+      "synaptic-mesh",
       "recurrent-snn"
     ]
   },
   "oracle_commit": "4590fcbf484c7fc5bd09b2faea4ec2e7eb26ae24",
-  "oracle_dirty": true,
+  "oracle_dirty": null,
   "round": 1,
   "schema": "oracle-grounded/v1",
   "seed": 20260823

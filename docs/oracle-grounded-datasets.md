@@ -330,7 +330,11 @@ curated independently.
 `tests/test_oracle_grounded_*.py`, all stdlib `unittest`:
 
 * **deterministic golden fixture** — `tests/fixtures/oracle-grounded/golden-r01/`
-  is regenerated and compared byte for byte, including the manifest.
+  is regenerated through a trusted test-only replay helper and compared byte
+  for byte, including the manifest. Its historical commit is fixture data:
+  unresolved dirty state makes every replayed row diagnostic and nonpublishable.
+  Public CLI generation separately requires explicit commit stamps to match
+  the actual checkout, including reference-only and dirty runs.
 * **invalid-oracle fixture** — `invalid/invalid-oracle.jsonl`, nine records with
   a missing result, a misattributed result, a stale `result_hash`, an unknown
   commit, a missing module digest, a reference run whose `publishable_reason`
