@@ -14,27 +14,23 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("training_audit_completion")
+    from .code_repair.publication_export import completed_published_batch_matches
+    from .compose_curated_run_lines import jsonl_physical_lines
     from .strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "training_audit_completion"
     )
+    from code_repair.publication_export import completed_published_batch_matches
+    from compose_curated_run_lines import jsonl_physical_lines
     from strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
 
 
 def completed_published_payload(source_root: Path, relative, payload: bytes) -> bool:
-    if __package__:
-        from .code_repair.publication_export import completed_published_batch_matches
-    else:
-        from code_repair.publication_export import completed_published_batch_matches
     return completed_published_batch_matches(source_root, relative, payload)
 
 
 def physical_jsonl_records(payload: bytes) -> list[bytes]:
-    if __package__:
-        from .compose_curated_run_lines import jsonl_physical_lines
-    else:
-        from compose_curated_run_lines import jsonl_physical_lines
     return jsonl_physical_lines(payload)
 
 

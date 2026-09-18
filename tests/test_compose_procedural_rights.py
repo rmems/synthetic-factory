@@ -154,8 +154,8 @@ class CompletedProceduralRights(unittest.TestCase):
             self.assertTrue(any(item.startswith("rights:") for item in report["blockers"]))
 
     def test_physical_completed_batch_strips_factory_prefix_only_when_rooted_there(self):
-        factory = Path("/tmp/python-function-repair-factory")
+        factory = Path("python-function-repair-factory")
         relative = Path("python-function-repair-factory/batch-r01.jsonl")
         self.assertEqual(physical_completed_batch(factory, relative), factory / "batch-r01.jsonl")
-        run_root = Path("/tmp/2099-01-01")
+        run_root = Path("2099-01-01")
         self.assertEqual(physical_completed_batch(run_root, relative), run_root / relative)
