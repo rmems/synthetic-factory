@@ -15,8 +15,10 @@ from .import_twins import bind_import_twin
 
 try:
     from pipelines.exact_json import dumps_exact_json
+    from pipelines.tag_jsonutil import reject_duplicate_object_keys
 except ImportError:  # pipelines/ on sys.path, the direct CLI form
     from exact_json import dumps_exact_json
+    from tag_jsonutil import reject_duplicate_object_keys
 
 
 def read_jsonl(path):
@@ -41,6 +43,7 @@ def read_jsonl(path):
             records.append(
                 json.loads(
                     line,
+                    object_pairs_hook=reject_duplicate_object_keys,
                     parse_constant=envelope.reject_json_constant,
                     parse_float=envelope.reject_nonfinite_float,
                 )

@@ -48,6 +48,7 @@ if __package__:
     _assert_direct_sibling("round_txn")
     from .check_records import FactoryStaging, check_jsonl
     from .record_kind import DECLARED_FACTORY_KINDS
+    from .oracle_grounded.parity_publication import batch_errors as parity_batch_errors
     from .operator_paths import operator_path
     from . import round_txn_agentic as _round_txn_agentic
     from . import round_txn_agentic_terms as _round_txn_agentic_terms
@@ -63,6 +64,7 @@ else:
         sys.path.insert(0, str(_PIPELINES))
     from check_records import FactoryStaging, check_jsonl
     from record_kind import DECLARED_FACTORY_KINDS
+    from oracle_grounded.parity_publication import batch_errors as parity_batch_errors
     from operator_paths import operator_path
     import round_txn_agentic as _round_txn_agentic
     import round_txn_agentic_terms as _round_txn_agentic_terms
@@ -1666,6 +1668,15 @@ def validate_novel_coverage(
     return None
 
 
+def _enforce_parity_batch(batch, factory_dir, round_number):
+    kind = DECLARED_FACTORY_KINDS.get(factory_dir.name)
+    if kind is None:
+        return
+    errors = parity_batch_errors(batch, kind, round_number)
+    if errors:
+        raise TransactionError("staged parity batch is incomplete or misbound:\n" + "\n".join(errors))
+
+
 def _validate_staged_batch(batch, factory_dir, expected, round_number):
     errors, warnings, kinds, records = check_jsonl(
         batch,
@@ -1694,6 +1705,7 @@ def _validate_staged_batch(batch, factory_dir, expected, round_number):
             + "\n".join(f"ERROR: {error}" for error in envelope_errors)
         )
     enforce_bridge_envelope(batch, factory_dir, TransactionError)
+    _enforce_parity_batch(batch, factory_dir, round_number)
     return kinds, records
 
 

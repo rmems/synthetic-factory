@@ -69,13 +69,8 @@ class InProcessPackageForm(unittest.TestCase):
         if str(parity_import_probe.REPO) not in sys.path:
             sys.path.append(str(parity_import_probe.REPO))
         sys.path.insert(0, str(parity_import_probe.PIPELINES))
-        import importlib
-
-        cls.bare = {name: importlib.import_module(name) for name in parity_import_probe.FACADES}
-        cls.packaged = {
-            name: importlib.import_module(f"pipelines.{name}")
-            for name in parity_import_probe.FACADES
-        }
+        cls.bare = parity_import_probe._cli_form()
+        cls.packaged = parity_import_probe._package_form()
 
     def test_each_facade_is_one_object_under_both_names(self):
         for name in parity_import_probe.FACADES:

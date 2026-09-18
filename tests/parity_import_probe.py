@@ -33,6 +33,8 @@ SUBPACKAGE_SIBLINGS = (
     "parity_contract",
     "parity_destination",
     "parity_envelope",
+    "parity_jsonl",
+    "parity_publication",
     "parity_terms",
     "parity_view_sets",
     "parity_views",
@@ -68,6 +70,7 @@ def _cli_form() -> dict[str, Any]:
     import hardware_parity
     import neuro_oracle
     import nir_equivalence
+    from oracle_grounded import parity_publication  # noqa: F401 - import identity probe
 
     return {
         "hardware_parity": hardware_parity,
@@ -81,6 +84,7 @@ def _package_form() -> dict[str, Any]:
 
     sys.path.insert(0, str(REPO))
     from pipelines import hardware_parity, neuro_oracle, nir_equivalence
+    from pipelines.oracle_grounded import parity_publication  # noqa: F401 - import identity probe
 
     return {
         "hardware_parity": hardware_parity,
@@ -92,15 +96,13 @@ def _package_form() -> dict[str, Any]:
 def _split_siblings() -> list[str]:
     """The siblings whose two spellings are not one module object."""
 
-    split = []
-    for name in FLAT_SIBLINGS:
-        if sys.modules.get(name) is None or sys.modules.get(name) is not sys.modules.get(f"pipelines.{name}"):
-            split.append(name)
-    for name in SUBPACKAGE_SIBLINGS:
-        flat = sys.modules.get(f"oracle_grounded.{name}")
-        if flat is None or flat is not sys.modules.get(f"pipelines.oracle_grounded.{name}"):
-            split.append(f"oracle_grounded.{name}")
-    return split
+    names = (*FLAT_SIBLINGS, *(f"oracle_grounded.{name}" for name in SUBPACKAGE_SIBLINGS))
+    return [name for name in names if not _single_module(name)]
+
+
+def _single_module(name: str) -> bool:
+    module = sys.modules.get(name)
+    return module is not None and module is sys.modules.get(f"pipelines.{name}")
 
 
 def _one_error_class(flat: dict[str, Any], packaged: dict[str, Any]) -> dict[str, bool]:
