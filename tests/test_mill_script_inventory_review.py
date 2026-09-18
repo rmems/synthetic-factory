@@ -222,6 +222,8 @@ class CompleteProductionAndImportScope(unittest.TestCase):
             "pipelines/mill_script_inventory_schema.py",
             "pipelines/mill_script_inventory_families.py",
             "pipelines/mill_script_inventory_git.py",
+            "pipelines/mill_script_inventory_ignore.py",
+            "pipelines/mill_script_inventory_index.py",
         )
         for path in paths:
             with self.subTest(path=path), _scope_repo() as root:

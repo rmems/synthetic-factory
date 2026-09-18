@@ -1187,6 +1187,8 @@ def _package_reward_parse_patterns() -> ModuleType:
 
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "mill_script_inventory_families": _named_pair("mill_script_inventory_families"),
+    "mill_script_inventory_ignore": _named_pair("mill_script_inventory_ignore"),
+    "mill_script_inventory_index": _named_pair("mill_script_inventory_index"),
     "mill_script_inventory_git": _named_pair("mill_script_inventory_git"),
     "mill_script_inventory": _named_pair("mill_script_inventory"),
     "mill_script_inventory_schema": _named_pair("mill_script_inventory_schema"),
