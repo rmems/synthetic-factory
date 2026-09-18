@@ -59,6 +59,7 @@ def extract_mill_catalog(
     """Structured catalog extract for one sir mill source file."""
 
     payload = source.encode()
+    _require_blob_identity(payload, blob_sha)
     tree = ast.parse(source, filename=path)
     mill_id = mill_id_for_path(path)
     mill_kind_for_id(mill_id)
@@ -90,6 +91,16 @@ def extract_mill_catalog(
         "doc_first_line": _first_line(module_docstring(tree)),
         "pairs": rows,
     }
+
+
+def _require_blob_identity(payload: bytes, blob_sha: str) -> None:
+    # Git scalar identity must not delegate equality to caller-defined objects.
+    if type(blob_sha) is not str:
+        raise ValueError("supplied blob SHA must be a plain string")
+    framed = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
+    expected = hashlib.sha1(framed, usedforsecurity=False).hexdigest()
+    if blob_sha not in ("", expected):
+        raise ValueError("supplied blob SHA does not identify the exact source bytes")
 
 
 def _required_string(value: Any, where: str) -> str:

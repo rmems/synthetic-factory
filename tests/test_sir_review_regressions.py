@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import sys
 import tempfile
@@ -83,6 +84,48 @@ def _assert_literal_module_identity(test, catalog_ast):
 
 
 class SirReviewRegressions(unittest.TestCase):
+    def test_blob_identity_does_not_trust_custom_equality(self):
+        class ForgedBlob(str):
+            def __eq__(self, other):
+                return True
+
+        class ForgedObject:
+            __eq__ = ForgedBlob.__eq__
+
+        for blob in (ForgedBlob('forged-git-identity'), ForgedObject()):
+            with self.subTest(kind=type(blob)), self.assertRaisesRegex(ValueError, 'blob'):
+                extract_mill_catalog(_LEFTOVER_SNIPPET,
+                                     path='experiments/sir-mill-leftover3-r72.py', blob_sha=blob)
+
+    def test_supplied_blob_identity_must_match_exact_utf8_source(self):
+        source = _LEFTOVER_SNIPPET + '\n# caf\u00e9\n'
+        path = 'experiments/sir-mill-leftover3-r72.py'
+        payload = source.encode('utf-8')
+        blob = hashlib.sha1(b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
+                            usedforsecurity=False).hexdigest()
+        self.assertEqual(extract_mill_catalog(source, path=path, blob_sha=blob)['blob_sha'], blob)
+        self.assertEqual(extract_mill_catalog(source, path=path)['blob_sha'], '')
+        self.assertEqual(extract_mill_catalog(source, path=path, blob_sha='')['blob_sha'], '')
+        for bad in ('definitely-not-a-sha', 'a' * 40, None, 42):
+            with self.subTest(blob=bad), self.assertRaisesRegex(ValueError, 'blob'):
+                extract_mill_catalog(source, path=path, blob_sha=bad)
+        with self.assertRaisesRegex(ValueError, 'blob'):
+            extract_mill_catalog(source + '\n', path=path, blob_sha=blob)
+
+    def test_future_imports_must_stay_in_the_original_module_header(self):
+        future = 'from __future__ import annotations\n'
+        path = 'experiments/sir-mill-leftover3-r72.py'
+        for prefix in (future, '\"module docstring\"\n' + future + future):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(extract_mill_catalog(prefix + _LEFTOVER_SNIPPET, path=path)['n_rows'], 1)
+        invalid = (_LEFTOVER_SNIPPET + future, 'pass\n' + future + _LEFTOVER_SNIPPET,
+                   '\"doc\"\n\"second string\"\n' + future + _LEFTOVER_SNIPPET,
+                   _LEFTOVER_SNIPPET + '\ndef unused():\n    ' + future,
+                   _LEFTOVER_SNIPPET + '\nif __name__ == "__main__":\n    ' + future)
+        for source in invalid:
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                extract_mill_catalog(source, path=path)
+
     def test_unknown_module_effects_cannot_preserve_literal_rows(self):
         effects = ('import sys\nsys._getframe().f_globals["PAIRS"] = []',
                    'import inspect\ninspect.currentframe().f_globals["PAIRS"] = []',
