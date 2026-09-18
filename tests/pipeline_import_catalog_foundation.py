@@ -1147,8 +1147,21 @@ def _package_oracle_record_stages() -> ModuleType:
     return module
 
 
+def _direct_oracle_record_envelope() -> ModuleType:
+    import oracle_record_envelope as module
+
+    return module
+
+
+def _package_oracle_record_envelope() -> ModuleType:
+    import pipelines.oracle_record_envelope as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "oracle_validate": (_direct_oracle_validate, _package_oracle_validate),
+    "oracle_record_envelope": (_direct_oracle_record_envelope, _package_oracle_record_envelope),
     "oracle_record_stages": (_direct_oracle_record_stages, _package_oracle_record_stages),
     "oracle_validate_records": (_direct_oracle_validate_records, _package_oracle_validate_records),
     "oracle_validate_tree": (_direct_oracle_validate_tree, _package_oracle_validate_tree),
