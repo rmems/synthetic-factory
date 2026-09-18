@@ -15,6 +15,7 @@ from ._contract import (
     FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_FIELD_MISSING,
     PAIR_KEYS,
+    LEGACY_SOURCE,
     bind_import_twin,
     load_strict_json,
     is_integer,
@@ -88,11 +89,15 @@ def _plant_pair_fields(row: dict[str, Any], where: str) -> dict[str, str]:
         key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
         for key in PAIR_KEYS
     }
+    _require_pair_identifiers(fields, where)
+    _distinct_episode_slugs(fields, where)
+    return fields
+
+
+def _require_pair_identifiers(fields: dict[str, str], where: str) -> None:
     for key, pattern in (("slug", SLUG_RE), ("fail", SLUG_RE), ("ticket", TICKET_RE)):
         if not pattern.fullmatch(fields[key]):
             raise CsvRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.{key} has invalid syntax")
-    _distinct_episode_slugs(fields, where)
-    return fields
 
 
 def _distinct_episode_slugs(fields: dict[str, str], where: str) -> None:
@@ -132,6 +137,8 @@ def _mill_from_row(row: Any, where: str) -> Mill:
     }
     if not MILL_ID_RE.fullmatch(text_fields["mill_id"]):
         raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.mill_id is not csv_rNNN")
+    if text_fields["source"] != LEGACY_SOURCE:
+        raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.source is not the pinned script")
     return Mill(
         **text_fields,
         base_round=_mill_round(row, text_fields["mill_id"], where),

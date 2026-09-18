@@ -19,6 +19,7 @@ from .catalog_validation import (
     MILL_ID_RE,
     _claim_unique,
     _distinct_episode_slugs,
+    _require_pair_identifiers,
     _require_int,
     _require_text,
 )
@@ -143,6 +144,7 @@ def _pair_fields(item: ast.AST, where: str) -> dict[str, str]:
         key: _require_text(mapping[key], f"{where}.{key}", FINDING_SOURCE_NOT_PARSEABLE)
         for key in PAIR_KEYS
     }
+    _require_pair_identifiers(fields, where)
     _distinct_episode_slugs(fields, where)
     return fields
 

@@ -217,11 +217,12 @@ def run(request: GenerateRequest) -> dict[str, Any]:
         "records_sha256": hashlib.sha256(records_text.encode("utf-8")).hexdigest(),
         "destination": str(out_dir),
     }
-    write_run_files(out_dir, {
+    published = write_run_files(out_dir, {
         RECORDS_FILENAME: records_text,
         NOTES_FILENAME: notes_text,
         RUN_FILENAME: dumps_exact_json(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
     })
+    summary["published_destination"] = str(published)
     return summary
 
 

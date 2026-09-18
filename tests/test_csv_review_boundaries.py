@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from pipelines.csv_mill import catalog, generate
 from pipelines.csv_mill._contract import CsvRefusal, FACTORY, RECORD_PREFIX
@@ -78,6 +79,24 @@ class CatalogBoundaries(unittest.TestCase):
         with self.assertRaisesRegex(CsvRefusal, "source"):
             catalog.load_catalog(self.directory)
 
+    def test_mill_and_plant_sources_cannot_jointly_drift_from_pinned_script(self):
+        rows = [json.loads(line) for line in (self.directory / "plants.jsonl").read_text().splitlines()]
+        for row in rows:
+            row["source"] = "experiments/arbitrary.py"
+        for mill in self.meta["mills"]:
+            mill["source"] = "experiments/arbitrary.py"
+        self._save(rows)
+        with self.assertRaises(CsvRefusal):
+            catalog.load_catalog(self.directory)
+
+    def test_extractor_refuses_invalid_identifier_syntax(self):
+        for key, value in (("slug", "bad slug"), ("fail", "bad/fail"), ("ticket", "xls-dn-114")):
+            with self.subTest(key=key):
+                pair = dict(TINY_PAIR, **{key: value})
+                source = _dict_source([pair], FAC=FACTORY, PREFIX=RECORD_PREFIX)
+                with self.assertRaises(CsvRefusal):
+                    catalog.plants_from_source(source, mill_id="csv_r114", source="recovered.py")
+
     def test_extractor_translates_an_oversized_numeric_suffix(self):
         source = _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX)
         with self.assertRaises(CsvRefusal) as caught:
@@ -95,6 +114,16 @@ class OutputBoundaries(unittest.TestCase):
             self.assertEqual(err, "")
             self.assertEqual(json.loads(out)["code"], "DESTINATION_INVALID")
             self.assertEqual(parent.read_text(), "preserve")
+
+    def test_staging_write_failure_is_a_single_json_refusal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "run"
+            with patch.object(Path, "write_text", side_effect=OSError("quota exceeded")):
+                code, out, err = invoke(["generate", "--all", "--out", str(destination), "--json"])
+            self.assertEqual(code, 2)
+            self.assertEqual(err, "")
+            self.assertEqual(json.loads(out)["code"], "DESTINATION_INVALID")
+            self.assertEqual(list(Path(temp).iterdir()), [])
 
     def test_dangling_destination_is_a_structured_refusal(self):
         with tempfile.TemporaryDirectory() as temp:

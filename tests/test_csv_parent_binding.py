@@ -68,3 +68,46 @@ class ParentBinding(unittest.TestCase):
         self._run(self.alias / "nested/run")
         self.assertEqual(len(list((self.safe / "nested/run").iterdir())), 3)
         self.assertEqual(list(self.raw.iterdir()), [])
+
+    def test_alias_retarget_after_commit_reports_the_anchored_output(self):
+        original = generate_io.rename_noreplace
+
+        def publish(*args):
+            original(*args)
+            self._retarget()
+
+        with patch.object(generate_io, "rename_noreplace", publish):
+            summary = self._run(self.alias / "run")
+        self.assertEqual(summary["published_destination"], str(self.safe / "run"))
+        self.assertEqual(len(list((self.safe / "run").iterdir())), 3)
+        self.assertEqual(list(self.raw.iterdir()), [])
+
+    def test_foreign_replacement_after_commit_is_never_removed(self):
+        original = generate_io.rename_noreplace
+
+        def publish(*args):
+            original(*args)
+            (self.safe / "run").rename(self.safe / "retained-run")
+            (self.safe / "run").mkdir()
+            (self.safe / "run/foreign").write_text("preserve")
+            self._retarget()
+
+        with patch.object(generate_io, "rename_noreplace", publish):
+            self._run(self.alias / "run")
+        self.assertEqual((self.safe / "run/foreign").read_text(), "preserve")
+        self.assertEqual(len(list((self.safe / "retained-run").iterdir())), 3)
+        self.assertEqual(list(self.raw.iterdir()), [])
+
+    def test_alias_retarget_on_final_staging_write_refuses_before_rename(self):
+        original = Path.write_text
+
+        def write(path, *args, **kwargs):
+            result = original(path, *args, **kwargs)
+            if path.name == "RUN.json":
+                self._retarget()
+            return result
+
+        with patch.object(Path, "write_text", write), self.assertRaises(CsvRefusal):
+            self._run(self.alias / "run")
+        self.assertEqual(list(self.safe.iterdir()), [])
+        self.assertEqual(list(self.raw.iterdir()), [])

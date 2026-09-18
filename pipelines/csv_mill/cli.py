@@ -114,7 +114,7 @@ def _generate(args: argparse.Namespace) -> int:
             round=args.round,
         )
     )
-    text = f"generated {summary['records']} records ({summary['pairs']} pairs) into {args.out}"
+    text = f"generated {summary['records']} records ({summary['pairs']} pairs) into {summary['published_destination']}"
     _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
     return 0
 

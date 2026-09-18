@@ -8,11 +8,11 @@
       "base_round": 1,
       "mill_id": "csv_r0001",
       "plant_count": 1,
-      "source": "tests/fixtures/csv/plants.jsonl"
+      "source": "experiments/mill_leftover_leftover_leftover_csv_r114.py"
     }
   ],
   "plant_count": 1,
-  "plants_sha256": "ff4ac9bd6183655649aa747b7253bc68667abee8c8396be35a207220c5d501d8",
+  "plants_sha256": "6ed930037e33ccdebffb0b7847dccb61af69c08ce415ac9998a77b2ca59e94bc",
   "quota_per_round": 2,
   "record_kind": "episode",
   "record_prefix": "cei",

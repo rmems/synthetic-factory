@@ -34,7 +34,7 @@ class CsvOutputTransaction(unittest.TestCase):
 
                 with patch.object(Path, "write_text", write):
                     request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
-                    with self.assertRaisesRegex(OSError, "injected disk failure"):
+                    with self.assertRaisesRegex(CsvRefusal, "injected disk failure"):
                         generate.run(request)
                 self.assertEqual(list(Path(temp).iterdir()), [])
                 generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
@@ -72,6 +72,6 @@ class CsvOutputTransaction(unittest.TestCase):
             dest = Path(temp) / "run"
             with patch.object(generate_io, "rename_noreplace", side_effect=OSError("injected")):
                 request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
-                with self.assertRaisesRegex(OSError, "injected"):
+                with self.assertRaisesRegex(CsvRefusal, "injected"):
                     generate.run(request)
             self.assertEqual(list(Path(temp).iterdir()), [])
