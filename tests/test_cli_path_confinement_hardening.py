@@ -77,6 +77,58 @@ class _FunnelCase:
 class FunnelLeaves(_FunnelCase, unittest.TestCase):
     """Direct funnels refuse unsafe leaves before any CLI sink is selected."""
 
+    def test_verify_record_mode_ignores_an_inactive_positional_run_dir(self):
+        """A --record invocation does not inspect its unused positional path."""
+
+        parser = argparse.ArgumentParser(prog="verify_execution.py")
+        with tempfile.TemporaryDirectory() as td:
+            record = Path(td) / "record.jsonl"
+            record.write_text("{}\n", encoding="utf-8")
+
+            run_dir, confined_record, batch = verify_execution._confined(
+                parser,
+                SimpleNamespace(
+                    run_dir="/etc/passwd", record=str(record), batch=None
+                ),
+            )
+
+        self.assertIsNone(run_dir)
+        self.assertEqual(confined_record, record)
+        self.assertIsNone(batch)
+
+    def test_verify_batch_mode_ignores_an_inactive_positional_run_dir(self):
+        """A --batch invocation does not inspect its unused positional path."""
+
+        parser = argparse.ArgumentParser(prog="verify_execution.py")
+        with tempfile.TemporaryDirectory() as td:
+            batch_path = Path(td) / "batch-r01.jsonl"
+            batch_path.write_text("{}\n", encoding="utf-8")
+
+            run_dir, record, batch = verify_execution._confined(
+                parser,
+                SimpleNamespace(
+                    run_dir="/etc/passwd", record=None, batch=str(batch_path)
+                ),
+            )
+
+        self.assertIsNone(run_dir)
+        self.assertIsNone(record)
+        self.assertEqual(batch, batch_path)
+
+    def test_verify_selected_record_cannot_fall_back_to_a_valid_run_dir(self):
+        """Mode precedence selects --record even if only run_dir is confined."""
+
+        parser = argparse.ArgumentParser(prog="verify_execution.py")
+        with tempfile.TemporaryDirectory() as td:
+            self.assertRefused(
+                verify_execution._confined,
+                (
+                    parser,
+                    SimpleNamespace(run_dir=td, record="/etc/passwd", batch=None),
+                ),
+                Expected(OUTSIDE, "--record"),
+            )
+
     def test_rewards_and_verify_refuse_escape_symlink_dangling_fifo(self):
         rewards = argparse.ArgumentParser(prog="curate_rewards.py")
         verify = argparse.ArgumentParser(prog="verify_execution.py")
