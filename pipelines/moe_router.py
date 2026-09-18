@@ -1727,6 +1727,23 @@ def _check_measurement_reconciliation(
     )
 
 
+def _check_router_measurement_meters(result: dict[str, Any], oracle: Any, where: str) -> list[str]:
+    """The producer stamps its own name on each compact router reading."""
+
+    meter = oracle.get("name") if isinstance(oracle, dict) else None
+    measurements = result.get("measurements")
+    if not isinstance(measurements, list):
+        return []
+    quantities = ("top1_top2_margin", "routing_entropy", "expert_agreement")
+    return [
+        f"{where}.result.measurements[{index}].meter: MEASUREMENT_ORACLE_MISMATCH "
+        "— router measurements must name the producing oracle"
+        for index, item in enumerate(measurements)
+        if isinstance(item, dict) and item.get("quantity") in quantities
+        and (not isinstance(meter, str) or not meter.strip() or item.get("meter") != meter)
+    ]
+
+
 def _numeric_router_measurements(measurements, expected_measurements):
     """Yield numeric readings whose quantities are promised by the routing."""
 
@@ -1890,6 +1907,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_layer_count(layers, fingerprint, where)
     errors += _check_derived_routing_labels(result, routing, layers, where)
     errors += _check_measurement_reconciliation(result, routing, layers, where)
+    errors += _check_router_measurement_meters(result, oracle, where)
     return errors
 
 
