@@ -15,6 +15,31 @@ import training_audit
 import training_audit_rights
 from rights_record import ENVELOPE_FIELD, LANE_FIELD
 
+COMPOSE_MANIFEST = "manifest/compose-manifest.jsonl"
+
+
+def _jsonl_objects(path):
+    return [json.loads(line) for line in path.read_text().split("\n") if line]
+
+
+def _retained_entry(entries):
+    return next(entry for entry in entries if entry["action"] == "retained")
+
+
+def _write_jsonl(path, entries):
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+
+
+def _transplant_procedural_proof(hosted, procedural):
+    hosted_path = hosted / COMPOSE_MANIFEST
+    hosted_entries = _jsonl_objects(hosted_path)
+    hosted_retained = _retained_entry(hosted_entries)
+    procedural_retained = _retained_entry(_jsonl_objects(procedural / COMPOSE_MANIFEST))
+    hosted_retained["stages"] = procedural_retained["stages"]
+    hosted_retained[ENVELOPE_FIELD] = procedural_retained[ENVELOPE_FIELD]
+    hosted_retained[LANE_FIELD] = procedural_retained[LANE_FIELD]
+    _write_jsonl(hosted_path, hosted_entries)
+
 
 class CompletedProceduralRights(unittest.TestCase):
     @classmethod
@@ -93,11 +118,11 @@ class CompletedProceduralRights(unittest.TestCase):
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             curated = root / "curated"
             compose_curated.compose_run(source, curated)
-            manifest = curated / "manifest/compose-manifest.jsonl"
-            entries = [json.loads(line) for line in manifest.read_text().split("\n") if line]
-            retained = next(entry for entry in entries if entry["action"] == "retained")
+            manifest = curated / COMPOSE_MANIFEST
+            entries = _jsonl_objects(manifest)
+            retained = _retained_entry(entries)
             retained["rights"]["eligible_training_candidate"] = 1
-            manifest.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+            _write_jsonl(manifest, entries)
             blockers = training_audit_rights.collect_rights_blockers(curated / "records")
             self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
 
@@ -130,23 +155,7 @@ class CompletedProceduralRights(unittest.TestCase):
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             procedural = root / "procedural"
             compose_curated.compose_run(factory.parent, procedural)
-            hosted_path = hosted / "manifest/compose-manifest.jsonl"
-            hosted_entries = [
-                json.loads(line) for line in hosted_path.read_text().split("\n") if line
-            ]
-            procedural_entries = [
-                json.loads(line)
-                for line in (procedural / "manifest/compose-manifest.jsonl").read_text().split("\n")
-                if line
-            ]
-            hosted_retained = next(entry for entry in hosted_entries if entry["action"] == "retained")
-            procedural_retained = next(
-                entry for entry in procedural_entries if entry["action"] == "retained"
-            )
-            hosted_retained["stages"] = procedural_retained["stages"]
-            hosted_retained[ENVELOPE_FIELD] = procedural_retained[ENVELOPE_FIELD]
-            hosted_retained[LANE_FIELD] = procedural_retained[LANE_FIELD]
-            hosted_path.write_text("".join(json.dumps(entry) + "\n" for entry in hosted_entries))
+            _transplant_procedural_proof(hosted, procedural)
             blockers = training_audit_rights.collect_rights_blockers(hosted / "records")
             self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
             report = training_audit.audit_run(hosted / "records")
