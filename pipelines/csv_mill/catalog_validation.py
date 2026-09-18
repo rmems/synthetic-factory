@@ -19,6 +19,7 @@ from ._contract import (
     bind_import_twin,
     load_strict_json,
     is_integer,
+    json_integer_is_bounded,
     repo_root,
 )
 
@@ -74,7 +75,13 @@ def _require_int(value: Any, minimum: int, where: str, code: str) -> int:
         raise CsvRefusal(code, f"{where} must be an integer >= {minimum}")
     if value < minimum:
         raise CsvRefusal(code, f"{where} must be an integer >= {minimum}")
+    _require_bounded_int(value, where, code)
     return value
+
+
+def _require_bounded_int(value: int, where: str, code: str) -> None:
+    if not json_integer_is_bounded(value):
+        raise CsvRefusal(code, f"{where} exceeds the exact-JSON integer domain")
 
 
 def _plant_identity(row: dict[str, Any], where: str) -> tuple[str, str]:
@@ -113,7 +120,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     row = _require_mapping(row, where, FINDING_PLANT_FIELD_INVALID)
     fields = _plant_pair_fields(row, where)
     plant_id, mill_id = _plant_identity(row, where)
-    return Plant(
+    plant = Plant(
         plant_id=plant_id,
         mill_id=mill_id,
         source=_require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING),
@@ -123,12 +130,17 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         index=_require_int(row.get("index"), 0, f"{where}.index", FINDING_PLANT_FIELD_INVALID),
         **fields,
     )
+    _require_bounded_int(
+        plant.base_round + plant.index, f"{where}.effective_round", FINDING_PLANT_FIELD_INVALID
+    )
+    return plant
 
 
 def _mill_positive_int(row: Any, key: str, where: str) -> int:
     value = _field(row, key, int, where)
     if value < 1:
         raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.{key} must be a positive int")
+    _require_bounded_int(value, f"{where}.{key}", FINDING_CATALOG_FIELD_INVALID)
     return value
 
 
@@ -170,7 +182,7 @@ def _claim_unique(seen: set[str], value: str, detail: str) -> None:
 def _jsonl_row(line: str, where: str) -> Any:
     try:
         return load_strict_json(line)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise CsvRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where} is not strict JSON") from exc
 
 

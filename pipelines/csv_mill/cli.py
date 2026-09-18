@@ -127,7 +127,7 @@ def _refused(args: argparse.Namespace | None, refusal: CsvRefusal) -> int:
             "command": command,
             "status": "refused",
             "code": refusal.code,
-            "message": str(refusal),
+            "message": str(refusal).encode("utf-8", errors="backslashreplace").decode("utf-8"),
         }
         print(dumps_exact_json(payload, ensure_ascii=True, sort_keys=True))
     else:

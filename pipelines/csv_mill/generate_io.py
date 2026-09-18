@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -30,56 +31,115 @@ def _same_entry(path, descriptor):
         return False
 
 
+def _remove_empty_entry(path, identity):
+    try:
+        if _identity(path.lstat()) == identity:
+            os.rmdir(path)
+    except OSError:
+        # Changed entries and directories containing unknown content stay intact.
+        pass
+
+
+def _open_stage(path, identity):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if _identity(os.fstat(descriptor)) != identity:
+            raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+class _StageFile:
+    """Authenticate the bytes written through the original readable descriptor."""
+
+    def __init__(self, directory, name):
+        self.descriptor = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                  0o666, dir_fd=directory)
+        self.expected = b""
+
+    def write(self, payload):
+        pending = payload.encode("utf-8")
+        while pending:
+            written = os.write(self.descriptor, pending)
+            if written == 0:
+                raise OSError("staged file write made no progress")
+            self.expected += pending[:written]
+            pending = pending[written:]
+
+    def matches(self, directory, name):
+        try:
+            current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            owned = os.fstat(self.descriptor)
+            return (
+                stat.S_ISREG(current.st_mode)
+                and _identity(current) == _identity(owned)
+                and owned.st_size == len(self.expected)
+                and os.pread(self.descriptor, len(self.expected) + 1, 0) == self.expected
+            )
+        except OSError:
+            return False
+
+
 class _OwnedStage:
     """Hold the created directory and files until publication or owned cleanup."""
 
     def __init__(self, parent):
         self.path = Path(tempfile.mkdtemp(prefix=".csv-stage-", dir=parent))
-        self.descriptor = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        identity = _identity(self.path.lstat())
+        try:
+            self.descriptor = _open_stage(self.path, identity)
+        except BaseException:
+            _remove_empty_entry(self.path, identity)
+            raise
         self.files = {}
 
     def write(self, name, payload):
-        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                             0o666, dir_fd=self.descriptor)
-        self.files[name] = descriptor
-        with os.fdopen(descriptor, "w", encoding="utf-8", closefd=False) as handle:
-            handle.write(payload)
+        owned = _StageFile(self.descriptor, name)
+        self.files[name] = owned
+        owned.write(payload)
 
-    def _unlink_owned(self, name, descriptor):
+    def verify(self):
+        # Open a fresh directory stream; the long-lived FD can cache old entries.
+        if set(os.listdir(f"/proc/self/fd/{self.descriptor}")) != set(self.files):
+            raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging entries changed")
+        for name, owned in self.files.items():
+            if not owned.matches(self.descriptor, name):
+                raise CsvRefusal(FINDING_DESTINATION_INVALID, f"staged file {name} changed")
+
+    def _unlink_owned(self, name, owned):
         try:
-            current = os.stat(name, dir_fd=self.descriptor, follow_symlinks=False)
-            if _identity(current) == _identity(os.fstat(descriptor)):
+            if owned.matches(self.descriptor, name):
                 os.unlink(name, dir_fd=self.descriptor)
         except OSError:
             # Never broaden cleanup after an ownership or filesystem failure.
             pass
 
     def cleanup(self):
-        for name, descriptor in self.files.items():
-            self._unlink_owned(name, descriptor)
-        if _same_entry(self.path, self.descriptor):
-            try:
-                os.rmdir(self.path)
-            except OSError:
-                # Unknown content or a changed entry stays intact.
-                pass
+        for name, owned in self.files.items():
+            self._unlink_owned(name, owned)
+        _remove_empty_entry(self.path, _identity(os.fstat(self.descriptor)))
 
     def close(self):
-        for descriptor in self.files.values():
-            os.close(descriptor)
+        for owned in self.files.values():
+            os.close(owned.descriptor)
         os.close(self.descriptor)
 
 
-def _publish(parent: Path, staged: Path, destination: Path, stage_descriptor: int) -> None:
+def _publish(parent: Path, staged: Path, destination: Path, stage: _OwnedStage) -> Path:
     descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
+        stage.verify()
         # This detects observable relocation before commit. A directory FD
         # pins an inode, not its namespace: another actor can still move that
         # inode between this check and rename, or after publication succeeds.
         verify_parent(destination, parent)
-        if not _same_entry(staged, stage_descriptor):
+        published = parent.resolve(strict=True) / destination.name
+        if not _same_entry(staged, stage.descriptor):
             raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
         rename_noreplace(descriptor, staged.name, destination.name)
+        return published
     except FileExistsError as exc:
         raise CsvRefusal(
             FINDING_DESTINATION_EXISTS, f"{destination} already exists"
@@ -89,18 +149,16 @@ def _publish(parent: Path, staged: Path, destination: Path, stage_descriptor: in
 
 
 def _stage_and_publish(parent: Path, destination: Path, files: dict[str, str]) -> Path:
-    published = parent.resolve(strict=True) / destination.name
     stage = _OwnedStage(parent)
     try:
         for name, payload in files.items():
             stage.write(name, payload)
-        _publish(parent, stage.path, destination, stage.descriptor)
+        return _publish(parent, stage.path, destination, stage)
     except BaseException:
         stage.cleanup()
         raise
     finally:
         stage.close()
-    return published
 
 
 def write_run_files(destination: Path, files: dict[str, str]) -> Path:
