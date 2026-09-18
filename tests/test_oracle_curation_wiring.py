@@ -7,7 +7,6 @@ curated data: payload-first classification, the validate_run shape route,
 the sealed procedural registry row, and the preserving identity lane.
 """
 
-import hashlib
 import json
 import sys
 import tempfile
@@ -87,21 +86,27 @@ class OracleRegistryTests(unittest.TestCase):
         carrying POLICY_SHA256, so hashing it into the catalog the anchor seals
         would make the digest a self-referential cycle with no stable value.
         """
-        package = REPO / "pipelines/oracle_grounded"
-        domain = sorted(
-            (path for path in package.glob("*.py") if path.name != "source_policy.py"),
-            key=lambda path: path.name,
+        digest = oracle_policy.catalog_digest(REPO / "pipelines/oracle_grounded")
+        self.assertEqual(oracle_policy.POLICY["catalog_sha256"], digest)
+
+    def test_the_package_pin_is_framed_against_boundary_redistribution(self):
+        """A byte moved across a module boundary must change the catalog pin.
+
+        Length framing is what stops an attacker from shifting bytes between
+        adjacent files while preserving the concatenated digest (CWE-354).
+        """
+        left = ("a.py", b"x = 1\n")
+        right = ("b.py", b"y = 2\n")
+        self.assertNotEqual(
+            oracle_policy.framed_digest([left, right]),
+            oracle_policy.framed_digest([("a.py", b"x = 1\ny = 2\n"), ("b.py", b"")]),
         )
-        digest = hashlib.sha256()
-        for path in domain:
-            digest.update(path.read_bytes())
-        self.assertEqual(oracle_policy.POLICY["catalog_sha256"], digest.hexdigest())
 
     def test_programs_sha256_pins_the_pipeline_entry_points(self):
-        digest = hashlib.sha256()
-        for name in ("oracle_generate.py", "oracle_validate.py"):
-            digest.update((REPO / "pipelines" / name).read_bytes())
-        self.assertEqual(oracle_policy.POLICY["programs_sha256"], digest.hexdigest())
+        digest = oracle_policy.programs_digest(
+            REPO / "pipelines", ("oracle_generate.py", "oracle_validate.py")
+        )
+        self.assertEqual(oracle_policy.POLICY["programs_sha256"], digest)
 
     def test_mutated_row_fails_registry_load(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))

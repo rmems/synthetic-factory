@@ -11,14 +11,16 @@ cannot authorize a new source or generator. The snapshot loaded at import
 remains immutable for the process lifetime.
 
 Pin semantics (recompute on any reviewed change):
-- catalog_sha256: SHA-256 over the concatenated exact bytes of every
-  pipelines/oracle_grounded/*.py in sorted name order except this module
-  (the measured generation semantics). This module is the trust anchor that
-  seals the policy carrying the digest, so including it would make the value
-  a self-referential cycle with no stable fixpoint; it is the seal, not part
-  of what is sealed.
+- catalog_sha256: SHA-256 over every pipelines/oracle_grounded/*.py in sorted
+  name order except this module (the measured generation semantics). Each
+  member is framed by its name and byte length before its bytes, so a byte
+  redistribution across two adjacent modules cannot preserve the digest while
+  the module boundary moves. This module is the trust anchor that seals the
+  policy carrying the digest, so including it would make the value a
+  self-referential cycle with no stable fixpoint; it is the seal, not part of
+  what is sealed.
 - programs_sha256: SHA-256 over pipelines/oracle_generate.py followed by
-  pipelines/oracle_validate.py (the pipeline entry points).
+  pipelines/oracle_validate.py (the pipeline entry points), framed the same way.
 """
 
 from __future__ import annotations
@@ -27,14 +29,14 @@ import hashlib
 import json
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from .import_twins import bind_import_twin
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "4d7ed61804c9ff72619e7672a3bf44efb0ca3c6be2146460a1b039d0a6ef508d"
+POLICY_SHA256 = "13c596ea8579593755cc587684b35ad4c90218c2c7ab74303f86eb44fc055aa8"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -43,6 +45,40 @@ PROCEDURAL_FIELDS = frozenset({
 
 class SourcePolicyError(ValueError):
     """An oracle authority differs from the reviewed source policy."""
+
+
+def framed_digest(members: Iterable[tuple[str, bytes]]) -> str:
+    """SHA-256 over ``(name, bytes)`` members with unambiguous framing.
+
+    Each member contributes its UTF-8 name, a NUL separator, its byte length in
+    decimal, another NUL, then its exact bytes. Concatenating raw bytes alone
+    lets a byte move across a member boundary without changing the digest, so
+    the module partition the pin is supposed to authenticate would be
+    forgeable (CWE-354). Length framing makes the boundary part of the hashed
+    content. Callers pass members already in their reviewed order.
+    """
+    digest = hashlib.sha256()
+    for name, payload in members:
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(str(len(payload)).encode("ascii"))
+        digest.update(b"\x00")
+        digest.update(payload)
+    return digest.hexdigest()
+
+
+def catalog_digest(package: Path) -> str:
+    """The reviewed ``catalog_sha256`` for one ``oracle_grounded`` package."""
+    domain = sorted(
+        (path for path in package.glob("*.py") if path.name != Path(__file__).name),
+        key=lambda path: path.name,
+    )
+    return framed_digest((path.name, path.read_bytes()) for path in domain)
+
+
+def programs_digest(pipelines: Path, names: Sequence[str]) -> str:
+    """The reviewed ``programs_sha256`` for the pipeline entry points."""
+    return framed_digest((name, (pipelines / name).read_bytes()) for name in names)
 
 
 def _freeze(value: Any) -> Any:
