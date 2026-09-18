@@ -136,7 +136,11 @@ def _manifest_entry_errors(
     if not isinstance(spec, dict):
         return [f"MANIFEST.json entry for {relative} must be an object"]
     errors: list[str] = []
-    actual_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with target.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    actual_sha256 = digest.hexdigest()
     if spec.get("sha256") != actual_sha256:
         errors.append(
             f"MANIFEST.json binds {relative} to sha256 {spec.get('sha256')!r} "

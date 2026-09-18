@@ -246,9 +246,13 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
         "training_ready": False,
         "training_ready_note": _training_ready_note(meter, router_oracle),
     }
-    (out / "MANIFEST.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    manifest_path = out / "MANIFEST.json"
+    try:
+        with manifest_path.open("x", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+    except FileExistsError as exc:
+        raise SystemExit(f"refusing to overwrite {manifest_path}") from exc
     return manifest
 
 
