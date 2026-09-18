@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """AST-extract leftover6 pair and plant catalogs.
 
-Evaluates only literal assignments and ``dict`` / ``_row`` constructor calls.
+Unpinned input requires literal assignments and proven ``dict`` / ``_row`` calls.
+Exact pinned archives use AST text projection, not runtime-equivalence claims.
 Does not import, compile, or exec leftover6 mills.
 """
 
@@ -187,8 +188,12 @@ def _mapping_rows(
 ) -> list[dict[str, Any]]:
     if not isinstance(raw, list) or not raw:
         raise ValueError(f"{path} {name} is not a non-empty literal list")
-    return [_typed_mapping(item, fields, f"{path} {name}[{index}]")
+    rows = [_typed_mapping(item, fields, f"{path} {name}[{index}]")
             for index, item in enumerate(raw)]
+    identity = "family" if fields == SBOX_PLANT_FIELDS else "slug"
+    if len({row[identity] for row in rows}) != len(rows):
+        raise ValueError(f"{path} {name} contains duplicate {identity} identities")
+    return rows
 
 
 def _typed_mapping(item: Any, fields: tuple[str, ...], context: str) -> dict[str, Any]:

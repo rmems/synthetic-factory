@@ -17,22 +17,12 @@ from ._contract import bind_import_twin
 UNSET = object()
 
 
-class _UnresolvedBinding:
-    """Opaque dependencies of an unevaluated expression, never a literal value."""
-
-    def __init__(self, references):
-        self.references = tuple(references)
-
-
 class _LiteralMapping(dict):
     """Literal fields with their originating syntax retained for shape checks."""
 
     def __init__(self, shape, values=()):
         super().__init__(values)
         self.shape = shape
-
-
-
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
@@ -47,16 +37,11 @@ def _atomic_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return _bound_literal(node.id, env)
+        return env.get(node.id, UNSET)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, env)
         return -inner if isinstance(inner, (int, float)) else UNSET
     return UNSET
-
-
-def _bound_literal(name, env):
-    value = env.get(name, UNSET)
-    return UNSET if isinstance(value, _UnresolvedBinding) else value
 
 
 def _compound_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
@@ -101,9 +86,27 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
 def _literal_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if not isinstance(node.func, ast.Name):
         return UNSET
-    parsers = {"dict": _dict_call, "_row": _row_call}
-    parser = parsers.get(node.func.id)
-    return UNSET if parser is None else parser(node, env)
+    if node.func.id == "dict" and "dict" not in env:
+        return _dict_call(node, env)
+    if node.func.id == "_row" and _proven_row_binding(env):
+        return _row_call(node, env)
+    return UNSET
+
+
+def _proven_row_binding(env):
+    helper = env.get("_row")
+    if "dict" in env or not isinstance(helper, ast.FunctionDef):
+        return False
+    return ast.dump(helper) == ast.dump(_row_definition())
+
+
+def _row_definition():
+    """Exact pure helper contract, including the archive's derived ignore field."""
+    parameters = ", ".join(f"{name}: {'int' if name == 'inc' else 'str'}"
+                           for name in SBOX_PLANT_FIELDS)
+    fields = [f"{name}={name}" for name in SBOX_PLANT_FIELDS]
+    fields.insert(fields.index("miss_ext=miss_ext") + 1, 'ignore=f"*.{ext}"')
+    return ast.parse(f"def _row({parameters}) -> dict:\n    return dict({', '.join(fields)})").body[0]
 
 
 def _dict_call(node: ast.Call, env: Mapping[str, Any]) -> Any:

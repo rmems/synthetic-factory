@@ -1,6 +1,7 @@
 """Literal extraction works and fails closed without fetched archival Git refs."""
 
 import ast
+import copy
 import unittest
 
 from pipelines.leftover6.catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH, extract_source
@@ -18,6 +19,15 @@ PAIRS = [{'slug': 'bind', 'lslug': 'lose', 'stack': 'api', 'lstack': 'stale-api'
 '''
 
 SBOX_SOURCE = '''
+def _row(family: str, dump: str, miss_dump: str, secret: str, pin: str,
+         pin_path: str, pin_needle: str, grep_hit: str, distinct: str, ext: str,
+         miss_ext: str, live_bin: str, inc: int, over_slug: str, miss_slug: str,
+         proc: str, allow: str, rotate: str) -> dict:
+    return dict(family=family, dump=dump, miss_dump=miss_dump, secret=secret,
+                pin=pin, pin_path=pin_path, pin_needle=pin_needle, grep_hit=grep_hit,
+                distinct=distinct, ext=ext, miss_ext=miss_ext, ignore=f"*.{ext}",
+                live_bin=live_bin, inc=inc, over_slug=over_slug, miss_slug=miss_slug,
+                proc=proc, allow=allow, rotate=rotate)
 _ROWS = [_row('fixture-family', 'dump', 'miss-dump', 'secret', 'pin', 'path',
     'needle', 'grep-hit', 'distinct', 'ext', 'miss-ext', 'live-bin', 4,
     'over-slug', 'miss-slug', 'process', 'allow', 'rotate')]
@@ -26,10 +36,10 @@ _ROWS = [_row('fixture-family', 'dump', 'miss-dump', 'secret', 'pin', 'path',
 
 def _sbox_increment_source(increment):
     tree = ast.parse(SBOX_SOURCE)
-    second = ast.parse(SBOX_SOURCE).body[0].value.elts[0]
+    second = ast.parse(SBOX_SOURCE).body[-1].value.elts[0]
     second.args[0] = ast.Constant(value="second-family")
     second.args[12] = ast.Constant(value=increment)
-    tree.body[0].value.elts.append(second)
+    tree.body[-1].value.elts.append(second)
     return ast.unparse(tree)
 
 
@@ -69,7 +79,7 @@ class LiteralCatalogExtract(unittest.TestCase):
             '_ROWS = [_row()]',
             '_ROWS = [_row(family="fixture")]',
             SBOX_SOURCE.replace("'rotate'", 'evaluate()'),
-            SBOX_SOURCE.replace('_row(', 'factory._row('),
+            SBOX_SOURCE.replace('[_row(', '[factory._row('),
         ):
             with self.subTest(source=source), self.assertRaises(ValueError):
                 extract_source(source, path=SBOX_PATH)
@@ -254,3 +264,64 @@ class LiteralCatalogExtract(unittest.TestCase):
         self.assertEqual(extract_source(guarded, path=SSL_PATH)['n_rows'], 1)
         with self.assertRaises(ValueError):
             extract_source(guarded + 'else:\n    clear()\n', path=SSL_PATH)
+
+    def test_unknown_module_calls_and_import_effects_refuse_literal_rows(self):
+        effects = ('import sys\nsys._getframe().f_globals["PAIRS"] = []',
+                   'import inspect\ninspect.currentframe().f_globals["PAIRS"] = []',
+                   'import builtins\nexecute = getattr(builtins, "exec")\nexecute("PAIRS=[]")',
+                   'unrelated()', 'result = unrelated()', 'import extension',
+                   'from extension import *', 'if unknown:\n    unrelated()',
+                   'def unused(value=unrelated()):\n    pass',
+                   'unused = lambda value=unrelated(): None')
+        for effect in effects:
+            with self.subTest(effect=effect), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + effect, path=SSL_PATH)
+        deferred = '\ndef unused():\n    unrelated()\ncallback = lambda: unrelated()'
+        self.assertEqual(extract_source(SSL_SOURCE + deferred, path=SSL_PATH)['n_rows'], 1)
+
+    def test_catalog_constructors_require_proven_bindings(self):
+        cases = ((_GQL_SNIPPET, GQL_PATH, 'dict = lambda **kwargs: {}\n'),
+                 (_GQL_SNIPPET, GQL_PATH, 'def dict(**kwargs):\n    return {}\n'),
+                 (SBOX_SOURCE.replace('return dict(', 'return altered('), SBOX_PATH, ''))
+        for source, path, replacement in cases:
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                extract_source(replacement + source, path=path)
+
+    def test_duplicate_source_row_identities_are_refused(self):
+        for source, path in ((_GQL_SNIPPET, GQL_PATH), (SSL_SOURCE, SSL_PATH),
+                             (SBOX_SOURCE, SBOX_PATH)):
+            tree = ast.parse(source)
+            rows = tree.body[-1].value.elts
+            duplicate = copy.deepcopy(rows[0])
+            if path == SBOX_PATH:
+                duplicate.args[12] = ast.Constant(value=8)
+            rows.append(duplicate)
+            changed = ast.unparse(tree).replace('N_ROUNDS = 1', 'N_ROUNDS = 2')
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'duplicate'):
+                extract_source(changed, path=path)
+
+    def test_inert_redefinition_cannot_erase_shadowed_constructor_bindings(self):
+        redefinitions = '\ndef unused():\n    pass\ndef unused():\n    pass\n'
+        for shadow in ('dict = lambda **kwargs: {}',
+                       'replacement = lambda **kwargs: {}\ndict = replacement'):
+            with self.subTest(shadow=shadow), self.assertRaises(ValueError):
+                extract_source(shadow + redefinitions + _GQL_SNIPPET, path=GQL_PATH)
+        for replacement in ('_row = lambda *args: {}',
+                            'replacement = lambda *args: {}\n_row = replacement'):
+            source = SBOX_SOURCE.replace('_ROWS =', replacement + redefinitions + '_ROWS =')
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                extract_source(source, path=SBOX_PATH)
+        self.assertEqual(extract_source(redefinitions + _GQL_SNIPPET, path=GQL_PATH)['n_rows'], 1)
+
+    def test_rebinding_builtins_cannot_authenticate_helper_calls(self):
+        rebindings = ('__builtins__ = {"dict": replacement}',
+                      '__builtins__: dict = {"dict": replacement}',
+                      'namespace = {"dict": replacement}\n__builtins__ = namespace',
+                      'def __builtins__():\n    pass',
+                      'async def __builtins__():\n    pass')
+        for rebinding in rebindings:
+            source = 'replacement = lambda **kwargs: {}\n' + rebinding + '\n' + SBOX_SOURCE
+            with self.subTest(rebinding=rebinding), self.assertRaises(ValueError):
+                extract_source(source, path=SBOX_PATH)
+        deferred = 'def unused():\n    __builtins__ = {}\n'
+        self.assertEqual(extract_source(deferred + SBOX_SOURCE, path=SBOX_PATH)['n_rows'], 1)

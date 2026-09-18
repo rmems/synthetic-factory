@@ -169,6 +169,16 @@ def _module_uses_exec(path: Path) -> list[str]:
 
 
 class Leftover6CatalogTests(unittest.TestCase):
+    def test_changed_archive_bytes_lose_text_projection_exception(self):
+        if not _legacy_available():
+            self.skipTest("leftover6 preserve commits are not available")
+        for mill in CATALOG.catalogs:
+            source = _git_show(mill.preserve_commit, mill.source_path)
+            for appendix in ('\nunknown_effect()\n', '\n# changed source\n'):
+                with self.subTest(path=mill.source_path, appendix=appendix), self.assertRaises(ValueError):
+                    extract_source(source + appendix, path=mill.source_path,
+                                   blob_sha=mill.source_blob_sha1)
+
     def test_reviewed_homes_stay_on_source_prefixes(self):
         self.assertNotIn("leftover6", REVIEWED_MILL_PREFIX_HOMES)
         self.assertEqual(leftover6_catalog.FAMILY, "leftover6")
