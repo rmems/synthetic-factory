@@ -407,8 +407,23 @@ def classify(record, require_named_runtime=False, check_declared_status=True, ex
             "family": [],
             "status": [],
         }
+    if not family_findings:
+        family_findings = _reference_replay_findings(record)
     status = _validate_declared_status(record, family_findings) if check_declared_status else []
     return {"envelope": envelope, "family": family_findings, "status": status}
+
+
+def _reference_replay_findings(record):
+    """Check the full reference measurement after proposal and resource checks."""
+    if record["oracle"]["implementation"] != "reference":
+        return []
+    try:
+        status, detail = reproduce(record, environ={})
+    except Exception as exc:
+        return [f"reference replay could not run: {type(exc).__name__}"]
+    if status != "reproduced":
+        return [f"reference replay {status}: {detail}"]
+    return []
 
 
 def validate_record(record, check_declared_status=True, require_named_runtime=False):

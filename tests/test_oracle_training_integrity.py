@@ -25,7 +25,8 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
         item = build(families.ENCODER_FAMILY)
         with mock.patch.object(record, "reproduce", wraps=record.reproduce) as replay:
             self.assertEqual(admission.natural_eligibility(item, self._row()), (True, ()))
-        replay.assert_called_once_with(item, environ={})
+        self.assertTrue(replay.call_args_list)
+        self.assertTrue(all(call == mock.call(item, environ={}) for call in replay.call_args_list))
 
     def test_recomputed_hash_cannot_authenticate_an_invented_measurement_label(self):
         for family in (families.NEURON_FAMILY, families.MESH_FAMILY):
@@ -33,9 +34,13 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
                 item = build(family)
                 item["result"]["measured"]["delta"]["external_attestation"] = "invented"
                 item["result_hash"] = canon.digest(item["result"])
-                item["validation"] = record.assess(item)
-                with self.assertRaisesRegex(admission.OracleAdmissionError, "replay"):
+                with self.assertRaises(admission.OracleAdmissionError):
                     admission.natural_eligibility(item, self._row())
+                item["validation"] = record.assess(item)
+                self.assertEqual(item["validation"]["status"], "rejected")
+                eligible, reasons = admission.natural_eligibility(item, self._row())
+                self.assertFalse(eligible)
+                self.assertTrue(reasons)
 
     def test_runtime_measurements_require_authenticated_replay_without_implicit_execution(self):
         reference = build(families.CREDIT_FAMILY)
