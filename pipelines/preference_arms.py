@@ -60,7 +60,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from curate_preferences import canonical_json, context_is_pure  # noqa: E402,F401
-from operator_paths import operator_path  # noqa: E402
+from operator_paths import confine_named  # noqa: E402
 
 # The gate is split across sibling modules so each states one responsibility.
 # Everything the published surface exposes is re-exported here, so
@@ -922,14 +922,12 @@ def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs
     the typed path when they differ.
     """
 
-    def optional(name: str) -> Path | None:
-        value = getattr(args, name, None)
-        return None if value is None else operator_path(str(value))
-
-    try:
-        return Inputs(*(optional(name) for name in Inputs._fields))
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    paths = confine_named(
+        parser,
+        args,
+        {"source": "source", "staging_dir": "staging_dir"},
+    )
+    return Inputs(*(paths[name] for name in Inputs._fields))
 
 
 def _run_verify_handoff(args: argparse.Namespace, staging_dir: Path) -> int:
