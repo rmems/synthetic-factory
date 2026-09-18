@@ -63,13 +63,22 @@ def _require_git(repo: Path | None = None) -> None:
         raise MillScriptInventoryError(_GIT_REQUIRED)
 
 
+def _class_skip(pattern: str, index: int, chars: str) -> int:
+    return index + int(index < len(pattern) and pattern[index] in chars)
+
+
+def _escape_width(pattern: str, index: int) -> int:
+    if pattern.startswith("\\", index) and index + 1 < len(pattern):
+        return 2
+    return 1
+
+
 def _class_close(pattern: str, start: int) -> int | None:
-    index = start + int(start < len(pattern) and pattern[start] in "!^")
-    index += int(index < len(pattern) and pattern[index] == "]")
+    index = _class_skip(pattern, _class_skip(pattern, start, "!^"), "]")
     while index < len(pattern):
         if pattern[index] == "]":
             return index
-        index += 2 if pattern.startswith("\\", index) and index + 1 < len(pattern) else 1
+        index += _escape_width(pattern, index)
     return None
 
 
@@ -151,25 +160,70 @@ def _wildcard_regex(pattern: str) -> re.Pattern[str]:
     return re.compile(prefix + "".join(chunks) + suffix)
 
 
-def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, str, str]]:
-    """Use Git's effective ignore rules, including negation and ancestor rules."""
-
-    path = Path(root) / GITIGNORE_NAME
-    rules: list[tuple[str, str, str, re.Pattern[str]]] = []
-    if path.is_file():
-        for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            line = raw.strip()
-            if line and not line.startswith("#"):
-                pattern = line[1:] if line.startswith("!") else line
-                rules.append((GITIGNORE_NAME, str(number), line, _wildcard_regex(pattern)))
-    matches: dict[str, tuple[str, str, str]] = {}
+def _collect_ignore_files(root: Path, paths: Iterable[str]) -> tuple[tuple[str, Path], ...]:
+    files: dict[str, Path] = {"": Path(root) / GITIGNORE_NAME}
     for candidate in paths:
-        last = None
-        for source, line, original, regex in rules:
-            if regex.search(candidate.replace("\\", "/")):
-                last = (source, line, original)
-        if last is not None:
-            matches[candidate] = last
+        relative = Path(candidate.replace("\\", "/")).parent
+        while relative != Path("."):
+            files[f"{relative.as_posix()}/"] = Path(root) / relative / GITIGNORE_NAME
+            relative = relative.parent
+    return tuple((scope, path) for scope, path in sorted(files.items()) if path.is_file())
+
+
+def _parse_ignore_file(path: Path, source: str) -> tuple[tuple[str, str, str, re.Pattern[str]], ...]:
+    rules: list[tuple[str, str, str, re.Pattern[str]]] = []
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        pattern = line[1:] if line.startswith("!") else line
+        rules.append((source, str(number), line, _wildcard_regex(pattern)))
+    return tuple(rules)
+
+
+def _scope_relative(path: str, scope: str) -> str | None:
+    if not scope:
+        return path
+    if path.startswith(scope):
+        return path[len(scope):]
+    return None
+
+
+def _load_ignore_rules(
+    root: Path, paths: Iterable[str]
+) -> tuple[tuple[str, str, str, str, re.Pattern[str]], ...]:
+    rules: list[tuple[str, str, str, str, re.Pattern[str]]] = []
+    for scope, path in _collect_ignore_files(root, paths):
+        parsed = _parse_ignore_file(path, f"{scope}{GITIGNORE_NAME}")
+        rules.extend((scope, source, line, original, regex) for source, line, original, regex in parsed)
+    return tuple(rules)
+
+
+def _last_ignore_hit(
+    path: str,
+    rules: Sequence[tuple[str, str, str, str, re.Pattern[str]]],
+) -> tuple[str, str, str] | None:
+    last = None
+    normalized = path.replace("\\", "/")
+    for scope, source, line, original, regex in rules:
+        relative = _scope_relative(normalized, scope)
+        if relative is None:
+            continue
+        if regex.search(relative):
+            last = (source, line, original)
+    return last
+
+
+def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, str, str]]:
+    """Use Git's effective ignore rules, including nested, negated, and ancestor rules."""
+
+    candidates = tuple(paths)
+    rules = _load_ignore_rules(root, candidates)
+    matches: dict[str, tuple[str, str, str]] = {}
+    for candidate in candidates:
+        hit = _last_ignore_hit(candidate, rules)
+        if hit is not None:
+            matches[candidate] = hit
     return matches
 
 
@@ -188,7 +242,7 @@ def _git_index_header(payload: bytes) -> int:
     if payload[:4] != b"DIRC":
         raise MillScriptInventoryError(_INDEX_UNPARSEABLE)
     version = int.from_bytes(payload[4:8], "big")
-    if version != 2:
+    if version not in (2, 3):
         raise MillScriptInventoryError(_INDEX_UNSUPPORTED)
     return int.from_bytes(payload[8:12], "big")
 
@@ -248,6 +302,21 @@ def _ewah_literal(words: Sequence[int], cursor: int, index: int, bits: list[int]
     return cursor + 1, index + 64
 
 
+def _ewah_repeat(rlw: int, index: int, bits: list[int]) -> int:
+    running_len = (rlw >> 1) & 0xFFFFFFFF
+    if rlw & 1:
+        bits.extend(range(index, index + running_len * 64))
+    return index + running_len * 64
+
+
+def _ewah_literals(
+    words: Sequence[int], rlw: int, cursor: int, index: int, bits: list[int]
+) -> tuple[int, int]:
+    for _ in range(rlw >> 33):
+        cursor, index = _ewah_literal(words, cursor, index, bits)
+    return cursor, index
+
+
 def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
     if bit_size == 0:
         return frozenset()
@@ -257,12 +326,8 @@ def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
     while cursor < len(words):
         rlw = words[cursor]
         cursor += 1
-        running_len = (rlw >> 1) & 0xFFFFFFFF
-        if rlw & 1:
-            bits.extend(range(index, index + running_len * 64))
-        index += running_len * 64
-        for _ in range(rlw >> 33):
-            cursor, index = _ewah_literal(words, cursor, index, bits)
+        index = _ewah_repeat(rlw, index, bits)
+        cursor, index = _ewah_literals(words, rlw, cursor, index, bits)
     return frozenset(bit for bit in bits if bit < bit_size)
 
 
@@ -295,6 +360,10 @@ def _next_replacement(split: Sequence[str], cursor: int, inherited: str) -> tupl
     return split[cursor] or inherited, cursor + 1
 
 
+def _remaining_split(split: Sequence[str], cursor: int) -> tuple[str, ...]:
+    return tuple(path for path in split[cursor:] if path)
+
+
 def _merge_split_paths(
     shared: Sequence[str],
     split: Sequence[str],
@@ -310,8 +379,7 @@ def _merge_split_paths(
             path, cursor = _next_replacement(split, cursor, path)
         if path:
             merged.append(path)
-    merged.extend(path for path in split[cursor:] if path)
-    return tuple(merged)
+    return tuple(merged) + _remaining_split(split, cursor)
 
 
 def _read_git_index(repo: Path) -> tuple[str, ...]:
@@ -330,19 +398,30 @@ def _read_git_index(repo: Path) -> tuple[str, ...]:
     return _merge_split_paths(shared_paths, paths, deleted, replaced)
 
 
+def _ls_files_output(repo: Path) -> bytes:
+    return "\0".join(tracked_paths(repo)).encode() + b"\0"
+
+
+def _check_ignore_output(repo: Path, payload: bytes | None) -> bytes:
+    paths = tuple(filter(None, (payload or b"").decode().split("\0")))
+    matches = gitignore_matches(repo, paths)
+    chunks: list[str] = []
+    for path in paths:
+        hit = matches.get(path)
+        if hit is None:
+            continue
+        chunks.extend((*hit, path))
+    if not chunks:
+        return b""
+    return ("\0".join(chunks) + "\0").encode()
+
+
 def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:
-    if tuple(arguments) == ("ls-files", "-z"):
-        return "\0".join(tracked_paths(repo)).encode() + b"\0"
-    if tuple(arguments) == ("check-ignore", "--no-index", "-z", "-v", "--stdin"):
-        paths = tuple(filter(None, (payload or b"").decode().split("\0")))
-        matches = gitignore_matches(repo, paths)
-        chunks = [
-            part
-            for path in paths
-            if path in matches
-            for part in (*matches[path], path)
-        ]
-        return ("\0".join(chunks) + "\0").encode() if chunks else b""
+    command = tuple(arguments)
+    if command == ("ls-files", "-z"):
+        return _ls_files_output(repo)
+    if command == ("check-ignore", "--no-index", "-z", "-v", "--stdin"):
+        return _check_ignore_output(repo, payload)
     raise MillScriptInventoryError("inventory git helper accepts only ls-files or check-ignore")
 
 

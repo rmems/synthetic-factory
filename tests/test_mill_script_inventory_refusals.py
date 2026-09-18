@@ -12,9 +12,12 @@ from unittest.mock import patch
 from tests.test_mill_script_inventory import REPO, msi
 
 
-def _index_entry(path: str) -> bytes:
+def _index_entry(path: str, *, flags: int = 0) -> bytes:
     encoded = path.encode()
-    payload = bytes(60) + len(encoded).to_bytes(2, "big") + encoded + b"\0"
+    payload = bytes(60) + (len(encoded) | flags).to_bytes(2, "big")
+    if flags & 0x4000:
+        payload += bytes(2)
+    payload += encoded + b"\0"
     return payload + bytes((8 - (len(payload) % 8)) % 8)
 
 
@@ -24,12 +27,16 @@ def _ewah_bitmap(bit_size: int, words: tuple[int, ...]) -> bytes:
     return payload + (0).to_bytes(4, "big")
 
 
-def _git_index(entries: tuple[bytes, ...], extensions: dict[bytes, bytes] | None = None) -> bytes:
+def _git_index(
+    entries: tuple[bytes, ...],
+    extensions: dict[bytes, bytes] | None = None,
+    version: int = 2,
+) -> bytes:
     body = b"".join(entries)
     extra = b""
     for signature, data in (extensions or {}).items():
         extra += signature + len(data).to_bytes(4, "big") + data
-    header = b"DIRC" + (2).to_bytes(4, "big") + len(entries).to_bytes(4, "big")
+    header = b"DIRC" + version.to_bytes(4, "big") + len(entries).to_bytes(4, "big")
     return header + body + extra + bytes(20)
 
 
@@ -139,6 +146,32 @@ class InventoryEvidenceRefusals(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(msi.MillScriptInventoryError):
                 msi.tracked_paths(Path(temp))
+
+    def test_index_version_3_extended_entries_are_tracked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(
+                _git_index(
+                    (
+                        _index_entry("README"),
+                        _index_entry("pipelines/leftover_mill.py", flags=0x4000),
+                    ),
+                    version=3,
+                )
+            )
+            tracked = msi.tracked_paths(root)
+        self.assertEqual(tracked, ("README", "pipelines/leftover_mill.py"))
+
+    def test_index_version_4_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(_git_index((_index_entry("README"),), version=4))
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "unsupported git index"):
+                msi.tracked_paths(root)
 
     def test_split_index_inherits_shared_paths_for_empty_replacements(self):
         oid = b"\x01" * 20
