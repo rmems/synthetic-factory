@@ -256,7 +256,25 @@ def _pair_row(value: Any, context: str) -> dict[str, Any]:
     keys = _GQL_ROW_KEYS if kind == "gql-pairs" else _SSL_ROW_KEYS
     if kind not in {"gql-pairs", "ssl-pairs"}:
         raise CatalogError(f"{context} kind is not a leftover6 pair")
-    return _mapping(value, context, keys)
+    row = _mapping(value, context, keys)
+    for key, item in row.items():
+        if key == "round":
+            _integer(item, f"{context}.{key}")
+        elif key == "novel":
+            _integer(item, f"{context}.{key}", minimum=1)
+        else:
+            _text(item, f"{context}.{key}")
+    return row
+
+
+def _plant_row(value: Any, context: str) -> dict[str, Any]:
+    row = _mapping(value, context, _PLANT_ROW_KEYS)
+    for key, item in row.items():
+        if key == "inc":
+            _integer(item, f"{context}.{key}", minimum=1)
+        else:
+            _text(item, f"{context}.{key}")
+    return row
 
 
 def _catalog_dir(path: Path) -> Path:
@@ -278,7 +296,7 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
         for index, item in enumerate(_load_jsonl(directory / PAIRS_FILENAME))
     )
     plants = tuple(
-        _mapping(item, f"{PLANTS_FILENAME}:{index + 1}", _PLANT_ROW_KEYS)
+        _plant_row(item, f"{PLANTS_FILENAME}:{index + 1}")
         for index, item in enumerate(_load_jsonl(directory / PLANTS_FILENAME))
     )
     catalog = Catalog(

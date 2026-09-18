@@ -195,6 +195,20 @@ class Leftover6CatalogTests(unittest.TestCase):
             with self.assertRaisesRegex(CatalogError, "keys differ"):
                 load_catalog(dest)
 
+    def test_loader_refuses_a_wrong_pair_value_type(self):
+        header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
+        lines = PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        first["round"] = "260"
+        lines[0] = json.dumps(first, separators=(",", ":"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dest = Path(temp_dir)
+            (dest / "CATALOG.json").write_text(json.dumps(header), encoding="utf-8")
+            (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            (dest / "plants.jsonl").write_text(PLANTS_JSONL.read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(CatalogError, "round must be an integer"):
+                load_catalog(dest)
+
 
 class Leftover6LegacyExtractTests(unittest.TestCase):
     def test_committed_catalog_matches_live_ast_extract(self):
