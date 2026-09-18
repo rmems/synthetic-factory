@@ -527,6 +527,7 @@ MESH_UNITS = {
 
 
 def mesh_request(scenario, intervention):
+    sim.mesh_step_count(scenario["duration_ms"], 0.5, maximum=280)
     return {
         "configuration": {
             "duration_ms": scenario["duration_ms"],

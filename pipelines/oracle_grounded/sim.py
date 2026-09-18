@@ -439,6 +439,30 @@ def mesh_node(node_id, **overrides):
     return node
 
 
+MAX_MESH_STEPS = 10_000
+
+
+def _require_positive_mesh_number(value):
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError("mesh duration and timestep must be finite positive numbers")
+    try:
+        valid = math.isfinite(value) and value > 0
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise ValueError("mesh duration and timestep must be finite positive numbers")
+
+
+def mesh_step_count(duration_ms, dt_ms=0.5, maximum=MAX_MESH_STEPS):
+    """Bound direct mesh execution before state allocation or time stepping."""
+    for value in (duration_ms, dt_ms):
+        _require_positive_mesh_number(value)
+    ratio = duration_ms / dt_ms
+    if not math.isfinite(ratio) or ratio > maximum:
+        raise ValueError(f"mesh simulation exceeds {maximum} steps")
+    return int(round(ratio))
+
+
 def simulate_mesh(nodes, edges, events, duration_ms, dt_ms=0.5, max_spikes=4000):
     """Delta-synapse LIF network with per-edge conduction delays.
 
@@ -449,9 +473,10 @@ def simulate_mesh(nodes, edges, events, duration_ms, dt_ms=0.5, max_spikes=4000)
     is set by the loop weight against the adapting threshold.
 
     ``max_spikes`` bounds a runaway excitatory network; hitting it is reported
-    rather than silently truncated.
+    rather than silently truncated. Finite positive duration/timestep values
+    may span at most 10,000 steps, checked before state allocation.
     """
-    steps = int(round(duration_ms / dt_ms))
+    steps = mesh_step_count(duration_ms, dt_ms)
     order = [node["id"] for node in nodes]
     state = {}
     for node in nodes:

@@ -350,6 +350,22 @@ consumer reading only `accepted-*.jsonl` cannot pick up a record that failed its
 family's gate. Each family lives in its own directory, so families can be
 curated independently.
 
+## Direct replay resource bounds
+
+The synaptic-delay family accepts durations up to 140 ms at its fixed 0.5 ms
+step, including through direct `record.reproduce` calls. The family request
+checks that bound before creating events or selecting an oracle adapter.
+The shared `simulate_mesh` API requires finite positive duration and timestep
+values and refuses more than 10,000 steps before allocating simulator state.
+That broader limit preserves the credit-assignment and temporal-memory windows,
+as well as the existing 5,000 ms direct simulation case. Spike-count limits
+remain a separate bound on excitatory activity; a quiet simulation is bounded
+even when it produces no spikes.
+
+Boolean schema nodes are unsupported and produce schema findings rather than
+validator exceptions, including through properties, alternatives, and references.
+Boolean `additionalProperties` retains its supported JSON Schema meaning.
+
 ## Assemble eligible reference measurements
 
 The default composition preserves every valid oracle record, including honest

@@ -98,7 +98,7 @@
   "files": {
     "neuromodulator-credit-assignment/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "4d3a82d22a59c947e17c0a0db784d363da190cfba3a9a0adc13fdd952dd3ac28"
+      "sha256": "37b8aeba907ad8a36df2ea4eb7cd24d347739ba3c760f600cd2cfbb55819a549"
     },
     "neuromodulator-credit-assignment/rejected-r01.jsonl": {
       "records": 0,
@@ -106,7 +106,7 @@
     },
     "neuron-dynamics-counterfactuals/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "53f65ddaf41b8f7d154942eaf82a47388624bdc81081d9d10de7556eca19c15c"
+      "sha256": "90caa7aad62e6f637cc475c30678317ac96f927471b6501cebe64f651836202f"
     },
     "neuron-dynamics-counterfactuals/rejected-r01.jsonl": {
       "records": 0,
@@ -114,7 +114,7 @@
     },
     "spike-encoder-equivalence-pairs/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "f660682c92a2e945780a3b6f8433e243a16c8a329381546bcc9c7b37c25c2bad"
+      "sha256": "2353e738563052d770c9154aa58537394367694046f27b6f91cf837c391eefad"
     },
     "spike-encoder-equivalence-pairs/rejected-r01.jsonl": {
       "records": 0,
@@ -122,7 +122,7 @@
     },
     "synaptic-delay-causal-trajectories/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "df665350986eb6dec63d6a7e6495bf1017363601fe1ea9157eae7c1e14767c89"
+      "sha256": "84dbcc4383f74675ab4bd40d5f8646c417f0479218edb4c862ca64379cc51b50"
     },
     "synaptic-delay-causal-trajectories/rejected-r01.jsonl": {
       "records": 0,
@@ -130,15 +130,15 @@
     },
     "temporal-memory-spike-challenges/accepted-r01.jsonl": {
       "records": 2,
-      "sha256": "008b9759a7ba09959bea4fde9c5010144d8c51b32de67e26c310d5aa6bb53174"
+      "sha256": "31eb85ac860ff8b11e7d8dffeffea9a0c91a1b57e77f3227c010159b3a72977b"
     },
     "temporal-memory-spike-challenges/rejected-r01.jsonl": {
       "records": 2,
-      "sha256": "4508a0d52c6be25598dede3b9c2d98ff5ba6972b40917a954b5d956931c89d2d"
+      "sha256": "d8022cf5db0313ace539b4db12a0887643549e247673864e7f013d1b9b79c420"
     }
   },
   "generation_errors": [],
-  "module_digest": "sha256:817e8f3e842f9d3f67726e79d669156140c242a972dbc1979b4589e8696aa818",
+  "module_digest": "sha256:9974ba11b37c3a073d5a469a791ac5c695de26bd0929ddfb8950a142b0918563",
   "note": "Counts describe this run only; no record here is publishable. Each record's own validation.publishable_reason states why: a validation failure, a module digest the current sources cannot reproduce, or unresolved commit or dirty state.",
   "oracle_availability": {
     "all_bound": false,

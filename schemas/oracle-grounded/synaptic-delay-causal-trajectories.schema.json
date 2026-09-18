@@ -33,7 +33,7 @@
             "onset_ms": { "type": "number", "minimum": 0 }
           }
         },
-        "duration_ms": { "type": "number", "exclusiveMinimum": 0 }
+        "duration_ms": { "type": "number", "exclusiveMinimum": 0, "maximum": 140 }
       },
       "additionalProperties": true
     },

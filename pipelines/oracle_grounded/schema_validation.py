@@ -337,6 +337,8 @@ def _type_errors(value, schema, path):
 
 
 def _validate(value, schema, root, path):
+    if not isinstance(schema, dict):
+        return [f"{path}: schema must be an object; Boolean schemas are unsupported"]
     errors = []
 
     reference = schema.get("$ref")
@@ -388,7 +390,12 @@ def _schema_mapping_children(schema, path):
 def _schema_children(schema, path):
     yield from _schema_mapping_children(schema, path)
     for name in ("items", "not", "additionalProperties"):
-        yield schema.get(name), f"{path}/{name}"
+        if name not in schema:
+            continue
+        child = schema[name]
+        if name == "additionalProperties" and isinstance(child, bool):
+            continue
+        yield child, f"{path}/{name}"
     options = schema.get("anyOf")
     if isinstance(options, list):
         yield from ((sub, f"{path}/anyOf/{index}") for index, sub in enumerate(options))
@@ -397,7 +404,7 @@ def _schema_children(schema, path):
 def _unsupported_keyword_errors(schema, path="#"):
     """Schema objects that carry keywords ``_validate`` does not enforce."""
     if not isinstance(schema, dict):
-        return []
+        return [f"schema at {path} must be an object; Boolean schemas are unsupported"]
     errors = []
     unknown = sorted(set(schema) - ENFORCED_KEYWORDS - ANNOTATION_KEYWORDS)
     if unknown:
@@ -423,27 +430,24 @@ def validate_record_schemas(instance, family, include_validation=True):
     ``validation`` property; all other required and family semantics still run.
     """
     findings = _nonfinite_errors(instance)
-    findings.extend(
-        f"base schema: {item}" for item in _schema_keyword_findings(str(BASE_SCHEMA_PATH))
-    )
-    base = _load_schema(str(BASE_SCHEMA_PATH))
-    if not include_validation:
-        base = dict(base)
-        base["required"] = [key for key in base.get("required", ()) if key != "validation"]
-        properties = dict(base.get("properties", {}))
-        # The validation block is missing or provisional in this mode. Keep the
-        # key allowed so additionalProperties:false does not reject it, but do
-        # not enforce the completed validation schema.
-        properties["validation"] = {"type": "object"}
-        base["properties"] = properties
-    findings.extend(f"base schema: {item}" for item in _validate(instance, base, base, "$"))
-
+    findings.extend(f"base schema: {item}" for item in _document_findings(
+        instance, BASE_SCHEMA_PATH, include_validation,
+    ))
     family_path = FAMILY_SCHEMA_DIR / f"{family}.schema.json"
-    findings.extend(
-        f"family schema: {item}" for item in _schema_keyword_findings(str(family_path))
-    )
-    family_schema = _load_schema(str(family_path))
-    findings.extend(
-        f"family schema: {item}" for item in _validate(instance, family_schema, family_schema, "$")
-    )
+    findings.extend(f"family schema: {item}" for item in _document_findings(instance, family_path))
     return findings
+
+
+def _document_findings(instance, path, include_validation=True):
+    findings = list(_schema_keyword_findings(str(path)))
+    if findings:
+        return findings
+    schema = _load_schema(str(path))
+    if not include_validation:
+        schema = dict(schema)
+        schema["required"] = [key for key in schema.get("required", ()) if key != "validation"]
+        properties = dict(schema.get("properties", {}))
+        # Provisional envelopes keep the validation key allowed without its completed shape.
+        properties["validation"] = {"type": "object"}
+        schema["properties"] = properties
+    return _validate(instance, schema, schema, "$")
