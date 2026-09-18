@@ -1118,12 +1118,12 @@ def _result_measurements(
         ),
         oc.new_measurement(
             "healthy_channel_count",
-            float(result.worst_healthy_channels),
+            result.worst_healthy_channels,
             meters["state"],
             detail={"worst_case_over_run": True},
         ),
         oc.new_measurement(
-            "dropped_event_count", float(result.dropped_events), meters["state"]
+            "dropped_event_count", result.dropped_events, meters["state"]
         ),
         oc.new_measurement(
             "residual_error", round(result.residual_error, 6), meters["state"]
@@ -1221,12 +1221,12 @@ def build_records(
 # Quantities the simulator derives from the run. Each maps to the value a
 # replay produces, so a tampered latency target is caught the same way a
 # tampered outcome is.
-def _derived_measurements(result: "FaultResult") -> dict[str, float | None]:
+def _derived_measurements(result: "FaultResult") -> dict[str, int | float | None]:
     return {
         "detection_latency_ms": result.detection_latency_ms,
         "recovery_latency_ms": result.recovery_latency_ms,
-        "healthy_channel_count": float(result.worst_healthy_channels),
-        "dropped_event_count": float(result.dropped_events),
+        "healthy_channel_count": result.worst_healthy_channels,
+        "dropped_event_count": result.dropped_events,
         "residual_error": round(result.residual_error, 6),
         "corrupt_ratio": round(result.realised_corrupt_ratio, 6),
         "peak_temperature_c": result.peak_temperature_c,

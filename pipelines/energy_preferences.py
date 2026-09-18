@@ -161,7 +161,7 @@ class ProcessResourceMeter(EnergyOracle):
     def _delta_extras(
         self,
         peak_rss_kb: float | None,
-        switches: tuple[float | None, float | None],
+        switches: tuple[int | None, int | None],
     ) -> list[dict[str, Any]]:
         extra: list[dict[str, Any]] = []
         if peak_rss_kb is not None:
@@ -178,7 +178,7 @@ class ProcessResourceMeter(EnergyOracle):
             extra.append(
                 oc.new_measurement(
                     "context_switches",
-                    float(switches_after - switches_before),
+                    switches_after - switches_before,
                     self.name,
                 )
             )
@@ -216,7 +216,7 @@ class ProcessResourceMeter(EnergyOracle):
         extra = [
             oc.new_measurement("wall_time_s", wall_median, self.name),
             oc.new_measurement("latency_ms", wall_median * 1000.0, self.name),
-            oc.new_measurement("repeats", float(repeats), self.name),
+            oc.new_measurement("repeats", repeats, self.name),
         ] + self._delta_extras(peak_rss_kb, (switches_before, switches_after))
         return MeterReading(
             meter=self.name,
@@ -386,7 +386,7 @@ class RaplEnergyMeter(EnergyOracle):
             cost_value=joules,
             extra=(
                 oc.new_measurement("wall_time_s", wall_s / repeats, self.name),
-                oc.new_measurement("repeats", float(repeats), self.name),
+                oc.new_measurement("repeats", repeats, self.name),
             ),
             detail={"domains": sorted(before), "aggregation": "mean_over_repeats"},
         )
@@ -514,11 +514,11 @@ def _peak_rss_kb() -> float | None:
     return None
 
 
-def _context_switches() -> float | None:
+def _context_switches() -> int | None:
     if resource is None:
         return None
     usage = resource.getrusage(resource.RUSAGE_SELF)
-    return float(usage.ru_nvcsw + usage.ru_nivcsw)
+    return usage.ru_nvcsw + usage.ru_nivcsw
 
 
 def select_meter(prefer_energy: bool = True) -> tuple[EnergyOracle, dict[str, Any]]:

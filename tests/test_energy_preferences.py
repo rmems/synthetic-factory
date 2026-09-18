@@ -45,7 +45,7 @@ class FakeMeter(ep.EnergyOracle):
             meter=self.name,
             cost_quantity=self.cost_quantity,
             cost_value=cost,
-            extra=(oc.new_measurement("repeats", float(repeats), self.name),),
+            extra=(oc.new_measurement("repeats", repeats, self.name),),
             detail={"allocation_len": len(allocation)},
         )
 
