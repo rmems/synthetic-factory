@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import ast
+import json
 import sys
 import tempfile
 import unittest
@@ -33,6 +35,12 @@ class Identity(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             _contract.refuse_vendor_paths((Path("experiments") / "acm-mill-r3561.py",))
         self.assertIn("acm-mill-r3561.py", str(caught.exception))
+        with self.assertRaises(SystemExit) as caught:
+            _contract.refuse_vendor_paths((Path("experiments") / "acm-loop-r3561.py",))
+        self.assertIn("acm-loop-r3561.py", str(caught.exception))
+        self.assertEqual(_contract.DEFERRED_ROW_COUNT, 1044)
+        self.assertEqual(_contract.REPRESENTATIVE_ROW_COUNT, 8)
+        self.assertEqual(_contract.FULL_ROW_COUNT, 1052)
 
 
 class Extract(unittest.TestCase):
@@ -103,6 +111,7 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(payload["row_count"], len(payload["rows"]))
         self.assertEqual(payload["extract"]["source_commit"], _contract.SOURCE_COMMIT)
         self.assertFalse(payload["extract"]["exec"])
+        self.assertEqual(payload["extract"]["method"], "ast.parse")
         self.assertEqual(payload["extract"]["slice"], "representative")
         loops = [item for item in payload["sources"] if item["kind"] == "loop"]
         self.assertGreater(len(loops), 0)
@@ -111,14 +120,53 @@ class CommittedCatalog(unittest.TestCase):
         self.assertIn(("accept-ranges-bytes", "no-accept-ranges"), slugs)
         self.assertIn(("accept-profile-ldp", "content-type-profile-param"), slugs)
 
+    def test_deferred_rows_are_compact_jsonl_and_disjoint(self):
+        payload = catalog.load_catalog()
+        catalog.check_catalog(payload)
+        deferred = payload["deferred_rows"]
+        extract = payload["extract"]
+        self.assertEqual(extract["deferred_rows"], catalog.ROWS_FILENAME)
+        self.assertEqual(extract["deferred_row_count"], 1044)
+        self.assertEqual(extract["full_row_count"], 1052)
+        self.assertEqual(len(payload["rows"]), 8)
+        self.assertEqual(len(deferred), 1044)
+        self.assertEqual(len(payload["rows"]) + len(deferred), 1052)
+        path = catalog.default_catalog_dir() / catalog.ROWS_FILENAME
+        raw = path.read_text(encoding="utf-8")
+        self.assertEqual(raw.count("\n"), 1044)
+        self.assertTrue(raw.endswith("\n"))
+        self.assertEqual(catalog.sha256_text(raw), extract["deferred_rows_sha256"])
+        representative = {
+            (row["success_slug"], row["fail_slug"]) for row in payload["rows"]
+        }
+        deferred_keys = {(row["success_slug"], row["fail_slug"]) for row in deferred}
+        self.assertEqual(len(deferred_keys), 1044)
+        self.assertFalse(representative & deferred_keys)
+        for line in raw.splitlines():
+            parsed = json.loads(line)
+            compact = json.dumps(
+                parsed, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+            self.assertEqual(line, compact)
+            self.assertIn("success_slug", parsed)
+            self.assertIn("fail_slug", parsed)
+
     def test_repository_does_not_vendor_acm_mill_scripts(self):
         catalog.check_tree_has_no_vendor(REPO)
         package = REPO / "pipelines" / "acm"
         catalog.check_tree_has_no_vendor(package)
         self.assertEqual(list((REPO / "tests").rglob("acm-loop-*.py")), [])
+        self.assertEqual(list(package.rglob("acm-loop-*.py")), [])
+        self.assertEqual(list(package.rglob("acm-mill-*.py")), [])
+        self.assertEqual(list(package.rglob("leftover-mill*.py")), [])
         self.assertFalse((FIXTURE / "acm-loop-r1.py").exists())
         self.assertTrue((FIXTURE / "acm-pairs-r1.py").is_file())
         self.assertTrue((FIXTURE / "_gen_acm_plants_r2.py").is_file())
+        for path in package.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    self.assertNotIn(node.func.id, {"exec", "eval", "compile"})
 
 
 if __name__ == "__main__":

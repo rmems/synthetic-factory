@@ -317,7 +317,8 @@ class ProceduralIntegrationTests(unittest.TestCase):
         self.assertIsNone(record["oracle"]["commit"])
         self.assertEqual(record["oracle"]["configuration"]["isolation"],
             "rlimits and a fresh working directory only: no filesystem or network isolation "
-            "(issue #198); programs come from a pinned catalog whose selector admits stdlib-only modules")
+            "(issue #201); programs come from a pinned catalog whose selector admits "
+            "stdlib-only modules")
         errors, kind = check_line(record, "candidate")
         self.assertEqual(kind, "code_repair")
         self.assertEqual(errors, [])

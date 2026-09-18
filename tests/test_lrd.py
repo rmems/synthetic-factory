@@ -25,6 +25,9 @@ from mill_family import REVIEWED_MILL_PREFIX_HOMES, mill_prefix  # noqa: E402
 from record_kind import classify_kind  # noqa: E402
 from lrd import catalog, cli, generate  # noqa: E402
 from lrd._contract import (  # noqa: E402
+    CATALOG_ID,
+    CATALOG_SLICE,
+    EXTRACT_METHOD,
     FACTORY,
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
@@ -33,10 +36,16 @@ from lrd._contract import (  # noqa: E402
     FINDING_LOOP_REFUSED,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
+    FINDING_USAGE,
+    FULL_MILL_COUNTS,
+    FULL_PLANT_COUNT,
     GENERATOR,
     LrdRefusal,
     PREFIX,
+    SHAPE_LEGACY,
+    SHAPE_LEFTOVER3,
     SOURCE_COMMIT,
+    SOURCE_MILLS,
     SOURCE_MILL_ID,
     SOURCE_PATH,
     SOURCE_ROUND,
@@ -100,20 +109,37 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
+def _legacy_source(relpath: str) -> str | None:
+    for spec in (f"{SOURCE_COMMIT}:{relpath}", f"origin/legacy-mill-lane:{relpath}"):
+        try:
+            return subprocess.check_output(["git", "show", spec], text=True, cwd=REPO)
+        except subprocess.CalledProcessError:
+            continue
+    return None
+
+
 class CatalogLoading(unittest.TestCase):
-    def test_committed_catalog_loads_sixteen_ast_extracted_pairs(self):
+    def test_committed_catalog_loads_full_slice(self):
         loaded = catalog.load_catalog(COMMITTED)
-        self.assertEqual(loaded.catalog_id, "lrd-r157-v1")
+        self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(loaded.factory, FACTORY)
         self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[PREFIX])
-        self.assertEqual(len(loaded.plants), 16)
-        self.assertEqual(len(loaded.mills), 1)
-        self.assertEqual([plant.slug for plant in loaded.plants], list(EXPECTED_SLUGS))
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 16)
-        self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
+        self.assertEqual(loaded.meta["slice"], CATALOG_SLICE)
+        self.assertEqual(loaded.meta["full_plant_count"], FULL_PLANT_COUNT)
+        self.assertEqual(loaded.meta["plant_count"], FULL_PLANT_COUNT)
+        self.assertEqual(len(loaded.plants), FULL_PLANT_COUNT)
+        self.assertEqual(len(loaded.mills), 8)
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), FULL_PLANT_COUNT)
+        legacy = [plant for plant in loaded.plants if plant.shape == SHAPE_LEGACY]
+        self.assertEqual(len(legacy), 16)
+        self.assertEqual([plant.slug for plant in legacy], list(EXPECTED_SLUGS))
+        self.assertEqual(loaded.meta["source"]["method"], EXTRACT_METHOD)
         self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
-        self.assertEqual(loaded.mills[0].mill_id, SOURCE_MILL_ID)
-        self.assertEqual(loaded.mills[0].base_round, SOURCE_ROUND)
+        self.assertEqual(
+            tuple((mill.mill_id, mill.plant_count) for mill in loaded.mills),
+            FULL_MILL_COUNTS,
+        )
+        self.assertEqual({plant.mill_id for plant in loaded.plants}, {item[0] for item in SOURCE_MILLS})
         hoppers = str(loaded.meta["source"]["excluded"]["hoppers"])
         self.assertIn("dpr-lrd-hopper-leftover3.py", hoppers)
 
@@ -187,46 +213,61 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(caught.exception.code, FINDING_LOOP_REFUSED)
 
     def test_committed_catalog_matches_legacy_ast(self):
-        try:
-            text = subprocess.check_output(
-                ["git", "show", f"{SOURCE_COMMIT}:{SOURCE_PATH}"],
-                cwd=REPO,
-                text=True,
-                stderr=subprocess.DEVNULL,
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        text = _legacy_source(SOURCE_PATH)
+        if text is None:
             self.skipTest("lrd preserve blob is not fetched")
         ast.parse(text)
         rows = catalog.plants_from_source(
             text, mill_id=SOURCE_MILL_ID, source=SOURCE_PATH, base_round=SOURCE_ROUND
         )
         loaded = catalog.load_catalog(COMMITTED)
+        legacy = [plant for plant in loaded.plants if plant.shape == SHAPE_LEGACY]
         self.assertEqual(len(rows), 16)
-        for row, plant in zip(rows, loaded.plants, strict=True):
+        for row, plant in zip(rows, legacy, strict=True):
             self.assertEqual(row["slug"], plant.slug)
             self.assertEqual(row["field"], plant.field)
             self.assertEqual(row["fail"], plant.fail)
             self.assertEqual(row["naive"], plant.naive)
             self.assertEqual(row["domain"], plant.domain)
 
-    def test_leftover3_idtoken_is_not_literal_pairs(self):
-        try:
-            text = subprocess.check_output(
-                ["git", "show", f"{SOURCE_COMMIT}:experiments/lrd-mill-leftover3-idtoken.py"],
-                cwd=REPO,
-                text=True,
-                stderr=subprocess.DEVNULL,
+    def test_all_legacy_mills_match_live_ast_extract(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        compared = 0
+        for mill_id, base_round, rel, shape in SOURCE_MILLS:
+            source = _legacy_source(rel)
+            if source is None:
+                self.skipTest("legacy-mill-lane lrd sources are not available")
+            extracted = catalog.ast_extract_plants(
+                source, mill_id=mill_id, path=rel, base_round=base_round, shape=shape
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            self.skipTest("leftover3-idtoken blob is not fetched")
-        ast.parse(text)
-        with self.assertRaises(LrdRefusal) as caught:
-            catalog.plants_from_source(
-                text,
-                mill_id="lrd_r0001",
-                source="experiments/lrd-mill-leftover3-idtoken.py",
-            )
-        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+            full = dict(FULL_MILL_COUNTS)[mill_id]
+            self.assertEqual(len(extracted), full, rel)
+            committed = [plant for plant in loaded.plants if plant.mill_id == mill_id]
+            self.assertEqual(len(committed), full, rel)
+            for row, plant in zip(extracted, committed, strict=True):
+                self.assertEqual(row["slug"], plant.slug)
+                self.assertEqual(row["shape"], plant.shape)
+                if shape == SHAPE_LEGACY:
+                    self.assertEqual(row["field"], plant.field)
+                else:
+                    self.assertIsInstance(plant.payload, dict)
+            compared += 1
+        self.assertEqual(compared, len(SOURCE_MILLS))
+
+    def test_leftover3_idtoken_expands_p_calls(self):
+        source = _legacy_source("experiments/lrd-mill-leftover3-idtoken.py")
+        if source is None:
+            self.skipTest("idtoken blob is not fetched")
+        rows = catalog.ast_extract_plants(
+            source,
+            mill_id="lrd_r123",
+            path="experiments/lrd-mill-leftover3-idtoken.py",
+            base_round=123,
+            shape="p_idtoken",
+        )
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(rows[0]["shape"], "p_idtoken")
+        self.assertIn("idtoken", rows[0]["slug"])
 
     def test_archive_hopper_blob_is_refused(self):
         try:
@@ -257,7 +298,8 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(list(package.rglob("*loop*")), [])
         names = tuple(sorted(path.name for path in package.iterdir() if path.suffix == ".py"))
         self.assertEqual(
-            names, ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py")
+            names,
+            ("__init__.py", "_contract.py", "catalog.py", "catalog_extract.py", "cli.py", "generate.py"),
         )
 
 
@@ -290,6 +332,19 @@ class GeneratePairs(unittest.TestCase):
         self.assertTrue(ok["reward"]["success"])
         self.assertFalse(fail["reward"]["success"])
         self.assertEqual(ok["meta"]["factory"], FACTORY)
+
+    def test_leftover3_plant_generate_is_refused(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        sample = next(plant for plant in loaded.plants if plant.shape == SHAPE_LEFTOVER3)
+        dest = self.root / "leftover3-out"
+        with self.assertRaises(LrdRefusal) as caught:
+            generate.run(
+                generate.GenerateRequest(
+                    COMMITTED, dest, plant_id=sample.plant_id, round=sample.base_round
+                )
+            )
+        self.assertEqual(caught.exception.code, FINDING_USAGE)
+        self.assertFalse(dest.exists())
 
     def test_destination_under_raw_is_refused(self):
         dest = REPO / "outputs" / "raw" / "lrd-must-not-write"

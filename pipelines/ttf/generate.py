@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build designed TTF thalamic records from the AST-extracted catalog.
 
-Each record carries the six thalamic keys from the r02c identity slice.
+Each record carries the six thalamic keys from the committed identity slice.
 This module does not publish a raw round. Writers refuse an existing
 destination and any path that names or aliases ``outputs/raw/``.
 """
@@ -25,14 +25,12 @@ from ._contract import (
     QUOTA_PER_ROUND,
     RECORD_KIND,
     RUN_LABEL,
-    SLICE_ID,
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
     refuse,
     refuse_when,
     refuse_vendor_paths,
-    require_round,
 )
 
 BATCH_PREFIX = "batch-"
@@ -54,7 +52,7 @@ __all__ = [
 
 @dataclass(frozen=True)
 class RunRequest:
-    round_n: int
+    slice_id: str
     out_dir: Path
 
 
@@ -176,7 +174,7 @@ def _write_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
         os.close(parent_fd)
 
 
-def record(plant: cat.Plant) -> dict[str, Any]:
+def record(plant: cat.Plant, *, slice_id: str) -> dict[str, Any]:
     """One designed thalamic trajectory. Does not publish a raw round."""
 
     return {
@@ -210,7 +208,7 @@ def record(plant: cat.Plant) -> dict[str, Any]:
         },
         "meta": {
             "factory": FACTORY,
-            "round": SLICE_ID,
+            "round": slice_id,
             "generator": GENERATOR,
             "kind": RECORD_KIND,
             "plant": "designed",
@@ -225,12 +223,16 @@ def record(plant: cat.Plant) -> dict[str, Any]:
     }
 
 
-def notes_for(round_n: int, recs: list[dict[str, Any]], plants: tuple[cat.Plant, ...]) -> str:
+def notes_for(
+    slice_id: str,
+    recs: list[dict[str, Any]],
+    plants: tuple[cat.Plant, ...],
+) -> str:
     ids = [rec["id"] for rec in recs]
     lines = [
-        f"# {FACTORY} — NOTES {SLICE_ID}",
+        f"# {FACTORY} — NOTES {slice_id}",
         "",
-        f"Generator: {GENERATOR} · slice: {SLICE_ID} · quota: {QUOTA_PER_ROUND}",
+        f"Generator: {GENERATOR} · slice: {slice_id} · quota: {QUOTA_PER_ROUND}",
         f"Linear: {LINEAR_ISSUE} · intended_use: {INTENDED_USE} · "
         f"project_training_policy: {PROJECT_TRAINING_POLICY}",
         "",
@@ -261,15 +263,15 @@ def run(request: RunRequest) -> dict[str, Any]:
     """Write one recovered slice into a new directory. Never touches raw."""
 
     out_dir = Path(request.out_dir)
+    slice_id = request.slice_id
     _check_destination(out_dir)
-    plants = cat.plants_for_round(require_round(request.round_n))
-    recs = [record(plant) for plant in plants]
+    plants = cat.plants_for_slice(slice_id)
+    recs = [record(plant, slice_id=slice_id) for plant in plants]
     summary = {
         "format": RUN_FORMAT,
         "catalog_id": cat.CATALOG_ID,
         "factory": FACTORY,
-        "round": request.round_n,
-        "slice": SLICE_ID,
+        "slice": slice_id,
         "records": len(recs),
         "ids": [rec["id"] for rec in recs],
         "destination": str(out_dir),
@@ -278,12 +280,12 @@ def run(request: RunRequest) -> dict[str, Any]:
         out_dir,
         (
             (
-                f"{BATCH_PREFIX}{SLICE_ID}.jsonl",
+                f"{BATCH_PREFIX}{slice_id}.jsonl",
                 "".join(_dump_line(rec) + "\n" for rec in recs),
             ),
             (
-                f"{NOTES_PREFIX}{SLICE_ID}.md",
-                notes_for(request.round_n, recs, plants),
+                f"{NOTES_PREFIX}{slice_id}.md",
+                notes_for(slice_id, recs, plants),
             ),
             (
                 MANIFEST_FILENAME,

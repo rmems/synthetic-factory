@@ -271,7 +271,7 @@ def preference_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, 
 def notes_markdown(rnd: int, plant: cat.Plant) -> str:
     return (
         f"# tup-r{rnd} {plant.slug}\n\n"
-        f"- mill: `{cat.SLICE_MILL}`\n"
+        f"- mill: `{plant.mill_id}`\n"
         f"- plant: `{plant.plant_id}`\n"
         f"- verify: `{plant.verify}`\n"
         f"- destroy: `{plant.destroy}`\n"

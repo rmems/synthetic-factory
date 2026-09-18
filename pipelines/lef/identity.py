@@ -10,9 +10,13 @@ from .vocabulary import FAMILY_PREFIX, FORBIDDEN_MILL_GLOBS, SLUGS_FILENAME, VEN
 
 
 def is_vendor_filename(name: str) -> bool:
-    """True when ``name`` is a leftover mill / loop publisher or used-slug list."""
+    """True when ``name`` is a mill publisher, Archive B script, or used-slug list."""
 
     if name == SLUGS_FILENAME:
+        return True
+    if name in {"mill.py", "mill_gen.py"}:
+        return True
+    if name == "mill_plants.py" or name.startswith("mill_plants_"):
         return True
     if not name.endswith(".py"):
         return False

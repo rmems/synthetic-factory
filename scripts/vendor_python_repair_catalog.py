@@ -33,6 +33,7 @@ for _entry in (str(_PIPELINES), str(Path(__file__).resolve().parent)):
 from code_repair import catalog_build as cb  # noqa: E402
 from code_repair import executor as ex  # noqa: E402
 from code_repair import lineage  # noqa: E402
+from code_repair import sandbox as sb  # noqa: E402
 from operator_paths import operator_path  # noqa: E402
 
 REPOSITORY = "TheAlgorithms/Python"
@@ -266,7 +267,18 @@ def main(argv: list[str] | None = None) -> int:
     upstream = cb.Upstream(REPOSITORY, args.commit, "MIT", _license_text(tree, args.commit, cache))
     references = json.loads(references_path.read_text(encoding="utf-8"))
     build = cb.Build(upstream, sources, references, lineage.SplitPolicy.from_json(DEFAULT_POLICY))
-    rows = cb.build_rows(build, _targets(sources), ex.Executor(timeout_s=args.timeout_s))
+    isolation = (
+        sb.Isolation.rlimits_only()
+        if sb.reviewed_upstream({
+            "repository": upstream.repository, "commit": upstream.commit,
+            "license": upstream.license,
+            "license_sha256": hashlib.sha256(upstream.license_text.encode("utf-8")).hexdigest(),
+        })
+        else sb.Isolation.os_boundary()
+    )
+    rows = cb.build_rows(
+        build, _targets(sources), ex.Executor(timeout_s=args.timeout_s, isolation=isolation),
+    )
     cb.write_catalog(out, args.catalog_id, build, rows)
     print(json.dumps(_summary(files, build, rows), indent=2, sort_keys=True))
     return 0

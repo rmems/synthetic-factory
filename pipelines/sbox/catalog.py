@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Pinned sbox catalog: identity slice, source pins, and load checks.
+"""Pinned sbox catalog: header pins plus compact ``plants.jsonl`` identities.
 
-``CATALOG.json`` holds 32 representative plant identities plus sha pins
-for every leftover mill / loop / plant-gen on ``legacy-mill-lane``.
-Full pair payloads stay off this PR so the slice stays under the mill
-burst line cap. Load raises rather than excluding a drifted pin.
+``CATALOG.json`` holds source pins and extract bookkeeping.
+``plants.jsonl`` holds one AST-extracted identity per line. Mill scripts
+stay on ``legacy-mill-lane``; load raises rather than excluding a drifted pin.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,8 +24,10 @@ from ._contract import (
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
+    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DUPLICATE_FAMILY,
     GENERATOR,
+    PLANTS_FILENAME,
     SOURCE_COMMIT,
     SOURCE_REF,
     bind_import_twin,
@@ -54,7 +56,8 @@ REQUIRED_META = (
     "source",
     "extract",
     "sources",
-    "plants",
+    "plants_filename",
+    "plants_sha256",
 )
 CATALOG_ROLES = frozenset({"catalog", "loop", "plant-gen", "publisher"})
 
@@ -137,6 +140,46 @@ class Catalog:
 
 def catalog_path() -> Path:
     return package_dir() / CATALOG_FILENAME
+
+
+def plants_path() -> Path:
+    return package_dir() / PLANTS_FILENAME
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _read_jsonl(path: Path) -> tuple[dict[str, Any], ...]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        refuse(FINDING_CATALOG_FILE_MISSING, f"{path} is unreadable: {exc}")
+    refuse_when(
+        "\r" in raw,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"{path.name} must not contain CR bytes",
+    )
+    if not raw:
+        refuse(FINDING_CATALOG_EMPTY, f"{path.name} is empty")
+    if not raw.endswith("\n"):
+        refuse(FINDING_CATALOG_FIELD_INVALID, f"{path.name} must end with a trailing newline")
+    lines = raw.split("\n")
+    if lines[-1] == "":
+        lines = lines[:-1]
+    rows: list[dict[str, Any]] = []
+    for index, line in enumerate(lines, 1):
+        refuse_when(
+            line != line.strip() or not line,
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{path.name} line {index} must be one compact object",
+        )
+        try:
+            row = load_strict_json(line)
+        except ValueError as exc:
+            refuse(FINDING_CATALOG_FIELD_INVALID, f"{path.name} line {index} is not strict JSON: {exc}")
+        rows.append(_as_mapping(row, f"{path.name}:{index}"))
+    return tuple(rows)
 
 
 def _as_mapping(value: Any, where: str) -> dict[str, Any]:
@@ -267,16 +310,37 @@ def load_catalog(path: Path | None = None) -> Catalog:
          "source.exec must be false"),
     ))
     extract = _as_mapping(meta.get("extract"), "extract")
-    raw_plants = meta.get("plants")
+    plants_file = _as_str(meta.get("plants_filename"), "plants_filename")
+    refuse_when(
+        plants_file != PLANTS_FILENAME,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"plants_filename {shown(plants_file)} != {PLANTS_FILENAME}",
+    )
+    pinned_digest = _as_str(meta.get("plants_sha256"), "plants_sha256")
+    refuse_when(
+        len(pinned_digest) != 64 or any(char not in "0123456789abcdef" for char in pinned_digest),
+        FINDING_CATALOG_FIELD_INVALID,
+        "plants_sha256 is not a lowercase hex digest",
+    )
+    jsonl_file = catalog_file.parent / plants_file
+    try:
+        plants_bytes = jsonl_file.read_bytes()
+    except OSError as exc:
+        refuse(FINDING_CATALOG_FILE_MISSING, f"missing {jsonl_file}: {exc}")
+    digest = sha256_bytes(plants_bytes)
+    refuse_when(
+        digest != pinned_digest,
+        FINDING_CATALOG_SHA256_MISMATCH,
+        f"{plants_file} digest {digest} != catalog pin {pinned_digest}",
+    )
     raw_sources = meta.get("sources")
-    refuse_when(not isinstance(raw_plants, list) or not raw_plants,
-                FINDING_CATALOG_EMPTY, "catalog has no plants")
     refuse_when(not isinstance(raw_sources, list) or not raw_sources,
                 FINDING_CATALOG_EMPTY, "catalog has no source pins")
     plants = tuple(
-        _plant_from_mapping(_as_mapping(row, f"plants[{index}]"), f"plants[{index}]")
-        for index, row in enumerate(raw_plants)
+        _plant_from_mapping(row, f"{plants_file}:{index}")
+        for index, row in enumerate(_read_jsonl(jsonl_file), 1)
     )
+    refuse_when(not plants, FINDING_CATALOG_EMPTY, "catalog has no plants")
     sources = tuple(
         _source_from_mapping(_as_mapping(row, f"sources[{index}]"), f"sources[{index}]")
         for index, row in enumerate(raw_sources)
@@ -324,6 +388,12 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
         FINDING_CATALOG_FIELD_INVALID,
         "extract.full_source_files drifted from the source pins",
     )
+    deferred = loaded.extract.get("deferred_row_count")
+    refuse_when(
+        type(deferred) is not int or deferred != full_rows - len(loaded.plants),
+        FINDING_CATALOG_FIELD_INVALID,
+        "extract.deferred_row_count drifted from committed plants",
+    )
     return {
         "status": "ok",
         "catalog_id": loaded.catalog_id,
@@ -332,6 +402,7 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
         "sources": len(loaded.sources),
         "catalog_files": len(catalog_sources),
         "full_row_count": full_rows,
+        "deferred_row_count": deferred,
         "first_round": 359,
         "exec": False,
     }

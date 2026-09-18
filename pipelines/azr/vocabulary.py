@@ -4,7 +4,8 @@
 The reviewed mill prefix ``azr`` maps to ``authz-regression-factory`` in
 ``mill_reviewed_vocabulary.REVIEWED_MILL_PREFIX_HOMES``. PR-a extracts
 catalog identity from the 76 ``legacy-mill-lane`` scripts without
-vendoring ``azr-mill*.py``.
+vendoring ``azr-mill*.py``. PR-b lands the 1320 deferred pair identities
+(r1193–r2320) as compact ``pairs.jsonl``.
 """
 
 from __future__ import annotations
@@ -16,10 +17,32 @@ RECORD_ID_PREFIX = FAMILY_PREFIX
 QUOTA_PER_ROUND = 2
 CATALOG_SCHEMA_ID = "azr-catalog-extract/v1"
 SLICE_ID = "r1181"
+SLICE_MILL_ID = "azr-mill-r1181"
 DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "9e7fe52231c94b8a9fd3e5b28995505651dbb37e"
 CATALOG_FILENAME = "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
+DEFERRED_PAIR_ROWS = 1320
+BULKY_MILL_ID = "azr-mill-r1205"
+BULKY_N_ROWS = 160
+PAIR_IDENTITY_KEYS = (
+    "fail_handoff",
+    "fail_plant",
+    "fail_slug",
+    "success_plant",
+    "success_slug",
+)
+PAIR_ROW_KEYS = (
+    "fail_handoff",
+    "fail_plant",
+    "fail_slug",
+    "i",
+    "mill_id",
+    "path",
+    "success_plant",
+    "success_slug",
+)
 N_SOURCES = 76
 N_MILLS = 22
 N_LOOPS = 22

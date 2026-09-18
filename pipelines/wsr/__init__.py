@@ -1,8 +1,8 @@
-"""Websocket-reconnect leftover3 family (``FAMILY=wsr``).
+"""Websocket-reconnect family (``FAMILY=wsr``).
 
-The catalog is AST-extracted from ``wsr-mill-leftover3-r41`` on
-``legacy-mill-lane``. ``wsr*mill*.py`` is not vendored. Generate writes a
-brand-new destination and refuses ``outputs/raw/``.
+The catalog is AST-extracted from legacy mills on ``legacy-mill-lane`` and
+stored as header JSON plus compact ``pairs.jsonl``. ``wsr*mill*.py`` is not
+vendored. Generate writes a brand-new destination and refuses ``outputs/raw/``.
 """
 
 from ._contract import (

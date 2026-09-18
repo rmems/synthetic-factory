@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Pinned wsr leftover3 catalog: AST extract, load, and check.
+"""Pinned wsr catalog: AST extract, JSONL load, and check.
 
-The catalog lives at ``config/wsr/catalog.json``. Pair dicts are AST-extracted
-from ``experiments/wsr-mill-leftover3-r41.py`` on ``legacy-mill-lane``; that
-mill is never vendored and is never executed. Plants are the ``_p(**kwargs)``
-calls in ``PAIRS``. Load raises and stops the run when the file drifts from
-the reviewed contract.
+The catalog lives at ``pipelines/wsr/CATALOG.json`` with pair bodies in
+``pipelines/wsr/pairs.jsonl`` (compact, one object per line). Pair dicts are
+AST-extracted from legacy mills on ``legacy-mill-lane``; mills are never
+vendored and are never executed.
 """
 
 from __future__ import annotations
@@ -32,13 +31,23 @@ from ._contract import (
     FINDING_CATALOG_PLANT,
     FINDING_CATALOG_SCHEMA,
     GENERATOR,
+    LEFTOVER3_N_ROUNDS,
+    LEFTOVER3_START_ROUND,
     LEGACY_COMMIT,
     LEGACY_MILL,
     LEGACY_MILL_SHA256,
     LEGACY_PLANTS,
     LEGACY_PLANTS_SHA256,
+    LLL_COMMIT,
+    LLL_MILL,
+    LLL_MILL_SHA256,
+    LLL_N_ROUNDS,
+    LLL_START_ROUND,
     N_ROUNDS,
+    PAIRS_FILENAME,
+    PAIRS_SHA256,
     QUOTA_PER_ROUND,
+    REFUSED_MILL,
     SCHEMA_ID,
     START_ROUND,
     bind_import_twin,
@@ -50,6 +59,40 @@ from ._contract import (
 )
 
 PLANT_CALLS = frozenset(("_p",))
+MAPPING_PLANT_KEYS = frozenset(
+    {
+        "slug",
+        "fail",
+        "mod",
+        "drop",
+        "stack",
+        "idf",
+        "evf",
+        "naive",
+        "bound",
+        "dropk",
+        "doc",
+        "doc2",
+        "domain",
+        "ticket",
+        "test_ok",
+        "test_fail",
+        "short",
+        "dshort",
+    }
+)
+MILL_KEYS = frozenset(
+    {
+        "mill_id",
+        "source_format",
+        "source_path",
+        "source_commit",
+        "source_sha256",
+        "start_round",
+        "n_rounds",
+    }
+)
+ROW_KEYS = frozenset({"mill_id", "source_format", "round"})
 SHARED_PLANT_FIELDS = (
     "slug",
     "goal",
@@ -86,6 +129,7 @@ __all__ = [
     "Catalog",
     "Pair",
     "ast_extract_catalog",
+    "ast_extract_mapping_pairs",
     "ast_extract_mill_constants",
     "ast_extract_pairs",
     "catalog_check",
@@ -173,6 +217,49 @@ def ast_extract_pairs(source: str) -> tuple[tuple[dict[str, str | int], dict[str
     return tuple(pairs)
 
 
+def _call_dict(node: ast.AST, where: str) -> dict[str, str | int]:
+    refuse_when(
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Name)
+        or node.func.id != "dict"
+        or node.args
+        or any(kw.arg is None for kw in node.keywords),
+        FINDING_CATALOG_PLANT,
+        f"{where}: expected dict(**kwargs)",
+    )
+    assert isinstance(node, ast.Call)
+    plant: dict[str, str | int] = {}
+    for index, kw in enumerate(node.keywords):
+        assert kw.arg is not None
+        plant[kw.arg] = _literal(kw.value, f"{where}.{kw.arg}#{index}")
+    return plant
+
+
+def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
+    """Return mapping-v1 plants from ``PAIRS = [dict(...), ...]`` via AST only."""
+
+    refuse_when(REFUSED_MILL in source, FINDING_CATALOG_BANNED, f"refusing hopper mill {REFUSED_MILL!r}")
+    tree = ast.parse(source)
+    payload = _pairs_node(tree)
+    refuse_when(
+        not isinstance(payload, ast.List),
+        FINDING_CATALOG_PLANT,
+        "PAIRS must be a list of dict(...) plants",
+    )
+    assert isinstance(payload, ast.List)
+    plants: list[dict[str, str | int]] = []
+    for index, item in enumerate(payload.elts):
+        plant = _call_dict(item, f"PAIRS[{index}]")
+        missing = sorted(MAPPING_PLANT_KEYS.difference(plant))
+        refuse_when(
+            bool(missing),
+            FINDING_CATALOG_FIELD_MISSING,
+            f"PAIRS[{index}] missing {missing}",
+        )
+        plants.append(plant)
+    return tuple(plants)
+
+
 def ast_extract_start_round(source: str) -> int:
     """Read ``build_pair(41 + i, ...)`` from ``self_check`` without executing it."""
 
@@ -247,9 +334,9 @@ def ast_extract_catalog(
                 f"mill GENERATOR must be {GENERATOR!r}",
             ),
             (
-                constants["START"] != START_ROUND,
+                constants["START"] != LEFTOVER3_START_ROUND,
                 FINDING_CATALOG_SCHEMA,
-                f"mill START must be {START_ROUND}",
+                f"mill START must be {LEFTOVER3_START_ROUND}",
             ),
             (
                 constants["BANNED_SLUGS"] != BANNED_SLUGS,
@@ -257,9 +344,9 @@ def ast_extract_catalog(
                 "mill BANNED_SLUGS drifted from the reviewed set",
             ),
             (
-                len(pairs) != N_ROUNDS,
+                len(pairs) != LEFTOVER3_N_ROUNDS,
                 FINDING_CATALOG_PAIR_COUNT,
-                f"need {N_ROUNDS} pairs, got {len(pairs)}",
+                f"need {LEFTOVER3_N_ROUNDS} pairs, got {len(pairs)}",
             ),
         )
     )
@@ -268,8 +355,8 @@ def ast_extract_catalog(
         "family_prefix": FAMILY_PREFIX,
         "factory": FACTORY,
         "generator": GENERATOR,
-        "start_round": START_ROUND,
-        "n_rounds": N_ROUNDS,
+        "start_round": LEFTOVER3_START_ROUND,
+        "n_rounds": LEFTOVER3_N_ROUNDS,
         "quota_per_round": QUOTA_PER_ROUND,
         "source": {
             "lane": "legacy-mill-lane",
@@ -284,15 +371,30 @@ def ast_extract_catalog(
             for index, (ok, bad) in enumerate(pairs)
         ],
     }
-    _validate_document(document)
+    _validate_leftover3_document(document)
+    return document
+
+
+def _validate_leftover3_document(raw: object) -> dict[str, Any]:
+    document = _require_object(raw, "catalog")
+    pairs_raw = _require_field(document, "pairs", "catalog")
+    refuse_when(not isinstance(pairs_raw, list), FINDING_CATALOG_FIELD_INVALID, "pairs must be a list")
+    assert isinstance(pairs_raw, list)
+    for index, entry in enumerate(pairs_raw):
+        item = _require_object(entry, f"pairs[{index}]")
+        _plant(item.get("ok"), OK_REQUIRED, f"pairs[{index}].ok")
+        _plant(item.get("bad"), BAD_REQUIRED, f"pairs[{index}].bad")
     return document
 
 
 @dataclass(frozen=True)
 class Pair:
     round_n: int
+    mill_id: str
+    source_format: str
     ok: Mapping[str, Any]
     bad: Mapping[str, Any]
+    plant: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -393,7 +495,7 @@ def _reject_banned(slug: str, where: str) -> None:
         )
 
 
-def _validate_document(raw: object) -> dict[str, Any]:
+def _validate_header(raw: object) -> dict[str, Any]:
     document = _require_object(raw, "catalog")
     refuse_first(
         (
@@ -419,78 +521,147 @@ def _validate_document(raw: object) -> dict[str, Any]:
             ),
         )
     )
-    start = _require_int(_require_field(document, "start_round", "catalog"), "start_round")
-    n_rounds = _require_int(_require_field(document, "n_rounds", "catalog"), "n_rounds")
     quota = _require_int(_require_field(document, "quota_per_round", "catalog"), "quota_per_round")
-    refuse_first(
-        (
-            (start != START_ROUND, FINDING_CATALOG_SCHEMA, f"start_round must be {START_ROUND}"),
-            (n_rounds != N_ROUNDS, FINDING_CATALOG_SCHEMA, f"n_rounds must be {N_ROUNDS}"),
-            (
-                quota != QUOTA_PER_ROUND,
-                FINDING_CATALOG_SCHEMA,
-                f"quota_per_round must be {QUOTA_PER_ROUND}",
-            ),
-        )
-    )
-    pairs_raw = _require_field(document, "pairs", "catalog")
     refuse_when(
-        not isinstance(pairs_raw, list),
+        quota != QUOTA_PER_ROUND,
+        FINDING_CATALOG_SCHEMA,
+        f"quota_per_round must be {QUOTA_PER_ROUND}",
+    )
+    pairs_file = _require_str(_require_field(document, "pairs_file", "catalog"), "pairs_file")
+    refuse_when(
+        pairs_file != PAIRS_FILENAME,
+        FINDING_CATALOG_SCHEMA,
+        f"pairs_file must be {PAIRS_FILENAME!r}",
+    )
+    pairs_sha = _require_str(_require_field(document, "pairs_sha256", "catalog"), "pairs_sha256")
+    refuse_when(
+        pairs_sha != PAIRS_SHA256,
+        FINDING_CATALOG_SCHEMA,
+        "pairs_sha256 drifted from the committed pairs.jsonl bytes",
+    )
+    mills_raw = _require_field(document, "mills", "catalog")
+    refuse_when(not isinstance(mills_raw, list), FINDING_CATALOG_FIELD_INVALID, "mills must be a list")
+    assert isinstance(mills_raw, list)
+    refuse_when(len(mills_raw) != 2, FINDING_CATALOG_PAIR_COUNT, "expected two committed mills")
+    mills: list[dict[str, Any]] = []
+    for index, entry in enumerate(mills_raw):
+        mill = _require_object(entry, f"mills[{index}]")
+        for key in MILL_KEYS:
+            _require_field(mill, key, f"mills[{index}]")
+        mills.append(mill)
+    return document
+
+
+def _mill_lookup(mills: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(mill["mill_id"]): mill for mill in mills}
+
+
+def _pair_from_row(row: dict[str, Any], *, mills: dict[str, dict[str, Any]], index: int) -> Pair:
+    where = f"pairs.jsonl:{index + 1}"
+    for key in ROW_KEYS:
+        _require_field(row, key, where)
+    mill_id = _require_str(row["mill_id"], f"{where}.mill_id")
+    source_format = _require_str(row["source_format"], f"{where}.source_format")
+    refuse_when(
+        mill_id not in mills,
+        FINDING_CATALOG_SCHEMA,
+        f"{where} unknown mill_id {mill_id!r}",
+    )
+    mill = mills[mill_id]
+    refuse_when(
+        source_format != mill["source_format"],
+        FINDING_CATALOG_SCHEMA,
+        f"{where} source_format mismatch for {mill_id}",
+    )
+    round_n = _require_int(row["round"], f"{where}.round")
+    start = _require_int(mill["start_round"], f"mills[{mill_id}].start_round")
+    n_rounds = _require_int(mill["n_rounds"], f"mills[{mill_id}].n_rounds")
+    refuse_when(
+        not start <= round_n < start + n_rounds,
         FINDING_CATALOG_FIELD_INVALID,
-        "pairs must be a list",
+        f"{where} round {round_n} outside {mill_id} span",
     )
-    assert isinstance(pairs_raw, list)
+    if source_format == "leftover3-v1":
+        ok = _plant(row.get("ok"), OK_REQUIRED, f"{where}.ok")
+        bad = _plant(row.get("bad"), BAD_REQUIRED, f"{where}.bad")
+        for plant, label in ((ok, "ok"), (bad, "bad")):
+            _reject_banned(str(plant["slug"]), f"{where}.{label}")
+        return Pair(
+            round_n=round_n,
+            mill_id=mill_id,
+            source_format=source_format,
+            ok=ok,
+            bad=bad,
+            plant=None,
+        )
+    if source_format == "mapping-v1":
+        plant_raw = _require_object(row.get("plant"), f"{where}.plant")
+        for key in MAPPING_PLANT_KEYS:
+            _require_field(plant_raw, key, f"{where}.plant")
+            _require_str(plant_raw[key], f"{where}.plant.{key}")
+        _reject_banned(str(plant_raw["slug"]), f"{where}.plant")
+        _reject_banned(str(plant_raw["fail"]), f"{where}.plant.fail")
+        return Pair(
+            round_n=round_n,
+            mill_id=mill_id,
+            source_format=source_format,
+            ok=MappingProxyType({}),
+            bad=MappingProxyType({}),
+            plant=MappingProxyType(dict(plant_raw)),
+        )
+    refuse(FINDING_CATALOG_SCHEMA, f"{where} unsupported source_format {source_format!r}")
+
+
+def _load_pairs_jsonl(path: Path, *, mills: list[dict[str, Any]]) -> tuple[Pair, ...]:
+    text = path.read_text(encoding="utf-8")
     refuse_when(
-        len(pairs_raw) != N_ROUNDS,
-        FINDING_CATALOG_PAIR_COUNT,
-        f"need {N_ROUNDS} pairs, got {len(pairs_raw)}",
+        sha256_text(text) != PAIRS_SHA256,
+        FINDING_CATALOG_SCHEMA,
+        "pairs.jsonl bytes drifted from pairs_sha256 pin",
     )
+    lookup = _mill_lookup(mills)
+    pairs: list[Pair] = []
     slugs: list[str] = []
     mods: list[str] = []
     tickets: list[str] = []
-    domains: list[str] = []
-    for index, entry in enumerate(pairs_raw):
-        item = _require_object(entry, f"pairs[{index}]")
-        round_n = _require_int(
-            _require_field(item, "round", f"pairs[{index}]"),
-            f"pairs[{index}].round",
-        )
-        refuse_when(
-            round_n != START_ROUND + index,
-            FINDING_CATALOG_FIELD_INVALID,
-            f"pairs[{index}].round must be {START_ROUND + index}",
-        )
-        ok = _plant(item.get("ok"), OK_REQUIRED, f"pairs[{index}].ok")
-        bad = _plant(item.get("bad"), BAD_REQUIRED, f"pairs[{index}].bad")
-        for plant, label in ((ok, "ok"), (bad, "bad")):
-            slug = str(plant["slug"])
-            _reject_banned(slug, f"pairs[{index}].{label}")
-            slugs.append(slug)
-            mods.append(str(plant["mod"]))
-            domains.append(str(plant["domain"]))
-        tickets.append(str(bad["ticket"]))
+    for index, line in enumerate(text.splitlines()):
+        if not line.strip():
+            continue
+        row = _require_object(load_strict_json(line), f"pairs.jsonl:{index + 1}")
+        pair = _pair_from_row(row, mills=lookup, index=index)
+        pairs.append(pair)
+        if pair.source_format == "leftover3-v1":
+            slugs.extend((str(pair.ok["slug"]), str(pair.bad["slug"])))
+            mods.extend((str(pair.ok["mod"]), str(pair.bad["mod"])))
+            tickets.append(str(pair.bad["ticket"]))
+        else:
+            assert pair.plant is not None
+            slugs.extend((str(pair.plant["slug"]), str(pair.plant["fail"])))
+            mods.extend((str(pair.plant["mod"]), str(pair.plant["drop"])))
+            tickets.append(str(pair.plant["ticket"]))
+    refuse_when(
+        len(pairs) != N_ROUNDS,
+        FINDING_CATALOG_PAIR_COUNT,
+        f"need {N_ROUNDS} pair rows, got {len(pairs)}",
+    )
     _unique("slugs", slugs)
     _unique("mods", mods)
     _unique("tickets", tickets)
-    _unique("domains", domains)
-    source = _require_object(_require_field(document, "source", "catalog"), "source")
-    _require_str(source.get("commit"), "source.commit")
-    _require_str(source.get("plants_sha256"), "source.plants_sha256")
-    _require_str(source.get("mill_sha256"), "source.mill_sha256")
-    return document
+    return tuple(sorted(pairs, key=lambda item: item.round_n))
 
 
 def load_catalog(path: Path | None = None, *, root: Path | None = None) -> Catalog:
     catalog_path = (path or default_catalog_path(root)).resolve()
-    document = _validate_document(load_strict_json(catalog_path.read_text(encoding="utf-8")))
-    pairs = tuple(
-        Pair(
-            round_n=int(entry["round"]),
-            ok=_plant(entry["ok"], OK_REQUIRED, f"pairs[{index}].ok"),
-            bad=_plant(entry["bad"], BAD_REQUIRED, f"pairs[{index}].bad"),
-        )
-        for index, entry in enumerate(document["pairs"])
+    document = _validate_header(load_strict_json(catalog_path.read_text(encoding="utf-8")))
+    mills_raw = document["mills"]
+    assert isinstance(mills_raw, list)
+    pairs_path = catalog_path.with_name(PAIRS_FILENAME)
+    refuse_when(
+        not pairs_path.is_file(),
+        FINDING_CATALOG_FIELD_MISSING,
+        f"missing pairs file {pairs_path}",
     )
+    pairs = _load_pairs_jsonl(pairs_path, mills=mills_raw)
     return Catalog(
         path=catalog_path,
         family_prefix=FAMILY_PREFIX,
@@ -499,42 +670,74 @@ def load_catalog(path: Path | None = None, *, root: Path | None = None) -> Catal
         start_round=START_ROUND,
         n_rounds=N_ROUNDS,
         quota_per_round=QUOTA_PER_ROUND,
-        source=MappingProxyType(dict(document["source"])),
+        source=MappingProxyType({"mills": mills_raw, "pairs_sha256": PAIRS_SHA256}),
         pairs=pairs,
     )
 
 
 def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Catalog:
-    """Load the committed catalog and re-assert the leftover3 contract."""
+    """Load the committed catalog and re-assert mill pins."""
 
     catalog = load_catalog(path, root=root)
-    source = catalog.source
+    mills = _mill_lookup(list(catalog.source["mills"]))
+    r41 = mills["wsr_r41_leftover3"]
+    r89 = mills["wsr_r89_lll"]
     refuse_first(
         (
             (
-                source.get("plants") != LEGACY_PLANTS,
+                r41.get("source_path") != LEGACY_MILL,
                 FINDING_CATALOG_SCHEMA,
-                "source.plants drifted from the leftover mill path",
+                "wsr_r41_leftover3 source_path drifted",
             ),
             (
-                source.get("mill") != LEGACY_MILL,
+                r41.get("source_commit") != LEGACY_COMMIT,
                 FINDING_CATALOG_SCHEMA,
-                "source.mill drifted from the leftover mill path",
+                "wsr_r41_leftover3 source_commit drifted",
             ),
             (
-                source.get("plants_sha256") != LEGACY_PLANTS_SHA256,
+                r41.get("source_sha256") != LEGACY_MILL_SHA256,
                 FINDING_CATALOG_SCHEMA,
-                "source.plants_sha256 drifted from the leftover mill bytes",
+                "wsr_r41_leftover3 source_sha256 drifted",
             ),
             (
-                source.get("mill_sha256") != LEGACY_MILL_SHA256,
+                int(r41["start_round"]) != LEFTOVER3_START_ROUND,
                 FINDING_CATALOG_SCHEMA,
-                "source.mill_sha256 drifted from the leftover mill bytes",
+                "wsr_r41_leftover3 start_round drifted",
             ),
             (
-                source.get("commit") != LEGACY_COMMIT,
+                int(r41["n_rounds"]) != LEFTOVER3_N_ROUNDS,
                 FINDING_CATALOG_SCHEMA,
-                "source.commit drifted from the leftover mill family commit",
+                "wsr_r41_leftover3 n_rounds drifted",
+            ),
+            (
+                r89.get("source_path") != LLL_MILL,
+                FINDING_CATALOG_SCHEMA,
+                "wsr_r89_lll source_path drifted",
+            ),
+            (
+                r89.get("source_path") == REFUSED_MILL,
+                FINDING_CATALOG_BANNED,
+                f"refusing hopper mill {REFUSED_MILL!r}",
+            ),
+            (
+                r89.get("source_commit") != LLL_COMMIT,
+                FINDING_CATALOG_SCHEMA,
+                "wsr_r89_lll source_commit drifted",
+            ),
+            (
+                r89.get("source_sha256") != LLL_MILL_SHA256,
+                FINDING_CATALOG_SCHEMA,
+                "wsr_r89_lll source_sha256 drifted",
+            ),
+            (
+                int(r89["start_round"]) != LLL_START_ROUND,
+                FINDING_CATALOG_SCHEMA,
+                "wsr_r89_lll start_round drifted",
+            ),
+            (
+                int(r89["n_rounds"]) != LLL_N_ROUNDS,
+                FINDING_CATALOG_SCHEMA,
+                "wsr_r89_lll n_rounds drifted",
             ),
         )
     )

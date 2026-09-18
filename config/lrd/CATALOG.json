@@ -1,22 +1,74 @@
 {
-  "catalog_id": "lrd-r157-v1",
+  "catalog_id": "lrd-plants-v1",
   "factory": "log-redaction-factory",
   "format": "lrd-mill-catalog/1",
+  "full_plant_count": 118,
   "mill_prefix": "lrd",
   "mills": [
     {
       "base_round": 157,
       "mill_id": "lrd_r157",
       "plant_count": 16,
+      "shape": "legacy",
       "source": "experiments/lrd_r157_leftover_leftover_leftover_mill.py"
+    },
+    {
+      "base_round": 67,
+      "mill_id": "lrd_r67",
+      "plant_count": 8,
+      "shape": "leftover3",
+      "source": "experiments/lrd-mill-leftover3-r67.py"
+    },
+    {
+      "base_round": 75,
+      "mill_id": "lrd_r75",
+      "plant_count": 6,
+      "shape": "leftover3",
+      "source": "experiments/lrd-mill-leftover3b-r75.py"
+    },
+    {
+      "base_round": 81,
+      "mill_id": "lrd_r81",
+      "plant_count": 16,
+      "shape": "leftover3",
+      "source": "experiments/lrd-mill-leftover3c-r81.py"
+    },
+    {
+      "base_round": 100,
+      "mill_id": "lrd_r100",
+      "plant_count": 16,
+      "shape": "leftover3",
+      "source": "experiments/lrd-mill-leftover3d-r100.py"
+    },
+    {
+      "base_round": 123,
+      "mill_id": "lrd_r123",
+      "plant_count": 16,
+      "shape": "p_idtoken",
+      "source": "experiments/lrd-mill-leftover3-idtoken.py"
+    },
+    {
+      "base_round": 97,
+      "mill_id": "lrd_r97",
+      "plant_count": 16,
+      "shape": "lll",
+      "source": "experiments/lrd-mill-lll-r97.py"
+    },
+    {
+      "base_round": 116,
+      "mill_id": "lrd_r116",
+      "plant_count": 24,
+      "shape": "p_cookie",
+      "source": "experiments/lrd-mill-r116.py"
     }
   ],
-  "plant_count": 16,
-  "plants_sha256": "cd8dfd00c8a52b9f9ff78409b0ad28f8ab7a5032db69db397adbe274f091dc09",
+  "plant_count": 118,
+  "plants_sha256": "685023039b45c65c5b8b4a248428e0a9b3e0b2a724c32acb5dea0bd05a733c7a",
   "quota_per_round": 2,
   "record_kind": "episode",
+  "slice": "full",
   "source": {
-    "commit": "a9e6602a7bd43b314f9691984ae5f48d40c762b2",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
     "excluded": {
       "hoppers": [
         "experiments/dpr-lrd-hopper-leftover3.py",
@@ -32,7 +84,14 @@
     "method": "git-show+ast.parse",
     "ref": "legacy-mill-lane",
     "scripts": [
-      "experiments/lrd_r157_leftover_leftover_leftover_mill.py"
+      "experiments/lrd_r157_leftover_leftover_leftover_mill.py",
+      "experiments/lrd-mill-leftover3-r67.py",
+      "experiments/lrd-mill-leftover3b-r75.py",
+      "experiments/lrd-mill-leftover3c-r81.py",
+      "experiments/lrd-mill-leftover3d-r100.py",
+      "experiments/lrd-mill-leftover3-idtoken.py",
+      "experiments/lrd-mill-lll-r97.py",
+      "experiments/lrd-mill-r116.py"
     ]
   }
 }

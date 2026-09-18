@@ -21,7 +21,19 @@ from typing import Any
 from ._contract import (
     CATALOG_FILENAME,
     CATALOG_FORMAT,
+    CATALOG_SLICE,
+    EXTRACT_METHOD,
     FACTORY,
+    FULL_MILL_COUNTS,
+    FULL_PLANT_COUNT,
+    SHAPE_LEGACY,
+    SHAPE_LEFTOVER3,
+    SHAPE_LLL,
+    SHAPE_P_COOKIE,
+    SHAPE_P_IDTOKEN,
+    SOURCE_COMMIT,
+    SOURCE_MILLS,
+    SOURCE_REF,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
@@ -54,6 +66,8 @@ from ._contract import (
 MILL_ID_RE = re.compile(r"^lrd_r[0-9]+$")
 SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+from . import catalog_extract as _extract
+
 __all__ = [
     "CATALOG_FILENAME",
     "Catalog",
@@ -61,6 +75,7 @@ __all__ = [
     "Mill",
     "PLANTS_FILENAME",
     "Plant",
+    "ast_extract_plants",
     "catalog_check",
     "default_catalog_dir",
     "load_catalog",
@@ -69,15 +84,20 @@ __all__ = [
     "sha256_bytes",
 ]
 
+ast_extract_plants = _extract.ast_extract_plants
+
 
 @dataclass(frozen=True)
 class Plant:
-    """One leftover leftover leftover redaction pair from ``lrd_r157``."""
+    """One AST-extracted redaction plant (legacy ``dict`` or leftover3 pair)."""
 
     plant_id: str
     mill_id: str
     source: str
     base_round: int
+    shape: str
+    slug: str
+    payload: Mapping[str, Any] | None
     mod: str
     drop: str
     stack: str
@@ -91,7 +111,6 @@ class Plant:
     new2: str
     test: str
     ticket: str
-    slug: str
     fail: str
     domain: str
 
@@ -344,16 +363,78 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         FINDING_PLANT_FIELD_INVALID,
         f"{where}.base_round must be a positive int",
     )
-    fields = {
-        key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
-        for key in PAIR_KEYS
-    }
+    shape = row.get("shape", SHAPE_LEGACY)
+    refuse_when(
+        not isinstance(shape, str) or shape
+        not in {
+            SHAPE_LEGACY,
+            SHAPE_LEFTOVER3,
+            SHAPE_P_IDTOKEN,
+            SHAPE_P_COOKIE,
+            SHAPE_LLL,
+        },
+        FINDING_PLANT_FIELD_INVALID,
+        f"{where}.shape is not a supported extract shape",
+    )
+    source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
+    if shape == SHAPE_LEGACY:
+        fields = {
+            key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
+            for key in PAIR_KEYS
+        }
+        return Plant(
+            plant_id=plant_id,
+            mill_id=mill_id,
+            source=source,
+            base_round=base_round,
+            shape=shape,
+            slug=slug,
+            payload=None,
+            mod=fields["mod"],
+            drop=fields["drop"],
+            stack=fields["stack"],
+            field=fields["field"],
+            naive=fields["naive"],
+            conf=fields["conf"],
+            conf2=fields["conf2"],
+            oldc=fields["oldc"],
+            newc=fields["newc"],
+            old2=fields["old2"],
+            new2=fields["new2"],
+            test=fields["test"],
+            ticket=fields["ticket"],
+            fail=fields["fail"],
+            domain=fields["domain"],
+        )
+    payload = row.get("payload")
+    refuse_when(
+        not isinstance(payload, dict),
+        FINDING_PLANT_FIELD_INVALID,
+        f"{where}.payload must be an object",
+    )
     return Plant(
         plant_id=plant_id,
         mill_id=mill_id,
-        source=_require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING),
+        source=source,
         base_round=base_round,
-        **fields,
+        shape=shape,
+        slug=slug,
+        payload=payload,
+        mod="",
+        drop="",
+        stack="",
+        field="",
+        naive="",
+        conf="",
+        conf2="",
+        oldc="",
+        newc="",
+        old2="",
+        new2="",
+        test="",
+        ticket="",
+        fail="",
+        domain="",
     )
 
 
@@ -477,6 +558,25 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
     )
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
+    full_raw = meta.get("full_plant_count", plant_count)
+    refuse_when(
+        not isinstance(full_raw, int) or isinstance(full_raw, bool),
+        FINDING_CATALOG_FIELD_INVALID,
+        f"{CATALOG_FILENAME}.full_plant_count must be an int",
+    )
+    full_plant_count = full_raw
+    refuse_when(
+        isinstance(full_plant_count, bool) or full_plant_count < plant_count,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"{CATALOG_FILENAME}.full_plant_count must be >= plant_count",
+    )
+    representative = meta.get("slice") == CATALOG_SLICE
+    if representative:
+        refuse_when(
+            full_plant_count != FULL_PLANT_COUNT,
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.full_plant_count must be {FULL_PLANT_COUNT}",
+        )
     plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
     mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
     mills = tuple(
@@ -523,12 +623,31 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_CATALOG_FIELD_INVALID,
         "catalog mills do not match plant mill_id values",
     )
-    for mill in mills:
+    if representative:
         refuse_when(
-            by_mill[mill.mill_id] != mill.plant_count,
+            sum(mill.plant_count for mill in mills) != full_plant_count,
             FINDING_CATALOG_FIELD_INVALID,
-            f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
+            "mill plant_count values must sum to full_plant_count",
         )
+        refuse_when(
+            tuple((mill.mill_id, mill.plant_count) for mill in mills) != FULL_MILL_COUNTS,
+            FINDING_CATALOG_FIELD_INVALID,
+            "mill inventory does not match FULL_MILL_COUNTS",
+        )
+        for mill in mills:
+            committed = by_mill.get(mill.mill_id, 0)
+            refuse_when(
+                committed < 1 or committed > mill.plant_count,
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{mill.mill_id} committed {committed} outside 1..{mill.plant_count}",
+            )
+    else:
+        for mill in mills:
+            refuse_when(
+                by_mill.get(mill.mill_id, 0) != mill.plant_count,
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill.get(mill.mill_id, 0)}",
+            )
     return Catalog(
         catalog_id=catalog_id,
         directory=catalog_dir,

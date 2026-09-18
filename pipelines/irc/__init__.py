@@ -1,9 +1,8 @@
-"""Incident-response leftover3 family (prefix ``irc``).
+"""Incident-response on-call family (prefix ``irc``).
 
-AST-extracted first slice from ``irc_r3366_leftover3_mill`` on
-``origin/legacy-mill-lane``. The family lives here as ``_contract``,
-``catalog``, ``generate``, and ``cli``. Leftover mill scripts are not
-vendored and are never executed.
+AST-extracted slices from ``origin/legacy-mill-lane``: leftover3 pair plants
+in ``catalog``, pipe-row literals in ``pipe_catalog`` + ``specs.jsonl``.
+Mill scripts are not vendored and are never executed.
 """
 
 from ._contract import (

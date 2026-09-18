@@ -20,6 +20,7 @@ from ._contract import (
     BANNED_ID_PREFIXES,
     BANNED_KEYS,
     FACTORY,
+    SHAPE_LEGACY,
     FINDING_BANNED_ID,
     FINDING_BANNED_KEY,
     FINDING_DESTINATION_EXISTS,
@@ -373,6 +374,11 @@ def fail_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
 
 
 def pair_records(rnd: int, plant: cat.Plant, catalog_id: str) -> list[dict[str, Any]]:
+    refuse_when(
+        plant.shape != SHAPE_LEGACY,
+        FINDING_USAGE,
+        f"generate supports legacy r157 plants only, not {plant.shape!r}",
+    )
     return [success_record(rnd, plant, catalog_id), fail_record(rnd, plant, catalog_id)]
 
 
@@ -445,6 +451,12 @@ def run(request: GenerateRequest) -> dict[str, Any]:
     _check_destination(Path(request.out_dir))
     loaded = cat.load_catalog(request.catalog_dir)
     jobs = _jobs(loaded, request)
+    for _, plant in jobs:
+        refuse_when(
+            plant.shape != SHAPE_LEGACY,
+            FINDING_USAGE,
+            f"generate supports legacy r157 plants only, not {plant.shape!r}",
+        )
     out_dir = Path(request.out_dir)
     out_dir.mkdir(parents=True, exist_ok=False)
     records: list[dict[str, Any]] = []
