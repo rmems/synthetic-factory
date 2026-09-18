@@ -1,0 +1,32 @@
+tests/pipeline_import_catalog_foundation.py
+  s_5660553172852b::t_109414adb7a2d5 1108-1119,1121-1124
+tests/test_rights_provider_integrity.py
+  s_5660553172852b::t_6887e565c19cd5 3,14,81-107,111,114-132
+  s_5660553172852b::t_f91049943b5a34 1-2,4-13,15-18,21-74,77-80
+pipelines/__init__.py
+  s_5660553172852b::t_109414adb7a2d5 105
+pipelines/rights_policy_semantics.py
+  s_5660553172852b::t_3ee1deb1df7c83 43,93,101-105
+pipelines/curate_identity_registry_evidence.py
+  s_5660553172852b::t_3ee1deb1df7c83 15,26,97-116,127-128
+tests/test_pipeline_split_module_identity.py
+  s_5660553172852b::t_109414adb7a2d5 26
+tests/test_curate_identity_rights.py
+  s_5660553172852b::t_109414adb7a2d5 380,382-383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2533ff17bb46523c888de101c60b44d780982fe9",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
