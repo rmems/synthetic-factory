@@ -5,14 +5,17 @@ Runs under ``python -P -s -S -B -X utf8`` in a fresh working directory holding
 ``program.py`` and ``spec.json``; applies its own resource limits; loads the
 module through ``importlib``; runs the target function's doctest examples once
 in order (they may carry state) through a ``DocTestRunner`` whose report hooks
-record one row per example; evaluates the pinned hidden cases; and prints one
-JSON object on stdout. It exits 0 whatever the program did: failures are rows,
-never exit codes, and any internal error is reported in ``load``.
+record one row per example; evaluates the pinned hidden cases; writes an
+out-of-band limits attestation line on real stdout before ``program.py`` is
+read; then writes one JSON object to an inherited unlinked report fd. It exits 0
+whatever the program did: failures are rows, never exit codes, and any
+internal error is reported in ``load``.
 """
 
 from __future__ import annotations
 
 import ast
+import atexit
 import doctest
 import hashlib
 import importlib.util
@@ -26,27 +29,25 @@ import traceback
 import types
 from pathlib import Path
 
-PROTOCOL = "code-repair-harness/1"
+# Bound before program.py can replace the module attributes.
+_ATEXIT_CLEAR = getattr(atexit, "_clear", lambda: None)
+_OS_EXIT = os._exit
+
+PROTOCOL = "code-repair-harness/2"
+LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
+REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
 MAX_CAPTURE_CHARS = 65_536
 
 
 def _apply_limits(spec: dict) -> bool:
-    """Whether every required limit is in force; a limit it cannot apply returns False.
+    """Return False on setup failure so main emits a trusted false attestation.
 
-    A refused ``setrlimit``, a constant this platform does not define, or a spec
-    that cannot be read is reported here rather than thrown, so ``_run`` still
-    writes an ``environment`` block saying the limits are off and the parent
-    refuses the run on that evidence. Raising instead would reach ``main``'s
-    catch-all, whose report carries no environment at all, and a systemically
-    unsandboxed run would look like one crashed candidate.
+    Limits are applied before candidate code is read. Setup errors must not
+    escape as an ordinary candidate crash or bypass the run-wide refusal.
     """
 
-    # One handler for every way a limit can fail to go on -- no `resource` module
-    # (non-POSIX), no such constant on this platform, an unusable spec, or a
-    # refused `setrlimit`. They are one outcome to the caller, and splitting them
-    # would put this file over its total-complexity budget for no gain.
     try:
         import resource
         limits = (
@@ -56,8 +57,7 @@ def _apply_limits(spec: dict) -> bool:
         )
         for name, value in limits:
             resource.setrlimit(name, (value, value))
-    except (AttributeError, ImportError, KeyError, OSError,
-            OverflowError, TypeError, ValueError):
+    except (AttributeError, ImportError, KeyError, OverflowError, OSError, TypeError, ValueError):
         return False
     return True
 
@@ -281,15 +281,33 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
-def _run(workdir: Path, spec: dict) -> dict:
+def _write_limits_attestation(stream, limits_applied: bool) -> None:
+    """Out-of-band limits proof on real stdout before ``program.py`` is read."""
+
+    stream.write(f"{LIMITS_ATTESTATION_PREFIX}{str(limits_applied).lower()}\n")
+    stream.flush()
+
+
+def _write_protocol_report(report: dict, dumps) -> None:
+    """JSON report on the inherited capture fd after dropping candidate atexit hooks."""
+
+    _ATEXIT_CLEAR()
+    data = dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True).encode("utf-8")
+    fd = int(os.environ[REPORT_FD_ENV])
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, data)
+    os.ftruncate(fd, len(data))
+
+
+def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     report: dict = {"protocol": PROTOCOL, "load": {"status": "ok", "error": None}}
     report["environment"] = {
         "python": platform.python_version(),
         "implementation": platform.python_implementation().lower(),
         "platform": sys.platform,
-        "limits_applied": _apply_limits(spec),
+        "limits_applied": limits_applied,
     }
-    if not report["environment"]["limits_applied"]:
+    if not limits_applied:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
         return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
@@ -323,36 +341,32 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         return 2
     workdir = Path(argv[1])
     real_stdout, real_stderr = sys.stdout, sys.stderr
-    # The program under test never writes on the protocol channel; whatever it
-    # prints is discarded outright, so streaming forever buys it nothing.
+    real_stdout.flush()
+    real_stderr.flush()
+    try:
+        spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
+    except (OSError, TypeError, UnicodeError, ValueError):
+        spec = {}
+    limits_applied = _apply_limits(spec)
+    _write_limits_attestation(real_stdout, limits_applied)
+    # Drop the capture fds without keeping a dup. A leftover seekable stdout fd
+    # (or a workdir path the candidate can reopen) can rewrite the attestation.
     with open(os.devnull, "w", encoding="utf-8") as sink:
-        real_stdout.flush()
-        real_stderr.flush()
-        saved = (os.dup(1), os.dup(2))
         os.dup2(sink.fileno(), 1)
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-            report = _run(workdir, spec)
+            report = _run(workdir, spec, limits_applied=limits_applied)
         except Exception as exc:
-            # Name the type: an empty-message exception (MemoryError under the
-            # address-space limit is the common one) otherwise reports as a
-            # bare "HarnessError: " with no cause to act on.
-            detail = _scrub_workdir(f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))
-            report = {"protocol": PROTOCOL, "load": {"status": "error", "error": detail}}
-        finally:
-            real_stdout.flush()
-            real_stderr.flush()
-            for descriptor, backup in zip((1, 2), saved):
-                os.dup2(backup, descriptor)
-                os.close(backup)
-            sys.stdout, sys.stderr = real_stdout, real_stderr
-    # ensure_ascii=True keeps lone surrogates from breaking the exit-0 write.
-    real_stdout.write(_dumps(report, sort_keys=True, allow_nan=False, ensure_ascii=True))
-    real_stdout.flush()
+            report = {
+                "protocol": PROTOCOL,
+                "load": {"status": "error", "error": _scrub_workdir(
+                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))},
+            }
+        _write_protocol_report(report, _dumps)
+    sys.stdout, sys.stderr = real_stdout, real_stderr
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    _OS_EXIT(main(sys.argv))

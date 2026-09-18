@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 # Required only for the fixed no-shell harness subprocess below.
@@ -29,9 +30,10 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from . import harness_report as _harness_report
 from . import sandbox as sb
 from . import vocabulary as cv
-from ._contract import bind_import_twin, load_strict_json
+from ._contract import bind_import_twin
 
 HARNESS_FILENAME = "_harness.py"
 HARNESS_PATH = Path(__file__).with_name(HARNESS_FILENAME)
@@ -41,6 +43,9 @@ FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
+LIMITS_ATTESTATION_PREFIX = _harness_report.LIMITS_ATTESTATION_PREFIX
+REPORT_FILENAME = _harness_report.REPORT_FILENAME
+REPORT_FD_ENV = _harness_report.REPORT_FD_ENV
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
@@ -201,33 +206,48 @@ class Executor:
         return replace(report, environment=environment)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
-        """One child run; its output goes to files in the workdir, never to an unbounded pipe.
+        """One child run; attestation and JSON are unlinked tempfiles, not workdir paths.
 
-        The child's file-size limit caps what it can write there, and the parent reads back at
-        most ``MAX_OUTPUT_BYTES`` of each stream, so a child that streams forever cannot grow
-        the factory process. OS isolation is selected only through ``isolation.confine``.
+        The child's file-size limit caps stderr, and the parent reads back at most
+        ``MAX_OUTPUT_BYTES`` of each capture, so a child that streams forever cannot
+        grow the factory process. Neither capture is a workdir path the candidate can
+        reopen; atexit handlers are cleared before the JSON is written. OS isolation
+        is selected only through ``isolation.confine``, which also receives the
+        report-fd env so a bwrap ``--clearenv`` child still sees it.
         """
 
         argv = [sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir)]
-        confined = self.isolation.confine(argv, workdir, CHILD_ENV)
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
-        stdout_path, stderr_path = workdir / "stdout", workdir / "stderr"
+        stderr_path = workdir / "stderr"
+        env = dict(CHILD_ENV)
+        confined = None
         try:
-            with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
+            with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as report_file, \
+                    stderr_path.open("wb") as err:
+                report_fd = report_file.fileno()
+                os.set_inheritable(report_fd, True)
+                env[REPORT_FD_ENV] = str(report_fd)
+                confined = self.isolation.confine(argv, workdir, env)
                 # The reviewed argv is a literal list and never enables a shell.
                 completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-                    confined.argv, cwd=workdir, env=CHILD_ENV, stdout=out, stderr=err,
-                    timeout=self.timeout_s, check=False, pass_fds=confined.pass_fds,
+                    confined.argv, cwd=workdir, env=env, stdout=out, stderr=err,
+                    timeout=self.timeout_s, check=False,
+                    pass_fds=(*confined.pass_fds, report_fd),
                 )
+                out.seek(0)
+                stdout = out.read(MAX_OUTPUT_BYTES + 1)
+                report_file.seek(0)
+                body = report_file.read(MAX_OUTPUT_BYTES + 1)
         except subprocess.TimeoutExpired:
             entry.update(timed_out=True, stderr_tail=_tail(_bounded(stderr_path)))
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            report = _parse_report(job, completed.returncode, _bounded(stdout_path))
+            report = _parse_report(job, completed.returncode, stdout, body)
         finally:
-            confined.close()
+            if confined is not None:
+                confined.close()
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)
         return report
@@ -255,85 +275,30 @@ def _harness_error(detail: str) -> PhaseReport:
     return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), {}, detail)
 
 
-def _parsed_report(returncode: int, stdout: bytes) -> dict[str, Any] | str:
-    """The protocol object the child wrote, or the reason there is none."""
-
-    if returncode != 0:
-        return f"exit status {returncode}"
-    try:
-        parsed = load_strict_json(stdout.decode("utf-8"))
-    except ValueError as exc:
-        return f"report unreadable: {exc}"
-    if not isinstance(parsed, dict) or parsed.get("protocol") != cv.HARNESS_PROTOCOL:
-        return "report is not the protocol"
-    return parsed
+_limits_attested = _harness_report.limits_attested
+_parsed_report = _harness_report.parsed_report
 
 
-def _unsandboxed_detail(parsed: dict[str, Any]) -> str | None:
-    """Why this report cannot be read as sandboxed evidence, or None when it can.
-
-    A child that *states* ``limits_applied`` is believed: anything but true is a
-    sandbox failure and ``generate`` refuses the whole run on it. A child that
-    states nothing died before it could, and told us nothing either way:
-    ``_harness._run`` applies the limits before it reads or imports the program,
-    so such a child either never reached program code or reached it under the
-    limits. Coding that as an ordinary harness error lets the one candidate be
-    rejected (``MUTANT_HARNESS_ERROR``) instead of discarding every record in
-    the run (#196 follow-up: a mutant exhausting the address-space limit stopped
-    a 200-candidate generation at its 174th record).
-
-    The key, not the block, is the test. ``generate._run_phase`` reads the same
-    field with the same default, so the two layers cannot disagree about a
-    report that carries an environment without the evidence in it.
-    """
-
-    environment = parsed.get("environment")
-    if not isinstance(environment, dict) or "limits_applied" not in environment:
-        return f"harness error: {_child_error(parsed)}"
-    if environment["limits_applied"] is not True:
-        return f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied"
-    return None
-
-
-def _child_error(parsed: dict[str, Any]) -> str:
-    """The child's own reason for a report that carries no applied-limits evidence.
-
-    ``main``'s catch-all names the exception type here; without forwarding it the
-    operator sees only that some child died, which is the complaint that made the
-    type worth naming in the first place.
-    """
-
-    load = parsed.get("load")
-    reason = load.get("error") if isinstance(load, dict) else None
-    return _scrub_detail(str(reason)) if reason else "the child reported no applied limits"
-
-
-def _parse_report(job: Job, returncode: int, stdout: bytes) -> PhaseReport:
+def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
     Every row the job asked for must be present and well formed: a truncated
     or malformed suite is a harness error, never a suite with no failures.
+    ``stdout`` is the out-of-band limits attestation; ``body`` is the JSON file.
     """
 
-    parsed = _parsed_report(returncode, stdout)
+    if _limits_attested(stdout) is False:
+        return PhaseReport(
+            cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
+            f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    parsed = _parsed_report(returncode, stdout, body)
     if isinstance(parsed, str):
         return _harness_error(parsed)
-    environment = _object(parsed, "environment")
-    unsandboxed = _unsandboxed_detail(parsed)
-    if unsandboxed is not None:
-        # Keep the environment here: it is the structural signal callers refuse
-        # on, so the decision never rests on prose a program can put in its own
-        # exception message. A program can still forge this field, but only
-        # downward -- `_run` returns before reading program.py when the limits
-        # are off, so nothing that ran can claim they were on. Downward is not
-        # harmless: writing false here refuses the whole run, a denial of
-        # service on the operator. Closing that needs an attestation the child
-        # cannot rewrite (#213, #201).
-        # This is the one non-ok phase carrying a non-None `limits_applied`, and
-        # `record_validation._phase_runtime_contract` forbids storing that; it is
-        # safe only because `generate._run_phase` refuses the run on exactly this
-        # shape. A caller that continues past it would build a malformed record.
-        return PhaseReport(cv.PHASE_HARNESS_ERROR, False, (), (), environment, unsandboxed)
+    parsed.pop("_limits_attested", None)
+    if "limits_applied" not in _object(parsed, "environment"):
+        reason = _object(parsed, "load").get("error") or "the child reported no environment"
+        return _harness_error(_scrub_detail(str(reason)))
+    environment = {**_object(parsed, "environment"), "limits_applied": True}
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = _scrub_detail(str(load.get("error") or "load failed"))

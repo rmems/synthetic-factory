@@ -111,7 +111,7 @@ def _original(state: _State, program: cat.Program) -> ex.PhaseReport:
 def _unlimited(report: ex.PhaseReport) -> bool:
     """Whether this phase must stop the run rather than cost one candidate.
 
-    Refuse on the evidence the child stated, never on matching prose: ``detail``
+    Refuse on the parent-validated limits evidence, never on matching prose: ``detail``
     can carry a program's own exception message, and a program whose text happens
     to contain the finding name would otherwise kill the run.
 
@@ -127,8 +127,8 @@ def _unlimited(report: ex.PhaseReport) -> bool:
     A phase that never got that far and states nothing told us nothing: the
     limits go on before ``_harness._run`` reads or imports the program, so that
     child either never reached program code or reached it under them. That is
-    the one candidate's harness error, and `executor._unsandboxed_detail` reads
-    it the same way.
+    the one candidate's harness error. The executor stamps explicit setup
+    failures from the out-of-band attestation as ``limits_applied: False``.
     """
 
     claimed = report.environment.get("limits_applied")
