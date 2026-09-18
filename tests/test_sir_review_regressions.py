@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import sys
 import tempfile
@@ -61,6 +62,25 @@ def _source_modules():
     return packaged, direct
 
 
+def _ast_modules(package_first):
+    if package_first:
+        from pipelines.sir import catalog_ast as first
+        from sir import catalog_ast as second
+    else:
+        from sir import catalog_ast as first
+        from pipelines.sir import catalog_ast as second
+    return first, second
+
+
+def _assert_literal_module_identity(test, catalog_ast):
+    from pipelines.sir import catalog_literals as packaged
+    from sir import catalog_literals as direct
+
+    test.assertIs(packaged, direct)
+    test.assertIs(packaged.UNSET, catalog_ast.UNSET)
+    test.assertIs(packaged.literal_value, catalog_ast.literal_value)
+
+
 class SirReviewRegressions(unittest.TestCase):
     def test_catalog_class_identity_survives_both_import_orders(self):
         for package_first in (True, False):
@@ -83,6 +103,70 @@ class SirReviewRegressions(unittest.TestCase):
                 self.assertIs(packaged_sources, direct_sources)
                 self.assertIs(packaged_sources.MillSource, direct_sources.MillSource)
                 self.assertIs(packaged_sources.MILL_SOURCES, direct_sources.MILL_SOURCES)
+
+    def test_ast_unresolved_sentinel_survives_both_import_orders(self):
+        for package_first in (True, False):
+            with self.subTest(package_first=package_first), clean_package_imports(), direct_pipeline_path():
+                first, second = _ast_modules(package_first)
+                self.assertIs(first, second)
+                self.assertIs(first.UNSET, second.UNSET)
+                self.assertIs(first.literal_value(ast.parse("unknown", mode="eval").body), second.UNSET)
+                _assert_literal_module_identity(self, first)
+
+    def test_wildcard_import_cannot_preserve_prior_catalog_bindings(self):
+        with self.assertRaises(ValueError):
+            _extract("from replacement import *")
+
+    def test_dynamic_namespace_writes_cannot_preserve_catalog_bindings(self):
+        mutations = (
+            'globals()["PAIRS"] = []',
+            'globals().__setitem__("PAIRS", [])',
+            'locals()["PAIRS"] = []',
+            'vars()["PAIRS"] = []',
+            'exec("PAIRS = []")',
+            'eval("PAIRS.clear()")',
+            'namespace = globals()\nnamespace["PAIRS"] = []',
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                _extract(mutation)
+
+    def test_dynamic_builtin_attributes_and_import_aliases_fail_closed(self):
+        statements = (
+            'import builtins as b\nb.globals()["PAIRS"] = []',
+            'import builtins as b\nb.exec("PAIRS=[]")',
+            'from builtins import exec as execute\nexecute("PAIRS=[]")',
+            'from builtins import globals as namespace\nnamespace()["PAIRS"] = []',
+        )
+        for statement in statements:
+            with self.subTest(statement=statement), self.assertRaises(ValueError):
+                _extract(statement)
+        deferred = 'def unused():\n    import builtins as b\n    b.exec("PAIRS=[]")'
+        self.assertEqual(_extract(deferred)["n_rows"], 1)
+
+    def test_deferred_loader_bodies_do_not_claim_sibling_lineage(self):
+        deferred = (
+            'def unused():\n    SourceFileLoader("fake", "fake.py")',
+            'unused = lambda: SourceFileLoader("fake", "fake.py")',
+            'if __name__ == "__main__":\n    SourceFileLoader("fake", "fake.py")',
+            'class Publisher:\n    def unused(self):\n        SourceFileLoader("fake", "fake.py")',
+        )
+        for source in deferred:
+            with self.subTest(source=source):
+                self.assertEqual(_extract(source)["loads_sibling"], "")
+                actual = source + '\nSourceFileLoader("real", "real.py")'
+                self.assertEqual(_extract(actual)["loads_sibling"], "experiments/real.py")
+
+    def test_definition_time_loader_calls_retain_sibling_lineage(self):
+        sources = (
+            'def unused(value=SourceFileLoader("real", "real.py")):\n    pass',
+            'unused = lambda value=SourceFileLoader("real", "real.py"): None',
+            'class Publisher:\n    loader = SourceFileLoader("real", "real.py")',
+            '@decorate(SourceFileLoader("real", "real.py"))\ndef unused():\n    pass',
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                self.assertEqual(_extract(source)["loads_sibling"], "experiments/real.py")
 
     def test_destructuring_invalidates_every_bound_catalog_name(self):
         targets = ("{field}, extra", "[extra, [{field}]]", "extra, *{field}")

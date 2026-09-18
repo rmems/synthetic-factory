@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .catalog_ast import module_constants, module_docstring
+from .catalog_ast import module_constants, module_docstring, module_evaluation_nodes
 from .catalog_model import factory_hops, scalar_identity
 from .vocabulary import (
     CATALOG_FILENAME,
@@ -162,7 +162,7 @@ def _is_six_strings(arm: Any) -> bool:
 def _literal_sibling_path(tree: ast.AST) -> str:
     """Return ``experiments/<file>`` when SourceFileLoader is given a .py literal."""
 
-    for node in ast.walk(tree):
+    for node in module_evaluation_nodes(tree):
         if not isinstance(node, ast.Call) or not _is_source_file_loader(node.func):
             continue
         filename = _first_py_constant(_loader_path_argument(node))
