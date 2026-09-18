@@ -62,6 +62,16 @@ class NestedWrapperMappingPlan(NamedTuple):
     equal: Callable[..., bool]
 
 
+class RecordProvenanceWrite(NamedTuple):
+    """One curated provenance object plus the mapping list that records it."""
+
+    curated: dict[str, Any]
+    original: Mapping[str, Any]
+    provenance_mappings: list[dict[str, Any]]
+    provenance: Mapping[str, Any]
+    basis: str
+
+
 class ApplyIds(NamedTuple):
     """Live identity helpers the apply step reads from the facade."""
 
@@ -187,15 +197,11 @@ def _nested_wrapper_kind(
     return wrapper_kind, claims
 
 
-def _write_record_provenance(
-    curated: dict[str, Any],
-    original: Mapping[str, Any],
-    provenance_mappings: list[dict[str, Any]],
-    provenance: Mapping[str, Any],
-    basis: str,
-) -> None:
-    curated["provenance"] = provenance
-    provenance_mappings.append(_seal_from_owner("/", basis, original, provenance))
+def _write_record_provenance(write: RecordProvenanceWrite) -> None:
+    write.curated["provenance"] = write.provenance
+    write.provenance_mappings.append(
+        _seal_from_owner("/", write.basis, write.original, write.provenance)
+    )
 
 
 def _append_nested_wrapper_mapping(plan: NestedWrapperMappingPlan) -> None:
@@ -203,11 +209,13 @@ def _append_nested_wrapper_mapping(plan: NestedWrapperMappingPlan) -> None:
         plan.canonical_provenances, plan.equal
     )
     _write_record_provenance(
-        plan.curated,
-        plan.original,
-        plan.provenance_mappings,
-        {"kind": wrapper_kind, "claimed": copy.deepcopy(wrapper_claimed)},
-        "nested_trajectory_aggregate",
+        RecordProvenanceWrite(
+            plan.curated,
+            plan.original,
+            plan.provenance_mappings,
+            {"kind": wrapper_kind, "claimed": copy.deepcopy(wrapper_claimed)},
+            "nested_trajectory_aggregate",
+        )
     )
 
 
@@ -251,15 +259,17 @@ def apply_resolved_state(plan: ResolvedStatePlan, ids: ApplyIds):
     elif stamp.kind in {"episode", "safety_case", "multi_agent"} and plan.resolutions:
         first = plan.resolutions[0]
         _write_record_provenance(
-            stamp.curated,
-            stamp.original,
-            provenance_mappings,
-            {
-                "kind": first["kind"],
-                "claimed": copy.deepcopy(first["claimed"]),
-                "basis": first["basis"],
-            },
-            first["basis"],
+            RecordProvenanceWrite(
+                stamp.curated,
+                stamp.original,
+                provenance_mappings,
+                {
+                    "kind": first["kind"],
+                    "claimed": copy.deepcopy(first["claimed"]),
+                    "basis": first["basis"],
+                },
+                first["basis"],
+            )
         )
     return id_mappings, provenance_mappings
 
@@ -293,8 +303,13 @@ def apply_shape_designed(plan: ShapeDesignedPlan, ids: ApplyIds):
     designed = _designed_provenance(plan.kind, ids)
     provenance_mappings: list[dict[str, Any]] = []
     _write_record_provenance(
-        plan.curated, plan.original, provenance_mappings, copy.deepcopy(designed),
-        designed["basis"],
+        RecordProvenanceWrite(
+            plan.curated,
+            plan.original,
+            provenance_mappings,
+            copy.deepcopy(designed),
+            designed["basis"],
+        )
     )
     id_mappings = assign_nested_ids(plan, ids)
     if plan.owner_specs:
