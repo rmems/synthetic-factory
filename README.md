@@ -47,12 +47,18 @@ are two lanes:
   epic [#76]); DeepSeek / Nemotron lanes only after their terms snapshots are
   pinned ([#170], [#163]).
 
-Today the identity lane (`pipelines/curate_identity.py`) enforces the policy
-when it loads the registry; wiring the same gate into compose, export, and
-promotion is [#167]. `training_ready` in an audit, `COMPOSE.json`, or
-`provenance.json` is the structural and quality verdict only — it never means
-training-eligible, which is `project_training_policy: allowed`, and no
-registry row carries that value yet. The contract every new generator must
+Identity curation, composition, training audits, and export replay enforce
+applicable source-policy and admission checks. The registry includes two
+independently sealed procedural routes with `project_training_policy: allowed`:
+`python-function-repair-factory` and `oracle-grounded`. A record must also pass
+its route's technical and evidence checks; the policy label alone does not
+make it eligible. Hosted-model and mill-catalog routes remain research-only
+with training blocked.
+
+`training_ready` in an audit, `COMPOSE.json`, or `provenance.json` includes the
+applicable admission findings as well as structural and quality checks. It
+does not authorize publication or replace source rights and release gates.
+Broader promotion-gate integration remains tracked in [#167]. The contract every new generator must
 meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
 preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
