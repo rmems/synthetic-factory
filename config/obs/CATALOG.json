@@ -3,7 +3,7 @@
   "digests": {
     "hop_plants_sha256": "e7cfd07715ec26d3144542764dde5c86e528a07c79e2551a4028a92fa45b4532",
     "leftover3_pairs_sha256": "d2510ca3d9ac067e305cc0ab7dfa27043668f71672347fb0d6b3600aecca421b",
-    "leftover_specs_sha256": "2e7c9bb90947c99703583f56a7bce431a4593ebfa35fbae3db1c86bdb7241f6b"
+    "leftover_specs_sha256": "3ccc84f57b39b25a4c89ae7d96acb43e771e97801cc23da5641efdff0fb0ec61"
   },
   "factory": "observability-debug-factory",
   "files": {
@@ -90,11 +90,11 @@
     "leftover3": 16,
     "leftover_specs": 440
   },
-  "plant_count": 191,
+  "plant_count": 631,
   "quota_per_round": 2,
   "record_kind": "episode",
   "source": {
-    "commit": "4efb4b3db81efec46c341723087d801683f2051b",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
     "method": "git-show+ast.parse",
     "ref": "legacy-mill-lane"
   }

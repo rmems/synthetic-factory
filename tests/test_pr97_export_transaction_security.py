@@ -22,7 +22,7 @@ import export_members_read  # noqa: E402
 from export_test_support import ResearchExportAllowed, compose_fixture  # noqa: E402
 
 
-class ExportTransactionContracts(ResearchExportAllowed):
+class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
     def test_finish_reauthenticates_bytes_mutated_through_held_descriptor(self):
         """The real finish boundary catches staged-byte mutation before publish."""
 

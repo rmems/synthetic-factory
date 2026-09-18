@@ -337,6 +337,11 @@ def validate_pair(ok_ep: dict[str, Any], bad_ep: dict[str, Any], round_n: int) -
 
 
 def build_pair(pair: cat.Pair) -> BuiltPair:
+    if pair.source_format == "mapping-v1":
+        from . import generate_lll as lll
+
+        refuse_when(pair.plant is None, FINDING_GENERATE_SHAPE, "mapping-v1 pair missing plant")
+        return lll.build_pair(pair.round_n, pair.plant)
     ok_ep = build_success(pair.round_n, pair.ok)
     bad_ep = build_fail(pair.round_n, pair.bad)
     validate_pair(ok_ep, bad_ep, pair.round_n)

@@ -133,7 +133,9 @@ def compose_run_summary(
             "entries": len(state.sidecar_lines),
             "sha256": context.sidecar_sha256,
         },
-        "audit": services.audit_records(context.records_dir, state.counts["retained"]),
+        "audit": services.audit_records(
+            context.records_dir, state.counts["retained"], completion_source=context.resolved_source,
+        ),
     }
 
 

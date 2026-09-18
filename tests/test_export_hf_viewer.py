@@ -17,7 +17,7 @@ import export_split  # noqa: E402
 import verify_hf_release  # noqa: E402
 
 
-class ViewerParquet(ResearchExportAllowed):
+class ViewerParquet(ResearchExportAllowed, unittest.TestCase):
     def test_round_trips_rows_through_the_stdlib_writer_and_reader(self):
         rows = [
             export_hf.ViewerRow("data/curated/f/a.jsonl", 1, '{"id":"one"}'),
@@ -77,7 +77,7 @@ class ViewerParquet(ResearchExportAllowed):
         )
 
 
-class ExportSplitDeterminism(ResearchExportAllowed):
+class ExportSplitDeterminism(ResearchExportAllowed, unittest.TestCase):
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

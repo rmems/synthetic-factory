@@ -31,6 +31,7 @@ if __package__:
     from . import curate_gate_digest as _digest
     from . import curate_gate_merge as _merge
     from . import curate_identity
+    from .curate_gate_rights import replay_gate_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_identity_gate"
@@ -42,6 +43,7 @@ else:
     import curate_gate_digest as _digest
     import curate_gate_merge as _merge
     import curate_identity
+    from curate_gate_rights import replay_gate_identity
 
 GateError = _contract.GateError
 record_sha256 = _digest.record_sha256
@@ -265,11 +267,23 @@ def _expected_identity_provenance(
     ]
 
 
+def _authenticate_procedural_source(entry: dict[str, Any], source_record: dict, label: str) -> str:
+    try:
+        replay = replay_gate_identity(entry)
+    except ValueError as exc:
+        raise GateError(f"{label}: {exc}") from exc
+    if not _same_json(replay.record, source_record):
+        raise GateError(f"{label}: procedural identity does not preserve source record")
+    return record_sha256(entry["identity_detail"])
+
+
 def _authenticate_identity_source_claims(
     entry: dict[str, Any], source_record: Any, label: str
 ) -> str:
     if not isinstance(source_record, dict):
         raise GateError(f"{label} cannot authenticate identity claims for a non-object source")
+    if curate_identity.classify_kind(source_record) == "code_repair":
+        return _authenticate_procedural_source(entry, source_record, label)
     claimed = _claimed_identity_source_evidence(entry, label)
     try:
         kind = curate_identity.record_kind(source_record)

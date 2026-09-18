@@ -13,6 +13,7 @@ import ast
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,16 +25,49 @@ from .vocabulary import (
     FACTORY,
     FAMILY,
     GENERATOR,
+    HOME_PRESERVE_COMMIT,
     KIND_HOME_PAIRS,
     KIND_LEFTOVER_PAIRS,
     LEGACY_REF,
     PRESERVE_COMMIT,
+    R31_BLOB_SHA,
+    R31_CATALOG_FIRST,
+    R31_FIRST_SLUG,
+    R31_HEADER_FILENAME,
+    R31_HEADER_SCHEMA_ID,
+    R31_JSONL_FILENAME,
+    R31_JSONL_SHA256,
+    R31_LAST_SLUG,
+    R31_MILL_ID,
+    R31_N_ROWS,
+    R31_PATH,
+    R31_SHA256,
+    R31_SLICE_ID,
+    R52_BLOB_SHA,
+    R52_CATALOG_FIRST,
+    R52_FIRST_SLUG,
+    R52_HEADER_FILENAME,
+    R52_HEADER_SCHEMA_ID,
+    R52_JSONL_FILENAME,
+    R52_JSONL_SHA256,
+    R52_LAST_SLUG,
+    R52_MILL_ID,
+    R52_N_ROWS,
+    R52_PATH,
+    R52_SHA256,
+    R52_SLICE_ID,
+    R72_BLOB_SHA,
+    R72_CATALOG_FIRST,
+    R72_FIRST_SLUG,
     R72_HEADER_FILENAME,
     R72_HEADER_SCHEMA_ID,
     R72_JSONL_FILENAME,
     R72_JSONL_SHA256,
+    R72_LAST_SLUG,
     R72_MILL_ID,
-    R72_PRESERVE_COMMIT,
+    R72_N_ROWS,
+    R72_PATH,
+    R72_SHA256,
     R72_SLICE_ID,
     SHAPE_PAIR_6TUPLES,
     SLICE_ID,
@@ -99,7 +133,7 @@ def extract_home_mill_catalog(
         "hops": [],
         "doc_first_line": _first_line(module_docstring(tree)),
         "pairs": rows,
-        "slice": R72_SLICE_ID,
+        "slice": mill_id,
     }
 
 
@@ -279,17 +313,102 @@ def catalog_json_path(package_dir: Path | None = None) -> Path:
     return root / CATALOG_FILENAME
 
 
-def r72_jsonl_path(package_dir: Path | None = None) -> Path:
+@dataclass(frozen=True)
+class HomeMillPins:
+    mill_id: str
+    slice_id: str
+    path: str
+    blob_sha: str
+    source_sha256: str
+    catalog_first: int
+    n_rows: int
+    first_slug: str
+    last_slug: str
+    jsonl_filename: str
+    header_filename: str
+    header_schema_id: str
+    jsonl_sha256: str
+
+
+HOME_MILL_PINS: dict[str, HomeMillPins] = {
+    R31_MILL_ID: HomeMillPins(
+        R31_MILL_ID,
+        R31_SLICE_ID,
+        R31_PATH,
+        R31_BLOB_SHA,
+        R31_SHA256,
+        R31_CATALOG_FIRST,
+        R31_N_ROWS,
+        R31_FIRST_SLUG,
+        R31_LAST_SLUG,
+        R31_JSONL_FILENAME,
+        R31_HEADER_FILENAME,
+        R31_HEADER_SCHEMA_ID,
+        R31_JSONL_SHA256,
+    ),
+    R52_MILL_ID: HomeMillPins(
+        R52_MILL_ID,
+        R52_SLICE_ID,
+        R52_PATH,
+        R52_BLOB_SHA,
+        R52_SHA256,
+        R52_CATALOG_FIRST,
+        R52_N_ROWS,
+        R52_FIRST_SLUG,
+        R52_LAST_SLUG,
+        R52_JSONL_FILENAME,
+        R52_HEADER_FILENAME,
+        R52_HEADER_SCHEMA_ID,
+        R52_JSONL_SHA256,
+    ),
+    R72_MILL_ID: HomeMillPins(
+        R72_MILL_ID,
+        R72_SLICE_ID,
+        R72_PATH,
+        R72_BLOB_SHA,
+        R72_SHA256,
+        R72_CATALOG_FIRST,
+        R72_N_ROWS,
+        R72_FIRST_SLUG,
+        R72_LAST_SLUG,
+        R72_JSONL_FILENAME,
+        R72_HEADER_FILENAME,
+        R72_HEADER_SCHEMA_ID,
+        R72_JSONL_SHA256,
+    ),
+}
+
+
+def home_mill_pins(mill_id: str) -> HomeMillPins:
+    try:
+        return HOME_MILL_PINS[mill_id]
+    except KeyError as exc:
+        raise KeyError(f"unknown search home mill {mill_id!r}") from exc
+
+
+def home_jsonl_path(mill_id: str, package_dir: Path | None = None) -> Path:
+    pins = home_mill_pins(mill_id)
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
-    return root / R72_JSONL_FILENAME
+    return root / pins.jsonl_filename
+
+
+def home_header_path(mill_id: str, package_dir: Path | None = None) -> Path:
+    pins = home_mill_pins(mill_id)
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / pins.header_filename
+
+
+def r72_jsonl_path(package_dir: Path | None = None) -> Path:
+    return home_jsonl_path(R72_MILL_ID, package_dir)
 
 
 def r72_header_path(package_dir: Path | None = None) -> Path:
-    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
-    return root / R72_HEADER_FILENAME
+    return home_header_path(R72_MILL_ID, package_dir)
 
 
-def r72_header_document(record: Mapping[str, Any], *, pairs_sha256: str) -> dict[str, Any]:
+def home_header_document(
+    record: Mapping[str, Any], *, pairs_sha256: str, pins: HomeMillPins
+) -> dict[str, Any]:
     return {
         "extraction": (
             "AST literals only; leftover3/lll mills already cataloged are refused; never exec"
@@ -310,31 +429,44 @@ def r72_header_document(record: Mapping[str, Any], *, pairs_sha256: str) -> dict
             "sha256": record["sha256"],
         },
         "n_rows": record["n_rows"],
-        "pairs_filename": R72_JSONL_FILENAME,
+        "pairs_filename": pins.jsonl_filename,
         "pairs_sha256": pairs_sha256,
-        "preserve_commit": R72_PRESERVE_COMMIT,
-        "schema": R72_HEADER_SCHEMA_ID,
-        "slice": R72_SLICE_ID,
+        "preserve_commit": HOME_PRESERVE_COMMIT,
+        "schema": pins.header_schema_id,
+        "slice": pins.slice_id,
         "source_ref": LEGACY_REF,
     }
 
 
-def dumps_r72_header(document: Mapping[str, Any]) -> str:
+def r72_header_document(record: Mapping[str, Any], *, pairs_sha256: str) -> dict[str, Any]:
+    return home_header_document(record, pairs_sha256=pairs_sha256, pins=HOME_MILL_PINS[R72_MILL_ID])
+
+
+def dumps_home_header(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
-def load_r72_header(path: Path | None = None) -> dict[str, Any]:
-    header_path = path if path is not None else r72_header_path()
+def dumps_r72_header(document: Mapping[str, Any]) -> str:
+    return dumps_home_header(document)
+
+
+def load_home_header(mill_id: str, path: Path | None = None) -> dict[str, Any]:
+    pins = home_mill_pins(mill_id)
+    header_path = path if path is not None else home_header_path(mill_id)
     document = json.loads(header_path.read_text(encoding="utf-8"))
-    if document.get("schema") != R72_HEADER_SCHEMA_ID:
-        raise ValueError(f"{header_path} schema is not {R72_HEADER_SCHEMA_ID}")
-    if document.get("slice") != R72_SLICE_ID:
+    if document.get("schema") != pins.header_schema_id:
+        raise ValueError(f"{header_path} schema is not {pins.header_schema_id}")
+    if document.get("slice") != pins.slice_id:
         raise ValueError(f"{header_path} slice drifted from vocabulary")
-    if document.get("preserve_commit") != R72_PRESERVE_COMMIT:
+    if document.get("preserve_commit") != HOME_PRESERVE_COMMIT:
         raise ValueError(f"{header_path} preserve_commit drifted from vocabulary")
-    if document.get("pairs_sha256") != R72_JSONL_SHA256:
+    if document.get("pairs_sha256") != pins.jsonl_sha256:
         raise ValueError(f"{header_path} pairs_sha256 drifted from vocabulary")
     return document
+
+
+def load_r72_header(path: Path | None = None) -> dict[str, Any]:
+    return load_home_header(R72_MILL_ID, path)
 
 
 def dumps_pair_jsonl(pairs: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> str:
@@ -344,12 +476,13 @@ def dumps_pair_jsonl(pairs: list[Mapping[str, Any]] | tuple[Mapping[str, Any], .
     )
 
 
-def load_r72_rows(path: Path | None = None) -> list[dict[str, Any]]:
-    jsonl_path = path if path is not None else r72_jsonl_path()
+def load_home_rows(mill_id: str, path: Path | None = None) -> list[dict[str, Any]]:
+    pins = home_mill_pins(mill_id)
+    jsonl_path = path if path is not None else home_jsonl_path(mill_id)
     payload = jsonl_path.read_bytes()
     digest = sha256_bytes(payload)
-    if path is None and digest != R72_JSONL_SHA256:
-        raise ValueError(f"{jsonl_path} sha256 {digest} != pinned {R72_JSONL_SHA256}")
+    if path is None and digest != pins.jsonl_sha256:
+        raise ValueError(f"{jsonl_path} sha256 {digest} != pinned {pins.jsonl_sha256}")
     rows: list[dict[str, Any]] = []
     for line_no, line in enumerate(payload.decode("utf-8").splitlines(), 1):
         if not line:
@@ -361,10 +494,14 @@ def load_r72_rows(path: Path | None = None) -> list[dict[str, Any]]:
             str(row.get("fail_slug", ""))
         ):
             raise ValueError(f"{jsonl_path} line {line_no} is leftover3/lll already cataloged")
-        if row.get("mill_id") != R72_MILL_ID:
-            raise ValueError(f"{jsonl_path} line {line_no} mill_id is not {R72_MILL_ID}")
+        if row.get("mill_id") != mill_id:
+            raise ValueError(f"{jsonl_path} line {line_no} mill_id is not {mill_id}")
         rows.append(row)
     return rows
+
+
+def load_r72_rows(path: Path | None = None) -> list[dict[str, Any]]:
+    return load_home_rows(R72_MILL_ID, path)
 
 
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:

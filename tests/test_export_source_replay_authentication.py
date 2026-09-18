@@ -15,7 +15,7 @@ import export_contract  # noqa: E402
 import export_hf  # noqa: E402
 
 
-class ExportSourceReplayAuthentication(ResearchExportAllowed):
+class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase):
     def test_direct_factory_root_replays_the_published_factory_coordinate(self):
         """Physical root members replay under the coordinate compose published."""
 

@@ -17,8 +17,14 @@ if __package__:
     _assert_direct_sibling("compose_curated_rights")
     from .compose_contract import ACTION_RETAINED, ComposeError
     from .curate_identity_registry import default_registry
+    from .curate_identity_json import sha256_json
+    from .curate_identity import _hash_verified_manifest_source
+    from .compose_curated_context import SourceCoordinates
+    from .compose_curated_identity import _compose_identity_stage_with_source
     from .rights_mapping import RightsPolicyError
     from .rights_record import (
+        BoundRights,
+        procedural_eligibility,
         ENVELOPE_FIELD,
         LANE_FIELD,
         LANE_RESEARCH,
@@ -33,8 +39,14 @@ else:
     )
     from compose_contract import ACTION_RETAINED, ComposeError
     from curate_identity_registry import default_registry
+    from curate_identity_json import sha256_json
+    from curate_identity import _hash_verified_manifest_source
+    from compose_curated_context import SourceCoordinates
+    from compose_curated_identity import _compose_identity_stage_with_source
     from rights_mapping import RightsPolicyError
     from rights_record import (
+        BoundRights,
+        procedural_eligibility,
         ENVELOPE_FIELD,
         LANE_FIELD,
         LANE_RESEARCH,
@@ -64,16 +76,17 @@ def _registry_row(mapping: Mapping[str, Any], registry: Any):
     return registry.by_path_id.get(path_id)
 
 
-def _procedural_eligibility(mapping: Mapping[str, Any]) -> tuple[bool | None, list[str]]:
-    authority = mapping.get("procedural_authority")
-    if not isinstance(authority, Mapping):
-        return None, []
-    eligible = authority.get("eligible_training_candidate")
-    raw_reasons = authority.get("ineligibility_reasons") or ()
-    reasons = (
-        [str(item) for item in raw_reasons] if isinstance(raw_reasons, (list, tuple)) else []
-    )
-    return (bool(eligible) if eligible is not None else None), reasons
+def _verified_envelope(mapping: Mapping, envelope: Mapping, physical_line: bytes) -> dict:
+    registry = default_registry()
+    row = _registry_row(mapping, registry)
+    try:
+        eligible, reasons = procedural_eligibility(mapping)
+        return verify_bound_envelope(
+            envelope,
+            BoundRights(physical_line, registry.raw_bytes, row, eligible, reasons),
+        )
+    except RightsPolicyError as exc:
+        raise ComposeError(str(exc)) from exc
 
 
 def bind_retained_rights(
@@ -92,24 +105,41 @@ def bind_retained_rights(
     envelope = identity_envelope(mapping)
     if envelope is None:
         raise ComposeError("retained record lacks a bound rights envelope")
-    registry = default_registry()
-    row = _registry_row(mapping, registry)
-    eligible, reasons = _procedural_eligibility(mapping)
-    try:
-        verified = verify_bound_envelope(
-            envelope,
-            source_bytes=physical_line,
-            factory_registry_bytes=registry.raw_bytes,
-            expected_row=row,
-            eligible=eligible,
-            ineligibility_reasons=reasons,
-        )
-    except RightsPolicyError as exc:
-        raise ComposeError(str(exc)) from exc
+    verified = _verified_envelope(mapping, envelope, physical_line)
+    mapping["source"] = {**mapping["source"], "original": physical_line.decode("utf-8")}
     lane = envelope_lane(verified)
     entry[ENVELOPE_FIELD] = verified
     entry[LANE_FIELD] = lane
     state.rights_lanes[lane] += 1
+
+
+def _verified_composed_source(mapping: Mapping):
+    source_meta = mapping.get("source")
+    if not isinstance(source_meta, Mapping):
+        raise ValueError("composed identity lacks source bytes")
+    return _hash_verified_manifest_source(source_meta, 0)
+
+
+def _replayed_identity_stage(source) -> dict:
+    stages = []
+    _compose_identity_stage_with_source(
+        source.record, stages,
+        SourceCoordinates(source.source_path, source.source_line, source.source_sha256),
+    )
+    identity = stages[0]
+    if identity["action"] != ACTION_RETAINED:
+        raise ValueError("composed identity source does not replay to retention")
+    expected = identity["detail"]
+    expected["source"] = {**expected["source"], "original": source.source_json}
+    return expected
+
+
+def replay_composed_identity(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Reproduce identity plus compose's declared preference/deferred-repair evidence."""
+    expected = _replayed_identity_stage(_verified_composed_source(mapping))
+    if sha256_json(mapping) != sha256_json(expected):
+        raise ValueError("composed identity proof does not match source replay")
+    return expected[ENVELOPE_FIELD]
 
 
 def rights_summary(state: Any) -> dict[str, Any]:

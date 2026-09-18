@@ -28,6 +28,7 @@ from ._contract import (
     GENERATOR,
     HANDOFF_STEPS,
     HOPPER_WAVE,
+    ROW_KIND_REPRESENTATIVE,
     SUCCESS_STEPS,
     bind_import_twin,
     dumps_exact_json,
@@ -635,7 +636,10 @@ def generate(
     elif mill_id is not None:
         selected = loaded.mill_plants(mill_id)
     elif all_plants:
-        selected = loaded.plants
+        selected = tuple(
+            plant for plant in loaded.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE
+        )
+        refuse_when(not selected, FINDING_USAGE, "no representative plants to generate")
     else:
         refuse(FINDING_USAGE, "generate needs --plant, --mill, or --all")
     _refuse_destination(out_dir)

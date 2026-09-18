@@ -1,0 +1,30 @@
+{
+  "schema_id": "wsr-catalog/v2",
+  "family_prefix": "wsr",
+  "factory": "websocket-reconnect-factory",
+  "generator": "grok-4.6",
+  "quota_per_round": 2,
+  "extraction": "AST literals only; legacy mills were never imported or executed",
+  "pairs_file": "pairs.jsonl",
+  "pairs_sha256": "67c956ff8c8de27a7b5c36e861b16849709a2420ed6e814a404c318676e13447",
+  "mills": [
+    {
+      "mill_id": "wsr_r41_leftover3",
+      "source_format": "leftover3-v1",
+      "source_path": "experiments/wsr-mill-leftover3-r41.py",
+      "source_commit": "fec0f5f398a4cf22a5f6c2b2ef4cdc89b6d00202",
+      "source_sha256": "7a01aeebabccee9ac1ce38216463012321367483578af6f52cc09e704c4b4b82",
+      "start_round": 41,
+      "n_rounds": 16
+    },
+    {
+      "mill_id": "wsr_r89_lll",
+      "source_format": "mapping-v1",
+      "source_path": "experiments/wsr_r89_leftover_leftover_leftover.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "21ac3d2e113eb624ae349b3b8413a41cea9e116db9a87bc60910e1f4ecda32cb",
+      "start_round": 89,
+      "n_rounds": 16
+    }
+  ]
+}

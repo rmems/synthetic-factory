@@ -371,5 +371,17 @@
     "sha256": "d2d60f15dafbb666299f1be1f2df7bcdc60aafd9dfc2fda17310f97273f0c585",
     "shape": "ok-fail-label"
   },
-  "plants_sha256": "7d09efb34705757abef1a38be171d6e748234be838ccbef46a1d2045258405fb"
+  "archive_b_more": {
+    "blob_sha": "f28b122cac1956113df18c04ea7eb545d884e590",
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "first_slug": "bicep-whatif-leftover-skip",
+    "last_slug": "nomad-system-skip",
+    "n_plants": 8,
+    "path": "scripts/infra_as_code_mill/mill_plants_b.py",
+    "ref": "origin/legacy-mill-lane",
+    "sha256": "e6827da1d0ea4808e535c0cf4a9107f240d4da717790d82f001aeba029c0b558",
+    "shape": "ok-fail-label"
+  },
+  "plants_sha256": "7d09efb34705757abef1a38be171d6e748234be838ccbef46a1d2045258405fb",
+  "plants_b_sha256": "a821ae6f0cca1fd687e6b9fc83bea266f92bc6313e5d2e7e852b3ea7c43a9694"
 }

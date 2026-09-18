@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """The cleaned ``nelb`` family home under ``pipelines/nelb/``.
 
-The recovered r01 builder on ``origin/codex/recover-grok-01a06111`` was
-AST-extracted. These tests pin identity, catalog fidelity, and bridge-pair
-shape without publishing a raw round and without importing a ``*mill*.py``
-or ``gen_r*.py`` module.
+Recovered Session-A builders on ``origin/codex/recover-grok-01a06111`` were
+AST-extracted into compact JSONL. These tests pin identity, catalog fidelity,
+and bridge-pair shape without publishing a raw round and without importing a
+``*mill*.py`` or ``gen_r*.py`` module.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from mill_signals import mill_prefix  # noqa: E402
 from nelb import catalog as cat  # noqa: E402
 from nelb import cli, generate  # noqa: E402
 from nelb._contract import (  # noqa: E402
+    CATALOG_FILENAME,
     FACTORY,
     FAMILY_PREFIX,
     FINDING_DESTINATION_EXISTS,
@@ -35,11 +36,15 @@ from nelb._contract import (  # noqa: E402
     FINDING_VENDOR_PATH,
     GENERATOR,
     ISOLATION,
+    LEGACY_COMMIT,
+    LEGACY_REF,
+    PLANTS_FILENAME,
     QUOTA_PER_ROUND,
     SOURCE_COMMIT,
     SOURCE_REF,
     NelbRefusal,
     refuse_vendor_paths,
+    sha256_bytes,
 )
 from record_kind import classify_kind  # noqa: E402
 
@@ -156,6 +161,18 @@ class PackageShape(unittest.TestCase):
         self.assertEqual(list(NELB_DIR.glob("gen_r*.py")), [])
         self.assertFalse(any("mill" in name for name in names))
 
+    def test_catalog_is_compact_jsonl_plus_header(self):
+        header = NELB_DIR / CATALOG_FILENAME
+        plants = NELB_DIR / PLANTS_FILENAME
+        self.assertTrue(header.is_file())
+        self.assertTrue(plants.is_file())
+        payload = plants.read_bytes()
+        self.assertTrue(payload.endswith(b"\n"))
+        self.assertNotIn(b"\r", payload)
+        lines = payload.splitlines()
+        self.assertGreater(len(lines), 3)
+        self.assertEqual(len(lines), len({line for line in lines if line}))
+
     def test_both_import_spellings_are_one_object(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
@@ -234,30 +251,41 @@ class AstExtract(unittest.TestCase):
 
 
 class CommittedCatalog(unittest.TestCase):
-    def test_catalog_is_the_first_r01_triple(self):
+    def test_catalog_covers_recovered_triples_with_r01_pinned(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
-        self.assertEqual(loaded.catalog_id, "nelb-r01-slice-v1")
+        self.assertEqual(loaded.catalog_id, "nelb-plants-v2")
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 3)
-        self.assertEqual(report["triples"], 1)
+        self.assertEqual(report["plants"], 159)
+        self.assertEqual(report["triples"], 53)
         self.assertEqual(report["first_round"], 1)
-        self.assertEqual(report["last_round"], 1)
-        self.assertEqual(report["rounds"], [1])
+        self.assertIn(2, report["rounds"])
+        r01 = cat.plants_for_round(1)
         self.assertEqual(
-            [plant.record_id for plant in loaded.plants],
+            [plant.record_id for plant in r01],
             ["nelb-r01-001", "nelb-r01-002", "nelb-r01-003"],
         )
-        r01 = cat.plants_for_round(1)
-        self.assertEqual(len(r01), 3)
         self.assertEqual(r01[0].site, "Brackfen Pool BF-3")
         self.assertEqual(r01[0].lead_decision, "REJECT")
         self.assertEqual(r01[1].sim_or_real, "hil")
         self.assertEqual(r01[2].companion_key, "trajectory_skip_vessel_refusal")
+        r02 = cat.plants_for_round(2)
+        self.assertEqual([plant.record_id for plant in r02], [
+            "nelb-r02-001",
+            "nelb-r02-002",
+            "nelb-r02-003",
+        ])
 
-    def test_a_round_outside_the_first_slice_is_refused(self):
+    def test_plants_jsonl_digest_matches_catalog_header(self):
+        header = json.loads((NELB_DIR / CATALOG_FILENAME).read_text(encoding="utf-8"))
+        digest = sha256_bytes((NELB_DIR / PLANTS_FILENAME).read_bytes())
+        self.assertEqual(header["plants_sha256"], digest)
+        self.assertEqual(header["extract"]["legacy_ref"], LEGACY_REF)
+        self.assertEqual(header["extract"]["legacy_commit"], LEGACY_COMMIT)
+
+    def test_a_round_outside_the_committed_catalog_is_refused(self):
         with self.assertRaises(NelbRefusal) as ctx:
-            cat.plants_for_round(2)
+            cat.plants_for_round(4)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
         with self.assertRaises(NelbRefusal) as ctx:
             cat.plants_for_round(True)  # type: ignore[arg-type]
@@ -338,7 +366,7 @@ class Cli(unittest.TestCase):
     def test_catalog_lists_plants(self):
         code, out, err = invoke(["catalog"])
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("nelb-r01-slice-v1", out)
+        self.assertIn("nelb-plants-v2", out)
         self.assertIn("nelb-r01-001", out)
 
     def test_catalog_check_json(self):
@@ -346,8 +374,8 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 3)
-        self.assertEqual(payload["triples"], 1)
+        self.assertEqual(payload["plants"], 159)
+        self.assertEqual(payload["triples"], 53)
 
     def test_generate_stdout_and_a_raw_refusal(self):
         code, out, err = invoke(["generate", "--round", "1"])

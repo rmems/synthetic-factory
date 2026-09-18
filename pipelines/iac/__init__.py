@@ -10,7 +10,7 @@ Publishers are not vendored and are never executed.
 from . import vocabulary
 from .catalog import CATALOG, IacCatalog, MillCatalog, load_catalog
 from .catalog_extract import extract_companion_path, extract_mill_catalog
-from .plants_extract import extract_archive_b_plants
+from .plants_extract import extract_archive_b_more_plants, extract_archive_b_plants
 from .identity import refuse_vendor_paths
 from .sources import MILL_SOURCES, MillSource, catalog_sources, loop_sources, source_by_id
 from .vocabulary import FACTORY, FAMILY_PREFIX
@@ -25,6 +25,7 @@ __all__ = (
     "MillSource",
     "catalog_sources",
     "extract_companion_path",
+    "extract_archive_b_more_plants",
     "extract_archive_b_plants",
     "extract_mill_catalog",
     "load_catalog",

@@ -18,7 +18,7 @@ import export_contract  # noqa: E402
 import export_hf  # noqa: E402
 
 
-class CalibrationAuthentication(ResearchExportAllowed):
+class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
     """COMPOSE.json's calibration descriptor is authenticated before replay.
 
     A published export carries the reward calibration it was composed with.

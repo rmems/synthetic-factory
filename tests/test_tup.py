@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TUP first-slice package: catalog pins, AST extract, generate, no vendored mills."""
+"""TUP catalog package: pins, AST extract, generate, no vendored mills."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO))
 from mill_family import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from mill_signals import mill_prefix  # noqa: E402
 from record_kind import classify_kind, preference_side_kinds  # noqa: E402
-from tup import catalog, cli, generate  # noqa: E402
+from tup import catalog, catalog_extract, cli, generate  # noqa: E402
 from tup._contract import (  # noqa: E402
     FACTORY,
     FINDING_DESTINATION_EXISTS,
@@ -57,14 +57,17 @@ def invoke(argv: list[str]) -> tuple[int, str, str]:
 class CatalogPins(unittest.TestCase):
     def test_committed_catalog_loads_and_matches_registry(self):
         loaded = catalog.load_catalog(COMMITTED)
-        self.assertEqual(loaded.catalog_id, "tup-r1349-v1")
+        self.assertEqual(loaded.catalog_id, "tup-v2")
         self.assertEqual(loaded.factory, FACTORY)
         self.assertEqual(loaded.meta["generator"], GENERATOR)
         self.assertNotEqual(GENERATOR, "grok-4.6")
         self.assertEqual(len(loaded.families), 138)
-        self.assertEqual(len(loaded.plants), 414)
-        self.assertEqual(loaded.plants[0].slug, "xsltproc-xinclude")
-        self.assertEqual(loaded.plants[-1].slug, "liquibase-changelog-sync-sql")
+        self.assertEqual(len(loaded.plants), 3237)
+        self.assertEqual(loaded.meta["source_commit"], catalog_extract.PRESERVE_COMMIT)
+        r1349_plants = tuple(p for p in loaded.plants if p.mill_id == catalog.SLICE_MILL)
+        self.assertEqual(len(r1349_plants), 414)
+        self.assertEqual(r1349_plants[0].slug, "xsltproc-xinclude")
+        self.assertEqual(r1349_plants[-1].slug, "liquibase-changelog-sync-sql")
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX], FACTORY)
 
     def test_families_pin_matches_bytes(self):
@@ -92,6 +95,95 @@ class CatalogPins(unittest.TestCase):
         with self.assertRaises(TupRefusal) as caught:
             loaded.plant("missing-slug")
         self.assertEqual(caught.exception.code, FINDING_PLANT_NOT_FOUND)
+
+
+class FourthSliceExtract(unittest.TestCase):
+    def _mill_source_or_skip(self, path: str) -> str:
+        try:
+            return catalog_extract.git_show_mill(path)
+        except TupRefusal as exc:
+            if exc.code == FINDING_SOURCE_NOT_PARSEABLE and "not fetchable" in str(exc):
+                self.skipTest(f"legacy-mill-lane mill source is not fetchable: {path}")
+            raise
+
+    def test_r1743_rows_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-r1743.py")
+        rows = catalog_extract.plant_rows_from_source(source, mill_id="tup_r1743")
+        self.assertEqual(len(rows), 118)
+
+    def test_leftover_triples_rounds_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-leftover-triples.py")
+        rows = catalog_extract.round_plants_from_source(source, mill_id="tup_leftover_triples")
+        self.assertEqual(len(rows), 48)
+
+    def test_leftover4_plants_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-leftover4-r1576.py")
+        rows = catalog_extract.leftover_plants_from_source(source, mill_id="tup_leftover4_r1576")
+        self.assertEqual(len(rows), 36)
+
+    def test_committed_fourth_slice_mill_plant_totals(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        fourth_ids = {
+            "tup_r1743",
+            "tup_r1782",
+            "tup_r1810",
+            "tup_r1830",
+            "tup_r1848",
+            "tup_r2106",
+            "tup_r2133",
+            "tup_r2153",
+            "tup_r2335",
+            "tup_leftover_triples",
+            "tup_leftover4_r1576",
+            "tup_leftover_lll_r1594",
+        }
+        by_mill = {
+            row["mill_id"]: row["plants"]
+            for row in loaded.meta["mills"]
+            if isinstance(row, dict) and row.get("mill_id") in fourth_ids
+        }
+        expected = {
+            "tup_r1743": 99,
+            "tup_r1782": 76,
+            "tup_r1810": 60,
+            "tup_r1830": 56,
+            "tup_r1848": 58,
+            "tup_r2106": 82,
+            "tup_r2133": 63,
+            "tup_r2153": 52,
+            "tup_r2335": 68,
+            "tup_leftover_triples": 48,
+            "tup_leftover4_r1576": 36,
+            "tup_leftover_lll_r1594": 46,
+        }
+        self.assertEqual(by_mill, expected)
+        self.assertEqual(loaded.meta["slice"], "tup-fourth-slice")
+
+
+class SecondSliceExtract(unittest.TestCase):
+    def _mill_source_or_skip(self, path: str) -> str:
+        try:
+            return catalog_extract.git_show_mill(path)
+        except TupRefusal as exc:
+            if exc.code == FINDING_SOURCE_NOT_PARSEABLE and "not fetchable" in str(exc):
+                self.skipTest(f"legacy-mill-lane mill source is not fetchable: {path}")
+            raise
+
+    def test_r1485_family_extract_matches_committed_file(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-r1485.py")
+        rows = catalog_extract.family_rows_from_source(source)
+        committed = [
+            json.loads(line)
+            for line in (COMMITTED / "families-r1485.jsonl").read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        self.assertEqual(len(rows), len(committed))
+        self.assertEqual(rows, committed)
+
+    def test_r2170_specs_extract_count(self):
+        source = self._mill_source_or_skip("experiments/tup-mill-r2170.py")
+        rows = catalog_extract.plant_rows_from_source(source, mill_id="tup_r2170")
+        self.assertEqual(len(rows), 263)
 
 
 class AstExtract(unittest.TestCase):
@@ -153,7 +245,8 @@ class AstExtract(unittest.TestCase):
             banned_slugs=loaded.meta["banned_slugs"],
             banned_prefix=loaded.meta["banned_prefix"],
         )
-        self.assertEqual([plant.slug for plant in plants], [plant.slug for plant in loaded.plants])
+        loaded_r1349 = tuple(p for p in loaded.plants if p.mill_id == catalog.SLICE_MILL)
+        self.assertEqual([plant.slug for plant in plants], [plant.slug for plant in loaded_r1349])
         self.assertIn("Never", catalog.git_show_source.__doc__ or "")
         self.assertEqual(SOURCE_COMMIT, "dba9f9a1d0e984e58fc14c992228f09534c26d57")
         self.assertEqual(SOURCE_SHA256, hashlib.sha256(text.encode("utf-8")).hexdigest())
@@ -167,7 +260,14 @@ class AstExtract(unittest.TestCase):
         names = tuple(sorted(path.name for path in package.iterdir() if path.suffix == ".py"))
         self.assertEqual(
             names,
-            ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py"),
+            (
+                "__init__.py",
+                "_contract.py",
+                "catalog.py",
+                "catalog_extract.py",
+                "cli.py",
+                "generate.py",
+            ),
         )
 
     def test_package_has_no_exec_eval_compile(self):
@@ -245,7 +345,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         payload = json.loads(stdout)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 414)
+        self.assertEqual(payload["plants"], 3237)
         self.assertEqual(payload["families"], 138)
 
     def test_generate_one_plant_json(self):

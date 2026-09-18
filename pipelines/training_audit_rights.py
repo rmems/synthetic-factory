@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Rights-export blockers for composed and identity-cleaned trees.
 
-Raw run trees stay structural: this module returns no blockers unless a
-compose-manifest or IDENTITY-MANIFEST is present. Research-only retained
-records cannot become training-ready.
+Raw run trees without curation markers stay structural. Curated trees require
+complete manifest evidence, including when a manifest is missing or malformed.
+Research-only retained records cannot become training-ready.
 """
 
 from __future__ import annotations
 
-import json
+import hashlib
+from dataclasses import dataclass
 import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -19,270 +21,144 @@ if __package__:
 
     _assert_direct_sibling("training_audit_rights")
     from .curate_identity_registry import default_registry
-    from .rights_mapping import RightsPolicyError
+    from .curate_identity_json import sha256_json
+    from . import training_audit_rights_manifest as _manifest
     from .rights_record import (
         BLOCKER_PREFIX,
         ENVELOPE_FIELD,
-        LANE_FIELD,
-        LANE_RESEARCH,
-        envelope_for_row,
-        envelope_lane,
         invalid_envelope_blocker,
         missing_envelope_blocker,
-        prefixed_sha256,
         research_only_blocker,
         training_export_blockers,
-        verify_bound_envelope,
     )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "training_audit_rights"
     )
     from curate_identity_registry import default_registry
-    from rights_mapping import RightsPolicyError
+    from curate_identity_json import sha256_json
+    import training_audit_rights_manifest as _manifest
     from rights_record import (
         BLOCKER_PREFIX,
         ENVELOPE_FIELD,
-        LANE_FIELD,
-        LANE_RESEARCH,
-        envelope_for_row,
-        envelope_lane,
         invalid_envelope_blocker,
         missing_envelope_blocker,
-        prefixed_sha256,
         research_only_blocker,
         training_export_blockers,
-        verify_bound_envelope,
     )
 
-IDENTITY_MANIFEST_SIDECAR = "IDENTITY-MANIFEST.json"
-MANIFEST_DIRNAME = "manifest"
-MANIFEST_FILENAME = "compose-manifest.jsonl"
-ACTION_RETAINED = "retained"
+compose_manifest_path = _manifest.compose_manifest_path
+identity_manifest_path = _manifest.identity_manifest_path
 _DEFECT_MISSING = "missing"
 _DEFECT_INVALID = "invalid"
 
 
-def compose_manifest_path(run_dir: Path) -> Path | None:
-    """Return the compose-manifest next to a composed records dir, if present."""
-
-    run_dir = Path(run_dir)
-    candidates = (
-        run_dir.parent / MANIFEST_DIRNAME / MANIFEST_FILENAME,
-        run_dir / MANIFEST_DIRNAME / MANIFEST_FILENAME,
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def identity_manifest_path(run_dir: Path) -> Path | None:
-    """Return IDENTITY-MANIFEST.json for an identity-cleaned tree, if present."""
-
-    run_dir = Path(run_dir)
-    for candidate in (run_dir / IDENTITY_MANIFEST_SIDECAR, run_dir.parent / IDENTITY_MANIFEST_SIDECAR):
-        if candidate.is_file():
-            return candidate
-    return None
+def _identity_detail(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    if "source" in entry:
+        return entry
+    stages = entry.get("stages", ())
+    if not isinstance(stages, (list, tuple)):
+        raise ValueError("compose stages must be a sequence")
+    details = [stage.get("detail") for stage in stages
+               if isinstance(stage, Mapping) and stage.get("lane") == "identity"]
+    detail = details[0] if details else {}
+    if not isinstance(detail, Mapping):
+        raise ValueError("identity detail must be an object")
+    return detail
 
 
-def _load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    text = path.read_text(encoding="utf-8")
-    for line in text.split("\n"):
-        if not line.strip():
-            continue
-        document = json.loads(line)
-        if isinstance(document, dict):
-            entries.append(document)
-    return entries
+def _replay_envelope(mapping: Mapping, registry, *, composed: bool):
+    if __package__:
+        from .compose_curated_rights import replay_composed_identity
+        from .curate_identity import replay_identity_mapping
+    else:
+        from compose_curated_rights import replay_composed_identity
+        from curate_identity import replay_identity_mapping
+    if composed:
+        return replay_composed_identity(mapping)
+    replay = replay_identity_mapping(mapping, registry)
+    return replay.mapping.get(ENVELOPE_FIELD)
 
 
-def _load_identity_manifest(path: Path) -> list[dict[str, Any]]:
-    document = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(document, list):
-        return []
-    return [item for item in document if isinstance(item, dict)]
-
-
-def _identity_detail(entry: Mapping[str, Any]) -> dict[str, Any] | None:
-    if isinstance(entry.get(ENVELOPE_FIELD), Mapping) and "source" in entry:
-        return dict(entry)
-    for stage in entry.get("stages") or ():
-        if not isinstance(stage, Mapping) or stage.get("lane") != "identity":
-            continue
-        detail = stage.get("detail")
-        if isinstance(detail, dict):
-            return detail
-    if isinstance(entry.get(ENVELOPE_FIELD), Mapping):
-        return dict(entry)
-    return None
-
-
-def _registry_row(mapping: Mapping[str, Any], registry: Any):
-    path_id = mapping.get("path_id") or mapping.get("factory")
-    if not isinstance(path_id, str):
-        return None
-    return registry.by_path_id.get(path_id)
-
-
-def _procedural_eligibility(mapping: Mapping[str, Any]) -> tuple[bool | None, list[str]]:
-    authority = mapping.get("procedural_authority")
-    if not isinstance(authority, Mapping):
-        return None, []
-    eligible = authority.get("eligible_training_candidate")
-    raw_reasons = authority.get("ineligibility_reasons") or ()
-    reasons = (
-        [str(item) for item in raw_reasons] if isinstance(raw_reasons, (list, tuple)) else []
-    )
-    return (bool(eligible) if eligible is not None else None), reasons
-
-
-def _source_bytes(mapping: Mapping[str, Any]) -> bytes | None:
-    source = mapping.get("source")
-    original = source.get("original") if isinstance(source, Mapping) else None
-    if isinstance(original, str):
-        return original.encode("utf-8")
-    return None
-
-
-def _declared_source_digest(mapping: Mapping[str, Any], entry: Mapping[str, Any]) -> str | None:
-    source = mapping.get("source")
-    if isinstance(source, Mapping) and isinstance(source.get("sha256"), str):
-        return source["sha256"]
-    declared = entry.get("source_sha256")
-    return declared if isinstance(declared, str) else None
-
-
-def _audit_declared_envelope(
-    envelope: Mapping[str, Any],
-    *,
-    mapping: Mapping[str, Any],
-    entry: Mapping[str, Any],
-    registry: Any,
-    row: Any,
-    eligible: bool | None,
-    reasons: list[str],
-) -> str | None:
-    declared = _declared_source_digest(mapping, entry)
-    if declared is None or row is None:
-        return _DEFECT_INVALID
-    try:
-        expected = envelope_for_row(
-            row,
-            source_sha256=declared,
-            factory_registry_sha256=registry.sha256,
-            eligible=False if eligible is None else eligible,
-            ineligibility_reasons=reasons,
-        )
-        if prefixed_sha256(envelope.get("source_sha256")) != prefixed_sha256(declared):
-            return _DEFECT_INVALID
-    except RightsPolicyError:
-        return _DEFECT_INVALID
-    if dict(envelope) != expected:
-        return _DEFECT_INVALID
-    return None
-
-
-def _audit_one_envelope(
-    envelope: object,
-    *,
-    mapping: Mapping[str, Any],
-    entry: Mapping[str, Any],
-    registry: Any,
-) -> str | None:
+def _entry_defect(entry: Mapping, registry) -> str | None:
+    mapping = _identity_detail(entry)
+    envelope = mapping.get(ENVELOPE_FIELD)
     if not isinstance(envelope, Mapping):
         return _DEFECT_MISSING
-    row = _registry_row(mapping, registry)
-    eligible, reasons = _procedural_eligibility(mapping)
-    source_bytes = _source_bytes(mapping)
-    if source_bytes is None:
-        return _audit_declared_envelope(
-            envelope,
-            mapping=mapping,
-            entry=entry,
-            registry=registry,
-            row=row,
-            eligible=eligible,
-            reasons=reasons,
-        )
     try:
-        verify_bound_envelope(
-            envelope,
-            source_bytes=source_bytes,
-            factory_registry_bytes=registry.raw_bytes,
-            expected_row=row,
-            eligible=eligible,
-            ineligibility_reasons=reasons,
-        )
-    except RightsPolicyError:
+        expected = _replay_envelope(mapping, registry, composed="source" not in entry)
+    except ValueError:
         return _DEFECT_INVALID
-    return None
-
-
-def _retained_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    retained = []
-    for entry in entries:
-        action = entry.get("action")
-        if action in {ACTION_RETAINED, "retained"}:
-            retained.append(entry)
-    return retained
+    if sha256_json(envelope) != sha256_json(expected):
+        return _DEFECT_INVALID
+    if sha256_json(entry.get(ENVELOPE_FIELD, envelope)) != sha256_json(expected):
+        return _DEFECT_INVALID
+    exportable, _ = training_export_blockers(envelope)
+    return None if exportable else "research"
 
 
 def _blockers_for_entries(entries: Sequence[Mapping[str, Any]]) -> list[str]:
     registry = default_registry()
-    missing = 0
-    invalid = 0
-    research = 0
-    for entry in _retained_entries(entries):
-        mapping = _identity_detail(entry) or dict(entry)
-        envelope = mapping.get(ENVELOPE_FIELD)
-        if not isinstance(envelope, Mapping):
-            envelope = entry.get(ENVELOPE_FIELD)
-        if not isinstance(envelope, Mapping):
-            missing += 1
-            continue
-        defect = _audit_one_envelope(
-            envelope, mapping=mapping, entry=entry, registry=registry
-        )
-        if defect == _DEFECT_MISSING:
-            missing += 1
-            continue
-        if defect == _DEFECT_INVALID:
-            invalid += 1
-            continue
-        exportable, _reasons = training_export_blockers(envelope)
-        lane = mapping.get(LANE_FIELD) or entry.get(LANE_FIELD) or envelope_lane(envelope)
-        if not exportable or lane == LANE_RESEARCH:
-            research += 1
-    blockers: list[str] = []
-    if missing:
-        blockers.append(missing_envelope_blocker(missing))
-    if invalid:
-        blockers.append(invalid_envelope_blocker(invalid))
-    if research:
-        blockers.append(research_only_blocker(research))
-    return blockers
+    counts = Counter(_entry_defect(entry, registry) for entry in _manifest._retained_entries(entries))
+    render = {
+        _DEFECT_MISSING: missing_envelope_blocker,
+        _DEFECT_INVALID: invalid_envelope_blocker,
+        "research": research_only_blocker,
+    }
+    return [formatter(counts[kind]) for kind, formatter in render.items() if counts[kind]]
+
+
+def _identity_tree_blockers(path: Path, payload: bytes, files: Mapping[str, bytes]) -> list[str]:
+    # Import at use time: identity attaches rights while constructing its mappings.
+    if __package__:
+        from .curate_identity import validate_identity_tree
+    else:
+        from curate_identity import validate_identity_tree
+    validate_identity_tree(path.parent, expected_manifest_digest=hashlib.sha256(payload).hexdigest())
+    entries = _manifest._load_identity_manifest(payload)
+    _manifest._require_identity_coverage(entries, files)
+    return _blockers_for_entries(entries)
+
+
+@dataclass(frozen=True)
+class RightsAudit:
+    """A rights decision bound to one captured manifest byte sequence."""
+
+    blockers: tuple[str, ...]
+    manifest_sha256: str | None = None
+    source_run: Path | None = None
+    compose_sha256: str | None = None
+
+
+def capture_rights_audit(run_dir: Path, files: Mapping[str, bytes] | None = None) -> RightsAudit:
+    """Capture and audit rights evidence once, before scanning record payloads."""
+    run_dir = Path(run_dir)
+    compose_path = _manifest.compose_manifest_path(run_dir)
+    identity_path = _manifest.identity_manifest_path(run_dir)
+    path = compose_path or identity_path
+    if path is None:
+        blockers = (missing_envelope_blocker(1),) if _manifest._missing_rights_manifest(run_dir) else ()
+        return RightsAudit(blockers)
+    try:
+        payload = path.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        source_run, compose_digest = _manifest._compose_source(run_dir) if compose_path is not None else (None, None)
+        if compose_path is not None:
+            entries = _manifest._load_jsonl_objects(payload)
+            _manifest._require_compose_coverage(entries, _manifest._record_payloads(run_dir) if files is None else files)
+            blockers = _blockers_for_entries(entries)
+        else:
+            blockers = _identity_tree_blockers(
+                path, payload, _manifest._record_payloads(run_dir) if files is None else files,
+            )
+    except (OSError, ValueError):
+        return RightsAudit((invalid_envelope_blocker(1),))
+    return RightsAudit(tuple(blockers), digest, source_run, compose_digest)
 
 
 def collect_rights_blockers(run_dir: Path) -> list[str]:
-    """Return ``rights:`` blockers for one audited tree, or none for raw trees."""
-
-    run_dir = Path(run_dir)
-    compose_path = compose_manifest_path(run_dir)
-    if compose_path is not None:
-        try:
-            return _blockers_for_entries(_load_jsonl_objects(compose_path))
-        except (OSError, ValueError, UnicodeError):
-            return [invalid_envelope_blocker(1)]
-    identity_path = identity_manifest_path(run_dir)
-    if identity_path is not None:
-        try:
-            return _blockers_for_entries(_load_identity_manifest(identity_path))
-        except (OSError, ValueError, UnicodeError):
-            return [invalid_envelope_blocker(1)]
-    return []
+    """Return rights blockers without exposing the captured audit metadata."""
+    return list(capture_rights_audit(run_dir).blockers)
 
 
 def is_rights_blocker(item: object) -> bool:

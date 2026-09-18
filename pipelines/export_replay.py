@@ -55,6 +55,7 @@ class _ReplaySnapshot:
     expected_outputs: list[dict[str, Any]]
     expected_payloads: dict[str, bytes]
     source_files: list[dict[str, Any]]
+    rights_lanes: Counter[str]
 
 
 @dataclass
@@ -213,6 +214,14 @@ def _record_replayed_excluded(state: _ReplayState, decision: Any, entry: dict[st
         state.exclusions[reason] += 1
 
 
+def _count_replayed_stages(state: _ReplayState, decision: Any) -> None:
+    for stage in decision.stages:
+        lane = stage["lane"]
+        if lane in state.lane_actions:
+            state.lane_actions[lane][stage["action"]] += 1
+
+
+
 def _replay_one_line_context(
     state: _ReplayState,
     physical_line: bytes,
@@ -240,10 +249,7 @@ def _replay_one_line_context(
         replay.line_number,
         (hashlib.sha256(physical_line).hexdigest(), replay.source_file_sha256),
     )
-    for stage in decision.stages:
-        lane = stage["lane"]
-        if lane in state.lane_actions:
-            state.lane_actions[lane][stage["action"]] += 1
+    _count_replayed_stages(state, decision)
 
     if decision.action == compose_curated.ACTION_RETAINED and decision.record is not None:
         emitted_line = _record_replayed_retained_context(state, decision, entry, replay)
@@ -463,6 +469,7 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         expected_outputs=state.expected_outputs,
         expected_payloads=state.expected_payloads,
         source_files=state.source_files,
+        rights_lanes=state.rights_lanes,
     )
 
 
@@ -517,12 +524,14 @@ def _require_replayed_counts(snapshot: _ReplaySnapshot, summary: dict[str, Any])
         },
         "exclusions": dict(sorted(snapshot.exclusions.items())),
         "transforms": compose_curated.transform_contract(),
+        "rights": compose_curated_rights.rights_summary(snapshot),
     }
     failures = {
         "counts": "COMPOSE.json: source/output counts do not reproduce",
         "lane_actions": "COMPOSE.json: lane action counts do not reproduce",
         "exclusions": "COMPOSE.json: exclusions do not reproduce",
         "transforms": "COMPOSE.json: transform declarations do not match this contract",
+        "rights": "COMPOSE.json: rights summary does not reproduce",
     }
     for field_name, expected_value in expected.items():
         if summary.get(field_name) != expected_value:

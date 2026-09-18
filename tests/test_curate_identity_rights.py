@@ -6,16 +6,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-TESTS = Path(__file__).resolve().parent
-if str(TESTS) not in sys.path:
-    sys.path.insert(0, str(TESTS))
-
-from test_curate_identity import (
+from tests.test_curate_identity import (
     FABLE_ACT,
     _load_temp_registry,
     _manifest_bytes,
@@ -26,7 +21,19 @@ from test_curate_identity import (
     source,
     thalamic,
 )
-import training_audit
+from pipelines import training_audit
+
+
+def _legacy_row_payload(row):
+    rights_fields = {"provider", "channel", "rights_profile_id", "intended_use", "project_training_policy"}
+    return {key: value for key, value in row.items() if key not in rights_fields}
+
+
+def _bind_legacy_registry(mapping, digest):
+    mapping["registry"] = {"schema_version": "factory-registry-v0.1", "sha256": digest}
+    envelope = mapping.get("rights")
+    if isinstance(envelope, dict):
+        envelope["factory_registry_sha256"] = f"sha256:{digest}"
 
 
 def _legacy_row(**overrides):
@@ -60,16 +67,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             registry["schema_version"] = "factory-registry-v0.1"
             registry["factories"] = [row for row in registry["factories"]
                                      if row.get("source_type") != "procedural"]
-            rights_fields = (
-                "provider",
-                "channel",
-                "rights_profile_id",
-                "intended_use",
-                "project_training_policy",
-            )
-            for row in registry["factories"]:
-                for field in rights_fields:
-                    row.pop(field)
+            registry["factories"] = [_legacy_row_payload(row) for row in registry["factories"]]
             legacy_bytes = _manifest_bytes(registry)
             registry_path.write_bytes(legacy_bytes)
 
@@ -77,13 +75,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             legacy_digest = hashlib.sha256(legacy_bytes).hexdigest()
             for mapping in manifest:
-                mapping["registry"] = {
-                    "schema_version": "factory-registry-v0.1",
-                    "sha256": legacy_digest,
-                }
-                envelope = mapping.get("rights")
-                if isinstance(envelope, dict):
-                    envelope["factory_registry_sha256"] = f"sha256:{legacy_digest}"
+                _bind_legacy_registry(mapping, legacy_digest)
             manifest_path.write_bytes(_manifest_bytes(manifest))
 
             loaded = identity.validate_identity_tree(dest)

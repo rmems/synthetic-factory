@@ -21,7 +21,7 @@ import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
 
 
-class ExportPayloadAndProvenance(ResearchExportAllowed):
+class ExportPayloadAndProvenance(ResearchExportAllowed, unittest.TestCase):
     def _assert_payload_copied_byte_identically(self, export, curated, provenance):
         # Curated payload is copied byte-identically, one file per source.
         for entry in provenance["files"]:
@@ -141,7 +141,7 @@ class ExportPayloadAndProvenance(ResearchExportAllowed):
             self._assert_protocol_and_provenance(export, provenance)
 
 
-class ExportSemanticDuplicateReplay(ResearchExportAllowed):
+class ExportSemanticDuplicateReplay(ResearchExportAllowed, unittest.TestCase):
     def _assert_duplicate_excluded(self, root, source, reason):
         """Compose/export once and require one duplicate to stay excluded."""
 
@@ -234,7 +234,7 @@ class ExportSemanticDuplicateReplay(ResearchExportAllowed):
             )
 
 
-class ExportCorpusGating(ResearchExportAllowed):
+class ExportCorpusGating(ResearchExportAllowed, unittest.TestCase):
     def test_refuses_a_corpus_that_is_not_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

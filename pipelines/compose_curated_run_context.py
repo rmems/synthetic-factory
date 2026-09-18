@@ -49,7 +49,7 @@ class DestinationServices:
 @dataclass(frozen=True)
 class ReportServices:
     load_calibration: Callable[..., tuple[dict[str, Any], dict[str, Any]]]
-    audit_records: Callable[[Path, int], dict[str, Any]]
+    audit_records: Callable[..., dict[str, Any]]
     transform_contract: Callable[[], dict[str, Any]]
 
 

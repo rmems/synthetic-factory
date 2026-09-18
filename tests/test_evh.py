@@ -32,7 +32,16 @@ from evh.catalog_extract import (  # noqa: E402
     pairs_jsonl_path,
 )
 from evh.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
+from evh.leftover_plants import load_leftover_plants  # noqa: E402
+from evh.leftover_plants_b import load_leftover_plants_b  # noqa: E402
+from evh.leftover_plants_letter import load_leftover_plants_letter  # noqa: E402
 from evh.pairs import load_pairs  # noqa: E402
+from evh.plants_extract import (  # noqa: E402
+    extract_leftover_plant_pairs,
+    leftover_plants_b_jsonl_path,
+    leftover_plants_jsonl_path,
+    leftover_plants_letter_jsonl_path,
+)
 from evh.sources import MILL_SOURCES, catalog_sources, loop_sources, source_by_id  # noqa: E402
 from evh import vocabulary as cv  # noqa: E402
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
@@ -254,7 +263,10 @@ class EvhSkeletonTests(unittest.TestCase):
             "catalog_extract.py",
             "catalog.py",
             "identity.py",
+            "leftover_plants.py",
+            "leftover_plants_b.py",
             "pairs.py",
+            "plants_extract.py",
         ):
             hits.extend(_module_uses_exec(package / name))
         self.assertEqual(hits, [])
@@ -376,10 +388,17 @@ class EvhLegacyExtractTests(unittest.TestCase):
             mills.append(
                 mill_summary(live, include_pairs=source.mill_id == cv.FIRST_SLICE_MILL_ID)
             )
-        self.assertEqual(
-            dumps_catalog(catalog_document(mills)),
-            catalog_json_path().read_text(encoding="utf-8"),
-        )
+        expected = json.loads(dumps_catalog(catalog_document(mills)))
+        committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        archive_b = committed.pop("archive_b")
+        archive_c = committed.pop("archive_c")
+        self.assertIsNotNone(archive_b)
+        self.assertIsNotNone(archive_c)
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            key = str(cv.LEFTOVER_LETTER_PINS[letter]["archive_key"])
+            self.assertIsNotNone(committed.pop(key))
+        committed.pop("deferred_leftover_mills")
+        self.assertEqual(committed, expected)
 
     def test_loop_and_gen_scripts_name_companion_mill_dir(self):
         if not _legacy_available():
@@ -423,6 +442,139 @@ class EvhLegacyExtractTests(unittest.TestCase):
         self.assertEqual(extracted, committed)
         self.assertEqual(extracted[0]["success_slug"], "ansrel-minscore-hold-stale")
         self.assertEqual(extracted[-1]["success_slug"], "addopts-timeout-func-hold-stale")
+
+
+class EvhArchiveBPlantsTests(unittest.TestCase):
+    def test_leftover_plants_jsonl_stays_compact(self):
+        path = leftover_plants_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.LEFTOVER_PLANTS_N_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(cv.LEFTOVER_PLANT_ROW_KEYS))
+
+    def test_archive_b_rows_match_catalog_pins(self):
+        archive = CATALOG.archive_b
+        self.assertIsNotNone(archive)
+        assert archive is not None
+        self.assertEqual(archive.path, cv.ARCHIVE_B_PATH)
+        self.assertEqual(archive.n_pairs, cv.LEFTOVER_PLANTS_N_ROWS)
+        self.assertEqual(len(archive.pairs), cv.LEFTOVER_PLANTS_N_ROWS)
+        self.assertEqual(archive.pairs[0]["ok_slug"], "gha-restore-keys-cache-x63e")
+        self.assertEqual(archive.pairs[-1]["ok_slug"], "otel-baggage-score-overwrite-d69k")
+
+    def test_live_reextract_archive_b_matches_committed(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{cv.ARCHIVE_B_LEGACY_COMMIT}:{cv.ARCHIVE_B_PATH}",
+            ],
+            text=True,
+            cwd=REPO,
+        )
+        extracted = extract_leftover_plant_pairs(text)
+        committed = list(load_leftover_plants())
+        self.assertEqual(len(extracted), cv.LEFTOVER_PLANTS_N_ROWS)
+        self.assertEqual(extracted, committed)
+
+
+class EvhArchiveCPlantsTests(unittest.TestCase):
+    def test_leftover_plants_b_jsonl_stays_compact(self):
+        path = leftover_plants_b_jsonl_path()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(cv.LEFTOVER_PLANT_ROW_KEYS))
+            self.assertEqual(row["source"], cv.ARCHIVE_C_PATH)
+
+    def test_archive_c_rows_match_catalog_pins(self):
+        archive = CATALOG.archive_c
+        self.assertIsNotNone(archive)
+        assert archive is not None
+        self.assertEqual(archive.path, cv.ARCHIVE_C_PATH)
+        self.assertEqual(archive.n_pairs, cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertEqual(len(archive.pairs), cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertEqual(archive.pairs[0]["ok_slug"], "prettier-json-sort-bind-f71m")
+        self.assertEqual(archive.pairs[-1]["ok_slug"], "instructor-ge-retry-swallow-l77s")
+
+    def test_live_reextract_archive_c_matches_committed(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        text = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{cv.ARCHIVE_C_LEGACY_COMMIT}:{cv.ARCHIVE_C_PATH}",
+            ],
+            text=True,
+            cwd=REPO,
+        )
+        extracted = extract_leftover_plant_pairs(text, path=cv.ARCHIVE_C_PATH)
+        committed = list(load_leftover_plants_b())
+        self.assertEqual(len(extracted), cv.LEFTOVER_PLANTS_B_N_ROWS)
+        self.assertEqual(extracted, committed)
+
+
+class EvhArchiveLetterPlantsTests(unittest.TestCase):
+    def test_leftover_letter_jsonl_stays_compact(self):
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            pin = cv.LEFTOVER_LETTER_PINS[letter]
+            path = leftover_plants_letter_jsonl_path(letter)
+            text = path.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            self.assertEqual(len(lines), pin["n_rows"], letter)
+            self.assertTrue(text.endswith("\n"))
+            self.assertNotIn("\r", text)
+            for line in lines:
+                self.assertFalse(line.startswith((" ", "\t")))
+                row = json.loads(line)
+                self.assertEqual(set(row), set(cv.LEFTOVER_PLANT_ROW_KEYS))
+                self.assertEqual(row["source"], pin["path"])
+
+    def test_archive_letters_match_catalog_pins(self):
+        self.assertEqual(len(CATALOG.archive_letters), len(cv.LEFTOVER_LETTERS_LANDED))
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            pin = cv.LEFTOVER_LETTER_PINS[letter]
+            key = str(pin["archive_key"])
+            archive = CATALOG.archive_letters[key]
+            self.assertEqual(archive.path, pin["path"])
+            self.assertEqual(archive.n_pairs, pin["n_rows"])
+            self.assertEqual(len(archive.pairs), pin["n_rows"])
+
+    def test_live_reextract_archive_letters_match_committed(self):
+        if not _legacy_available():
+            self.skipTest("origin/legacy-mill-lane is not fetched")
+        for letter in cv.LEFTOVER_LETTERS_LANDED:
+            pin = cv.LEFTOVER_LETTER_PINS[letter]
+            path = str(pin["path"])
+            text = subprocess.check_output(
+                ["git", "show", f"{cv.ARCHIVE_C_LEGACY_COMMIT}:{path}"],
+                text=True,
+                cwd=REPO,
+            )
+            extracted = extract_leftover_plant_pairs(text, path=path)
+            committed = list(load_leftover_plants_letter(letter))
+            self.assertEqual(len(extracted), pin["n_rows"], letter)
+            self.assertEqual(extracted, committed, letter)
+
+    def test_deferred_leftover_mills_are_generate_only(self):
+        self.assertEqual(len(CATALOG.deferred_leftover_mills), 27)
+        paths = [row.path for row in CATALOG.deferred_leftover_mills]
+        self.assertEqual(paths[0], f"{cv.MILL_DIR}/mill_plants_aa.py")
+        self.assertEqual(paths[-1], f"{cv.MILL_DIR}/mill_plants_z.py")
+        self.assertTrue(all(row.reason == "generate-only" for row in CATALOG.deferred_leftover_mills))
 
 
 class EvhDeferredPairsTests(unittest.TestCase):

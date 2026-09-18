@@ -128,51 +128,57 @@ def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     return list(candidates)
 
 
+def _declared_transform(entry: dict[str, Any]) -> tuple[Any, Any]:
+    value = entry.get("transform")
+    if isinstance(value, dict):
+        name, version = value.get("name"), value.get("version")
+    else:
+        name, version = value if isinstance(value, str) else None, None
+    return entry.get("transform_name") or name, entry.get("transform_version") or version
+
+
+def _entry_source_binding(entry: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    line = entry.get("source_line")
+    return {
+        "source_path": entry.get("source_path") or source.get("path"),
+        "source_line": source.get("line") if line is None else line,
+        "source_hash": entry.get("source_hash") or entry.get("source_sha256") or source.get("sha256"),
+    }
+
+
+def _identity_metadata(entry: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    metadata = {key: copy.deepcopy(entry.get(key)) for key in (
+        "classification", "output_id", "id_mappings", "provenance_mappings",
+    )}
+    if isinstance(source.get("original"), str):
+        metadata["identity_detail"] = copy.deepcopy(entry)
+    if isinstance(entry.get("rights"), dict):
+        metadata["rights"] = copy.deepcopy(entry["rights"])
+    if isinstance(entry.get("rights_lane"), str):
+        metadata["rights_lane"] = entry["rights_lane"]
+    return metadata
+
+
 def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, Any]:
     source = entry.get("source")
     if not isinstance(source, dict):
         source = {}
-    transform_value = entry.get("transform")
-    if isinstance(transform_value, dict):
-        transform = transform_value
-        transform_name = transform.get("name")
-        transform_version = transform.get("version")
-    else:
-        transform_name = transform_value if isinstance(transform_value, str) else None
-        transform_version = None
-    declared_transform = entry.get("transform_name") or transform_name
-    declared_version = entry.get("transform_version") or transform_version
+    declared_transform, declared_version = _declared_transform(entry)
     reasons = entry.get("reason_codes")
-    if reasons is None:
-        reasons = []
-    payload = {
+    return {
         "lane_order": lane["order"],
         "transform": declared_transform or lane["transform"],
         "version": declared_version or lane["version"],
         "declared_transform": declared_transform,
         "declared_version": declared_version,
         "action": entry.get("action"),
-        "reason_codes": copy.deepcopy(reasons),
-        "source_path": entry.get("source_path") or source.get("path"),
-        "source_line": (
-            entry.get("source_line") if entry.get("source_line") is not None else source.get("line")
-        ),
-        "source_hash": (
-            entry.get("source_hash") or entry.get("source_sha256") or source.get("sha256")
-        ),
+        "reason_codes": copy.deepcopy([] if reasons is None else reasons),
         "record_kind": entry.get("record_kind") or entry.get("kind"),
-        "classification": entry.get("classification"),
-        "output_id": entry.get("output_id"),
         "output_hash": entry.get("output_hash") or entry.get("output_sha256"),
-        "id_mappings": copy.deepcopy(entry.get("id_mappings")),
-        "provenance_mappings": copy.deepcopy(entry.get("provenance_mappings")),
         "manifest_entry_sha256": record_sha256(entry),
+        **_entry_source_binding(entry, source),
+        **_identity_metadata(entry, source),
     }
-    if isinstance(entry.get("rights"), dict):
-        payload["rights"] = copy.deepcopy(entry.get("rights"))
-    if isinstance(entry.get("rights_lane"), str):
-        payload["rights_lane"] = entry.get("rights_lane")
-    return payload
 
 
 # ---------------------------------------------------------------------------

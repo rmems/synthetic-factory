@@ -8,7 +8,6 @@ responsibility. Not named ``test_*`` so it is not itself collected.
 import importlib.util
 import json
 import sys
-import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
@@ -46,21 +45,19 @@ def allow_research_only_export():
 
     real = training_audit.audit_run
 
-    def patched(run_dir, snapshot=None):
-        return strip_rights_blockers(real(run_dir, snapshot=snapshot))
+    def patched(run_dir, snapshot=None, completion_source=None):
+        return strip_rights_blockers(real(run_dir, snapshot=snapshot, completion_source=completion_source))
 
     with mock.patch.object(training_audit, "audit_run", patched):
         yield
 
 
-class ResearchExportAllowed(unittest.TestCase):
+class ResearchExportAllowed:
     """Writer tests that compose hosted records still need an exportable audit."""
 
-    def setUp(self):
-        super().setUp()
-        self._rights_bypass = allow_research_only_export()
-        self._rights_bypass.__enter__()
-        self.addCleanup(self._rights_bypass.__exit__, None, None, None)
+    def run(self, result=None):
+        with allow_research_only_export():
+            return super().run(result)
 
 
 def compose_fixture(root):

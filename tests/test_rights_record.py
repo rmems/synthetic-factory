@@ -4,17 +4,13 @@
 from __future__ import annotations
 
 import hashlib
-import sys
 import unittest
-from pathlib import Path
 
-PIPELINES = Path(__file__).resolve().parents[1] / "pipelines"
-if str(PIPELINES) not in sys.path:
-    sys.path.insert(0, str(PIPELINES))
-
-from curate_identity_registry import default_registry
-from rights_mapping import RightsPolicyError
-from rights_record import (
+from pipelines.curate_identity_registry import default_registry
+from pipelines.rights_mapping import RightsPolicyError
+from pipelines.rights_record import (
+    BoundRights,
+    RecordRights,
     LANE_RESEARCH,
     LANE_TRAINING,
     envelope_for_row,
@@ -34,20 +30,20 @@ class RightsRecordTests(unittest.TestCase):
         self.source_digest = hashlib.sha256(self.SOURCE_BYTES).hexdigest()
 
     def _hosted(self):
-        return envelope_for_row(
+        return envelope_for_row(RecordRights(
             self.hosted_row,
             source_sha256=self.source_digest,
             factory_registry_sha256=self.registry.sha256,
-        )
+        ))
 
     def _procedural(self, *, eligible, reasons=()):
-        return envelope_for_row(
+        return envelope_for_row(RecordRights(
             self.procedural_row,
             source_sha256=self.source_digest,
             factory_registry_sha256=self.registry.sha256,
             eligible=eligible,
             ineligibility_reasons=reasons,
-        )
+        ))
 
     def test_hosted_envelope_is_research_only_and_not_exportable(self):
         envelope = self._hosted()
@@ -94,14 +90,25 @@ class RightsRecordTests(unittest.TestCase):
         self.assertEqual(envelope_lane(envelope), LANE_RESEARCH)
         self.assertTrue(any("eligible training candidate" in item for item in blockers))
 
+    def test_non_boolean_procedural_eligibility_cannot_authorize_training(self):
+        with self.assertRaises(RightsPolicyError):
+            self._procedural(eligible="yes")
+
+    def test_bound_verification_rejects_numeric_eligibility(self):
+        envelope = self._procedural(eligible=True)
+        envelope["eligible_training_candidate"] = 1
+        evidence = BoundRights(self.SOURCE_BYTES, self.registry.raw_bytes, self.procedural_row, True)
+        with self.assertRaises(RightsPolicyError):
+            verify_bound_envelope(envelope, evidence)
+
     def test_tampered_source_binding_fails_closed(self):
         envelope = self._hosted()
         with self.assertRaises(RightsPolicyError):
             verify_bound_envelope(
                 envelope,
-                source_bytes=b'{"id":"forged"}\n',
+                BoundRights(source_bytes=b'{"id":"forged"}\n',
                 factory_registry_bytes=self.registry.raw_bytes,
-                expected_row=self.hosted_row,
+                row=self.hosted_row),
             )
 
     def test_stale_policy_digest_fails_closed(self):
@@ -110,19 +117,19 @@ class RightsRecordTests(unittest.TestCase):
         with self.assertRaises(RightsPolicyError):
             verify_bound_envelope(
                 envelope,
-                source_bytes=self.SOURCE_BYTES,
+                BoundRights(source_bytes=self.SOURCE_BYTES,
                 factory_registry_bytes=self.registry.raw_bytes,
-                expected_row=self.procedural_row,
-                eligible=True,
+                row=self.procedural_row,
+                eligible=True),
             )
 
     def test_matching_hosted_bytes_still_cannot_export(self):
         envelope = self._hosted()
         verified = verify_bound_envelope(
             envelope,
-            source_bytes=self.SOURCE_BYTES,
+            BoundRights(source_bytes=self.SOURCE_BYTES,
             factory_registry_bytes=self.registry.raw_bytes,
-            expected_row=self.hosted_row,
+            row=self.hosted_row),
         )
         exportable, _blockers = training_export_blockers(verified)
         self.assertFalse(exportable)

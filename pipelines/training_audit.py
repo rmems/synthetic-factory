@@ -25,6 +25,9 @@ from pathlib import Path
 from typing import Mapping
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("training_audit")
     from . import distillation_audit as _distillation_audit
     from . import training_audit_record as _record_audit
     from . import training_audit_snapshot as _snapshot
@@ -56,6 +59,7 @@ if __package__:
     from .tag_jsonutil import reject_duplicate_object_keys
     from .validate_run import check_episode, episode_like
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("training_audit")
     import distillation_audit as _distillation_audit
     import training_audit_record as _record_audit
     import training_audit_snapshot as _snapshot
@@ -309,6 +313,8 @@ class _CorpusAudit:
         self.run_dir = run_dir
         self.mill_findings_by_ref = mill_findings_by_ref
         self.mill_mix = mill_mix
+        self.rights_audit = _rights_audit.RightsAudit(())
+        self.completion_source = None
         self.factories = defaultdict(
             lambda: {
                 "files": 0,
@@ -396,7 +402,8 @@ class _CorpusAudit:
             from .code_repair.publication_export import completed_batch_matches
         else:
             from code_repair.publication_export import completed_batch_matches
-        if completed_batch_matches(self.run_dir / rel, payload):
+        source_root = self.completion_source or self.run_dir
+        if completed_batch_matches(source_root / rel, payload):
             self.code_repair["completed_records"] += self.code_repair["records"] - previous_records
 
     def _observe_line(self, raw_line, line_number, rel, factory):
@@ -743,7 +750,9 @@ class _CorpusAudit:
             if self.code_repair["completed_records"] != self.code_repair["records"]:
                 report["blockers"].append("code_repair requires fresh replay and round completion gate")
                 report["training_ready"] = False
-        rights_blockers = _rights_audit.collect_rights_blockers(self.run_dir)
+        report["rights_manifest_sha256"] = self.rights_audit.manifest_sha256
+        report["rights_compose_sha256"] = self.rights_audit.compose_sha256
+        rights_blockers = self.rights_audit.blockers
         if rights_blockers:
             report["blockers"].extend(rights_blockers)
             report["training_ready"] = False
@@ -754,6 +763,7 @@ def audit_run(
     run_dir: Path,
     *,
     snapshot: Mapping[str, bytes] | None = None,
+    completion_source: Path | None = None,
 ):
     """Audit one immutable byte snapshot.
 
@@ -767,7 +777,10 @@ def audit_run(
         _captured_run_files(run_dir) if snapshot is None else _validated_snapshot_files(snapshot)
     )
     mill_findings, mill_mix = index_mill_quarantine(run_dir, files)
+    rights_audit = _rights_audit.capture_rights_audit(run_dir, dict(files))
     audit = _CorpusAudit(run_dir, mill_findings, mill_mix)
+    audit.rights_audit = rights_audit
+    audit.completion_source = completion_source or rights_audit.source_run
     for relative, payload in files:
         audit.observe_file(relative, payload)
     return audit.report()
@@ -798,6 +811,10 @@ def main(argv=None):
     else:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     return 1 if args.strict and report["blockers"] else 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

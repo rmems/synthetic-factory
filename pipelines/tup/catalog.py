@@ -18,12 +18,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from . import catalog_extract as extract
 from ._contract import (
     CATALOG_FILENAME,
     CATALOG_FORMAT,
     DEFAULT_CATALOG_ID,
     FACTORY,
     FAMILIES_FILENAME,
+    PLANTS_EXTRA_FILENAME,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
@@ -60,7 +62,10 @@ CATALOG_META_KEYS = (
     "family",
     "generator",
     "intended_use",
+    "mills",
     "plants",
+    "plants_extra_filename",
+    "plants_extra_sha256",
     "project_training_policy",
     "quota_per_round",
     "schema",
@@ -75,6 +80,7 @@ CATALOG_META_KEYS = (
     "source_sha256",
 )
 FAMILY_KEYS = ("bin", "cmds", "grep", "keep")
+SLICE_MILL = "tup_r1349"
 
 __all__ = [
     "CATALOG_META_KEYS",
@@ -143,13 +149,11 @@ class Plant:
     keep: str
     wait: int
     grep: str
+    mill_id: str = SLICE_MILL
 
     @property
     def plant_id(self) -> str:
-        return f"{SLICE_MILL}:{self.slug}"
-
-
-SLICE_MILL = "tup_r1349"
+        return f"{self.mill_id}:{self.slug}"
 
 
 @dataclass(frozen=True)
@@ -198,63 +202,18 @@ def _cmd_row(node: ast.AST, label: str) -> tuple[str, str, str]:
 
 
 def families_from_source(source: str) -> tuple[Family, ...]:
-    """AST-extract ``extra_catalog`` families. Never ``exec`` the mill."""
+    """AST-extract ``extra_catalog`` / ``extra_v*`` families. Never ``exec`` the mill."""
 
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"mill source is not parseable: {exc}")
-    extra = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "extra_catalog"
-        ),
-        None,
-    )
-    refuse_when(extra is None, FINDING_SOURCE_NOT_PARSEABLE, "missing extra_catalog")
-    assign = next(
-        (
-            node
-            for node in extra.body
-            if isinstance(node, ast.Assign)
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == "families"
-        ),
-        None,
-    )
-    refuse_when(
-        assign is None or not isinstance(assign.value, (ast.List, ast.Tuple)),
-        FINDING_SOURCE_NOT_PARSEABLE,
-        "missing families list",
-    )
-    families: list[Family] = []
-    for index, elt in enumerate(assign.value.elts):
-        label = f"families[{index}]"
-        refuse_when(
-            not isinstance(elt, (ast.List, ast.Tuple)) or len(elt.elts) != 4,
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{label} is not a 4-tuple",
+    rows = extract.family_rows_from_source(source)
+    return tuple(
+        Family(
+            bin=str(row["bin"]),
+            keep=str(row["keep"]),
+            grep=str(row["grep"]),
+            cmds=tuple(tuple(part) for part in row["cmds"]),
         )
-        cmds_node = elt.elts[3]
-        refuse_when(
-            not isinstance(cmds_node, (ast.List, ast.Tuple)) or not cmds_node.elts,
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{label}.cmds is empty",
-        )
-        families.append(
-            Family(
-                bin=_literal_str(elt.elts[0], f"{label}.bin"),
-                keep=_literal_str(elt.elts[1], f"{label}.keep"),
-                grep=_literal_str(elt.elts[2], f"{label}.grep"),
-                cmds=tuple(
-                    _cmd_row(cmd, f"{label}.cmds[{i}]")
-                    for i, cmd in enumerate(cmds_node.elts)
-                ),
-            )
-        )
-    refuse_when(not families, FINDING_SOURCE_NOT_PARSEABLE, "extra_catalog families is empty")
-    return tuple(families)
+        for row in rows
+    )
 
 
 def expand_families(
@@ -262,8 +221,9 @@ def expand_families(
     *,
     banned_slugs: Sequence[str],
     banned_prefix: Sequence[str],
+    mill_id: str = SLICE_MILL,
 ) -> tuple[Plant, ...]:
-    """Replay r1349 ``add()`` without importing ``tup_mill``."""
+    """Replay inspect-vs-destroy ``add()`` without importing ``tup_mill``."""
 
     banned = frozenset(banned_slugs)
     prefixes = tuple(banned_prefix)
@@ -287,6 +247,7 @@ def expand_families(
                     keep=family.keep,
                     wait=3 + (index % 5),
                     grep=family.grep,
+                    mill_id=mill_id,
                 )
             )
             index += 1
@@ -354,6 +315,35 @@ def _family_from_row(row: Mapping[str, Any], lineno: int) -> Family:
     )
 
 
+def _load_jsonl_bytes(path: Path) -> bytes:
+    refuse_when(not path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {path}")
+    return path.read_bytes()
+
+
+def _plant_from_row(row: Mapping[str, Any], lineno: int) -> Plant:
+    keys = ("slug", "bin", "verify", "destroy", "keep", "wait", "grep", "mill_id")
+    missing = [key for key in keys if key not in row]
+    refuse_when(bool(missing), FINDING_PLANT_FIELD_MISSING, f"line {lineno} missing {missing}")
+    extra = sorted(set(row) - set(keys))
+    refuse_when(bool(extra), FINDING_PLANT_FIELD_INVALID, f"line {lineno} extra {extra}")
+    wait = row["wait"]
+    refuse_when(
+        not isinstance(wait, int) or isinstance(wait, bool),
+        FINDING_PLANT_FIELD_INVALID,
+        f"line {lineno} wait",
+    )
+    return Plant(
+        slug=_as_str(row["slug"], f"line {lineno} slug"),
+        bin=_as_str(row["bin"], f"line {lineno} bin"),
+        verify=_as_str(row["verify"], f"line {lineno} verify"),
+        destroy=_as_str(row["destroy"], f"line {lineno} destroy"),
+        keep=_as_str(row["keep"], f"line {lineno} keep"),
+        wait=wait,
+        grep=_as_str(row["grep"], f"line {lineno} grep"),
+        mill_id=_as_str(row["mill_id"], f"line {lineno} mill_id"),
+    )
+
+
 def _load_meta(directory: Path) -> tuple[dict[str, Any], bytes, str]:
     meta_path = directory / CATALOG_FILENAME
     families_path = directory / FAMILIES_FILENAME
@@ -414,34 +404,90 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_CATALOG_FIELD_INVALID,
         f"families.jsonl has {len(families)} rows; CATALOG.json says {meta['families']}",
     )
-    plants = expand_families(
-        families,
-        banned_slugs=_as_str_tuple(meta["banned_slugs"], "banned_slugs"),
-        banned_prefix=_as_str_tuple(meta["banned_prefix"], "banned_prefix"),
+    banned_slugs = _as_str_tuple(meta["banned_slugs"], "banned_slugs")
+    banned_prefix = _as_str_tuple(meta["banned_prefix"], "banned_prefix")
+    plants: list[Plant] = list(
+        expand_families(
+            families,
+            banned_slugs=banned_slugs,
+            banned_prefix=banned_prefix,
+            mill_id=SLICE_MILL,
+        )
     )
+    mills = meta.get("mills")
+    if isinstance(mills, list):
+        for index, row in enumerate(mills):
+            refuse_when(
+                not isinstance(row, dict),
+                FINDING_CATALOG_FIELD_INVALID,
+                f"mills[{index}] is not an object",
+            )
+            shape = row.get("shape")
+            mill_id = row.get("mill_id")
+            if shape == "families" and row.get("file") not in (None, FAMILIES_FILENAME):
+                wave_path = catalog_dir / str(row["file"])
+                wave_bytes = _load_jsonl_bytes(wave_path)
+                wave_rows = [
+                    load_strict_json(line)
+                    for line in wave_bytes.decode("utf-8").splitlines()
+                    if line
+                ]
+                expanded = extract.expand_family_rows(
+                    wave_rows,
+                    mill_id=str(mill_id),
+                    banned_slugs=banned_slugs,
+                    banned_prefix=banned_prefix,
+                )
+                plants.extend(_plant_from_row(item, 0) for item in expanded)
+            elif shape == "plants":
+                continue
+    extra_name = meta.get("plants_extra_filename")
+    if isinstance(extra_name, str) and extra_name:
+        extra_path = catalog_dir / extra_name
+        extra_bytes = _load_jsonl_bytes(extra_path)
+        digest_extra = _sha256_bytes(extra_bytes)
+        refuse_when(
+            meta.get("plants_extra_sha256") != digest_extra,
+            FINDING_PLANTS_SHA_MISMATCH,
+            f"{extra_name} sha256 {digest_extra} != pinned",
+        )
+        for lineno, line in enumerate(extra_bytes.decode("utf-8").splitlines(), start=1):
+            if line:
+                plants.append(_plant_from_row(load_strict_json(line), lineno))
+    plants_tuple = tuple(plants)
     refuse_when(
-        len(plants) != meta["plants"],
+        len(plants_tuple) != meta["plants"],
         FINDING_CATALOG_FIELD_INVALID,
-        f"expanded {len(plants)} plants; CATALOG.json says {meta['plants']}",
+        f"loaded {len(plants_tuple)} plants; CATALOG.json says {meta['plants']}",
     )
-    slugs = [plant.slug for plant in plants]
+    slugs = [plant.slug for plant in plants_tuple]
     refuse_when(
         len(set(slugs)) != len(slugs),
         FINDING_PLANT_DUPLICATE,
         "duplicate slugs in tup catalog",
     )
     if catalog_dir.resolve() == DEFAULT_CATALOG_DIR.resolve():
+        mills_meta = meta.get("mills")
+        r1349_pin = (
+            next(
+                (row.get("source_commit") for row in mills_meta if row.get("mill_id") == SLICE_MILL),
+                None,
+            )
+            if isinstance(mills_meta, list)
+            else None
+        )
+        pinned = r1349_pin if isinstance(r1349_pin, str) else meta.get("source_commit")
         refuse_when(
-            meta.get("source_commit") != SOURCE_COMMIT,
+            pinned != SOURCE_COMMIT,
             FINDING_CATALOG_FIELD_INVALID,
-            f"source_commit {meta.get('source_commit')!r} != {SOURCE_COMMIT}",
+            f"r1349 source_commit {pinned!r} != {SOURCE_COMMIT}",
         )
     return Catalog(
         directory=catalog_dir,
         meta=MappingProxyType(dict(meta)),
         families_sha256=digest,
         families=families,
-        plants=plants,
+        plants=plants_tuple,
     )
 
 

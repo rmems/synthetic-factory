@@ -3,20 +3,15 @@
 
 from __future__ import annotations
 
-import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-TESTS = Path(__file__).resolve().parent
-REPO = TESTS.parent
-for _path in (TESTS, REPO / "pipelines"):
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
-
-import export_hf
-from export_test_support import compose_fixture
-from rights_record import BLOCKER_PREFIX
+from pipelines import export_hf
+from tests.export_test_support import compose_fixture, allow_research_only_export
+from pipelines.rights_record import BLOCKER_PREFIX
 
 
 class ResearchOnlyExportRefusal(unittest.TestCase):
@@ -26,4 +21,35 @@ class ResearchOnlyExportRefusal(unittest.TestCase):
             curated = compose_fixture(root)
             with self.assertRaisesRegex(export_hf.ExportError, BLOCKER_PREFIX):
                 export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
+
+class RightsAuditBinding(unittest.TestCase):
+    def test_export_replays_declared_rights_summary(self):
+        with tempfile.TemporaryDirectory() as temp, allow_research_only_export():
+            root = Path(temp)
+            curated = compose_fixture(root)
+            path = curated / "COMPOSE.json"
+            summary = json.loads(path.read_text())
+            summary["rights"]["lanes"]["training"] = summary["counts"]["retained"]
+            summary["rights"]["training_exportable"] = True
+            path.write_text(json.dumps(summary))
+            with self.assertRaisesRegex(export_hf.ExportError, "rights"):
+                export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
+    def test_export_rejects_audit_from_different_manifest_bytes(self):
+        with tempfile.TemporaryDirectory() as temp, allow_research_only_export():
+            root = Path(temp)
+            curated = compose_fixture(root)
+            original = export_hf._training_ready_audit
+
+            def mismatched_audit(*args):
+                report, summary = original(*args)
+                report["rights_manifest_sha256"] = "a" * 64
+                return report, summary
+
+            with patch.object(export_hf, "_training_ready_audit", mismatched_audit):
+                with self.assertRaisesRegex(export_hf.ExportError, "rights.*manifest"):
+                    export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())

@@ -33,17 +33,65 @@ FACTORY = "log-redaction-factory"
 PREFIX = "lrd"
 GENERATOR = "grok-4.6"
 CATALOG_FORMAT = "lrd-mill-catalog/1"
-CATALOG_ID = "lrd-r157-v1"
+CATALOG_ID = "lrd-plants-v1"
 RUN_FORMAT = "lrd-run/1"
 RECORD_KIND = "episode"
 QUOTA_PER_ROUND = 2
 DEFAULT_CATALOG_REL = ("config", "lrd")
+CATALOG_SLICE = "full"
 SOURCE_MILL_ID = "lrd_r157"
 SOURCE_ROUND = 157
 SOURCE_REF = "legacy-mill-lane"
 SOURCE_PATH = "experiments/lrd_r157_leftover_leftover_leftover_mill.py"
-SOURCE_COMMIT = "a9e6602a7bd43b314f9691984ae5f48d40c762b2"
+SOURCE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+EXTRACT_METHOD = "git-show+ast.parse"
 NOVEL_COVERAGE = "84%"
+
+SHAPE_LEGACY = "legacy"
+SHAPE_LEFTOVER3 = "leftover3"
+SHAPE_P_IDTOKEN = "p_idtoken"
+SHAPE_P_COOKIE = "p_cookie"
+SHAPE_LLL = "lll"
+LEFTOVER3_CALLS = frozenset({"OK", "FAIL"})
+P_IDTOKEN_ARG_COUNT = 17
+P_COOKIE_ARG_COUNT = 17
+LLL_PAIR_KEYS = (
+    "slug",
+    "domain",
+    "stack",
+    "seed",
+    "root",
+    "f1",
+    "f2",
+    "token",
+    "wrong",
+    "right",
+    "ticket",
+)
+
+# mill_id, base_round, legacy-mill-lane path, extract shape
+SOURCE_MILLS = (
+    ("lrd_r157", 157, "experiments/lrd_r157_leftover_leftover_leftover_mill.py", SHAPE_LEGACY),
+    ("lrd_r67", 67, "experiments/lrd-mill-leftover3-r67.py", SHAPE_LEFTOVER3),
+    ("lrd_r75", 75, "experiments/lrd-mill-leftover3b-r75.py", SHAPE_LEFTOVER3),
+    ("lrd_r81", 81, "experiments/lrd-mill-leftover3c-r81.py", SHAPE_LEFTOVER3),
+    ("lrd_r100", 100, "experiments/lrd-mill-leftover3d-r100.py", SHAPE_LEFTOVER3),
+    ("lrd_r123", 123, "experiments/lrd-mill-leftover3-idtoken.py", SHAPE_P_IDTOKEN),
+    ("lrd_r97", 97, "experiments/lrd-mill-lll-r97.py", SHAPE_LLL),
+    ("lrd_r116", 116, "experiments/lrd-mill-r116.py", SHAPE_P_COOKIE),
+)
+
+FULL_MILL_COUNTS = (
+    ("lrd_r157", 16),
+    ("lrd_r67", 8),
+    ("lrd_r75", 6),
+    ("lrd_r81", 16),
+    ("lrd_r100", 16),
+    ("lrd_r123", 16),
+    ("lrd_r97", 16),
+    ("lrd_r116", 24),
+)
+FULL_PLANT_COUNT = sum(count for _, count in FULL_MILL_COUNTS)
 
 CATALOG_FILENAME = "CATALOG.json"
 PLANTS_FILENAME = "plants.jsonl"
@@ -174,7 +222,21 @@ __all__ = [
     "CATALOG_FILENAME",
     "CATALOG_FORMAT",
     "CATALOG_ID",
+    "CATALOG_SLICE",
     "DEFAULT_CATALOG_REL",
+    "EXTRACT_METHOD",
+    "FULL_MILL_COUNTS",
+    "FULL_PLANT_COUNT",
+    "LEFTOVER3_CALLS",
+    "LLL_PAIR_KEYS",
+    "P_COOKIE_ARG_COUNT",
+    "P_IDTOKEN_ARG_COUNT",
+    "SHAPE_LEGACY",
+    "SHAPE_LEFTOVER3",
+    "SHAPE_LLL",
+    "SHAPE_P_COOKIE",
+    "SHAPE_P_IDTOKEN",
+    "SOURCE_MILLS",
     "FACTORY",
     "FAMILY",
     "FINDING_CODE_SET",

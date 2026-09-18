@@ -215,7 +215,7 @@ load_registry = _identity_registry.load_registry
 default_registry = _identity_registry.default_registry
 
 
-def _normalize_source_path(value: str) -> tuple[str, str]:
+def _normalize_source_path(value: object) -> tuple[str, str]:
     if not isinstance(value, str) or not value.strip():
         raise IdentityCurationError("source_path must be a non-empty relative path")
     raw = value
@@ -1001,6 +1001,32 @@ def _curate_code_repair(original, row, mapping):
     return CurationResult("retained", curated, mapping)
 
 
+def _attach_retained_rights(result, row, source_sha256, registry_sha256):
+    if result.action == "retained":
+        if row is None:
+            raise IdentityCurationError("retained record has no reviewed registry row")
+        try:
+            _rights_record.attach_identity_rights(
+                result.mapping,
+                row,
+                source_sha256=source_sha256,
+                factory_registry_sha256=registry_sha256,
+            )
+        except RightsPolicyError as exc:
+            raise IdentityCurationError(str(exc)) from exc
+    return result
+
+
+def _classify_source_record(original):
+    try:
+        kind = record_kind(original)
+        kind_error = None
+    except IdentityCurationError as exc:
+        kind = "unknown"
+        kind_error = exc
+    return kind, kind_error
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -1021,16 +1047,9 @@ def curate_record(
     original = source_record.record
     registry = default_registry() if registry is None else registry
     row = registry.by_path_id.get(source.factory)
-    try:
-        kind = record_kind(original)
-        kind_error = None
-    except IdentityCurationError as exc:
-        kind = "unknown"
-        kind_error = exc
+    kind, kind_error = _classify_source_record(original)
     root_original_ids, all_original_ids = _discover_original_ids(original)
-    contract = None
-    if row is not None and kind != "unknown":
-        contract = row.provenance_contract_by_kind.get(kind)
+    contract = row.provenance_contract_by_kind.get(kind) if row is not None else None
     mapping = _base_mapping(source, kind, root_original_ids, registry, row, contract)
     mapping["original_ids"] = all_original_ids
     if kind_error is not None:
@@ -1073,19 +1092,7 @@ def curate_record(
             training_ready_true_paths=_training_ready_true_paths,
         )
         result = _identity_stages.curate_nonprocedural_record(context, dependencies)
-    if result.action == "retained":
-        if row is None:
-            raise IdentityCurationError("retained record has no reviewed registry row")
-        try:
-            _rights_record.attach_identity_rights(
-                result.mapping,
-                row,
-                source_sha256=source.sha256,
-                factory_registry_sha256=registry.sha256,
-            )
-        except RightsPolicyError as exc:
-            raise IdentityCurationError(str(exc)) from exc
-    return result
+    return _attach_retained_rights(result, row, source.sha256, registry.sha256)
 
 
 def curate_records(
@@ -1505,6 +1512,13 @@ def _replay_manifest_mapping(
             f"IDENTITY-MANIFEST.json[{index}] exclusion mapping",
         )
     return _ManifestReplay(source_identity, expected_result)
+
+
+def replay_identity_mapping(mapping: Mapping[str, Any], registry: FactoryRegistry | None = None) -> CurationResult:
+    """Verify embedded source bytes and recompute the complete identity decision."""
+    replay = _replay_manifest_mapping(mapping, 0, registry or default_registry())
+    _require_canonical_json_equal(mapping, replay.result.mapping, "replayed identity mapping")
+    return replay.result
 
 
 def _validate_manifest_ids(

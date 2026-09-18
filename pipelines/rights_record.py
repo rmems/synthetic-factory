@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 if __package__:
@@ -107,125 +108,131 @@ def _require_reviewed_evidence(envelope: Mapping[str, Any]) -> list[str]:
     return blockers
 
 
-def training_export_blockers(envelope: object) -> tuple[bool, tuple[str, ...]]:
-    """Return whether one envelope may enter a training-ready export."""
+def _verdict_blockers(envelope: Mapping) -> list[str]:
+    required = {
+        "intended_use": "training_candidate",
+        "project_training_policy": "allowed",
+        "provider_training_status": "allowed",
+    }
+    return [f"{BLOCKER_PREFIX} {field} is not {expected}"
+            for field, expected in required.items() if envelope.get(field) != expected]
 
-    if not isinstance(envelope, Mapping):
-        return False, (f"{BLOCKER_PREFIX} envelope must be an object",)
-    blockers: list[str] = []
-    if envelope.get("intended_use") != "training_candidate":
-        blockers.append(f"{BLOCKER_PREFIX} intended_use is not training_candidate")
-    if envelope.get("project_training_policy") != "allowed":
-        blockers.append(f"{BLOCKER_PREFIX} project_training_policy is not allowed")
-    if envelope.get("provider_training_status") != "allowed":
-        blockers.append(f"{BLOCKER_PREFIX} provider_training_status is not allowed")
-    blockers.extend(_require_reviewed_evidence(envelope))
+
+def _binding_blockers(envelope: Mapping) -> list[str]:
+    blockers = []
     for field in ("source_sha256", "factory_registry_sha256"):
         try:
             prefixed_sha256(envelope.get(field))
         except RightsPolicyError:
             blockers.append(f"{BLOCKER_PREFIX} missing exact {field} binding")
-    if envelope.get("authority") == AUTHORITY_PROCEDURAL:
-        if envelope.get("eligible_training_candidate") is not True:
-            blockers.append(
-                f"{BLOCKER_PREFIX} procedural record is not an eligible training candidate"
-            )
-    return (not blockers, tuple(blockers))
+    return blockers
 
 
-def hosted_envelope(
-    *,
-    provider: str,
-    channel: str,
-    rights_profile_id: str,
-    source_sha256: str,
-    factory_registry_sha256: str,
-) -> dict[str, Any]:
-    """Return the policy-authorized hosted envelope bound to source and registry."""
+def _eligibility_blockers(envelope: Mapping) -> list[str]:
+    if envelope.get("authority") != AUTHORITY_PROCEDURAL:
+        return []
+    if envelope.get("eligible_training_candidate") is True:
+        return []
+    return [f"{BLOCKER_PREFIX} procedural record is not an eligible training candidate"]
 
+
+def training_export_blockers(envelope: object) -> tuple[bool, tuple[str, ...]]:
+    """Check export eligibility after the caller authenticates the envelope."""
+    if not isinstance(envelope, Mapping):
+        return False, (f"{BLOCKER_PREFIX} envelope must be an object",)
+    checks = (_verdict_blockers, _require_reviewed_evidence, _binding_blockers, _eligibility_blockers)
+    blockers = tuple(blocker for check in checks for blocker in check(envelope))
+    return not blockers, blockers
+
+
+@dataclass(frozen=True)
+class RecordRights:
+    """Reviewed authority and exact bindings for a single retained record."""
+
+    row: Any
+    source_sha256: str
+    factory_registry_sha256: str
+    eligible: bool = False
+    ineligibility_reasons: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.eligible) is not bool:
+            raise policy_error(_WHERE, "procedural eligibility must be a boolean")
+        if not all(is_exact_string(reason) for reason in self.ineligibility_reasons):
+            raise policy_error(_WHERE, "ineligibility reasons must be strings")
+
+
+@dataclass(frozen=True)
+class BoundRights:
+    """Exact byte evidence and reviewed authority used to verify an envelope."""
+
+    source_bytes: bytes
+    factory_registry_bytes: bytes
+    row: Any
+    eligible: bool = False
+    ineligibility_reasons: tuple[str, ...] = ()
+
+    def record_rights(self) -> RecordRights:
+        return RecordRights(
+            self.row, bytes_digest(self.source_bytes), bytes_digest(self.factory_registry_bytes),
+            self.eligible, self.ineligibility_reasons,
+        )
+
+
+def hosted_envelope(context: RecordRights) -> dict[str, Any]:
+    """Return a policy-authorized hosted envelope bound to exact evidence."""
+    row = context.row
+    if row.provider is None or row.channel is None:
+        raise policy_error(_WHERE, "hosted row is missing provider/channel")
     decision = classify_rights(
-        RightsRoute(provider, channel, rights_profile_id),
-        source_sha256=prefixed_sha256(source_sha256),
-        factory_registry_sha256=prefixed_sha256(factory_registry_sha256),
+        RightsRoute(row.provider, row.channel, row.rights_profile_id),
+        source_sha256=prefixed_sha256(context.source_sha256),
+        factory_registry_sha256=prefixed_sha256(context.factory_registry_sha256),
     )
-    payload = decision.to_public_payload()
-    payload["authority"] = AUTHORITY_HOSTED
-    return payload
+    return {**decision.to_public_payload(), "authority": AUTHORITY_HOSTED}
 
 
-def procedural_envelope(
-    *,
-    rights_profile_id: str,
-    intended_use: str,
-    project_training_policy: str,
-    source_sha256: str,
-    factory_registry_sha256: str,
-    procedural_policy_sha256: str,
-    catalog_sha256: str,
-    programs_sha256: str,
-    eligible: bool,
-    ineligibility_reasons: tuple[str, ...] | list[str] = (),
-) -> dict[str, Any]:
-    """Return the independently sealed procedural envelope for one retained record."""
-
-    reasons = [PROCEDURAL_REASON]
-    extra = [reason for reason in ineligibility_reasons if is_exact_string(reason)]
-    if extra:
-        reasons.extend(dict.fromkeys(extra))
+def procedural_envelope(context: RecordRights) -> dict[str, Any]:
+    """Return the independently sealed procedural verdict and byte bindings."""
+    row = context.row
     return {
         "authority": AUTHORITY_PROCEDURAL,
-        "rights_profile_id": rights_profile_id,
-        "intended_use": intended_use,
-        "project_training_policy": project_training_policy,
+        "rights_profile_id": row.rights_profile_id,
+        "intended_use": row.intended_use,
+        "project_training_policy": row.project_training_policy,
         "research_retention_status": "allowed",
         "research_evaluation_status": "allowed",
         "redistribution_status": "unresolved",
         "provider_training_status": "allowed",
         "weight_publication_status": "unresolved",
-        "reason_codes": reasons,
-        "eligible_training_candidate": bool(eligible),
-        "ineligibility_reasons": list(ineligibility_reasons),
-        "source_sha256": prefixed_sha256(source_sha256),
-        "factory_registry_sha256": prefixed_sha256(factory_registry_sha256),
-        "procedural_policy_sha256": prefixed_sha256(procedural_policy_sha256),
-        "catalog_sha256": prefixed_sha256(catalog_sha256),
-        "programs_sha256": prefixed_sha256(programs_sha256),
+        "reason_codes": list(dict.fromkeys((PROCEDURAL_REASON, *context.ineligibility_reasons))),
+        "eligible_training_candidate": context.eligible,
+        "ineligibility_reasons": list(context.ineligibility_reasons),
+        "source_sha256": prefixed_sha256(context.source_sha256),
+        "factory_registry_sha256": prefixed_sha256(context.factory_registry_sha256),
+        "procedural_policy_sha256": prefixed_sha256(row.procedural_policy_sha256),
+        "catalog_sha256": prefixed_sha256(row.catalog_sha256),
+        "programs_sha256": prefixed_sha256(row.programs_sha256),
         "rights_policy_sha256": RIGHTS_POLICY_SHA256,
     }
 
 
-def envelope_for_row(
-    row: Any,
-    *,
-    source_sha256: str,
-    factory_registry_sha256: str,
-    eligible: bool | None = None,
-    ineligibility_reasons: tuple[str, ...] | list[str] = (),
-) -> dict[str, Any]:
+def envelope_for_row(context: RecordRights) -> dict[str, Any]:
     """Build the envelope authorized by one reviewed registry row."""
+    if getattr(context.row, "source_type", "hosted") == AUTHORITY_PROCEDURAL:
+        return procedural_envelope(context)
+    return hosted_envelope(context)
 
-    if getattr(row, "source_type", "hosted") == AUTHORITY_PROCEDURAL:
-        return procedural_envelope(
-            rights_profile_id=row.rights_profile_id,
-            intended_use=row.intended_use,
-            project_training_policy=row.project_training_policy,
-            source_sha256=source_sha256,
-            factory_registry_sha256=factory_registry_sha256,
-            procedural_policy_sha256=row.procedural_policy_sha256,
-            catalog_sha256=row.catalog_sha256,
-            programs_sha256=row.programs_sha256,
-            eligible=bool(eligible),
-            ineligibility_reasons=ineligibility_reasons,
-        )
-    if row.provider is None or row.channel is None:
-        raise policy_error(_WHERE, "hosted row is missing provider/channel")
-    return hosted_envelope(
-        provider=row.provider,
-        channel=row.channel,
-        rights_profile_id=row.rights_profile_id,
-        source_sha256=source_sha256,
-        factory_registry_sha256=factory_registry_sha256,
-    )
+
+def procedural_eligibility(mapping: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
+    """Read eligibility without coercing malformed declarations to authorization."""
+    authority = mapping.get("procedural_authority")
+    if not isinstance(authority, Mapping):
+        return False, ()
+    reasons = authority.get("ineligibility_reasons", ())
+    if not isinstance(reasons, (list, tuple)):
+        raise policy_error(_WHERE, "ineligibility reasons must be a sequence")
+    return authority.get("eligible_training_candidate", False), tuple(reasons)
 
 
 def attach_identity_rights(
@@ -237,21 +244,10 @@ def attach_identity_rights(
 ) -> dict[str, Any]:
     """Attach a lane-tagged envelope onto one retained identity mapping."""
 
-    authority = mapping.get("procedural_authority")
-    eligible = None
-    reasons: list[str] = []
-    if isinstance(authority, Mapping):
-        eligible = authority.get("eligible_training_candidate")
-        raw_reasons = authority.get("ineligibility_reasons") or []
-        if isinstance(raw_reasons, (list, tuple)):
-            reasons = [str(item) for item in raw_reasons]
-    envelope = envelope_for_row(
-        row,
-        source_sha256=source_sha256,
-        factory_registry_sha256=factory_registry_sha256,
-        eligible=eligible,
-        ineligibility_reasons=reasons,
-    )
+    eligible, reasons = procedural_eligibility(mapping)
+    envelope = envelope_for_row(RecordRights(
+        row, source_sha256, factory_registry_sha256, eligible, reasons,
+    ))
     mapping[ENVELOPE_FIELD] = envelope
     mapping[LANE_FIELD] = envelope_lane(envelope)
     return envelope
@@ -273,85 +269,40 @@ def _public_hosted_payload(envelope: Mapping[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def verify_bound_envelope(
-    envelope: object,
-    *,
-    source_bytes: bytes,
-    factory_registry_bytes: bytes,
-    expected_row: Any | None = None,
-    eligible: bool | None = None,
-    ineligibility_reasons: tuple[str, ...] | list[str] = (),
-) -> dict[str, Any]:
-    """Recompute bound digests and require the reviewed row's exact verdict."""
-
+def verify_bound_envelope(envelope: object, evidence: BoundRights) -> dict[str, Any]:
+    """Recompute byte bindings and require the reviewed row's exact verdict."""
     if not isinstance(envelope, Mapping):
         raise policy_error(_WHERE, "envelope must be an object")
     if envelope.get("authority") == AUTHORITY_PROCEDURAL:
-        return _verify_procedural_envelope(
-            envelope,
-            source_bytes=source_bytes,
-            factory_registry_bytes=factory_registry_bytes,
-            expected_row=expected_row,
-            eligible=False if eligible is None else bool(eligible),
-            ineligibility_reasons=ineligibility_reasons,
-        )
-    if expected_row is None or expected_row.provider is None or expected_row.channel is None:
+        return _verify_procedural_envelope(envelope, evidence)
+    return _verify_hosted_envelope(envelope, evidence)
+
+
+def _verify_hosted_envelope(envelope: Mapping, evidence: BoundRights) -> dict[str, Any]:
+    row = evidence.row
+    if row is None or getattr(row, "source_type", "hosted") != AUTHORITY_HOSTED:
         raise policy_error(_WHERE, "hosted envelope requires a reviewed hosted row")
-    verified = verify_rights_envelope(
-        _public_hosted_payload(envelope),
-        source_bytes=source_bytes,
-        factory_registry_bytes=factory_registry_bytes,
-        verification=RightsVerification(
-            expected_route=RightsRoute(
-                expected_row.provider,
-                expected_row.channel,
-                expected_row.rights_profile_id,
-            )
-        ),
-    )
-    payload = verified.to_public_payload()
-    payload["authority"] = AUTHORITY_HOSTED
     if envelope.get("authority") not in {None, AUTHORITY_HOSTED}:
         raise policy_error(_WHERE, "hosted envelope authority drifted")
-    return payload
-
-
-def _verify_procedural_envelope(
-    envelope: Mapping[str, Any],
-    *,
-    source_bytes: bytes,
-    factory_registry_bytes: bytes,
-    expected_row: Any | None,
-    eligible: bool,
-    ineligibility_reasons: tuple[str, ...] | list[str],
-) -> dict[str, Any]:
-    if expected_row is None or getattr(expected_row, "source_type", None) != AUTHORITY_PROCEDURAL:
-        raise policy_error(_WHERE, "procedural envelope requires a reviewed procedural row")
-    expected = envelope_for_row(
-        expected_row,
-        source_sha256=sha256_digest(source_bytes)[7:],
-        factory_registry_sha256=sha256_digest(factory_registry_bytes)[7:],
-        eligible=eligible,
-        ineligibility_reasons=ineligibility_reasons,
+    verified = verify_rights_envelope(
+        _public_hosted_payload(envelope),
+        source_bytes=evidence.source_bytes,
+        factory_registry_bytes=evidence.factory_registry_bytes,
+        verification=RightsVerification(
+            expected_route=RightsRoute(row.provider, row.channel, row.rights_profile_id)
+        ),
     )
-    actual_source = prefixed_sha256(envelope.get("source_sha256"))
-    actual_registry = prefixed_sha256(envelope.get("factory_registry_sha256"))
-    if actual_source != sha256_digest(source_bytes):
-        raise policy_error(_WHERE, "source_sha256 does not match bound bytes")
-    if actual_registry != sha256_digest(factory_registry_bytes):
-        raise policy_error(_WHERE, "factory_registry_sha256 does not match bound bytes")
-    if envelope.get("procedural_policy_sha256") != expected["procedural_policy_sha256"]:
-        raise policy_error(_WHERE, "procedural_policy_sha256 does not match bound bytes")
-    if envelope.get("rights_policy_sha256") != RIGHTS_POLICY_SHA256:
-        raise policy_error(
-            _WHERE, "rights_policy_sha256 does not identify the committed policy"
-        )
-    comparable = dict(envelope)
-    expected_comparable = dict(expected)
-    if comparable != expected_comparable:
-        raise policy_error(
-            _WHERE, "envelope fields drift from the reviewed procedural verdict"
-        )
+    return {**verified.to_public_payload(), "authority": AUTHORITY_HOSTED}
+
+
+def _verify_procedural_envelope(envelope: Mapping, evidence: BoundRights) -> dict[str, Any]:
+    if getattr(evidence.row, "source_type", None) != AUTHORITY_PROCEDURAL:
+        raise policy_error(_WHERE, "procedural envelope requires a reviewed procedural row")
+    expected = envelope_for_row(evidence.record_rights())
+    if envelope.get("eligible_training_candidate") is not expected["eligible_training_candidate"]:
+        raise policy_error(_WHERE, "procedural eligibility differs from the reviewed verdict")
+    if dict(envelope) != expected:
+        raise policy_error(_WHERE, "envelope fields drift from the reviewed procedural verdict")
     return expected
 
 

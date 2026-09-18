@@ -31,7 +31,7 @@ MILL_PREFIX = "tup"
 GENERATOR = "tup-mill"
 CATALOG_FORMAT = "tup-catalog/1"
 RUN_FORMAT = "tup-run/1"
-DEFAULT_CATALOG_ID = "tup-r1349-v1"
+DEFAULT_CATALOG_ID = "tup-v2"
 SLICE = "tup-mill-r1349"
 SOURCE_REF = "legacy-mill-lane"
 SOURCE_COMMIT = "dba9f9a1d0e984e58fc14c992228f09534c26d57"
@@ -44,6 +44,7 @@ BANNED_GOAL = "Check designed checkout"
 
 CATALOG_FILENAME = "CATALOG.json"
 FAMILIES_FILENAME = "families.jsonl"
+PLANTS_EXTRA_FILENAME = "plants-extra.jsonl"
 RECORDS_FILENAME = "records.jsonl"
 RUN_FILENAME = "RUN.json"
 NOTES_FILENAME = "NOTES.md"
@@ -117,6 +118,7 @@ __all__ = [
     "DEFAULT_CATALOG_ID",
     "FACTORY",
     "FAMILIES_FILENAME",
+    "PLANTS_EXTRA_FILENAME",
     "FINDING_CODES",
     "FINDING_CODE_SET",
     "GENERATOR",

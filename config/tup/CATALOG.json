@@ -33,7 +33,7 @@
     "yq-exit-status",
     "coredns-version"
   ],
-  "catalog_id": "tup-r1349-v1",
+  "catalog_id": "tup-v2",
   "factory": "tool-use-preference-factory",
   "families": 138,
   "families_filename": "families.jsonl",
@@ -41,7 +41,203 @@
   "family": "tup",
   "generator": "tup-mill",
   "intended_use": "research_only",
-  "plants": 414,
+  "mills": [
+    {
+      "families": 138,
+      "file": "families.jsonl",
+      "mill_id": "tup_r1349",
+      "plants": 414,
+      "shape": "families",
+      "source": "experiments/tup-mill-r1349.py",
+      "source_commit": "dba9f9a1d0e984e58fc14c992228f09534c26d57",
+      "source_sha256": "c6dbebe3787759023d8a249791419a6add90f3a2fa6c0904159b051f265d85ab"
+    },
+    {
+      "families": 95,
+      "families_sha256": "854319e35abf79017efed20d0f8cd40d7d3d1df3d9085d59a860dc1b6b69dfbf",
+      "file": "families-r1485.jsonl",
+      "mill_id": "tup_r1485",
+      "plants": 281,
+      "shape": "families",
+      "source": "experiments/tup-mill-r1485.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "ea0541eb4f8baf697f61c0a2c3547e4a8c7a0f9a2827817e0faeff5570b7f572"
+    },
+    {
+      "families": 67,
+      "families_sha256": "9c57401076e3b0957f601011e77cdb36e0fc228d0077c39179927b7e3df5d556",
+      "file": "families-r1566.jsonl",
+      "mill_id": "tup_r1566",
+      "plants": 199,
+      "shape": "families",
+      "source": "experiments/tup-mill-r1566.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "5a812a2e10b554bb97545d0fe02ce39824e25321096cf05c696d6ebb08fa997c"
+    },
+    {
+      "mill_id": "tup_r2170",
+      "plants": 263,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2170.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "a933b9bfa8d546b7454dff571c83ced2af03b4827f35172cfbeb4ea115322258"
+    },
+    {
+      "mill_id": "tup_r1866",
+      "plants": 257,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1866.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "a00b74fdeaf7623d9ae16ecbf47ffdd77dc3da6fb86913e27eb4759f11aa96c9"
+    },
+    {
+      "mill_id": "tup_r2257",
+      "plants": 236,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2257.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "ccb524d7b3f67aeeed75b740378932312700241edd7e21de24aa168ae4e0bd06"
+    },
+    {
+      "mill_id": "tup_r1951",
+      "plants": 210,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1951.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "fefebc79d200fcc9398f649c29503a2f0944d9059956436e397c0bdbe43353a2"
+    },
+    {
+      "mill_id": "tup_r1600",
+      "plants": 177,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1600.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "cdcd73dea25683601ff176cad95209ea694fa2b8cf1455dca0467776f3481912"
+    },
+    {
+      "mill_id": "tup_r2014",
+      "plants": 177,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2014.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "2aed76e00d3a4b64e6d0d60eebdf1aec84db2860422ea74d6b91fe233433c370"
+    },
+    {
+      "mill_id": "tup_r1600b",
+      "plants": 145,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1600b.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "6a81f629f9db86a2c127dffa77e1900428d5110644da064e1938583928410ab1"
+    },
+    {
+      "mill_id": "tup_r2065",
+      "plants": 134,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2065.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "bab001632bea22a003f39bd0286e507e271d445c4c3ad4422bd2cb0312fe8d41"
+    },
+    {
+      "mill_id": "tup_r1743",
+      "plants": 99,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1743.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "cdacaddf08c3b214834cf8f6c2e12e66978fad4f04d4041e0bd49ff65e95ba33"
+    },
+    {
+      "mill_id": "tup_r1782",
+      "plants": 76,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1782.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "b6e37cc1aef302ee3a3600111da3393589c73ec7857918ad1950fa1c71ee9322"
+    },
+    {
+      "mill_id": "tup_r1810",
+      "plants": 60,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1810.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "eca9788a57687de4c7d738ec4641ee3ad79f21c7765d4eb7086add4ebe69cde8"
+    },
+    {
+      "mill_id": "tup_r1830",
+      "plants": 56,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1830.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "3574c56c237b13aa00e3a7044e3bb19fc2280da3d2daeeeb3c60fd416d7a8152"
+    },
+    {
+      "mill_id": "tup_r1848",
+      "plants": 58,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r1848.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "8fa7545783e77456a92504fa6e3a2121733dc09eeec6a648520deb2efe6edc09"
+    },
+    {
+      "mill_id": "tup_r2106",
+      "plants": 82,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2106.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "aa2544af4d90cacc77f4493c45b77ea793f101e4d366e0b2240ae8236f179994"
+    },
+    {
+      "mill_id": "tup_r2133",
+      "plants": 63,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2133.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "e0b14f02a7c0b17a0554dc34d935c2769b1e94b53b157af5e0a7d3aa8352349b"
+    },
+    {
+      "mill_id": "tup_r2153",
+      "plants": 52,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2153.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "4abc84e58b37a610e344c9a62070878aa294a6b73635befe3dce90f4088dbbb4"
+    },
+    {
+      "mill_id": "tup_r2335",
+      "plants": 68,
+      "shape": "plants",
+      "source": "experiments/tup-mill-r2335.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "6bb53a25da0657571a0005d8793b88bce7e0b732a410c66d765f769d85e6c74b"
+    },
+    {
+      "mill_id": "tup_leftover_triples",
+      "plants": 48,
+      "shape": "plants",
+      "source": "experiments/tup-mill-leftover-triples.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "c10e0f3afce2f0272c05164deafa2ffb8d5b12a880a40d7f31ed76bf5bd96d17"
+    },
+    {
+      "mill_id": "tup_leftover4_r1576",
+      "plants": 36,
+      "shape": "plants",
+      "source": "experiments/tup-mill-leftover4-r1576.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "913c2b78c07442d68d7004373b51581598082ded22dab866b57b150156d4980b"
+    },
+    {
+      "mill_id": "tup_leftover_lll_r1594",
+      "plants": 46,
+      "shape": "plants",
+      "source": "experiments/tup-mill-leftover-lll-r1594.py",
+      "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+      "source_sha256": "929fa99bb5a44ac9fcce7f9e79138861faf900c95cf7c3e713576841eb8f7aee"
+    }
+  ],
+  "plants": 3237,
+  "plants_extra_filename": "plants-extra.jsonl",
+  "plants_extra_sha256": "cfa9acb23f5c387164913292b9c4b6868b032de5d54fcaeb46b36f7c7fced80c",
   "project_training_policy": "blocked",
   "quota_per_round": 3,
   "schema": "tup-catalog/1",
@@ -50,9 +246,9 @@
     "skip verify",
     "wrong tool"
   ],
-  "slice": "tup-mill-r1349",
+  "slice": "tup-fourth-slice",
   "source_blob_sha1": "b0e965da738d49af64219403398203f48d91ab8e",
-  "source_commit": "dba9f9a1d0e984e58fc14c992228f09534c26d57",
+  "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
   "source_lines": 1727,
   "source_method": "git-show+ast.parse",
   "source_path": "experiments/tup-mill-r1349.py",

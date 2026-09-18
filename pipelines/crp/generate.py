@@ -3,7 +3,7 @@
 
 ``pair`` is the AST-extracted divergence-point DPO constructor from
 ``crp-mill-r432`` (PR numbering anchored at ``PAIR_FIRST_ROUND``). The
-leftover3 catalog and the r432 compact JSONL slice supply the plants,
+leftover3 catalog and the r432 / r538 compact JSONL slices supply the plants,
 including ``noun``. Writers refuse an existing destination and any path
 that names or aliases ``outputs/raw/``.
 """
@@ -17,6 +17,11 @@ from typing import Any
 
 from . import catalog as cat
 from . import r432 as r432_cat
+from . import r538 as r538_cat
+from . import leftover3_prior as leftover3_prior_cat
+from . import r729 as r729_cat
+from . import r817 as r817_cat
+from . import r995 as r995_cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
     FINDING_DESTINATION_EXISTS,
@@ -484,6 +489,11 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
     }
 
 
+def _leftover3_last_round() -> int:
+    plants = cat.load_catalog().plants
+    return cat.WAVE_FIRST_ROUND + len(plants) // cat.PLANTS_PER_ROUND - 1
+
+
 def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
     if (
         type(round_n) is int
@@ -494,6 +504,73 @@ def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]
             r432_cat.CATALOG_ID,
             r432_cat.RUN_FORMAT,
             "r432 application-bug stretch",
+        )
+    if (
+        type(round_n) is int
+        and leftover3_prior_cat.WAVE_FIRST_ROUND
+        <= round_n
+        <= leftover3_prior_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            leftover3_prior_cat.plants_for_round(round_n),
+            leftover3_prior_cat.CATALOG_ID,
+            leftover3_prior_cat.RUN_FORMAT,
+            "leftover leftover leftover IaC/policy stretch (prior wave)",
+        )
+    if (
+        type(round_n) is int
+        and r538_cat.WAVE_FIRST_ROUND <= round_n <= r538_cat.WAVE_LAST_ROUND
+        and round_n > r432_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r538_cat.plants_for_round(round_n),
+            r538_cat.CATALOG_ID,
+            r538_cat.RUN_FORMAT,
+            "r538 orchestration/data-platform stretch",
+        )
+    leftover3_last = _leftover3_last_round()
+    if (
+        type(round_n) is int
+        and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last
+    ):
+        return (
+            cat.plants_for_round(round_n),
+            cat.CATALOG_ID,
+            RUN_FORMAT,
+            "leftover leftover leftover stretch",
+        )
+    if (
+        type(round_n) is int
+        and r729_cat.WAVE_FIRST_ROUND <= round_n <= r729_cat.WAVE_LAST_ROUND
+        and round_n > leftover3_last
+    ):
+        return (
+            r729_cat.plants_for_round(round_n),
+            r729_cat.CATALOG_ID,
+            r729_cat.RUN_FORMAT,
+            "r729 commerce/platform stretch",
+        )
+    if (
+        type(round_n) is int
+        and r817_cat.WAVE_FIRST_ROUND <= round_n <= r817_cat.WAVE_LAST_ROUND
+        and round_n > r729_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r817_cat.plants_for_round(round_n),
+            r817_cat.CATALOG_ID,
+            r817_cat.RUN_FORMAT,
+            "r817 GIS/feature-flag/IoT stretch",
+        )
+    if (
+        type(round_n) is int
+        and r995_cat.WAVE_FIRST_ROUND <= round_n <= r995_cat.WAVE_LAST_ROUND
+        and round_n > r817_cat.WAVE_LAST_ROUND
+    ):
+        return (
+            r995_cat.plants_for_round(round_n),
+            r995_cat.CATALOG_ID,
+            r995_cat.RUN_FORMAT,
+            "r995 low-code/BI/CRM stretch",
         )
     return (
         cat.plants_for_round(round_n),
@@ -549,7 +626,7 @@ def _dump_line(record: dict[str, Any]) -> str:
 
 
 def run(request: RunRequest) -> dict[str, Any]:
-    """Write one leftover3 or r432 triple into a new directory. Never touches raw."""
+    """Write one leftover3, r432, or r538 triple into a new directory. Never touches raw."""
 
     out_dir = Path(request.out_dir)
     _check_destination(out_dir)

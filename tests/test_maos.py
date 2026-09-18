@@ -12,6 +12,7 @@ import contextlib
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -154,20 +155,92 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(plants[0].decision, "MODIFY")
 
 
+class RecoverGitShow(unittest.TestCase):
+    R19_BLOB = (
+        "recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/"
+        "recovered_sources/by-original-path/maos-r19--17818e5dd11c/versions/v0005/build_r19.py"
+    )
+    R23_BLOB = (
+        "recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/"
+        "recovered_sources/by-original-path/maos-r23--80d63e849dce/versions/v0001/build_r23.py"
+    )
+
+    def test_rank2_r19_matches_the_committed_row(self):
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"e5206e72:{self.R19_BLOB}"],
+                cwd=REPO,
+                text=True,
+            )
+        except subprocess.CalledProcessError:
+            self.skipTest("recover-grok maos-r19 builder is not fetched")
+        plants = cat.plants_from_source(text, "build_r19.py")
+        self.assertEqual(plants[0].record_id, "maos-r19-001")
+        self.assertEqual(plants[0].source_round, 19)
+        self.assertTrue(plants[0].scenario.startswith("CASSITER"))
+
+    def test_rank3_r23_matches_the_committed_row(self):
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"e5206e72:{self.R23_BLOB}"],
+                cwd=REPO,
+                text=True,
+            )
+        except subprocess.CalledProcessError:
+            self.skipTest("recover-grok maos-r23 builder is not fetched")
+        plants = cat.plants_from_source(text, "build_r23.py")
+        self.assertEqual(plants[0].record_id, "maos-r23-001")
+        self.assertEqual(plants[0].source_round, 23)
+        self.assertTrue(plants[0].scenario.startswith("STRIAFOIL"))
+
+
 class CommittedCatalog(unittest.TestCase):
-    def test_first_slice_is_three_exact_rounds(self):
+    def test_pinned_catalog_covers_all_twenty_seven_exact_rounds(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
+        expected_rounds = [
+            14,
+            15,
+            16,
+            19,
+            20,
+            21,
+            23,
+            24,
+            25,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            39,
+            41,
+            42,
+            43,
+            46,
+            47,
+            48,
+            51,
+            52,
+            67,
+        ]
         self.assertEqual(loaded.catalog_id, "maos-recover-v1")
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 3)
-        self.assertEqual(report["rounds"], [14, 15, 16])
+        self.assertEqual(report["plants"], 27)
+        self.assertEqual(report["rounds"], expected_rounds)
         self.assertEqual(report["first_round"], 14)
         self.assertEqual(loaded.plants[0].record_id, "maos-r14-001")
         self.assertEqual(cat.plants_for_round(15)[0].record_id, "maos-r15-001")
         self.assertTrue(cat.plants_for_round(16)[0].scenario.startswith("QUILLFORGE"))
+        self.assertEqual(cat.plants_for_round(19)[0].record_id, "maos-r19-001")
+        self.assertTrue(cat.plants_for_round(21)[0].scenario.startswith("REDHALL"))
+        self.assertEqual(cat.plants_for_round(23)[0].record_id, "maos-r23-001")
+        self.assertTrue(cat.plants_for_round(67)[0].scenario.startswith("FEN-SPIT"))
 
-    def test_a_round_outside_the_first_slice_is_refused(self):
+    def test_a_round_outside_the_pinned_catalog_is_refused(self):
         with self.assertRaises(MaosRefusal) as ctx:
             cat.plants_for_round(3)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
@@ -251,7 +324,7 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 3)
+        self.assertEqual(payload["plants"], 27)
 
     def test_generate_stdout_and_a_raw_refusal(self):
         code, out, err = invoke(["generate", "--round", "14"])

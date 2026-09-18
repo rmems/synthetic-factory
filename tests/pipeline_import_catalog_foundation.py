@@ -1075,7 +1075,73 @@ def _package_validate_run_thalamic() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
+def _direct_rights_record() -> ModuleType:
+    import rights_record as module
+
+    return module
+
+
+def _package_rights_record() -> ModuleType:
+    import pipelines.rights_record as module
+
+    return module
+
+
+def _direct_training_audit_rights() -> ModuleType:
+    import training_audit_rights as module
+
+    return module
+
+
+def _package_training_audit_rights() -> ModuleType:
+    import pipelines.training_audit_rights as module
+
+    return module
+
+
+def _direct_compose_curated_rights() -> ModuleType:
+    import compose_curated_rights as module
+
+    return module
+
+
+def _package_compose_curated_rights() -> ModuleType:
+    import pipelines.compose_curated_rights as module
+
+    return module
+
+
+def _direct_curate_gate_rights() -> ModuleType:
+    import curate_gate_rights as module
+
+    return module
+
+
+def _package_curate_gate_rights() -> ModuleType:
+    import pipelines.curate_gate_rights as module
+
+    return module
+
+
+def _direct_training_audit_rights_manifest() -> ModuleType:
+    import training_audit_rights_manifest as module
+
+    return module
+
+
+def _package_training_audit_rights_manifest() -> ModuleType:
+    import pipelines.training_audit_rights_manifest as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "training_audit_rights_manifest": (_direct_training_audit_rights_manifest, _package_training_audit_rights_manifest),
+    "rights_record": (_direct_rights_record, _package_rights_record),
+    "training_audit_rights": (_direct_training_audit_rights, _package_training_audit_rights),
+    "compose_curated_rights": (_direct_compose_curated_rights, _package_compose_curated_rights),
+    "curate_gate_rights": (_direct_curate_gate_rights, _package_curate_gate_rights),
+
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
     "coding_constants": (_direct_coding_constants, _package_coding_constants),

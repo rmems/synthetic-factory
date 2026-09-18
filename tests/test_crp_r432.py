@@ -134,7 +134,19 @@ class AstExtract(unittest.TestCase):
         names = tuple(sorted(path.name for path in PACKAGE.glob("*.py")))
         self.assertEqual(
             names,
-            ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py", "r432.py"),
+            (
+                "__init__.py",
+                "_contract.py",
+                "catalog.py",
+                "cli.py",
+                "generate.py",
+                "leftover3_prior.py",
+                "r432.py",
+                "r538.py",
+                "r729.py",
+                "r817.py",
+                "r995.py",
+            ),
         )
 
     def test_package_has_no_exec_eval_compile(self):
