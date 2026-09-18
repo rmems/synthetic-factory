@@ -10,7 +10,7 @@ from pathlib import Path
 from ._contract import (
     CsvRefusal, FINDING_DESTINATION_EXISTS, FINDING_DESTINATION_INVALID, bind_import_twin,
 )
-from .generate_parent import pinned_parent, verify_parent
+from .generate_parent import pinned_parent, release_descriptor, verify_parent
 
 if __name__.startswith("pipelines."):
     from ..compose_destination_rename import rename_noreplace
@@ -46,7 +46,7 @@ def _open_stage(path, identity):
         if _identity(os.fstat(descriptor)) != identity:
             raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
     except BaseException:
-        os.close(descriptor)
+        release_descriptor(descriptor)
         raise
     return descriptor
 
@@ -124,8 +124,8 @@ class _OwnedStage:
 
     def close(self):
         for owned in self.files.values():
-            os.close(owned.descriptor)
-        os.close(self.descriptor)
+            release_descriptor(owned.descriptor)
+        release_descriptor(self.descriptor)
 
 
 def _publish(parent: Path, staged: Path, destination: Path, stage: _OwnedStage) -> Path:
@@ -146,7 +146,7 @@ def _publish(parent: Path, staged: Path, destination: Path, stage: _OwnedStage) 
             FINDING_DESTINATION_EXISTS, f"{destination} already exists"
         ) from exc
     finally:
-        os.close(descriptor)
+        release_descriptor(descriptor)
 
 
 def _stage_and_publish(parent: Path, destination: Path, files: dict[str, str]) -> Path:

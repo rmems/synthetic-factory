@@ -14,6 +14,16 @@ from ._contract import (
 FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
 
 
+def release_descriptor(descriptor: int) -> None:
+    """Release once without replacing the publication outcome with cleanup errors."""
+    try:
+        os.close(descriptor)
+    except OSError:
+        # Linux releases the FD even on delayed close errors. Retrying can close
+        # a reused descriptor; close is not a durability acknowledgement.
+        pass
+
+
 def _outside_raw(descriptor: int) -> Path:
     anchor = Path(f"/proc/self/fd/{descriptor}")
     _require_outside_raw(anchor)
@@ -51,12 +61,12 @@ def _open_parent(parent: Path) -> int:
         _outside_raw(descriptor)
         for name in reversed(missing):
             child = _open_child(descriptor, name)
-            os.close(descriptor)
+            release_descriptor(descriptor)
             descriptor = child
         _outside_raw(descriptor)
         return descriptor
     except BaseException:
-        os.close(descriptor)
+        release_descriptor(descriptor)
         raise
 
 
@@ -87,7 +97,7 @@ def pinned_parent(destination: Path):
         verify_parent(destination, anchor)
         yield anchor
     finally:
-        os.close(descriptor)
+        release_descriptor(descriptor)
 
 
 bind_import_twin(__name__)
