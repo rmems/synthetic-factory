@@ -1,0 +1,32 @@
+tests/test_mill_script_inventory_review.py
+  s_5660553172852b::t_916acadff7f0d3 1-63,84-94,102-106,113-116,120,124,130,132
+  s_5660553172852b::t_437c80b6441ab6 64-69,78
+  s_5660553172852b::t_7a16b8afaeade5 70-77
+  s_5660553172852b::t_be642438742d56 79-83
+  s_5660553172852b::t_f5d21f6bd1d3ca 95-101,107-108,117,126
+pipelines/mill_script_inventory.py
+  s_5660553172852b::t_eafb5d4a5ef707 189,191-201
+  s_5660553172852b::t_b08f84e4253443 202-203
+  s_5660553172852b::t_4660fdc3656c5d 209-212,214,228-229,311-312,333-334,342-343,352
+  s_5660553172852b::t_8f105185a6d9fd 213,215-221
+  s_5660553172852b::t_9af1d5ed13025a 344-347
+pipelines/mill_script_inventory_families.py
+  s_5660553172852b::t_9af1d5ed13025a 1-7,9-31,33-36,38-41,50-66
+  s_5660553172852b::t_eafb5d4a5ef707 8,32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "772dade4a89deb758c6a651cb715a026eddc73e9",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
