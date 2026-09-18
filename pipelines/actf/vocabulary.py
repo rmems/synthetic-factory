@@ -14,6 +14,29 @@ from ._contract import bind_import_twin, refusals
 FAMILY = "actf"
 CORPUS = "burst-corpus-b"
 RECOVERY_SESSION = "01a06111-1b84-7250-aec4-9d120db6c1a4"
+SOURCE_REF = "origin/codex/recover-grok-01a06111"
+SOURCE_COMMIT = "e5206e72fa829931162944648e1e180949baaf0b"
+SOURCE_TREE = (
+    "recovery/grok-session-01a06111-1b84-7250-aec4-9d120db6c1a4/"
+    "recovered_sources/by-original-path"
+)
+LEGACY_REF = "origin/legacy-mill-lane"
+LEGACY_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
+CATALOG_ID = "actf-recover-v1"
+CATALOG_SCHEMA = "actf-lineages-v1"
+CATALOG_FILENAME = "CATALOG.json"
+LINEAGES_FILENAME = "lineages.jsonl"
+HELPER_BASENAMES = frozenset(
+    {
+        "gen_hold.py",
+        "ep2_fn.py",
+        "_ep1_fragment.py",
+        "_ep2_fragment.py",
+        "_eps.py",
+    }
+)
+INTENDED_USE = "research_only"
+PROJECT_TRAINING_POLICY = "blocked"
 FACTORY = "agentic-coding-trajectory-factory"
 GENERATOR_NAME = "grok-actf-generator"
 GENERATOR_VERSION = "recovered"
@@ -63,6 +86,12 @@ FINDING_RECOVERY_ROOT_UNDER_RAW = "RECOVERY_ROOT_UNDER_RAW"
 FINDING_RECOVERY_ROOT_MISSING = "RECOVERY_ROOT_MISSING"
 FINDING_LINEAGE_DIR_INVALID = "LINEAGE_DIR_INVALID"
 FINDING_VENDOR_PATH = "VENDOR_PATH"
+FINDING_CATALOG_EMPTY = "CATALOG_EMPTY"
+FINDING_CATALOG_FILE_MISSING = "CATALOG_FILE_MISSING"
+FINDING_CATALOG_FIELD_INVALID = "CATALOG_FIELD_INVALID"
+FINDING_CATALOG_FIELD_MISSING = "CATALOG_FIELD_MISSING"
+FINDING_LINEAGES_SHA_MISMATCH = "CATALOG_LINEAGES_SHA_MISMATCH"
+FINDING_DUPLICATE_PATH_KEY = "CATALOG_DUPLICATE_PATH_KEY"
 
 FINDING_CODES = (
     FINDING_FILE_WRITE,
@@ -84,6 +113,12 @@ FINDING_CODES = (
     FINDING_RECOVERY_ROOT_MISSING,
     FINDING_LINEAGE_DIR_INVALID,
     FINDING_VENDOR_PATH,
+    FINDING_CATALOG_EMPTY,
+    FINDING_CATALOG_FILE_MISSING,
+    FINDING_CATALOG_FIELD_INVALID,
+    FINDING_CATALOG_FIELD_MISSING,
+    FINDING_LINEAGES_SHA_MISMATCH,
+    FINDING_DUPLICATE_PATH_KEY,
 )
 FINDING_CODE_SET = frozenset(FINDING_CODES)
 
@@ -112,6 +147,15 @@ refuse, refuse_when, refuse_first = refusals.helpers(ActfRefusal)
 shown = refusals.shown
 
 
+def is_mill_catalog_basename(original_basename: str) -> bool:
+    """True for recovered generator scripts; false for helper fragments."""
+
+    return (
+        original_basename not in HELPER_BASENAMES
+        and not original_basename.startswith("_")
+    )
+
+
 def refuse_vendor_destination(path: Path) -> None:
     """Fail closed if a caller names a vendored ACTF mill script."""
 
@@ -138,8 +182,21 @@ __all__ = [
     "CLASSIFICATION_PARTIAL",
     "CLASSIFICATION_SET",
     "CLASSIFICATION_UNRECOVERABLE",
+    "CATALOG_FILENAME",
+    "CATALOG_ID",
+    "CATALOG_SCHEMA",
     "CORPUS",
     "FACTORY",
+    "HELPER_BASENAMES",
+    "INTENDED_USE",
+    "LEGACY_COMMIT",
+    "LEGACY_REF",
+    "LINEAGES_FILENAME",
+    "PROJECT_TRAINING_POLICY",
+    "SOURCE_COMMIT",
+    "SOURCE_REF",
+    "SOURCE_TREE",
+    "is_mill_catalog_basename",
     "FAMILY",
     "FINDING_CODES",
     "FINDING_CODE_SET",
@@ -161,6 +218,12 @@ __all__ = [
     "FINDING_SHELL_RECURSIVE_DELETE_REFERENCE",
     "FINDING_UNKNOWN_CLASSIFICATION",
     "FINDING_VENDOR_PATH",
+    "FINDING_CATALOG_EMPTY",
+    "FINDING_CATALOG_FILE_MISSING",
+    "FINDING_CATALOG_FIELD_INVALID",
+    "FINDING_CATALOG_FIELD_MISSING",
+    "FINDING_DUPLICATE_PATH_KEY",
+    "FINDING_LINEAGES_SHA_MISMATCH",
     "FINDING_VERSION_COUNT_MISMATCH",
     "FRAGMENTS_DIR",
     "GENERATOR_KIND",

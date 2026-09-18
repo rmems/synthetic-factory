@@ -199,6 +199,30 @@ def _optional_resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
         return None
 
 
+def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
+    if isinstance(value, ast.Name) and value.id in consts:
+        return consts[value.id]
+    return _optional_resolve(value, consts)
+
+
+def _dict_literal(node: ast.AST, consts: Mapping[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(node, ast.Dict) or any(key is None for key in node.keys):
+        return None
+    row: dict[str, Any] = {}
+    for key_node, value_node in zip(node.keys, node.values):
+        if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+            continue
+        if isinstance(value_node, ast.Dict):
+            nested = _dict_literal(value_node, consts)
+            if nested is not None:
+                row[key_node.value] = nested
+            continue
+        resolved = _optional_const(value_node, consts)
+        if resolved is not None:
+            row[key_node.value] = resolved
+    return row
+
+
 def _collect_env(nodes: list[ast.stmt], env: Mapping[str, Any] | None = None) -> dict[str, Any]:
     bound: dict[str, Any] = dict(env or {})
     for node in nodes:
@@ -281,6 +305,34 @@ def _plant_from_rec(rec: Mapping[str, Any], env: Mapping[str, Any], source_name:
     )
 
 
+def _rec_from_build_record(fn: ast.FunctionDef, module_env: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    consts: dict[str, Any] = dict(module_env)
+    rec: dict[str, Any] | None = None
+    for node in fn.body:
+        item = _assigned(node)
+        if item is None:
+            continue
+        name, value = item
+        if name == "rec":
+            if isinstance(value, ast.Dict):
+                rec = _dict_literal(value, consts)
+            break
+        if isinstance(value, ast.Dict):
+            partial = _dict_literal(value, consts)
+            if partial is not None:
+                consts[name] = partial
+            continue
+        resolved = _optional_const(value, consts)
+        if resolved is not None:
+            consts[name] = resolved
+    refuse_when(
+        not isinstance(rec, dict),
+        FINDING_AST_NOT_A_PLANT,
+        "build_record has no rec dict",
+    )
+    return rec, consts
+
+
 def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, ...]:
     """AST-extract the ``rec`` identity from one recovered builder. Never exec."""
 
@@ -288,15 +340,9 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
         tree = ast.parse(text)
     except SyntaxError as exc:
         refuse(FINDING_AST_NOT_A_PLANT, f"mill source is not parseable: {exc}")
-    env = _collect_env(list(tree.body))
+    module_env = _collect_env(list(tree.body))
     fn = _build_record_fn(tree)
-    local = _collect_env(list(fn.body), env)
-    rec = local.get("rec")
-    refuse_when(
-        not isinstance(rec, dict),
-        FINDING_AST_NOT_A_PLANT,
-        f"{source_name} has no rec dict",
-    )
+    rec, local = _rec_from_build_record(fn, module_env)
     return (_plant_from_rec(rec, local, source_name),)
 
 
@@ -445,7 +491,7 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
     refuse_when(
         not matched,
         FINDING_ROUND_OUT_OF_DOMAIN,
-        f"round {round_n} is outside the recovered first slice",
+        f"round {round_n} is outside the pinned MAOS catalog",
     )
     return matched
 

@@ -5,12 +5,12 @@ Family home for the first leftover leftover leftover mill preserved on
 ``experiments/lrd_r157_leftover_leftover_leftover_mill.py``. Target factory:
 ``log-redaction-factory`` (reviewed prefix home ``lrd``).
 
-This is the *cleaned* first slice. The preserve commit also carried leftover3
-mills, ``lrd-loop-*`` drivers, and ``dpr-lrd-hopper*`` scripts. Only the r157
-``PAIRS`` literals are AST-extracted (``git show`` + ``ast.parse``, never
-``exec`` / ``import``). Hoppers stay with ``dpr``; this package refuses hopper
-exec. Loops and leftover3 mills are a later slice. The exec path (``txn`` /
-``main`` / ``subprocess``) is not reproduced and nothing writes
+The committed catalog is a *representative* slice (see ``config/lrd``): all
+eight leftover mills on ``legacy-mill-lane`` @ ``813f93f`` are AST-extracted
+(``git show`` + ``ast.parse``, never ``exec`` / ``import``), with full mill
+inventory pinned in ``CATALOG.json``. ``generate`` replays only legacy r157
+plants today; leftover3 / ``P()`` / ``lll`` rows are catalog-pinned for later
+replay. Hoppers stay with ``dpr``; loops are excluded. Nothing writes
 ``outputs/raw/``.
 """
 

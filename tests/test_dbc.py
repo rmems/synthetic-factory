@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""PR-a: AST catalog extract and ``pipelines/dbc`` skeleton (no vendored mills)."""
+"""DBC catalog extract: PR-a skeleton plus the deferred ``pairs.jsonl`` slice."""
 
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from dbc.catalog import CATALOG  # noqa: E402
+from dbc.catalog import CATALOG, load_pairs_jsonl  # noqa: E402
 from dbc.catalog_extract import (  # noqa: E402
     SHAPE_CTOR,
     SHAPE_LEFTOVER_LANG,
@@ -24,10 +25,14 @@ from dbc.catalog_extract import (  # noqa: E402
     catalog_document,
     catalog_json_path,
     compose_family_records,
+    deferred_pair_rows,
     dumps_catalog,
+    dumps_pairs_jsonl,
     extract_companion_path,
     extract_mill_catalog,
     mill_summary,
+    pairs_jsonl_path,
+    sha256_bytes,
 )
 from dbc.identity import (  # noqa: E402
     is_excluded_launderer_path,
@@ -256,9 +261,54 @@ class DbcSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["dbc-mill-r647"].n_new, 36)
         self.assertEqual(CATALOG.mills["dbc-mill-r647"].n_inherited, 12)
         self.assertEqual(CATALOG.mills["dbc-mill-r1504"].n_rows, 48)
-        self.assertFalse(CATALOG.mills["dbc-mill-r1504"].pairs)
+        self.assertEqual(len(CATALOG.mills["dbc-mill-r1504"].pairs), 48)
+        self.assertEqual(CATALOG.n_deferred_pair_rows, cv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(sum(len(mill.pairs) for mill in CATALOG.mills.values()), cv.N_PAIR_ROWS)
         self.assertNotIn("dbc_r597_leftover3_mill", CATALOG.mills)
         self.assertNotIn("dbc_r600_leftover3_cacheprod_mill", CATALOG.mills)
+
+    def test_pairs_jsonl_is_1212_deferred_of_1252(self):
+        rows = load_pairs_jsonl()
+        self.assertEqual(len(rows), 1212)
+        self.assertEqual(len(rows), cv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(cv.SLICE_PAIR_ROWS + cv.DEFERRED_PAIR_ROWS, cv.N_PAIR_ROWS)
+        mill_ids = {row["mill_id"] for row in rows}
+        self.assertNotIn(cv.SLICE_MILL_ID, mill_ids)
+        self.assertEqual(len(mill_ids), 31)
+        self.assertNotIn("dbc_r597_leftover3_mill", mill_ids)
+        self.assertNotIn("dbc_r600_leftover3_cacheprod_mill", mill_ids)
+        paths = {row["source_path"] for row in rows}
+        self.assertTrue(paths.isdisjoint(cv.EXCLUDED_LAUNDERER_PATHS))
+        r1504 = [row for row in rows if row["mill_id"] == "dbc-mill-r1504"]
+        self.assertEqual(len(r1504), 48)
+        self.assertEqual(r1504[0]["success_slug"], CATALOG.mills["dbc-mill-r1504"].first_slug)
+        self.assertEqual(r1504[-1]["success_slug"], CATALOG.mills["dbc-mill-r1504"].last_slug)
+
+    def test_pairs_jsonl_stays_compact(self):
+        text = pairs_jsonl_path().read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), cv.DEFERRED_PAIR_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        self.assertEqual(sha256_bytes(text.encode("utf-8")), cv.PAIRS_SHA256)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            row = json.loads(line)
+            self.assertEqual(set(row), set(cv.PAIR_JSONL_KEYS))
+
+    def test_catalog_json_still_omits_deferred_bodies(self):
+        document = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        for mill_id, row in document["mills"].items():
+            if mill_id == cv.SLICE_MILL_ID:
+                self.assertEqual(len(row.get("pairs") or ()), cv.SLICE_PAIR_ROWS)
+            else:
+                self.assertFalse(row.get("pairs"))
+
+    def test_git_ls_files_has_no_mill_or_loop_scripts(self):
+        tracked = subprocess.check_output(["git", "ls-files"], cwd=REPO, text=True)
+        names = [Path(path).name for path in tracked.splitlines()]
+        forbidden = [name for name in names if is_vendor_filename(name)]
+        self.assertEqual(forbidden, [])
 
 
 class DbcLegacyExtractTests(unittest.TestCase):
@@ -295,6 +345,10 @@ class DbcLegacyExtractTests(unittest.TestCase):
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),
             catalog_json_path().read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            dumps_pairs_jsonl(deferred_pair_rows(composed, catalog_sources())),
+            pairs_jsonl_path().read_text(encoding="utf-8"),
         )
 
     def test_loop_and_hop_scripts_name_companion_mills(self):

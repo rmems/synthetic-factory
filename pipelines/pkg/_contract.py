@@ -29,10 +29,26 @@ GENERATOR = "grok-4.6"
 GEN = GENERATOR
 QUOTA_PER_ROUND = 2
 RECORD_KIND = "episode"
-CATALOG_ID = "pkg-r163-v1"
+CATALOG_ID = "pkg-r163-r331-v1"
+CATALOG_FORMAT = "pkg-catalog/1"
+CATALOG_FILENAME = "CATALOG.json"
+PLANTS_FILENAME = "plants.jsonl"
 SOURCE_REF = "origin/legacy-mill-lane"
 SOURCE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 SOURCE_PATH = "experiments/pkg-mill-r163.py"
+SOURCE_MILLS = (
+    ("experiments/pkg-mill-r163.py", "pkg-mill-r163.py", 163, 180),
+    ("experiments/pkg-mill-r181.py", "pkg-mill-r181.py", 181, 196),
+    ("experiments/pkg-mill-r209.py", "pkg-mill-r209.py", 209, 213),
+    ("experiments/pkg-mill-r223.py", "pkg-mill-r223.py", 223, 238),
+    ("experiments/pkg-mill-r239.py", "pkg-mill-r239.py", 239, 246),
+    ("experiments/pkg-mill-r247.py", "pkg-mill-r247.py", 247, 254),
+    ("experiments/pkg-mill-r275.py", "pkg-mill-r275.py", 275, 289),
+    ("experiments/pkg-mill-r290.py", "pkg-mill-r290.py", 290, 295),
+    ("experiments/pkg-mill-r296.py", "pkg-mill-r296.py", 296, 299),
+    ("experiments/pkg-mill-r300.py", "pkg-mill-r300.py", 300, 315),
+    ("experiments/pkg-mill-r316.py", "pkg-mill-r316.py", 316, 331),
+)
 INTENDED_USE = "research_only"
 PROJECT_TRAINING_POLICY = "blocked"
 VENDOR_NAME_NEEDLES = (
@@ -50,6 +66,8 @@ VENDOR_PREFIXES = (
 
 FINDING_AST_NOT_A_PLANT = "CATALOG_AST_NOT_A_PLANT"
 FINDING_CATALOG_EMPTY = "CATALOG_EMPTY"
+FINDING_CATALOG_FILE_MISSING = "CATALOG_FILE_MISSING"
+FINDING_CATALOG_SHA256_MISMATCH = "CATALOG_SHA256_MISMATCH"
 FINDING_CATALOG_PAIR_STRIDE = "CATALOG_PAIR_STRIDE"
 FINDING_DESTINATION_EXISTS = "DESTINATION_EXISTS"
 FINDING_DESTINATION_UNDER_RAW = "DESTINATION_UNDER_RAW"
@@ -64,6 +82,8 @@ FINDING_VENDOR_PATH = "VENDOR_PATH_REFUSED"
 FINDING_CODES = (
     FINDING_AST_NOT_A_PLANT,
     FINDING_CATALOG_EMPTY,
+    FINDING_CATALOG_FILE_MISSING,
+    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_CATALOG_PAIR_STRIDE,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
@@ -118,12 +138,16 @@ def refuse_vendor_paths(paths: Iterable[Path | str]) -> None:
 
 
 __all__ = [
+    "CATALOG_FILENAME",
+    "CATALOG_FORMAT",
     "CATALOG_ID",
     "FACTORY",
     "FAMILY_PREFIX",
     "FINDING_AST_NOT_A_PLANT",
     "FINDING_CATALOG_EMPTY",
+    "FINDING_CATALOG_FILE_MISSING",
     "FINDING_CATALOG_PAIR_STRIDE",
+    "FINDING_CATALOG_SHA256_MISMATCH",
     "FINDING_CODES",
     "FINDING_CODE_SET",
     "FINDING_DESTINATION_EXISTS",
@@ -141,7 +165,9 @@ __all__ = [
     "PROJECT_TRAINING_POLICY",
     "QUOTA_PER_ROUND",
     "RECORD_KIND",
+    "PLANTS_FILENAME",
     "SOURCE_COMMIT",
+    "SOURCE_MILLS",
     "SOURCE_PATH",
     "SOURCE_REF",
     "VENDOR_NAME_NEEDLES",

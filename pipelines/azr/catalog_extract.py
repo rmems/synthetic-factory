@@ -36,6 +36,9 @@ from .vocabulary import (
     KIND_PAIRS,
     KIND_PLANTS,
     LEGACY_REF,
+    PAIR_IDENTITY_KEYS,
+    PAIR_ROW_KEYS,
+    PAIRS_FILENAME,
     PRESERVE_COMMIT,
     SHAPE_IDOR_BFLA,
     SHAPE_IDOR_BFLA_COMPOSE,
@@ -44,6 +47,7 @@ from .vocabulary import (
     SHAPE_PLANTS_ZIP,
     SHAPE_SLICE,
     SLICE_ID,
+    SLICE_MILL_ID,
 )
 
 _ROUND_RE = re.compile(r"r(\d+)")
@@ -526,6 +530,81 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
 def catalog_json_path(package_dir: Path | None = None) -> Path:
     root = package_dir if package_dir is not None else Path(__file__).resolve().parent
     return root / CATALOG_FILENAME
+
+
+def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
+    root = package_dir if package_dir is not None else Path(__file__).resolve().parent
+    return root / PAIRS_FILENAME
+
+
+def pair_identity(pair: Mapping[str, Any]) -> dict[str, Any]:
+    """Compact identity shared by the r1181 header rows and ``pairs.jsonl``."""
+
+    return {key: pair.get(key) for key in PAIR_IDENTITY_KEYS}
+
+
+def pair_jsonl_row(
+    mill_id: str, path: str, index: int, pair: Mapping[str, Any]
+) -> dict[str, Any]:
+    row = pair_identity(pair)
+    row["i"] = index
+    row["mill_id"] = mill_id
+    row["path"] = path
+    return row
+
+
+def deferred_pair_rows(records: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """JSONL rows for every mill except the r1181 first slice, catalog order."""
+
+    ordered = sorted(
+        (record for record in records if not is_slice_mill(record["mill_id"])),
+        key=lambda record: (record["catalog_first"], record["mill_id"]),
+    )
+    rows: list[dict[str, Any]] = []
+    for record in ordered:
+        for index, pair in enumerate(record["pairs"]):
+            rows.append(pair_jsonl_row(record["mill_id"], record["path"], index, pair))
+    return rows
+
+
+def dumps_pairs_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    """One identity per line. No pretty indent. Trailing newline. No CR."""
+
+    lines = [
+        json.dumps(row, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        for row in rows
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def load_pair_rows(path: Path | None = None) -> list[dict[str, Any]]:
+    destination = path if path is not None else pairs_jsonl_path()
+    try:
+        text = destination.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot load AZR pairs {destination}: {exc}") from exc
+    if "\r" in text or not text.endswith("\n"):
+        raise ValueError(f"{destination.name} must be LF-framed jsonl")
+    rows: list[dict[str, Any]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        if not line:
+            raise ValueError(f"{destination.name}:{index} is empty")
+        if line.startswith((" ", "\t")):
+            raise ValueError(f"{destination.name}:{index} is not compact")
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{destination.name}:{index} is not JSON: {exc}") from exc
+        if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
+            raise ValueError(f"{destination.name}:{index} keys differ")
+        rows.append(row)
+    if not rows:
+        raise ValueError(f"{destination.name} must contain deferred pair identities")
+    return rows
+
+
+def is_slice_mill(mill_id: str) -> bool:
+    return mill_id == SLICE_MILL_ID
 
 
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:

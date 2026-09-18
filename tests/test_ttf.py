@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """The cleaned ``ttf`` family home under ``pipelines/ttf/``.
 
-The first recovered ``ttf*`` generator on ``origin/codex/recover-grok-01a06111``
-was AST-extracted. These tests pin identity, catalog fidelity, and thalamic
-shape without publishing a raw round and without importing a ``*mill*.py``
-module.
+Recovered ``ttf*`` generators on ``origin/codex/recover-grok-01a06111`` were
+AST-extracted into ``plants.jsonl``. These tests pin identity, catalog
+fidelity, and thalamic shape without publishing a raw round and without
+importing a ``*mill*.py`` module.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import contextlib
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -28,19 +29,24 @@ from record_kind import classify_kind  # noqa: E402
 from ttf import catalog as cat  # noqa: E402
 from ttf import cli, generate  # noqa: E402
 from ttf._contract import (  # noqa: E402
+    CATALOG_ID,
     FACTORY,
     FAMILY_PREFIX,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_ROUND_OUT_OF_DOMAIN,
+    FINDING_SLICE_OUT_OF_DOMAIN,
     FINDING_VENDOR_PATH,
+    FULL_PLANT_COUNT,
     GENERATOR,
+    LEGACY_COMMIT,
+    LEGACY_REF,
     QUOTA_PER_ROUND,
-    SLICE_ID,
+    SLICE_IDS,
+    SOURCE_CATALOGS,
     SOURCE_COMMIT,
-    SOURCE_FILE,
     SOURCE_REF,
-    SOURCE_SHA256,
+    SOURCE_TREE,
     TtfRefusal,
     refuse_vendor_paths,
 )
@@ -52,6 +58,55 @@ PACKAGE_FILES = (
     "generate.py",
     "cli.py",
 )
+CATALOG_FILES = ("CATALOG.json", "plants.jsonl")
+
+
+def _ensure_git_commit(commit: str) -> None:
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO,
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+    subprocess.run(
+        ["git", "fetch", "--depth=1", "origin", commit],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _git_show_blob(spec: str, *, commit: str) -> bytes:
+    try:
+        return subprocess.check_output(["git", "show", spec], cwd=REPO)
+    except subprocess.CalledProcessError:
+        _ensure_git_commit(commit)
+        return subprocess.check_output(["git", "show", spec], cwd=REPO)
+
+
+def _git_ls_tree_names(treeish: str, path: str, *, commit: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "ls-tree", "-r", "--name-only", treeish, path],
+            text=True,
+            cwd=REPO,
+        )
+    except subprocess.CalledProcessError:
+        _ensure_git_commit(commit)
+        return subprocess.check_output(
+            ["git", "ls-tree", "-r", "--name-only", treeish, path],
+            text=True,
+            cwd=REPO,
+        )
+
+
+def setUpModule():
+    for pinned in (SOURCE_COMMIT, LEGACY_COMMIT):
+        _ensure_git_commit(pinned)
+
+
 SNIPPET = """
 FACTORY = "thalamic-trajectory-factory"
 REC_011 = {
@@ -131,6 +186,10 @@ class PackageShape(unittest.TestCase):
         self.assertEqual(list(TTF_DIR.glob("*loop*.py")), [])
         self.assertFalse(any("mill" in name or "loop" in name for name in names))
 
+    def test_compact_catalog_files_live_beside_the_modules(self):
+        for name in CATALOG_FILES:
+            self.assertTrue((TTF_DIR / name).is_file(), name)
+
     def test_both_import_spellings_are_one_object(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
@@ -154,14 +213,17 @@ class Contract(unittest.TestCase):
         self.assertEqual(FAMILY_PREFIX, "ttf")
         self.assertEqual(GENERATOR, "grok-4.6")
         self.assertEqual(QUOTA_PER_ROUND, 5)
-        self.assertEqual(SLICE_ID, "r02c")
-        self.assertEqual(SOURCE_FILE, "ttf_r02c_gen.py")
+        self.assertEqual(CATALOG_ID, "ttf-recover-v1")
+        self.assertEqual(SLICE_IDS, ("r02", "r02c", "r03", "r04", "r12", "r24", "r72"))
+        self.assertEqual(FULL_PLANT_COUNT, 35)
         self.assertEqual(SOURCE_REF, "origin/codex/recover-grok-01a06111")
         self.assertEqual(SOURCE_COMMIT, "e5206e72fa829931162944648e1e180949baaf0b")
-        self.assertEqual(
-            SOURCE_SHA256,
-            "8930294b4643f01b346d0a285f76068e7cf379fd0dac6c944e39a7e08c431fdc",
-        )
+        self.assertEqual(LEGACY_REF, "origin/legacy-mill-lane")
+        self.assertEqual(LEGACY_COMMIT, "813f93f1969c1c4421e5663492e9663739efa642")
+
+    def test_legacy_mill_lane_has_no_experiments_ttf_mills(self):
+        listing = _git_ls_tree_names(LEGACY_COMMIT, "experiments/", commit=LEGACY_COMMIT)
+        self.assertFalse(any("ttf" in line.lower() for line in listing.splitlines()))
 
 
 class AstExtract(unittest.TestCase):
@@ -201,30 +263,54 @@ class AstExtract(unittest.TestCase):
 
 
 class CommittedCatalog(unittest.TestCase):
-    def test_catalog_is_the_r02c_slice(self):
+    def test_catalog_is_full_recover_grok_coverage(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
-        self.assertEqual(loaded.catalog_id, "ttf-r02c-v1")
+        self.assertEqual(loaded.catalog_id, CATALOG_ID)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["plants"], 5)
-        self.assertEqual(report["slice"], "r02c")
-        self.assertEqual(report["rounds"], [2])
-        self.assertEqual(report["first_round"], 2)
-        self.assertEqual(loaded.plants[0].record_id, "ttf-r02c-011")
-        self.assertEqual(loaded.plants[-1].record_id, "ttf-r02c-015")
-        r02 = cat.plants_for_round(2)
-        self.assertEqual(len(r02), 5)
-        self.assertEqual(r02[0].domain, "rhenium-heptoxide-sublimer")
-        self.assertEqual(r02[4].decision, "REJECT")
-        self.assertEqual(r02[4].correctness, "incorrect")
+        self.assertEqual(report["coverage"], "full")
+        self.assertEqual(report["plants"], FULL_PLANT_COUNT)
+        self.assertEqual(report["source_catalogs"], len(SOURCE_CATALOGS))
+        self.assertEqual(report["slices"], list(SLICE_IDS))
+        self.assertEqual(len(loaded.plants), FULL_PLANT_COUNT)
 
-    def test_a_round_outside_the_recovered_slice_is_refused(self):
+    def test_r02c_slice_matches_the_first_committed_identity(self):
+        r02c = cat.plants_for_slice("r02c")
+        self.assertEqual(len(r02c), 5)
+        self.assertEqual(r02c[0].record_id, "ttf-r02c-011")
+        self.assertEqual(r02c[-1].record_id, "ttf-r02c-015")
+        self.assertEqual(r02c[0].domain, "rhenium-heptoxide-sublimer")
+        self.assertEqual(r02c[4].decision, "REJECT")
+        self.assertEqual(r02c[4].correctness, "incorrect")
+
+    def test_round_two_is_ambiguous_without_a_slice(self):
         with self.assertRaises(TtfRefusal) as ctx:
-            cat.plants_for_round(1)
+            cat.plants_for_round(2)
+        self.assertEqual(ctx.exception.code, FINDING_SLICE_OUT_OF_DOMAIN)
+
+    def test_a_round_outside_the_catalog_is_refused(self):
+        with self.assertRaises(TtfRefusal) as ctx:
+            cat.plants_for_round(99)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
         with self.assertRaises(TtfRefusal) as ctx:
             cat.plants_for_round(True)  # type: ignore[arg-type]
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+
+
+class RecoverReplay(unittest.TestCase):
+    def test_every_source_catalog_replays_the_committed_rows(self):
+        prefix = f"{SOURCE_TREE}/"
+        for slice_id, source_file, relpath, sha256, _original in SOURCE_CATALOGS:
+            path = f"{SOURCE_COMMIT}:{prefix}{relpath}"
+            blob = _git_show_blob(path, commit=SOURCE_COMMIT)
+            self.assertEqual(__import__("hashlib").sha256(blob).hexdigest(), sha256)
+            extracted = cat.plants_from_source(blob.decode("utf-8"), source_file)
+            committed = cat.plants_for_slice(slice_id)
+            self.assertEqual(
+                [plant.as_mapping() for plant in extracted],
+                [plant.as_mapping() for plant in committed],
+                slice_id,
+            )
 
 
 class Generate(unittest.TestCase):
@@ -233,8 +319,8 @@ class Generate(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
 
     def test_record_is_a_thalamic_trajectory(self):
-        plant = cat.plants_for_round(2)[0]
-        rec = generate.record(plant)
+        plant = cat.plants_for_slice("r02c")[0]
+        rec = generate.record(plant, slice_id="r02c")
         self.assertEqual(rec["id"], "ttf-r02c-011")
         self.assertEqual(classify_kind(rec), "thalamic")
         self.assertEqual(mill_prefix(rec), "ttf")
@@ -244,9 +330,9 @@ class Generate(unittest.TestCase):
         self.assertEqual(rec["state"]["sim_or_real"], "hil")
         self.assertEqual(rec["reward_components"]["total"], -0.48)
 
-    def test_round_2_writes_five_records_and_refuses_clobber_or_raw(self):
+    def test_r02c_writes_five_records_and_refuses_clobber_or_raw(self):
         out = self.root / "run"
-        summary = generate.run(generate.RunRequest(2, out))
+        summary = generate.run(generate.RunRequest("r02c", out))
         self.assertEqual(summary["records"], 5)
         self.assertEqual(summary["ids"], [
             "ttf-r02c-011",
@@ -263,11 +349,11 @@ class Generate(unittest.TestCase):
         notes = (out / "NOTES-r02c.md").read_text(encoding="utf-8")
         self.assertIn("r02c", notes)
         with self.assertRaises(TtfRefusal) as exists:
-            generate.run(generate.RunRequest(2, out))
+            generate.run(generate.RunRequest("r02c", out))
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
         with self.assertRaises(TtfRefusal) as under_raw:
-            generate.run(generate.RunRequest(2, raw))
+            generate.run(generate.RunRequest("r02c", raw))
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 
@@ -279,14 +365,14 @@ class Generate(unittest.TestCase):
 
         with mock.patch.object(generate, "_fsync_destination", interrupt):
             with self.assertRaises(KeyboardInterrupt):
-                generate.run(generate.RunRequest(2, out))
+                generate.run(generate.RunRequest("r02c", out))
         self.assertFalse(out.exists())
-        summary = generate.run(generate.RunRequest(2, out))
+        summary = generate.run(generate.RunRequest("r02c", out))
         self.assertEqual(summary["records"], 5)
 
     def test_batch_jsonl_uses_literal_lf_record_boundaries(self):
         out = self.root / "run"
-        generate.run(generate.RunRequest(2, out))
+        generate.run(generate.RunRequest("r02c", out))
         payload = (out / "batch-r02c.jsonl").read_bytes()
         self.assertNotIn(b"\r", payload)
         records = payload.split(b"\n")
@@ -302,26 +388,27 @@ class Cli(unittest.TestCase):
     def test_catalog_lists_plants(self):
         code, out, err = invoke(["catalog"])
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("ttf-r02c-v1", out)
+        self.assertIn(CATALOG_ID, out)
         self.assertIn("ttf-r02c-011", out)
+        self.assertIn("ttf-r72-360", out)
 
     def test_catalog_check_json(self):
         code, out, err = invoke(["catalog-check", "--json"])
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(out)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["plants"], 5)
-        self.assertEqual(payload["slice"], "r02c")
+        self.assertEqual(payload["plants"], FULL_PLANT_COUNT)
+        self.assertEqual(payload["coverage"], "full")
 
     def test_generate_stdout_and_a_raw_refusal(self):
-        code, out, err = invoke(["generate", "--round", "2"])
+        code, out, err = invoke(["generate", "--slice", "r02c"])
         self.assertEqual((code, err), (0, ""))
         lines = [line for line in out.splitlines() if line]
         self.assertEqual(len(lines), 5)
         self.assertEqual(json.loads(lines[0])["id"], "ttf-r02c-011")
         dest = self.root / "dest"
         code, stdout, err = invoke(
-            ["generate", "--round", "2", "--out", str(dest), "--json"]
+            ["generate", "--slice", "r02c", "--out", str(dest), "--json"]
         )
         self.assertEqual((code, err), (0, ""))
         payload = json.loads(stdout)
@@ -330,8 +417,8 @@ class Cli(unittest.TestCase):
         code, stdout, _err = invoke(
             [
                 "generate",
-                "--round",
-                "2",
+                "--slice",
+                "r02c",
                 "--out",
                 str(self.root / "outputs" / "raw" / "x"),
                 "--json",

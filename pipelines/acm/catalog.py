@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Load and write the AST-extracted ACM catalog. Never stores mill source.
 
-The committed ``CATALOG.json`` next to this module is a representative slice
-of the 1052-pair / 95-file extract from ``legacy-mill-lane`` at
-``SOURCE_COMMIT``. The full ACM catalog is a follow-up slice after #255 lands.
+The committed ``CATALOG.json`` next to this module holds the 8 representative
+pairs from the 1052-pair / 95-file extract on ``legacy-mill-lane`` at
+``SOURCE_COMMIT``. The remaining 1044 pairs live in compact ``rows.jsonl``.
 """
 
 from __future__ import annotations
@@ -19,14 +19,20 @@ from . import _contract
 from ._contract import (
     CATALOG_FORMAT,
     CATALOG_ID,
+    DEFERRED_ROW_COUNT,
     FACTORY_NAME,
     FAMILY,
+    FULL_ROW_COUNT,
     GENERATOR,
     ID_PREFIX,
+    LOOP_PREFIX,
     QUOTA,
+    REPRESENTATIVE_ROW_COUNT,
+    ROWS_FILENAME,
     SOURCE_COMMIT,
     SOURCE_REF,
     STEPS,
+    VENDOR_PREFIX,
     WRAP_NEEDLES,
     refuse_vendor_paths,
 )
@@ -35,6 +41,7 @@ CATALOG_FILENAME = "CATALOG.json"
 
 __all__ = [
     "CATALOG_FILENAME",
+    "ROWS_FILENAME",
     "Pair",
     "Plant",
     "catalog_payload",
@@ -44,6 +51,7 @@ __all__ = [
     "dumps_catalog",
     "dumps_rows",
     "load_catalog",
+    "load_rows",
     "plant_from_mapping",
     "row_from_pair",
     "sha256_text",
@@ -86,7 +94,7 @@ def sha256_text(text: str) -> str:
 
 
 def default_catalog_dir() -> Path:
-    """Package directory that holds the committed representative catalog."""
+    """Package directory that holds the committed catalog and deferred rows."""
 
     return Path(__file__).resolve().parent
 
@@ -105,6 +113,23 @@ def dumps_rows(rows: list[Mapping[str, Any]]) -> str:
         for row in rows
     ]
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def load_rows(path: Path) -> list[dict[str, Any]]:
+    """Load compact JSONL pair rows; refuse a pretty-printed or non-object line."""
+
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise ValueError("catalog row is not an object")
+        compact = json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        if line != compact:
+            raise ValueError("catalog row is not compact JSONL")
+        rows.append(row)
+    return rows
 
 
 def catalog_payload(
@@ -177,7 +202,11 @@ def load_catalog(directory: Path | None = None) -> dict[str, Any]:
         raise ValueError("catalog.row_count does not match rows")
     if payload.get("rows_sha256") != sha256_text(dumps_rows(rows)):
         raise ValueError("catalog.rows_sha256 does not match rows")
-    return dict(payload)
+    loaded = dict(payload)
+    deferred = _deferred_rows_from_extract(loaded, root)
+    if deferred is not None:
+        loaded["deferred_rows"] = deferred
+    return loaded
 
 
 def plant_from_mapping(payload: Mapping[str, Any], *, success: bool | None = None) -> Plant:
@@ -220,9 +249,10 @@ def row_from_pair(pair: Pair) -> dict[str, Any]:
 
 
 def check_tree_has_no_vendor(root: Path) -> None:
-    """Refuse a tree that contains a vendored ``acm-mill*.py`` file."""
+    """Refuse a tree that vendors ``acm-mill*.py`` or ``acm-loop*.py``."""
 
-    refuse_vendor_paths(root.rglob("acm-mill-*.py"))
+    refuse_vendor_paths(root.rglob(f"{VENDOR_PREFIX}*.py"))
+    refuse_vendor_paths(root.rglob(f"{LOOP_PREFIX}*.py"))
 
 
 def check_catalog(payload: Mapping[str, Any]) -> None:
@@ -240,6 +270,47 @@ def check_catalog(payload: Mapping[str, Any]) -> None:
     if not isinstance(rows, list) or not rows:
         raise ValueError("catalog rows are missing")
     slugs: set[str] = set()
+    _check_rows(rows, slugs)
+    _check_deferred_union(payload, rows, slugs)
+
+
+def _deferred_rows_from_extract(
+    payload: Mapping[str, Any], root: Path
+) -> list[dict[str, Any]] | None:
+    extract = payload.get("extract")
+    if not isinstance(extract, dict) or extract.get("deferred_rows") is None:
+        return None
+    if extract.get("deferred_rows") != ROWS_FILENAME:
+        raise ValueError("catalog extract.deferred_rows must be rows.jsonl")
+    path = root / ROWS_FILENAME
+    if not path.is_file():
+        raise FileNotFoundError(f"missing catalog rows: {path}")
+    rows = load_rows(path)
+    if extract.get("deferred_row_count") != len(rows):
+        raise ValueError("catalog extract.deferred_row_count does not match rows")
+    if extract.get("deferred_rows_sha256") != sha256_text(dumps_rows(rows)):
+        raise ValueError("catalog extract.deferred_rows_sha256 does not match rows")
+    return rows
+
+
+def _check_deferred_union(
+    payload: Mapping[str, Any], rows: list[object], slugs: set[str]
+) -> None:
+    deferred = payload.get("deferred_rows")
+    if deferred is None:
+        return
+    if not isinstance(deferred, list) or not deferred:
+        raise ValueError("catalog deferred_rows are missing")
+    _check_rows(deferred, slugs)
+    if len(rows) != REPRESENTATIVE_ROW_COUNT:
+        raise ValueError("catalog representative row_count must be 8")
+    if len(deferred) != DEFERRED_ROW_COUNT:
+        raise ValueError("catalog deferred_row_count must be 1044")
+    if len(rows) + len(deferred) != FULL_ROW_COUNT:
+        raise ValueError("representative plus deferred rows must total 1052")
+
+
+def _check_rows(rows: list[object], slugs: set[str]) -> None:
     for row in rows:
         _check_row(row, slugs)
 

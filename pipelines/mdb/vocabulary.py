@@ -20,7 +20,10 @@ DEFAULT_RUN_LABEL = "2026-08-19-agentic"
 LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "f769a8c09e45960ca7a3b7d600cbb2a481a67516"
 CATALOG_FILENAME = "CATALOG.json"
+PAIRS_FILENAME = "pairs.jsonl"
 SLICE_MILL_ID = "mdb-mill-r709"
+SLICE_PAIR_ROWS = 37
+DEFERRED_PAIR_ROWS = 1284
 
 BANNED = (
     "thought",
