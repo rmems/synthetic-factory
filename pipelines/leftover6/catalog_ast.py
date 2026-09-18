@@ -10,7 +10,7 @@ from ._contract import bind_import_twin
 
 from .catalog_literals import UNSET, _UnresolvedBinding, literal_value
 
-_DYNAMIC_NAMESPACES = frozenset({"globals", "locals", "vars", "exec", "eval"})
+_DYNAMIC_NAMESPACES = frozenset({"globals", "locals", "vars", "exec", "eval", "modules"})
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
 _STRING_BINDINGS = {ast.MatchAs: "name", ast.MatchStar: "name",
@@ -35,6 +35,7 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
     env: dict[str, Any] = {}
     for node in _catalog_statements(tree.body):
         name, value = assignment_of(node)
+        _require_import_name(name)
         if name is None:
             _invalidate_names(env, _statement_names(node))
             if isinstance(node, _DEFINITIONS):
@@ -154,8 +155,15 @@ def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
 
 
 def _refuse_dynamic_namespaces(names):
+    for name in names:
+        _require_import_name(name)
     if _DYNAMIC_NAMESPACES.intersection(names):
         raise ValueError("dynamic module namespace access is not a literal catalog")
+
+
+def _require_import_name(name):
+    if name == "__name__":
+        raise ValueError("module name access outside the script guard is not a literal catalog")
 
 
 def _invalidate_mutable_aliases(env, names):

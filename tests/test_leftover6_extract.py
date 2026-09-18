@@ -91,6 +91,29 @@ class LiteralCatalogExtract(unittest.TestCase):
         source = SSL_SOURCE + '\ndef publish():\n    PAIRS.append(build())\n'
         self.assertEqual(extract_source(source, path=SSL_PATH)['n_rows'], 1)
 
+    def test_rebinding_module_name_cannot_hide_script_guard_mutation(self):
+        rebindings = ('__name__ = "__main__"', '__name__: str = "__main__"',
+                      '(__name__, extra) = ("__main__", 0)',
+                      'if condition:\n    __name__ = "__main__"',
+                      'import replacement as __name__')
+        guard = '\nif __name__ == "__main__":\n    PAIRS = []'
+        for rebinding in rebindings:
+            with self.subTest(rebinding=rebinding), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + rebinding + guard, path=SSL_PATH)
+        deferred = '\ndef unused():\n    __name__ = "__main__"' + guard
+        self.assertEqual(extract_source(SSL_SOURCE + deferred, path=SSL_PATH)['n_rows'], 1)
+
+    def test_module_registry_writes_cannot_preserve_literal_rows(self):
+        mutations = ('import sys\nsys.modules[__name__].PAIRS = []',
+                     'import sys as s\ns.modules[__name__].PAIRS = []',
+                     'from sys import modules as registry\nregistry[__name__].PAIRS = []',
+                     'import sys\nmodule = sys.modules[__name__]\nmodule.PAIRS = []')
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                extract_source(SSL_SOURCE + '\n' + mutation, path=SSL_PATH)
+        deferred = '\ndef unused():\n    import sys\n    sys.modules[__name__].PAIRS = []'
+        self.assertEqual(extract_source(SSL_SOURCE + deferred, path=SSL_PATH)['n_rows'], 1)
+
     def test_definition_time_expressions_cannot_mutate_extracted_literals(self):
         definitions = ('def publish(value=PAIRS.clear()):\n    pass',
                        '@decorate(PAIRS.clear())\ndef publish():\n    pass',
