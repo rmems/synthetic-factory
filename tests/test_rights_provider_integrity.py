@@ -67,13 +67,20 @@ class ReviewedEvidenceStatuses(unittest.TestCase):
         for profile_id in (rights_policy.PROCEDURAL_PROFILE_ID, rights_policy.SIMULATOR_PROFILE_ID):
             self._assert_profile_statuses_sealed(profile_id)
 
-    def _assert_profile_statuses_sealed(self, profile_id):
+    def test_placeholder_evidence_stays_unresolved_with_or_without_snapshot(self):
+        for profile_id in rights_policy.PLACEHOLDER_PROFILE_IDS:
+            for snapshot in (None, "sha256:" + "b" * 64):
+                self._assert_profile_statuses_sealed(profile_id, snapshot=snapshot)
+
+    def _assert_profile_statuses_sealed(self, profile_id, *, snapshot=None):
         fields = mutable_policy_document()["profiles"][0]["evidence_statuses"]
         for field in fields:
             with self.subTest(profile=profile_id, field=field):
                 document = mutable_policy_document()
                 profiles = {row["id"]: row for row in document["profiles"]}
                 profile = profiles[profile_id]
+                if profile_id in rights_policy.PLACEHOLDER_PROFILE_IDS:
+                    profile[rights_policy.UNBLOCK_TERMS_SNAPSHOT_FIELD] = snapshot
                 statuses = profile["evidence_statuses"]
                 statuses[field] = "allowed" if statuses[field] == "unresolved" else "unresolved"
                 with self.assertRaises(rights_policy.RightsPolicyError):

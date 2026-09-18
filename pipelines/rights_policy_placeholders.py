@@ -47,6 +47,7 @@ def require_placeholder_verdicts(profiles: dict[str, dict], where: str) -> None:
 
     for profile_id in PLACEHOLDER_PROFILE_IDS:
         placeholder = profiles[profile_id]
+        _require_unresolved_evidence(placeholder, profile_id, where)
         placeholder_verdict = (
             placeholder["intended_use"],
             placeholder["project_training_policy"],
@@ -56,6 +57,12 @@ def require_placeholder_verdicts(profiles: dict[str, dict], where: str) -> None:
                 where,
                 f"profile {profile_id!r} must remain a blocked terms placeholder",
             )
+
+
+def _require_unresolved_evidence(profile: dict, profile_id: str, where: str) -> None:
+    statuses = profile["evidence_statuses"]
+    if any(statuses[field] != "unresolved" for field in _rights_mapping.EVIDENCE_STATUS_FIELDS):
+        raise policy_error(where, f"profile {profile_id!r} must keep all terms evidence unresolved")
 
 
 if __package__:
