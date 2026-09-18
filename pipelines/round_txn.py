@@ -648,7 +648,7 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
     cached = _SIBLING_ID_CACHE.get(cache_key)
     if cached is not None:
         return dict(cached)
-    seen_ids = {}
+    seen_ids: dict = {}
     for path in sorted(run_dir.glob("*.jsonl")):
         if path.is_file() and not path.is_symlink():
             check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
@@ -703,7 +703,7 @@ def validate_legacy_baseline_payloads(
 ):
     """Deep-check every regular legacy payload exposed by a marker baseline."""
     quarantined_kinds = quarantined_kinds or {}
-    records_by_round = {}
+    records_by_round: dict[int, int] = {}
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     for path in sorted(factory_dir.glob("*.jsonl")):
         if not path.is_file() or path.is_symlink():
@@ -1395,7 +1395,7 @@ def in_flight_batch_paths(factory_dir: Path):
 
 def committed_ids(factory_dir: Path):
     """Seed the run-wide ID namespace from committed/legacy raw JSONL."""
-    seen_ids = {}
+    seen_ids: dict = {}
     run_dir = factory_dir.parent
     for path in sorted(run_dir.glob("*.jsonl")):
         # Dated runs may retain pre-factory legacy JSONL at their root. It
