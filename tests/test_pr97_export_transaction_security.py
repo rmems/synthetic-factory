@@ -19,64 +19,51 @@ for _path in (TESTS, REPO / "pipelines"):
 import export_hf  # noqa: E402
 import export_members  # noqa: E402
 import export_members_read  # noqa: E402
-from export_test_support import compose_fixture  # noqa: E402
+from export_test_support import compose_fixture, export_mechanics_without_admission  # noqa: E402
 
 
 class ExportTransactionContracts(unittest.TestCase):
+    def assert_finish_mutation_refused(self, root, mutate):
+        curated = compose_fixture(root)
+        destination = root / "export"
+        real_finish = export_hf._finish_pinned_destination
+
+        def mutate_then_finish(pinned):
+            mutate(pinned)
+            return real_finish(pinned)
+
+        with (
+            mock.patch.object(export_hf, "_finish_pinned_destination",
+                              side_effect=mutate_then_finish) as mutation,
+            self.assertRaises(export_hf.ExportError),
+        ):
+            export_hf.export_run(curated, destination)
+        mutation.assert_called_once()
+        self.assertFalse(destination.exists())
+
+    @export_mechanics_without_admission(export_hf)
     def test_finish_reauthenticates_bytes_mutated_through_held_descriptor(self):
         """The real finish boundary catches staged-byte mutation before publish."""
+        def mutate(pinned):
+            descriptor = os.open(pinned.root / export_hf.TRAIN_PATH, os.O_WRONLY)
+            try:
+                os.pwrite(descriptor, b"corrupted\n", 0)
+            finally:
+                os.close(descriptor)
 
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            curated = compose_fixture(root)
-            destination = root / "export"
-            real_finish = export_hf._finish_pinned_destination
+            self.assert_finish_mutation_refused(Path(td), mutate)
 
-            def mutate_then_finish(pinned):
-                descriptor = os.open(pinned.root / export_hf.TRAIN_PATH, os.O_WRONLY)
-                try:
-                    os.pwrite(descriptor, b"corrupted\n", 0)
-                finally:
-                    os.close(descriptor)
-                return real_finish(pinned)
-
-            with (
-                mock.patch.object(
-                    export_hf,
-                    "_finish_pinned_destination",
-                    side_effect=mutate_then_finish,
-                ),
-                self.assertRaises(export_hf.ExportError),
-            ):
-                export_hf.export_run(curated, destination)
-
-            self.assertFalse(destination.exists())
-
+    @export_mechanics_without_admission(export_hf)
     def test_finish_rejects_an_undeclared_staged_entry(self):
         """Publication authenticates the complete tree, not only known files."""
+        def add_extra(pinned):
+            (pinned.root / "undeclared-extra").write_bytes(b"not declared\n")
 
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            curated = compose_fixture(root)
-            destination = root / "export"
-            real_finish = export_hf._finish_pinned_destination
+            self.assert_finish_mutation_refused(Path(td), add_extra)
 
-            def add_extra_then_finish(pinned):
-                (pinned.root / "undeclared-extra").write_bytes(b"not declared\n")
-                return real_finish(pinned)
-
-            with (
-                mock.patch.object(
-                    export_hf,
-                    "_finish_pinned_destination",
-                    side_effect=add_extra_then_finish,
-                ),
-                self.assertRaises(export_hf.ExportError),
-            ):
-                export_hf.export_run(curated, destination)
-
-            self.assertFalse(destination.exists())
-
+    @export_mechanics_without_admission(export_hf)
     def test_publication_collision_after_final_authentication_fails_closed(self):
         """The no-replace publish is the export's public linearization point."""
 
@@ -99,16 +86,19 @@ class ExportTransactionContracts(unittest.TestCase):
                     export_hf,
                     "_finish_pinned_destination",
                     side_effect=race_at_finish,
-                ),
+                ) as mutation,
                 self.assertRaises(export_hf.ExportError),
             ):
                 export_hf.export_run(curated, destination)
+
+            mutation.assert_called_once()
 
             self.assertEqual(
                 (destination / "concurrent-owner").read_bytes(),
                 b"keep me\n",
             )
 
+    @export_mechanics_without_admission(export_hf)
     def test_source_mutation_after_destination_authentication_aborts_export(self):
         """Commit must still represent the authenticated curated member set."""
 
@@ -131,13 +121,15 @@ class ExportTransactionContracts(unittest.TestCase):
                     export_hf,
                     "_write_export_metadata",
                     side_effect=authenticate_then_add,
-                ),
+                ) as mutation,
                 self.assertRaisesRegex(
                     export_hf.ExportError,
                     "curated member set changed",
                 ),
             ):
                 export_hf.export_run(curated, destination)
+
+            mutation.assert_called_once()
 
             self.assertFalse(destination.exists())
 

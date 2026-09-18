@@ -425,7 +425,7 @@ class _CorpusAudit:
             return
 
         finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
-        procedural_route = self._registered_code_repair_route(obj, factory)
+        procedural_route = self._registered_code_repair_route(factory)
         if finding is not None and not procedural_route:
             # Foreign evidence is excluded before every training invariant,
             # including the exact-JSON serialization contract.
@@ -441,10 +441,8 @@ class _CorpusAudit:
         self._observe_valid_record(obj, where, factory)
 
     @staticmethod
-    def _registered_code_repair_route(obj, factory):
+    def _registered_code_repair_route(factory):
         """Return whether path-derived registry authority permits procedural validation."""
-        if not isinstance(obj, dict) or obj.get("family") != "python-function-repair":
-            return False
         if __package__:
             from .curate_identity import default_registry
         else:
@@ -458,10 +456,11 @@ class _CorpusAudit:
 
     def _observe_valid_record(self, obj, where, factory):
         bucket = self.factories[factory]
-        if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
+        declares_procedural = isinstance(obj, dict) and obj.get("family") == "python-function-repair"
+        if self._registered_code_repair_route(factory) or declares_procedural:
             self._observe_code_repair(obj, where, factory, bucket)
             return
-        research_only = isinstance(obj, dict) and obj.get("family") == "neuromorphic-fault-recovery"
+        research_only = self._research_only_route(obj, factory)
         self.totals["research_only_records"] += int(research_only)
         if not research_only:
             self.totals["eligible_records"] += 1
@@ -469,6 +468,20 @@ class _CorpusAudit:
         kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1
         bucket["by_kind"][kind] += 1
+
+    @staticmethod
+    def _research_only_route(obj, factory):
+        """Apply native and reviewed path denials before legacy structural policy."""
+        if isinstance(obj, dict) and obj.get("family") == "neuromorphic-fault-recovery":
+            return True
+        if __package__:
+            from .curate_identity import default_registry
+        else:
+            from curate_identity import default_registry
+        row = default_registry().by_path_id.get(factory)
+        if row is not None:
+            return row.project_training_policy == "blocked" or row.training_ready_policy == "never"
+        return False
 
     def _observe_code_repair(self, obj, where, factory, bucket):
         if __package__:

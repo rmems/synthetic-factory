@@ -5,10 +5,12 @@ Split out of ``test_export_hf`` so each test module can state one
 responsibility. Not named ``test_*`` so it is not itself collected.
 """
 
+from contextlib import contextmanager, ExitStack
 import importlib.util
 import json
 import sys
 from pathlib import Path
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parents[0]
@@ -41,3 +43,22 @@ def calibration_document(*records):
 ONE_CALIBRATION = calibration_document(
     {"usd_conversion_factor": 0.5, "scope": "applies to ffpc-r5-002"}
 )
+
+
+@contextmanager
+def export_mechanics_without_admission(exporter):
+    """Isolate admission only for exporter mechanics; this proves no training authority.
+
+    Patch the audit objects captured by the actual exporter and composer, not a
+    later re-import. Real blocked-row refusal and generated procedural admitted
+    export have separate unpatched integration coverage.
+    """
+    auditors = {
+        exporter.training_audit._CorpusAudit,
+        exporter.compose_curated.training_audit._CorpusAudit,
+        compose_curated.training_audit._CorpusAudit,
+    }
+    with ExitStack() as patches:
+        for auditor in auditors:
+            patches.enter_context(mock.patch.object(auditor, "_research_only_route", return_value=False))
+        yield

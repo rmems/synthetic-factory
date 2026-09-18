@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from export_test_support import (  # noqa: E402
+    export_mechanics_without_admission,
     HAS_PYARROW,
     compose_fixture,
 )
@@ -77,6 +78,7 @@ class ViewerParquet(unittest.TestCase):
 
 
 class ExportSplitDeterminism(unittest.TestCase):
+    @export_mechanics_without_admission(export_hf)
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -8,6 +8,8 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
+from training_audit_test_helpers import assert_research_policy
+
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 for _path in (TESTS, REPO / "pipelines"):
@@ -77,8 +79,7 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
                     ("thought", "hidden refusal reasoning"),
                 ),
             )
-            self.assertTrue(summary["audit"]["training_ready"], summary["audit"])
-            self.assertEqual(summary["audit"]["blockers"], [])
+            assert_research_policy(self, summary["audit"])
             self.assertEqual(
                 summary["transforms"]["coding"]["registered_agentic"],
                 {
@@ -88,7 +89,7 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
                 },
             )
             report = training_audit.audit_run(records_dir)
-            self.assertTrue(report["training_ready"], report["blockers"])
+            assert_research_policy(self, report)
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
             for output in records_dir.rglob("*.jsonl"):
                 for record in read_jsonl(output):
@@ -131,10 +132,9 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
                     ("internal_reasoning_optimizer", "hidden optimizer trace"),
                 ),
             )
-            self.assertTrue(summary["audit"]["training_ready"], summary["audit"])
-            self.assertEqual(summary["audit"]["blockers"], [])
+            assert_research_policy(self, summary["audit"])
             report = training_audit.audit_run(records_dir)
-            self.assertTrue(report["training_ready"], report["blockers"])
+            assert_research_policy(self, report)
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
             for output in records_dir.rglob("*.jsonl"):
                 for record in read_jsonl(output):

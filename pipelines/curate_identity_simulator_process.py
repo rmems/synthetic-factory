@@ -20,12 +20,14 @@ if __package__:
     _assert_direct_sibling("curate_identity_simulator_process")
     from .curate_identity_json import IdentityCurationError
     from .curate_identity_registry_sources import simulator_source_snapshot
+    from .oracle_grounded.distill_vocabulary import is_timestamp
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity_simulator_process"
     )
     from curate_identity_json import IdentityCurationError
     from curate_identity_registry_sources import simulator_source_snapshot
+    from oracle_grounded.distill_vocabulary import is_timestamp
 
 _WORKER = "pipelines/curate_identity_simulator_worker.py"
 _MAX_RESULT_BYTES = 1_048_576
@@ -51,8 +53,8 @@ def _validate_coordinate(seed, index):
 def _request(coordinates):
     seed, index, stamp = coordinates
     _validate_coordinate(seed, index)
-    if not isinstance(stamp, str):
-        raise IdentityCurationError("simulator timestamp must be text")
+    if not is_timestamp(stamp):
+        raise IdentityCurationError("simulator timestamp must be a valid producer UTC instant")
     payload = (json.dumps(coordinates, ensure_ascii=True, allow_nan=False) + "\n").encode()
     if len(payload) > _MAX_REQUEST_BYTES:
         raise IdentityCurationError("simulator replay request exceeds its bound")

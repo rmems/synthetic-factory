@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from compose_curated_test_support import preference_pair, write_jsonl  # noqa: E402
-from export_test_support import ONE_CALIBRATION, compose_fixture  # noqa: E402
+from export_test_support import export_mechanics_without_admission, ONE_CALIBRATION, compose_fixture  # noqa: E402
 import compose_curated  # noqa: E402
 import export_compose_auth  # noqa: E402
 import export_contract  # noqa: E402
@@ -16,6 +16,7 @@ import export_hf  # noqa: E402
 
 
 class ExportSourceReplayAuthentication(unittest.TestCase):
+    @export_mechanics_without_admission(export_hf)
     def test_direct_factory_root_replays_the_published_factory_coordinate(self):
         """Physical root members replay under the coordinate compose published."""
 

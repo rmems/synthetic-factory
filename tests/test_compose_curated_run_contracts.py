@@ -9,6 +9,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from training_audit_test_helpers import assert_research_policy
+
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 for _path in (TESTS, REPO / "pipelines"):
@@ -73,8 +75,8 @@ class ComposeCuratedRunContracts(unittest.TestCase):
                 status = compose_curated.main(
                     ["--strict", str(source), str(root / "curated")]
                 )
-            self.assertEqual(status, 0)
-            self.assertTrue(json.loads(stdout.getvalue())["audit"]["training_ready"])
+            self.assertEqual(status, 1)
+            assert_research_policy(self, json.loads(stdout.getvalue())["audit"])
 
             stderr = io.StringIO()
             with redirect_stdout(io.StringIO()), redirect_stderr(stderr):

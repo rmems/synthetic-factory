@@ -277,7 +277,7 @@ def _report_blockers(state, eligible_records, provenance_total):
     )
 
     if state["totals"].get("research_only_records", 0):
-        blockers.append("research-only fault-recovery records have training_ready_policy never")
+        blockers.append("research-only records have blocked project policy or training_ready_policy never")
     return blockers
 
 
@@ -302,6 +302,7 @@ def build_report(**state):
             "files": totals["files"],
             "records": totals["records"],
             "eligible_records": eligible_records,
+            "research_only_records": totals["research_only_records"],
             "exact_json_contract_errors": totals["exact_json_contract_errors"],
             "bytes": totals["bytes"],
             "approx_tokens": totals["approx_tokens"],

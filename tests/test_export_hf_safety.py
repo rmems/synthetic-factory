@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from export_test_support import (  # noqa: E402
+    export_mechanics_without_admission,
     compose_fixture,
 )
 from compose_curated_test_support import multi_agent, write_jsonl  # noqa: E402
@@ -29,6 +30,7 @@ def _should_swap_destination_parent(path, destination, dir_fd, already_swapped):
 
 
 class ExportDestinationSafety(unittest.TestCase):
+    @export_mechanics_without_admission(export_hf)
     def test_refuses_empty_missing_and_existing_destinations(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -78,6 +80,7 @@ class ExportDestinationSafety(unittest.TestCase):
                 export_hf.export_run(curated, symlink_parent / "export")
             self.assertFalse((real_parent / "export").exists())
 
+    @export_mechanics_without_admission(export_hf)
     def test_refuses_a_destination_under_the_authenticated_compose_source(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -91,6 +94,7 @@ class ExportDestinationSafety(unittest.TestCase):
                 export_hf.export_run(curated, destination)
             self.assertFalse(destination.exists())
 
+    @export_mechanics_without_admission(export_hf)
     def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -215,6 +219,7 @@ class ExportCompositionMemberSafety(unittest.TestCase):
                     export_hf.export_run(curated, root / "export")
                 self.assertFalse((root / "export").exists())
 
+    @export_mechanics_without_admission(export_hf)
     def test_rejects_a_compose_member_symlink_loop_as_export_error(self):
         """An unresolvable member alias must stay inside the export contract."""
 
@@ -239,6 +244,7 @@ class ExportCompositionMemberSafety(unittest.TestCase):
 class ExportSnapshotCoherence(unittest.TestCase):
     """Codex #97: replay authenticates one coherent source state, never a hybrid."""
 
+    @export_mechanics_without_admission(export_hf)
     def test_a_member_changed_during_capture_refuses_the_export(self):
         import export_replay
 
@@ -316,6 +322,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
                 export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
+    @export_mechanics_without_admission(export_hf)
     def test_a_member_added_during_capture_refuses_the_export(self):
         """Codex #97 P2: replay must re-discover members after its capture.
 
@@ -358,6 +365,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
                 export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
+    @export_mechanics_without_admission(export_hf)
     def test_a_curated_member_added_after_the_initial_snapshot_is_refused(self):
         """Audit, compose authentication, and exported bytes use one member set."""
 
@@ -389,6 +397,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
                 export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
+    @export_mechanics_without_admission(export_hf)
     def test_a_completed_export_artifact_is_reauthenticated_before_finish(self):
         """A post-write mutation must roll back the whole new destination."""
 
@@ -520,6 +529,7 @@ class ExportAuditByteCapture(unittest.TestCase):
 
 
 class ExportCli(unittest.TestCase):
+    @export_mechanics_without_admission(export_hf)
     def test_cli_prints_provenance_and_reports_refusals(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
