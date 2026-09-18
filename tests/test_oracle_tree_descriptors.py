@@ -41,6 +41,31 @@ class OracleTreeDescriptors(unittest.TestCase):
                 except OSError:
                     pass
 
+    def test_root_descriptor_closes_when_stat_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            real_open = os.open
+            descriptors = []
+
+            def capture_open(*args, **kwargs):
+                descriptor = real_open(*args, **kwargs)
+                descriptors.append(descriptor)
+                return descriptor
+
+            try:
+                with mock.patch.object(oracle_validate.os, 'open', side_effect=capture_open), \
+                     mock.patch.object(oracle_validate.os, 'fstat', side_effect=OSError('stat failed')):
+                    with self.assertRaises(OSError):
+                        oracle_validate._open_run_root(temporary)
+                self.assertEqual(len(descriptors), 1)
+                with self.assertRaises(OSError):
+                    os.fstat(descriptors[0])
+            finally:
+                for descriptor in descriptors:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+
 
 if __name__ == '__main__':
     unittest.main()

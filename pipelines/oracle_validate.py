@@ -53,6 +53,7 @@ else:
     from oracle_grounded.rng import MAX_SEED as MAX_SEED, seed_from_label as seed_from_label
 
 
+MANIFEST_FILENAME = "manifest.json"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_JSONL_BYTES = 64 * 1024 * 1024
 MAX_RUN_FILES = 10_000
@@ -158,11 +159,19 @@ def strict_json_loads(text):
     return value
 
 
+def _manifest_path_text(value):
+    return isinstance(value, str) and bool(value) and "\\" not in value
+
+
+def _relative_manifest_parts(path):
+    return not path.is_absolute() and all(part not in ("", ".", "..") for part in path.parts)
+
+
 def _safe_manifest_path(value):
-    if not isinstance(value, str) or not value or "\\" in value:
+    if not _manifest_path_text(value):
         return None
     path = PurePosixPath(value)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+    if not _relative_manifest_parts(path):
         return None
     if path.as_posix() != value or path.suffix != ".jsonl":
         return None
@@ -332,10 +341,13 @@ def _open_run_root(run_dir):
         | getattr(os, "O_NOFOLLOW", 0)
     )
     descriptor = os.open(root, flags)
-    opened = os.fstat(descriptor)
-    if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError("run directory changed while it was opened")
+    except BaseException:
         os.close(descriptor)
-        raise ValueError("run directory changed while it was opened")
+        raise
     return descriptor
 
 
@@ -350,8 +362,8 @@ def _is_sha256_hex(value):
 
 def _load_run_manifest(run_dir, root_fd, actual, errors):
     """Snapshot and parse the run manifest, or report why it cannot be read."""
-    manifest_path = run_dir / "manifest.json"
-    manifest_entry = actual.get("manifest.json")
+    manifest_path = run_dir / MANIFEST_FILENAME
+    manifest_entry = actual.get(MANIFEST_FILENAME)
     if manifest_entry is None:
         errors.append(f"{manifest_path}: required run manifest is missing")
         return None
@@ -360,15 +372,13 @@ def _load_run_manifest(run_dir, root_fd, actual, errors):
         manifest_snapshot = _snapshot_regular_file(
             root_fd,
             manifest_file,
-            "manifest.json",
+            MANIFEST_FILENAME,
             MAX_MANIFEST_BYTES,
             expected_stat=manifest_stat,
         )
         return strict_json_loads(manifest_snapshot.body)
     except (
         OSError,
-        UnicodeError,
-        json.JSONDecodeError,
         ValueError,
         RecursionError,
         MemoryError,
@@ -440,7 +450,7 @@ def _capture_manifested_files(actual, valid_entries, root_fd, errors):
     snapshots = []
     seen_inodes = set()
     captured_record_total = 0
-    actual_names = set(actual) - {"manifest.json"}
+    actual_names = set(actual) - {MANIFEST_FILENAME}
     for relative in sorted(valid_entries.keys() & actual_names):
         path, expected_stat = actual[relative]
         try:
@@ -487,18 +497,7 @@ def _verify_run_tree_unchanged(run_dir, root_fd, initial, errors):
         errors.append(f"{run_dir}: run tree changed during capture")
 
 
-def _authenticate_manifest_from_root(run_dir, root_fd):
-    """Authenticate a run rooted at one already pinned directory descriptor."""
-    run_dir = Path(run_dir)
-    errors = []
-    actual, tree_errors = _enumerate_run_files(run_dir, root_fd)
-    errors.extend(tree_errors)
-    manifest_path = run_dir / "manifest.json"
-    manifest = _load_run_manifest(run_dir, root_fd, actual, errors)
-
-    actual_names = set(actual) - {"manifest.json"}
-    if not isinstance(manifest, dict):
-        return manifest, [], errors
+def _manifest_payload_entries(manifest, manifest_path, errors):
     if manifest.get("schema") != record.SCHEMA_ID:
         errors.append(
             f"{manifest_path}: schema must be {record.SCHEMA_ID!r}, got {manifest.get('schema')!r}"
@@ -508,9 +507,34 @@ def _authenticate_manifest_from_root(run_dir, root_fd):
     entries = manifest.get("files")
     if not isinstance(entries, dict):
         errors.append(f"{manifest_path}: files must be an object")
-        return manifest, [], errors
+        return None
     if not entries:
         errors.append(f"{manifest_path}: files must declare at least one payload")
+    return entries
+
+
+def _manifest_membership_errors(expected_names, actual_names, manifest_path, errors):
+    for relative in sorted(expected_names - actual_names):
+        errors.append(f"{manifest_path}: manifest file is missing: {relative}")
+    for relative in sorted(actual_names - expected_names):
+        errors.append(f"{manifest_path}: unmanifested file is present: {relative}")
+
+
+def _authenticate_manifest_from_root(run_dir, root_fd):
+    """Authenticate a run rooted at one already pinned directory descriptor."""
+    run_dir = Path(run_dir)
+    errors = []
+    actual, tree_errors = _enumerate_run_files(run_dir, root_fd)
+    errors.extend(tree_errors)
+    manifest_path = run_dir / MANIFEST_FILENAME
+    manifest = _load_run_manifest(run_dir, root_fd, actual, errors)
+
+    actual_names = set(actual) - {MANIFEST_FILENAME}
+    if not isinstance(manifest, dict):
+        return manifest, [], errors
+    entries = _manifest_payload_entries(manifest, manifest_path, errors)
+    if entries is None:
+        return manifest, [], errors
 
     expected_names, valid_entries, declared_record_total = _manifest_file_entries(
         entries, manifest_path, errors
@@ -518,10 +542,7 @@ def _authenticate_manifest_from_root(run_dir, root_fd):
     if declared_record_total == 0:
         errors.append(f"{manifest_path}: declared run contains no records")
 
-    for relative in sorted(expected_names - actual_names):
-        errors.append(f"{manifest_path}: manifest file is missing: {relative}")
-    for relative in sorted(actual_names - expected_names):
-        errors.append(f"{manifest_path}: unmanifested file is present: {relative}")
+    _manifest_membership_errors(expected_names, actual_names, manifest_path, errors)
 
     snapshots = _capture_manifested_files(actual, valid_entries, root_fd, errors)
     _verify_run_tree_unchanged(run_dir, root_fd, actual, errors)
