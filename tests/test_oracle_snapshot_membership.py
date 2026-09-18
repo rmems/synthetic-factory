@@ -14,6 +14,18 @@ GOLDEN = Path(__file__).resolve().parent / "fixtures/oracle-grounded/golden-r01"
 
 
 class OracleSnapshotMembershipTests(unittest.TestCase):
+    def test_unreadable_pinned_directory_is_a_finding(self):
+        original_open = oracle_validate.os.open
+
+        def fail_reopen(path, *args, **kwargs):
+            if path == ".":
+                raise PermissionError("injected directory permission change")
+            return original_open(path, *args, **kwargs)
+
+        with mock.patch.object(oracle_validate.os, "open", side_effect=fail_reopen):
+            _manifest, _snapshots, errors = oracle_validate.authenticate_manifest(GOLDEN)
+        self.assertTrue(any("could not reopen pinned directory" in error for error in errors))
+
     def test_changes_after_last_payload_capture_invalidate_authentication(self):
         for mutation in ("add_payload", "replace_payload", "replace_manifest"):
             with self.subTest(mutation=mutation):

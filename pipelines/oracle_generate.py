@@ -186,16 +186,62 @@ def _pinned_parent_descriptor(parent, out_dir):
         os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
     )
     try:
-        try:
-            true_parent = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
-        except OSError as exc:
-            raise OSError(
-                errno.ENOSYS,
-                "cannot authenticate the run parent without /proc descriptor resolution",
-            ) from exc
-        error = _raw_containment_error(true_parent, out_dir)
-        if error is not None:
-            raise OSError(errno.EACCES, error)
+        _authenticate_parent_descriptor(parent_fd, out_dir)
+    except BaseException:
+        os.close(parent_fd)
+        raise
+    return parent_fd
+
+
+def _authenticate_parent_descriptor(parent_fd, out_dir):
+    try:
+        true_parent = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
+    except OSError as exc:
+        raise OSError(
+            errno.ENOSYS,
+            "cannot authenticate the run parent without /proc descriptor resolution",
+        ) from exc
+    error = _raw_containment_error(true_parent, out_dir)
+    if error is not None:
+        raise OSError(errno.EACCES, error)
+
+
+def _open_created_parent(parent_fd, component, out_dir):
+    candidate = Path(f"/proc/self/fd/{parent_fd}") / component
+    error = _raw_destination_error(candidate)
+    if error is not None:
+        raise OSError(errno.EACCES, error)
+    try:
+        os.mkdir(component, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    child_fd = os.open(
+        component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_fd,
+    )
+    try:
+        _authenticate_parent_descriptor(child_fd, out_dir)
+    except BaseException:
+        os.close(child_fd)
+        raise
+    return child_fd
+
+
+def _create_pinned_parent(parent, out_dir):
+    """Authenticate the existing ancestor before creating missing descendants."""
+    missing = []
+    existing = parent
+    while not existing.exists():
+        missing.append(existing.name)
+        if existing == existing.parent:
+            raise OSError(errno.ENOENT, "no accessible output ancestor")
+        existing = existing.parent
+    parent_fd = _pinned_parent_descriptor(existing, out_dir)
+    try:
+        for component in reversed(missing):
+            child_fd = _open_created_parent(parent_fd, component, out_dir)
+            os.close(parent_fd)
+            parent_fd = child_fd
     except BaseException:
         os.close(parent_fd)
         raise
@@ -236,8 +282,7 @@ def reserve_run(out_dir):
     static destination check can no longer redirect any of those writes.
     """
     parent = out_dir.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    parent_fd = _pinned_parent_descriptor(parent, out_dir)
+    parent_fd = _create_pinned_parent(parent, out_dir)
     stem = out_dir.name or "oracle-run"
     lock_name = f".{stem}.oracle-generate.lock"
     try:

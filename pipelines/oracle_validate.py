@@ -367,7 +367,13 @@ def _scan_directory(prefix, directory_fd, walk):
 def _enumerate_run_files(run_dir, root_fd):
     """List one opened run tree without following directory links."""
     walk = _RunTreeWalk(root=Path(run_dir))
-    walk.stack.append((PurePosixPath(), os.dup(root_fd)))
+    # A duplicated fd shares the directory stream/cache of the first scan.
+    # Reopen the same pinned inode for a fresh enumeration after mutations.
+    try:
+        fresh_root = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=root_fd)
+    except OSError as exc:
+        return {}, [f"{run_dir}: could not reopen pinned directory: {type(exc).__name__}"]
+    walk.stack.append((PurePosixPath(), fresh_root))
     try:
         while walk.stack:
             prefix, directory_fd = walk.stack.pop()
