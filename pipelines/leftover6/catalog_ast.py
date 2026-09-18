@@ -26,8 +26,8 @@ _ANNOTATION_NAMES = frozenset({"str", "int", "float", "bool", "list", "dict", "t
 
 
 def module_constants(source: str, *, path: str) -> dict[str, Any]:
-    payload = source_payload(source)
-    tree = ast.parse(source, filename=path)
+    payload = source_payload(source, path=path)
+    tree = _validated_tree(source)
     _require_future_header(tree)
     archive = _ARCHIVE_SOURCE_PINS.get(path) == hashlib.sha256(payload).hexdigest()
     env: dict[str, Any] = {}
@@ -38,11 +38,21 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
     return env
 
 
-def source_payload(source: str) -> bytes:
+def source_payload(source: str, *, path: str) -> bytes:
     """Bind parsing and hashing to text whose encoding cannot be overridden."""
-    if type(source) is not str:
-        raise ValueError("catalog source must be a plain string")
+    if type(source) is not str or type(path) is not str:
+        raise ValueError("catalog source and path must be plain strings")
     return source.encode("utf-8")
+
+
+def _validated_tree(source):
+    """Check compiler constraints, then discard code without executing it."""
+    try:
+        tree = ast.parse(source, filename="<catalog-source>")
+        compile(tree, "<catalog-source>", "exec", dont_inherit=True)
+    except (SyntaxError, RecursionError) as exc:
+        raise ValueError(f"catalog source is not valid Python: {exc}") from exc
+    return tree
 
 
 def _require_future_header(tree):

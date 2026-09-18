@@ -193,6 +193,10 @@ def _mapping(value: Any, context: str, keys: set[str]) -> dict[str, Any]:
 def _text(value: Any, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise CatalogError(f"{context} must be a non-empty string")
+    try:
+        value.encode("utf-8")
+    except UnicodeError as exc:
+        raise CatalogError(f"{context} must contain only Unicode scalar values") from exc
     return value
 
 

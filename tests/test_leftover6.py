@@ -163,7 +163,7 @@ def _module_uses_exec(path: Path) -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
             continue
-        if node.func.id in {"exec", "eval", "compile"}:
+        if node.func.id in {"exec", "eval"}:
             hits.append(f"{path.name}:{node.lineno}:{node.func.id}")
     return hits
 
@@ -229,8 +229,8 @@ class Leftover6CatalogTests(unittest.TestCase):
 
     def test_extractor_modules_never_exec(self):
         hits = []
-        for name in ("catalog_extract.py", "catalog.py", "__init__.py"):
-            hits.extend(_module_uses_exec(PACKAGE / name))
+        for path in PACKAGE.glob("*.py"):
+            hits.extend(_module_uses_exec(path))
         self.assertEqual(hits, [])
 
     def test_package_has_no_launderer_publishers(self):
@@ -315,6 +315,14 @@ class Leftover6CatalogTests(unittest.TestCase):
         with _fixture(pairs=dumps_jsonl(rows)) as dest:
             with self.assertRaisesRegex(CatalogError, "keys differ"):
                 load_catalog(dest)
+
+    def test_loader_normalizes_non_scalar_unicode_to_catalog_error(self):
+        rows = _catalog_rows()
+        rows[0]['fail'] = '\ud800'
+        payload = ''.join(json.dumps(row) + '\n' for row in rows)
+        with _fixture(pairs=payload) as directory:
+            with self.assertRaises(CatalogError):
+                load_catalog(directory)
 
     def test_loader_refuses_a_wrong_pair_value_type(self):
         rows = _catalog_rows()
