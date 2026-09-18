@@ -88,7 +88,7 @@ def record_retained_line(
     context: RetainedLineContext,
     claim_output_id_fn: Callable[..., None] = claim_output_id,
 ) -> None:
-    line = canonical_json(decision.record)
+    line = _contract.retained_json_line(decision)
     claim_output_id_fn(state, decision.output_id, context.location)
     context.emitted.append(line)
     context.entry.update(

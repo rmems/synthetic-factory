@@ -26,6 +26,7 @@ from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
     default_units_migration_path,
+    retained_json_line,
 )
 from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
@@ -157,7 +158,10 @@ def _record_replayed_retained_context(
 ) -> str:
     """Account one replayed record that compose would have emitted."""
 
-    line = compose_curated.canonical_json(decision.record)
+    try:
+        line = retained_json_line(decision)
+    except ComposeError as exc:
+        raise ExportError(str(exc)) from exc
     _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
     entry.update(
         {

@@ -1,5 +1,6 @@
 """Standalone oracle runs retain physical evidence through logical routing."""
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -11,6 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 import compose_curated as compose
+from compose_contract import retained_json_line
 import export_replay
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures/oracle-grounded/golden-r01"
@@ -40,6 +42,66 @@ class OracleComposeRoute(unittest.TestCase):
                 self.assertEqual(identity["source"]["original"], body.decode())
                 emitted = (out / entry["output_path"]).read_text().splitlines()[entry["output_line"] - 1]
                 self.assertEqual(json.loads(emitted), json.loads(body))
+
+    def test_noncanonical_native_records_keep_exact_bytes_through_export_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, out = Path(tmp) / "source", Path(tmp) / "out"
+            shutil.copytree(GOLDEN, source)
+            manifest_path = source / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            for relative, metadata in manifest["files"].items():
+                path = source / relative
+                records = [json.loads(line) for line in path.read_bytes().split(b"\n") if line]
+                body = "".join("  " + json.dumps(dict(reversed(list(record.items()))),
+                                                 ensure_ascii=False, separators=(", ", ": "))
+                               + "  \n" for record in records).encode()
+                path.write_bytes(body)
+                metadata["sha256"] = hashlib.sha256(body).hexdigest()
+            manifest_path.write_text(json.dumps(manifest))
+            summary = compose.compose_run(source, out)
+            self.assertEqual(summary["counts"]["retained"], 20)
+            entries = [json.loads(line) for line in (out / "manifest/compose-manifest.jsonl").read_text().splitlines()]
+            for entry in entries:
+                original = (source / entry["physical_source_path"]).read_bytes().split(b"\n")[entry["source_line"] - 1]
+                emitted = (out / entry["output_path"]).read_bytes().split(b"\n")[entry["output_line"] - 1]
+                self.assertEqual(emitted, original)
+                identity = next(stage["detail"] for stage in entry["stages"] if stage["lane"] == "identity")
+                self.assertEqual(identity["source"]["original"].encode(), original)
+                self.assertEqual(entry["output_sha256"], hashlib.sha256(original).hexdigest())
+            replay = export_replay._replay_source_lines(source, {})
+            self.assertEqual(replay.expected_manifest, entries)
+            for relative, payload in replay.expected_payloads.items():
+                self.assertEqual((out / relative).read_bytes(), payload)
+
+    def test_preserved_output_refuses_tampered_text_hash_and_json(self):
+        path = next(GOLDEN.glob("*/accepted-r01.jsonl"))
+        raw = path.read_bytes()
+        body = raw.split(b"\n")[0]
+        coordinate = compose.SourceLineCoordinate(
+            "oracle-grounded/" + path.relative_to(GOLDEN).as_posix(), 1,
+            hashlib.sha256(raw).hexdigest(),
+        )
+        decision = compose.compose_source_line(body, coordinate)
+        original = body.decode()
+        self.assertEqual(retained_json_line(decision), original)
+        cases = (
+            (original + " ", hashlib.sha256(body).hexdigest()),
+            (original, "0" * 64),
+            (original, None),
+            (original + "\n", "rehash"),
+            ('{"duplicate":1,"duplicate":2}', "rehash"),
+            ('{"unbounded":NaN}', "rehash"),
+            ('{"different":"record"}', "rehash"),
+        )
+        for text, digest in cases:
+            with self.subTest(text=text[:30], digest=digest):
+                changed = copy.deepcopy(decision)
+                identity = next(stage["detail"] for stage in changed.stages if stage["lane"] == "identity")
+                identity["source"]["original"] = text
+                identity["source"]["sha256"] = (hashlib.sha256(text.encode()).hexdigest()
+                                                  if digest == "rehash" else digest)
+                with self.assertRaises(compose.ComposeError):
+                    retained_json_line(changed)
 
     def test_malformed_oracle_manifest_refuses_before_destination_creation(self):
         with tempfile.TemporaryDirectory() as tmp:

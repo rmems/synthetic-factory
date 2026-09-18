@@ -37,7 +37,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "2c12328c22e7f8f3fb207cae910a1feccd349b11565f1aa2920284fb6132f212"
+POLICY_SHA256 = "efcad45e4f5ee9a374c1d9a61740c6e2ae9cb807fc7c3d8fa3e07378c55c0493"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -101,9 +101,9 @@ def verify_source_bytes() -> None:
     grants identity authority, because the recomputation otherwise lives only
     in tests. Every admission request rechecks the bytes.
     """
-    for label, actual, expected in _source_digest_checks():
+    for message, actual, expected in _source_digest_checks():
         if actual != expected:
-            raise SourcePolicyError(f"oracle {label} differs from the reviewed digest")
+            raise SourcePolicyError(message)
 
 
 def _source_digest_checks():
@@ -114,9 +114,10 @@ def _source_digest_checks():
     except OSError as exc:
         raise SourcePolicyError(f"oracle source package unreadable: {exc}") from exc
     return (
-        ("source package", catalog, POLICY["catalog_sha256"]),
-        ("pipeline entry points", programs, POLICY["programs_sha256"]),
-        ("source license", license_digest, POLICY["source_license_evidence"]["license_sha256"]),
+        ("oracle source package differs from the reviewed catalog digest", catalog, POLICY["catalog_sha256"]),
+        ("oracle pipeline entry points differ from the reviewed digest", programs, POLICY["programs_sha256"]),
+        ("oracle source license differs from the reviewed digest", license_digest,
+         POLICY["source_license_evidence"]["license_sha256"]),
     )
 
 
