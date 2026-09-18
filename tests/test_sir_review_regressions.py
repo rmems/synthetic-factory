@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from pipelines.sir.catalog import load_catalog
+from pipelines.sir.catalog_ast import module_constants
 from pipelines.sir.catalog_extract import (
     _literal_sibling_path,
     catalog_json_path,
@@ -84,6 +85,21 @@ def _assert_literal_module_identity(test, catalog_ast):
 
 
 class SirReviewRegressions(unittest.TestCase):
+    def test_source_encoding_cannot_be_overridden(self):
+        class ForgedSource(str):
+            def encode(self, *args, **kwargs):
+                return _LEFTOVER_SNIPPET.encode('utf-8')
+
+        forged = ForgedSource(_LEFTOVER_SNIPPET + '\n# forged source bytes\n')
+        path = 'experiments/sir-mill-leftover3-r72.py'
+        for extract in (extract_mill_catalog, module_constants):
+            with self.subTest(extract=extract.__name__), self.assertRaisesRegex(ValueError, 'source'):
+                extract(forged, path=path)
+        plain = _LEFTOVER_SNIPPET.replace('\n', '\r\n')
+        found = extract_mill_catalog(plain, path=path)
+        self.assertEqual(found['n_rows'], 1)
+        self.assertEqual(found['sha256'], hashlib.sha256(plain.encode('utf-8')).hexdigest())
+
     def test_blob_identity_does_not_trust_custom_equality(self):
         class ForgedBlob(str):
             def __eq__(self, other):

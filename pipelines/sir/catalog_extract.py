@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .catalog_ast import module_constants, module_docstring, module_evaluation_nodes
+from .catalog_ast import module_constants, module_docstring, module_evaluation_nodes, source_payload
 from .catalog_model import factory_hops, scalar_identity
 from .vocabulary import (
     CATALOG_FILENAME,
@@ -58,7 +58,7 @@ def extract_mill_catalog(
 ) -> dict[str, Any]:
     """Structured catalog extract for one sir mill source file."""
 
-    payload = source.encode()
+    payload = source_payload(source)
     _require_blob_identity(payload, blob_sha)
     tree = ast.parse(source, filename=path)
     mill_id = mill_id_for_path(path)
