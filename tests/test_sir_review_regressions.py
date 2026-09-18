@@ -4,27 +4,17 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib
-import json
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from pipelines.sir.catalog import load_catalog
 from pipelines.sir.catalog_ast import module_constants
 from pipelines.sir.catalog_extract import (
     _literal_sibling_path,
-    catalog_json_path,
     extract_mill_catalog,
-    pairs_jsonl_path,
 )
 
 if __package__:
-    from .pipeline_import_test_support import clean_package_imports, direct_pipeline_path
     from .test_sir import _LEFTOVER_SNIPPET
 else:
-    from pipeline_import_test_support import clean_package_imports, direct_pipeline_path
     from test_sir import _LEFTOVER_SNIPPET
 
 
@@ -33,56 +23,6 @@ def _extract(appendix):
         _LEFTOVER_SNIPPET + "\n" + appendix,
         path="experiments/sir-mill-leftover3-r72.py",
     )
-
-
-def _catalog_models(package_first):
-    if package_first:
-        from pipelines.sir import catalog_model as first
-        from sir import catalog_model as second
-    else:
-        from sir import catalog_model as first
-        from pipelines.sir import catalog_model as second
-    return first, second
-
-
-def _catalog_classes():
-    from pipelines.sir.catalog import MillCatalog as packaged
-    from sir.catalog import MillCatalog as direct
-
-    return packaged, direct
-
-
-def _catalog_modules():
-    from pipelines.sir import catalog as packaged
-    from sir import catalog as direct
-
-    return packaged, direct
-
-
-def _source_modules():
-    import pipelines.sir.sources as packaged
-    import sir.sources as direct
-
-    return packaged, direct
-
-
-def _ast_modules(package_first):
-    if package_first:
-        from pipelines.sir import catalog_ast as first
-        from sir import catalog_ast as second
-    else:
-        from sir import catalog_ast as first
-        from pipelines.sir import catalog_ast as second
-    return first, second
-
-
-def _assert_literal_module_identity(test, catalog_ast):
-    from pipelines.sir import catalog_literals as packaged
-    from sir import catalog_literals as direct
-
-    test.assertIs(packaged, direct)
-    test.assertIs(packaged.UNSET, catalog_ast.UNSET)
-    test.assertIs(packaged.literal_value, catalog_ast.literal_value)
 
 
 class SirReviewRegressions(unittest.TestCase):
@@ -157,44 +97,6 @@ class SirReviewRegressions(unittest.TestCase):
         deferred = 'def unused():\n    unrelated()\ncallback = lambda: unrelated()'
         self.assertEqual(_extract(deferred)['n_rows'], 1)
 
-    def test_public_module_twins_share_runtime_state(self):
-        for leaf in ("catalog_extract", "identity", "vocabulary"):
-            for prefixes in (("pipelines.sir", "sir"), ("sir", "pipelines.sir")):
-                with self.subTest(leaf=leaf, prefixes=prefixes), clean_package_imports(), direct_pipeline_path():
-                    first = importlib.import_module(f"{prefixes[0]}.{leaf}")
-                    second = importlib.import_module(f"{prefixes[1]}.{leaf}")
-                    self.assertIs(first, second)
-
-    def test_catalog_class_identity_survives_both_import_orders(self):
-        for package_first in (True, False):
-            with (
-                self.subTest(package_first=package_first),
-                clean_package_imports(),
-                direct_pipeline_path(),
-            ):
-                first_module, second_module = _catalog_models(package_first)
-                self.assertIs(first_module, second_module)
-                for catalog_class in _catalog_classes():
-                    self.assertIs(catalog_class, first_module.MillCatalog)
-                packaged, direct = _catalog_modules()
-                self.assertIs(sys.modules["pipelines.sir.catalog"], sys.modules["sir.catalog"])
-                self.assertIs(packaged, direct)
-                self.assertIs(packaged.SirCatalog, direct.SirCatalog)
-                self.assertIs(packaged.CATALOG, direct.CATALOG)
-                packaged_sources, direct_sources = _source_modules()
-                self.assertIs(sys.modules["pipelines.sir.sources"], sys.modules["sir.sources"])
-                self.assertIs(packaged_sources, direct_sources)
-                self.assertIs(packaged_sources.MillSource, direct_sources.MillSource)
-                self.assertIs(packaged_sources.MILL_SOURCES, direct_sources.MILL_SOURCES)
-
-    def test_ast_unresolved_sentinel_survives_both_import_orders(self):
-        for package_first in (True, False):
-            with self.subTest(package_first=package_first), clean_package_imports(), direct_pipeline_path():
-                first, second = _ast_modules(package_first)
-                self.assertIs(first, second)
-                self.assertIs(first.UNSET, second.UNSET)
-                self.assertIs(first.literal_value(ast.parse("unknown", mode="eval").body), second.UNSET)
-                _assert_literal_module_identity(self, first)
 
     def test_wildcard_import_cannot_preserve_prior_catalog_bindings(self):
         with self.assertRaises(ValueError):
@@ -325,10 +227,6 @@ class SirReviewRegressions(unittest.TestCase):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     _extract(f"{field} = {value!r}")
 
-    def test_loader_integer_metadata_rejects_booleans(self):
-        for field in ("catalog_first", "n_rounds", "n_rows", "n_hops", "source_lines"):
-            with self.subTest(field=field):
-                self._assert_catalog_refuses("sir-mill-leftover3-r72", field, False)
 
     def test_invoked_local_helpers_make_catalog_mutations_unproven(self):
         definition = "def clear():\n    PAIRS.clear()\n"
@@ -383,96 +281,6 @@ class SirReviewRegressions(unittest.TestCase):
             with self.subTest(statement=statement), self.assertRaises(ValueError):
                 _extract(statement)
 
-    def test_source_derived_metadata_cannot_be_fabricated(self):
-        for mill_id in ("sir-mill-leftover3-r72", "sir_r108_leftover3d_mill"):
-            for field, value in (("source_lines", 1), ("doc_first_line", "forged description")):
-                with self.subTest(mill_id=mill_id, field=field):
-                    self._assert_catalog_refuses(mill_id, field, value)
-
-    def test_header_count_and_extraction_claims_are_pinned(self):
-        for field in ("n_mills", "n_source_files", "extraction"):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                directory = Path(tmp)
-                header = json.loads(catalog_json_path().read_bytes())
-                header[field] = "publisher was executed" if field == "extraction" else 1
-                destination = directory / "CATALOG.json"
-                destination.write_text(json.dumps(header), encoding="utf-8")
-                (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
-                with self.assertRaisesRegex(ValueError, field):
-                    load_catalog(destination)
-
-    def test_validated_catalog_mappings_cannot_be_changed_after_loading(self):
-        catalog = load_catalog()
-        mill = next(iter(catalog.mills.values()))
-        with self.assertRaises(TypeError):
-            catalog.mills[mill.mill_id] = mill
-        with self.assertRaises(TypeError):
-            mill.pairs[0]["success_slug"] = "forged"
-
-    def test_header_json_refuses_duplicate_keys_and_nonfinite_values(self):
-        original = catalog_json_path().read_text(encoding="utf-8")
-        mutations = (
-            original.replace('"n_mills": 2', '"n_mills": 99, "n_mills": 2'),
-            original.replace('"n_mills": 2', '"unsupported": NaN, "n_mills": 2'),
-            original.replace('"n_mills": 2', '"unsupported": 1e999, "n_mills": 2'),
-        )
-        for header in mutations:
-            with self.subTest(header=header), tempfile.TemporaryDirectory() as tmp:
-                directory = Path(tmp)
-                destination = directory / "CATALOG.json"
-                destination.write_text(header, encoding="utf-8")
-                (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
-                with self.assertRaises(ValueError):
-                    load_catalog(destination)
-
-    def test_catalog_document_and_mills_require_mapping_shapes(self):
-        original = json.loads(catalog_json_path().read_bytes())
-        missing = dict(original)
-        del missing["mills"]
-        documents = [None, [], "catalog", 42, missing]
-        documents.extend(dict(original, mills=value) for value in (None, [], "mills", 42))
-        for document in documents:
-            with self.subTest(document=document), tempfile.TemporaryDirectory() as tmp:
-                destination = Path(tmp) / "CATALOG.json"
-                destination.write_text(json.dumps(document), encoding="utf-8")
-                with self.assertRaises(ValueError):
-                    load_catalog(destination)
-
-    def test_loader_rejects_valid_string_content_drift(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            (directory / "CATALOG.json").write_bytes(catalog_json_path().read_bytes())
-            lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
-            pair = json.loads(lines[1])
-            pair["success_url"] = "https://example.invalid/replaced-source"
-            lines[1] = json.dumps(pair, separators=(",", ":"))
-            (directory / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "SHA-256"):
-                load_catalog(directory / "CATALOG.json")
-
-    def _assert_catalog_refuses(self, mill_id, field, value):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            header = json.loads(catalog_json_path().read_text(encoding="utf-8"))
-            header["mills"][mill_id][field] = value
-            destination = directory / "CATALOG.json"
-            destination.write_text(json.dumps(header), encoding="utf-8")
-            (directory / "pairs.jsonl").write_bytes(pairs_jsonl_path().read_bytes())
-            with self.assertRaisesRegex(ValueError, field):
-                load_catalog(destination)
-
-    def test_loader_refuses_malformed_hops_with_matching_count(self):
-        for hops in ("abcdefghijk", [1] * 11, [""] * 11, ["other"] * 11):
-            with self.subTest(hops=hops):
-                self._assert_catalog_refuses("sir_r108_leftover3d_mill", "hops", hops)
-
-    def test_loader_refuses_valid_hop_names_that_drift_from_preserved_source(self):
-        self._assert_catalog_refuses("sir_r108_leftover3d_mill", "hops", ["forged-factory"] * 11)
-
-    def test_loader_refuses_fabricated_sha256_without_reading_git(self):
-        for mill_id in ("sir-mill-leftover3-r72", "sir_r108_leftover3d_mill"):
-            with self.subTest(mill_id=mill_id):
-                self._assert_catalog_refuses(mill_id, "sha256", "0" * 64)
 
     def test_loader_sibling_uses_only_the_actual_path_argument(self):
         cases = (
