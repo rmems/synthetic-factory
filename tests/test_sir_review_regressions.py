@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,6 +47,13 @@ def _catalog_classes():
     return packaged, direct
 
 
+def _catalog_modules():
+    from pipelines.sir import catalog as packaged
+    from sir import catalog as direct
+
+    return packaged, direct
+
+
 class SirReviewRegressions(unittest.TestCase):
     def test_catalog_class_identity_survives_both_import_orders(self):
         for package_first in (True, False):
@@ -58,6 +66,11 @@ class SirReviewRegressions(unittest.TestCase):
                 self.assertIs(first_module, second_module)
                 for catalog_class in _catalog_classes():
                     self.assertIs(catalog_class, first_module.MillCatalog)
+                packaged, direct = _catalog_modules()
+                self.assertIs(sys.modules["pipelines.sir.catalog"], sys.modules["sir.catalog"])
+                self.assertIs(packaged, direct)
+                self.assertIs(packaged.SirCatalog, direct.SirCatalog)
+                self.assertIs(packaged.CATALOG, direct.CATALOG)
 
     def test_destructuring_invalidates_every_bound_catalog_name(self):
         targets = ("{field}, extra", "[extra, [{field}]]", "extra, *{field}")
@@ -101,6 +114,8 @@ class SirReviewRegressions(unittest.TestCase):
             "class Publisher(base(PAIRS.clear())):\n    pass",
             "@decorate(PAIRS.clear())\nclass Publisher:\n    pass",
             "publish = lambda value=PAIRS.clear(): None",
+            "def publish() -> PAIRS.clear():\n    pass",
+            "async def publish() -> PAIRS.clear():\n    pass",
         )
         for definition in definitions:
             with self.subTest(definition=definition), self.assertRaises(ValueError):
@@ -122,6 +137,44 @@ class SirReviewRegressions(unittest.TestCase):
     def test_deferred_bodies_and_immutable_aliases_preserve_catalog_literals(self):
         source = "alias = FACTORY\nprint(alias)\ncallback = lambda: PAIRS.clear()\n"
         self.assertEqual(_extract(source)["n_rows"], 1)
+
+    def test_boolean_round_metadata_is_not_an_integer(self):
+        for field in ("CATALOG_FIRST", "N_ROUNDS"):
+            for value in (True, False):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    _extract(f"{field} = {value!r}")
+
+    def test_loader_integer_metadata_rejects_booleans(self):
+        for field in ("catalog_first", "n_rounds", "n_rows", "n_hops", "source_lines"):
+            with self.subTest(field=field):
+                self._assert_catalog_refuses("sir-mill-leftover3-r72", field, False)
+
+    def test_invoked_local_helpers_make_catalog_mutations_unproven(self):
+        definition = "def clear():\n    PAIRS.clear()\n"
+        for call in ("clear()", "unused = clear()", "alias = (clear,)\nalias[0]()"):
+            with self.subTest(call=call), self.assertRaises(ValueError):
+                _extract(definition + call)
+        with self.assertRaises(ValueError):
+            _extract("clear = lambda: PAIRS.clear()\nclear()")
+
+    def test_script_entry_body_is_deferred_but_import_else_branch_is_checked(self):
+        definition = "def clear():\n    PAIRS.clear()\n"
+        guarded = definition + "if __name__ == '__main__':\n    clear()\n"
+        self.assertEqual(_extract(guarded)["n_rows"], 1)
+        with self.assertRaises(ValueError):
+            _extract(guarded + "else:\n    clear()\n")
+
+    def test_loader_rejects_valid_string_content_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "CATALOG.json").write_bytes(catalog_json_path().read_bytes())
+            lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+            pair = json.loads(lines[1])
+            pair["success_url"] = "https://example.invalid/replaced-source"
+            lines[1] = json.dumps(pair, separators=(",", ":"))
+            (directory / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                load_catalog(directory / "CATALOG.json")
 
     def _assert_catalog_refuses(self, mill_id, field, value):
         with tempfile.TemporaryDirectory() as tmp:

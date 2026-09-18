@@ -20,6 +20,8 @@ else:
 
 from .vocabulary import KIND_LEFTOVER_PAIRS
 
+PAIRS_SHA256 = "10747e67d91aa93cc339c125319bcdde6cc0844a314941e274a4f089b5239c66"
+
 
 @dataclass(frozen=True)
 class MillSource:

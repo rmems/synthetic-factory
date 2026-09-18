@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from search.sources import HOME_MILL_SOURCES, R31_SOURCE  # noqa: E402
-from sir.catalog import CATALOG, load_catalog  # noqa: E402
+from sir.catalog import CATALOG, _pair_record, load_catalog  # noqa: E402
 from sir.catalog_ast import UNSET, literal_value  # noqa: E402
 from sir.catalog_extract import (  # noqa: E402
     SHAPE_PAIR_6TUPLES,
@@ -304,18 +304,12 @@ class SirSkeletonTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         load_catalog(directory / "CATALOG.json")
 
-    def test_loader_preserves_unicode_separators_inside_json_strings(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            (directory / "CATALOG.json").write_bytes(catalog_json_path().read_bytes())
-            lines = pairs_jsonl_path().read_text(encoding="utf-8").split("\n")
-            row = json.loads(lines[0])
-            ticket = "Keep \u0085, \u2028, and \u2029 within the ticket."
-            row["success_ticket"] = ticket
-            lines[0] = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
-            (directory / "pairs.jsonl").write_text("\n".join(lines), encoding="utf-8")
-            loaded = load_catalog(directory / "CATALOG.json")
-            self.assertEqual(loaded.mills[row["mill_id"]].pairs[0]["success_ticket"], ticket)
+    def test_pair_parser_preserves_unicode_separators_inside_json_strings(self):
+        row = json.loads(pairs_jsonl_path().read_text(encoding="utf-8").split("\n")[0])
+        ticket = "Keep \u0085, \u2028, and \u2029 within the ticket."
+        row["success_ticket"] = ticket
+        line = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+        self.assertEqual(_pair_record(line, "unicode pair")["success_ticket"], ticket)
 
     def test_loader_refuses_unknown_pair_mill(self):
         with tempfile.TemporaryDirectory() as tmp:

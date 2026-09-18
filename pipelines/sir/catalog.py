@@ -9,9 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .catalog_extract import catalog_json_path, pairs_jsonl_path
+if __name__.startswith("pipelines."):
+    from ..oracle_grounded.import_twins import bind_import_twin
+else:
+    from oracle_grounded.import_twins import bind_import_twin
+
+from .catalog_extract import catalog_json_path, pairs_jsonl_path, sha256_bytes
 from .catalog_model import MillCatalog, factory_hops, scalar_identity
-from .sources import MILL_SOURCES, MillSource, catalog_sources
+from .sources import MILL_SOURCES, PAIRS_SHA256, MillSource, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
@@ -50,8 +55,7 @@ def load_catalog(path=None) -> SirCatalog:
     catalog_path = Path(catalog_path)
     document = json.loads(catalog_path.read_text(encoding="utf-8"))
     _require_header(document, catalog_path)
-    pair_rows = _load_pair_rows(pairs_jsonl_path(catalog_path.parent))
-    _require_pair_groups(pair_rows, document["mills"])
+    pair_rows = _load_pair_rows(pairs_jsonl_path(catalog_path.parent), document["mills"])
     mills = {
         mill_id: _mill_from_row(row, pair_rows.get(mill_id, ()))
         for mill_id, row in document["mills"].items()
@@ -90,14 +94,18 @@ def _require_fields(actual: Mapping, expected: Mapping, where: str) -> None:
             raise ValueError(f"{where}: {key} mismatch")
 
 
-def _load_pair_rows(path: Path) -> dict[str, tuple[Mapping[str, Any], ...]]:
-    text = path.read_bytes().decode("utf-8")
+def _load_pair_rows(path: Path, mills) -> dict[str, tuple[Mapping[str, Any], ...]]:
+    payload = path.read_bytes()
+    text = payload.decode("utf-8")
     if "\r" in text or not text.endswith("\n"):
         raise ValueError(f"{path.name} must be LF-framed jsonl")
     grouped: dict[str, list[Mapping[str, Any]]] = {}
     for index, line in enumerate(text[:-1].split("\n"), start=1):
         row = _pair_record(line, f"{path.name}:{index}")
         grouped.setdefault(row["mill_id"], []).append(row)
+    _require_pair_groups(grouped, mills)
+    if sha256_bytes(payload) != PAIRS_SHA256:
+        raise ValueError(f"{path.name} SHA-256 disagrees with the preserved catalog pin")
     return {mill_id: tuple(rows) for mill_id, rows in grouped.items()}
 
 
@@ -198,3 +206,5 @@ def _require_boundary_slugs(mill: MillCatalog) -> None:
 
 
 CATALOG = load_catalog()
+
+bind_import_twin(__name__)

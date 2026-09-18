@@ -97,7 +97,7 @@ def _required_string(value: Any, where: str) -> str:
 
 def _catalog_first(constants: Mapping[str, Any], path: str) -> int:
     value = constants.get("CATALOG_FIRST")
-    if not isinstance(value, int):
+    if type(value) is not int:
         raise ValueError(f"{path} CATALOG_FIRST is not an int")
     return value
 
@@ -105,7 +105,7 @@ def _catalog_first(constants: Mapping[str, Any], path: str) -> int:
 def _round_count(value: Any, n_pairs: int, path: str) -> int:
     if value is None:
         return n_pairs
-    if not isinstance(value, int) or value < 1:
+    if type(value) is not int or value < 1:
         raise ValueError(f"{path} N_ROUNDS is not a positive int")
     if value != n_pairs:
         raise ValueError(f"{path} N_ROUNDS={value} disagrees with {n_pairs} pairs")

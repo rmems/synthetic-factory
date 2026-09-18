@@ -39,10 +39,17 @@ def scalar_identity(record: Mapping[str, Any]) -> dict[str, Any]:
     """Copy required scalar fields; callers normalize collections and optional text."""
     converted = {"hops", "loads_sibling", "doc_first_line", "pairs"}
     return {
-        field.name: record[field.name]
+        field.name: _scalar_value(field, record)
         for field in fields(MillCatalog)
         if field.name not in converted
     }
+
+
+def _scalar_value(field, record: Mapping[str, Any]) -> Any:
+    value = record[field.name]
+    if field.type == "int" and type(value) is not int:
+        raise ValueError(f"{field.name} must be an integer")
+    return value
 
 
 def factory_hops(value: Any, where: str) -> list[str]:

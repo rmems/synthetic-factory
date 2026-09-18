@@ -11,41 +11,54 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 UNSET = object()
+_DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
 
 
 def module_constants(tree: ast.AST) -> dict[str, Any]:
     """Resolve assignments in order, retaining ``UNSET`` for unknown bindings."""
 
     env: dict[str, Any] = {}
-    for node in getattr(tree, "body", ()):
+    for node in _catalog_statements(getattr(tree, "body", ())):
         name, value = assignment_of(node)
         if name is None:
             _invalidate_names(env, assignment_names(node))
+            if isinstance(node, _DEFINITIONS):
+                env[node.name] = node
         elif value is not None:
             env[name] = _assignment_value(value, env)
     return env
+
+
+def _catalog_statements(statements):
+    """Defer exact script entry guards; inspect the branch used by imports."""
+    for node in statements:
+        if isinstance(node, ast.If) and ast.dump(node.test) == _SCRIPT_GUARD:
+            yield from _catalog_statements(node.orelse)
+        else:
+            yield node
 
 
 def _assignment_value(value: ast.AST, env: dict[str, Any]) -> Any:
     resolved = literal_value(value, env)
     if resolved is UNSET:
         _invalidate_names(env, _statement_names(value))
-    return resolved
+    return value if isinstance(value, ast.Lambda) else resolved
 
 
 def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
-    if any(_contains_mutable(env.get(name, UNSET)) for name in names):
-        # Aliases and literal containers can share mutable descendants. Refuse
-        # the environment rather than trying to interpret mutation or alias flow.
+    if any(_unproven_reference(env.get(name, UNSET)) for name in names):
+        # Containers can share mutable values or reference deferred local code.
+        # Refuse the environment rather than interpreting mutation or call flow.
         names = list(set(env).union(names))
     for name in names:
         env[name] = UNSET
 
 
-def _contains_mutable(value: Any) -> bool:
-    if isinstance(value, (list, dict, set)):
+def _unproven_reference(value: Any) -> bool:
+    if isinstance(value, (list, dict, set, ast.Lambda, *_DEFINITIONS)):
         return True
-    return isinstance(value, tuple) and any(_contains_mutable(item) for item in value)
+    return isinstance(value, tuple) and any(_unproven_reference(item) for item in value)
 
 
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
@@ -77,6 +90,8 @@ def _statement_names(node: ast.AST) -> list[str]:
 def _scope_names(node: ast.AST) -> list[str] | None:
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         evaluated = [node.args, *node.decorator_list]
+        if node.returns is not None:
+            evaluated.append(node.returns)
         return [node.name, *(_name for child in evaluated for _name in _statement_names(child))]
     if isinstance(node, ast.ClassDef):
         return [node.name, *_child_statement_names(node)]
