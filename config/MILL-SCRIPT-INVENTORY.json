@@ -1842,6 +1842,12 @@
       "provenance": "Cleaned production owner for archived mac generators preserved at 813f93f1969c1c4421e5663492e9663739efa642; source files remain on origin/legacy-mill-lane."
     },
     {
+      "family": "maos",
+      "owner": "pipelines/maos",
+      "classification": "production",
+      "provenance": "Recovered MAOS catalog and reviewed production package; source pins remain in config/maos/CATALOG.json"
+    },
+    {
       "family": "mdb",
       "owner": "pipelines/mdb",
       "classification": "production",
@@ -1858,6 +1864,12 @@
       "owner": "pipelines/msd",
       "classification": "production",
       "provenance": "origin/legacy-mill-lane:experiments/msd-leftover-mill-r430.py"
+    },
+    {
+      "family": "nelb",
+      "owner": "pipelines/nelb",
+      "classification": "production",
+      "provenance": "Recovered NELB catalog and reviewed production package; source pins remain in pipelines/nelb/CATALOG.json"
     },
     {
       "family": "ntp",
@@ -1936,6 +1948,12 @@
       "owner": "pipelines/ssr",
       "classification": "production",
       "provenance": "Cleaned production owner for archived ssr generators preserved at 813f93f1969c1c4421e5663492e9663739efa642; source files remain on origin/legacy-mill-lane."
+    },
+    {
+      "family": "ttf",
+      "owner": "pipelines/ttf",
+      "classification": "production",
+      "provenance": "Recovered TTF catalog and reviewed production package; source pins remain in pipelines/ttf/CATALOG.json"
     },
     {
       "family": "tup",

@@ -23,6 +23,9 @@ CANONICAL_PACKAGES = {"sir": "search"}
 ADDITIONAL_FAMILY_OWNERS = {
     "actf": "pipelines/actf",
     "ffpc": "pipelines/ffpc",
+    "maos": "pipelines/maos",
+    "ttf": "pipelines/ttf",
+    "nelb": "pipelines/nelb",
     "crp-leftover3": "pipelines/code_leftover3",
     "lhc-w4cl": "pipelines/lhc_w4cl",
 }

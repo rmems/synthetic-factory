@@ -160,7 +160,8 @@ class InventoryIntegrity(unittest.TestCase):
                 self.assertTrue(msi.archived_import_hits(source, archived))
 
     def test_secondary_cleaned_owners_are_required_and_protected(self):
-        for owner in ("pipelines/lhc_w4cl", "pipelines/code_leftover3"):
+        for owner in ("pipelines/lhc_w4cl", "pipelines/code_leftover3",
+                      "pipelines/maos", "pipelines/ttf", "pipelines/nelb"):
             with self.subTest(owner=owner):
                 rules = msi.qlty_exclude_patterns(REPO) + (owner + "/**",)
                 with patch.object(msi, "qlty_exclude_patterns", return_value=rules):
@@ -174,7 +175,8 @@ class InventoryIntegrity(unittest.TestCase):
 
 class CompleteProductionAndImportScope(unittest.TestCase):
     def test_nonarchive_production_owners_cannot_disappear(self):
-        for owner in ("pipelines/actf", "pipelines/ffpc"):
+        for owner in ("pipelines/actf", "pipelines/ffpc", "pipelines/maos",
+                      "pipelines/ttf", "pipelines/nelb"):
             with self.subTest(owner=owner):
                 inventory = copy.deepcopy(msi.INVENTORY)
                 inventory["mill_families"] = tuple(
