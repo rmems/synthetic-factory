@@ -165,6 +165,11 @@ class Leftover6CatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             extract_source(source, path="experiments/mill_gql_leftover6_r260.py")
 
+    def test_extractor_refuses_a_nonliteral_reassignment(self):
+        source = _GQL_SNIPPET + "\nPAIRS = rebuild_pairs()\n"
+        with self.assertRaises(ValueError):
+            extract_source(source, path="experiments/mill_gql_leftover6_r260.py")
+
     def test_jsonl_stays_compact(self):
         for path, expected in ((PAIRS_JSONL, 32), (PLANTS_JSONL, 65)):
             text = path.read_text(encoding="utf-8")
@@ -199,12 +204,12 @@ class Leftover6LegacyExtractTests(unittest.TestCase):
         plant_rows = []
         for mill in CATALOG.catalogs:
             text = subprocess.check_output(
-                ["git", "show", f"{leftover6_catalog.LEGACY_REF}:{mill.source_path}"],
+                ["git", "show", f"{mill.preserve_commit}:{mill.source_path}"],
                 text=True,
                 cwd=ROOT,
             )
             blob = subprocess.check_output(
-                ["git", "rev-parse", f"{leftover6_catalog.LEGACY_REF}:{mill.source_path}"],
+                ["git", "rev-parse", f"{mill.preserve_commit}:{mill.source_path}"],
                 text=True,
                 cwd=ROOT,
             ).strip()

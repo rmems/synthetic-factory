@@ -161,6 +161,10 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
         resolved = literal_value(value, env)
         if resolved is not UNSET:
             env[name] = resolved
+        else:
+            # Assignment is authoritative: never retain an earlier literal
+            # after the source replaces it with an expression we refuse to run.
+            env.pop(name, None)
     return env
 
 
