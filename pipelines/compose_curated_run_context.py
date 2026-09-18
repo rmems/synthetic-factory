@@ -94,6 +94,7 @@ class SourceLineContext:
     catalog: Mapping[str, Any] | None
     emitted: list[str]
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,7 @@ class SourceFileContext:
     destination_target: Any
     catalog: Mapping[str, Any] | None
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,7 @@ class SourceBatchContext:
     destination_target: Any
     catalog: Mapping[str, Any]
     mill_findings: Mapping[tuple[str, int], Any]
+    physical_source_paths: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -148,6 +151,7 @@ class TransactionContext:
     mill_findings: Mapping[tuple[str, int], Any]
     catalog: Mapping[str, Any]
     calibration_descriptor: Mapping[str, Any]
+    physical_source_paths: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

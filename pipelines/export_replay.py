@@ -21,10 +21,11 @@ if str(_PIPELINES) not in sys.path:
 
 import compose_curated  # noqa: E402
 import compose_mill  # noqa: E402
+from compose_curated_run import authenticated_published_snapshot  # noqa: E402
+from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
     default_units_migration_path,
-    published_source_snapshot,
 )
 from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
@@ -83,6 +84,7 @@ class _SourceReplay:
     raw_file: bytes
     catalog: Any
     mill_findings: dict[tuple[str, int], Any]
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,7 @@ class _LineReplay:
     source_file_sha256: str
     catalog: Any
     mill_finding: Any
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -238,6 +241,7 @@ def _replay_one_line_context(
         replay.line_number,
         (hashlib.sha256(physical_line).hexdigest(), replay.source_file_sha256),
     )
+    add_physical_source_evidence(entry, replay.physical_source_path, physical_line)
     for stage in decision.stages:
         lane = stage["lane"]
         if lane in state.lane_actions:
@@ -325,6 +329,7 @@ def _replay_source_file_context(
                 source_file_sha256=source_file_sha256,
                 catalog=replay.catalog,
                 mill_finding=replay.mill_findings.get((replay.relative, line_number)),
+                physical_source_path=replay.physical_source_path,
             ),
         )
         if emitted_line is not None:
@@ -424,10 +429,8 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         for relative, (_file_identity, factory, verified) in identities_before.items()
     }
     try:
-        source_members, payload_by_member, factory_identities = published_source_snapshot(
-            source_members,
-            payload_by_member,
-            factory_identities,
+        source_members, payload_by_member, factory_identities, physical_source_paths = authenticated_published_snapshot(
+            source_root, source_members, payload_by_member, factory_identities
         )
     except ComposeError as exc:
         raise ExportError(f"COMPOSE source coordinates cannot be replayed safely: {exc}") from exc
@@ -444,6 +447,7 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
                 raw_file=payload_by_member[relative],
                 catalog=catalog,
                 mill_findings=mill_findings,
+                physical_source_path=physical_source_paths.get(relative),
             ),
         )
 

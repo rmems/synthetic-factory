@@ -31,8 +31,18 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
-from oracle_grounded import canon, families, oracles, record
-from oracle_grounded.rng import MAX_SEED, seed_from_label
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("oracle_validate")
+    from .oracle_grounded import canon, families, oracles, record
+    from .oracle_grounded.rng import MAX_SEED, seed_from_label
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "oracle_validate"
+    )
+    from oracle_grounded import canon, families, oracles, record
+    from oracle_grounded.rng import MAX_SEED, seed_from_label
 
 
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
@@ -1284,11 +1294,13 @@ def _manifest_note_errors(manifest, parsed_records, context):
 
 
 def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
-    totals = Counter()
-    errors = []
-    by_family = Counter()
-    manifest, snapshots, manifest_errors = authenticate_manifest(run_dir)
-    errors.extend(manifest_errors)
+    return validate_run_snapshot(
+        run_dir, authenticate_manifest(run_dir),
+        options=RunValidationOptions(require_runtime, reproduce, selected),
+    )
+
+
+def _snapshot_expected_commit(manifest):
     # Resolve the manifest's oracle commit once; per-record validation then
     # binds each record to it by string comparison rather than resolving
     # every distinct stamped commit against the repository. The binding is
@@ -1306,23 +1318,10 @@ def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
                 oracles.resolve_source_commit(manifest_commit)
         else:
             expected_commit = ""
-    seen_ids = {}
-    parsed_records = []
-    for snapshot in snapshots:
-        file_totals, file_errors, file_records = validate_file(
-            snapshot,
-            require_runtime,
-            reproduce,
-            selected,
-            seen_ids=seen_ids,
-            expected_commit=expected_commit,
-        )
-        totals.update(file_totals)
-        errors.extend(file_errors)
-        parsed_records.extend(file_records)
-        if file_totals["records"]:
-            # Skip zero entries so a --family filter reports only what it kept.
-            by_family[snapshot.path.parent.name] += file_totals["records"]
+    return expected_commit
+
+
+def _snapshot_metadata_errors(run_dir, manifest, snapshots, parsed_records):
     metadata_errors = []
     if isinstance(manifest, dict):
         try:
@@ -1334,6 +1333,43 @@ def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
                 f"{Path(run_dir) / 'manifest.json'}: manifest metadata validation "
                 f"raised an internal exception: {type(exc).__name__}"
             ]
+    return metadata_errors
+
+
+@dataclass(frozen=True)
+class RunValidationOptions:
+    require_runtime: bool = False
+    reproduce: bool = False
+    selected: tuple = ()
+
+
+def validate_run_snapshot(run_dir, authentication, *, options=None):
+    """Validate the same authenticated bytes retained by a source consumer."""
+    manifest, snapshots, manifest_errors = authentication
+    options = options or RunValidationOptions()
+    totals = Counter()
+    errors = []
+    by_family = Counter()
+    errors.extend(manifest_errors)
+    expected_commit = _snapshot_expected_commit(manifest)
+    seen_ids = {}
+    parsed_records = []
+    for snapshot in snapshots:
+        file_totals, file_errors, file_records = validate_file(
+            snapshot,
+            options.require_runtime,
+            options.reproduce,
+            options.selected,
+            seen_ids=seen_ids,
+            expected_commit=expected_commit,
+        )
+        totals.update(file_totals)
+        errors.extend(file_errors)
+        parsed_records.extend(file_records)
+        if file_totals["records"]:
+            # Skip zero entries so a --family filter reports only what it kept.
+            by_family[snapshot.path.parent.name] += file_totals["records"]
+    metadata_errors = _snapshot_metadata_errors(run_dir, manifest, snapshots, parsed_records)
     errors.extend(metadata_errors)
     report = {
         "run_dir": str(Path(run_dir).resolve()),
@@ -1351,7 +1387,7 @@ def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
         "publishable": totals["publishable"],
         "by_family": dict(sorted(by_family.items())),
     }
-    if reproduce:
+    if options.reproduce:
         report["reproduce"] = {
             key.removeprefix("reproduce_"): value
             for key, value in sorted(totals.items())
@@ -1389,6 +1425,10 @@ def main(argv=None):
     if hidden:
         print(f"... {hidden} more findings", file=sys.stderr)
     return 1 if errors else 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

@@ -1075,7 +1075,20 @@ def _package_validate_run_thalamic() -> ModuleType:
 
 
 Loader = Callable[[], ModuleType]
+def _direct_oracle_validate() -> ModuleType:
+    import oracle_validate as module
+
+    return module
+
+
+def _package_oracle_validate() -> ModuleType:
+    import pipelines.oracle_validate as module
+
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "oracle_validate": (_direct_oracle_validate, _package_oracle_validate),
     "census": (_direct_census, _package_census),
     "check_records": (_direct_check_records, _package_check_records),
     "coding_constants": (_direct_coding_constants, _package_coding_constants),

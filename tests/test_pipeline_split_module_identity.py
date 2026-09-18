@@ -20,6 +20,7 @@ else:
 
 
 NEW_SPLIT_MODULES = (
+    "oracle_validate",
     "compose_contract",
     "compose_curated",
     "compose_mill",
