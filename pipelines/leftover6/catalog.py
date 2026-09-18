@@ -213,8 +213,19 @@ def _load_jsonl(path: Path) -> list[Any]:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise CatalogError(f"cannot load leftover6 catalog {path}: {exc}") from exc
+    _require_jsonl_frame(path, text)
+    rows = _jsonl_rows(path, text)
+    if not rows:
+        raise CatalogError(f"{path.name} must contain at least one row")
+    return rows
+
+
+def _require_jsonl_frame(path: Path, text: str) -> None:
     if "\r" in text or not text.endswith("\n"):
         raise CatalogError(f"{path.name} must be LF-framed jsonl")
+
+
+def _jsonl_rows(path: Path, text: str) -> list[Any]:
     rows: list[Any] = []
     for index, line in enumerate(text.splitlines(), start=1):
         if not line:
@@ -225,8 +236,6 @@ def _load_jsonl(path: Path) -> list[Any]:
             rows.append(json.loads(line))
         except json.JSONDecodeError as exc:
             raise CatalogError(f"{path.name}:{index} is not JSON: {exc}") from exc
-    if not rows:
-        raise CatalogError(f"{path.name} must contain at least one row")
     return rows
 
 
@@ -256,25 +265,20 @@ def _pair_row(value: Any, context: str) -> dict[str, Any]:
     keys = _GQL_ROW_KEYS if kind == "gql-pairs" else _SSL_ROW_KEYS
     if kind not in {"gql-pairs", "ssl-pairs"}:
         raise CatalogError(f"{context} kind is not a leftover6 pair")
-    row = _mapping(value, context, keys)
+    return _typed_row(_mapping(value, context, keys), context, {"round": 0, "novel": 1})
+
+
+def _typed_row(row: dict[str, Any], context: str, integers: Mapping[str, int]) -> dict[str, Any]:
     for key, item in row.items():
-        if key == "round":
-            _integer(item, f"{context}.{key}")
-        elif key == "novel":
-            _integer(item, f"{context}.{key}", minimum=1)
+        if key in integers:
+            _integer(item, f"{context}.{key}", minimum=integers[key])
         else:
             _text(item, f"{context}.{key}")
     return row
 
 
 def _plant_row(value: Any, context: str) -> dict[str, Any]:
-    row = _mapping(value, context, _PLANT_ROW_KEYS)
-    for key, item in row.items():
-        if key == "inc":
-            _integer(item, f"{context}.{key}", minimum=1)
-        else:
-            _text(item, f"{context}.{key}")
-    return row
+    return _typed_row(_mapping(value, context, _PLANT_ROW_KEYS), context, {"inc": 1})
 
 
 def _catalog_dir(path: Path) -> Path:
@@ -317,14 +321,15 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
 
 
 def _refuse_identity(catalog: Catalog) -> None:
-    if catalog.schema_version != SCHEMA_VERSION:
-        raise CatalogError(f"unsupported schema version: {catalog.schema_version!r}")
-    if catalog.family != FAMILY or catalog.slice != "full":
-        raise CatalogError("catalog identity does not match leftover6")
-    if catalog.generator != GENERATOR or catalog.source_commit != SOURCE_COMMIT:
-        raise CatalogError("catalog pin drifted from leftover6 archive 813f93f1")
-    if catalog.source_branch != LEGACY_REF:
-        raise CatalogError("catalog source_branch is not origin/legacy-mill-lane")
+    _expect(catalog.schema_version, SCHEMA_VERSION, f"unsupported schema version: {catalog.schema_version!r}")
+    _expect((catalog.family, catalog.slice), (FAMILY, "full"), "catalog identity does not match leftover6")
+    _expect((catalog.generator, catalog.source_commit), (GENERATOR, SOURCE_COMMIT), "catalog pin drifted from leftover6 archive 813f93f1")
+    _expect(catalog.source_branch, LEGACY_REF, "catalog source_branch is not origin/legacy-mill-lane")
+
+
+def _expect(actual: Any, expected: Any, message: str) -> None:
+    if actual != expected:
+        raise CatalogError(message)
 
 
 def _declared_total(row: Mapping[str, Any], key: str) -> int:
@@ -345,10 +350,20 @@ def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
     gql, ssl, sbox = catalog.catalogs
     gql_pairs = [row for row in catalog.pairs if row["kind"] == "gql-pairs"]
     ssl_pairs = [row for row in catalog.pairs if row["kind"] == "ssl-pairs"]
+    _validate_source_counts(gql_pairs, ssl_pairs, catalog.plants, gql, ssl, sbox)
+    _validate_declared_totals(catalog, header)
+    _validate_unique_and_ordered(gql_pairs, ssl_pairs, catalog.plants, gql, ssl, sbox)
+    _validate_source_bindings(gql_pairs, ssl_pairs, catalog.plants, gql, ssl, sbox)
+
+
+def _validate_source_counts(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> None:
     if len(gql_pairs) != gql.n_rows or len(ssl_pairs) != ssl.n_rows:
         raise CatalogError("pair JSONL counts disagree with leftover6 mill headers")
-    if len(catalog.plants) != sbox.n_rows:
+    if len(plants) != sbox.n_rows:
         raise CatalogError("plant JSONL count disagrees with leftover6 mill header")
+
+
+def _validate_declared_totals(catalog: Catalog, header: Mapping[str, Any]) -> None:
     expected = {
         "n_pair_rows_extracted": len(catalog.pairs),
         "n_pair_rows_committed": len(catalog.pairs),
@@ -358,24 +373,30 @@ def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
     for key, actual in expected.items():
         if _declared_total(header, key) != actual:
             raise CatalogError(f"catalog.{key} disagrees with loaded rows")
-    _unique([row["slug"] for row in catalog.pairs], "pair JSONL")
-    _unique([row["family"] for row in catalog.plants], "plant JSONL")
+
+
+def _validate_unique_and_ordered(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> None:
+    _unique([row["slug"] for row in [*gql_pairs, *ssl_pairs]], "pair JSONL")
+    _unique([row["family"] for row in plants], "plant JSONL")
     _contiguous([row["round"] for row in gql_pairs], gql.catalog_first, "gql")
     _contiguous([row["round"] for row in ssl_pairs], ssl.catalog_first, "ssl")
-    _contiguous([row["inc"] for row in catalog.plants], sbox.catalog_first, "sbox", 4)
+    _contiguous([row["inc"] for row in plants], sbox.catalog_first, "sbox", 4)
+
+
+def _validate_source_bindings(gql_pairs, ssl_pairs, plants, gql, ssl, sbox) -> None:
     if gql_pairs[0]["slug"] != gql.first_slug or gql_pairs[-1]["slug"] != gql.last_slug:
         raise CatalogError("gql leftover6 slugs drifted from header")
     if ssl_pairs[0]["slug"] != ssl.first_slug or ssl_pairs[-1]["slug"] != ssl.last_slug:
         raise CatalogError("ssl leftover6 slugs drifted from header")
-    if catalog.plants[0]["family"] != sbox.first_slug:
+    if plants[0]["family"] != sbox.first_slug:
         raise CatalogError("sbox leftover6 first plant drifted from header")
-    if catalog.plants[-1]["family"] != sbox.last_slug:
+    if plants[-1]["family"] != sbox.last_slug:
         raise CatalogError("sbox leftover6 last plant drifted from header")
     if any(row["source_path"] != gql.source_path for row in gql_pairs):
         raise CatalogError("gql leftover6 pair source_path drifted")
     if any(row["source_path"] != ssl.source_path for row in ssl_pairs):
         raise CatalogError("ssl leftover6 pair source_path drifted")
-    if any(row["source_path"] != sbox.source_path for row in catalog.plants):
+    if any(row["source_path"] != sbox.source_path for row in plants):
         raise CatalogError("sbox leftover6 plant source_path drifted")
 
 
