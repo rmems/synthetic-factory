@@ -350,6 +350,35 @@ consumer reading only `accepted-*.jsonl` cannot pick up a record that failed its
 family's gate. Each family lives in its own directory, so families can be
 curated independently.
 
+## Assemble eligible reference measurements
+
+The default composition preserves every valid oracle record, including honest
+rejections. Its training audit therefore blocks export when rejected or otherwise
+ineligible evidence is retained. To create a training candidate from the eligible
+part of an authenticated oracle run, request selection explicitly:
+
+```bash
+python3 pipelines/compose_curated.py --oracle-selection eligible-training \
+    outputs/oracle-grounded/2026-09-01 outputs/curated/oracle-training
+python3 pipelines/export_hf.py outputs/curated/oracle-training outputs/curated/oracle-export
+```
+
+Selection requires the complete original oracle run and its manifest, including
+rejected rows and empty declared files. It reuses fresh identity admission and
+reference replay; a stored accepted or publishable flag is not sufficient.
+Corrupt evidence refuses the run even if selection would otherwise omit it.
+Each omitted row remains in the compose manifest with original source coordinates,
+text, hashes, and an explicit eligibility reason. The original run is unchanged.
+The versioned selection declaration and every decision are replayed again before
+export. Named or mixed runtime rows remain ineligible without authenticated
+runtime replay evidence; selection never invokes an external runtime.
+
+This is a local dataset assembly and export operation. It neither publishes a
+remote dataset nor establishes that an accepted-only sample is statistically
+unbiased. The default `--oracle-selection all` keeps the prior preservation
+behavior. New dataset families still require reviewed generator, schema, and
+registry code; the CLI selects and parameterizes the five implemented families.
+
 ## Tests
 
 `tests/test_oracle_grounded_*.py`, all stdlib `unittest`:

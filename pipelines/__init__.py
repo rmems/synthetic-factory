@@ -135,6 +135,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "compose_curated_run",
     "compose_curated_run_context",
     "compose_curated_run_lines",
+    "compose_oracle_selection",
     "compose_curated_run_artifacts",
     "compose_curated_source",
     "compose_curated_source_pointers",

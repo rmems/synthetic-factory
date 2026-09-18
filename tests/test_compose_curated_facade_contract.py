@@ -72,8 +72,17 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
     def test_every_historical_callable_signature_is_restored(self):
         for name, expected in HISTORICAL_SIGNATURES.items():
             with self.subTest(name=name):
+                signature = inspect.signature(getattr(compose_curated, name))
+                if name == "compose_run":
+                    selection = signature.parameters["oracle_selection"]
+                    self.assertEqual(selection.default, "all")
+                    self.assertEqual(selection.kind, inspect.Parameter.KEYWORD_ONLY)
+                    signature = signature.replace(parameters=[
+                        value for key, value in signature.parameters.items()
+                        if key != "oracle_selection"
+                    ])
                 self.assertEqual(
-                    str(inspect.signature(getattr(compose_curated, name))),
+                    str(signature),
                     expected,
                 )
 

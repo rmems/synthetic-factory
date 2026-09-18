@@ -19,6 +19,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+import compose_oracle_selection  # noqa: E402
 import compose_curated  # noqa: E402
 import compose_mill  # noqa: E402
 from compose_curated_run import authenticated_published_snapshot  # noqa: E402
@@ -61,6 +62,8 @@ class _ReplaySnapshot:
 @dataclass
 class _ReplayState:
     """Mutable accumulators shared by every replayed source line."""
+
+    oracle_selection: str = "all"
 
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
@@ -109,6 +112,14 @@ class _PublishedReplay:
     actual_outputs: dict[str, CuratedFile]
     manifest_documents: Sequence[Any]
     sidecar_documents: Sequence[Any]
+
+
+def _selection_result(function, *args):
+    """Keep selection refusals inside the exporter's public error contract."""
+    try:
+        return function(*args)
+    except ComposeError as exc:
+        raise ExportError(str(exc)) from exc
 
 
 def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
@@ -239,6 +250,9 @@ def _replay_one_line_context(
                 state.seen_source_semantics, state.seen_curated_semantics
             ),
         )
+    decision = _selection_result(
+        compose_oracle_selection.apply_selection, decision, state.oracle_selection
+    )
     entry = _replayed_manifest_entry(
         decision,
         replay.relative,
@@ -411,7 +425,7 @@ def _require_coherent_capture(
             )
 
 
-def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
+def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all") -> _ReplaySnapshot:
     """Run every source JSONL line back through compose and record what it yields."""
 
     try:
@@ -442,7 +456,11 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         payload_by_member, factory_identities, _replay_physical_lines
     )
 
-    state = _ReplayState()
+    _selection_result(
+        compose_oracle_selection.require_authenticated_source,
+        oracle_selection, source_members, physical_source_paths,
+    )
+    state = _ReplayState(oracle_selection=oracle_selection)
     for relative in source_members:
         _replay_source_file_context(
             state,
@@ -609,7 +627,8 @@ def _authenticate_source_replay(
     calibration_state = _authenticated_calibration_state(summary, source_root)
     catalog, calibration_descriptor, _calibration_evidence = calibration_state
 
-    snapshot = _replay_source_lines(source_root, catalog)
+    selection = _selection_result(compose_oracle_selection.published_mode, summary)
+    snapshot = _replay_source_lines(source_root, catalog, selection)
     _require_calibration_state_unchanged(
         calibration_state,
         _authenticated_calibration_state(summary, source_root),

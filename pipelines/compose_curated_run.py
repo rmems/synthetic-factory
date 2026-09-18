@@ -19,6 +19,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run")
+    from . import compose_oracle_selection as _selection
     from . import compose_contract as _contract
     from . import compose_curated_run_artifacts as _artifacts
     from . import compose_curated_run_context as _run_context
@@ -28,6 +29,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run"
     )
+    import compose_oracle_selection as _selection
     import compose_contract as _contract
     import compose_curated_run_artifacts as _artifacts
     import compose_curated_run_context as _run_context
@@ -91,7 +93,9 @@ def compose_one_line(
     state.counts["source_records"] += 1
     entry = active.new_manifest_entry(context, sha256_hex(physical_line))
     _lines.add_physical_source_evidence(entry, context.physical_source_path, physical_line)
-    decision = _line_decision(state, source_line, services, active)
+    decision = _selection.apply_selection(
+        _line_decision(state, source_line, services, active), state.oracle_selection
+    )
     entry.update(
         {
             "action": decision.action,
@@ -295,6 +299,8 @@ def _write_transaction(
         pinned_destination.root / RECORDS_DIRNAME,
     )
     summary = hooks.compose_run_summary(state, summary_context, services.report)
+    if state.oracle_selection != "all":
+        summary["oracle_selection"] = _selection.descriptor(state.oracle_selection)
     commit_context = SummaryCommitContext(
         pinned_destination,
         summary,
@@ -318,6 +324,9 @@ def compose_run(
     source_members, payload_by_member, identities, physical_source_paths = authenticated_published_snapshot(
         resolved_source, source_members, payload_by_member, identities
     )
+    _selection.require_authenticated_source(
+        context.oracle_selection, source_members, physical_source_paths
+    )
     mill_findings = services.source.index_compose_mills(
         payload_by_member, identities, active.jsonl_physical_lines
     )
@@ -327,7 +336,7 @@ def compose_run(
     pinned_destination = services.destination.create_pinned_destination(
         resolved_source, context.destination
     )
-    state = ComposeRunState()
+    state = ComposeRunState(oracle_selection=context.oracle_selection)
     transaction = TransactionContext(
         pinned_destination,
         resolved_source,

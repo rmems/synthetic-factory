@@ -26,6 +26,7 @@ class ComposeRunContext:
     source_run: Path
     destination: Path
     units_migration: Path | None = None
+    oracle_selection: str = "all"
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,7 @@ class SummaryCommitContext:
 
 @dataclass
 class ComposeRunState:
+    oracle_selection: str = "all"
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
     lane_actions: dict[str, Counter[str]] = field(
