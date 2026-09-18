@@ -17,14 +17,16 @@ if __name__.startswith("pipelines."):
     from ..oracle_grounded.import_twins import bind_import_twin
     from ..raw_tree_guard import is_under_raw
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
-    from ..validate_run_episode import _normalized_hidden_key as normalized_key, check_episode
+    from ..validate_run import check_episode
+    from ..validate_run_episode_turns import _normalized_hidden_key as normalized_key
 else:
     from compose_destination_rename import rename_noreplace
     from exact_json import ExactJSONFloat, dumps_exact_json
     from oracle_grounded.import_twins import bind_import_twin
     from raw_tree_guard import is_under_raw
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
-    from validate_run_episode import _normalized_hidden_key as normalized_key, check_episode
+    from validate_run import check_episode
+    from validate_run_episode_turns import _normalized_hidden_key as normalized_key
 
 __all__ = [
     "ExactJSONFloat",

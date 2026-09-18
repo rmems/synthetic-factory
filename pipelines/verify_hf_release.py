@@ -343,13 +343,18 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
 
     purpose = REQUIRED_PURPOSE_TEXT[repo]
     target = REQUIRED_TARGET_TEXT[repo]
-    preamble = _normalized_text(
-        _markdown_section(rendered_card, "__preamble__") or ""
-    )
+    # Purpose used to be required in the Markdown preamble (everything
+    # before the first ``## `` heading). The 2026-08-31 Hub reframe put
+    # rights and release-status blockquotes, then a Rights heading, before
+    # the purpose sentence, so a preamble-only scan failed every nightly
+    # even though the marker was still on the card (#182). Search the
+    # rendered card so those blockquotes may precede it; moving the
+    # sentence back into the preamble is a Hub write tracked on #165.
+    normalized_card = _normalized_text(rendered_card)
     target_section = _normalized_text(
         _markdown_section(rendered_card, "## Intended model target") or ""
     )
-    if _normalized_text(purpose) not in preamble:
+    if _normalized_text(purpose) not in normalized_card:
         errors.append(f"README missing repository purpose marker: {purpose}")
     if _normalized_text(target) not in target_section:
         errors.append(f"README missing Spikenaut classification: {target}")

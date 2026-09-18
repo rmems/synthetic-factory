@@ -42,6 +42,12 @@ MAX_CAPTURE_CHARS = 65_536
 
 
 def _apply_limits(spec: dict) -> bool:
+    """Return False on setup failure so main emits a trusted false attestation.
+
+    Limits are applied before candidate code is read. Setup errors must not
+    escape as an ordinary candidate crash or bypass the run-wide refusal.
+    """
+
     try:
         import resource
         limits = (
@@ -354,7 +360,8 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         except Exception as exc:
             report = {
                 "protocol": PROTOCOL,
-                "load": {"status": "error", "error": f"HarnessError: {exc}"},
+                "load": {"status": "error", "error": _scrub_workdir(
+                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))},
             }
         _write_protocol_report(report, _dumps)
     sys.stdout, sys.stderr = real_stdout, real_stderr

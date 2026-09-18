@@ -29,7 +29,8 @@ from code_repair_test_support import (  # noqa: E402
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
 # Harness protocol v2 (#213): out-of-band limits attestation line before program load.
 # bwrap OS boundary + #200 repr update move the harness fingerprint.
-GOLDEN_SHA256 = "379c1eb9d18c84f56e7192df95ac02fc2dc9642462e3c27020dba4072acb7a45"
+# Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
+GOLDEN_SHA256 = "ad548000fdd72169f9ea5feba31ed1e70a3aa694efc320606987a63606493f51"
 
 
 def accepting_executor():
