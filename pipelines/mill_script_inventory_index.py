@@ -24,6 +24,11 @@ _INDEX_TRUNCATED = "git index is truncated"
 _INDEX_UNSUPPORTED = "unsupported git index version"
 
 
+def _need(payload: bytes, offset: int, size: int) -> None:
+    if offset + size > len(payload):
+        raise MillScriptInventoryError(_INDEX_TRUNCATED)
+
+
 def _git_index_header(payload: bytes) -> int:
     if payload[:4] != b"DIRC":
         raise MillScriptInventoryError(_INDEX_UNPARSEABLE)
@@ -33,55 +38,39 @@ def _git_index_header(payload: bytes) -> int:
     return int.from_bytes(payload[8:12], "big")
 
 
-def _nul_terminated(payload: bytes, offset: int) -> tuple[str, int]:
-    end = payload.index(b"\0", offset)
-    return payload[offset:end].decode(), end + 1
-
-
-def _counted_path(payload: bytes, offset: int, path_len: int) -> tuple[str, int]:
-    path = payload[offset : offset + path_len].decode()
-    offset += path_len
-    if offset < len(payload) and payload[offset] == 0:
-        offset += 1
-    return path, offset
-
-
-def _skip_extended_flags(payload: bytes, offset: int, flags: int) -> int:
-    if not flags & 0x4000:
-        return offset
-    if offset + 2 > len(payload):
-        raise MillScriptInventoryError(_INDEX_TRUNCATED)
-    return offset + 2
-
-
 def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
-    if offset + 62 > len(payload):
-        raise MillScriptInventoryError(_INDEX_TRUNCATED)
+    _need(payload, offset, 62)
     flags = int.from_bytes(payload[offset + 60 : offset + 62], "big")
     start = offset
-    offset = _skip_extended_flags(payload, offset + 62, flags)
-    if flags & 0xFFF == 0xFFF:
-        path, offset = _nul_terminated(payload, offset)
+    offset += 62
+    if flags & 0x4000:
+        _need(payload, offset, 2)
+        offset += 2
+    path_len = flags & 0xFFF
+    if path_len == 0xFFF:
+        end = payload.index(b"\0", offset)
+        path = payload[offset:end].decode()
+        offset = end + 1
     else:
-        path, offset = _counted_path(payload, offset, flags & 0xFFF)
+        path = payload[offset : offset + path_len].decode()
+        offset += path_len
+        if offset < len(payload) and payload[offset] == 0:
+            offset += 1
     pad = (8 - ((offset - start) % 8)) % 8
     return path.replace("\\", "/"), offset + pad
 
 
 def _index_extensions(payload: bytes, offset: int) -> dict[bytes, bytes]:
-    if offset + 20 > len(payload):
-        raise MillScriptInventoryError(_INDEX_TRUNCATED)
+    _need(payload, offset, 20)
     body = payload[offset:-20]
     extensions: dict[bytes, bytes] = {}
     cursor = 0
     while cursor < len(body):
-        if cursor + 8 > len(body):
-            raise MillScriptInventoryError(_INDEX_UNPARSEABLE)
+        _need(body, cursor, 8)
         signature = body[cursor : cursor + 4]
         size = int.from_bytes(body[cursor + 4 : cursor + 8], "big")
         cursor += 8
-        if cursor + size > len(body):
-            raise MillScriptInventoryError(_INDEX_TRUNCATED)
+        _need(body, cursor, size)
         extensions[signature] = body[cursor : cursor + size]
         cursor += size
     return extensions
@@ -97,20 +86,6 @@ def _parse_git_index(payload: bytes) -> tuple[tuple[str, ...], dict[bytes, bytes
     return tuple(paths), _index_extensions(payload, offset)
 
 
-def _ewah_run_bits(run_bit: int, running_len: int, start: int) -> tuple[tuple[int, ...], int]:
-    bits = []
-    index = start
-    for _ in range(running_len):
-        if run_bit:
-            bits.extend(range(index, index + 64))
-        index += 64
-    return tuple(bits), index
-
-
-def _ewah_literal_bits(word: int, start: int) -> tuple[int, ...]:
-    return tuple(start + bit for bit in range(64) if word & (1 << bit))
-
-
 def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
     if bit_size == 0:
         return frozenset()
@@ -120,34 +95,35 @@ def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
     while cursor < len(words):
         rlw = words[cursor]
         cursor += 1
-        run_bits, index = _ewah_run_bits(rlw & 1, (rlw >> 1) & 0xFFFFFFFF, index)
-        bits.extend(run_bits)
+        running_len = (rlw >> 1) & 0xFFFFFFFF
+        if rlw & 1:
+            bits.extend(range(index, index + running_len * 64))
+        index += running_len * 64
         for _ in range(rlw >> 33):
-            if cursor >= len(words):
-                raise MillScriptInventoryError(_INDEX_TRUNCATED)
-            bits.extend(_ewah_literal_bits(words[cursor], index))
-            cursor += 1
-            index += 64
+            cursor, index = _ewah_literal(words, cursor, index, bits)
     return frozenset(bit for bit in bits if bit < bit_size)
 
 
-def _u32(payload: bytes, offset: int) -> tuple[int, int]:
-    if offset + 4 > len(payload):
+def _ewah_literal(words: Sequence[int], cursor: int, index: int, bits: list[int]) -> tuple[int, int]:
+    if cursor >= len(words):
         raise MillScriptInventoryError(_INDEX_TRUNCATED)
-    return int.from_bytes(payload[offset : offset + 4], "big"), offset + 4
+    word = words[cursor]
+    bits.extend(index + bit for bit in range(64) if word & (1 << bit))
+    return cursor + 1, index + 64
 
 
 def _ewah_bits(payload: bytes, offset: int) -> tuple[frozenset[int], int]:
-    bit_size, offset = _u32(payload, offset)
-    word_count, offset = _u32(payload, offset)
+    _need(payload, offset, 8)
+    bit_size = int.from_bytes(payload[offset : offset + 4], "big")
+    word_count = int.from_bytes(payload[offset + 4 : offset + 8], "big")
+    offset += 8
     words: list[int] = []
     for _ in range(word_count):
-        if offset + 8 > len(payload):
-            raise MillScriptInventoryError(_INDEX_TRUNCATED)
+        _need(payload, offset, 8)
         words.append(int.from_bytes(payload[offset : offset + 8], "big"))
         offset += 8
-    _rlw_pos, offset = _u32(payload, offset)
-    return _ewah_decode(words, bit_size), offset
+    _need(payload, offset, 4)
+    return _ewah_decode(words, bit_size), offset + 4
 
 
 def _link_bitmaps(link: bytes) -> tuple[str, frozenset[int], frozenset[int]]:
