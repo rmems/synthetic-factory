@@ -581,6 +581,18 @@ class RelayReflexSimulator(FaultOracle):
             )
 
     @staticmethod
+    def _check_sampled_window(kind: str, parameters: dict[str, Any], system: dict[str, Any]) -> None:
+        """Duration-based disturbances must affect at least one actual tick."""
+
+        if "duration_ms" not in parameters:
+            return
+        onset = float(parameters["onset_ms"])
+        end = onset + float(parameters["duration_ms"])
+        tick_ms = float(system["tick_ms"])
+        if not any(onset <= tick * tick_ms < end for tick in range(system["ticks"])):
+            raise oc.ContractError(f"{kind} window contains no sampled tick")
+
+    @staticmethod
     def _check_declared_channel_list(kind: str, parameters: dict[str, Any]) -> None:
         """A declared channel list must be a list, and non-empty where required.
 
@@ -836,6 +848,8 @@ class RelayReflexSimulator(FaultOracle):
             raise oc.ContractError("system hard_deadline_ms must exceed deadline_ms")
         RelayReflexSimulator._check_thermal_ladder(system)
         RelayReflexSimulator._check_system_channels(system)
+        if system["min_healthy_channels"] > len(system["channels"]):
+            raise oc.ContractError("system min_healthy_channels exceeds primary channel count")
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
         system = {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))}
@@ -847,6 +861,7 @@ class RelayReflexSimulator(FaultOracle):
         params = dict(disturbance.get("parameters", {}))
         self._check_parameters(kind, params)
         self._check_onset_within_horizon(kind, params, system)
+        self._check_sampled_window(kind, params, system)
         # ``affected`` is narrowed to the relay's own channels for the tick
         # loop; ``declared`` keeps every name the disturbance claimed, so a
         # disturbance that also hits the fallback source is seen as such.
