@@ -218,7 +218,11 @@ class CompleteProductionAndImportScope(unittest.TestCase):
         self.assertIn("infra_as_code_mill", msi.archived_import_hits("import infra_as_code_mill", archived))
 
     def test_inventory_helper_modules_cannot_be_excluded(self):
-        paths = ("pipelines/mill_script_inventory_schema.py", "pipelines/mill_script_inventory_families.py")
+        paths = (
+            "pipelines/mill_script_inventory_schema.py",
+            "pipelines/mill_script_inventory_families.py",
+            "pipelines/mill_script_inventory_git.py",
+        )
         for path in paths:
             with self.subTest(path=path), _scope_repo() as root:
                 ignore = root / ".gitignore"

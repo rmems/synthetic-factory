@@ -22,6 +22,7 @@ else:
 NEW_SPLIT_MODULES = (
     "mill_script_inventory_schema",
     "mill_script_inventory_families",
+    "mill_script_inventory_git",
     "mill_script_inventory",
     "compose_contract",
     "compose_curated",

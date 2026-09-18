@@ -4,13 +4,33 @@ import contextlib
 import io
 import json
 import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.test_mill_script_inventory import REPO, msi
+
+
+def _index_entry(path: str) -> bytes:
+    encoded = path.encode()
+    payload = bytes(60) + len(encoded).to_bytes(2, "big") + encoded + b"\0"
+    return payload + bytes((8 - (len(payload) % 8)) % 8)
+
+
+def _ewah_bitmap(bit_size: int, words: tuple[int, ...]) -> bytes:
+    payload = bit_size.to_bytes(4, "big") + len(words).to_bytes(4, "big")
+    payload += b"".join(word.to_bytes(8, "big") for word in words)
+    return payload + (0).to_bytes(4, "big")
+
+
+def _git_index(entries: tuple[bytes, ...], extensions: dict[bytes, bytes] | None = None) -> bytes:
+    body = b"".join(entries)
+    extra = b""
+    for signature, data in (extensions or {}).items():
+        extra += signature + len(data).to_bytes(4, "big") + data
+    header = b"DIRC" + (2).to_bytes(4, "big") + len(entries).to_bytes(4, "big")
+    return header + body + extra + bytes(20)
 
 
 def _repo_gitdir(repo: Path) -> Path:
@@ -70,7 +90,7 @@ class InventorySchemaRefusals(unittest.TestCase):
 
 class InventoryEvidenceRefusals(unittest.TestCase):
     def test_missing_git_cannot_be_reported_as_clean_scope(self):
-        with patch.object(msi, "_git_available", return_value=False):
+        with patch.object(msi._git, "_git_available", return_value=False):
             with self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"):
                 msi.tracked_paths()
 
@@ -121,20 +141,16 @@ class InventoryEvidenceRefusals(unittest.TestCase):
                 msi.tracked_paths(Path(temp))
 
     def test_split_index_inherits_shared_paths_for_empty_replacements(self):
+        oid = b"\x01" * 20
+        empty = _index_entry("")
+        named = (_index_entry("README"), _index_entry("pipelines/leftover_mill.py"))
+        link = oid + _ewah_bitmap(0, (0,)) + _ewah_bitmap(2, (1 << 33, 0b11))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            subprocess.check_call(["git", "init", "-q"], cwd=root)
-            subprocess.check_call(["git", "config", "user.email", "inventory@test"], cwd=root)
-            subprocess.check_call(["git", "config", "user.name", "inventory"], cwd=root)
-            (root / "pipelines").mkdir()
-            (root / "README").write_text("x\n", encoding="utf-8")
-            (root / "pipelines" / "leftover_mill.py").write_text("print(1)\n", encoding="utf-8")
-            subprocess.check_call(["git", "add", "README", "pipelines/leftover_mill.py"], cwd=root)
-            subprocess.check_call(["git", "commit", "-qm", "init"], cwd=root)
-            subprocess.check_call(["git", "update-index", "--split-index"], cwd=root)
             gitdir = root / ".git"
-            self.assertTrue(list(gitdir.glob("sharedindex.*")))
-            self.assertIn(b"link", (gitdir / "index").read_bytes())
+            gitdir.mkdir()
+            (gitdir / f"sharedindex.{oid.hex()}").write_bytes(_git_index(named))
+            (gitdir / "index").write_bytes(_git_index((empty, empty), {b"link": link}))
             tracked = msi.tracked_paths(root)
         self.assertEqual(tracked, ("README", "pipelines/leftover_mill.py"))
         self.assertNotIn("", tracked)
@@ -156,18 +172,15 @@ class InventoryEvidenceRefusals(unittest.TestCase):
         self.assertEqual(bits, frozenset({0, 1, 2}))
 
     def test_missing_shared_index_cannot_be_reported_as_clean_scope(self):
-        empty_ewah = (0).to_bytes(4, "big") + (1).to_bytes(4, "big") + (0).to_bytes(8, "big") + (0).to_bytes(4, "big")
-        link = bytes(20) + empty_ewah + empty_ewah
+        oid = b"\x02" * 20
+        link = oid + _ewah_bitmap(0, (0,)) + _ewah_bitmap(0, (0,))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             gitdir = root / ".git"
             gitdir.mkdir()
-            (gitdir / "index").write_bytes(
-                b"DIRC" + (2).to_bytes(4, "big") + (0).to_bytes(4, "big") + b"\0" * 20
-            )
-            with patch.object(msi, "_parse_git_index", return_value=(("", ""), {b"link": link})):
-                with self.assertRaisesRegex(msi.MillScriptInventoryError, "git index"):
-                    msi._read_git_index(root)
+            (gitdir / "index").write_bytes(_git_index((), {b"link": link}))
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "git index"):
+                msi.tracked_paths(root)
 
     def test_invalid_qlty_exclusion_configuration_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:

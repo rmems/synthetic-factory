@@ -1185,6 +1185,18 @@ def _package_mill_script_inventory_families() -> ModuleType:
     return module
 
 
+def _direct_mill_script_inventory_git() -> ModuleType:
+    import mill_script_inventory_git as module
+
+    return module
+
+
+def _package_mill_script_inventory_git() -> ModuleType:
+    import pipelines.mill_script_inventory_git as module
+
+    return module
+
+
 def _direct_reward_parse_values() -> ModuleType:
     import reward_parse_values as module
 
@@ -1213,6 +1225,10 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "mill_script_inventory_families": (
         _direct_mill_script_inventory_families,
         _package_mill_script_inventory_families,
+    ),
+    "mill_script_inventory_git": (
+        _direct_mill_script_inventory_git,
+        _package_mill_script_inventory_git,
     ),
     "mill_script_inventory": (_direct_mill_script_inventory, _package_mill_script_inventory),
     "mill_script_inventory_schema": (
