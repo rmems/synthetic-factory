@@ -20,8 +20,9 @@ class RecordedDimensions(unittest.TestCase):
             recording = copy.deepcopy(original)
             layers = recording["observations"][mr.RecordedTeacherRouter.key_for(text)]["layers"]
             change(layers)
+            router = mr.RecordedTeacherRouter(recording)
             with self.subTest(name=name), self.assertRaises(oc.OracleUnavailable):
-                mr.RecordedTeacherRouter(recording).route(text)
+                router.route(text)
 
     def test_valid_recording_remains_replayable(self):
         text = "valid recorded dimensions"

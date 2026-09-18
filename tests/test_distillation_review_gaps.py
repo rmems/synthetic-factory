@@ -242,8 +242,9 @@ class FaultMeterProvenanceGaps(unittest.TestCase):
         )
 
     def test_an_oracle_without_meters_is_refused(self):
+        oracle = fr.FaultOracle()
         with self.assertRaises(oc.ContractError) as caught:
-            fr.build_records(3, 1, oracle=fr.FaultOracle())
+            fr.build_records(3, 1, oracle=oracle)
         self.assertIn("measurement meters", str(caught.exception))
 
     def test_the_simulator_still_names_simulator_meters(self):
@@ -1248,8 +1249,9 @@ class BaselineGaps(unittest.TestCase):
 
     def test_duplicate_record_ids_are_refused(self):
         records = mr.build_records(11, 4)
+        input_records = records + [clone(records[0])]
         with self.assertRaises(rb.BaselineError):
-            rb.dataset_from_records(records + [clone(records[0])])
+            rb.dataset_from_records(input_records)
 
     def test_the_cli_refuses_a_corpus_with_a_tampered_record(self):
         import contextlib
@@ -1653,8 +1655,9 @@ class FourthRoundFaultGaps(unittest.TestCase):
 
         for onset in (100.0, last_tick_ms + 1.0):
             with self.subTest(onset=onset):
+                test_disturbance = disturbance(onset)
                 with self.assertRaises(oc.ContractError):
-                    simulator.run(scenario, disturbance(onset))
+                    simulator.run(scenario, test_disturbance)
         # The last observable tick is still a real fault window.
         simulator.run(scenario, disturbance(last_tick_ms))
 
@@ -1864,10 +1867,9 @@ class FifthRoundFaultGaps(unittest.TestCase):
             record["scenario"]["system"] = system
             rehash(record)
             with self.subTest(control=key):
+                simulator = fr.RelayReflexSimulator()
                 with self.assertRaises(oc.ContractError) as caught:
-                    fr.RelayReflexSimulator().run(
-                        record["scenario"], record["intervention"]
-                    )
+                    simulator.run(record["scenario"], record["intervention"])
                 self.assertIn(fragment, str(caught.exception))
                 errors = fr.check_family(record, "x")
                 self.assertTrue(
@@ -1951,8 +1953,9 @@ class FifthRoundRouterGaps(unittest.TestCase):
             key = mr.RecordedTeacherRouter.key_for("ctx")
             recording["observations"][key]["layers"][0]["layer"] = bogus
             with self.subTest(layer=bogus):
+                router = mr.RecordedTeacherRouter(recording)
                 with self.assertRaises(oc.OracleUnavailable) as caught:
-                    mr.RecordedTeacherRouter(recording).route("ctx")
+                    router.route("ctx")
                 self.assertIn("genuine integer", str(caught.exception))
 
 
@@ -2107,10 +2110,9 @@ class SixthRoundFaultGaps(unittest.TestCase):
             record["scenario"]["system"] = system
             rehash(record)
             with self.subTest(control=key):
+                simulator = fr.RelayReflexSimulator()
                 with self.assertRaises(oc.ContractError):
-                    fr.RelayReflexSimulator().run(
-                        record["scenario"], record["intervention"]
-                    )
+                    simulator.run(record["scenario"], record["intervention"])
                 errors = fr.check_family(record, "x")
                 self.assertTrue(
                     any(fragment in e for e in errors),
@@ -2147,10 +2149,9 @@ class SeventhRoundSevereGaps(unittest.TestCase):
         system["channels"] = ["c0", "c0", "c0", "c0"]
         record["scenario"]["system"] = system
         rehash(record)
+        simulator = fr.RelayReflexSimulator()
         with self.assertRaises(oc.ContractError) as caught:
-            fr.RelayReflexSimulator().run(
-                record["scenario"], record["intervention"]
-            )
+            simulator.run(record["scenario"], record["intervention"])
         self.assertIn("unique", str(caught.exception))
         errors = fr.check_family(record, "x")
         self.assertTrue(

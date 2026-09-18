@@ -97,14 +97,12 @@ class SimulatorRules(unittest.TestCase):
         # run as a clean `continue` — a no-op wearing a disturbance's name —
         # so the simulator now refuses an onset beyond the last simulated
         # tick outright.
+        test_scenario = scenario()
+        test_disturbance = disturbance(
+            "event_jitter", channels=["c0"], onset_ms=1000.0, duration_ms=5.0, jitter_ms=3.0,
+        )
         with self.assertRaises(oc.ContractError) as caught:
-            self.sim.run(
-                scenario(),
-                disturbance(
-                    "event_jitter", channels=["c0"], onset_ms=1000.0,
-                    duration_ms=5.0, jitter_ms=3.0,
-                ),
-            )
+            self.sim.run(test_scenario, test_disturbance)
         self.assertIn("never occur", str(caught.exception))
 
     def test_thermal_ladder_walks_warn_limit_shutdown(self):
@@ -152,19 +150,19 @@ class SimulatorRules(unittest.TestCase):
     def test_a_disturbance_missing_a_parameter_is_refused(self):
         # It used to default to zero and run as a no-op that still looked like
         # a disturbance in the record.
+        test_scenario = scenario()
+        test_disturbance = disturbance("sensor_loss", channels=["c0"])
         with self.assertRaises(oc.ContractError) as caught:
-            self.sim.run(scenario(), disturbance("sensor_loss", channels=["c0"]))
+            self.sim.run(test_scenario, test_disturbance)
         self.assertIn("no-op", str(caught.exception))
 
     def test_a_parameter_the_simulator_does_not_read_is_refused(self):
+        test_scenario = scenario()
+        test_disturbance = disturbance(
+            "stale_sensor", channels=["c0"], onset_ms=2.0, duration_ms=9.0, stale_age_ms=22.0,
+        )
         with self.assertRaises(oc.ContractError) as caught:
-            self.sim.run(
-                scenario(),
-                disturbance(
-                    "stale_sensor", channels=["c0"], onset_ms=2.0, duration_ms=9.0,
-                    stale_age_ms=22.0,
-                ),
-            )
+            self.sim.run(test_scenario, test_disturbance)
         self.assertIn("stale_age_ms", str(caught.exception))
 
     def test_every_disturbance_kind_has_a_parameter_spec(self):
@@ -284,8 +282,10 @@ class SimulatorRules(unittest.TestCase):
         self.assertNotEqual(result.outcome, "continue")
 
     def test_unknown_disturbance_is_refused(self):
+        test_scenario = scenario()
+        test_disturbance = disturbance("gremlins")
         with self.assertRaises(oc.ContractError):
-            self.sim.run(scenario(), disturbance("gremlins"))
+            self.sim.run(test_scenario, test_disturbance)
 
     def test_latency_is_measured_from_the_onset_not_the_run_start(self):
         # Two identical faults at different onsets must carry identical

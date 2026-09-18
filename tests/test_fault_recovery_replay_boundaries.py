@@ -9,11 +9,11 @@ from test_fault_recovery import disturbance, fr, oc, scenario
 class ReplayBoundaries(unittest.TestCase):
     def test_hard_deadline_must_follow_soft_deadline(self):
         for hard in (5.0, 10.0):
+            simulator = fr.RelayReflexSimulator()
+            test_scenario = scenario(deadline_ms=10.0, hard_deadline_ms=hard)
+            test_disturbance = disturbance("delayed_result", delay_ms=7.0)
             with self.subTest(hard=hard), self.assertRaisesRegex(oc.ContractError, "deadline"):
-                fr.RelayReflexSimulator().run(
-                    scenario(deadline_ms=10.0, hard_deadline_ms=hard),
-                    disturbance("delayed_result", delay_ms=7.0),
-                )
+                simulator.run(test_scenario, test_disturbance)
 
     def test_zero_quarantine_threshold_requires_positive_corruption(self):
         result = fr.RelayReflexSimulator().run(

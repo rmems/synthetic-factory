@@ -165,8 +165,9 @@ class MeterBoundary(unittest.TestCase):
         self.assertIn("latency_ms", quantities)
 
     def test_process_meter_rejects_zero_repeats(self):
+        meter = ep.ProcessResourceMeter()
         with self.assertRaises(oc.ContractError):
-            ep.ProcessResourceMeter().measure(lambda: None, repeats=0, warmup=0)
+            meter.measure(lambda: None, repeats=0, warmup=0)
 
     def test_rapl_meter_rejects_zero_repeats(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -466,8 +467,9 @@ class DeterministicMeterPaths(unittest.TestCase):
             def available(self):
                 return False, "counter not readable"
 
+        meter = DeadMeter()
         with self.assertRaises(oc.OracleUnavailable):
-            ep.build_records(7, 1, meter=DeadMeter())
+            ep.build_records(7, 1, meter=meter)
 
 
 class FamilyChecks(unittest.TestCase):

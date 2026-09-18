@@ -236,8 +236,9 @@ class RealTeacherIsAbsentNotFaked(unittest.TestCase):
         self.assertRegex(detail, r"Error|No module|error")
 
     def test_fingerprint_is_refused_before_the_model_loads(self):
+        router = mr.TransformersMoERouter("some/moe-model")
         with self.assertRaises(oc.OracleUnavailable):
-            mr.TransformersMoERouter("some/moe-model").fingerprint()
+            router.fingerprint()
 
     def test_build_records_refuses_an_unavailable_oracle(self):
         class DeadOracle(mr.RouterOracle):
@@ -246,8 +247,9 @@ class RealTeacherIsAbsentNotFaked(unittest.TestCase):
             def available(self):
                 return False, "not here"
 
+        oracle = DeadOracle()
         with self.assertRaises(oc.OracleUnavailable):
-            mr.build_records(1, 1, oracle=DeadOracle())
+            mr.build_records(1, 1, oracle=oracle)
 
     def test_oracles_report_lists_the_teacher_and_the_stand_in(self):
         report = mr.oracles_report()

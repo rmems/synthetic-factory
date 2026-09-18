@@ -134,8 +134,9 @@ class Splitting(unittest.TestCase):
         )
 
     def test_out_of_range_holdout_is_refused(self):
+        samples = separable_samples()
         with self.assertRaises(rb.BaselineError):
-            rb.split(separable_samples(), holdout_pct=0)
+            rb.split(samples, holdout_pct=0)
 
     def test_standardization_is_fitted_on_train_only(self):
         train, test = rb.split(separable_samples())
@@ -225,8 +226,9 @@ class Baselines(unittest.TestCase):
         self.assertEqual(first["baselines"], second["baselines"])
 
     def test_a_tiny_dataset_is_refused(self):
+        samples = separable_samples(count=4)
         with self.assertRaises(rb.BaselineError):
-            rb.evaluate_baselines(separable_samples(count=4), **FAST)
+            rb.evaluate_baselines(samples, **FAST)
 
     def test_a_constant_target_is_refused(self):
         samples = [
