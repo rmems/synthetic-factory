@@ -70,17 +70,20 @@ def _is_canonical_sha256(value):
 def _reference_latency_claim_errors(deployment, target, where):
     """A non-physical target must not report measured hardware latency."""
     latency = deployment.get("latency")
-    if target == TARGET_FIXED_POINT_MODEL and (
-        not isinstance(latency, dict)
-        or latency.get("measured") is not False
-        or latency.get("value_ms") is not None
-        or latency.get("reason_code") != "LATENCY_NOT_MEASURED_REFERENCE_MODEL"
-    ):
+    if target == TARGET_FIXED_POINT_MODEL and _reference_latency_is_invalid(latency):
         return [
             f"{where}: the fixed-point reference model cannot report measured "
             "hardware latency [LATENCY_NOT_MEASURED]"
         ]
     return []
+
+
+def _reference_latency_is_invalid(latency):
+    if not isinstance(latency, dict):
+        return True
+    if latency.get("measured") is not False or latency.get("value_ms") is not None:
+        return True
+    return latency.get("reason_code") != "LATENCY_NOT_MEASURED_REFERENCE_MODEL"
 
 
 def _physical_adapter_identity_errors(deployment, target, where):
@@ -117,6 +120,14 @@ def _physical_provenance_field_errors(deployment, target, where):
                 f"{where}: {target} claim needs oracle.deployment.{section}.{key} "
                 "[HW_PROVENANCE_MISSING]"
             )
+    errors += _bitstream_digest_errors(deployment, target, where)
+    errors += _measured_latency_errors(deployment, target, where)
+    errors += _repeat_count_errors(deployment, target, where)
+    return errors
+
+
+def _bitstream_digest_errors(deployment, target, where):
+    errors = []
     bitstream = deployment.get("bitstream")
     bitstream_sha256 = bitstream.get("sha256") if isinstance(bitstream, dict) else None
     if bitstream_sha256 and not _is_canonical_sha256(bitstream_sha256):
@@ -125,26 +136,46 @@ def _physical_provenance_field_errors(deployment, target, where):
             "oracle.deployment.bitstream.sha256 in sha256:<64hex> form "
             "[HW_PROVENANCE_MISSING]"
         )
+    return errors
+
+
+def _measured_latency_errors(deployment, target, where):
+    errors = []
     latency = deployment.get("latency") or {}
     value_ms = latency.get("value_ms")
-    if (
-        latency.get("measured") is not True
-        or not isinstance(value_ms, (int, float))
-        or isinstance(value_ms, bool)
-        or not math.isfinite(value_ms)
-        or value_ms < 0
-    ):
+    if _measured_latency_is_invalid(latency, value_ms):
         errors.append(
             f"{where}: {target} claim needs a measured latency in ms "
             "[HW_PROVENANCE_MISSING]"
         )
+    return errors
+
+
+def _measured_latency_is_invalid(latency, value_ms):
+    if latency.get("measured") is not True:
+        return True
+    if not isinstance(value_ms, (int, float)) or isinstance(value_ms, bool):
+        return True
+    if not math.isfinite(value_ms):
+        return True
+    return value_ms < 0
+
+
+def _repeat_count_errors(deployment, target, where):
+    errors = []
     repeats = deployment.get("repeats")
-    if not isinstance(repeats, int) or isinstance(repeats, bool) or repeats < 2:
+    if _repeat_count_is_invalid(repeats):
         errors.append(
             f"{where}: {target} claim needs at least 2 repeated runs to say anything "
             "about determinism [REPEATABILITY_UNPROVEN]"
         )
     return errors
+
+
+def _repeat_count_is_invalid(repeats):
+    if not isinstance(repeats, int) or isinstance(repeats, bool):
+        return True
+    return repeats < 2
 
 
 def _check_physical_claim(record, where):

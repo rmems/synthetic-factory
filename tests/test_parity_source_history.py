@@ -53,6 +53,13 @@ CURRENT_CATALOG_SOURCE_STAMPS = (
      '449fa8bc214dba2d1cc5e6a5eec74d7f591ff44d85e65c232f0d809dad416445'),
 )
 
+DEPLOYMENT_SOURCE_STAMPS = (
+    ('sha256:9ea2564618adbb3b497667b65505151bbd0de8850002394ca43a3623c62e87f1',
+     '6b5543e1c0c795752cfe09633281d698c2375329cde6f4f19988a298739d4cf5'),
+    ('sha256:04c48e47779b12d044d9eafec8efc6eec2855bc91c8b1b70a3e2e47aec957b8c',
+     '96c5c2de5c4dada6b7c63d80645946aede51c9ff6563fd23df99874fb33af810'),
+)
+
 
 class HistoricalSourceStamps(unittest.TestCase):
     def _records(self, slug, expected_hash):
@@ -70,12 +77,16 @@ class HistoricalSourceStamps(unittest.TestCase):
             self._check_followup_stamps(stamps)
 
     def test_reviewed_current_catalog_bytes_survive_validator_refactors(self):
-        for case, (source, checksum) in zip(CASES, CURRENT_CATALOG_SOURCE_STAMPS, strict=True):
+        self._check_current_catalog_stamps(CURRENT_CATALOG_SOURCE_STAMPS)
+        self._check_current_catalog_stamps(DEPLOYMENT_SOURCE_STAMPS)
+
+    def _check_current_catalog_stamps(self, stamps):
+        for case, (source, checksum) in zip(CASES, stamps, strict=True):
             module, slug, _ = case
             raw = (ROOT / 'tests/fixtures/parity-run' / slug / 'batch-r01.jsonl').read_bytes()
             current = json.loads(raw.split(b'\n')[0])['provenance']['generator_version']
             reviewed = raw.replace(current.encode(), source.encode())
-            # Independently pinned raw bytes from published commit 7e6eb343.
+            # Independently pinned raw bytes from the reviewed published commit.
             self.assertEqual(hashlib.sha256(reviewed).hexdigest(), checksum)
             records = [json.loads(line) for line in reviewed.split(b'\n') if line]
             self.assertEqual(module.validate_records(records), [])
