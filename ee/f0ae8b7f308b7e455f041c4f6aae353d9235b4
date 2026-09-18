@@ -1,0 +1,30 @@
+pipelines/leftover6/catalog_extract.py
+  s_5660553172852b::t_1cf184461b6958 189,217-220,223,229-238,247-254
+  s_5660553172852b::t_2513d97ecdb674 199,239-246
+  s_5660553172852b::t_c21686f251b719 188,191,204-205,222,228
+  s_5660553172852b::t_f6b8d1d34b0203 206-216,221,224-227
+pipelines/leftover6/catalog.py
+  s_5660553172852b::t_c21686f251b719 32-36,188-189,393-400
+tests/test_leftover6.py
+  s_5660553172852b::t_b36bb8c2610db6 320-340
+tests/test_leftover6_extract.py
+  s_5660553172852b::t_f4a9040c1de786 82-96
+  s_5660553172852b::t_c2cc090be3ec36 97-101
+  s_5660553172852b::t_b36bb8c2610db6 69-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "eef0ae8b7f308b7e455f041c4f6aae353d9235b4",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
