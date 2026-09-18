@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from ._contract import bind_import_twin, dumps_exact_json, is_under_raw, load_strict_json
+from ._contract import (
+    bind_import_twin, check_episode, dumps_exact_json, is_under_raw, load_strict_json,
+    normalized_key, rename_noreplace,
+)
 from . import openai_client
 from . import openrouter
 from . import source_policy as policy
@@ -65,6 +70,7 @@ def _strip_think(text: str) -> str:
 def _is_forbidden_key(key: object) -> bool:
     if not isinstance(key, str):
         return False
+    key = normalized_key(key)
     if key in FORBIDDEN_KEYS:
         return True
     return any(key.startswith(prefix) for prefix in FORBIDDEN_PREFIXES)
@@ -87,7 +93,7 @@ def strip_untrainable(value: Any) -> Any:
 
 def _contains_self_certify(value: Any) -> bool:
     if isinstance(value, dict):
-        if SELF_CERTIFY_KEYS.intersection(value):
+        if any(normalized_key(key) in SELF_CERTIFY_KEYS for key in value):
             return True
         return any(_contains_self_certify(item) for item in value.values())
     if isinstance(value, list):
@@ -134,20 +140,12 @@ def _assistant_content(response: Mapping[str, Any]) -> str:
     return content
 
 
-def _require_episode_shape(record: Mapping[str, Any]) -> None:
-    steps = record.get("steps")
-    if not isinstance(steps, list) or not steps:
-        raise GenerateError("candidate episode steps must be a non-empty list")
-    reward = record.get("reward")
-    if not isinstance(reward, dict) or not isinstance(reward.get("success"), bool):
-        raise GenerateError("candidate episode reward.success must be a boolean")
-
-
 def _require_episode(record: Mapping[str, Any]) -> None:
-    for key in ("goal", "steps", "outcome", "reward"):
-        if key not in record:
-            raise GenerateError(f"candidate episode missing {key!r}")
-    _require_episode_shape(record)
+    errors = check_episode(
+        record, "candidate episode", forbid_hidden_thought=True, enforce_terminal_outcome=True,
+    )
+    if errors:
+        raise GenerateError("; ".join(errors))
 
 
 def _task_hash(task: Mapping[str, Any]) -> str:
@@ -295,39 +293,60 @@ class RunOutput:
 
 
 def write_run(out_dir: Path, **kwargs) -> dict[str, Any]:
-    """Write accepted candidates to a brand-new destination outside outputs/raw."""
+    """Atomically publish candidates to a new destination outside outputs/raw."""
     output = RunOutput(**kwargs)
     destination = Path(out_dir)
     if is_under_raw(destination):
         raise GenerateError(f"{destination} names or aliases the raw tree")
-    if destination.exists():
+    if os.path.lexists(destination):
         raise GenerateError(f"{destination} already exists")
-    destination.mkdir(parents=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    summary = _run_summary(output)
+    with tempfile.TemporaryDirectory(prefix=f".{destination.name}-", dir=destination.parent) as tmp:
+        staged = Path(tmp)
+        _write_run_files(staged, output.records, summary)
+        _publish_run(staged, destination)
+    return summary
+
+
+def _write_run_files(directory: Path, records: list[Mapping[str, Any]], summary: dict) -> None:
     accepted = []
-    for record in output.records:
+    for record in records:
         payload = dict(record)
         payload.pop("_generation", None)
         accepted.append(payload)
-    candidates = destination / "candidates.jsonl"
+    candidates = directory / "candidates.jsonl"
     with candidates.open("w", encoding="utf-8") as handle:
         for record in accepted:
             handle.write(dumps_exact_json(record) + "\n")
-    summary = {
+    (directory / "RUN.json").write_text(
+        json.dumps(summary, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _publish_run(staged: Path, destination: Path) -> None:
+    parent = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        rename_noreplace(parent, staged.name, destination.name)
+    except FileExistsError as exc:
+        raise GenerateError(f"{destination} already exists") from exc
+    finally:
+        os.close(parent)
+
+
+def _run_summary(output: RunOutput) -> dict[str, Any]:
+    return {
         "format": "model-channel-run/1",
         "path_id": output.path_id,
         "produced_at": output.produced_at,
         "attempted": output.attempted,
-        "accepted": len(accepted),
+        "accepted": len(output.records),
         "rejected": len(output.rejected),
         "rejected_reasons": output.rejected,
         "candidate_only": True,
         "self_certified_oracle": False,
     }
-    (destination / "RUN.json").write_text(
-        json.dumps(summary, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    return summary
 
 
 bind_import_twin(__name__)

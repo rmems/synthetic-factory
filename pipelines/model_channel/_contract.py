@@ -12,23 +12,30 @@ from types import MappingProxyType
 from typing import Any
 
 if __name__.startswith("pipelines."):
+    from ..compose_destination_rename import rename_noreplace
     from ..exact_json import ExactJSONFloat, dumps_exact_json
     from ..oracle_grounded.import_twins import bind_import_twin
     from ..raw_tree_guard import is_under_raw
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
+    from ..validate_run_episode import _normalized_hidden_key as normalized_key, check_episode
 else:
+    from compose_destination_rename import rename_noreplace
     from exact_json import ExactJSONFloat, dumps_exact_json
     from oracle_grounded.import_twins import bind_import_twin
     from raw_tree_guard import is_under_raw
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
+    from validate_run_episode import _normalized_hidden_key as normalized_key, check_episode
 
 __all__ = [
     "ExactJSONFloat",
     "bind_import_twin",
+    "check_episode",
     "dumps_exact_json",
     "freeze",
     "is_under_raw",
     "load_strict_json",
+    "normalized_key",
+    "rename_noreplace",
 ]
 
 

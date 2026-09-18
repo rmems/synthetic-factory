@@ -237,23 +237,6 @@
       ]
     },
     {
-      "id": "OPEN_WEIGHT_LOCAL_OLLAMA",
-      "providers": [
-        "nvidia",
-        "meta",
-        "ibm"
-      ],
-      "channels": [
-        "local_ollama"
-      ],
-      "rights_profile_id": "open-weight-local-candidate-v1",
-      "intended_use": "training_candidate",
-      "project_training_policy": "allowed",
-      "reason_codes": [
-        "OPEN_WEIGHT_LOCAL_CANDIDATE"
-      ]
-    },
-    {
       "id": "OPENROUTER_DISTILLABLE_API",
       "providers": [
         "nvidia",

@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ._contract import bind_import_twin, dumps_exact_json
+from ._contract import bind_import_twin, dumps_exact_json, load_strict_json
 from . import generate
 from . import openai_client
 from . import openrouter
@@ -61,11 +61,18 @@ def _print(payload: Any, as_json: bool) -> None:
     sys.stdout.write(str(payload) + "\n")
 
 
+def _input_object(path: Path) -> dict:
+    payload = load_strict_json(path.read_bytes())
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
+
+
 def _run_generate(args: argparse.Namespace) -> int:
-    task = json.loads(args.task.read_text(encoding="utf-8"))
+    task = _input_object(args.task)
     runtime = None
     if args.runtime_json is not None:
-        runtime = json.loads(args.runtime_json.read_text(encoding="utf-8"))
+        runtime = _input_object(args.runtime_json)
     attempted = 1
     rejected: list[str] = []
     accepted: list[dict[str, Any]] = []
