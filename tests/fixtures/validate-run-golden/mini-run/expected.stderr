@@ -1,0 +1,8 @@
+ERROR: failure-as-fuel-preference-cascade/preferences.jsonl:1.chosen: missing required key 'meta'
+ERROR: failure-as-fuel-preference-cascade/preferences.jsonl:1.chosen: state.sim_or_real must not be 'real' (use 'designed')
+ERROR: failure-as-fuel-preference-cascade/preferences.jsonl:1.rejected: missing required key 'meta'
+ERROR: failure-as-fuel-preference-cascade/preferences.jsonl:2: JSON parse error: Expecting value: line 1 column 1 (char 0)
+ERROR: thalamic-trajectory-factory/trajectories.jsonl:1: missing required key 'meta'
+ERROR: thalamic-trajectory-factory/trajectories.jsonl:1: state.sim_or_real must not be 'real' (use 'designed')
+ERROR: thalamic-trajectory-factory/trajectories.jsonl:3: missing required key 'meta'
+ERROR: thalamic-trajectory-factory/trajectories.jsonl:3: state.sim_or_real must be one of ['designed', 'hil', 'simulated']
