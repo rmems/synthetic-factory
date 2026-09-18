@@ -1,0 +1,42 @@
+tests/test_parity_policy_views.py
+  s_5660553172852b::t_cefb854e53e4cb 10,36-58
+  s_5660553172852b::t_37c7197f55962d 1-9,11-35
+pipelines/oracle_grounded/parity_views.py
+  s_5660553172852b::t_08d9a5e10d6df7 12-13,38,99,164
+  s_5660553172852b::t_ee75f568c755d2 63-66,88,174-175,181
+pipelines/oracle_grounded/parity_view_sets.py
+  s_5660553172852b::t_402f16d1bdb987 49-50,60-61,71-72,125-126,158-160
+  s_5660553172852b::t_ee75f568c755d2 94-95,101-104,118-120,143-157
+tests/parity_contract_support.py
+  s_5660553172852b::t_ee75f568c755d2 16,25,37,58
+pipelines/hardware_parity_validate_availability.py
+  s_5660553172852b::t_237ec4ffd8ebc6 56-66,69,72-73,75-78,92-96,108,116-123,143-153,186-194,196-197,199-209,213-215,223-224,231-241,250-254,262-265,277
+tests/test_parity_destination.py
+  s_5660553172852b::t_3b46fce1eb0c9c 7,12,58-69
+pipelines/hardware_parity_record.py
+  s_5660553172852b::t_08d9a5e10d6df7 363-364
+pipelines/oracle_grounded/parity_destination.py
+  s_5660553172852b::t_d1cd668aec2e61 14-18,22,32-33,36-40
+pipelines/neuro_oracle_capture.py
+  s_5660553172852b::t_a861da21bf6f1f 153-154,181-198,371,373,385-390
+  s_5660553172852b::t_df0d08e5232e6a 88-98,279-281,283-286,377-378
+  s_5660553172852b::t_b5714b8ab223ec 171,178-180,229-230,232-233,235-238,240,273-278,282,287-289,301,322,335,344,347-364,366
+tests/test_parity_factory_integration.py
+  s_5660553172852b::t_d1cd668aec2e61 119-120,123,125,270-271,273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0bbeb5e6436f4e30208e5067ee17c5ad676c6003",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
