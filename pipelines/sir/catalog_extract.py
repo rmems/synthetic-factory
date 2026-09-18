@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """AST-extract sir mill catalog identity from a mill source.
 
-Evaluates only literal catalog assignments (``FACTORY``, ``GEN``,
+Unpinned input requires literal catalog assignments (``FACTORY``, ``GEN``,
 ``CATALOG_FIRST``, ``N_ROUNDS``, ``HOP``, ``PAIRS``). Records a
 ``SourceFileLoader`` sibling path when that filename is a string literal.
+Exact pinned archives use AST text projection, not runtime-equivalence claims.
 Does not import, compile, or exec leftover / loop publishers, so those
 scripts stay off this branch.
 """
@@ -60,7 +61,8 @@ def extract_mill_catalog(
     payload = source.encode()
     tree = ast.parse(source, filename=path)
     mill_id = mill_id_for_path(path)
-    constants = module_constants(tree)
+    mill_kind_for_id(mill_id)
+    constants = module_constants(source, path=path)
     factory = _required_string(constants.get("FACTORY", FACTORY), f"{path} FACTORY")
     generator = _required_string(constants.get("GEN", GENERATOR), f"{path} GEN")
     catalog_first = _catalog_first(constants, path)

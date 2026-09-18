@@ -7,6 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
+import hashlib
 from typing import Any
 
 if __name__.startswith("pipelines."):
@@ -15,30 +16,52 @@ else:
     from oracle_grounded.import_twins import bind_import_twin
 
 from . import catalog_literals as _literals
+from .sources import MILL_SOURCES
 
 UNSET = _literals.UNSET
 literal_value = _literals.literal_value
-_DYNAMIC_NAMESPACES = frozenset({"globals", "locals", "vars", "exec", "eval", "modules"})
-_DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+module_docstring = _literals.module_docstring
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
-_STRING_BINDINGS = {ast.MatchAs: "name", ast.MatchStar: "name",
-                    ast.MatchMapping: "rest", ast.ExceptHandler: "name"}
+
+_FUTURE_ANNOTATIONS = ast.dump(ast.parse("from __future__ import annotations").body[0])
+_ANNOTATION_NAMES = frozenset({"str", "int", "float", "bool", "list", "dict", "tuple", "set"})
 
 
-def module_constants(tree: ast.AST) -> dict[str, Any]:
-    """Resolve assignments in order, retaining ``UNSET`` for unknown bindings."""
+def module_constants(source: str, *, path: str) -> dict[str, Any]:
+    """Strict literal input or exact pinned archive text projection; never execute."""
 
+    tree = ast.parse(source, filename=path)
+    digest = hashlib.sha256(source.encode()).hexdigest()
+    archive = any(pin.path == path and pin.sha256 == digest for pin in MILL_SOURCES)
     env: dict[str, Any] = {}
     for node in _catalog_statements(getattr(tree, "body", ())):
-        name, value = assignment_of(node)
-        _require_import_name(name)
-        if name is None:
-            _invalidate_names(env, assignment_names(node))
-            if isinstance(node, _DEFINITIONS):
-                env[node.name] = node
-        elif value is not None:
-            env[name] = _assignment_value(value, env)
+        if archive:
+            _bind_statement(env, node)
+        else:
+            _bind_literal_statement(env, node)
     return env
+
+
+def _bind_literal_statement(env, node):
+    """Prove unpinned module-time behavior before preserving any literal binding."""
+    require_literal_statement(node, env)
+    _bind_statement(env, node)
+
+
+def _bind_statement(env, node):
+    """Project ordered bindings; unknown RHS stays UNSET, never restores builtins."""
+    name, value = assignment_of(node)
+    _require_import_name(name)
+    if name is None:
+        _bind_definition(env, node)
+    elif value is not None:
+        env[name] = value if isinstance(value, ast.Lambda) else literal_value(value, env)
+
+
+def _bind_definition(env, node):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        _require_import_name(node.name)
+        env[node.name] = node
 
 
 def _catalog_statements(statements):
@@ -50,35 +73,9 @@ def _catalog_statements(statements):
             yield node
 
 
-def _assignment_value(value: ast.AST, env: dict[str, Any]) -> Any:
-    resolved = literal_value(value, env)
-    if resolved is UNSET:
-        _invalidate_names(env, _statement_names(value))
-    return value if isinstance(value, ast.Lambda) else resolved
-
-
-def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
-    for name in names:
-        _require_import_name(name)
-    if _DYNAMIC_NAMESPACES.intersection(names):
-        raise ValueError("dynamic module namespace access is not a literal catalog")
-    if "*" in names or any(_unproven_reference(env.get(name, UNSET)) for name in names):
-        # Containers can share mutable values or reference deferred local code.
-        # Refuse the environment rather than interpreting mutation or call flow.
-        names = list(set(env).union(names))
-    for name in names:
-        env[name] = UNSET
-
-
 def _require_import_name(name: str | None) -> None:
-    if name == "__name__":
-        raise ValueError("module name access outside the script guard is not a literal catalog")
-
-
-def _unproven_reference(value: Any) -> bool:
-    if isinstance(value, (list, dict, set, ast.Lambda, *_DEFINITIONS)):
-        return True
-    return isinstance(value, tuple) and any(_unproven_reference(item) for item in value)
+    if name in {"__name__", "__builtins__"}:
+        raise ValueError(f"reserved module binding {name} is not a literal catalog")
 
 
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
@@ -90,44 +87,12 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
-def assignment_names(node: ast.stmt) -> list[str]:
-    """Invalidate unsupported writes or uses without evaluating their control flow."""
-    targets = _assignment_targets(node) or [node]
-    return [name for target in targets for name in _statement_names(target)]
-
-
-def _statement_names(node: ast.AST) -> list[str]:
-    scoped = _scope_names(node)
-    if scoped is not None:
-        return scoped
-    return _binding_names(node) + _child_statement_names(node)
-
-
-def _binding_names(node):
-    if isinstance(node, ast.Name):
-        return [node.id]
-    if isinstance(node, ast.alias):
-        return _alias_names(node)
-    if isinstance(node, ast.Attribute) and node.attr in _DYNAMIC_NAMESPACES:
-        return [node.attr]
-    binding = _STRING_BINDINGS.get(type(node))
-    return list(filter(None, [getattr(node, binding)])) if binding else []
-
-
-def _alias_names(node: ast.alias) -> list[str]:
-    original = node.name.partition(".")[0]
-    names = [node.asname or original]
-    if original in _DYNAMIC_NAMESPACES:
-        names.append(original)
-    return names
-
-
-def _scope_names(node: ast.AST) -> list[str] | None:
-    children = _evaluated_scope_nodes(node)
-    if children is None:
-        return None
-    names = [node.name] if isinstance(node, _DEFINITIONS) else []
-    return names + [name for child in children for name in _statement_names(child)]
+def _assignment_targets(node: ast.stmt) -> list[ast.expr]:
+    if isinstance(node, ast.AnnAssign):
+        return [node.target]
+    if isinstance(node, ast.Assign):
+        return node.targets
+    return []
 
 
 def _evaluated_scope_nodes(node: ast.AST) -> list[ast.AST] | None:
@@ -154,22 +119,69 @@ def module_evaluation_nodes(node: ast.AST):
         yield from module_evaluation_nodes(child)
 
 
-def _child_statement_names(node: ast.AST) -> list[str]:
-    return [name for child in ast.iter_child_nodes(node) for name in _statement_names(child)]
+def require_literal_statement(node, env):
+    """Unpinned source permits literals and inert code definitions, never effects."""
+    if isinstance(node, (ast.Assign, ast.AnnAssign)):
+        _require_assignment(node, env)
+    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        _require_deferred_definition(node, env)
+    elif not _inert_statement(node):
+        raise ValueError("unsupported module-time statement in literal catalog")
 
 
-def _assignment_targets(node: ast.stmt) -> list[ast.expr]:
+def _inert_statement(node):
+    if isinstance(node, ast.Pass):
+        return True
+    if isinstance(node, ast.Expr):
+        return isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+    return ast.dump(node) == _FUTURE_ANNOTATIONS
+
+
+def _require_assignment(node, env):
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+        raise ValueError("literal catalog assignments require a single named target")
     if isinstance(node, ast.AnnAssign):
-        return [node.target]
-    if isinstance(node, ast.Assign):
-        return node.targets
-    return []
+        _require_annotation(node.annotation, env)
+    if node.value is not None:
+        _require_pure_value(node.value, env)
 
 
-def module_docstring(tree: ast.AST) -> str:
-    if not isinstance(tree, ast.Module):
-        return ""
-    return ast.get_docstring(tree, clean=False) or ""
+def _require_pure_value(node, env):
+    if isinstance(node, ast.Lambda):
+        _require_arguments(node.args, env)
+    elif literal_value(node, env) is UNSET:
+        raise ValueError("unproven module-time expression in literal catalog")
+
+
+def _require_deferred_definition(node, env):
+    if node.decorator_list or getattr(node, "type_params", ()):
+        raise ValueError("definition-time decorators or type parameters are not literal")
+    _require_arguments(node.args, env)
+    _require_annotation(node.returns, env)
+
+
+def _require_arguments(arguments, env):
+    for default in filter(None, [*arguments.defaults, *arguments.kw_defaults]):
+        _require_pure_value(default, env)
+    args = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs,
+            arguments.vararg, arguments.kwarg]
+    for arg in filter(None, args):
+        _require_annotation(arg.annotation, env)
+
+
+def _require_annotation(node, env):
+    if node is None or isinstance(node, ast.Constant):
+        return
+    if _unshadowed_annotation(node, env):
+        return
+    raise ValueError("unproven definition-time annotation in literal catalog")
+
+
+def _unshadowed_annotation(node, env):
+    if not isinstance(node, ast.Name):
+        return False
+    return node.id in _ANNOTATION_NAMES and node.id not in env
 
 
 bind_import_twin(__name__)

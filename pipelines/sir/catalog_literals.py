@@ -65,4 +65,9 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
     return out
 
 
+def module_docstring(tree: ast.AST) -> str:
+    if not isinstance(tree, ast.Module):
+        return ""
+    return ast.get_docstring(tree, clean=False) or ""
+
 bind_import_twin(__name__)

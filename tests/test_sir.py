@@ -209,14 +209,10 @@ class SirSkeletonTests(unittest.TestCase):
             "search-index-rebuild mill leftover leftover leftover r72+.",
         )
 
-    def test_extractor_records_sourcefileloader_sibling_without_loading(self):
-        extracted = extract_mill_catalog(
-            _CHAIN_SNIPPET, path="experiments/sir-mill-leftover3-r72.py"
-        )
-        self.assertEqual(extracted["loads_sibling"], "experiments/sir-mill-r31.py")
-        self.assertEqual(extracted["n_rows"], 1)
-        self.assertEqual(extracted["factory"], cv.FACTORY)
-        self.assertEqual(extracted["kind"], cv.KIND_LEFTOVER_PAIRS)
+    def test_unpinned_loader_source_is_refused_without_loading(self):
+        # Sibling syntax is projected only from exact pinned archive source.
+        with self.assertRaises(ValueError):
+            extract_mill_catalog(_CHAIN_SNIPPET, path="experiments/sir-mill-leftover3-r72.py")
 
     def test_extractor_refuses_non_literal_pairs(self):
         source = (
@@ -393,6 +389,16 @@ class SirSkeletonTests(unittest.TestCase):
 
 
 class SirLegacyExtractTests(unittest.TestCase):
+    def test_changed_archive_bytes_lose_text_projection_exception(self):
+        if not _legacy_available():
+            self.skipTest("sir preserve commit is not available")
+        for source in catalog_sources():
+            text = _git_text("show", f"{cv.PRESERVE_COMMIT}:{source.path}")
+            for appendix in ('\nunknown_effect()\n', '\n# changed source\n'):
+                with self.subTest(path=source.path, appendix=appendix), self.assertRaises(ValueError):
+                    extract_mill_catalog(text + appendix, path=source.path,
+                                         blob_sha=source.blob_sha)
+
     def test_committed_catalog_matches_live_ast_extract(self):
         if not _legacy_available():
             self.skipTest("sir preserve commit is not available")

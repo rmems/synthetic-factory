@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pipelines.sir.catalog import load_catalog
 from pipelines.sir.catalog_extract import (
+    _literal_sibling_path,
     catalog_json_path,
     extract_mill_catalog,
     pairs_jsonl_path,
@@ -82,6 +83,20 @@ def _assert_literal_module_identity(test, catalog_ast):
 
 
 class SirReviewRegressions(unittest.TestCase):
+    def test_unknown_module_effects_cannot_preserve_literal_rows(self):
+        effects = ('import sys\nsys._getframe().f_globals["PAIRS"] = []',
+                   'import inspect\ninspect.currentframe().f_globals["PAIRS"] = []',
+                   'import builtins\nexecute = getattr(builtins, "exec")\nexecute("PAIRS=[]")',
+                   'unrelated()', 'result = unrelated()', 'import extension',
+                   'from extension import *', 'if unknown:\n    unrelated()',
+                   'def unused(value=unrelated()):\n    pass',
+                   'unused = lambda value=unrelated(): None')
+        for effect in effects:
+            with self.subTest(effect=effect), self.assertRaises(ValueError):
+                _extract(effect)
+        deferred = 'def unused():\n    unrelated()\ncallback = lambda: unrelated()'
+        self.assertEqual(_extract(deferred)['n_rows'], 1)
+
     def test_catalog_class_identity_survives_both_import_orders(self):
         for package_first in (True, False):
             with (
@@ -149,15 +164,15 @@ class SirReviewRegressions(unittest.TestCase):
             'def unused():\n    SourceFileLoader("fake", "fake.py")',
             'unused = lambda: SourceFileLoader("fake", "fake.py")',
             'if __name__ == "__main__":\n    SourceFileLoader("fake", "fake.py")',
-            'class Publisher:\n    def unused(self):\n        SourceFileLoader("fake", "fake.py")',
         )
         for source in deferred:
             with self.subTest(source=source):
                 self.assertEqual(_extract(source)["loads_sibling"], "")
                 actual = source + '\nSourceFileLoader("real", "real.py")'
-                self.assertEqual(_extract(actual)["loads_sibling"], "experiments/real.py")
+                with self.assertRaises(ValueError):
+                    _extract(actual)
 
-    def test_definition_time_loader_calls_retain_sibling_lineage(self):
+    def test_unpinned_definition_time_loader_calls_are_refused(self):
         sources = (
             'def unused(value=SourceFileLoader("real", "real.py")):\n    pass',
             'unused = lambda value=SourceFileLoader("real", "real.py"): None',
@@ -166,7 +181,9 @@ class SirReviewRegressions(unittest.TestCase):
         )
         for source in sources:
             with self.subTest(source=source):
-                self.assertEqual(_extract(source)["loads_sibling"], "experiments/real.py")
+                with self.assertRaises(ValueError):
+                    _extract(source)
+                self.assertEqual(_literal_sibling_path(ast.parse(source)), "experiments/real.py")
 
     def test_destructuring_invalidates_every_bound_catalog_name(self):
         targets = ("{field}, extra", "[extra, [{field}]]", "extra, *{field}")
@@ -231,7 +248,7 @@ class SirReviewRegressions(unittest.TestCase):
             _extract("removed = PAIRS.pop()")
 
     def test_deferred_bodies_and_immutable_aliases_preserve_catalog_literals(self):
-        source = "alias = FACTORY\nprint(alias)\ncallback = lambda: PAIRS.clear()\n"
+        source = "alias = FACTORY\ncallback = lambda: PAIRS.clear()\n"
         self.assertEqual(_extract(source)["n_rows"], 1)
 
     def test_boolean_round_metadata_is_not_an_integer(self):
@@ -399,4 +416,16 @@ class SirReviewRegressions(unittest.TestCase):
         )
         for expression, expected in cases:
             with self.subTest(expression=expression):
-                self.assertEqual(_extract("loader = " + expression)["loads_sibling"], expected)
+                self.assertEqual(_literal_sibling_path(ast.parse("loader = " + expression)), expected)
+                with self.assertRaises(ValueError):
+                    _extract("loader = " + expression)
+
+    def test_builtin_namespace_rebinding_is_not_a_literal_module(self):
+        rebindings = ('__builtins__ = {}', '__builtins__: dict = {}',
+                      'namespace = {}\n__builtins__ = namespace',
+                      'def __builtins__():\n    pass',
+                      'async def __builtins__():\n    pass')
+        for rebinding in rebindings:
+            with self.subTest(rebinding=rebinding), self.assertRaises(ValueError):
+                _extract(rebinding)
+        self.assertEqual(_extract('def unused():\n    __builtins__ = {}')['n_rows'], 1)
