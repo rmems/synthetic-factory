@@ -13,6 +13,7 @@ from .import_twins import bind_import_twin
 from .parity_blocks import (
     check_candidate_prediction,
     check_generator,
+    check_generator_fields,
     check_provenance,
     check_result,
     check_validation_block,
@@ -117,6 +118,8 @@ def check_envelope(record, where, oracle_digests=None):
     errors += check_generator(record.get("generator"), where)
     errors += _check_envelope_scenario(record, where)
     errors += check_candidate_prediction(record.get("candidate_prediction"), where)
+    for section in ("scenario", "intervention", "generator"):
+        errors += check_generator_fields(record.get(section), f"{where}.{section}")
     errors += _oracle_block_errors(record, where)
     errors += check_result(record.get("result"), where, oracle_digests)
     errors += check_provenance(record.get("provenance"), where)

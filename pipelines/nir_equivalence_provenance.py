@@ -48,6 +48,7 @@ _FAMILY = (
     "nir_equivalence_graph.py",
     "nir_equivalence_interpreter.py",
     "nir_equivalence_kernels.py",
+    "nir_equivalence_observation.py",
     "nir_equivalence_provenance.py",
     "nir_equivalence_record.py",
     "nir_equivalence_runtimes.py",

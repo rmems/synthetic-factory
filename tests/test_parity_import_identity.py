@@ -30,7 +30,7 @@ class OneObjectAcrossImportForms(unittest.TestCase):
             return pool.submit(parity_import_probe.run_form, form).result(timeout=180)
 
     def test_the_probe_covers_every_flat_sibling(self):
-        self.assertEqual(len(parity_import_probe.FLAT_SIBLINGS), 50)
+        self.assertEqual(len(parity_import_probe.FLAT_SIBLINGS), 51)
         for facade in parity_import_probe.FACADES:
             self.assertIn(facade, parity_import_probe.FLAT_SIBLINGS)
 

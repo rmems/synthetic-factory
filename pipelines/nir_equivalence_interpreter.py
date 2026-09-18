@@ -15,6 +15,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("nir_equivalence_interpreter")
+    from .nir_equivalence_observation import OutputObservation, final_membrane
     from .nir_equivalence_kernels import (  # noqa: E402
         _integrate_membrane,
         _step_affine,
@@ -35,6 +36,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "nir_equivalence_interpreter"
     )
+    from nir_equivalence_observation import OutputObservation, final_membrane
     from nir_equivalence_kernels import (  # noqa: E402
         _integrate_membrane,
         _step_affine,
@@ -224,7 +226,7 @@ class NirReferenceRuntime:
         sizes = self._declared_sizes(graph)
         previous = {name: [0.0] * sizes[name] for name in graph["nodes"]}
 
-        trace = []
+        observation = OutputObservation(graph, output_nodes[0])
         for step in range(stimulus["steps"]):
             current = {}
             for name in order:
@@ -235,28 +237,14 @@ class NirReferenceRuntime:
                     drive = self._summed_drive(name, incoming[name], previous, current)
                 current[name] = self._node_step(name, node, drive, state, dt_s)
             previous = current
-            trace.append([round(value, 12) for value in current[output_nodes[0]]])
-
-        events = [
-            {"t_step": step, "channel": channel}
-            for step, row in enumerate(trace)
-            for channel, value in enumerate(row)
-            if value >= 1.0
-        ]
-        final_state = {
-            name: {key: [round(item, 12) for item in value] if isinstance(value, list)
-                   else value
-                   for key, value in blob.items() if key == "v"}
-            for name, blob in sorted(state.items())
-            if "v" in blob
-        }
+            observation.append(current[output_nodes[0]])
         return {
             "steps": stimulus["steps"],
             "output_node": output_nodes[0],
-            "output_trace": trace,
-            "spike_events": events,
-            "spike_count": len(events),
-            "final_membrane": final_state,
+            "output_trace": observation.trace,
+            "spike_events": observation.events,
+            "spike_count": len(observation.events),
+            "final_membrane": final_membrane(state),
             "evaluation_order": list(order),
             "recurrent_edges": sorted([source, target] for source, target in recurrent),
         }

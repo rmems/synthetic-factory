@@ -246,6 +246,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "nir_equivalence_graph",
     "nir_equivalence_interpreter",
     "nir_equivalence_kernels",
+    "nir_equivalence_observation",
     "nir_equivalence_provenance",
     "nir_equivalence_record",
     "nir_equivalence_runtimes",

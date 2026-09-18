@@ -101,13 +101,18 @@ def check_candidate_prediction(prediction, where):
             f"{where}.candidate_prediction.authoritative must be exactly false "
             f"[GENERATOR_SUBSTITUTED_FOR_ORACLE]"
         )
-    intruders = sorted(_oracle_only_intruders(prediction))
+    return errors + check_generator_fields(prediction, f"{where}.candidate_prediction")
+
+
+def check_generator_fields(value, where):
+    """Generator-owned descriptions cannot contain oracle measurements."""
+    intruders = sorted(_oracle_only_intruders(value))
     if intruders:
-        errors.append(
-            f"{where}.candidate_prediction carries oracle-only fields {intruders} "
+        return [
+            f"{where} carries oracle-only fields {intruders} "
             f"[GENERATOR_SUBSTITUTED_FOR_ORACLE]"
-        )
-    return errors
+        ]
+    return []
 
 
 def _absent_from(items, pool):

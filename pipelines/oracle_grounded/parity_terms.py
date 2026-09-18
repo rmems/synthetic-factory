@@ -45,6 +45,9 @@ PASSING_VERDICTS = frozenset({VERDICT_MATCH})
 # carries any of these is trying to author a measurement.
 ORACLE_ONLY_KEYS = frozenset(
     {
+        "oracle",
+        "result",
+        "measurement",
         "spikes",
         "spike_events",
         "membrane",
