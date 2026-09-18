@@ -40,6 +40,19 @@ class IntegrationTests(unittest.TestCase):
         self.addCleanup(self._temp.cleanup)
         self.root = Path(self._temp.name)
 
+    def test_confined_path_redacts_a_leaf_symlink_spelling(self):
+        target = self.root / "target.json"
+        target.touch()
+        secret_name = "operator-secret-symlink"
+        link = self.root / secret_name
+        link.symlink_to(target)
+
+        with self.assertRaises(curate_gate.GateError) as raised:
+            curate_gate._confined_path(str(link))
+
+        self.assertEqual(str(raised.exception), "the path is a symlink")
+        self.assertNotIn(secret_name, str(raised.exception))
+
     def test_integrate_composes_lanes_and_reports_training_ready(self):
         fixture = GateFixture(self.root)
         self.assertEqual(fixture.integrate(), 0)

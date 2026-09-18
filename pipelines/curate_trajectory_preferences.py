@@ -570,7 +570,10 @@ def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs
     """
 
     paths = confine_named(
-        parser, args, {name: name for name in Inputs._fields}
+        parser,
+        args,
+        {name: name for name in Inputs._fields},
+        destinations=frozenset({"output", "manifest"}),
     )
     return Inputs(*(paths[name] for name in Inputs._fields))
 

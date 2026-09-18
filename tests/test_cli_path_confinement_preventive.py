@@ -83,6 +83,19 @@ class TrajectoryPreferencesFunnel(_FunnelCase):
         self.assertEqual(args.command, "scan")
         self.assertEqual(args.source, Path("some-dir"))
 
+    def test_existing_curate_destinations_are_rejected_at_the_cli_boundary(self):
+        with tempfile.TemporaryDirectory() as td:
+            existing = Path(td) / "already-there.jsonl"
+            existing.touch()
+            for name in ("output", "manifest"):
+                with self.subTest(name=name):
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+                        curate_trajectory_preferences._inputs(
+                            self.parser, SimpleNamespace(**{name: existing})
+                        )
+                    self.assertIn("the destination already exists", stderr.getvalue())
+
 
 class TrajectoryPreferencesCli(_FunnelCase):
     def test_every_subcommand_refuses_before_its_sink_runs(self):
