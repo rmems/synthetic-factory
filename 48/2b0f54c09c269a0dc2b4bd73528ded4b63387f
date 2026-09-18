@@ -1,0 +1,32 @@
+pipelines/oracle_grounded/parity_jsonl.py
+  s_5660553172852b::t_75e8b7848e5513 18,21,46
+tests/test_parity_import_identity.py
+  s_5660553172852b::t_cbb6fdfe89f268 72-73
+pipelines/oracle_grounded/parity_publication.py
+  s_5660553172852b::t_75e8b7848e5513 1-38
+pipelines/round_txn.py
+  s_5660553172852b::t_e312a1ea6c2088 51,71,1704-1706
+  s_5660553172852b::t_75e8b7848e5513 52,72,1679-1684,1686-1687,1716
+tests/test_parity_publication.py
+  s_5660553172852b::t_34293c1d63d026 1-7,10-49
+  s_5660553172852b::t_bc405e2c532c47 8-9
+tests/parity_import_probe.py
+  s_5660553172852b::t_75e8b7848e5513 36-37,73,87
+  s_5660553172852b::t_cbb6fdfe89f268 99-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "482b0f54c09c269a0dc2b4bd73528ded4b63387f",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}

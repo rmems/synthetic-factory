@@ -1,0 +1,40 @@
+tests/test_parity_source_history.py
+  s_5660553172852b::t_71a3d9082b08aa 1-20,33,57-62,64-65,108-140,144-148,150,152,154-157,71,40,48,56,94,55,82
+  s_5660553172852b::t_da78ba0716c60a 21-26,85-92
+  s_5660553172852b::t_defdaae4558711 41,34-38
+  s_5660553172852b::t_6e30200b445e06 151
+  s_5660553172852b::t_936d09d6d1ad35 32,84,39,47,54
+  s_5660553172852b::t_d502b838e60f7b 42-46,63,66,68-69,93,95-107,81
+  s_5660553172852b::t_1250e864768bf5 49-53,72,74-77,79-80
+tests/test_nir_availability_evidence.py
+  s_5660553172852b::t_2931c9ef0e9fa8 1-73
+pipelines/hardware_parity_validate_observation.py
+  s_5660553172852b::t_84720e2f097ed3 65-67,105,184
+  s_5660553172852b::t_a05f9353815607 68-94,97-98,100,107-109,140-167,177-183,189,201
+pipelines/nir_equivalence_validate_runtimes.py
+  s_5660553172852b::t_218d0442189755 242,268,270
+  s_5660553172852b::t_81bc33a078ccac 47-71,260,273,277-293
+pipelines/oracle_grounded/parity_history.py
+  s_5660553172852b::t_6f86b6439d544d 1-2,7-15,24-28,35-36,38,41-42,44,59,88-109
+  s_5660553172852b::t_da78ba0716c60a 3,16,20-21,23,47-48,50,53-54,56
+  s_5660553172852b::t_defdaae4558711 19,29-34,37,39-40,43,45-46,49,51-52,55,57-58,60,62-64,66-69,71-79
+  s_5660553172852b::t_3649b94be8c644 70
+  s_5660553172852b::t_936d09d6d1ad35 81,85
+  s_5660553172852b::t_1250e864768bf5 17,84,86-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "17673e295e2b54506ce11c4099a82e9ec0d94179",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
