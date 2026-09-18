@@ -15,8 +15,9 @@ import argparse
 import ast
 import fnmatch
 import json
-import subprocess
+import os
 import sys
+import tempfile
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
@@ -94,39 +95,109 @@ def _require_git() -> None:
         raise MillScriptInventoryError("git is required for inventory scope checks")
 
 
-def _git_completed(result: subprocess.CompletedProcess[bytes], accepted: tuple[int, ...]) -> bytes:
-    if result.returncode not in accepted:
-        raise MillScriptInventoryError(result.stderr.decode(errors="replace"))
-    return result.stdout
+def _git_env(repo: Path) -> dict[str, str]:
+    root = str(Path(repo).resolve())
+    env = dict(os.environ)
+    env["GIT_WORK_TREE"] = root
+    env["GIT_DIR"] = str(Path(root) / ".git")
+    return env
+
+
+def _read_pipe(fd: int) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def _close_fds(*fds: int) -> None:
+    for fd in fds:
+        os.close(fd)
+
+
+def _git_stdio():
+    out_r, out_w = os.pipe()
+    err_r, err_w = os.pipe()
+    actions = [
+        (os.POSIX_SPAWN_DUP2, out_w, 1),
+        (os.POSIX_SPAWN_DUP2, err_w, 2),
+        (os.POSIX_SPAWN_CLOSE, out_r),
+        (os.POSIX_SPAWN_CLOSE, err_r),
+    ]
+    if out_w not in (1, 2):
+        actions.append((os.POSIX_SPAWN_CLOSE, out_w))
+    if err_w not in (1, 2):
+        actions.append((os.POSIX_SPAWN_CLOSE, err_w))
+    return out_r, out_w, err_r, err_w, actions
+
+
+def _finish_git(pid: int, out_r: int, err_r: int, accepted: tuple[int, ...]) -> bytes:
+    stderr = b""
+    try:
+        stdout = _read_pipe(out_r)
+        stderr = _read_pipe(err_r)
+    finally:
+        _close_fds(out_r, err_r)
+        _pid, status = os.waitpid(pid, 0)
+    returncode = os.waitstatus_to_exitcode(status)
+    if returncode not in accepted:
+        raise MillScriptInventoryError(stderr.decode(errors="replace"))
+    return stdout
+
+
+def _spawn_git(repo: Path, argv: Sequence[str], extra_actions=()) -> tuple[int, int, int]:
+    out_r, out_w, err_r, err_w, actions = _git_stdio()
+    actions.extend(extra_actions)
+    try:
+        pid = os.posix_spawn(
+            "/usr/bin/git",
+            ["/usr/bin/git", *argv],
+            _git_env(repo),
+            file_actions=actions,
+        )
+    except OSError as exc:
+        _close_fds(out_r, out_w, err_r, err_w)
+        raise MillScriptInventoryError(str(exc)) from exc
+    _close_fds(out_w, err_w)
+    return pid, out_r, err_r
 
 
 def _git_ls_files(repo: Path) -> bytes:
     _require_git()
-    return _git_completed(
-        subprocess.run(
-            ["/usr/bin/git", "ls-files", "-z"],
-            cwd=Path(repo).resolve(),
-            capture_output=True,
-            check=False,
-            shell=False,
-        ),
-        (0,),
-    )
+    pid, out_r, err_r = _spawn_git(repo, ("ls-files", "-z"))
+    return _finish_git(pid, out_r, err_r, (0,))
+
+
+def _payload_stdin(payload: bytes) -> tuple[int, str]:
+    fd, name = tempfile.mkstemp()
+    try:
+        os.write(fd, payload)
+        os.close(fd)
+        fd = -1
+        return os.open(name, os.O_RDONLY), name
+    except OSError:
+        if fd >= 0:
+            os.close(fd)
+        os.unlink(name)
+        raise
 
 
 def _git_check_ignore(repo: Path, payload: bytes) -> bytes:
     _require_git()
-    return _git_completed(
-        subprocess.run(
-            ["/usr/bin/git", "check-ignore", "--no-index", "-z", "-v", "--stdin"],
-            cwd=Path(repo).resolve(),
-            input=payload,
-            capture_output=True,
-            check=False,
-            shell=False,
-        ),
-        (0, 1),
-    )
+    stdin_fd, name = _payload_stdin(payload)
+    extra = [(os.POSIX_SPAWN_DUP2, stdin_fd, 0)]
+    if stdin_fd != 0:
+        extra.append((os.POSIX_SPAWN_CLOSE, stdin_fd))
+    try:
+        try:
+            pid, out_r, err_r = _spawn_git(repo, ("check-ignore", "--no-index", "-z", "-v", "--stdin"), extra)
+        finally:
+            os.close(stdin_fd)
+        return _finish_git(pid, out_r, err_r, (0, 1))
+    finally:
+        os.unlink(name)
 
 
 def _git_output(repo: Path, arguments: Sequence[str], payload: bytes | None = None) -> bytes:

@@ -72,14 +72,12 @@ class InventoryEvidenceRefusals(unittest.TestCase):
                     msi._git_output(REPO, arguments)
 
     def test_git_helper_spawns_usr_bin_git_without_a_shell(self):
-        with patch.object(msi.subprocess, "run", wraps=msi.subprocess.run) as run:
+        with patch.object(msi.os, "posix_spawn", wraps=msi.os.posix_spawn) as spawn:
             tracked = msi.tracked_paths(REPO)
         self.assertTrue(tracked)
-        kwargs = run.call_args.kwargs
-        argv = run.call_args.args[0]
+        argv = spawn.call_args.args[1]
+        self.assertEqual(spawn.call_args.args[0], "/usr/bin/git")
         self.assertEqual(tuple(argv), ("/usr/bin/git", "ls-files", "-z"))
-        self.assertFalse(kwargs.get("shell", False))
-        self.assertEqual(kwargs["cwd"], REPO.resolve())
 
     def test_non_repository_cannot_be_reported_as_clean_scope(self):
         with tempfile.TemporaryDirectory() as temp:
