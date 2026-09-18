@@ -101,8 +101,6 @@ def _local_package_sibling(name: str, *, allow_initializing: bool = False):
 _PACKAGE_SIBLING_NAMES = frozenset((
     "mill_script_inventory_schema",
     "mill_script_inventory_families",
-    "mill_script_inventory_ignore",
-    "mill_script_inventory_index",
     "mill_script_inventory_git",
     "mill_script_inventory",
     "exact_json_encoding",
