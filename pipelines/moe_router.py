@@ -727,8 +727,23 @@ class TransformersMoERouter(RouterOracle):
             )
         return dict(self._fingerprint)
 
+    def _effective_top_k(self) -> int:
+        """An override may restate, but cannot contradict, checkpoint routing."""
+
+        declared = _declared_top_k(self._fingerprint)
+        experts = _declared_expert_count(self._fingerprint)
+        if declared is None or experts is None or declared > experts:
+            raise oc.OracleUnavailable(self.name, "checkpoint has invalid routing width")
+        if self.top_k is not None and (
+            not isinstance(self.top_k, int) or isinstance(self.top_k, bool)
+            or self.top_k != declared
+        ):
+            raise oc.OracleUnavailable(self.name, "top_k override differs from checkpoint routing width")
+        return declared
+
     def route(self, text: str) -> RouterObservation:  # pragma: no cover - no checkpoint
         model, tokenizer = self._load()
+        top_k = self._effective_top_k()
         import torch
 
         inputs = tokenizer(text, return_tensors="pt").to(self.device)
@@ -739,7 +754,6 @@ class TransformersMoERouter(RouterOracle):
             raise oc.OracleUnavailable(
                 self.name, f"{self.model_id} returned no router_logits"
             )
-        top_k = self.top_k or self._fingerprint.get("num_experts_per_tok") or 2
         layers: list[LayerRouting] = []
         for index, layer_logits in enumerate(router_logits):
             # transformers returns (tokens, experts) per layer; read the last
