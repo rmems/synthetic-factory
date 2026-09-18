@@ -43,6 +43,12 @@ if __package__:
         _pointer_unescape,
         _policy_error,
     )
+    from .reward_parse import (
+        _add_unique,
+        _require_disjoint,
+        _require_distinct,
+        _unknown_members,
+    )
     from .reward_vocabulary import (
         _validate_expected_classification,
         _validate_source_vocabulary,
@@ -77,6 +83,12 @@ else:
         _pointer_unescape,
         _policy_error,
     )
+    from reward_parse import (
+        _add_unique,
+        _require_disjoint,
+        _require_distinct,
+        _unknown_members,
+    )
     from reward_vocabulary import (
         _validate_expected_classification,
         _validate_source_vocabulary,
@@ -101,8 +113,12 @@ def _validate_conversion_block(policy, where):
     _mapping_str(conversion, "required_semantics_substring", where)
     structured = _mapping_str(conversion, "structured_unit_field", where)
     textual = _mapping_str(conversion, "text_unit_field", where)
-    if structured == textual:
-        raise _policy_error(where, "structured and textual unit fields must be distinct")
+    _require_distinct(
+        structured,
+        textual,
+        where,
+        "structured and textual unit fields must be distinct",
+    )
     _mapping_pattern(
         conversion, "usd_unit_pattern", where, groups=1, numeric_group=True
     )
@@ -110,8 +126,9 @@ def _validate_conversion_block(policy, where):
     _mapping_pattern(external, "record_id_pattern", where, groups=0)
     factor_field = _mapping_str(external, "factor_field", where)
     scope_field = _mapping_str(external, "scope_field", where)
-    if factor_field == scope_field:
-        raise _policy_error(where, "external calibration fields must be distinct")
+    _require_distinct(
+        factor_field, scope_field, where, "external calibration fields must be distinct"
+    )
     return conversion
 
 
@@ -121,10 +138,9 @@ def _validate_weight_aliases(aliases, where):
         members = _mapping_str_list(aliases, name, where)
         if name not in members:
             raise _policy_error(where, f"weight_aliases[{name!r}] must contain its own key")
-        overlap = seen_aliases.intersection(members)
-        if overlap:
-            raise _policy_error(where, "weight alias groups must be disjoint")
-        seen_aliases.update(members)
+        _require_disjoint(
+            seen_aliases, members, where, "weight alias groups must be disjoint"
+        )
     return seen_aliases
 
 
@@ -141,9 +157,9 @@ def _validate_non_component_groups(groups, seen_aliases, arithmetic, where):
     seen = set()
     for name in sorted(groups):
         members = _mapping_str_list(groups, name, where)
-        if seen & set(members):
-            raise _policy_error(where, "non_component_keys groups must be disjoint")
-        seen.update(members)
+        _require_disjoint(
+            seen, members, where, "non_component_keys groups must be disjoint"
+        )
     if seen_aliases.intersection(seen):
         raise _policy_error(
             where, "weight aliases must not overlap non_component_keys"
@@ -223,9 +239,9 @@ def _validate_one_comparability_rule(rule, where, classes, reason_codes, seen_id
     if not isinstance(rule, dict):
         raise _policy_error(where, "each comparability rule must be an object")
     rule_id = _mapping_str(rule, "id", where)
-    if rule_id in seen_ids:
-        raise _policy_error(where, f"duplicate comparability rule id {rule_id!r}")
-    seen_ids.add(rule_id)
+    _add_unique(
+        rule_id, seen_ids, _policy_error(where, f"duplicate comparability rule id {rule_id!r}")
+    )
     _mapping_str(rule, "condition", where)
     scope = _mapping_str(rule, "scope", where)
     if scope not in RULE_SCOPES:
@@ -245,7 +261,7 @@ def _validate_one_comparability_rule(rule, where, classes, reason_codes, seen_id
     optional = ()
     if "optional_reason_codes" in rule:
         optional = _mapping_str_list(rule, "optional_reason_codes", where)
-    unknown = sorted((set(codes) | set(optional)) - set(reason_codes))
+    unknown = _unknown_members(set(codes) | set(optional), reason_codes)
     if unknown:
         raise _policy_error(where, f"rule {rule_id} cites uncatalogued reason codes {unknown}")
     _validate_rule_calibration_codes(rule_id, codes, optional, comparability, where)
@@ -271,7 +287,7 @@ def _validate_rule_block(policy, where, classes, reason_codes):
             "comparability_rules is missing runtime-required ids "
             f"{missing_runtime_rules}",
         )
-    orphans = sorted(set(reason_codes) - covered)
+    orphans = _unknown_members(reason_codes, covered)
     if orphans:
         raise _policy_error(where, f"reason codes cited by no rule: {orphans}")
     return tuple(rules)
@@ -314,8 +330,7 @@ def _validate_policy_scopes(policy, where):
     preference = _mapping_object(policy, "preference_scope", where)
     preferred = _mapping_str(preference, "preferred", where, prefix="/")
     dispreferred = _mapping_str(preference, "dispreferred", where, prefix="/")
-    if preferred == dispreferred:
-        raise _policy_error(where, "preference pointers must be distinct")
+    _require_distinct(preferred, dispreferred, where, "preference pointers must be distinct")
     if preferred == canonical_scope or dispreferred == canonical_scope:
         raise _policy_error(where, "preference pointers must differ from canonical_scope")
     _validate_preference_pointer(preferred, "preferred", reward_keys, where)

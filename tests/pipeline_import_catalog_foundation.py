@@ -642,6 +642,18 @@ def _package_reward_ontology() -> ModuleType:
     return module
 
 
+def _direct_reward_parse() -> ModuleType:
+    import reward_parse as module
+
+    return module
+
+
+def _package_reward_parse() -> ModuleType:
+    import pipelines.reward_parse as module
+
+    return module
+
+
 def _direct_reward_policy() -> ModuleType:
     import reward_policy as module
 
@@ -978,42 +990,6 @@ def _package_validate_run_safety() -> ModuleType:
     return module
 
 
-def _direct_validate_run_episode() -> ModuleType:
-    import validate_run_episode as module
-
-    return module
-
-
-def _package_validate_run_episode() -> ModuleType:
-    import pipelines.validate_run_episode as module
-
-    return module
-
-
-def _direct_validate_run_preference() -> ModuleType:
-    import validate_run_preference as module
-
-    return module
-
-
-def _package_validate_run_preference() -> ModuleType:
-    import pipelines.validate_run_preference as module
-
-    return module
-
-
-def _direct_validate_run_multi_agent() -> ModuleType:
-    import validate_run_multi_agent as module
-
-    return module
-
-
-def _package_validate_run_multi_agent() -> ModuleType:
-    import pipelines.validate_run_multi_agent as module
-
-    return module
-
-
 def _direct_validate_run_provenance() -> ModuleType:
     import validate_run_provenance as module
 
@@ -1074,7 +1050,105 @@ def _package_validate_run_thalamic() -> ModuleType:
     return module
 
 
+def _direct_validate_run_episode() -> ModuleType:
+    import validate_run_episode as module
+
+    return module
+
+
+def _package_validate_run_episode() -> ModuleType:
+    import pipelines.validate_run_episode as module
+
+    return module
+
+
+def _direct_validate_run_episode_turns() -> ModuleType:
+    import validate_run_episode_turns as module
+
+    return module
+
+
+def _package_validate_run_episode_turns() -> ModuleType:
+    import pipelines.validate_run_episode_turns as module
+
+    return module
+
+
+def _direct_validate_run_multi_agent() -> ModuleType:
+    import validate_run_multi_agent as module
+
+    return module
+
+
+def _package_validate_run_multi_agent() -> ModuleType:
+    import pipelines.validate_run_multi_agent as module
+
+    return module
+
+
+def _direct_validate_run_multi_agent_roster() -> ModuleType:
+    import validate_run_multi_agent_roster as module
+
+    return module
+
+
+def _package_validate_run_multi_agent_roster() -> ModuleType:
+    import pipelines.validate_run_multi_agent_roster as module
+
+    return module
+
+
+def _direct_validate_run_preference() -> ModuleType:
+    import validate_run_preference as module
+
+    return module
+
+
+def _package_validate_run_preference() -> ModuleType:
+    import pipelines.validate_run_preference as module
+
+    return module
+
+
+def _direct_validate_run_preference_context() -> ModuleType:
+    import validate_run_preference_context as module
+
+    return module
+
+
+def _package_validate_run_preference_context() -> ModuleType:
+    import pipelines.validate_run_preference_context as module
+
+    return module
+
+
+def _direct_validate_run_routes() -> ModuleType:
+    import validate_run_routes as module
+
+    return module
+
+
+def _package_validate_run_routes() -> ModuleType:
+    import pipelines.validate_run_routes as module
+
+    return module
+
+
+def _direct_validate_run_cli() -> ModuleType:
+    import validate_run_cli as module
+
+    return module
+
+
+def _package_validate_run_cli() -> ModuleType:
+    import pipelines.validate_run_cli as module
+
+    return module
+
+
 Loader = Callable[[], ModuleType]
+
+
 def _direct_rights_policy_placeholders() -> ModuleType:
     import rights_policy_placeholders as module
     return module
@@ -1159,6 +1233,27 @@ def _direct_curate_identity_simulator_worker() -> ModuleType:
 
 def _package_curate_identity_simulator_worker() -> ModuleType:
     import pipelines.curate_identity_simulator_worker as module
+
+    return module
+
+
+def _direct_reward_parse_values() -> ModuleType:
+    import reward_parse_values as module
+    return module
+
+
+def _package_reward_parse_values() -> ModuleType:
+    import pipelines.reward_parse_values as module
+    return module
+
+
+def _direct_reward_parse_patterns() -> ModuleType:
+    import reward_parse_patterns as module
+    return module
+
+
+def _package_reward_parse_patterns() -> ModuleType:
+    import pipelines.reward_parse_patterns as module
 
     return module
 
@@ -1282,6 +1377,9 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "reward_document": (_direct_reward_document, _package_reward_document),
     "reward_mapping": (_direct_reward_mapping, _package_reward_mapping),
     "reward_ontology": (_direct_reward_ontology, _package_reward_ontology),
+    "reward_parse": (_direct_reward_parse, _package_reward_parse),
+    "reward_parse_patterns": (_direct_reward_parse_patterns, _package_reward_parse_patterns),
+    "reward_parse_values": (_direct_reward_parse_values, _package_reward_parse_values),
     "reward_policy": (_direct_reward_policy, _package_reward_policy),
     "reward_units": (_direct_reward_units, _package_reward_units),
     "reward_vocabulary": (_direct_reward_vocabulary, _package_reward_vocabulary),
@@ -1322,12 +1420,6 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "round_txn_agentic_types": (_direct_round_txn_agentic_types, _package_round_txn_agentic_types),
     "round_txn_agentic_cascade": (_direct_round_txn_agentic_cascade, _package_round_txn_agentic_cascade),
     "validate_run_safety": (_direct_validate_run_safety, _package_validate_run_safety),
-    "validate_run_episode": (_direct_validate_run_episode, _package_validate_run_episode),
-    "validate_run_preference": (_direct_validate_run_preference, _package_validate_run_preference),
-    "validate_run_multi_agent": (
-        _direct_validate_run_multi_agent,
-        _package_validate_run_multi_agent,
-    ),
     "validate_run_provenance": (_direct_validate_run_provenance, _package_validate_run_provenance),
     "validate_run_rewards": (_direct_validate_run_rewards, _package_validate_run_rewards),
     "validate_run_reward_total": (
@@ -1336,6 +1428,29 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     ),
     "validate_run_thalamic": (_direct_validate_run_thalamic, _package_validate_run_thalamic),
     "validate_run_outcomes": (_direct_validate_run_outcomes, _package_validate_run_outcomes),
+    "validate_run_episode": (_direct_validate_run_episode, _package_validate_run_episode),
+    "validate_run_episode_turns": (
+        _direct_validate_run_episode_turns,
+        _package_validate_run_episode_turns,
+    ),
+    "validate_run_multi_agent": (
+        _direct_validate_run_multi_agent,
+        _package_validate_run_multi_agent,
+    ),
+    "validate_run_multi_agent_roster": (
+        _direct_validate_run_multi_agent_roster,
+        _package_validate_run_multi_agent_roster,
+    ),
+    "validate_run_preference": (
+        _direct_validate_run_preference,
+        _package_validate_run_preference,
+    ),
+    "validate_run_preference_context": (
+        _direct_validate_run_preference_context,
+        _package_validate_run_preference_context,
+    ),
+    "validate_run_routes": (_direct_validate_run_routes, _package_validate_run_routes),
+    "validate_run_cli": (_direct_validate_run_cli, _package_validate_run_cli),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
 PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}

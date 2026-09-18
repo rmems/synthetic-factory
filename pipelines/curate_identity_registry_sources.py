@@ -5,6 +5,8 @@ Oracle implementation pins come from 6ca641465bbf8ce8339de1dce6ce77f77186e34a.
 The package initializer includes the reviewed import-identity repair from
 f98dd3e8facd282744136ca91040ae595cfdc6b7. The worker pin seals this PR's
 reviewed streaming adapter separately; it is not historical producer evidence.
+``distill_vocabulary.py`` binds the reviewed #285 integer-count bytes; the
+remaining producer pins are unchanged.
 No source is executed to verify it.
 """
 
@@ -47,7 +49,7 @@ SIMULATOR_SOURCE_PINS = MappingProxyType({
     "pipelines/oracle_grounded/fault_config.py": "815b535985057ea6e1ad2e4cb6c751612b21bdc153e284683e1dbba22c4292e4",
     "pipelines/oracle_grounded/fault_vocabulary.py": "066ebb41123e7fdf77fffbb77e70380348f549195f55963c7c64da6c0cfcffbe",
     "pipelines/oracle_grounded/distill_builders.py": "b2f44d38d4a73ce9466d141e030f2cf535b5dcd58ee846497e09d01a2242a7f0",
-    "pipelines/oracle_grounded/distill_vocabulary.py": "9f2dda7dcf840df1b716cd5f62051289dc19cd0313a4a369e33c4540baff240f",
+    "pipelines/oracle_grounded/distill_vocabulary.py": "87129b3817ef336264f00fb12a1343cc7930bb862c2b369442962555b6edb60e",
     "pipelines/oracle_grounded/distill_labels.py": "7c4e102138efdba933995cea57b3c96ba92ad20064245c225d1a7f9bdca5d64c",
     "pipelines/oracle_grounded/envelope.py": "0ea00575ba81f9264c65ac975a762407353951c7b8bf35002c147971444f801b",
     "pipelines/oracle_grounded/refusals.py": "ebbc9717871c02c00b3e764e7dc4961032ad8a44ca1a20c3a4386acac4d67e5b",

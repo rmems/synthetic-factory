@@ -287,11 +287,23 @@ def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -
     ``stdout`` is the out-of-band limits attestation; ``body`` is the JSON file.
     """
 
+    if _limits_attested(stdout) is False:
+        return PhaseReport(
+            cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
+            f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
     parsed = _parsed_report(returncode, stdout, body)
     if isinstance(parsed, str):
         return _harness_error(parsed)
-    if parsed.pop("_limits_attested", None) is not True:
-        return _harness_error(f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+    parsed.pop("_limits_attested", None)
+    return _reported_phase(job, parsed)
+
+
+def _reported_phase(job: Job, parsed: dict[str, Any]) -> PhaseReport:
+    """Interpret complete report rows after the limits attestation is verified."""
+
+    if "limits_applied" not in _object(parsed, "environment"):
+        reason = _object(parsed, "load").get("error") or "the child reported no environment"
+        return _harness_error(_scrub_detail(str(reason)))
     environment = {**_object(parsed, "environment"), "limits_applied": True}
     load = _object(parsed, "load")
     if load.get("status") != "ok":
