@@ -13,6 +13,7 @@ if __package__:
     from .curate_identity_json import sha256_json
     from .rights_mapping import parse_strict_json_bytes
     from .strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
+    from .training_audit_completion import completed_published_payload, physical_jsonl_records
     from .training_audit_rights_manifest import _retained_entries
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -21,6 +22,7 @@ else:
     from curate_identity_json import sha256_json
     from rights_mapping import parse_strict_json_bytes
     from strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
+    from training_audit_completion import completed_published_payload, physical_jsonl_records
     from training_audit_rights_manifest import _retained_entries
 
 
@@ -42,15 +44,9 @@ def _file_coordinates(relative: str, lines: Sequence[bytes]):
 def _completed_physical_lines(relative: str, payload: bytes, source_root):
     if source_root is None:
         return None
-    if __package__:
-        from .code_repair.publication_export import completed_published_batch_matches
-        from .compose_curated_run_lines import jsonl_physical_lines
-    else:
-        from code_repair.publication_export import completed_published_batch_matches
-        from compose_curated_run_lines import jsonl_physical_lines
-    if not completed_published_batch_matches(source_root, relative, payload):
+    if not completed_published_payload(source_root, relative, payload):
         return None
-    return jsonl_physical_lines(payload)
+    return physical_jsonl_records(payload)
 
 
 def _compose_record_lines(relative: str, payload: bytes, source_root):
