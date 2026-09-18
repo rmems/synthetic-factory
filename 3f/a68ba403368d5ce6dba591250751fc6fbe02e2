@@ -1,0 +1,9 @@
+tests/test_csv.py
+  9fac9f0acf28a627 27-28,107-125,210-211,214-216,218-233,327-338,355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3fa68ba403368d5ce6dba591250751fc6fbe02e2",
+  "prompts": {}
+}
