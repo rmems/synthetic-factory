@@ -112,10 +112,9 @@ def _atomic_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
 
 
 def _compound_literal(node: ast.AST, env: Mapping[str, Any]) -> Any:
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, env, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, env, list)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        constructor = tuple if isinstance(node, ast.Tuple) else list
+        return _sequence(node.elts, env, constructor)
     if isinstance(node, ast.Dict):
         return _mapping(node, env)
     if isinstance(node, ast.Call):

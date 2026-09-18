@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
-from ._contract import bind_import_twin, load_strict_json, strict_lf_jsonl_lines
+from ._contract import bind_import_twin, dumps_exact_json, load_strict_json, strict_lf_jsonl_lines
 from .catalog_extract import GQL_PATH, SBOX_PATH, SSL_PATH
 
 CATALOG_DIR = Path(__file__).resolve().parents[2] / "config" / "leftover6"
@@ -21,6 +23,12 @@ FAMILY = "leftover6"
 GENERATOR = "grok-4.6"
 SOURCE_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 LEGACY_REF = "origin/legacy-mill-lane"
+# Canonical descriptor digests verified against each immutable preserve commit.
+_MILL_DESCRIPTOR_PINS = (
+    "b2e98084101057ff76893c76e11fdd63f7f219dccdad66e8ef653016960e4bf3",
+    "e4035407942ffe7fb8d635563a39a713467bc41ae2a71e551108990d2a0611d6",
+    "a375bbf99d0d5b71efc24b275aaaf9f9374ed192729a66fe63fceda1f90eb342",
+)
 
 _HEADER_KEYS = {
     "schema_version",
@@ -282,11 +290,18 @@ def _typed_row(row: dict[str, Any], context: str, integers: Mapping[str, int]) -
 
 
 def _plant_row(value: Any, context: str) -> dict[str, Any]:
-    return _typed_row(_mapping(value, context, _PLANT_ROW_KEYS), context, {"inc": 1})
+    row = _typed_row(_mapping(value, context, _PLANT_ROW_KEYS), context, {"inc": 1})
+    _expect(row["kind"], "sbox-plants", f"{context} kind is not sbox-plants")
+    return row
 
 
 def _catalog_dir(path: Path) -> Path:
-    return path if path.is_dir() else path.parent
+    path = Path(path)
+    if path.is_dir():
+        return path
+    if path.name != CATALOG_FILENAME:
+        raise CatalogError("explicit catalog file must be named CATALOG.json")
+    return path.parent
 
 
 def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
@@ -320,11 +335,18 @@ def _load_mills(raw_mills: Any) -> tuple[MillSource, ...]:
     expected_paths = (GQL_PATH, SSL_PATH, SBOX_PATH)
     if tuple(mill.source_path for mill in mills) != expected_paths:
         raise CatalogError("catalog mill order drifted from leftover6 sources")
+    _require_mill_descriptors(raw_mills)
     return mills
 
 
+def _require_mill_descriptors(raw_mills) -> None:
+    for row, expected in zip(raw_mills, _MILL_DESCRIPTOR_PINS, strict=True):
+        digest = hashlib.sha256(dumps_exact_json(row, sort_keys=True).encode()).hexdigest()
+        _expect(digest, expected, "catalog mill descriptor differs from pinned source provenance")
+
+
 def _load_rows(path: Path, decoder):
-    return tuple(decoder(item, f"{path.name}:{index + 1}")
+    return tuple(MappingProxyType(decoder(item, f"{path.name}:{index + 1}"))
                  for index, item in enumerate(_load_jsonl(path)))
 
 
@@ -366,6 +388,8 @@ def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
 
 
 def _validate_source_counts(bound: BoundSources) -> None:
+    _expect((len(bound.gql_pairs), len(bound.ssl_pairs), len(bound.plants)),
+            (16, 16, 65), "full leftover6 catalog requires 32 pair and 65 plant rows")
     if len(bound.gql_pairs) != bound.gql.n_rows or len(bound.ssl_pairs) != bound.ssl.n_rows:
         raise CatalogError("pair JSONL counts disagree with leftover6 mill headers")
     if len(bound.plants) != bound.sbox.n_rows:

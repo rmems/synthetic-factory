@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import json
 import shutil
 import subprocess
@@ -69,11 +68,12 @@ def _legacy_available() -> bool:
     if not GIT.is_file():
         return False
     try:
-        subprocess.check_output(
-            [str(GIT), "cat-file", "-e", f"{leftover6_catalog.SOURCE_COMMIT}^{{commit}}"],
-            cwd=ROOT,
-            stderr=subprocess.DEVNULL,
-        )
+        for commit in {mill.preserve_commit for mill in CATALOG.catalogs}:
+            subprocess.check_output(
+                [str(GIT), "cat-file", "-e", f"{commit}^{{commit}}"],
+                cwd=ROOT,
+                stderr=subprocess.DEVNULL,
+            )
         return True
     except subprocess.CalledProcessError:
         return False
@@ -256,15 +256,16 @@ class Leftover6CatalogTests(unittest.TestCase):
         self.assertIs(literal_value(unhashable_key), UNSET)
 
     def test_catalog_modules_keep_direct_and_packaged_import_identity(self):
-        for first, second in (
-            ("leftover6.catalog", "pipelines.leftover6.catalog"),
-            ("pipelines.leftover6.catalog", "leftover6.catalog"),
-        ):
-            with self.subTest(first=first), clean_package_imports(), direct_pipeline_path():
-                direct_or_packaged = importlib.import_module(first)
-                twin = importlib.import_module(second)
-                self.assertIs(direct_or_packaged, twin)
-                self.assertIs(direct_or_packaged.CatalogError, twin.CatalogError)
+        with clean_package_imports(), direct_pipeline_path():
+            import leftover6.catalog as direct
+            import pipelines.leftover6.catalog as packaged
+            self.assertIs(direct, packaged)
+            self.assertIs(direct.CatalogError, packaged.CatalogError)
+        with clean_package_imports(), direct_pipeline_path():
+            import pipelines.leftover6.catalog as packaged_first
+            import leftover6.catalog as direct_second
+            self.assertIs(packaged_first, direct_second)
+            self.assertIs(packaged_first.CatalogError, direct_second.CatalogError)
 
     def test_jsonl_stays_compact(self):
         for path, expected in ((PAIRS_JSONL, 32), (PLANTS_JSONL, 65)):

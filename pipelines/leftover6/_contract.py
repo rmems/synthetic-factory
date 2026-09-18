@@ -7,15 +7,17 @@ import json
 from typing import Any
 
 if __name__.startswith("pipelines."):
+    from ..exact_json import dumps_exact_json
     from ..oracle_grounded.import_twins import bind_import_twin
     from ..strict_jsonl import strict_lf_jsonl_lines
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 else:
+    from exact_json import dumps_exact_json
     from oracle_grounded.import_twins import bind_import_twin
     from strict_jsonl import strict_lf_jsonl_lines
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 
-__all__ = ["bind_import_twin", "load_strict_json", "strict_lf_jsonl_lines"]
+__all__ = ["bind_import_twin", "dumps_exact_json", "load_strict_json", "strict_lf_jsonl_lines"]
 
 
 def load_strict_json(payload: str | bytes) -> Any:
