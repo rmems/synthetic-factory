@@ -594,6 +594,18 @@ class RecordedTeacherRouter(RouterOracle):
         except (KeyError, TypeError, ValueError) as exc:
             raise oc.OracleUnavailable(self.name, f"malformed layer data: {exc}")
 
+    def _require_recorded_dimensions(self, layers: list[Any]) -> None:
+        problem = self._teacher_identity_problem()
+        if problem is not None:
+            raise oc.OracleUnavailable(self.name, problem)
+        errors = _check_layer_count(layers, self.teacher, "recording")
+        errors += _check_routing_layers(
+            layers, _declared_expert_count(self.teacher),
+            _declared_top_k(self.teacher), "recording",
+        )
+        if errors:
+            raise oc.OracleUnavailable(self.name, "; ".join(errors))
+
     def route(self, text: str) -> RouterObservation:
         entry = self.observations.get(self.key_for(text))
         if not isinstance(entry, dict) or not isinstance(entry.get("layers"), list):
@@ -602,6 +614,7 @@ class RecordedTeacherRouter(RouterOracle):
                 f"no recorded routing for context sha256 {self.key_for(text)}",
             )
         layers = [self._recorded_layer(layer) for layer in entry["layers"]]
+        self._require_recorded_dimensions(entry["layers"])
         if not layers:
             raise oc.OracleUnavailable(self.name, "recorded routing has no layers")
         return _summarise(layers)
