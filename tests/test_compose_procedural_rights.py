@@ -104,7 +104,7 @@ class CompletedProceduralRights(unittest.TestCase):
     def test_factory_root_compose_keeps_completed_procedural_records(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            factory = root / "python-function-repair-factory"
+            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
             factory.mkdir(parents=True)
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             curated = root / "curated"
