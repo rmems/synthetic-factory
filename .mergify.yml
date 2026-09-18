@@ -47,8 +47,8 @@ queue_rules:
       - check-success=@github-actions/unittest (Python 3.14)
       - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
+      # The action summary may be neutral; the workflow job is the CI gate.
       - check-success=@github-actions/qodana
-      - check-success=Qodana for Python
       - check-success=Codacy Static Code Analysis
       - check-success=CodeScene Code Health Review (main)
       - check-success=qlty check
@@ -82,8 +82,8 @@ queue_rules:
       - check-success=@github-actions/unittest (Python 3.14)
       - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
+      # The action summary may be neutral; the workflow job is the CI gate.
       - check-success=@github-actions/qodana
-      - check-success=Qodana for Python
       - check-success=Codacy Static Code Analysis
       - check-success=CodeScene Code Health Review (main)
       - check-success=qlty check
