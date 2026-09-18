@@ -315,7 +315,7 @@ python3 pipelines/oracle_validate.py --family neuron-dynamics-counterfactuals \
 ```
 
 `oracle_generate.py` never overwrites: it holds a kernel `flock` on a persistent
-sibling lock file for the full transaction, builds every family before
+sibling lock file for the full transaction, builds each selected family before
 publication, writes a sibling staging directory,
 and on Linux publishes the complete manifest-authenticated tree with
 `renameat2(RENAME_NOREPLACE)`. A non-cooperating process that creates the
@@ -326,7 +326,10 @@ The staging directory's device/inode identity is authenticated immediately
 before and after rename; a substituted source is quarantined rather than
 reported as the published run. Any generation or staging failure removes the
 private staging tree and leaves no generator-authored run at the requested
-output path. A stdout failure after publication reports that the run already
+output path. A fatal runtime, generation, or envelope error stops remaining
+proposals and families in that atomic run; honest rejected measurements remain
+retained evidence and do not stop generation. Separate campaign lanes are
+independent of this transaction. A stdout failure after publication reports that the run already
 exists instead of claiming the transaction rolled back. Accepted and rejected
 records go to separate files so that a
 consumer reading only `accepted-*.jsonl` cannot pick up a record that failed its

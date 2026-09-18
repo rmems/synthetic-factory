@@ -84,7 +84,7 @@ def generate_family(
     *,
     byte_budget=None,
 ):
-    """Build ``count`` records for one family, split by verdict."""
+    """Build records by verdict, stopping at the first fatal generation error."""
     accepted = []
     rejected = []
     errors = []
@@ -103,14 +103,14 @@ def generate_family(
             )
         except (oracles.OracleError, record.GenerationError) as exc:
             errors.append(f"{family}#{index}: {type(exc).__name__}: {exc}")
-            continue
+            break
         layers = record.classify(item, require_named_runtime=require_runtime)
         fatal = layers["envelope"] + layers["status"]
         if fatal:
             errors.append(
                 f"{family}#{index}: generated record failed its envelope: " + "; ".join(fatal)
             )
-            continue
+            break
         if item["validation"]["status"] == "accepted" and not layers["family"]:
             _charge_record(item, "accepted", file_bytes, byte_budget)
             accepted.append(item)
@@ -576,7 +576,6 @@ def main(argv=None):
         # Build every family before creating a publishable tree.  Any oracle
         # failure aborts the whole run instead of authenticating a partial run.
         generated = {}
-        all_errors = []
         byte_budget = [0]
         for family in selected:
             generated[family] = generate_family(
@@ -589,11 +588,11 @@ def main(argv=None):
                 args.require_runtime,
                 byte_budget=byte_budget,
             )
-            all_errors.extend(generated[family][2])
-        if all_errors:
-            for error in all_errors:
-                print(f"oracle_generate: {error}", file=sys.stderr)
-            return 1
+            errors = generated[family][2]
+            if errors:
+                for error in errors:
+                    print(f"oracle_generate: {error}", file=sys.stderr)
+                return 1
 
         # Create and address the staging tree through the authenticated parent
         # descriptor: every write below resolves through the pinned directory,
