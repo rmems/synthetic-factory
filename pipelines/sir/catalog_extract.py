@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .catalog_ast import module_constants, module_docstring
+from .catalog_model import factory_hops, scalar_identity
 from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
@@ -114,15 +115,7 @@ def _round_count(value: Any, n_pairs: int, path: str) -> int:
 def _optional_factory_list(value: Any, *, path: str) -> list[str]:
     if value is None:
         return []
-    if not isinstance(value, list):
-        raise ValueError(f"{path} HOP is not a literal list of factory slugs")
-    if not all(_is_factory_slug(item) for item in value):
-        raise ValueError(f"{path} HOP is not a literal list of factory slugs")
-    return list(value)
-
-
-def _is_factory_slug(value: Any) -> bool:
-    return isinstance(value, str) and value.endswith("-factory")
+    return factory_hops(value, f"{path} HOP")
 
 
 def _pair_rows(pairs_raw: Any, *, path: str, mill_id: str) -> list[dict[str, Any]]:
@@ -171,11 +164,18 @@ def _literal_sibling_path(tree: ast.AST) -> str:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not _is_source_file_loader(node.func):
             continue
-        filename = _first_py_constant(node)
+        filename = _first_py_constant(_loader_path_argument(node))
         if filename:
             name = Path(filename).name
             return f"experiments/{name}"
     return ""
+
+
+def _loader_path_argument(node: ast.Call) -> ast.AST | None:
+    positional = node.args[:2]
+    if len(positional) == 2 and not any(isinstance(arg, ast.Starred) for arg in positional):
+        return positional[1]
+    return next((keyword.value for keyword in node.keywords if keyword.arg == "path"), None)
 
 
 def _is_source_file_loader(func: ast.AST) -> bool:
@@ -184,7 +184,7 @@ def _is_source_file_loader(func: ast.AST) -> bool:
     return isinstance(func, ast.Attribute) and func.attr == "SourceFileLoader"
 
 
-def _first_py_constant(node: ast.AST) -> str:
+def _first_py_constant(node: ast.AST | None) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value if node.value.endswith(".py") else ""
     if isinstance(node, ast.Call):
@@ -209,26 +209,13 @@ def _first_line(doc: str) -> str:
 def mill_summary(record: Mapping[str, Any]) -> dict[str, Any]:
     """Catalog mill row: identity only. Pair bodies live in JSONL."""
 
-    return {
-        "mill_id": record["mill_id"],
-        "path": record["path"],
-        "blob_sha": record["blob_sha"],
-        "sha256": record["sha256"],
-        "kind": record["kind"],
-        "shape": record["shape"],
-        "catalog_first": record["catalog_first"],
-        "n_rounds": record["n_rounds"],
-        "n_rows": record["n_rows"],
-        "n_hops": record["n_hops"],
-        "first_slug": record["first_slug"],
-        "last_slug": record["last_slug"],
-        "generator": record["generator"],
-        "factory": record["factory"],
-        "hops": list(record["hops"]),
-        "loads_sibling": record.get("loads_sibling", ""),
-        "source_lines": record["source_lines"],
-        "doc_first_line": record["doc_first_line"],
-    }
+    summary = scalar_identity(record)
+    summary.update(
+        hops=list(record["hops"]),
+        loads_sibling=record.get("loads_sibling", ""),
+        doc_first_line=record["doc_first_line"],
+    )
+    return summary
 
 
 def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:

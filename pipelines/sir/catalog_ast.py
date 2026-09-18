@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 UNSET = object()
@@ -20,11 +20,32 @@ def module_constants(tree: ast.AST) -> dict[str, Any]:
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
         if name is None:
-            for assigned in assignment_names(node):
-                env[assigned] = UNSET
+            _invalidate_names(env, assignment_names(node))
         elif value is not None:
-            env[name] = literal_value(value, env)
+            env[name] = _assignment_value(value, env)
     return env
+
+
+def _assignment_value(value: ast.AST, env: dict[str, Any]) -> Any:
+    resolved = literal_value(value, env)
+    if resolved is UNSET:
+        _invalidate_names(env, _statement_names(value))
+    return resolved
+
+
+def _invalidate_names(env: dict[str, Any], names: list[str]) -> None:
+    if any(_contains_mutable(env.get(name, UNSET)) for name in names):
+        # Aliases and literal containers can share mutable descendants. Refuse
+        # the environment rather than trying to interpret mutation or alias flow.
+        names = list(set(env).union(names))
+    for name in names:
+        env[name] = UNSET
+
+
+def _contains_mutable(value: Any) -> bool:
+    if isinstance(value, (list, dict, set)):
+        return True
+    return isinstance(value, tuple) and any(_contains_mutable(item) for item in value)
 
 
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
@@ -36,16 +57,44 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
-def assignment_names(node: ast.stmt) -> tuple[str, ...]:
-    return tuple(target.id for target in _assignment_targets(node) if isinstance(target, ast.Name))
+def assignment_names(node: ast.stmt) -> list[str]:
+    """Invalidate unsupported writes or uses without evaluating their control flow."""
+    targets = _assignment_targets(node) or [node]
+    return [name for target in targets for name in _statement_names(target)]
 
 
-def _assignment_targets(node: ast.stmt) -> tuple[ast.expr, ...]:
+def _statement_names(node: ast.AST) -> list[str]:
+    scoped = _scope_names(node)
+    if scoped is not None:
+        return scoped
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.alias):
+        return [node.asname or node.name.partition(".")[0]]
+    return _child_statement_names(node)
+
+
+def _scope_names(node: ast.AST) -> list[str] | None:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        evaluated = [node.args, *node.decorator_list]
+        return [node.name, *(_name for child in evaluated for _name in _statement_names(child))]
+    if isinstance(node, ast.ClassDef):
+        return [node.name, *_child_statement_names(node)]
+    if isinstance(node, ast.Lambda):
+        return _statement_names(node.args)
+    return None
+
+
+def _child_statement_names(node: ast.AST) -> list[str]:
+    return [name for child in ast.iter_child_nodes(node) for name in _statement_names(child)]
+
+
+def _assignment_targets(node: ast.stmt) -> list[ast.expr]:
     if isinstance(node, ast.AnnAssign):
-        return (node.target,)
+        return [node.target]
     if isinstance(node, ast.Assign):
-        return tuple(node.targets)
-    return ()
+        return node.targets
+    return []
 
 
 def literal_value(node: ast.AST | None, env: Mapping[str, Any] | None = None) -> Any:
@@ -78,7 +127,7 @@ def _container_value(node: ast.AST | None, bound: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Iterable[ast.AST | None], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -90,11 +139,11 @@ def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
 
 def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
     out: dict[Any, Any] = {}
-    for key_node, value_node in zip(node.keys, node.values, strict=True):
-        key = literal_value(key_node, env)
-        value = literal_value(value_node, env)
-        if key is UNSET or value is UNSET:
+    for nodes in zip(node.keys, node.values, strict=True):
+        pair = _sequence(nodes, env, tuple)
+        if pair is UNSET:
             return UNSET
+        key, value = pair
         out[key] = value
     return out
 

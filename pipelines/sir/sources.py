@@ -26,6 +26,7 @@ class MillSource:
     mill_id: str
     path: str
     blob_sha: str
+    sha256: str
     kind: str
     catalog_first: int
     n_rows: int
@@ -38,6 +39,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "sir-mill-leftover3-r72",
         "experiments/sir-mill-leftover3-r72.py",
         "79f88a0be841682c69c50052beee6fb0f84cd27e",
+        "cb86edcbae8eace3cadd14bf897f09bc67e840d1ab495134e6e230af661d8a2d",
         KIND_LEFTOVER_PAIRS,
         72,
         16,
@@ -48,6 +50,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "sir_r108_leftover3d_mill",
         "experiments/sir_r108_leftover3d_mill.py",
         "9487f6605380f0d1ab01f9a90957f5aaabcb0438",
+        "6df7f79faabfbc307f7a77c16da555e597fd6f5115f2206f8338a19d28099252",
         KIND_LEFTOVER_PAIRS,
         108,
         16,

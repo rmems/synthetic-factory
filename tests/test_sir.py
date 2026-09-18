@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from search.sources import HOME_MILL_SOURCES, R31_SOURCE  # noqa: E402
 from sir.catalog import CATALOG, load_catalog  # noqa: E402
+from sir.catalog_ast import UNSET, literal_value  # noqa: E402
 from sir.catalog_extract import (  # noqa: E402
     SHAPE_PAIR_6TUPLES,
     catalog_document,
@@ -88,25 +89,22 @@ _PUBLISHER_NAMES = frozenset(
 
 
 def _legacy_available() -> bool:
-    try:
-        subprocess.check_output(
-            ["git", "show", f"{cv.PRESERVE_COMMIT}:experiments/sir-mill-r31.py"],
-            cwd=REPO,
-            stderr=subprocess.DEVNULL,
-        )
-        return True
-    except subprocess.CalledProcessError:
-        return False
+    reference = f"{cv.PRESERVE_COMMIT}:{catalog_sources()[0].path}"
+    result = subprocess.run(["git", "show", reference], cwd=REPO, capture_output=True, check=False)
+    return result.returncode == 0
+
+
+def _git_text(command: str, reference: str) -> str:
+    return subprocess.check_output(["git", command, reference], text=True, cwd=REPO)
 
 
 def _module_uses_exec(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     hits: list[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        if node.func.id in {"exec", "eval", "compile"}:
-            hits.append(f"{path.name}:{node.lineno}:{node.func.id}")
+        callee = getattr(node, "func", None)
+        if isinstance(callee, ast.Name) and callee.id in {"exec", "eval", "compile"}:
+            hits.append(f"{path.name}:{node.lineno}:{callee.id}")
     return hits
 
 
@@ -121,6 +119,15 @@ def _package_function_names() -> set[str]:
 
 
 class SirSkeletonTests(unittest.TestCase):
+    def test_literal_containers_resolve_all_members_or_remain_unknown(self):
+        env = {"name": "resolved"}
+        expression = "{'key': [name, (1, 2)], 'set': {3, 4}}"
+        parsed = ast.parse(expression, mode="eval").body
+        self.assertEqual(literal_value(parsed, env), {"key": ["resolved", (1, 2)], "set": {3, 4}})
+        for expression in ("{missing: name}", "{'key': missing}", "[name, missing]", "{**unknown}"):
+            with self.subTest(expression=expression):
+                self.assertIs(literal_value(ast.parse(expression, mode="eval").body, env), UNSET)
+
     def test_catalog_does_not_duplicate_search_home_ownership(self):
         home_ids = {source.mill_id for source in HOME_MILL_SOURCES}
         self.assertTrue(home_ids.isdisjoint(CATALOG.mills))
@@ -173,17 +180,7 @@ class SirSkeletonTests(unittest.TestCase):
 
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "sir"
-        hits = []
-        for name in (
-            "catalog_ast.py",
-            "catalog_extract.py",
-            "catalog.py",
-            "identity.py",
-            "sources.py",
-            "vocabulary.py",
-            "__init__.py",
-        ):
-            hits.extend(_module_uses_exec(package / name))
+        hits = [hit for module in sorted(package.glob("*.py")) for hit in _module_uses_exec(module)]
         self.assertEqual(hits, [])
 
     def test_package_has_no_launderer_publishers(self):
@@ -407,27 +404,26 @@ class SirLegacyExtractTests(unittest.TestCase):
             self.skipTest("sir preserve commit is not available")
         mills = []
         for source in catalog_sources():
-            text = subprocess.check_output(
-                ["git", "show", f"{cv.PRESERVE_COMMIT}:{source.path}"],
-                text=True,
-                cwd=REPO,
-            )
-            blob = subprocess.check_output(
-                ["git", "rev-parse", f"{cv.PRESERVE_COMMIT}:{source.path}"],
-                text=True,
-                cwd=REPO,
-            ).strip()
+            reference = f"{cv.PRESERVE_COMMIT}:{source.path}"
+            text = _git_text("show", reference)
+            blob = _git_text("rev-parse", reference).strip()
             self.assertEqual(blob, source.blob_sha, source.mill_id)
             live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
             committed = CATALOG.mills[source.mill_id]
-            self.assertEqual(live["n_rows"], committed.n_rows, source.mill_id)
-            self.assertEqual(live["first_slug"], committed.first_slug, source.mill_id)
-            self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
-            self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
-            self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
-            self.assertEqual(live["shape"], committed.shape, source.mill_id)
+            fields = (
+                "n_rows",
+                "first_slug",
+                "last_slug",
+                "catalog_first",
+                "sha256",
+                "shape",
+                "loads_sibling",
+            )
+            for field in fields:
+                self.assertEqual(
+                    live[field], getattr(committed, field), f"{source.mill_id} {field}"
+                )
             self.assertEqual(live["hops"], list(committed.hops), source.mill_id)
-            self.assertEqual(live["loads_sibling"], committed.loads_sibling, source.mill_id)
             mills.append(live)
         self.assertEqual(
             dumps_catalog(catalog_document(mills)),

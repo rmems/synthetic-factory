@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .catalog_extract import catalog_json_path, pairs_jsonl_path
+from .catalog_model import MillCatalog, factory_hops, scalar_identity
 from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
@@ -21,29 +22,6 @@ from .vocabulary import (
     SHAPE_PAIR_6TUPLES,
     SLICE_ID,
 )
-
-
-@dataclass(frozen=True)
-class MillCatalog:
-    mill_id: str
-    path: str
-    blob_sha: str
-    sha256: str
-    kind: str
-    shape: str
-    catalog_first: int
-    n_rounds: int
-    n_rows: int
-    n_hops: int
-    first_slug: str
-    last_slug: str
-    generator: str
-    factory: str
-    hops: tuple[str, ...]
-    loads_sibling: str
-    source_lines: int
-    doc_first_line: str
-    pairs: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -148,25 +126,11 @@ def _require_pair_text(value: Any, where: str) -> None:
 
 
 def _mill_from_row(row: Mapping[str, Any], pairs: tuple[Mapping[str, Any], ...]) -> MillCatalog:
-    hops = row.get("hops") or ()
+    hops = factory_hops(row.get("hops"), f"{row['mill_id']} hops")
     return MillCatalog(
-        mill_id=row["mill_id"],
-        path=row["path"],
-        blob_sha=row["blob_sha"],
-        sha256=row["sha256"],
-        kind=row["kind"],
-        shape=row["shape"],
-        catalog_first=row["catalog_first"],
-        n_rounds=row["n_rounds"],
-        n_rows=row["n_rows"],
-        n_hops=row["n_hops"],
-        first_slug=row["first_slug"],
-        last_slug=row["last_slug"],
-        generator=row["generator"],
-        factory=row["factory"],
+        **scalar_identity(row),
         hops=tuple(hops),
         loads_sibling=row.get("loads_sibling", ""),
-        source_lines=row["source_lines"],
         doc_first_line=row.get("doc_first_line", ""),
         pairs=pairs,
     )
@@ -204,6 +168,7 @@ def _require_source_pin(mill: MillCatalog, source: MillSource) -> None:
         "mill_id",
         "path",
         "blob_sha",
+        "sha256",
         "catalog_first",
         "n_rows",
         "n_hops",
