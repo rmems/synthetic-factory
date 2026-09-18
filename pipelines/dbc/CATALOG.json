@@ -1,0 +1,754 @@
+{
+  "factory": "docker-build-cache-factory",
+  "generator": "grok-4.6",
+  "mills": {
+    "dbc-mill-r1029": {
+      "blob_sha": "03326feb7b556e512952d3ed8f12c1a8782de7d4",
+      "catalog_first": 1029,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "odin-lang-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "coccinelle-cache",
+      "mill_id": "dbc-mill-r1029",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1029.py",
+      "sha256": "211697aceb0adf426dad97afcee98c8e264f2db4c97288ab92b2f7f03d5475fc",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1077": {
+      "blob_sha": "f841ddd4ca63f810be4a31896344a4a7253cfb93",
+      "catalog_first": 1077,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "pinocchio-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "umfpack-cache",
+      "mill_id": "dbc-mill-r1077",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1077.py",
+      "sha256": "2a6d4c16dfb027c0029b9de919c0562c85b8cddcde2a1a99b69b8686b7ad88dc",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1125": {
+      "blob_sha": "53ba5e08a246dd5300a69504cb305d7f79e88c1b",
+      "catalog_first": 1125,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "x264-cli-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "avisynthplus-cache",
+      "mill_id": "dbc-mill-r1125",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1125.py",
+      "sha256": "bcf2c9aae02f615d5491c0d8c584633b4bcdf8a419fa042b77a0e39cd79402a0",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1173": {
+      "blob_sha": "5d75b010aeebf5243b7ca517f60c695694ff2a4f",
+      "catalog_first": 1173,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "nats-server-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "kafka-rest-cache",
+      "mill_id": "dbc-mill-r1173",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1173.py",
+      "sha256": "772a2713f0df8eb55e90b856559a828fe16efc8c5e135071a19dc8c408cea0c2",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1221": {
+      "blob_sha": "fc866325feb5a944b0b75ca35297c6d545dbe424",
+      "catalog_first": 1221,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "qiskit-terra-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "amazon-braket-default-sim-cache",
+      "mill_id": "dbc-mill-r1221",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1221.py",
+      "sha256": "3ccf52c49e6ebcf889785a97b9489e7a0494f1bff770abacee71374f2a1bb6d4",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1269": {
+      "blob_sha": "b1b01f23f06ff725e01902031ad0202153057b43",
+      "catalog_first": 1269,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "graphite2-shaper-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "ots-idempotent-cache",
+      "mill_id": "dbc-mill-r1269",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1269.py",
+      "sha256": "29820eaa841d080bdf4f46e7810c70e161f23df89f6f01f0fb61d3dc40b594f0",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1317": {
+      "blob_sha": "29dbf2d6fdc93877b7669acd235f9731b7a7cb4f",
+      "catalog_first": 1317,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "opencascade-occt-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "ocp-cad-cache",
+      "mill_id": "dbc-mill-r1317",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1317.py",
+      "sha256": "94feb5caef21c7e61d36cd8d19f19d85321bb1cf9c32573f1072d2ed11e16720",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1365": {
+      "blob_sha": "881efafc4cf6c02335fe93af4ce4f884dfdcdb3e",
+      "catalog_first": 1365,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "lucene-core-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "vespa-cli-cache",
+      "mill_id": "dbc-mill-r1365",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1365.py",
+      "sha256": "b421d31477536997d64efe2efb76fa12c6747f0cc34174c6b4aa42437986d74f",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1408": {
+      "blob_sha": "7b329731a627099f641d224bfcd8bdf84192fb59",
+      "catalog_first": 1408,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "neo4j-server-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "jena-fuseki-cache",
+      "mill_id": "dbc-mill-r1408",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1408.py",
+      "sha256": "1aa5b8da3cf2f0c5041376bceb698a0dbec7a042fdafd0d62c00e5ba6af5152f",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1456": {
+      "blob_sha": "e3f498ba9c5b4606a6cba717b34772e34169d6d9",
+      "catalog_first": 1456,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "prometheus-bin-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "grafana-oncall-cache",
+      "mill_id": "dbc-mill-r1456",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1456.py",
+      "sha256": "d970b6adb38db5e1270033bfdf5cfa5951e3f21676f80119d0bc60628b5d5f40",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r1504": {
+      "blob_sha": "3ac1b6dbf97448b4e84af240cff010844d6e84b8",
+      "catalog_first": 1504,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "jenkins-lts-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "circleci-cli-cache",
+      "mill_id": "dbc-mill-r1504",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r1504.py",
+      "sha256": "27ba1d57a0936359fed4250a8b3253110b94ca33e2079be6a50620b419040fdc",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r193": {
+      "blob_sha": "684816458d590fe29623308a07b77457578ee7f2",
+      "catalog_first": 193,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "texlive-fmt-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "flux-artifact-cache",
+      "mill_id": "dbc-mill-r193",
+      "n_rows": 40,
+      "pairs": [
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-nbd",
+          "fail_slug": "nbd-leftover",
+          "success_plant": "harbor-texlive",
+          "success_slug": "texlive-fmt-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-bpffs",
+          "fail_slug": "bpffs-pin-leftover",
+          "success_plant": "harbor-gap",
+          "success_slug": "gap-pkg-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-netns",
+          "fail_slug": "netns-leftover",
+          "success_plant": "harbor-maxima",
+          "success_slug": "maxima-lisp-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-nft",
+          "fail_slug": "nftables-leftover",
+          "success_plant": "harbor-octave",
+          "success_slug": "octave-pkg-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-veth",
+          "fail_slug": "veth-leftover",
+          "success_plant": "harbor-sage",
+          "success_slug": "sage-dot-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-zram",
+          "fail_slug": "zram-leftover",
+          "success_plant": "harbor-gambit",
+          "success_slug": "gambit-gsc-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-iouring",
+          "fail_slug": "io-uring-leftover",
+          "success_plant": "harbor-shadow",
+          "success_slug": "shadow-cljs-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-freezer",
+          "fail_slug": "cgroup-freezer-leftover",
+          "success_plant": "harbor-bb",
+          "success_slug": "babashka-deps-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-ima",
+          "fail_slug": "ima-policy-leftover",
+          "success_plant": "harbor-uiua",
+          "success_slug": "uiua-pad-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-fscrypt",
+          "fail_slug": "fscrypt-leftover",
+          "success_plant": "harbor-bqn",
+          "success_slug": "bqn-cbqn-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-gvisor",
+          "fail_slug": "gvisor-runsc-leftover",
+          "success_plant": "harbor-dyalog",
+          "success_slug": "apl-dyalog-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-kata",
+          "fail_slug": "kata-shim-leftover",
+          "success_plant": "harbor-jlang",
+          "success_slug": "jlang-addons-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-crun",
+          "fail_slug": "crun-cgroupns-leftover",
+          "success_plant": "harbor-vala",
+          "success_slug": "vala-vapi-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-youki",
+          "fail_slug": "youki-rootfs-leftover",
+          "success_plant": "harbor-grape",
+          "success_slug": "groovy-grape-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-memhigh",
+          "fail_slug": "cgroup-memory-high-leftover",
+          "success_plant": "harbor-hugo",
+          "success_slug": "hugo-modules-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-rdma",
+          "fail_slug": "cgroup-rdma-leftover",
+          "success_plant": "harbor-quarto",
+          "success_slug": "quarto-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-timens",
+          "fail_slug": "time-ns-leftover",
+          "success_plant": "harbor-colcon",
+          "success_slug": "ros2-colcon-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-pidns",
+          "fail_slug": "pidns-leftover",
+          "success_plant": "harbor-yosys",
+          "success_slug": "yosys-abc-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-audit",
+          "fail_slug": "audit-rules-leftover",
+          "success_plant": "harbor-nextpnr",
+          "success_slug": "nextpnr-chipdb-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-nspawn",
+          "fail_slug": "systemd-nspawn-leftover",
+          "success_plant": "harbor-ngspice",
+          "success_slug": "ngspice-cm-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-udev",
+          "fail_slug": "udev-watch-leftover",
+          "success_plant": "harbor-gnuradio",
+          "success_slug": "gnuradio-mod-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-md",
+          "fail_slug": "md-raid-leftover",
+          "success_plant": "harbor-blender",
+          "success_slug": "blender-assets-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-iscsi",
+          "fail_slug": "iscsi-session-leftover",
+          "success_plant": "harbor-tvm",
+          "success_slug": "tvm-build-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-nvmeof",
+          "fail_slug": "nvmeof-leftover",
+          "success_plant": "harbor-halide",
+          "success_slug": "halide-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-ceph",
+          "fail_slug": "ceph-mds-leftover",
+          "success_plant": "harbor-nvcc",
+          "success_slug": "cuda-nvcc-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-wg",
+          "fail_slug": "wireguard-leftover",
+          "success_plant": "harbor-hip",
+          "success_slug": "hip-rocm-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-vxlan",
+          "fail_slug": "vxlan-leftover",
+          "success_plant": "harbor-icpx",
+          "success_slug": "oneapi-icpx-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-tc",
+          "fail_slug": "tc-qdisc-leftover",
+          "success_plant": "harbor-vulkan",
+          "success_slug": "vulkan-sdk-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-ipvs",
+          "fail_slug": "ipvs-leftover",
+          "success_plant": "harbor-tint",
+          "success_slug": "webgpu-tint-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-tun",
+          "fail_slug": "tun-leftover",
+          "success_plant": "harbor-ffmpeg",
+          "success_slug": "ffmpeg-preset-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-vsock",
+          "fail_slug": "vsock-leftover",
+          "success_plant": "harbor-gst",
+          "success_slug": "gstreamer-registry-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-fanotify",
+          "fail_slug": "fanotify-leftover",
+          "success_plant": "harbor-pandoc",
+          "success_slug": "pandoc-data-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-uffd",
+          "fail_slug": "userfaultfd-leftover",
+          "success_plant": "harbor-pulumi",
+          "success_slug": "pulumi-plugins-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-ksm",
+          "fail_slug": "ksm-leftover",
+          "success_plant": "harbor-galaxy",
+          "success_slug": "ansible-galaxy-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-zswap",
+          "fail_slug": "zswap-leftover",
+          "success_plant": "harbor-dagger",
+          "success_slug": "dagger-engine-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-cpuset",
+          "fail_slug": "cpuset-leftover",
+          "success_plant": "harbor-packer",
+          "success_slug": "packer-plugin-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-numa",
+          "fail_slug": "numa-membind-leftover",
+          "success_plant": "harbor-kind",
+          "success_slug": "kind-node-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-lockdown",
+          "fail_slug": "lockdown-confidentiality-leftover",
+          "success_plant": "harbor-kust",
+          "success_slug": "kustomize-helm-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-yama",
+          "fail_slug": "yama-ptrace-leftover",
+          "success_plant": "harbor-tilt",
+          "success_slug": "tilt-engine-cache"
+        },
+        {
+          "fail_handoff": true,
+          "fail_plant": "harbor-caps",
+          "fail_slug": "cap-bounding-leftover",
+          "success_plant": "harbor-flux",
+          "success_slug": "flux-artifact-cache"
+        }
+      ],
+      "path": "experiments/dbc-mill-r193.py",
+      "sha256": "163efcc04d120719dbf59ccecb202f651b52751657431b8b25178f2ce05a843a",
+      "shape": "pairs-literal"
+    },
+    "dbc-mill-r233": {
+      "blob_sha": "806962a5cb05f75adea73f569129fd3252730c64",
+      "catalog_first": 233,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "macaulay2-pkg-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "csound-opcode-cache",
+      "mill_id": "dbc-mill-r233",
+      "n_rows": 20,
+      "path": "experiments/dbc-mill-r233.py",
+      "sha256": "af88cd0892d8dfb9d081fead23c3f4292cd32456a2d464b8b9db52a0259e2915",
+      "shape": "pairs-literal"
+    },
+    "dbc-mill-r248": {
+      "blob_sha": "39432ca530fc18a9f50dc9306e3dec379110154e",
+      "catalog_first": 248,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "macaulay2-pkg-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "context-mkiv-cache",
+      "mill_id": "dbc-mill-r248",
+      "n_extra": 6,
+      "n_rows": 20,
+      "n_skip": 6,
+      "path": "experiments/dbc-mill-r248.py",
+      "sha256": "90931de534c4055fb1c4cf3955d1b67f785b95f1dbfcdd7ede4f98ee421b4324",
+      "shape": "pairs-skip-extra",
+      "skip_slugs": [
+        "dm-crypt-leftover",
+        "dm-integrity-leftover",
+        "ipcns-leftover",
+        "seed7-lib-cache",
+        "tcl-teapot-cache",
+        "utsns-leftover"
+      ]
+    },
+    "dbc-mill-r268": {
+      "blob_sha": "b858e310d5c1df9729357f044b9faeb89971c225",
+      "catalog_first": 268,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "macaulay2-pkg-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "xyce-plugins-cache",
+      "mill_id": "dbc-mill-r268",
+      "n_rows": 20,
+      "path": "experiments/dbc-mill-r268.py",
+      "sha256": "306b6d04f795ae43b0f851d1fb8bdc45187ed3e99ebc411805bc2b1398f56f1d",
+      "shape": "pairs-literal"
+    },
+    "dbc-mill-r288": {
+      "blob_sha": "a54739c46073343ddab8778e58210e8b6a98db2e",
+      "catalog_first": 288,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "buf-mod-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "cutlass-cache",
+      "mill_id": "dbc-mill-r288",
+      "n_rows": 20,
+      "path": "experiments/dbc-mill-r288.py",
+      "sha256": "8b3c1cea9db1a46eea137fb197830ae5321cc792ed5fdf87af2270ac5943eb69",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r308": {
+      "blob_sha": "b53677109d294ff74048356ad0356e603e6a28dc",
+      "catalog_first": 308,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "nickel-ncl-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "rapids-cudf-cache",
+      "mill_id": "dbc-mill-r308",
+      "n_rows": 10,
+      "path": "experiments/dbc-mill-r308.py",
+      "sha256": "dcb3f0898488d5a6aaa1583249628b7748eb2760a755e697c4000ef496ecc73d",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r338": {
+      "blob_sha": "b3c811c3be051735aa06b90d53a76db2ffc80b60",
+      "catalog_first": 338,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "lammps-potentials-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "imagemagick-config-cache",
+      "mill_id": "dbc-mill-r338",
+      "n_rows": 64,
+      "path": "experiments/dbc-mill-r338.py",
+      "sha256": "77002d36db758a26c8afc38a1a0f7dc254195b22ffe1e8ea0250c654371c55bf",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r550": {
+      "blob_sha": "9bccb9528230d94a9748fe0c814ad1d16f878c51",
+      "catalog_first": 550,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "parigp-gp-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "bitwuzla-cache",
+      "mill_id": "dbc-mill-r550",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r550.py",
+      "sha256": "4a63b210cd23ef6d9c2a957c5ea1fbd6a13db07c8dc1a22728b145c23c6334ef",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r598": {
+      "blob_sha": "2f7c22bf1d299d76f063be503c4b4e6238041fd4",
+      "catalog_first": 598,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "cvc5-proof-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "spr-repair-cache",
+      "mill_id": "dbc-mill-r598",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r598.py",
+      "sha256": "dc09741dbb63e6b6e6d8cf2568d7d614d8c84735dd3bfb10eaa92a5eed21fb22",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r647": {
+      "blob_sha": "5038db652c91fba0c015d623e04f8e42dde4dcc1",
+      "catalog_first": 647,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "alpaca-core-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "carbon-toolchain-cache",
+      "mill_id": "dbc-mill-r647",
+      "n_inherited": 12,
+      "n_new": 36,
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r647.py",
+      "sha256": "a29ae09047f3eeb23ade44139cde2189fab060e084712c226ee74ecf06d49832",
+      "shape": "pairs-new-extend"
+    },
+    "dbc-mill-r719": {
+      "blob_sha": "1301c6cccae73337a053f16c20dc7fb35b18b014",
+      "catalog_first": 719,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "puredata-pd-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "sox-formats-cache",
+      "mill_id": "dbc-mill-r719",
+      "n_rows": 35,
+      "path": "experiments/dbc-mill-r719.py",
+      "sha256": "72786777eb63e682006b0a71c077ad0c6bce327b6f338b5c403a7329d70ea6e5",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r754": {
+      "blob_sha": "90fe48f5381ea929f42c542f0f986d618de1c9a7",
+      "catalog_first": 754,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "potrace-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "onetbb-cache",
+      "mill_id": "dbc-mill-r754",
+      "n_rows": 24,
+      "path": "experiments/dbc-mill-r754.py",
+      "sha256": "f039d9c1a63c3e036703a7061c2a9584d8ef287aa9a9dc0278de45fc38955d49",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r778": {
+      "blob_sha": "480801192c1c6d8c5716ceea9acc67a57d8e0827",
+      "catalog_first": 778,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "hwloc-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "cxi-cache",
+      "mill_id": "dbc-mill-r778",
+      "n_rows": 12,
+      "path": "experiments/dbc-mill-r778.py",
+      "sha256": "6436ac2327ae7b781d2c89e9feab426eb3ae458b7d93ce90f8de47ea03baab0f",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r790": {
+      "blob_sha": "05dbda131b745d6ffcf1a0f4d08099b03b20fcf6",
+      "catalog_first": 790,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "samtools-htslib-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "featurecounts-cache",
+      "mill_id": "dbc-mill-r790",
+      "n_rows": 47,
+      "path": "experiments/dbc-mill-r790.py",
+      "sha256": "2d7b5a970373fab70b1403cecc2b886a96c736df11d074616e797d89f8b64276",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-r837": {
+      "blob_sha": "6d867bd7516cd650c4c53d7898b39e5cd18426ed",
+      "catalog_first": 837,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "casacore-measures-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "stcal-cache",
+      "mill_id": "dbc-mill-r837",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r837.py",
+      "sha256": "8c1b31170757d059afd483764983be2422bcaa13a02f88ca0e9e504c3f2edd83",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r885": {
+      "blob_sha": "583739a54cfd2e953da98bb54f334f967334ee5b",
+      "catalog_first": 885,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "sphinxbase-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "granite-speech-cache",
+      "mill_id": "dbc-mill-r885",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r885.py",
+      "sha256": "0205dbbe597ebca2914f9c28c67fc1b87bd291690f21c5918d1d429cec131c4c",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r933": {
+      "blob_sha": "e312d1e0d105b358b0add515eec0a98fedbe9b4a",
+      "catalog_first": 933,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "botan-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "rage-key-cache",
+      "mill_id": "dbc-mill-r933",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r933.py",
+      "sha256": "cb0b760bfe06f513003a7849606714d0e3a75e7d2c874eceff6c4d35515cf316",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-r981": {
+      "blob_sha": "e9c839b4288be8afd549748f2c0d436988b02ad5",
+      "catalog_first": 981,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "duckdb-httpfs-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "sophia-env-cache",
+      "mill_id": "dbc-mill-r981",
+      "n_rows": 48,
+      "path": "experiments/dbc-mill-r981.py",
+      "sha256": "2c4039f9c747c0f987bfc4f00c30d092c0553b2653eaefb1d9d87073c897672d",
+      "shape": "pairs-zip-tables"
+    },
+    "dbc-mill-unique-r320": {
+      "blob_sha": "3ed52efb7c297d37bcea0230d1b49c0b5fd4ed0c",
+      "catalog_first": 320,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "io-addon-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "cantera-data-cache",
+      "mill_id": "dbc-mill-unique-r320",
+      "n_rows": 16,
+      "path": "experiments/dbc-mill-unique-r320.py",
+      "sha256": "c3ce42d697543fce0a845a6870bf5b706d3304f0934bfea5cc683fcaa757a8b7",
+      "shape": "pairs-ctor"
+    },
+    "dbc-mill-unique-r396": {
+      "blob_sha": "01105203cd5b966832d7a444322993ee8373fa65",
+      "catalog_first": 396,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "logtalk-lib-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "calculix-dat-cache",
+      "mill_id": "dbc-mill-unique-r396",
+      "n_rows": 36,
+      "path": "experiments/dbc-mill-unique-r396.py",
+      "sha256": "c3a363afbfd58ce8d50b7800d4aef5b613bf09ed88ec170b3a2e190a3a39f30c",
+      "shape": "pairs-ctor"
+    },
+    "dbc_leftover_lang_mill": {
+      "blob_sha": "cee394f9c3800e4744ae6dd5f9856a8f8a1aa2dc",
+      "catalog_first": null,
+      "factory": "docker-build-cache-factory",
+      "first_slug": "racket-collects-cache",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "scsh-lib-cache",
+      "mill_id": "dbc_leftover_lang_mill",
+      "n_rows": 24,
+      "path": "experiments/dbc_leftover_lang_mill.py",
+      "sha256": "5a225095203db378f1880287d504ae2a8920df2b036a7b35927b307278f6b746",
+      "shape": "leftover-lang"
+    }
+  },
+  "n_mills": 32,
+  "n_pair_rows": 1252,
+  "preserve_commit": "b183a48c94892a71d543321acc808129dc399e50",
+  "schema": "dbc-catalog-extract/v1",
+  "slice": "r193",
+  "source_ref": "origin/legacy-mill-lane"
+}

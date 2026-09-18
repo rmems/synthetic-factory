@@ -1,30 +1,28 @@
-"""Payment-idempotency (pay) lane: cleaned r330 episode data and builders.
+"""Payment-idempotency (pay) lane: slice A builders and Archive B catalog.
 
-Mill burst FAMILY=pay. The composer is cancelled; this package owns the pay
-lane. It is the cleaned, AST-extracted form of the legacy staging script
-``experiments/mill_leftover_leftover_leftover_pay_r330.py`` from
-``origin/legacy-mill-lane``: the 16 payment-provider pairs and the pure
-``success_ep`` / ``fail_ep`` / ``notes`` builders live here as an importable
-package. The staging/execution machinery that drove ``round_txn.py`` via
-subprocess is intentionally not vendored — this package performs no I/O and
-is never executed on this branch.
-
-Distinct from r324-r329; no ``sir-``/``dbc-`` ids.
+Slice A (merged #249) is the r330 leftover-leftover-leftover extract in
+:mod:`pipelines.pay.pairs` / :mod:`pipelines.pay.episodes`. Archive B is the
+``mill_plants.py`` pair catalog (rounds 98+) in :mod:`pipelines.pay.archive_b_catalog`.
+Mill scripts are never executed on this branch.
 """
 
 from __future__ import annotations
 
+from .archive_b_catalog import ArchiveBCatalog, ArchiveBPair, load_archive_b_catalog
 from .episodes import db, fail_ep, success_ep
 from .notes import notes
 from .pairs import FAC, GEN, PAIRS, PREFIX
 
 __all__ = [
+    "ArchiveBCatalog",
+    "ArchiveBPair",
     "FAC",
     "GEN",
     "PAIRS",
     "PREFIX",
     "db",
     "fail_ep",
+    "load_archive_b_catalog",
     "notes",
     "success_ep",
 ]

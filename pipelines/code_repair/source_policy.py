@@ -21,6 +21,8 @@ PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
 })
+# Must match catalog_build.SELECTOR_VERSION: the reviewed pin's selector, not a new one.
+REVIEWED_SELECTOR = "selector-v1"
 
 
 class SourcePolicyError(ValueError):

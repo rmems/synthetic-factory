@@ -2,9 +2,10 @@
 """Sandboxed execution of one program text: the parent side of the harness protocol.
 
 One ``subprocess.run`` call site, a literal argv over ``sys.executable`` and
-the sibling ``_harness.py``, a fresh temporary working directory per phase, a
-minimal environment (``PYTHONHASHSEED=0`` for stable set and dict reprs), a
-wall-clock timeout, and a strict parse of the child's single JSON report.
+the sibling ``_harness.py`` (optionally prefixed by :mod:`.sandbox`), a fresh
+temporary working directory per phase, a minimal environment
+(``PYTHONHASHSEED=0`` for stable set and dict reprs), a wall-clock timeout,
+and a strict parse of the child's single JSON report.
 Wall time, exit codes and stderr tails go to a volatile execution log the
 caller writes beside the run; nothing timing-dependent enters a
 :class:`PhaseReport`, so the same program yields the same report bytes.
@@ -30,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from . import harness_report as _harness_report
+from . import sandbox as sb
 from . import vocabulary as cv
 from ._contract import bind_import_twin
 
@@ -47,7 +49,7 @@ REPORT_FD_ENV = _harness_report.REPORT_FD_ENV
 
 __all__ = [
     "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
-    "harness_sha256", "rows_of",
+    "executor_for", "harness_sha256", "rows_of",
 ]
 
 
@@ -153,12 +155,19 @@ def _scrub_detail(detail: str, workdir: Path | None = None) -> str:
 class Executor:
     """Runs jobs through the harness and keeps the volatile execution log."""
 
-    def __init__(self, *, timeout_s: float = cv.DEFAULT_TIMEOUT_S) -> None:
+    def __init__(
+        self, *, timeout_s: float = cv.DEFAULT_TIMEOUT_S, isolation: sb.Isolation | None = None,
+    ) -> None:
         _check_timeout(timeout_s)
         self.timeout_s = float(timeout_s)
+        self.isolation = isolation if isolation is not None else sb.Isolation.rlimits_only()
         self._harness_bytes = HARNESS_PATH.read_bytes()
         self.harness_sha256 = hashlib.sha256(self._harness_bytes).hexdigest()
         self.log: list[dict[str, Any]] = []
+
+    @property
+    def sandbox_identity(self) -> str:
+        return self.isolation.identity
 
     def spec(self, job: Job) -> dict[str, Any]:
         return {
@@ -181,10 +190,20 @@ class Executor:
             program.write_text(job.module_text, encoding="utf-8", newline="\n")
             (workdir / "spec.json").write_text(_dumps(self.spec(job)), encoding="utf-8")
             (workdir / HARNESS_FILENAME).write_bytes(self._harness_bytes)
-            return replace(self._execute(job, workdir),
-                           module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest())
+            executed: PhaseReport = replace(
+                self._execute(job, workdir),
+                module_sha256=hashlib.sha256(job.module_text.encode("utf-8")).hexdigest(),
+            )
+            return self._stamp_identity(executed)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+
+    def _stamp_identity(self, report: PhaseReport) -> PhaseReport:
+        """Parent-owned sandbox identity; the child cannot choose or overwrite it."""
+
+        environment = dict(report.environment)
+        environment["sandbox_identity"] = self.isolation.identity
+        return replace(report, environment=environment)
 
     def _execute(self, job: Job, workdir: Path) -> PhaseReport:
         """One child run; attestation and JSON are unlinked tempfiles, not workdir paths.
@@ -192,26 +211,29 @@ class Executor:
         The child's file-size limit caps stderr, and the parent reads back at most
         ``MAX_OUTPUT_BYTES`` of each capture, so a child that streams forever cannot
         grow the factory process. Neither capture is a workdir path the candidate can
-        reopen; atexit handlers are cleared before the JSON is written.
+        reopen; atexit handlers are cleared before the JSON is written. OS isolation
+        is selected only through ``isolation.confine``, which also receives the
+        report-fd env so a bwrap ``--clearenv`` child still sees it.
         """
 
-        # This pilot runs reviewed pinned code only. Resource limits do not isolate host
-        # files, network access, or spawned children; OS isolation remains separate (#201).
         argv = [sys.executable, *INTERPRETER_FLAGS, str(workdir / HARNESS_FILENAME), str(workdir)]
         started = time.monotonic()
         entry: dict[str, Any] = {"label": job.label, "timed_out": False, "returncode": None}
         stderr_path = workdir / "stderr"
         env = dict(CHILD_ENV)
+        confined = None
         try:
             with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as report_file, \
                     stderr_path.open("wb") as err:
                 report_fd = report_file.fileno()
                 os.set_inheritable(report_fd, True)
                 env[REPORT_FD_ENV] = str(report_fd)
-                # The reviewed argv is fixed and never enables a shell.
+                confined = self.isolation.confine(argv, workdir, env)
+                # The reviewed argv is a literal list and never enables a shell.
                 completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-                    argv, cwd=workdir, env=env, stdout=out, stderr=err,
-                    timeout=self.timeout_s, check=False, pass_fds=(report_fd,),
+                    confined.argv, cwd=workdir, env=env, stdout=out, stderr=err,
+                    timeout=self.timeout_s, check=False,
+                    pass_fds=(*confined.pass_fds, report_fd),
                 )
                 out.seek(0)
                 stdout = out.read(MAX_OUTPUT_BYTES + 1)
@@ -223,9 +245,26 @@ class Executor:
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
             report = _parse_report(job, completed.returncode, stdout, body)
+        finally:
+            if confined is not None:
+                confined.close()
         entry.update(duration_s=round(time.monotonic() - started, 6), status=report.status)
         self.log.append(entry)
         return report
+
+
+def executor_for(
+    catalog: Any, *, timeout_s: float, supplied: Executor | None = None,
+) -> Executor:
+    """The executor this catalog is allowed to run under; foreign sources need bwrap."""
+
+    if supplied is not None:
+        sb.refuse_unisolated_execution(supplied, catalog=catalog)
+        return supplied
+    isolation = (
+        sb.Isolation.rlimits_only() if sb.catalog_is_reviewed(catalog) else sb.Isolation.os_boundary()
+    )
+    return Executor(timeout_s=timeout_s, isolation=isolation)
 
 
 def _dumps(payload: dict[str, Any]) -> str:
