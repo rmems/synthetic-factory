@@ -13,6 +13,8 @@ from typing import Any
 UNSET = object()
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
+_STRING_BINDINGS = {ast.MatchAs: "name", ast.MatchStar: "name",
+                    ast.MatchMapping: "rest", ast.ExceptHandler: "name"}
 
 
 def module_constants(tree: ast.AST) -> dict[str, Any]:
@@ -80,11 +82,16 @@ def _statement_names(node: ast.AST) -> list[str]:
     scoped = _scope_names(node)
     if scoped is not None:
         return scoped
+    return _binding_names(node) + _child_statement_names(node)
+
+
+def _binding_names(node):
     if isinstance(node, ast.Name):
         return [node.id]
     if isinstance(node, ast.alias):
         return [node.asname or node.name.partition(".")[0]]
-    return _child_statement_names(node)
+    binding = _STRING_BINDINGS.get(type(node))
+    return list(filter(None, [getattr(node, binding)])) if binding else []
 
 
 def _scope_names(node: ast.AST) -> list[str] | None:

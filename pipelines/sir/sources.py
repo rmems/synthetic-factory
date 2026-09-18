@@ -14,8 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 if __name__.startswith("pipelines."):
+    from ..oracle_grounded.import_twins import bind_import_twin
     from ..search.sources import R31_SOURCE
 else:
+    from oracle_grounded.import_twins import bind_import_twin
     from search.sources import R31_SOURCE
 
 from .vocabulary import KIND_LEFTOVER_PAIRS
@@ -33,7 +35,10 @@ class MillSource:
     catalog_first: int
     n_rows: int
     n_hops: int
+    source_lines: int
+    doc_first_line: str
     loads_sibling: str = ""
+    hops: tuple[str, ...] = ()
 
 
 MILL_SOURCES: tuple[MillSource, ...] = (
@@ -46,6 +51,8 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         72,
         16,
         0,
+        362,
+        "search-index-rebuild mill leftover leftover leftover r72+.",
         R31_SOURCE.path,
     ),
     MillSource(
@@ -57,6 +64,21 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         108,
         16,
         11,
+        445,
+        "search-index-rebuild leftover leftover leftover mill r108+.",
+        hops=(
+            "eval-harness-trajectory-factory",
+            "rag-retrieval-debug-factory",
+            "browser-tool-use-factory",
+            "git-ops-recovery-factory",
+            "incident-response-oncall-factory",
+            "email-webhook-retry-factory",
+            "feature-flag-debug-factory",
+            "ssl-cert-rotation-factory",
+            "rate-limit-backoff-factory",
+            "websocket-reconnect-factory",
+            "distributed-lock-factory",
+        ),
     ),
 )
 
@@ -70,3 +92,6 @@ def source_by_id(mill_id: str) -> MillSource:
         if source.mill_id == mill_id:
             return source
     raise KeyError(f"unknown sir mill source {mill_id!r}")
+
+
+bind_import_twin(__name__)

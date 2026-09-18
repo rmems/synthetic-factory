@@ -22,6 +22,7 @@ from .catalog_model import factory_hops, scalar_identity
 from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
+    EXTRACTION,
     FACTORY,
     GENERATOR,
     KIND_LEFTOVER_PAIRS,
@@ -232,9 +233,7 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "factory": FACTORY,
         "generator": GENERATOR,
         "slice": SLICE_ID,
-        "extraction": (
-            "AST literals only; leftover mill / loop publishers were never imported or executed"
-        ),
+        "extraction": EXTRACTION,
         "n_mills": len(mills),
         "n_pair_rows": pair_rows,
         "n_source_files": len(mills),

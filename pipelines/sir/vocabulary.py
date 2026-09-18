@@ -24,6 +24,7 @@ LEGACY_REF = "origin/legacy-mill-lane"
 PRESERVE_COMMIT = "854c59b31eb9bde983f79c8a1adf3b40d04100a9"
 CATALOG_FILENAME = "CATALOG.json"
 PAIRS_FILENAME = "pairs.jsonl"
+EXTRACTION = "AST literals only; leftover mill / loop publishers were never imported or executed"
 
 KIND_LEFTOVER_PAIRS = "leftover-pairs"
 SHAPE_PAIR_6TUPLES = "pair-6tuples"
