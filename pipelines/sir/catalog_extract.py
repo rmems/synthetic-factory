@@ -5,8 +5,8 @@ Unpinned input requires literal catalog assignments (``FACTORY``, ``GEN``,
 ``CATALOG_FIRST``, ``N_ROUNDS``, ``HOP``, ``PAIRS``). Records a
 ``SourceFileLoader`` sibling path when that filename is a string literal.
 Exact pinned archives use AST text projection, not runtime-equivalence claims.
-Does not import, compile, or exec leftover / loop publishers, so those
-scripts stay off this branch.
+Compiler validation discards its code object without executing it. Leftover /
+loop publishers are never imported or executed and stay off this branch.
 """
 
 from __future__ import annotations
@@ -58,12 +58,12 @@ def extract_mill_catalog(
 ) -> dict[str, Any]:
     """Structured catalog extract for one sir mill source file."""
 
-    payload = source_payload(source)
+    payload = source_payload(source, path=path)
     _require_blob_identity(payload, blob_sha)
-    tree = ast.parse(source, filename=path)
     mill_id = mill_id_for_path(path)
     mill_kind_for_id(mill_id)
     constants = module_constants(source, path=path)
+    tree = ast.parse(source, filename=path)
     factory = _required_string(constants.get("FACTORY", FACTORY), f"{path} FACTORY")
     generator = _required_string(constants.get("GEN", GENERATOR), f"{path} GEN")
     catalog_first = _catalog_first(constants, path)

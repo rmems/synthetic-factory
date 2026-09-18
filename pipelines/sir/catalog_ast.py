@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AST literal helpers for the sir catalog extract.
 
-Nothing here executes source. ``ast.parse`` is the only interpreter step.
+Parsing and compiler validation never execute the recovered source.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from .sources import MILL_SOURCES
 UNSET = _literals.UNSET
 literal_value = _literals.literal_value
 module_docstring = _literals.module_docstring
+source_payload = _literals.source_payload
 _SCRIPT_GUARD = ast.dump(ast.parse("__name__ == '__main__'", mode="eval").body)
 
 _FUTURE_ANNOTATIONS = ast.dump(ast.parse("from __future__ import annotations").body[0])
@@ -31,8 +32,8 @@ _ANNOTATION_NAMES = frozenset({"str", "int", "float", "bool", "list", "dict", "t
 def module_constants(source: str, *, path: str) -> dict[str, Any]:
     """Strict literal input or exact pinned archive text projection; never execute."""
 
-    payload = source_payload(source)
-    tree = ast.parse(source, filename=path)
+    payload = source_payload(source, path=path)
+    tree = _literals.validated_tree(source)
     _require_future_header(tree)
     digest = hashlib.sha256(payload).hexdigest()
     archive = any(pin.path == path and pin.sha256 == digest for pin in MILL_SOURCES)
@@ -42,13 +43,6 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
             require_literal_statement(node, env)
         _bind_statement(env, node)
     return env
-
-
-def source_payload(source: str) -> bytes:
-    """Bind parsing and hashing to text whose encoding cannot be overridden."""
-    if type(source) is not str:
-        raise ValueError("catalog source must be a plain string")
-    return source.encode("utf-8")
 
 
 def _require_future_header(tree):

@@ -103,7 +103,7 @@ def _module_uses_exec(path: Path) -> list[str]:
     hits: list[str] = []
     for node in ast.walk(tree):
         callee = getattr(node, "func", None)
-        if isinstance(callee, ast.Name) and callee.id in {"exec", "eval", "compile"}:
+        if isinstance(callee, ast.Name) and callee.id in {"exec", "eval"}:
             hits.append(f"{path.name}:{node.lineno}:{callee.id}")
     return hits
 

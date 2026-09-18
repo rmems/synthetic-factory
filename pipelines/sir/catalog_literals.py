@@ -14,6 +14,23 @@ else:
 UNSET = object()
 
 
+def source_payload(source: str, *, path: str) -> bytes:
+    """Bind parsing and hashing to text whose encoding cannot be overridden."""
+    if type(source) is not str or type(path) is not str:
+        raise ValueError("catalog source and path must be plain strings")
+    return source.encode("utf-8")
+
+
+def validated_tree(source):
+    """Check compiler constraints, then discard code without executing it."""
+    try:
+        tree = ast.parse(source, filename="<catalog-source>")
+        compile(tree, "<catalog-source>", "exec", dont_inherit=True)
+    except (SyntaxError, RecursionError) as exc:
+        raise ValueError(f"catalog source is not valid Python: {exc}") from exc
+    return tree
+
+
 def literal_value(node: ast.AST | None, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, and literal containers; else ``UNSET``."""
 
