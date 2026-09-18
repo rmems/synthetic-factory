@@ -30,6 +30,7 @@ htmlcov/
 # Large curated datasets (promote to hf/ when ready)
 outputs/cleaned/
 outputs/curated/
+outputs/oracle-grounded/
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
 

@@ -277,7 +277,7 @@ def _source_identity(source: SourceRecord) -> _SourceIdentity:
     if original is not None:
         _identity_checks.validate_source_json(original, canonical_source, _identity_check_dependencies())
     if source.source_sha256 is None:
-        preserve_source = original is not None and classify_kind(source.record) == "code_repair"
+        preserve_source = original is not None and classify_kind(source.record) in PRESERVED_KINDS
         original = original if preserve_source else canonical_source
         digest = sha256_bytes(original.encode("utf-8"))
         basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"

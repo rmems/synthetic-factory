@@ -386,6 +386,8 @@ curated independently.
 * The other five families in epic #76 (fault recovery, energy routing, MoE
   router distillation, hardware parity, NIR cross-runtime) are out of scope for
   #77.
-* These records are not wired into `pipelines/validate_run.py`,
-  `check_records.py`, or `promote.py`; the oracle-grounded families have their
-  own validator because their envelope is not a thalamic trajectory.
+* `pipelines/validate_run.py` routes explicit oracle envelopes to their oracle
+  checks before generic trajectory shapes. The dedicated `oracle_validate.py`
+  additionally authenticates the complete run manifest and can explicitly
+  reproduce measurements. `check_records.py` and `promote.py` remain outside
+  this integration.

@@ -457,7 +457,6 @@ def _line_routes():
         (("case_type",), "safety_case", _route_safety_case),
         (("transcript", "agents"), "multi_agent", _route_multi_agent),
         (("goal", "steps"), "episode", _route_episode),
-        (("oracle", "result", "proposal_hash"), "oracle", _route_oracle),
     )
 
 
@@ -492,6 +491,10 @@ def check_line(obj, where, factory_staging=False):
         return [f"{where}: record must be a JSON object"], "unknown"
     if obj.get("family") == "python-function-repair":
         return _route_code_repair(obj, where)
+    if obj.get("schema") == "oracle-grounded/v1" or all(
+        key in obj for key in ("oracle", "result", "proposal_hash")
+    ):
+        return _route_oracle(obj, where, factory_staging), "oracle"
     for required_keys, kind, route in _LINE_ROUTES:
         if not all(k in obj for k in required_keys):
             continue
