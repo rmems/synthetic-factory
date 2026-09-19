@@ -127,11 +127,25 @@ def curate_oracle(original: Any, row: Any, mapping: dict[str, Any]):
     return _preserved_result(mapping, original, row, (eligible, reasons))
 
 
+def curate_parity_record(original: Any, row: Any, mapping: dict[str, Any]):
+    if __package__:
+        from . import curate_parity
+    else:
+        import curate_parity
+    return curate_parity.curate(original, row, mapping)
+
+
 def curate_known_kind(kind: str, original: Any, row: Any, mapping: dict[str, Any]):
     if kind == "code_repair":
         return curate_code_repair(original, row, mapping)
     if kind == "oracle":
         return curate_oracle(original, row, mapping)
+    if __package__:
+        from .record_kind import DECLARED_KINDS
+    else:
+        from record_kind import DECLARED_KINDS
+    if kind in DECLARED_KINDS:
+        return curate_parity_record(original, row, mapping)
     return None
 
 

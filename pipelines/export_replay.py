@@ -27,6 +27,8 @@ from compose_curated_run import authenticated_published_snapshot  # noqa: E402
 from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
+    EmittedRecord,
+    emitted_record_line,
     retained_json_line,
 )
 from census import factory_identity_for_path  # noqa: E402
@@ -115,6 +117,7 @@ class _LineReplay:
     catalog: Any
     mill_finding: Any
     physical_source_path: str | None = None
+    source_terminator: str = "\n"
 
 
 def _selection_result(function, *args):
@@ -169,7 +172,7 @@ def _record_replayed_retained_context(
     decision: Any,
     entry: dict[str, Any],
     replay: _LineReplay,
-) -> str:
+) -> EmittedRecord:
     """Account one replayed record that compose would have emitted."""
 
     try:
@@ -189,7 +192,7 @@ def _record_replayed_retained_context(
     if decision.reward_sidecar is not None:
         entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
         state.expected_sidecars.append(decision.reward_sidecar)
-    return line
+    return emitted_record_line(decision, line, replay.source_terminator)
 
 
 def _record_replayed_retained(
@@ -244,7 +247,7 @@ def _replay_one_line_context(
     state: _ReplayState,
     physical_line: bytes,
     replay: _LineReplay,
-) -> str | None:
+) -> EmittedRecord | None:
     """Replay one non-blank source line through the compose lanes."""
 
     state.counts["source_records"] += 1
@@ -312,11 +315,15 @@ def _replay_one_line(
         emitted.append(emitted_line)
 
 
-def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[str]) -> None:
+def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[EmittedRecord]) -> None:
     """Record the output file one replayed source file would have produced."""
 
     output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
-    payload = "".join(line + "\n" for line in emitted).encode("utf-8")
+    if __package__:
+        from .compose_contract import emitted_records_text
+    else:
+        from compose_contract import emitted_records_text
+    payload = emitted_records_text(emitted).encode("utf-8")
     state.expected_payloads[output_path] = payload
     state.expected_outputs.append(
         {
@@ -343,7 +350,12 @@ def _replay_source_file_context(
         }
     )
     state.counts["source_files"] += 1
-    emitted: list[str] = []
+    emitted: list[EmittedRecord] = []
+    if __package__:
+        from .compose_contract import source_terminators
+    else:
+        from compose_contract import source_terminators
+    terminators = source_terminators(replay.raw_file)
 
     for line_number, physical_line in enumerate(_replay_physical_lines(replay.raw_file), 1):
         if not physical_line.strip():
@@ -359,6 +371,7 @@ def _replay_source_file_context(
                 source_file_sha256=source_file_sha256,
                 catalog=replay.catalog,
                 mill_finding=replay.mill_findings.get((replay.relative, line_number)),
+                source_terminator=terminators[line_number - 1],
                 physical_source_path=replay.physical_source_path,
             ),
         )

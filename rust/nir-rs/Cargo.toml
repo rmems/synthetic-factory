@@ -1,0 +1,17 @@
+[package]
+name = "nir-rs-adapter"
+description = "Process adapter exposing the nir-rs crate as the NIR cross-runtime equivalence authority-contract oracle."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+nir-rs = { version = "=0.4.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
+
+[[bin]]
+name = "nir-rs"
+path = "src/main.rs"

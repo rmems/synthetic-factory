@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Pattern
 
+if __package__:
+    from .record_kind import PRESERVED_NATIVE_KINDS
+else:
+    from record_kind import PRESERVED_NATIVE_KINDS
+
 
 @dataclass(frozen=True)
 class Dependencies:
@@ -282,7 +287,7 @@ def retained_source_lines(results, deps: Dependencies):
             deps.curation_error,
         )
         by_line[source_meta["line"]] = (
-            source_meta["original"] if result.mapping["record_kind"] in ("code_repair", "oracle")
+            source_meta["original"] if result.mapping["record_kind"] in PRESERVED_NATIVE_KINDS
             else deps.canonical_json(result.record)
         )
     return retained_by_rel

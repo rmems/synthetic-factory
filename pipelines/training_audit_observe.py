@@ -239,6 +239,12 @@ class CorpusAudit(AuditAxes):
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
             return
+        if __package__:
+            from .curate_parity import observe_research
+        else:
+            from curate_parity import observe_research
+        if observe_research(self, obj, where, factory):
+            return
         if self._oracle_shaped(obj):
             self._observe_oracle(obj, where, factory, bucket)
             return

@@ -107,6 +107,7 @@ LEGACY_ID_KEYS = _owners.LEGACY_ID_KEYS
 # the measurement's attribution, so curation preserves the generated family ID
 # and output bytes instead of deriving a canonical identity ID.
 PRESERVED_KINDS = _sources.PRESERVED_KINDS
+DECLARED_KINDS = _record_kind.DECLARED_KINDS
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 HIL_RE = _provenance.HIL_RE
 # Standalone 'real'/'live' claims only: 'realistic' and 'real-time' describe a

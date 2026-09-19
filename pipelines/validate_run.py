@@ -39,6 +39,7 @@ if __package__:
     from . import validate_run_routes as _validate_run_routes
     from . import validate_run_cli as _validate_run_cli
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
+    from .oracle_grounded import parity_contract
     from .validate_run_input import reject_json_constant as _reject_json_constant
 else:
     import validate_run_spikes as _validate_run_spikes
@@ -52,6 +53,7 @@ else:
     import validate_run_routes as _validate_run_routes
     import validate_run_cli as _validate_run_cli
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
+    from oracle_grounded import parity_contract
     from validate_run_input import reject_json_constant as _reject_json_constant
 
 # Historical public compatibility surface. Explicit binding keeps these names
@@ -117,6 +119,7 @@ __all__ = [
     "check_line",
     "check_meta_round",
     "check_multi_agent",
+    "check_parity_envelope",
     "check_provenance",
     "check_provenance_publish",
     "check_reward_total",
@@ -336,6 +339,17 @@ def check_safety_case(obj, where, factory_staging=False):
     else:
         errs += _require_reward(obj, where)
     return errs
+
+
+def check_parity_envelope(obj, where):
+    """Shape layer for the oracle-grounded parity families.
+
+    Only the shared envelope is enforced here, the same way this layer only
+    type-checks a thalamic record. Re-deriving parity metrics and re-executing
+    NIR runtimes is the deep layer's job (pipelines/check_records.py), because
+    it is far too expensive to do once per line of a whole run directory.
+    """
+    return parity_contract.check_envelope(obj, where)
 
 
 def _staging_hidden_thought_errors(obj, where):

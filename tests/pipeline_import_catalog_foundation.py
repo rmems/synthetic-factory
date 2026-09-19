@@ -36,6 +36,8 @@ _MODULES = (
     "curate_gate_review",
     "curate_gate_reward",
     "curate_gate_reward_sidecars",
+    "curate_parity_policy",
+    "curate_parity",
     "curate_identity",
     "curate_identity_checks",
     "curate_identity_evidence",

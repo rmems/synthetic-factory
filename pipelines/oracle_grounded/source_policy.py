@@ -39,7 +39,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "21fadbc57aff30e92445ee3b72a6e0e657b1c9155a27ea2c885acb0c8bad5881"
+POLICY_SHA256 = "4e8dcad6a268d8cab2b32e22a1ff9bd07e098b20cb7b5175864b7a6725bc3a26"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -71,12 +71,19 @@ def framed_digest(members: Iterable[tuple[str, bytes]]) -> str:
 
 
 # Explicit runtime source domain: do not include documentation, tests, or build
-# artifacts. These files execute the reviewed native measurement authority.
+# artifacts. These files execute the reviewed native measurement authority --
+# sf-oracle plus the two parity-lane adapter binaries (the `nir-rs` runtime
+# adapter and the `silicon-bridge` UART transport).
 NATIVE_SOURCE_NAMES = (
     "Cargo.toml", "Cargo.lock", "rust/sf-oracle/Cargo.toml", "rust/sf-oracle/build.rs",
     "rust/sf-oracle/src/encoder.rs", "rust/sf-oracle/src/identity.rs",
     "rust/sf-oracle/src/main.rs", "rust/sf-oracle/src/neuron.rs",
     "rust/sf-oracle/src/protocol.rs",
+    "rust/nir-rs/Cargo.toml", "rust/nir-rs/src/main.rs",
+    "rust/nir-rs/src/meta.rs", "rust/nir-rs/src/codec.rs",
+    "rust/nir-rs/src/decode.rs", "rust/nir-rs/src/exec.rs",
+    "rust/nir-rs/src/step.rs",
+    "rust/silicon-bridge/Cargo.toml", "rust/silicon-bridge/src/main.rs",
 )
 
 

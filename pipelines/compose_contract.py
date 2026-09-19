@@ -11,6 +11,7 @@ the canonical hashing primitives that two or more siblings need.
 from __future__ import annotations
 
 import sys
+import io
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
@@ -73,6 +74,44 @@ TRAJECTORY_GOAL_LOCATIONS = (("goal",), ("chosen", "goal"), ("rejected", "goal")
 
 class ComposeError(RuntimeError):
     """Raised when composition input, output, or run integrity is unsafe."""
+
+
+@dataclass(frozen=True)
+class NativeRecordFrame:
+    """An authenticated JSON record plus its captured physical terminator."""
+    text: str
+    terminator: str
+
+
+EmittedRecord = str | NativeRecordFrame
+
+
+def source_terminators(payload: bytes) -> tuple[str, ...]:
+    return tuple(_line_terminator(line) for line in io.BytesIO(payload))
+
+
+def _line_terminator(line: bytes) -> str:
+    if line.endswith(b"\r\n"):
+        return "\r\n"
+    return "\n" if line.endswith(b"\n") else ""
+
+
+def emitted_record_line(decision, text, terminator):
+    if curate_identity.classify_kind(decision.record) in curate_identity.PRESERVED_KINDS:
+        if terminator not in {"", "\n", "\r\n"}:
+            raise ComposeError("invalid captured native source terminator")
+        return NativeRecordFrame(text, terminator)
+    return text
+
+
+def emitted_records_text(lines):
+    return "".join(_record_frame_text(line) for line in lines)
+
+
+def _record_frame_text(line):
+    if isinstance(line, NativeRecordFrame):
+        return line.text + line.terminator
+    return line + "\n"
 
 
 def retained_json_line(decision: ComposeDecision) -> str:

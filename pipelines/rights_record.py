@@ -56,10 +56,13 @@ LANE_RESEARCH = "research"
 LANE_TRAINING = "training"
 AUTHORITY_HOSTED = "hosted"
 AUTHORITY_PROCEDURAL = "procedural"
+AUTHORITY_NATIVE = "native"
+NATIVE_SOURCE_TYPE = "frontier_session"
 ENVELOPE_FIELD = "rights"
 LANE_FIELD = "rights_lane"
 BLOCKER_PREFIX = "rights:"
 PROCEDURAL_REASON = "PROCEDURAL_REVIEWED_SOURCE"
+NATIVE_PARITY_REASON = "NATIVE_PARITY_RESEARCH_ONLY"
 _WHERE = "rights envelope"
 
 
@@ -100,6 +103,11 @@ def _require_reviewed_evidence(envelope: Mapping[str, Any]) -> list[str]:
         for field in ("procedural_policy_sha256", "catalog_sha256", "programs_sha256"):
             if not is_exact_string(envelope.get(field)):
                 blockers.append(f"{BLOCKER_PREFIX} missing reviewed {field}")
+        return blockers
+    if envelope.get("authority") == AUTHORITY_NATIVE:
+        for field in ("parity_policy_sha256", "catalog_sha256"):
+            if not is_exact_string(envelope.get(field)):
+                blockers.append(f"{BLOCKER_PREFIX} missing sealed {field}")
         return blockers
     if unresolved:
         blockers.append(
@@ -217,10 +225,42 @@ def procedural_envelope(context: RecordRights) -> dict[str, Any]:
     }
 
 
+def native_envelope(context: RecordRights) -> dict[str, Any]:
+    """Return the sealed native-parity verdict bound to exact evidence."""
+    row = context.row
+    if not is_exact_string(getattr(row, "parity_policy_sha256", None)):
+        raise policy_error(_WHERE, "native row is missing its sealed parity policy digest")
+    return {
+        "authority": AUTHORITY_NATIVE,
+        "rights_profile_id": row.rights_profile_id,
+        "intended_use": row.intended_use,
+        "project_training_policy": row.project_training_policy,
+        "training_ready_policy": row.training_ready_policy,
+        "research_retention_status": "allowed",
+        "research_evaluation_status": "allowed",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved",
+        "reason_codes": list(dict.fromkeys((NATIVE_PARITY_REASON, *context.ineligibility_reasons))),
+        "eligible_training_candidate": context.eligible,
+        "ineligibility_reasons": list(context.ineligibility_reasons),
+        "source_sha256": prefixed_sha256(context.source_sha256),
+        "factory_registry_sha256": prefixed_sha256(context.factory_registry_sha256),
+        "parity_policy_sha256": prefixed_sha256(row.parity_policy_sha256),
+        "catalog_id": row.catalog_id,
+        "catalog_sha256": prefixed_sha256(row.catalog_sha256),
+        "generator_version": row.generator_version,
+        "rights_policy_sha256": RIGHTS_POLICY_SHA256,
+    }
+
+
 def envelope_for_row(context: RecordRights) -> dict[str, Any]:
     """Build the envelope authorized by one reviewed registry row."""
-    if getattr(context.row, "source_type", "hosted") == AUTHORITY_PROCEDURAL:
+    source_type = getattr(context.row, "source_type", "hosted")
+    if source_type == AUTHORITY_PROCEDURAL:
         return procedural_envelope(context)
+    if source_type == NATIVE_SOURCE_TYPE:
+        return native_envelope(context)
     return hosted_envelope(context)
 
 
@@ -273,8 +313,11 @@ def verify_bound_envelope(envelope: object, evidence: BoundRights) -> dict[str, 
     """Recompute byte bindings and require the reviewed row's exact verdict."""
     if not isinstance(envelope, Mapping):
         raise policy_error(_WHERE, "envelope must be an object")
-    if envelope.get("authority") == AUTHORITY_PROCEDURAL:
+    authority = envelope.get("authority")
+    if authority == AUTHORITY_PROCEDURAL:
         return _verify_procedural_envelope(envelope, evidence)
+    if authority == AUTHORITY_NATIVE:
+        return _verify_native_envelope(envelope, evidence)
     return _verify_hosted_envelope(envelope, evidence)
 
 
@@ -303,6 +346,18 @@ def _verify_procedural_envelope(envelope: Mapping, evidence: BoundRights) -> dic
         raise policy_error(_WHERE, "procedural eligibility differs from the reviewed verdict")
     if dict(envelope) != expected:
         raise policy_error(_WHERE, "envelope fields drift from the reviewed procedural verdict")
+    return expected
+
+
+def _verify_native_envelope(envelope: Mapping, evidence: BoundRights) -> dict[str, Any]:
+    row = evidence.row
+    if getattr(row, "source_type", None) != NATIVE_SOURCE_TYPE or not is_exact_string(
+        getattr(row, "parity_policy_sha256", None)
+    ):
+        raise policy_error(_WHERE, "native envelope requires a reviewed frontier-session parity row")
+    expected = envelope_for_row(evidence.record_rights())
+    if dict(envelope) != expected:
+        raise policy_error(_WHERE, "envelope fields drift from the sealed native parity verdict")
     return expected
 
 

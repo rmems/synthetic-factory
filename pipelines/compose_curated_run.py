@@ -113,6 +113,7 @@ def compose_one_line(
             context.relative,
             f"{context.relative}:{context.line_number}",
             context.emitted,
+            context.source_terminator,
         )
         active.record_retained_line(state, decision, retained_context)
         _rights.bind_retained_rights(state, entry, decision, physical_line)
@@ -130,7 +131,8 @@ def compose_source_file(
     active = hooks or default_run_hooks()
     source_file_sha256 = sha256_hex(context.raw_file)
     state.counts["source_files"] += 1
-    emitted: list[str] = []
+    emitted: list[_contract.EmittedRecord] = []
+    terminators = _contract.source_terminators(context.raw_file)
     for line_number, physical_line in enumerate(active.jsonl_physical_lines(context.raw_file), 1):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
@@ -143,6 +145,7 @@ def compose_source_file(
             emitted,
             context.mill_findings,
             context.physical_source_path,
+            terminators[line_number - 1],
         )
         active.compose_one_line(
             state,

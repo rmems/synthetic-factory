@@ -71,8 +71,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             registry = json.loads(registry_path.read_text(encoding="utf-8"))
             registry["schema_version"] = "factory-registry-v0.1"
             registry["factories"] = [row for row in registry["factories"]
-                                     if row.get("source_type")
-                                     not in {"procedural", "model_channel"}]
+                                     if row.get("source_type", "hosted") == "hosted"]
             registry["factories"] = [_legacy_row_payload(row) for row in registry["factories"]]
             legacy_bytes = _manifest_bytes(registry)
             registry_path.write_bytes(legacy_bytes)

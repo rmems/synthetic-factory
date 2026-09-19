@@ -271,12 +271,43 @@ def _output_summary(relative: str, target: Path, records: list[dict[str, Any]]) 
     }
 
 
+def _canonical_line(item: dict[str, Any], record) -> bytes:
+    return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+
 def _composed_line(item: dict[str, Any]) -> bytes:
-    if classify_kind(item["record"]) == "code_repair":
-        if not _merge._same_json(item["record"], item["source_record"]):
-            raise GateError("procedural evidence must preserve the reviewed source record")
-        return item["source_bytes"]
-    return (dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True) + "\n").encode()
+    record = item["record"]
+    return _LINE_COMPOSERS.get(classify_kind(record), _canonical_line)(item, record)
+
+
+def _native_parity_line(item: dict[str, Any], record) -> bytes:
+    """A native parity record composes as its authenticated source bytes."""
+    payload = item.get("source_bytes")
+    if not isinstance(payload, bytes) or record_sha256(record) != item["source_record_sha256"]:
+        raise GateError("native parity composition must preserve authenticated source bytes")
+    return payload
+
+
+def _reviewed_source_line(item: dict[str, Any], record) -> bytes:
+    """A procedural record composes as the reviewed source bytes it shadows."""
+    if not _merge._same_json(record, item["source_record"]):
+        raise GateError("procedural evidence must preserve the reviewed source record")
+    return item["source_bytes"]
+
+
+_LINE_COMPOSERS = {
+    "hardware_parity": _native_parity_line,
+    "nir_equivalence": _native_parity_line,
+    "code_repair": _reviewed_source_line,
+    "oracle": _reviewed_source_line,
+}
+
+
+def _composed_payload(records):
+    lines = [_composed_line(item) for item in records]
+    if any(not line.endswith(b"\n") for line in lines[:-1]):
+        raise GateError("unterminated native source cannot precede another composed record")
+    return b"".join(lines)
 
 
 def _write_composed_path(
@@ -286,7 +317,7 @@ def _write_composed_path(
     records.sort(key=lambda item: (item["source_path"], item["source_line"]))
     target = destination / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(b"".join(_composed_line(item) for item in records))
+    target.write_bytes(_composed_payload(records))
     bindings = [
         _record_binding(relative, output_line, item) for output_line, item in enumerate(records, 1)
     ]

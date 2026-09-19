@@ -829,7 +829,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         result = identity.curate_record(
             source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
         )
-        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.3")
+        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.4")
         self.assertEqual(result.mapping["registry"]["sha256"], digest)
         self.assertNotIn("registry", result.record)
         self.assertNotIn("schema_version", result.record)
@@ -1129,7 +1129,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
 
     def test_registry_metadata_describes_reviewed_identity_authority(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
-        self.assertEqual(payload["schema_version"], "factory-registry-v0.3")
+        self.assertEqual(payload["schema_version"], "factory-registry-v0.4")
         self.assertEqual(payload["lookup_key"], "path_id")
         self.assertIn("reviewed registry row", payload["notes"])
         self.assertIn("_REVIEWED_GENERATOR_RIGHTS", payload["notes"])
@@ -1139,9 +1139,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
         hosted = [
-            row
-            for row in payload["factories"]
-            if row.get("source_type") not in {"procedural", "model_channel"}
+            row for row in payload["factories"] if row.get("source_type", "hosted") == "hosted"
         ]
         expected_rights = {
             "fable-5": ("anthropic", "consumer"),
