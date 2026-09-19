@@ -1,0 +1,15 @@
+README.md
+  8dcb95449434d654 55-76,142-143,147
+tests/test_curate_identity_rights.py
+  8dcb95449434d654 73-75
+tests/test_code_repair_admission.py
+  8dcb95449434d654 95-97
+pipelines/curate_identity_registry_rows.py
+  8dcb95449434d654 496-497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0736e27018492b6c83e71ae6f0783c0a9420e905",
+  "prompts": {}
+}
