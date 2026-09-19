@@ -106,6 +106,23 @@ def available() -> bool:
     return abi is not None and abi >= MIN_ABI
 
 
+def enforce(workdir: str, spec: dict, report: dict) -> None:
+    """Apply the allowlist when the spec requires it; raise when it cannot hold.
+
+    Records the applied token in ``report["environment"]["landlock"]`` so the
+    parent can prove which restriction the child ran under. A missing boundary
+    raises, so the run fails closed as a harness error before ``program.py``
+    is read.
+    """
+
+    if not spec.get("require_landlock"):
+        return
+    token = apply(workdir)
+    report["environment"]["landlock"] = token if applied(token) else ""
+    if not report["environment"]["landlock"]:
+        raise RuntimeError("SANDBOX_UNAVAILABLE: landlock")
+
+
 def apply(workdir: str) -> str | None:
     """Restrict this process, or return None when Landlock cannot be applied."""
 

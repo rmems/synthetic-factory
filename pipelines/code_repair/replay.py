@@ -180,7 +180,10 @@ def _environment_matches(record: dict, environment: dict) -> bool:
         for key in ("implementation", "platform", "limits_applied", "isolation")
     }
     fresh["python"] = ".".join(str(environment.get("python", "")).split(".")[:2])
-    return all(fingerprint.get(key) == value for key, value in fresh.items())
+    if not all(fingerprint.get(key) == value for key, value in fresh.items()):
+        return False
+    confinement = (record["oracle"].get("configuration") or {}).get("confinement")
+    return confinement == (environment.get("landlock") or None)
 
 
 def _public_matches(record: dict, program: cat.Program, phases: verify.Phases) -> bool:
