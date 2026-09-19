@@ -175,11 +175,9 @@ def _event_grid_binding_error(scenario_id, stimulus, steps, where):
     return None
 
 
-def _catalog_prediction_errors(record, expected, scenario_id, where):
-    """The generator's prediction and intervention must be the catalog's."""
-    errors = []
-    prediction = record.get("candidate_prediction")
-    expected_prediction = {
+def _catalog_expected_prediction(expected):
+    """The candidate_prediction the catalog scenario should carry."""
+    return {
         "hypothesis": expected["hypothesis"],
         "expected_verdict": (
             contract.VERDICT_MATCH
@@ -187,14 +185,19 @@ def _catalog_prediction_errors(record, expected, scenario_id, where):
             else contract.VERDICT_MISMATCH
         ),
     }
-    for key, expected_value in expected_prediction.items():
+
+
+def _catalog_prediction_errors(record, expected, scenario_id, where):
+    """The generator's prediction and intervention must be the catalog's."""
+    prediction = record.get("candidate_prediction")
+    errors = [
+        f"{where}: candidate_prediction.{key} does not match catalog "
+        f"scenario {scenario_id!r} [SCENARIO_LABEL_MISMATCH]"
+        for key, expected_value in _catalog_expected_prediction(expected).items()
         if not isinstance(prediction, dict) or not contract.strict_json_equal(
             prediction.get(key), expected_value
-        ):
-            errors.append(
-                f"{where}: candidate_prediction.{key} does not match catalog "
-                f"scenario {scenario_id!r} [SCENARIO_LABEL_MISMATCH]"
-            )
+        )
+    ]
     if not contract.strict_json_equal(record.get("intervention"), expected["intervention"]):
         errors.append(
             f"{where}: intervention does not match catalog scenario {scenario_id!r} "
@@ -212,37 +215,50 @@ def _check_catalog_scenario(record, where):
     if expected is None:
         return errors
     scenario_id = scenario.get("id")
-    expected_scenario = {
-        key: value
-        for key, value in expected.items()
-        if key not in ("hypothesis", "intervention")
-    }
-    for key, expected_value in expected_scenario.items():
-        if not contract.strict_json_equal(scenario.get(key), expected_value):
-            errors.append(
-                f"{where}: scenario.{key} does not match catalog scenario "
-                f"{scenario_id!r} [SCENARIO_LABEL_MISMATCH]"
-            )
+    errors += _scenario_binding_errors(scenario, expected, where)
     errors += _catalog_prediction_errors(record, expected, scenario_id, where)
     return errors
+
+
+def _scenario_binding_errors(scenario, expected, where):
+    """Every non-prediction field on the record must equal the catalog's."""
+    scenario_id = scenario.get("id")
+    return [
+        f"{where}: scenario.{key} does not match catalog scenario "
+        f"{scenario_id!r} [SCENARIO_LABEL_MISMATCH]"
+        for key, expected_value in expected.items()
+        if key not in ("hypothesis", "intervention")
+        and not contract.strict_json_equal(scenario.get(key), expected_value)
+    ]
+
+
+def _record_round(record):
+    """The recorded round number, or None when meta is not an object."""
+    meta = record.get("meta")
+    return meta.get("round") if isinstance(meta, dict) else None
+
+
+def _expected_record_id(record):
+    """``<scenario_id>-r<NN>``, or None when no valid round is recorded."""
+    scenario = record.get("scenario")
+    scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
+    round_number = _record_round(record)
+    if not isinstance(round_number, int) or isinstance(round_number, bool):
+        return None
+    return f"{scenario_id}-r{round_number:02d}"
 
 
 def _record_naming_errors(record, where):
     """The id, meta, and generator blocks must name this factory exactly."""
     errors = []
-    scenario = record.get("scenario")
-    meta = record.get("meta")
-    scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
-    round_number = meta.get("round") if isinstance(meta, dict) else None
-    if isinstance(round_number, int) and not isinstance(round_number, bool):
-        expected_id = f"{scenario_id}-r{round_number:02d}"
-        if record.get("id") != expected_id:
-            errors.append(
-                f"{where}: id must be {expected_id!r} for this scenario and round "
-                "[ENVELOPE_MALFORMED]"
-            )
+    expected_id = _expected_record_id(record)
+    if expected_id is not None and record.get("id") != expected_id:
+        errors.append(
+            f"{where}: id must be {expected_id!r} for this scenario and round "
+            "[ENVELOPE_MALFORMED]"
+        )
     if not contract.strict_json_equal(
-        meta, {"round": round_number, "factory": FACTORY_SLUG}
+        record.get("meta"), {"round": _record_round(record), "factory": FACTORY_SLUG}
     ):
         errors.append(
             f"{where}: meta must exactly identify factory {FACTORY_SLUG!r} and its "
@@ -256,49 +272,64 @@ def _record_naming_errors(record, where):
     return errors
 
 
-def _check_record_identity(record, where):
-    """Bind the family, round, producer, and validator identities."""
-    oracle = record.get("oracle")
-    errors = _record_naming_errors(record, where)
-    deployment = oracle.get("deployment") if isinstance(oracle, dict) else None
-    deployment_target = (
-        deployment.get("execution_target") if isinstance(deployment, dict) else None
-    )
-    provenance = record.get("provenance")
-    expected_provenance_identity = {
+_PROVENANCE_UNITS = {
+    "time": "ms",
+    "membrane": "mV_model",
+    "weights": "dimensionless",
+    "latency": "ms",
+}
+
+_EXPECTED_VALIDATION = {
+    "validator": VALIDATOR,
+    "validator_version": SCHEMA_VERSION,
+    "checks": [
+        "envelope_contract",
+        "identical_input_fixture",
+        "q88_conversion_reproducible",
+        "parity_metrics_recomputed_from_traces",
+        "verdict_consistent_with_traces",
+    ],
+    "status": "revalidate_on_read",
+}
+
+
+def _expected_provenance_identity(deployment_target, provenance):
+    """The provenance identity block this validator would assert."""
+    identity = {
         "kind": "unknown" if deployment_target in PHYSICAL_TARGETS else "simulated",
         "tool": VALIDATOR,
         "tool_version": SCHEMA_VERSION,
         "contract_version": contract.CONTRACT_VERSION,
-        "units": {
-            "time": "ms",
-            "membrane": "mV_model",
-            "weights": "dimensionless",
-            "latency": "ms",
-        },
+        "units": _PROVENANCE_UNITS,
     }
-    expected_provenance_identity.update(reviewed_catalog_stamps(provenance, _catalog_provenance_stamps()))
+    identity.update(reviewed_catalog_stamps(provenance, _catalog_provenance_stamps()))
+    return identity
+
+
+def _deployment_target(record):
+    """The deployment side's declared execution target, or None."""
+    oracle = record.get("oracle")
+    deployment = oracle.get("deployment") if isinstance(oracle, dict) else None
+    return (
+        deployment.get("execution_target") if isinstance(deployment, dict) else None
+    )
+
+
+def _check_record_identity(record, where):
+    """Bind the family, round, producer, and validator identities."""
+    errors = _record_naming_errors(record, where)
+    deployment_target = _deployment_target(record)
+    provenance = record.get("provenance")
+    expected_identity = _expected_provenance_identity(deployment_target, provenance)
     if not isinstance(provenance, dict) or any(
         not contract.strict_json_equal(provenance.get(key), value)
-        for key, value in expected_provenance_identity.items()
+        for key, value in expected_identity.items()
     ):
         errors.append(
             f"{where}: provenance identity does not match the hardware validator "
             "[ENVELOPE_MALFORMED]"
         )
-    expected_validation = {
-        "validator": VALIDATOR,
-        "validator_version": SCHEMA_VERSION,
-        "checks": [
-            "envelope_contract",
-            "identical_input_fixture",
-            "q88_conversion_reproducible",
-            "parity_metrics_recomputed_from_traces",
-            "verdict_consistent_with_traces",
-        ],
-        "status": "revalidate_on_read",
-    }
-    if not contract.strict_json_equal(record.get("validation"), expected_validation):
+    if not contract.strict_json_equal(record.get("validation"), _EXPECTED_VALIDATION):
         errors.append(
             f"{where}: validation block does not match the hardware validator contract "
             "[ENVELOPE_MALFORMED]"

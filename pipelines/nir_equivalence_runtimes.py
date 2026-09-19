@@ -117,6 +117,11 @@ class RuntimeUnavailable(Exception):
         self.detail = detail
 
 
+def _envelope_succeeded(envelope):
+    """The adapter envelope's success shape: an object carrying ok=true."""
+    return isinstance(envelope, dict) and envelope.get("ok") is True
+
+
 NIR_RS_NOT_INSTALLED_DETAIL = (
     "nir_rs is not installed in this environment; "
     "the authority-contract oracle for this family"
@@ -303,11 +308,12 @@ class NirRsRuntime:
 
     def _raise_for_envelope(self, binary, envelope, returncode):
         """The ``result`` payload, or the typed failure the envelope names."""
-        if returncode == 0 and isinstance(envelope, dict) and envelope.get("ok") is True:
+        if returncode == 0 and _envelope_succeeded(envelope):
             return envelope["result"]
         error = envelope.get("error") if isinstance(envelope, dict) else None
-        error = error if isinstance(error, dict) else {}
-        raise self._envelope_failure(binary, error)
+        raise self._envelope_failure(
+            binary, error if isinstance(error, dict) else {}
+        )
 
     def _envelope_failure(self, binary, error):
         """The typed exception the envelope's error block names."""

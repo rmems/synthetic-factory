@@ -164,19 +164,19 @@ def _capture_adapter_identity_errors(source, deployment, where):
         deployment.get("adapter"),
         deployment.get("runtime_class"),
     )
+    if (source_adapter, source_runtime) == deployment_identity:
+        return []
     live_claim = deployment_identity == (
         FpgaHardwareAdapter.name,
         FpgaHardwareAdapter.runtime_class,
     )
-    identity_differs = (source_adapter, source_runtime) != deployment_identity
-    declared_source = source_adapter is not None or source_runtime is not None
-    if live_claim and identity_differs:
+    if live_claim:
         return [
             f"{where}: live FPGA evidence must bind capture.source.adapter and "
             "capture.source.runtime_class to the live board adapter "
             "[HW_PROVENANCE_MISSING]"
         ]
-    if declared_source and identity_differs:
+    if source_adapter is not None or source_runtime is not None:
         return [
             f"{where}: capture source adapter identity disagrees with the "
             "deployment [HW_PROVENANCE_MISSING]"
@@ -202,27 +202,39 @@ def _capture_identity_errors(source, deployment, payload, where):
     return errors + _capture_quantization_errors(source, deployment, payload, where)
 
 
-def _capture_quantization_errors(source, deployment, payload, where):
-    """Distinguish an absent quantization pin from a present invalid value."""
-    payload = payload if isinstance(payload, dict) else {}
-    has_both = "quantization" in source and "quantization" in payload
-    top = source.get("quantization")
-    nested = payload.get("quantization")
-    if has_both and not contract.strict_json_equal(top, nested):
+def _dual_quantization_pin_errors(source, payload, where):
+    """When both locations pin quantization, the pins must agree."""
+    if (
+        "quantization" in source
+        and "quantization" in payload
+        and not contract.strict_json_equal(
+            source["quantization"], payload["quantization"]
+        )
+    ):
         return [
             f"{where}: capture.source.quantization disagrees with "
             "capture.source.payload.quantization [Q88_PROVENANCE_MISMATCH]"
         ]
-    source_quantization = top if "quantization" in source else nested
+    return []
+
+
+def _capture_quantization_errors(source, deployment, payload, where):
+    """Distinguish an absent quantization pin from a present invalid value."""
+    payload = payload if isinstance(payload, dict) else {}
+    errors = _dual_quantization_pin_errors(source, payload, where)
+    if "quantization" in source:
+        source_quantization = source["quantization"]
+    else:
+        source_quantization = payload.get("quantization")
     # Strict JSON typing: an ordinary `!=` treats False as 0, letting a
     # capture source violate the documented quantization types while still
     # binding to the deployment.
     if not contract.strict_json_equal(source_quantization, deployment.get("quantization")):
-        return [
+        errors.append(
             f"{where}: deployment quantization is not the conversion stored with the "
             "capture [Q88_PROVENANCE_MISMATCH]"
-        ]
-    return []
+        )
+    return errors
 
 
 def _capture_projection_errors(deployment, payload, where):
@@ -270,24 +282,9 @@ def _capture_source_digest_errors(capture, source, where):
     return [], False
 
 
-def _capture_stored_object_errors(capture, source, where):
-    """Return ``(manifest, payload, errors)``: capture.source's manifest and
-    payload objects, plus the digest-binding errors between them."""
-    manifest = source.get("manifest")
-    payload = source.get("payload")
-    if not isinstance(manifest, dict) or not isinstance(payload, dict):
-        return None, None, [
-            f"{where}: capture.source must contain object-valued manifest and payload "
-            "[HW_PROVENANCE_MISSING]"
-        ]
-    try:
-        manifest_sha = digest(manifest)
-        payload_sha = digest(payload)
-    except (TypeError, ValueError, OverflowError) as exc:
-        return None, None, [
-            f"{where}: capture manifest or payload is not canonical finite JSON: "
-            f"{exc} [ENVELOPE_MALFORMED]"
-        ]
+def _stored_digest_bindings(capture, manifest, shas, where):
+    """capture's stored manifest/payload digests must identify the objects."""
+    manifest_sha, payload_sha = shas
     errors = []
     if capture.get("manifest_sha256") != manifest_sha:
         errors.append(
@@ -302,7 +299,29 @@ def _capture_stored_object_errors(capture, source, where):
             f"{where}: capture payload digest is not bound to the stored manifest "
             "[HW_PROVENANCE_MISSING]"
         )
-    return manifest, payload, errors
+    return errors
+
+
+def _capture_stored_object_errors(capture, source, where):
+    """Return ``(manifest, payload, errors)``: capture.source's manifest and
+    payload objects, plus the digest-binding errors between them."""
+    manifest = source.get("manifest")
+    payload = source.get("payload")
+    if not isinstance(manifest, dict) or not isinstance(payload, dict):
+        return None, None, [
+            f"{where}: capture.source must contain object-valued manifest and payload "
+            "[HW_PROVENANCE_MISSING]"
+        ]
+    try:
+        shas = digest(manifest), digest(payload)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return None, None, [
+            f"{where}: capture manifest or payload is not canonical finite JSON: "
+            f"{exc} [ENVELOPE_MALFORMED]"
+        ]
+    return manifest, payload, _stored_digest_bindings(
+        capture, manifest, shas, where
+    )
 
 
 def _check_capture_chain(record, deployment, where):
@@ -333,12 +352,21 @@ def _check_capture_chain(record, deployment, where):
     errors += sha_errors
     if fatal:
         return errors
-    stored = _capture_stored_object_errors(capture, source, where)
-    if stored[0] is None:
-        return errors + stored[2]
-    manifest, payload = stored[0], stored[1]
-    errors += stored[2]
-    errors += _capture_manifest_binding_errors(capture, manifest, record, where)
+    manifest, payload, object_errors = _capture_stored_object_errors(
+        capture, source, where
+    )
+    errors += object_errors
+    if manifest is None:
+        return errors
+    return errors + _capture_evidence_errors(
+        record, deployment, (capture, source, manifest, payload), where
+    )
+
+
+def _capture_evidence_errors(record, deployment, stored, where):
+    """Everything past the digest chain: bindings, re-observation, identity."""
+    capture, source, manifest, payload = stored
+    errors = _capture_manifest_binding_errors(capture, manifest, record, where)
     scenario = record.get("scenario")
     errors += _physical_observation_errors(
         payload, scenario, "capture.source.payload", where

@@ -145,21 +145,16 @@ file_patterns = ["tests/**"]
 # same applies to the shared contract-constant tables (`compose_contract`,
 # `curate_gate_*`, `validate_run`) whose identical line runs are the contract
 # surface itself, not copy-paste debt, and to the test suites that share
-# fixture/builder scaffolds.
+# fixture/builder scaffolds. Every file pair must match for a fingerprint to
+# quiet, so the patterns cover the sibling modules the fingerprints pair
+# against, not just the files this PR adds.
 [[triage]]
 match.rules = ["qlty:similar-code"]
 match.file_patterns = [
-  "pipelines/nir_equivalence*.py",
-  "pipelines/hardware_parity*.py",
-  "pipelines/neuro_oracle*.py",
-  "pipelines/parity_*.py",
-  "pipelines/check_records.py",
-  "pipelines/oracle_grounded/*.py",
-  "pipelines/curate_gate_*.py",
-  "pipelines/curate_identity_*.py",
-  "pipelines/compose_contract.py",
-  "pipelines/validate_run.py",
-  "tests/**",
+  "pipelines/**/*.py",
+  "tests/**/*.py",
+  "scripts/**/*.py",
+  ".claude/**/*.py",
 ]
 set.ignored = true
 

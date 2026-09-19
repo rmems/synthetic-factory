@@ -18,7 +18,7 @@ class HistoricalCaptureDiagnostics(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             capture = Path(tmp) / "capture.json"
             capture.write_text(json.dumps({"execution_target": "recorded_capture"}))
-            return hp.generate_records(steps=6, deployment_adapter=oracle.RecordedCaptureAdapter(capture))[0]
+            return hp.generate_records(steps=6, deployment=(oracle.RecordedCaptureAdapter(capture), None))[0]
 
     def test_validator_does_not_open_historical_record_controlled_capture_path(self):
         record = self._record()

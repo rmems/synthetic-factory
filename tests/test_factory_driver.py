@@ -20,6 +20,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(factory_driver)
 
 from round_txn import TransactionError  # noqa: E402
+import snapshot_ops  # noqa: E402 - driver puts the skill dir on sys.path
 
 
 FIXTURES = REPO / "tests" / "fixtures"
@@ -144,7 +145,7 @@ class FactoryDriverBytes(unittest.TestCase):
                 raise TransactionError("source entry disappeared")
 
             with mock.patch.object(
-                factory_driver,
+                snapshot_ops,
                 "copy_snapshot_tree",
                 side_effect=fail_after_partial_copy,
             ), self.assertRaisesRegex(TransactionError, "source entry disappeared"):
@@ -239,7 +240,7 @@ class FactoryDriverBytes(unittest.TestCase):
                 entry.symlink_to(outside)
 
             with mock.patch.object(
-                factory_driver,
+                snapshot_ops,
                 "reject_snapshot_symlinks",
                 side_effect=replace_after_preflight,
             ), self.assertRaisesRegex(TransactionError, "cannot snapshot path safely"):
@@ -317,11 +318,11 @@ class FactoryDriverValidation(unittest.TestCase):
                 return real_snapshot(src, prefix)
 
             with mock.patch.object(
-                factory_driver,
+                snapshot_ops,
                 "marker_visible_jsonl_paths",
                 side_effect=observe_visible,
             ), mock.patch.object(
-                factory_driver, "snapshot_to_temp", side_effect=observe_snapshot
+                snapshot_ops, "snapshot_to_temp", side_effect=observe_snapshot
             ):
                 temp, _snapshot, visible = factory_driver.marker_visible_snapshot(
                     run, "factory-lock-test-"
@@ -353,7 +354,7 @@ class FactoryDriverValidation(unittest.TestCase):
                 return real_snapshot(src, prefix)
 
             with mock.patch.object(
-                factory_driver, "snapshot_to_temp", side_effect=transient_cleanup
+                snapshot_ops, "snapshot_to_temp", side_effect=transient_cleanup
             ):
                 temp, snapshot, visible = factory_driver.marker_visible_snapshot(
                     run, "factory-cleanup-retry-"

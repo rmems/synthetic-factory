@@ -75,6 +75,15 @@ def _forget_repository_modules() -> None:
     _drop_repository_paths()
 
 
+def _facade_map(hardware_parity, nir_equivalence, neuro_oracle) -> dict[str, Any]:
+    """The probe's stable {facade name: module object} result shape."""
+    return {
+        "hardware_parity": hardware_parity,
+        "nir_equivalence": nir_equivalence,
+        "neuro_oracle": neuro_oracle,
+    }
+
+
 def _cli_form() -> dict[str, Any]:
     """``python3 pipelines/x.py`` puts ``pipelines/`` first and imports flat."""
 
@@ -84,11 +93,7 @@ def _cli_form() -> dict[str, Any]:
     import nir_equivalence
     from oracle_grounded import parity_publication  # noqa: F401 - import identity probe
 
-    return {
-        "hardware_parity": hardware_parity,
-        "nir_equivalence": nir_equivalence,
-        "neuro_oracle": neuro_oracle,
-    }
+    return _facade_map(hardware_parity, nir_equivalence, neuro_oracle)
 
 
 def _package_form() -> dict[str, Any]:
@@ -98,11 +103,7 @@ def _package_form() -> dict[str, Any]:
     from pipelines import hardware_parity, neuro_oracle, nir_equivalence
     from pipelines.oracle_grounded import parity_publication  # noqa: F401 - import identity probe
 
-    return {
-        "hardware_parity": hardware_parity,
-        "nir_equivalence": nir_equivalence,
-        "neuro_oracle": neuro_oracle,
-    }
+    return _facade_map(hardware_parity, nir_equivalence, neuro_oracle)
 
 
 def _split_siblings() -> list[str]:

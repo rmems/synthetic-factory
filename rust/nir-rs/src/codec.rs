@@ -124,15 +124,15 @@ fn output_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNod
 
 fn affine_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
     Ok(NirNode::Affine(nodes::Affine {
-        weight: matrix_tensor(name, node, "weight")?,
-        bias: vector_tensor(name, node, "bias")?,
+        weight: matrix_tensor(NodeField::new(name, "weight"), node)?,
+        bias: vector_tensor(NodeField::new(name, "bias"), node)?,
         metadata,
     }))
 }
 
 fn linear_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
     Ok(NirNode::Linear(nodes::Linear {
-        weight: matrix_tensor(name, node, "weight")?,
+        weight: matrix_tensor(NodeField::new(name, "weight"), node)?,
         metadata,
     }))
 }
@@ -143,14 +143,14 @@ fn threshold_node(
     metadata: MetadataMap,
 ) -> Result<NirNode, AdapterError> {
     Ok(NirNode::Threshold(nodes::Threshold {
-        threshold: scalar_tensor(name, node, "threshold")?,
+        threshold: scalar_tensor(NodeField::new(name, "threshold"), node)?,
         metadata,
     }))
 }
 
 fn delay_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
     Ok(NirNode::Delay(nodes::Delay {
-        delay: Tensor::scalar_i64(integer_field(name, node, "delay")?),
+        delay: Tensor::scalar_i64(integer_field(NodeField::new(name, "delay"), node)?),
         metadata,
     }))
 }
@@ -161,7 +161,7 @@ fn lif_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, 
         tau,
         r,
         v_leak,
-        v_threshold: scalar_tensor(name, node, "v_threshold")?,
+        v_threshold: scalar_tensor(NodeField::new(name, "v_threshold"), node)?,
         v_reset: None,
         metadata,
     }))
@@ -180,16 +180,16 @@ fn li_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, A
 /// The `(tau, r, v_leak)` parameter triple the decay-integrate kinds share.
 fn decay_params(name: &str, node: &Value) -> Result<(Tensor, Tensor, Tensor), AdapterError> {
     Ok((
-        scalar_tensor(name, node, "tau")?,
-        scalar_tensor_default(name, node, "r", 1.0)?,
-        scalar_tensor_default(name, node, "v_leak", 0.0)?,
+        scalar_tensor(NodeField::new(name, "tau"), node)?,
+        scalar_tensor_default(NodeField::new(name, "r"), node, 1.0)?,
+        scalar_tensor_default(NodeField::new(name, "v_leak"), node, 0.0)?,
     ))
 }
 
 fn if_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
     Ok(NirNode::If(nodes::If {
-        r: scalar_tensor_default(name, node, "r", 1.0)?,
-        v_threshold: scalar_tensor(name, node, "v_threshold")?,
+        r: scalar_tensor_default(NodeField::new(name, "r"), node, 1.0)?,
+        v_threshold: scalar_tensor(NodeField::new(name, "v_threshold"), node)?,
         v_reset: None,
         metadata,
     }))
@@ -212,6 +212,20 @@ fn node_metadata(node: &Value) -> MetadataMap {
 }
 
 // ── Field decoders ────────────────────────────────────────────────────
+
+/// A ``(node name, field name)`` pair the field decoders carry so error
+/// messages can name both without two string parameters per signature.
+#[derive(Clone, Copy)]
+struct NodeField<'a> {
+    node: &'a str,
+    field: &'a str,
+}
+
+impl<'a> NodeField<'a> {
+    fn new(node: &'a str, field: &'a str) -> Self {
+        Self { node, field }
+    }
+}
 
 fn shape_of(name: &str, node: &Value) -> Result<Vec<usize>, AdapterError> {
     let shape = node
@@ -242,96 +256,113 @@ fn declared_size(name: &str, node: &Value) -> Result<usize, AdapterError> {
     )))
 }
 
-fn integer_field(name: &str, node: &Value, field: &str) -> Result<i64, AdapterError> {
-    node.get(field)
-        .and_then(Value::as_i64)
-        .ok_or_else(|| AdapterError::graph(format!("node {name:?} needs integer {field:?}")))
+fn integer_field(spec: NodeField, node: &Value) -> Result<i64, AdapterError> {
+    node.get(spec.field).and_then(Value::as_i64).ok_or_else(|| {
+        AdapterError::graph(format!(
+            "node {:?} needs integer {:?}",
+            spec.node, spec.field
+        ))
+    })
 }
 
-fn float_field(name: &str, node: &Value, field: &str) -> Result<f64, AdapterError> {
-    node.get(field)
-        .and_then(Value::as_f64)
-        .ok_or_else(|| AdapterError::graph(format!("node {name:?} needs numeric {field:?}")))
+fn float_field(spec: NodeField, node: &Value) -> Result<f64, AdapterError> {
+    node.get(spec.field).and_then(Value::as_f64).ok_or_else(|| {
+        AdapterError::graph(format!(
+            "node {:?} needs numeric {:?}",
+            spec.node, spec.field
+        ))
+    })
 }
 
-fn scalar_tensor(name: &str, node: &Value, field: &str) -> Result<Tensor, AdapterError> {
-    Ok(Tensor::scalar_f64(float_field(name, node, field)?))
+fn scalar_tensor(spec: NodeField, node: &Value) -> Result<Tensor, AdapterError> {
+    Ok(Tensor::scalar_f64(float_field(spec, node)?))
 }
 
 fn scalar_tensor_default(
-    name: &str,
+    spec: NodeField,
     node: &Value,
-    field: &str,
     default: f64,
 ) -> Result<Tensor, AdapterError> {
-    match node.get(field) {
-        Some(_) => scalar_tensor(name, node, field),
+    match node.get(spec.field) {
+        Some(_) => scalar_tensor(spec, node),
         None => Ok(Tensor::scalar_f64(default)),
     }
 }
 
 /// Decode a JSON number array cell by cell, refusing non-numeric entries.
-fn numeric_cells(name: &str, field: &str, values: &[Value]) -> Result<Vec<f64>, AdapterError> {
+fn numeric_cells(spec: NodeField, values: &[Value]) -> Result<Vec<f64>, AdapterError> {
     values
         .iter()
         .map(|value| {
             value.as_f64().ok_or_else(|| {
-                AdapterError::graph(format!("node {name:?} has non-numeric {field:?}"))
+                AdapterError::graph(format!(
+                    "node {:?} has non-numeric {:?}",
+                    spec.node, spec.field
+                ))
             })
         })
         .collect()
 }
 
-fn vector_tensor(name: &str, node: &Value, field: &str) -> Result<Tensor, AdapterError> {
+fn vector_tensor(spec: NodeField, node: &Value) -> Result<Tensor, AdapterError> {
     let values = node
-        .get(field)
+        .get(spec.field)
         .and_then(Value::as_array)
-        .ok_or_else(|| AdapterError::graph(format!("node {name:?} needs vector {field:?}")))?;
-    let data = numeric_cells(name, field, values)?;
+        .ok_or_else(|| {
+            AdapterError::graph(format!(
+                "node {:?} needs vector {:?}",
+                spec.node, spec.field
+            ))
+        })?;
+    let data = numeric_cells(spec, values)?;
     Tensor::from_f64([data.len()], data)
-        .map_err(|err| AdapterError::graph(format!("node {name:?}: {err}")))
+        .map_err(|err| AdapterError::graph(format!("node {:?}: {err}", spec.node)))
 }
 
-fn matrix_tensor(name: &str, node: &Value, field: &str) -> Result<Tensor, AdapterError> {
-    let (data, rows, columns) = matrix_rows(name, node, field)?;
+fn matrix_tensor(spec: NodeField, node: &Value) -> Result<Tensor, AdapterError> {
+    let (data, rows, columns) = matrix_rows(spec, node)?;
     Tensor::from_f64([rows, columns], data)
-        .map_err(|err| AdapterError::graph(format!("node {name:?}: {err}")))
+        .map_err(|err| AdapterError::graph(format!("node {:?}: {err}", spec.node)))
 }
 
-fn matrix_rows(
-    name: &str,
-    node: &Value,
-    field: &str,
-) -> Result<(Vec<f64>, usize, usize), AdapterError> {
+fn matrix_rows(spec: NodeField, node: &Value) -> Result<(Vec<f64>, usize, usize), AdapterError> {
     let rows = node
-        .get(field)
+        .get(spec.field)
         .and_then(Value::as_array)
-        .ok_or_else(|| AdapterError::graph(format!("node {name:?} needs matrix {field:?}")))?;
+        .ok_or_else(|| {
+            AdapterError::graph(format!(
+                "node {:?} needs matrix {:?}",
+                spec.node, spec.field
+            ))
+        })?;
     let mut data = Vec::new();
     let mut columns = None;
     for row in rows {
-        columns = Some(matrix_row(name, field, row, columns, &mut data)?);
+        columns = Some(matrix_row(spec, row, columns, &mut data)?);
     }
     Ok((data, rows.len(), columns.unwrap_or(0)))
 }
 
 fn matrix_row(
-    name: &str,
-    field: &str,
+    spec: NodeField,
     row: &Value,
     columns: Option<usize>,
     data: &mut Vec<f64>,
 ) -> Result<usize, AdapterError> {
     let row = row.as_array().ok_or_else(|| {
-        AdapterError::graph(format!("node {name:?}: {field} rows must be arrays"))
+        AdapterError::graph(format!(
+            "node {:?}: {} rows must be arrays",
+            spec.node, spec.field
+        ))
     })?;
     if let Some(width) = columns
         && width != row.len()
     {
         return Err(AdapterError::graph(format!(
-            "node {name:?}: {field} rows must share one width"
+            "node {:?}: {} rows must share one width",
+            spec.node, spec.field
         )));
     }
-    data.extend(numeric_cells(name, field, row)?);
+    data.extend(numeric_cells(spec, row)?);
     Ok(row.len())
 }

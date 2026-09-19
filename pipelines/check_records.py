@@ -553,15 +553,18 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     )
 
 
-def _record_spike_errors(obj, where, kind, reward_component_entries, family_owned=()):
+def _record_spike_errors(obj, where, kind, exemptions):
     """Validate each real spike stream against its enclosing clock.
 
-    ``family_owned`` holds the stream objects (compared by identity, like the
+    ``exemptions`` packs ``(reward_component_entries, family_owned)``: the
+    reward-component locations whose ``spike_events`` member is a documented
+    narrative string, and the stream objects (compared by identity, like the
     reward-narrative owner guard) whose validity a family validator already
-    owns; they are skipped here so one malformed canonical stream is not
-    reported twice with different wording, and so family evidence shapes are
-    not misjudged against the generic event contract.
+    owns. Both are skipped so one malformed canonical stream is not reported
+    twice with different wording, and so family evidence shapes are not
+    misjudged against the generic event contract.
     """
+    reward_component_entries, family_owned = exemptions
 
     errors = []
     for path, events, owner in _walk_key_owners(obj, "spike_events"):
@@ -626,7 +629,7 @@ def _record_stream_and_reward_findings(obj, where, kind, family_owned=()):
 
     reward_component_entries = list(walk_key(obj, "reward_components"))
     errors = _record_spike_errors(
-        obj, where, kind, reward_component_entries, family_owned=family_owned
+        obj, where, kind, (reward_component_entries, family_owned)
     )
     reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
     errors.extend(reward_errors)

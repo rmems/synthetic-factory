@@ -30,53 +30,70 @@ def _is_positive_count(value):
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
+def _require(condition, message):
+    """Raise ValueError(message) unless condition holds."""
+    if not condition:
+        raise ValueError(message)
+
+
 def _model_header(model):
     """Required keys and the scalars every other field is sized against."""
     required = ("name", "neurons", "inputs", "w_in", "bias", "threshold", "decay")
     missing = [key for key in required if key not in model]
-    if missing:
-        raise ValueError(f"model missing keys: {missing}")
+    _require(not missing, f"model missing keys: {missing}")
     neurons = model["neurons"]
     inputs = model["inputs"]
     # Exact integers, not int(): 1.9 would quietly become one neuron and a
     # string or bool would be accepted, so whenever the matrices happened to
     # fit the coerced size the oracle ran a model other than the one declared.
-    if not _is_positive_count(neurons) or not _is_positive_count(inputs):
-        raise ValueError("neurons and inputs must be exact integers >= 1")
+    _require(
+        _is_positive_count(neurons) and _is_positive_count(inputs),
+        "neurons and inputs must be exact integers >= 1",
+    )
     reset = model.get("reset", "subtract")
-    if reset not in RESET_MODES:
-        raise ValueError(f"reset must be one of {RESET_MODES}, got {reset!r}")
+    _require(
+        reset in RESET_MODES,
+        f"reset must be one of {RESET_MODES}, got {reset!r}",
+    )
     return neurons, inputs, reset
 
 
-def _model_matrix(model, name, rows, cols):
-    """An optional rows x cols weight matrix, copied to floats."""
+def _matrix_shape(value, shape):
+    """True when `value` is a ``(rows, cols)``-shaped list-of-lists."""
+    rows, cols = shape
+    return len(value) == rows and all(len(row) == cols for row in value)
+
+
+def _model_matrix(model, name, shape):
+    """An optional ``(rows, cols)`` weight matrix, copied to floats.
+
+    ``shape`` packs the required ``(rows, cols)``.
+    """
     value = model.get(name)
     if value is None:
         return None
-    if len(value) != rows or any(len(row) != cols for row in value):
-        raise ValueError(f"{name} must be {rows}x{cols}")
+    _require(_matrix_shape(value, shape), f"{name} must be {shape[0]}x{shape[1]}")
     return [[float(cell) for cell in row] for row in value]
 
 
 def _model_vector(model, name, length):
     """A required per-neuron vector, copied to floats."""
     value = model[name]
-    if len(value) != length:
-        raise ValueError(f"{name} must have length {length}")
+    _require(len(value) == length, f"{name} must have length {length}")
     return [float(cell) for cell in value]
 
 
 def _check_normalized_model(normalized, labels, neurons):
     """Post-conditions that need the assembled model to check."""
-    if normalized["w_in"] is None:
-        raise ValueError("w_in is required")
-    if normalized["refractory_steps"] < 0:
-        raise ValueError("refractory_steps must be >= 0")
-    if normalized["dt_ms"] <= 0:
-        raise ValueError("dt_ms must be > 0")
-    if len(labels) != neurons:
-        raise ValueError("action_labels must have one label per neuron")
+    _require(normalized["w_in"] is not None, "w_in is required")
+    _require(
+        normalized["refractory_steps"] >= 0, "refractory_steps must be >= 0"
+    )
+    _require(normalized["dt_ms"] > 0, "dt_ms must be > 0")
+    _require(
+        len(labels) == neurons,
+        "action_labels must have one label per neuron",
+    )
 
 
 def normalize_model(model):
@@ -91,8 +108,8 @@ def normalize_model(model):
         "name": str(model["name"]),
         "neurons": neurons,
         "inputs": inputs,
-        "w_in": _model_matrix(model, "w_in", neurons, inputs),
-        "w_rec": _model_matrix(model, "w_rec", neurons, neurons),
+        "w_in": _model_matrix(model, "w_in", (neurons, inputs)),
+        "w_rec": _model_matrix(model, "w_rec", (neurons, neurons)),
         "bias": _model_vector(model, "bias", neurons),
         "threshold": _model_vector(model, "threshold", neurons),
         "decay": _model_vector(model, "decay", neurons),
@@ -108,10 +125,8 @@ def normalize_model(model):
 def _stimulus_steps(stimulus, event_count):
     """A positive step count that agrees with the recorded event grid."""
     steps = int(stimulus.get("steps", event_count))
-    if steps != event_count:
-        raise ValueError("stimulus.steps disagrees with len(events)")
-    if steps < 1:
-        raise ValueError("stimulus needs at least one step")
+    _require(steps == event_count, "stimulus.steps disagrees with len(events)")
+    _require(steps >= 1, "stimulus needs at least one step")
     return steps
 
 
@@ -130,10 +145,14 @@ def normalize_stimulus(stimulus, inputs):
 
 def _binary_row(index, row, inputs):
     """One grid row: exactly ``inputs`` binary cells, normalized to ints."""
-    if len(row) != inputs:
-        raise ValueError(f"stimulus step {index} must have {inputs} channels")
-    if any(cell not in (0, 1) for cell in row):
-        raise ValueError(f"stimulus step {index} must be binary")
+    _require(
+        len(row) == inputs,
+        f"stimulus step {index} must have {inputs} channels",
+    )
+    _require(
+        all(cell in (0, 1) for cell in row),
+        f"stimulus step {index} must be binary",
+    )
     return [int(cell) for cell in row]
 
 

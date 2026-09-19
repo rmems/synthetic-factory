@@ -155,9 +155,7 @@ class CaptureCase(unittest.TestCase):
         return hp.generate_records(
             round_number=1,
             steps=6,
-            deployment_adapter=self._capture_adapter(
-                tmp, scenario, **capture_kwargs
-            ),
+            deployment=(self._capture_adapter(tmp, scenario, **capture_kwargs), None),
             repeats=3,
         )[0]
 

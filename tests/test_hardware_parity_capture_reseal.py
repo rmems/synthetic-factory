@@ -125,9 +125,7 @@ class CaptureStrictness(CaptureCase):
             records = hp.generate_records(
                 round_number=1,
                 steps=6,
-                deployment_adapter=oracle.RecordedCaptureAdapter(
-                    adapter.capture_path
-                ),
+                deployment=(oracle.RecordedCaptureAdapter(adapter.capture_path), None),
                 repeats=3,
             )
             record = records[0]
@@ -208,7 +206,7 @@ class CaptureStrictness(CaptureCase):
             adapter = self._capture_adapter(tmp, scenario)
             # Generating with a different window changes the input fixture.
             records = hp.generate_records(
-                round_number=1, steps=8, deployment_adapter=adapter, repeats=3
+                round_number=1, steps=8, deployment=(adapter, None), repeats=3
             )
             self.assertTrue(
                 all(record["oracle"]["deployment"] is None for record in records)

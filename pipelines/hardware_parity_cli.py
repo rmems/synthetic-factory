@@ -105,7 +105,7 @@ def _requested_records(args, adapter):
     if args.scenario is None:
         return generate_records(
             round_number=args.round, steps=args.steps,
-            deployment_adapter=adapter, repeats=args.repeats,
+            deployment=(adapter, None), repeats=args.repeats,
         )
     spec = next(spec for spec in SCENARIO_SPECS if spec["id"] == args.scenario)
     scenario = build_scenario(spec, steps=args.steps)

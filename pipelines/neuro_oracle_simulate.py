@@ -121,23 +121,74 @@ def simulate_float(model, stimulus):
     }
 
 
-def _q88_input_drive(i, row, q_model, previous, neurons):
+def _q88_recurrent_terms(i, q_model, previous):
+    """The w_rec terms a neuron sees this step, empty without recurrence."""
+    if q_model["w_rec"] is None:
+        return []
+    return [
+        q_model["w_rec"][i][k]
+        for k in range(q_model["neurons"])
+        if previous[k]
+    ]
+
+
+def _q88_input_drive(i, row, q_model, previous):
     """Bias plus input and recurrent drive for one neuron, in Q8.8.
 
-    Returns the accumulator and the number of saturation events it cost.
+    Returns the accumulator and the number of saturation events it cost. The
+    saturation order (bias, then w_in left-to-right, then w_rec left-to-right)
+    mirrors ``_lif_drive`` so each observed difference is attributable to the
+    number format.
     """
     accumulator = q_model["bias"][i]
     saturation = 0
-    for j in range(q_model["inputs"]):
-        if row[j]:
-            accumulator, hit = q88_saturate(accumulator + q_model["w_in"][i][j])
-            saturation += int(hit)
-    if q_model["w_rec"] is not None:
-        for k in range(neurons):
-            if previous[k]:
-                accumulator, hit = q88_saturate(accumulator + q_model["w_rec"][i][k])
-                saturation += int(hit)
+    for term in [
+        *[q_model["w_in"][i][j] for j in range(q_model["inputs"]) if row[j]],
+        *_q88_recurrent_terms(i, q_model, previous),
+    ]:
+        accumulator, hit = q88_saturate(accumulator + term)
+        saturation += int(hit)
     return accumulator, saturation
+
+
+def _q88_step_row(row, q_model, state):
+    """All neurons' Q8.8 updates for one timestep: ``(fired, saturations)``.
+
+    ``state`` is the ``(membrane, refractory, previous)`` triple the outer
+    loop owns. The fixed-point loop carries a per-step saturation counter
+    that has no float-side analogue, so the row step is factored here rather
+    than inline as in ``simulate_float``.
+    """
+    steps = [
+        _q88_step_neuron((i, row), q_model, state)
+        for i in range(q_model["neurons"])
+    ]
+    return [fired_i for fired_i, _sat in steps], sum(sat for _fired, sat in steps)
+
+
+def _q88_step_neuron(neuron_input, q_model, state):
+    """One neuron's Q8.8 LIF update for one timestep.
+
+    ``neuron_input`` is ``(i, row)``: the neuron index and the stimulus row.
+    ``state`` is the ``(membrane, refractory, previous)`` triple the loop
+    owns; ``membrane[i]``/``refractory[i]`` are mutated in place. Returns
+    ``(fired, saturation_events)`` where the saturation events are counted in
+    the order they occur: drive, decay multiply, saturating add, reset. The
+    operation order mirrors ``_lif_step_neuron_float`` exactly.
+    """
+    i, row = neuron_input
+    membrane, refractory, previous = state
+    if refractory[i] > 0:
+        refractory[i] -= 1
+        membrane[i] = 0
+        return 0, 0
+    accumulator, saturation = _q88_input_drive(i, row, q_model, previous)
+    leaked, hit = q88_mul(q_model["decay"][i], membrane[i])
+    saturation += int(hit)
+    membrane[i], hit = q88_saturate(leaked + accumulator)
+    saturation += int(hit)
+    fired, fire_saturation = _q88_apply_threshold(i, q_model, membrane, refractory)
+    return fired, saturation + fire_saturation
 
 
 def _q88_apply_threshold(i, q_model, membrane, refractory):
@@ -175,25 +226,10 @@ def simulate_fixed_point(q_model, stimulus):
     membrane_raw = []
     saturation_events = 0
     for step in range(stimulus["steps"]):
-        row = stimulus["events"][step]
-        fired = [0] * neurons
-        for i in range(neurons):
-            if refractory[i] > 0:
-                refractory[i] -= 1
-                membrane[i] = 0
-                continue
-            accumulator, drive_saturation = _q88_input_drive(
-                i, row, q_model, previous, neurons
-            )
-            saturation_events += drive_saturation
-            leaked, hit = q88_mul(q_model["decay"][i], membrane[i])
-            saturation_events += int(hit)
-            membrane[i], hit = q88_saturate(leaked + accumulator)
-            saturation_events += int(hit)
-            fired[i], fire_saturation = _q88_apply_threshold(
-                i, q_model, membrane, refractory
-            )
-            saturation_events += fire_saturation
+        fired, step_saturation = _q88_step_row(
+            stimulus["events"][step], q_model, (membrane, refractory, previous)
+        )
+        saturation_events += step_saturation
         previous = fired
         spike_grid.append(fired)
         membrane_raw.append(list(membrane))

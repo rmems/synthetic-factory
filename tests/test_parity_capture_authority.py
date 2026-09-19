@@ -70,7 +70,7 @@ class CaptureAuthority(unittest.TestCase):
             payload = capture_support._capture_payload(scenario, spikes, captured["payload"]["membrane"])
             captured["payload"] = payload
             captured["manifest"]["payload_sha256"] = oracle.digest(payload)
-            record = hp.generate_records(steps=6, deployment_adapter=adapter)[0]
+            record = hp.generate_records(steps=6, deployment=(adapter, None))[0]
         self.assertEqual(hp.validate_record(record, "mismatched capture"), [])
         self.assertEqual(record["result"]["verdict"], "inconclusive")
         self.assertIn("SPIKE_BITMAP_DISAGREEMENT", record["result"]["reason_codes"])

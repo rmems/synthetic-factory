@@ -17,7 +17,7 @@ else:
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "schemas/parity-source-policy-v1.json"
 # Reviewed together with the producer closure; update only after combined source freeze.
-POLICY_SHA256 = "12023cf445c4b291e0b1b81d1e6bb1f8afa52d5620bac433089d67fa9b5a739f"
+POLICY_SHA256 = "bcff6ee74d4ece19f93240d6d068cb1642e0a5f35d70f31b0235f00dff763b62"
 KINDS = frozenset({"hardware_parity", "nir_equivalence"})
 FACTORIES = frozenset({"hardware-parity-spike-trajectories", "nir-cross-runtime-equivalence"})
 

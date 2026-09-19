@@ -390,10 +390,16 @@ def _first_unavailable(oracle):
     return unavailable[0] if unavailable else None
 
 
-def generate_records(round_number=1, steps=12, deployment_adapter=None, repeats=3,
-                     env=None):
-    """Generate one round of paired records for the whole scenario catalog."""
-    deployment_adapter = deployment_adapter or FixedPointReferenceAdapter()
+def generate_records(round_number=1, steps=12, deployment=None, repeats=3):
+    """Generate one round of paired records for the whole scenario catalog.
+
+    ``deployment`` packs the deployment side's two inputs as
+    ``(adapter, probe_env)``: the oracle adapter, and the environment the
+    availability probe reports against (``None`` = ambient). ``None`` is the
+    in-repo fixed-point reference adapter on an ambient probe.
+    """
+    adapter, env = deployment if deployment is not None else (None, None)
+    deployment_adapter = adapter or FixedPointReferenceAdapter()
     if env is None and isinstance(deployment_adapter, FixedPointReferenceAdapter):
         env = {}
     fpga_status = availability_report(env=env)["spikenaut_fpga"]

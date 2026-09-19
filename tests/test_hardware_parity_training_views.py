@@ -120,7 +120,7 @@ class TrainingViews(unittest.TestCase):
         record = hp.generate_records(
             round_number=1,
             steps=4,
-            deployment_adapter=adapter,
+            deployment=(adapter, None),
             repeats=2,
         )[0]
         prompt = hp.training_view(record)["prompt"]

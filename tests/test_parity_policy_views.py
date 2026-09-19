@@ -31,7 +31,9 @@ class CatalogPolicyViews(unittest.TestCase):
             self.assertEqual(hp.generate_records(), baseline)
 
     def test_explicit_environment_still_records_operator_selected_probe(self):
-        records = hp.generate_records(env={"SPIKENAUT_FPGA_DEVICE": "/definitely/missing"})
+        records = hp.generate_records(
+            deployment=(None, {"SPIKENAUT_FPGA_DEVICE": "/definitely/missing"})
+        )
         self.assertEqual(records[0]["oracle"]["environment"]["fpga_hardware"]["reason_code"], "FPGA_DEVICE_ABSENT")
 
 

@@ -13,7 +13,7 @@ from hardware_parity_support import WHERE
 class HistoricalFpgaDiagnostics(unittest.TestCase):
     def _record(self):
         return hp.generate_records(
-            deployment_adapter=oracle.FpgaHardwareAdapter(env={}), env={},
+            deployment=(oracle.FpgaHardwareAdapter(env={}), {}),
         )[0]
 
     def test_changed_host_absence_reason_preserves_historical_evidence(self):

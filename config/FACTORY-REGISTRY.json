@@ -1658,7 +1658,7 @@
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "oracle-grounded-v1",
-      "catalog_sha256": "f2377ebcf995d7c79129b913123f7c9ce2630783aeb8da73299a9b946f3d890a",
+      "catalog_sha256": "011ebff00f2e72d502adfe2bb7ed8ce29a11111ab422dd3bf9868dd0d589eb27",
       "programs_sha256": "61c92017f978f0b9df99ba24dd571e00da6233190e38d8b604a3f63e254694c6",
       "intended_use": "training_candidate",
       "project_training_policy": "allowed",
@@ -1671,7 +1671,7 @@
         "license": "Apache-2.0",
         "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
       },
-      "procedural_policy_sha256": "cafed6d47728c3449b96cf45c0ae4a7fe654c44cd21250d649a1a999e63e11f8",
+      "procedural_policy_sha256": "4e8dcad6a268d8cab2b32e22a1ff9bd07e098b20cb7b5175864b7a6725bc3a26",
       "record_kinds": [
         "oracle"
       ],
@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:5586d6fa9eb594e69b1d1debff52879685ebc4aa0d32f3a746d0434f10b8de81",
+      "generator_version": "sha256:197409fed64154e24326c98ba66b4c64c74cc635ae3f0b05519591c72093dc46",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,14 +1709,14 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "12023cf445c4b291e0b1b81d1e6bb1f8afa52d5620bac433089d67fa9b5a739f"
+      "parity_policy_sha256": "bcff6ee74d4ece19f93240d6d068cb1642e0a5f35d70f31b0235f00dff763b62"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:1054b0feb5d816a3a5238fb7f8c786410a0eb493adee55ab1dbc27d9d16e73dc",
+      "generator_version": "sha256:8d84d55ceadd54db186134e475cae59bfafa14b5216567332bea36584d11108d",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1736,7 +1736,7 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "12023cf445c4b291e0b1b81d1e6bb1f8afa52d5620bac433089d67fa9b5a739f"
+      "parity_policy_sha256": "bcff6ee74d4ece19f93240d6d068cb1642e0a5f35d70f31b0235f00dff763b62"
     }
   ]
 }

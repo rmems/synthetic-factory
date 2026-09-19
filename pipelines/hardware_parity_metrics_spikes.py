@@ -35,10 +35,18 @@ def _rectangular(grid):
     would otherwise raise mid-comparison and take down the scan of an entire
     run directory instead of reporting one bad record.
     """
-    if not isinstance(grid, list) or not grid:
+    if not (isinstance(grid, list) and grid and _list_rows(grid)):
         return False
-    if not all(isinstance(row, list) for row in grid):
-        return False
+    return _uniform_row_width(grid)
+
+
+def _list_rows(grid):
+    """Every element of `grid` is itself a list."""
+    return all(isinstance(row, list) for row in grid)
+
+
+def _uniform_row_width(grid):
+    """Every row shares ``grid[0]``'s width, which must be non-zero."""
     width = len(grid[0])
     return width > 0 and all(len(row) == width for row in grid)
 
@@ -50,9 +58,9 @@ def _spike_grid_shape_reason(software, hardware):
     under its own reason, so the caller decides whether emptiness deserves a
     distinct report before asking about shape.
     """
-    if not _rectangular(software) or not _rectangular(hardware):
+    if not (_rectangular(software) and _rectangular(hardware)):
         return "spike grid is ragged or malformed"
-    if len(software) != len(hardware) or len(software[0]) != len(hardware[0]):
+    if (len(software), len(software[0])) != (len(hardware), len(hardware[0])):
         return "spike grids have different shapes"
     return None
 
@@ -83,15 +91,20 @@ def _spike_cell_tally(software, hardware):
     )
 
 
+# A hardware-only firing is a false positive; every other non-match —
+# software-only or a disagreement where both fired — is a false negative.
+_MISMATCH_BUCKET = {
+    (False, True): "false_positive",
+}
+
+
 def _tally_cell(tally, a, b):
     """Accumulate one (software, hardware) spike pair into the agreement buckets."""
     fired_a, fired_b = bool(a), bool(b)
-    if a == b:
-        tally["matches"] += 1
-    elif fired_b and not fired_a:
-        tally["false_positive"] += 1
-    else:
-        tally["false_negative"] += 1
+    key = "matches" if a == b else _MISMATCH_BUCKET.get(
+        (fired_a, fired_b), "false_negative"
+    )
+    tally[key] += 1
     tally["either"] += int(fired_a or fired_b)
     tally["both"] += int(fired_a and fired_b)
 
@@ -103,6 +116,11 @@ def spike_bitmap_metrics(software, hardware):
     reason = _spike_grid_shape_reason(software, hardware)
     if reason is not None:
         return {"comparable": False, "reason": reason}
+    return _bitmap_report(software, hardware)
+
+
+def _bitmap_report(software, hardware):
+    """The comparable-grid report: agreement, distance, Jaccard, and counts."""
     matches, false_positive, false_negative, both, either = _spike_cell_tally(
         software, hardware
     )
@@ -121,21 +139,31 @@ def spike_bitmap_metrics(software, hardware):
     }
 
 
+def _paired_first_spike_deltas(pairs):
+    """Step deltas over the neurons that fired on both sides."""
+    return [
+        abs(a - b)
+        for a, b in pairs
+        if a is not None and b is not None
+    ]
+
+
+def _single_sided_counts(pairs):
+    """How many neurons fired on exactly one side of the pair."""
+    only_software = sum(
+        1 for a, b in pairs if a is not None and b is None
+    )
+    only_hardware = sum(
+        1 for a, b in pairs if a is None and b is not None
+    )
+    return only_software, only_hardware
+
+
 def _first_spike_deltas(soft_first, hard_first):
     """Per-neuron first-spike deltas plus the single-sided counts."""
-    deltas = []
-    only_software = 0
-    only_hardware = 0
-    for a, b in zip(soft_first, hard_first):
-        if a is None and b is None:
-            continue
-        if a is None:
-            only_hardware += 1
-        elif b is None:
-            only_software += 1
-        else:
-            deltas.append(abs(a - b))
-    return deltas, only_software, only_hardware
+    pairs = list(zip(soft_first, hard_first))
+    only_software, only_hardware = _single_sided_counts(pairs)
+    return _paired_first_spike_deltas(pairs), only_software, only_hardware
 
 
 def timing_metrics(software, hardware, dt_ms):
