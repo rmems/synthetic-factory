@@ -18,9 +18,7 @@ pub fn run(signal: &[f64], p: &Parameters) -> Result<Value, String> {
     let mut delta_encoder = build_delta_encoder(p)?;
     let rate = encode(signal, p, &mut rate_encoder, false);
     let delta = encode(signal, p, &mut delta_encoder, true);
-    Ok(
-        json!({"profile":"axon-stream-v1","rate":rate,"delta":delta,"winner":winner(&rate,&delta)}),
-    )
+    Ok(json!({"profile":"axon-stream-v1","rate":rate,"delta":delta,"winner":winner(&rate,&delta)}))
 }
 fn validate(p: &Parameters) -> Result<(), String> {
     bound(p.sample_ms, 0.01, 100.0, "sample_ms")?;
