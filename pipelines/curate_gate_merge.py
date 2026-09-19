@@ -53,48 +53,42 @@ _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 _assert_no_symlink = _paths._assert_no_symlink
 
 
-def _source_line_payload(physical_line):
-    if physical_line.endswith(b"\n"):
-        return physical_line[:-1].removesuffix(b"\r")
-    return physical_line
+def _decoded_source(raw_line: bytes) -> tuple[Any, str | None]:
+    try:
+        record = json.loads(
+            raw_line.decode("utf-8"), parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
+    except ValueError as exc:
+        return None, str(exc)
+    return record, None
+
+
+def _source_file_records(relative: str, payload: bytes):
+    lines = payload.split(b"\n")
+    for number, terminated in enumerate(lines, 1):
+        raw_line = terminated[:-1] if terminated.endswith(b"\r") else terminated
+        if not raw_line.strip():
+            continue
+        record, parse_error = _decoded_source(raw_line)
+        yield (relative, number), {
+            "record": record,
+            "source_bytes": terminated + (b"\n" if number < len(lines) else b""),
+            "source_hash": sha256_hex(raw_line),
+            "parse_error": parse_error,
+        }
 
 
 def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load the immutable source bytes used as the three-way merge base."""
+    """Load immutable source lines, retaining their actual physical terminators."""
     records: dict[tuple[str, int], dict[str, Any]] = {}
     paths = _all_jsonl_paths(source_run)
     if not paths:
         raise GateError(f"source_run holds no *.jsonl: {source_run}")
     for path in paths:
         _assert_no_symlink(source_run, path, "source_run")
-        relative = path.relative_to(source_run).as_posix()
-        payload, _payload_sha256, _payload_bytes = _read_regular_file_snapshot(
-            path,
-            "source JSONL",
-        )
-        for line_number, physical_line in enumerate(io.BytesIO(payload), 1):
-            raw_line = _source_line_payload(physical_line)
-            if not raw_line.strip():
-                continue
-            record: Any = None
-            parse_error: str | None = None
-            try:
-                text = raw_line.decode("utf-8")
-                record = json.loads(
-                    text,
-                    parse_constant=reject_json_constant,
-                    parse_float=parse_finite_json_float,
-                )
-            # ``UnicodeError`` and ``JSONDecodeError`` are both ``ValueError``
-            # subclasses, so one clause covers the decode and the parse.
-            except ValueError as exc:
-                parse_error = str(exc)
-            records[(relative, line_number)] = {
-                "record": record,
-                "source_hash": sha256_hex(raw_line),
-                "source_bytes": physical_line,
-                "parse_error": parse_error,
-            }
+        payload, _digest, _size = _read_regular_file_snapshot(path, "source JSONL")
+        records.update(_source_file_records(path.relative_to(source_run).as_posix(), payload))
     return records
 
 

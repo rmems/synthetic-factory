@@ -49,7 +49,7 @@ if __package__:
     from .check_records import FactoryStaging, check_jsonl
     from .record_kind import DECLARED_FACTORY_KINDS
     from .oracle_grounded.parity_publication import batch_errors as parity_batch_errors
-    from .operator_paths import operator_path
+    from .operator_paths import confine
     from . import round_txn_agentic as _round_txn_agentic
     from . import round_txn_agentic_terms as _round_txn_agentic_terms
     from . import round_txn_coverage as _round_txn_coverage
@@ -65,7 +65,7 @@ else:
     from check_records import FactoryStaging, check_jsonl
     from record_kind import DECLARED_FACTORY_KINDS
     from oracle_grounded.parity_publication import batch_errors as parity_batch_errors
-    from operator_paths import operator_path
+    from operator_paths import confine
     import round_txn_agentic as _round_txn_agentic
     import round_txn_agentic_terms as _round_txn_agentic_terms
     import round_txn_coverage as _round_txn_coverage
@@ -2189,10 +2189,11 @@ def _confined_factory_dir(parser, args):
     ``staging_dir`` string a reservation persists stays byte-identical to the
     one ``publish`` and ``abort`` compare it against.
     """
-    try:
-        return operator_path(args.factory_dir)
-    except argparse.ArgumentTypeError as exc:
-        parser.error(str(exc))
+    return confine(
+        parser,
+        args.factory_dir if args.factory_dir is not None else "",
+        argument="factory_dir",
+    )
 
 
 def main(argv=None):

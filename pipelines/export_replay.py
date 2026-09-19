@@ -19,23 +19,40 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+import compose_oracle_selection  # noqa: E402
 import compose_curated  # noqa: E402
+import compose_curated_rights  # noqa: E402
 import compose_mill  # noqa: E402
+from compose_curated_run import authenticated_published_snapshot  # noqa: E402
+from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
     EmittedRecord,
     default_units_migration_path,
+    emitted_record_line,
     published_source_snapshot,
+    retained_json_line,
 )
 from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
-from export_calibration import _authenticated_calibration  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import (  # noqa: E402
     _read_exact_regular_file,
     _require_exact_directory,
     _stable_file_identity,
 )
+import export_replay_verify as _replay_verify  # noqa: E402
+
+# Verification helpers re-bound through the sibling so the historical
+# ``export_replay.X`` call sites and patch seams resolve unchanged.
+_PublishedReplay = _replay_verify._PublishedReplay
+_authenticated_calibration_state = _replay_verify._authenticated_calibration_state
+_calibration_evidence_identity = _replay_verify._calibration_evidence_identity
+_require_calibration_state_unchanged = _replay_verify._require_calibration_state_unchanged
+_require_replayed_counts = _replay_verify._require_replayed_counts
+_require_replayed_documents = _replay_verify._require_replayed_documents
+_verify_replay_matches = _replay_verify._verify_replay_matches
+_verify_replay_matches_context = _replay_verify._verify_replay_matches_context
 
 
 @dataclass(frozen=True)
@@ -55,11 +72,14 @@ class _ReplaySnapshot:
     expected_outputs: list[dict[str, Any]]
     expected_payloads: dict[str, bytes]
     source_files: list[dict[str, Any]]
+    rights_lanes: Counter[str]
 
 
 @dataclass
 class _ReplayState:
     """Mutable accumulators shared by every replayed source line."""
+
+    oracle_selection: str = "all"
 
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
@@ -74,6 +94,7 @@ class _ReplayState:
     source_files: list[dict[str, Any]] = field(default_factory=list)
     seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
     seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+    rights_lanes: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True)
@@ -84,6 +105,7 @@ class _SourceReplay:
     raw_file: bytes
     catalog: Any
     mill_findings: dict[tuple[str, int], Any]
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,17 +118,16 @@ class _LineReplay:
     source_file_sha256: str
     catalog: Any
     mill_finding: Any
+    physical_source_path: str | None = None
     source_terminator: str = "\n"
 
 
-@dataclass(frozen=True)
-class _PublishedReplay:
-    """Published artifacts that one source replay must authenticate."""
-
-    summary: dict[str, Any]
-    actual_outputs: dict[str, CuratedFile]
-    manifest_documents: Sequence[Any]
-    sidecar_documents: Sequence[Any]
+def _selection_result(function, *args):
+    """Keep selection refusals inside the exporter's public error contract."""
+    try:
+        return function(*args)
+    except ComposeError as exc:
+        raise ExportError(str(exc)) from exc
 
 
 def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
@@ -156,11 +177,10 @@ def _record_replayed_retained_context(
 ) -> EmittedRecord:
     """Account one replayed record that compose would have emitted."""
 
-    if __package__:
-        from .compose_contract import retained_json_line, emitted_record_line
-    else:
-        from compose_contract import retained_json_line, emitted_record_line
-    line = retained_json_line(decision)
+    try:
+        line = retained_json_line(decision)
+    except ComposeError as exc:
+        raise ExportError(str(exc)) from exc
     _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
     entry.update(
         {
@@ -217,6 +237,14 @@ def _record_replayed_excluded(state: _ReplayState, decision: Any, entry: dict[st
         state.exclusions[reason] += 1
 
 
+def _count_replayed_stages(state: _ReplayState, decision: Any) -> None:
+    for stage in decision.stages:
+        lane = stage["lane"]
+        if lane in state.lane_actions:
+            state.lane_actions[lane][stage["action"]] += 1
+
+
+
 def _replay_one_line_context(
     state: _ReplayState,
     physical_line: bytes,
@@ -238,19 +266,24 @@ def _replay_one_line_context(
                 state.seen_source_semantics, state.seen_curated_semantics
             ),
         )
+    decision = _selection_result(
+        compose_oracle_selection.apply_selection, decision, state.oracle_selection
+    )
     entry = _replayed_manifest_entry(
         decision,
         replay.relative,
         replay.line_number,
         (hashlib.sha256(physical_line).hexdigest(), replay.source_file_sha256),
     )
-    for stage in decision.stages:
-        lane = stage["lane"]
-        if lane in state.lane_actions:
-            state.lane_actions[lane][stage["action"]] += 1
+    add_physical_source_evidence(entry, replay.physical_source_path, physical_line)
+    _count_replayed_stages(state, decision)
 
     if decision.action == compose_curated.ACTION_RETAINED and decision.record is not None:
         emitted_line = _record_replayed_retained_context(state, decision, entry, replay)
+        try:
+            compose_curated_rights.bind_retained_rights(state, entry, decision, physical_line)
+        except ComposeError as exc:
+            raise ExportError(f"replayed rights envelope failed closed: {exc}") from exc
     else:
         _record_replayed_excluded(state, decision, entry)
         emitted_line = None
@@ -341,6 +374,7 @@ def _replay_source_file_context(
                 catalog=replay.catalog,
                 mill_finding=replay.mill_findings.get((replay.relative, line_number)),
                 source_terminator=terminators[line_number - 1],
+                physical_source_path=replay.physical_source_path,
             ),
         )
         if emitted_line is not None:
@@ -418,17 +452,16 @@ def _require_coherent_capture(
             )
 
 
-def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
-    """Run every source JSONL line back through compose and record what it yields."""
+def _capture_source_members(
+    source_root: Path, source_members: tuple[str, ...]
+) -> tuple[tuple[str, ...], dict[str, bytes], dict[str, Any], dict[tuple[str, int], Any]]:
+    """Capture every member once, then index corpus-level mill ownership.
 
-    try:
-        source_members = compose_curated.source_jsonl_members(source_root)
-    except (compose_curated.ComposeError, TransactionError) as exc:
-        raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
+    The capture and the mill resolution run over exactly those bytes — the same
+    order of operations compose_run applies, so a quarantined line replays as
+    the same exclusion.
+    """
 
-    # Capture every member once, then resolve corpus-level mill ownership over
-    # exactly those bytes — the same order of operations compose_run applies,
-    # so a quarantined line replays as the same exclusion.
     identities_before = _member_identities(source_root, source_members)
     payload_by_member = {
         relative: _read_exact_regular_file(source_root, relative, f"compose source {relative}")[1]
@@ -440,18 +473,37 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         for relative, (_file_identity, factory, verified) in identities_before.items()
     }
     try:
-        source_members, payload_by_member, factory_identities = published_source_snapshot(
-            source_members,
-            payload_by_member,
-            factory_identities,
+        source_members, payload_by_member, factory_identities, physical_source_paths = authenticated_published_snapshot(
+            source_root, source_members, payload_by_member, factory_identities
         )
     except ComposeError as exc:
         raise ExportError(f"COMPOSE source coordinates cannot be replayed safely: {exc}") from exc
     mill_findings = compose_mill.index_compose_mills(
         payload_by_member, factory_identities, _replay_physical_lines
     )
+    return source_members, payload_by_member, physical_source_paths, mill_findings
 
-    state = _ReplayState()
+
+def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all") -> _ReplaySnapshot:
+    """Run every source JSONL line back through compose and record what it yields."""
+
+    try:
+        source_members = compose_curated.source_jsonl_members(source_root)
+    except (compose_curated.ComposeError, TransactionError) as exc:
+        raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
+
+    (
+        source_members,
+        payload_by_member,
+        physical_source_paths,
+        mill_findings,
+    ) = _capture_source_members(source_root, source_members)
+
+    _selection_result(
+        compose_oracle_selection.require_authenticated_source,
+        oracle_selection, source_members, physical_source_paths,
+    )
+    state = _ReplayState(oracle_selection=oracle_selection)
     for relative in source_members:
         _replay_source_file_context(
             state,
@@ -460,6 +512,7 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
                 raw_file=payload_by_member[relative],
                 catalog=catalog,
                 mill_findings=mill_findings,
+                physical_source_path=physical_source_paths.get(relative),
             ),
         )
 
@@ -473,126 +526,18 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         expected_outputs=state.expected_outputs,
         expected_payloads=state.expected_payloads,
         source_files=state.source_files,
+        rights_lanes=state.rights_lanes,
     )
 
 
-def _require_replayed_documents(
-    snapshot: _ReplaySnapshot,
-    manifest_documents: Sequence[Any],
-    sidecar_documents: Sequence[Any],
-) -> None:
-    """The published manifest and sidecars must replay row for row."""
-
-    if list(manifest_documents) != snapshot.expected_manifest:
-        raise ExportError(
-            "compose manifest does not reproduce from the authenticated current source snapshot"
-        )
-    if list(sidecar_documents) != snapshot.expected_sidecars:
-        raise ExportError(
-            "reward sidecars do not reproduce from the authenticated current source snapshot"
-        )
-
-
-def _require_replayed_outputs(
-    snapshot: _ReplaySnapshot,
-    summary: dict[str, Any],
-    actual_outputs: dict[str, CuratedFile],
-) -> None:
-    """The declared and emitted curated outputs must replay byte for byte."""
-
-    if summary.get("outputs") != snapshot.expected_outputs:
-        raise ExportError("COMPOSE.json: output declarations do not reproduce from source")
-    if set(actual_outputs) != set(snapshot.expected_payloads):
-        raise ExportError("curated output paths do not reproduce from the source snapshot")
-    for output_path, payload in snapshot.expected_payloads.items():
-        if actual_outputs[output_path].payload != payload:
-            raise ExportError(f"curated output bytes do not reproduce: {output_path}")
-
-
-def _require_replayed_counts(snapshot: _ReplaySnapshot, summary: dict[str, Any]) -> None:
-    """Every published aggregate must replay under the same transforms."""
-
-    expected = {
-        "counts": {
-            "source_files": snapshot.counts["source_files"],
-            "source_records": snapshot.counts["source_records"],
-            "blank_lines": snapshot.counts["blank_lines"],
-            "retained": snapshot.counts["retained"],
-            "excluded": snapshot.counts["excluded"],
-            "output_files": snapshot.counts["output_files"],
-            "reward_sidecars": snapshot.counts["reward_sidecars"],
-        },
-        "lane_actions": {
-            lane: dict(sorted(actions.items())) for lane, actions in snapshot.lane_actions.items()
-        },
-        "exclusions": dict(sorted(snapshot.exclusions.items())),
-        "transforms": compose_curated.transform_contract(),
-    }
-    failures = {
-        "counts": "COMPOSE.json: source/output counts do not reproduce",
-        "lane_actions": "COMPOSE.json: lane action counts do not reproduce",
-        "exclusions": "COMPOSE.json: exclusions do not reproduce",
-        "transforms": "COMPOSE.json: transform declarations do not match this contract",
-    }
-    for field_name, expected_value in expected.items():
-        if summary.get(field_name) != expected_value:
-            raise ExportError(failures[field_name])
-
-
-def _verify_replay_matches_context(
-    snapshot: _ReplaySnapshot,
-    published: _PublishedReplay,
-) -> None:
-    """Raise ``ExportError`` unless every declared artifact reproduces from ``snapshot``."""
-
-    _require_replayed_documents(snapshot, published.manifest_documents, published.sidecar_documents)
-    _require_replayed_outputs(snapshot, published.summary, published.actual_outputs)
-    _require_replayed_counts(snapshot, published.summary)
-
-
-def _verify_replay_matches(
-    snapshot: _ReplaySnapshot,
-    **published: Any,
-) -> None:
-    """Adapt the historical keyword-only artifacts to published context."""
-
-    _verify_replay_matches_context(
-        snapshot,
-        _PublishedReplay(**published),
-    )
-
-
-def _require_calibration_state_unchanged(
-    expected: tuple[Any, ...], current: tuple[Any, ...]
-) -> None:
-    """Refuse a source replay that crossed calibration evidence states."""
-
-    if current != expected:
-        raise ExportError("calibration evidence changed during source replay")
-
-
-def _calibration_evidence_identity(
-    descriptor: dict[str, Any], source_root: Path
-) -> tuple[Any, ...]:
-    """Identity token for already-authenticated calibration evidence."""
-
-    if descriptor["mode"] == "none":
-        return "none", str(default_units_migration_path(source_root))
-    path = Path(descriptor["path"])
-    try:
-        metadata = path.lstat()
-    except OSError as exc:
-        raise ExportError("calibration evidence changed during source replay") from exc
-    return "file", str(path), *_stable_file_identity(metadata)
-
-
-def _authenticated_calibration_state(
-    summary: dict[str, Any], source_root: Path
-) -> tuple[dict[str, Any], dict[str, Any], tuple[Any, ...]]:
-    """Return catalog, descriptor, and its post-authentication identity token."""
-
-    catalog, descriptor = _authenticated_calibration(summary, source_root)
-    return catalog, descriptor, _calibration_evidence_identity(descriptor, source_root)
+def _authenticated_source_root(summary: dict[str, Any]) -> Path:
+    raw_source_root = summary.get("source_run")
+    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
+        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
+    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
+    if raw_source_root != str(source_root):
+        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
+    return source_root
 
 
 def _authenticate_source_replay(
@@ -608,16 +553,12 @@ def _authenticate_source_replay(
     source directory was immutable between the original compose and this replay.
     """
 
-    raw_source_root = summary.get("source_run")
-    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
-        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
-    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
-    if raw_source_root != str(source_root):
-        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
+    source_root = _authenticated_source_root(summary)
     calibration_state = _authenticated_calibration_state(summary, source_root)
     catalog, calibration_descriptor, _calibration_evidence = calibration_state
 
-    snapshot = _replay_source_lines(source_root, catalog)
+    selection = _selection_result(compose_oracle_selection.published_mode, summary)
+    snapshot = _replay_source_lines(source_root, catalog, selection)
     _require_calibration_state_unchanged(
         calibration_state,
         _authenticated_calibration_state(summary, source_root),

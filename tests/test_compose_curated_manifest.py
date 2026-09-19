@@ -33,7 +33,9 @@ class ComposeManifestEvidence(unittest.TestCase):
         in one long method.
         """
         source = build_source_run(root / "run")
-        summary = compose_curated.compose_run(source, root / "curated")
+        summary = compose_curated.compose_run(
+            compose_curated.ComposeRunContext(source, root / "curated")
+        )
         manifest_path = root / "curated" / summary["manifest"]["path"]
         entries = read_jsonl(manifest_path)
         sidecars = read_jsonl(root / "curated" / summary["reward_sidecars"]["path"])

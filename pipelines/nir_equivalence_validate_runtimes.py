@@ -44,7 +44,7 @@ else:
         UNAVAILABLE_REASON_CODES,
     )
 
-# Exact diagnostic pairs emitted by the reviewed adapters at 7e6eb343.
+# Exact diagnostic pairs emitted by the reviewed adapters.
 # They preserve observations across package installation/removal only while
 # the current probe still refuses execution. A code alone grants no authority.
 _REVIEWED_UNAVAILABLE_DIAGNOSTICS = {
@@ -53,6 +53,10 @@ _REVIEWED_UNAVAILABLE_DIAGNOSTICS = {
          "nir_rs is not installed in this environment; the authority-contract oracle for this family"),
         ("RUNTIME_ADAPTER_NOT_IMPLEMENTED",
          "'nir-rs' is on PATH but this repository ships no adapter for it; the authority-contract oracle for this family"),
+        ("RUNTIME_PROBE_FAILED",
+         "a nir_rs executable was found but its availability handshake failed; the authority-contract oracle for this family"),
+        ("RUNTIME_CONTRACT_MISMATCH",
+         "a nir_rs executable was found but declares conventions or coverage outside the documented adapter contract; the authority-contract oracle for this family"),
     ),
     "nir_python": (
         ("RUNTIME_NOT_INSTALLED",
@@ -105,6 +109,14 @@ def _runtime_entry_errors(entry, where):
     return errors
 
 
+# Reviewed stub-era declarations. Before `nir_rs` had a real adapter its
+# entries recorded the stub's empty contract; those records remain intact
+# evidence while the runtime is still unavailable, but only in that state.
+_REVIEWED_LEGACY_DECLARATIONS = {
+    "nir_rs": ({}, []),
+}
+
+
 def _runtime_identity_errors(entry, expected_runtime, label):
     """The entry's identity fields must be the selected implementation's."""
     errors = []
@@ -114,14 +126,20 @@ def _runtime_identity_errors(entry, expected_runtime, label):
             f"{label}: runtime_class must be {expected_class!r}, got "
             f"{entry.get('runtime_class')!r} [RUNTIME_STATUS_UNKNOWN]"
         )
+    legacy = _REVIEWED_LEGACY_DECLARATIONS.get(entry.get("runtime"))
+    allow_legacy = entry.get("status") == STATUS_UNAVAILABLE and legacy is not None
     expected_conventions = dict(getattr(expected_runtime, "conventions", {}))
-    if entry.get("conventions") != expected_conventions:
+    if entry.get("conventions") != expected_conventions and not (
+        allow_legacy and entry.get("conventions") == legacy[0]
+    ):
         errors.append(
             f"{label}: conventions do not match the selected runtime implementation "
             "[COMPARISON_MISMATCH]"
         )
     expected_supported = list(getattr(expected_runtime, "supported_types", ()))
-    if entry.get("supported_types") != expected_supported:
+    if entry.get("supported_types") != expected_supported and not (
+        allow_legacy and entry.get("supported_types") == legacy[1]
+    ):
         errors.append(
             f"{label}: supported_types do not match the selected runtime "
             "implementation [COMPARISON_MISMATCH]"
@@ -243,9 +261,9 @@ def _unavailable_probe_errors(entry, availability, label):
     errors = []
     if entry.get("status") != STATUS_UNAVAILABLE:
         errors.append(
-            f"{label}: unavailable runtime must be recorded as "
-            f"{STATUS_UNAVAILABLE!r}, not {entry.get('status')!r} "
-            "[RUNTIME_STATUS_UNKNOWN]"
+            f"{label}: unavailable runtime cannot be re-executed, so it must "
+            f"be recorded as {STATUS_UNAVAILABLE!r}, not "
+            f"{entry.get('status')!r} [RUNTIME_STATUS_UNKNOWN]"
         )
     errors += _unavailable_reason_errors(entry, availability, label)
     if entry.get("roundtrip") is not None:

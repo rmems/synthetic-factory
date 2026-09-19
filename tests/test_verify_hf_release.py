@@ -173,6 +173,33 @@ class ReleaseVerifierTests(unittest.TestCase):
             self.verify().errors,
         )
 
+    def test_purpose_may_follow_research_only_blockquotes_and_headings(self) -> None:
+        """The 2026-08-31 Hub reframe put rights prose before the purpose sentence."""
+
+        self.values["README.md"] = _card().replace(
+            "> **Release status:** The raw, uncurated payload is published "
+            "and is not training-ready.\n\n"
+            "Purpose-specific trajectories for relay-gated state assessment.\n",
+            "> **Rights & intended use:** public research corpus, not "
+            "training data.\n\n"
+            "> **Release status:** The raw, uncurated payload is published "
+            "and is not training-ready.\n\n"
+            "## Rights and intended use\n\n"
+            "Purpose-specific trajectories for relay-gated state assessment.\n",
+        )
+        self.assertTrue(self.verify().ok, self.verify().errors)
+
+    def test_purpose_marker_in_html_comment_does_not_count(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "Purpose-specific trajectories for relay-gated state assessment.\n",
+            "<!-- Purpose-specific trajectories for relay-gated state "
+            "assessment. -->\n",
+        )
+        self.assertIn(
+            "README missing repository purpose marker: relay-gated state assessment",
+            self.verify().errors,
+        )
+
     def test_hidden_reasoning_warning_is_required_on_the_card(self) -> None:
         self.values["README.md"] = _card().replace(
             "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"

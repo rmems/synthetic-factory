@@ -307,4 +307,3 @@ def rollback_identity_tree(dest, created_files, created_directories):
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
-

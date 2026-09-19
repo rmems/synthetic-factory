@@ -57,6 +57,17 @@ def _invoke(*args):
     )
 
 
+def _invoke_module(*args):
+    """Invoke the package-mode CLI: ``python -m pipelines.validate_run``."""
+    return subprocess.run(
+        [sys.executable, "-m", "pipelines.validate_run", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(REPO),
+    )
+
+
 def _run_with_record(record):
     """Helper: write single record to temp dir and invoke validator."""
     with tempfile.TemporaryDirectory() as raw:

@@ -468,6 +468,7 @@ def prepare_lanes(plan: dict[str, Any]) -> list[dict[str, Any]]:
             "source_run records lack a retained output or an explicit exclusion/quarantine: "
             f"count={len(missing)}, first={preview}"
         )
+    prepared[0]["_completion_source"] = plan["source_run_dir"]
     return prepared
 
 

@@ -53,7 +53,7 @@ class ParityDatasetAssembly(unittest.TestCase):
             source = root / 'source'
             write_parity_records(source, records)
             composed = root / 'composed'
-            summary = compose_curated.compose_run(source, composed)
+            summary = compose_curated.compose_run(compose_curated.ComposeRunContext(source, composed))
             self.assertEqual(summary['counts']['retained'], 15)
             for original in source.glob('*/*.jsonl'):
                 output = composed / 'records' / original.relative_to(source)
@@ -63,7 +63,7 @@ class ParityDatasetAssembly(unittest.TestCase):
             self.assertEqual(report['totals']['eligible_records'], 0)
             self.assertTrue(export_hf._compose_metadata(composed, files, report))
             with self.assertRaisesRegex(export_hf.ExportError, 'research-only'):
-                export_hf.export_run(composed, root / 'training-export')
+                export_hf.export_run(export_hf.ExportRequest(composed, root / 'training-export'))
             self.assertFalse((root / 'training-export').exists())
 
     def test_identity_tree_replays_native_bytes_and_rejects_manifest_authority_change(self):

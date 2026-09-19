@@ -32,6 +32,7 @@ if __package__:
     from . import curate_gate_paths as _paths
     from .check_records import canonical_record_id
     from .exact_json import dumps_exact_json
+    from .curate_identity import classify_kind
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_compose"
@@ -46,6 +47,7 @@ else:
     import curate_gate_paths as _paths
     from check_records import canonical_record_id
     from exact_json import dumps_exact_json
+    from curate_identity import classify_kind
 
 GateError = _contract.GateError
 EXCLUSION_ACTIONS = _contract.EXCLUSION_ACTIONS
@@ -269,13 +271,18 @@ def _output_summary(relative: str, target: Path, records: list[dict[str, Any]]) 
     }
 
 
-def _composed_line(item):
+def _composed_line(item: dict[str, Any]) -> bytes:
     record = item["record"]
-    if record.get("record_kind") in {"hardware_parity", "nir_equivalence"}:
+    kind = classify_kind(record)
+    if kind in {"hardware_parity", "nir_equivalence"}:
         payload = item.get("source_bytes")
         if not isinstance(payload, bytes) or record_sha256(record) != item["source_record_sha256"]:
             raise GateError("native parity composition must preserve authenticated source bytes")
         return payload
+    if kind in {"code_repair", "oracle"}:
+        if not _merge._same_json(record, item["source_record"]):
+            raise GateError("procedural evidence must preserve the reviewed source record")
+        return item["source_bytes"]
     return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
 
 

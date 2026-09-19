@@ -29,6 +29,7 @@ KIND_ORDER = (
     "safety_case",
     "multi_agent",
     "episode",
+    "oracle",
     "unknown",
 )
 
@@ -40,7 +41,7 @@ PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 # thalamic/episode key names. Identity retention additionally requires sealed
 # research-only registry authority; recognizing a kind grants no rights.
 DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
-PRESERVED_NATIVE_KINDS = DECLARED_KINDS | {"code_repair"}
+PRESERVED_NATIVE_KINDS = DECLARED_KINDS | {"code_repair", "oracle"}
 DECLARED_FACTORY_KINDS = {
     "hardware-parity-spike-trajectories": "hardware_parity",
     "nir-cross-runtime-equivalence": "nir_equivalence",
@@ -53,6 +54,7 @@ _PAYLOAD_KEY_RULES = (
     ("safety_case", frozenset({"case_type"})),
     ("multi_agent", frozenset({"transcript", "agents"})),
     ("episode", frozenset({"goal", "steps"})),
+    ("oracle", frozenset({"oracle", "result", "proposal_hash"})),
 )
 
 
@@ -73,7 +75,9 @@ def classify_kind(obj: Any) -> str:
     6. safety_case — ``case_type``
     7. multi_agent — ``transcript`` and ``agents``
     8. episode — ``goal`` and ``steps``
-    9. unknown
+    9. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
+       measurement records; accepted and rejected share the envelope)
+    10. unknown
     """
 
     kind = "unknown"
@@ -93,6 +97,18 @@ def classify_kind(obj: Any) -> str:
     return kind
 
 
+def _inherits_wrapper_goal(side: Any, kind: str, wrapper_has_goal: bool) -> bool:
+    """Whether an unclassified side borrows the wrapper goal for episode shape."""
+
+    if kind != "unknown":
+        return False
+    if not wrapper_has_goal:
+        return False
+    if not isinstance(side, Mapping):
+        return False
+    return "steps" in side
+
+
 def preference_side_kinds(record: Any) -> tuple[str, str]:
     """Classify chosen/rejected trajectories within a preference wrapper.
 
@@ -109,12 +125,7 @@ def preference_side_kinds(record: Any) -> tuple[str, str]:
     for name in ("chosen", "rejected"):
         side = record.get(name)
         kind = classify_kind(side)
-        if (
-            kind == "unknown"
-            and wrapper_has_goal
-            and isinstance(side, Mapping)
-            and "steps" in side
-        ):
+        if _inherits_wrapper_goal(side, kind, wrapper_has_goal):
             kind = "episode"
         kinds.append(kind)
     return kinds[0], kinds[1]

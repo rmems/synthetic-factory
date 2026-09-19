@@ -24,7 +24,7 @@ python3 pipelines/nir_equivalence.py availability
 | `spikenaut_software_float` | in-repo float64 LIF simulator | **executes** | — |
 | `spikenaut_q88_reference_model` | in-repo Q8.8 datapath model | **executes** | — |
 | `recorded_capture` | replay of a recorded hardware run | executes when a capture file is supplied; **no capture is committed** | `CAPTURE_FILE_ABSENT` |
-| `spikenaut_fpga` | physical FPGA | **did not execute** | `FPGA_DEVICE_NOT_DECLARED` |
+| `spikenaut_fpga` | physical FPGA over the `silicon-bridge` UART transport | **did not execute** | `FPGA_DEVICE_NOT_DECLARED` |
 | `nir_reference_v1` | in-repo NIR interpreter | **executes** | — |
 | `nir_reference_v1_altorder` | in-repo NIR interpreter, alternative conventions | **executes** | — |
 | `nir_rs` | the authority-contract oracle for the NIR family | **did not execute** | `RUNTIME_NOT_INSTALLED` |
@@ -36,8 +36,11 @@ python3 pipelines/nir_equivalence.py availability
 Stated plainly, because a parity dataset that overstates its own coverage is
 worse than no dataset:
 
-1. **No FPGA was executed.** No board is attached, declared, or driven, and
-   this repository ships no board transport. Every hardware-parity record in
+1. **No FPGA was executed.** No board is attached, declared, or driven here.
+   The repository does ship a board transport — the `silicon-bridge` UART
+   adapter described below — but it engages only when the `SPIKENAUT_FPGA_*`
+   environment declares the device, bitstream, toolchain, and board identity,
+   and none of that is provisioned here. Every hardware-parity record in
    `tests/fixtures/parity-run/` therefore carries `ORACLE_UNAVAILABLE` and
    `LATENCY_NOT_MEASURED` in its reason codes, and its deployment-side
    `execution_target` is `fixed_point_reference_model` — a model of an FPGA
@@ -52,8 +55,9 @@ worse than no dataset:
    hardware latency, so the field records `measured: false` with a reason code
    instead of a plausible number.
 4. **No upstream NIR runtime was executed.** `nir-rs` is the authority-contract
-   oracle for that family and it is absent, as are `nir`, `nirtorch`,
-   `snntorch`, `norse`, `lava`, and `sinabs`. What did execute is a pair of
+   oracle for that family and it is absent — no `nir-rs` binary is on `PATH`
+   and `NIR_RS_EXECUTABLE` is unset — as are `nir`, `nirtorch`, `snntorch`,
+   `norse`, `lava`, and `sinabs`. What did execute is a pair of
    in-repo interpreters. A record from that pair is evidence about the
    *conventions they declare*, and its `oracle.evidence_scope` field says
    exactly that. It is not evidence about `nir-rs` or any upstream backend.
@@ -118,11 +122,23 @@ identity are independently re-derived. The complete scenario identity is also
 rebuilt from its catalog entry: name, model, full stimulus, stress, hypothesis,
 and intervention cannot be relabelled separately.
 
-### To add a real hardware leg later
+### To run the real hardware leg
 
-1. Implement a board transport in `FpgaHardwareAdapter.run`
-   (`pipelines/neuro_oracle.py`) and set `SPIKENAUT_FPGA_DEVICE` and
-   `SPIKENAUT_FPGA_BITSTREAM`.
+1. Provision the environment the adapter probes: `SPIKENAUT_FPGA_DEVICE` (a
+   character device that exists), `SPIKENAUT_FPGA_BITSTREAM` (canonical
+   `sha256:<64-hex>`), `SPIKENAUT_FPGA_BITSTREAM_TOOLCHAIN`, and board identity
+   `SPIKENAUT_FPGA_BOARD_REVISION` + `SPIKENAUT_FPGA_BOARD_SERIAL`. The
+   transport binary is `silicon-bridge` on `PATH` — the workspace builds it
+   from `rust/silicon-bridge/` — or an explicit `SPIKENAUT_SILICON_BRIDGE`
+   executable override. Each missing or malformed declaration is its own
+   `FPGA_*` reason code, and a non-executable or failing transport reports
+   `FPGA_TRANSPORT_UNAVAILABLE` / `FPGA_TRANSPORT_FAILED` rather than a
+   plausible output.
+2. With all of that declared, `FpgaHardwareAdapter.run` exchanges the
+   stimulus over UART in the dense Q8.8 framing, and the emitted record binds
+   the manifest/payload digest chain, repeat digests, measured latency, and
+   quantization provenance. Validation still refuses the claim anywhere the
+   fresh probe cannot corroborate it.
 2. A recorded capture can be replayed for unverified research diagnostics:
    `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json> --scenario hp-representable-margin --steps 12`.
    Select the catalog scenario and stimulus window used by the capture. The command
@@ -244,8 +260,11 @@ self-consistent record asserting a match that never happened, which is why the
 traces themselves are re-derived from the model and stimulus.
 
 Only a runtime this validator can re-execute may be marked `executed`. An
-`executed` claim naming `nir_rs` — which is not installed — is rejected
-outright, because such a claim is unfalsifiable rather than merely unverified.
+`executed` claim naming `nir_rs` on a host with no `nir-rs` binary — none on
+`PATH` and `NIR_RS_EXECUTABLE` unset — is rejected outright, because such a
+claim is unfalsifiable rather than merely unverified. Where the binary is
+installed, `nir_rs` serializes, parses, and executes through the real crate's
+codecs and joins the comparison like any other executed runtime.
 
 ### Captures do not establish physical authority
 

@@ -212,7 +212,8 @@ def _compose_identity_stage(
     result = facade.curate_identity.curate_record(
         facade.curate_identity.SourceRecord(
             record, source.path, source.line, source.sha256,
-            source_json=source.source_json if facade.curate_identity.classify_kind(record) in facade.curate_identity.DECLARED_KINDS else None,
+            source_json=(source.source_json if facade.curate_identity.classify_kind(record)
+                         in facade.curate_identity.PRESERVED_KINDS else None),
         )
     )
     result, deferred = facade._deferred_lane_repair(record, result, source)

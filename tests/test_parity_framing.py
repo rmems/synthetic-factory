@@ -18,7 +18,9 @@ class ParityFraming(unittest.TestCase):
                 source = root / 'source' / relative
                 source.parent.mkdir(parents=True)
                 source.write_bytes(b'\n' + text + terminator)
-                summary = compose_curated.compose_run(root / 'source', root / 'composed')
+                summary = compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(root / 'source', root / 'composed')
+                )
                 self.assertEqual(summary['counts']['blank_lines'], 1)
                 output = root / 'composed' / 'records' / relative
                 self.assertEqual(output.read_bytes(), text + terminator)

@@ -249,8 +249,26 @@ class Adapters(unittest.TestCase):
             )
 
     def test_fpga_adapter_still_refuses_with_device_and_bitstream(self):
-        # There is no board transport in this repository, so even a fully
-        # declared environment must not yield an fpga_hardware result.
+        # Board transport requires the silicon-bridge adapter binary; a fully
+        # declared environment without it must not yield an fpga_hardware result.
+        with tempfile.NamedTemporaryFile() as handle:
+            adapter = oracle.FpgaHardwareAdapter(
+                env={
+                    oracle.FPGA_DEVICE_ENV: handle.name,
+                    oracle.FPGA_BITSTREAM_ENV: "sha256:" + "ab" * 32,
+                    oracle.FPGA_BITSTREAM_TOOLCHAIN_ENV: "vivado 2025.1",
+                    oracle.FPGA_BOARD_REVISION_ENV: "rev-c",
+                    oracle.FPGA_BOARD_SERIAL_ENV: "sn-0001",
+                    # Nonexistent override: the probe must not fall back to
+                    # whatever `silicon-bridge` the ambient PATH happens to hold.
+                    oracle.FPGA_TRANSPORT_ENV: "/nonexistent/silicon-bridge",
+                }
+            )
+            self.assertEqual(
+                adapter.availability()["reason_code"], "FPGA_TRANSPORT_UNAVAILABLE"
+            )
+
+    def test_fpga_adapter_refuses_a_malformed_bitstream_hash(self):
         with tempfile.NamedTemporaryFile() as handle:
             adapter = oracle.FpgaHardwareAdapter(
                 env={
@@ -259,7 +277,8 @@ class Adapters(unittest.TestCase):
                 }
             )
             self.assertEqual(
-                adapter.availability()["reason_code"], "FPGA_DRIVER_NOT_IMPLEMENTED"
+                adapter.availability()["reason_code"],
+                "FPGA_BITSTREAM_HASH_MALFORMED",
             )
 
     def test_fpga_adapter_run_raises_instead_of_substituting(self):

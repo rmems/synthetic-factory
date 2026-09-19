@@ -205,11 +205,11 @@ class VerifyExecutionFunnel(_FunnelCase):
                     args = SimpleNamespace(**{"run_dir": None, "record": None, "batch": None, name: candidate})
                     self.assertRefused(verify_execution._confined, self.parser, args)
 
-    def test_paths_under_the_operator_trees_resolve_and_absent_ones_stay_none(self):
+    def test_selected_batch_path_resolves_and_inactive_values_stay_none(self):
         with tempfile.TemporaryDirectory() as td:
             args = SimpleNamespace(run_dir=td, record=None, batch=os.path.join(td, "b.jsonl"))
             run_dir, record, batch = verify_execution._confined(self.parser, args)
-        self.assertEqual(run_dir, Path(os.path.realpath(td)))
+        self.assertIsNone(run_dir)
         self.assertIsNone(record)
         self.assertEqual(batch, Path(os.path.realpath(td)) / "b.jsonl")
 

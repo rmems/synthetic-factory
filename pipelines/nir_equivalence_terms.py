@@ -33,7 +33,16 @@ STATUS_UNSUPPORTED = "unsupported"
 STATUS_UNAVAILABLE = "unavailable"
 RUNTIME_STATUSES = (STATUS_EXECUTED, STATUS_UNSUPPORTED, STATUS_UNAVAILABLE)
 UNAVAILABLE_REASON_CODES = frozenset(
-    {"RUNTIME_NOT_INSTALLED", "RUNTIME_ADAPTER_NOT_IMPLEMENTED"}
+    {
+        "RUNTIME_NOT_INSTALLED",
+        "RUNTIME_ADAPTER_NOT_IMPLEMENTED",
+        # Adapter-side refusals from a real backend: the binary exists but
+        # could not complete the availability handshake, or answered with a
+        # conventions/coverage contract different from the one this adapter
+        # declares.
+        "RUNTIME_PROBE_FAILED",
+        "RUNTIME_CONTRACT_MISMATCH",
+    }
 )
 CANONICAL_DATA_ERRORS = (
     TypeError,
@@ -43,9 +52,11 @@ CANONICAL_DATA_ERRORS = (
     UnicodeEncodeError,
 )
 VALIDATION_DATA_ERRORS = CANONICAL_DATA_ERRORS + (KeyError, IndexError, AttributeError)
-# `in_repo_reference` results are re-executed during validation.
-# `upstream_runtime` results cannot be, which is why only the former may ever
-# be marked executed here.
+# `in_repo_reference` results are re-executed during validation. An
+# `upstream_runtime` result may only be marked `executed` when its adapter is
+# backed by a binary this validator can re-execute (currently `nir_rs` via
+# the `nir-rs` adapter binary); the other upstream runtimes may never carry
+# that status here.
 RUNTIME_CLASSES = ("in_repo_reference", "upstream_runtime")
 
 # The one pairing this family measures. Free text here would let a record

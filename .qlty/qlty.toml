@@ -23,7 +23,6 @@ exclude_patterns = [
   "**/bower_components/**",
   "**/build/**",
   "**/cache/**",
-  "**/db/**",
   "**/deps/**",
   "**/dist/**",
   "**/extern/**",
@@ -39,6 +38,27 @@ exclude_patterns = [
   "**/templates/**",
   "**/testdata/**",
   "**/vendor/**",
+  # Reviewed mill-script archive policy (config/MILL-SCRIPT-INVENTORY.json).
+  # These exclude leftover generators if they appear in a working tree; they
+  # do not match production leftover_mill.py / compose_mill.py / tests.
+  "experiments/*mill*.py",
+  "experiments/*-chain-*.py",
+  "experiments/irc-pub-r*.py",
+  "experiments/*-loop*.py",
+  "experiments/*_loop*.py",
+  "experiments/*-hop*.py",
+  "experiments/*_hop*.py",
+  "experiments/**/*mill*.py",
+  "experiments/*leftover*.py",
+  "experiments/**/*leftover*.py",
+  "experiments/_gen_*.py",
+  "experiments/**/_gen_*.py",
+  "experiments/*plants*.py",
+  "experiments/**/*plants*.py",
+  "scripts/*_mill/**",
+  "scripts/*_mill.py",
+  "pipelines/*_mill_leftover*.py",
+  "mill_*_r*.py",
 ]
 
 test_patterns = [

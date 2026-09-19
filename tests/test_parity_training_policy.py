@@ -50,7 +50,7 @@ class ParityTrainingPolicy(unittest.TestCase):
             self.assertFalse(report['training_ready'])
             self.assertTrue(any('research-only' in reason for reason in report['blockers']))
             with self.assertRaisesRegex(export_hf.ExportError, 'research-only'):
-                export_hf.export_run(curated, root / 'export')
+                export_hf.export_run(export_hf.ExportRequest(curated, root / 'export'))
             self.assertFalse((root / 'export').exists())
 
     def test_wrong_source_directory_has_no_native_authority(self):

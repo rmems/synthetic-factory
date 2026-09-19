@@ -97,9 +97,9 @@ def _fpga_probe_shape_errors(recorded, where):
 def _fpga_live_claim_errors(oracle, recorded, current_available, where):
     errors = []
     if recorded.get("available") is True and not current_available:
-        # FpgaHardwareAdapter.run() always raises regardless of what
-        # availability() reports, so no adapter code path in this repository
-        # can produce a truthful ``available: true`` probe today. Unlike
+        # A live-hardware claim is only intact while this environment can
+        # still corroborate it: the board, its declared provenance, and the
+        # silicon-bridge transport must all still probe available. Unlike
         # reason_code/detail (which legitimately drift with the generating
         # host's environment and are intentionally not re-checked above),
         # a bare ``true`` is never intact evidence to preserve.

@@ -50,14 +50,24 @@ CURRENT_CATALOG_SOURCE_STAMPS = (
     ('sha256:0678792200503ef3c9e1d9a717a481411c9ea34d0b8d25ad133840e784a910e6',
      'df36b001ec78b9d2c0f37d9fb4baa93622d1dc9b07d0e605210a2a401eda6063'),
     ('sha256:03b7dc18c8b9b9927b8310d57949e03f600c35d236f09be5eabe2a521a226eaa',
-     '449fa8bc214dba2d1cc5e6a5eec74d7f591ff44d85e65c232f0d809dad416445'),
+     'f35629d32e5fa8b1246c4f413022a94d38382db16442886271b73920abffe694'),
 )
 
 DEPLOYMENT_SOURCE_STAMPS = (
     ('sha256:9ea2564618adbb3b497667b65505151bbd0de8850002394ca43a3623c62e87f1',
      '6b5543e1c0c795752cfe09633281d698c2375329cde6f4f19988a298739d4cf5'),
     ('sha256:04c48e47779b12d044d9eafec8efc6eec2855bc91c8b1b70a3e2e47aec957b8c',
-     '96c5c2de5c4dada6b7c63d80645946aede51c9ff6563fd23df99874fb33af810'),
+     '2e4bfa188fe5a38e901bb6bd9336de0ecf53eeac5c96c198efa22645a06ec5f2'),
+)
+
+# The crate-adapter review: `nir_rs` is bound to the real `nir-rs` crate via
+# the workspace `nir-rs` binary, and `spikenaut_fpga` runs through the
+# `silicon-bridge` UART transport. Fixture bytes under the reviewed stamps.
+CRATE_ADAPTER_SOURCE_STAMPS = (
+    ('sha256:4e6f895dc87bd9c29cdcd2880d976c9ffce1862e464f78b91b94edf52ff004aa',
+     '40efb566e75a1ac7a6080b07b5f22b316c7849a5b11f1c73889a425806726d9e'),
+    ('sha256:f7dcb6a01854f5b478986d46c9953ddc1042801a26e69187d6e88b066ef2d916',
+     '93ed389f243d1e2358ec49e5ea971afb1121f464a0b7eeb0d25e51ab58f32525'),
 )
 
 
@@ -79,6 +89,7 @@ class HistoricalSourceStamps(unittest.TestCase):
     def test_reviewed_current_catalog_bytes_survive_validator_refactors(self):
         self._check_current_catalog_stamps(CURRENT_CATALOG_SOURCE_STAMPS)
         self._check_current_catalog_stamps(DEPLOYMENT_SOURCE_STAMPS)
+        self._check_current_catalog_stamps(CRATE_ADAPTER_SOURCE_STAMPS)
 
     def _check_current_catalog_stamps(self, stamps):
         for case, (source, checksum) in zip(CASES, stamps, strict=True):

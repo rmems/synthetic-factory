@@ -18,6 +18,7 @@ if __package__:
     from .neuro_oracle import digest  # noqa: E402
     from .nir_equivalence_graph import GraphError  # noqa: E402
     from .nir_equivalence_runtimes import (  # noqa: E402
+        RuntimeUnavailable,
         UnsupportedConstruct,
         _RUNTIME_BY_NAME,
     )
@@ -33,6 +34,7 @@ else:
     from neuro_oracle import digest  # noqa: E402
     from nir_equivalence_graph import GraphError  # noqa: E402
     from nir_equivalence_runtimes import (  # noqa: E402
+        RuntimeUnavailable,
         UnsupportedConstruct,
         _RUNTIME_BY_NAME,
     )
@@ -43,12 +45,12 @@ else:
     )
 
 def _reexecute_in_repo_runtimes(record, where):
-    """Re-run every in-repo runtime and compare digests with what was recorded.
+    """Re-run every re-executable runtime and compare digests with what was recorded.
 
     This is the anti-fabrication gate for this family: an output trace that the
     interpreter does not reproduce cannot survive validation. Runtimes that are
-    not in-repo cannot be re-executed here, and the record says so rather than
-    pretending they were checked.
+    not re-executable here -- unavailable probes included -- are skipped, and
+    the record says so rather than pretending they were checked.
     """
     scenario = record.get("scenario") or {}
     graph = scenario.get("graph")
@@ -69,13 +71,26 @@ def _reexecutable_runtime(entry):
 
     An entry naming a runtime this validator cannot re-execute is left to
     `_check_runtimes`, which is what refuses an unfalsifiable executed claim.
+    A runtime that is re-executable in principle but whose probe currently
+    reports unavailable (e.g. `nir_rs` without its binary) is also left to
+    `_check_runtimes`: replaying it could only reproduce the probe's own
+    refusal, which is already bound to the record there.
     """
     if not isinstance(entry, dict):
         return None
     runtime_name = entry.get("runtime")
     if not isinstance(runtime_name, str):
         return None
-    return _RUNTIME_BY_NAME.get(runtime_name)
+    runtime = _RUNTIME_BY_NAME.get(runtime_name)
+    if runtime is None:
+        return None
+    try:
+        status = runtime.availability()
+    except Exception:  # noqa: BLE001 - an unprobeable runtime is not re-executable
+        return None
+    if not isinstance(status, dict) or status.get("available") is not True:
+        return None
+    return runtime
 
 
 def _replay_entry_errors(runtime, entry, scenario, label):
@@ -91,6 +106,12 @@ def _replay_entry_errors(runtime, entry, scenario, label):
         return _unsupported_replay_errors(entry, exc, label) + _roundtrip_replay_errors(
             runtime, entry, graph, label
         )
+    except RuntimeUnavailable as exc:
+        return [
+            f"{label}: runtime reported available at probe time but refused "
+            f"re-execution ({exc.reason_code}); the entry's evidence is "
+            "unfalsifiable in this environment [RUNTIME_STATUS_UNKNOWN]"
+        ]
     except GraphError as exc:
         return [f"{label}: graph is not executable: {exc}"]
     except (

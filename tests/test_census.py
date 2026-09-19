@@ -30,6 +30,7 @@ EXPECTED = {
         # census that cannot see them.
         "hardware_parity": 0,
         "nir_equivalence": 0,
+        "oracle": 0,
         "unknown": 0,
     },
     "sim_or_real": {
