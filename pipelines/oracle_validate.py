@@ -572,6 +572,7 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(add_help=True, description=__doc__)
     parser.add_argument("run_dir", nargs="?")
     parser.add_argument("--family", action="append", dest="family_names")
+    parser.add_argument("--oracle-rust-bin", help="prebuilt native oracle executable; implies replay")
     parser.add_argument("--require-runtime", action="store_true")
     parser.add_argument("--reproduce", action="store_true")
     parser.add_argument("--max-findings", type=int, default=50)
@@ -783,11 +784,18 @@ def _manifest_note_errors(manifest, parsed_records, context):
     return _oracle_validate_manifest.ManifestChecks(sys.modules[__name__])._manifest_note_errors(manifest, parsed_records, context)
 
 
-def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
-    return validate_run_snapshot(
-        run_dir, authenticate_manifest(run_dir),
-        options=RunValidationOptions(require_runtime, reproduce, selected),
-    )
+def validate_run(run_dir, require_runtime=False, reproduce=False, selected=(), *, oracle_rust_bin=None):
+    if __package__:
+        from .oracle_grounded.native_gate import runtime_gate
+    else:
+        from oracle_grounded.native_gate import runtime_gate
+    with runtime_gate(oracle_rust_bin):
+        return validate_run_snapshot(
+            run_dir, authenticate_manifest(run_dir),
+            options=RunValidationOptions(
+                require_runtime, reproduce or oracle_rust_bin is not None, selected,
+            ),
+        )
 
 
 def _snapshot_expected_commit(manifest):
@@ -901,12 +909,17 @@ def main(argv=None):
         print(f"oracle_validate: unknown families: {', '.join(unknown)}", file=sys.stderr)
         return 2
 
-    report, errors = validate_run(
-        run_dir,
-        require_runtime=args.require_runtime,
-        reproduce=args.reproduce,
-        selected=selected,
-    )
+    try:
+        report, errors = validate_run(
+            run_dir,
+            require_runtime=args.require_runtime,
+            reproduce=args.reproduce,
+            selected=selected,
+            oracle_rust_bin=args.oracle_rust_bin,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"oracle_validate: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(report, indent=2))
     finding_limit = max(0, args.max_findings)
     for finding in errors[:finding_limit]:

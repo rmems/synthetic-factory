@@ -14,21 +14,19 @@ by code, not by convention — see [Separation](#how-the-separation-is-enforced)
 
 ## Status of the named oracles
 
-Issue #77 names six ground-truth runtimes. **None of them are bundled or bound
-by default in this repository**, which the repo's own harvest notes already
-record ("No crates.io `neuromod` / `axon-encoder`",
-`experiments/2026-08-17-grok-census.md`). Runtime binding, rather than ambient
-`PATH` membership, is the only availability fact retained in canonical data.
+Issue #77 names six ground-truth runtimes. The optional Rust executable now
+uses published `axon-encoder 0.4.0` and `neuromod 0.6.0` dependencies for two
+versioned crate-native profiles. Generation defaults to reference simulation;
+`--backend rust --oracle-rust-bin PATH` explicitly selects crate execution.
+Runtime binding, rather than ambient `PATH` membership, is retained in data.
 
-Rather than fabricate their output, this PR implements the *boundary*:
-
-| Family | Named oracle (issue #77) | Bound here? | What ran instead |
-|---|---|---|---|
-| `spike-encoder-equivalence-pairs` | `axon-encoder` | no | reference encoder bank |
-| `neuron-dynamics-counterfactuals` | `neuromod` | no | reference adaptive LIF |
-| `synaptic-delay-causal-trajectories` | `synaptic-mesh` + runtime | no | reference delay mesh |
-| `neuromodulator-credit-assignment` | `limbic-critic` → `plasticity-lab` | no | reference critic → reference three-factor STDP |
-| `temporal-memory-spike-challenges` | validated recurrent SNN | no | reference recurrent delay-loop network |
+| Family | Reference default | Optional crate-native profile |
+|---|---|---|
+| `spike-encoder-equivalence-pairs` | reference encoder bank | `axon-stream-v1` |
+| `neuron-dynamics-counterfactuals` | reference adaptive LIF | `neuromod-lif-v1` |
+| `synaptic-delay-causal-trajectories` | reference delay mesh | not integrated |
+| `neuromodulator-credit-assignment` | reference critic and STDP | not integrated |
+| `temporal-memory-spike-challenges` | reference recurrent delay-loop network | not integrated |
 
 Every record produced without a bound runtime carries:
 
@@ -76,14 +74,11 @@ fail-closed curation gate, and each family's own invariants.
 
 ## Binding a real runtime
 
-An oracle is bound by pointing an environment variable at a command that
-speaks the `sf-oracle/1` protocol. No code change is needed.
-
-```bash
-export SF_ORACLE_AXON_ENCODER_CMD="axon-encoder serve-oracle"
-python3 pipelines/oracle_generate.py --family spike-encoder-equivalence-pairs \
-    --require-runtime outputs/oracle-grounded/2026-09-01
-```
+Follow [the Rust backend guide](oracle-rust-backend.md) to build the locked
+executable and select it explicitly. The reference CLI backend ignores ambient
+`SF_ORACLE_*_CMD` bindings. Low-level external-command adapters still support
+the existing `sf-oracle/1` interface for custom callers; their metadata alone
+does not grant training admission.
 
 Request on stdin:
 
@@ -155,11 +150,15 @@ separately from named runtimes.
 
 Training admission independently replays accepted reference measurements with
 the built-in oracle and requires an exact result digest match. Named and mixed
-runtime records remain ineligible with `authenticated runtime replay required`:
+runtime records are ineligible by default with `authenticated runtime replay required`:
 their metadata alone cannot authenticate their measurements. This identifies
 missing evidence, not a claim that their runtime measurements are incorrect.
-Admission does not invoke external runtime commands, and the CLI reproduction
-report is not yet an authenticated receipt consumable by training admission.
+Pure metadata admission does not invoke external runtime commands. The
+[crate-native backend](oracle-rust-backend.md) adds an explicit
+`--oracle-rust-bin` option to validation, assembly, and export: the caller-selected
+executable freshly replays each native record within that operation. A previous
+CLI report is never treated as an admission receipt. Other named or mixed
+runtimes remain ineligible.
 
 Before any record is trusted, the validator pins the run root with a directory
 descriptor, rejects symlinks, hardlink aliases, non-regular files, escaping or
@@ -387,7 +386,8 @@ Each omitted row remains in the compose manifest with original source coordinate
 text, hashes, and an explicit eligibility reason. The original run is unchanged.
 The versioned selection declaration and every decision are replayed again before
 export. Named or mixed runtime rows remain ineligible without authenticated
-runtime replay evidence; selection never invokes an external runtime.
+runtime replay evidence. Selection only executes the crate-native runtime when
+the caller explicitly supplies `--oracle-rust-bin`; metadata alone never authorizes it.
 
 This is a local dataset assembly and export operation. It neither publishes a
 remote dataset nor establishes that an accepted-only sample is statistically

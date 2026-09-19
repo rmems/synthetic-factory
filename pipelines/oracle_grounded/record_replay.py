@@ -16,7 +16,7 @@ def _rebuild(record):
         and stored_oracle.get("module") != oracles.MODULE_PATH
     ):
         return None, ("mismatch", "stored reference module identity is not current")
-    spec = families.spec_for(record["family"])
+    spec = families.spec_for_record(record)
     request = spec.build_request(record["scenario"], record["intervention"])
     rebuilt = canon.normalize(request.get("configuration"))
     stored = canon.normalize(stored_oracle.get("configuration"))

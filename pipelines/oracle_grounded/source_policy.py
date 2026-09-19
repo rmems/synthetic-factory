@@ -13,7 +13,9 @@ remains immutable for the process lifetime.
 Pin semantics (recompute on any reviewed change):
 - catalog_sha256: SHA-256 over every pipelines/oracle_grounded/*.py except this
   module, the base oracle-grounded-v1.schema.json, and every family schema under
-  schemas/oracle-grounded/. Members are sorted by repository-relative path.
+  schemas/oracle-grounded/, plus the explicit Rust runtime manifests, lockfile,
+  build script and production modules in NATIVE_SOURCE_NAMES. Members are
+  sorted by repository-relative path.
   Each member is framed by its path and byte length before its bytes, so a byte
   redistribution across two adjacent modules cannot preserve the digest while
   the module boundary moves. This module is the trust anchor that seals the
@@ -37,7 +39,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "25fc9617bd932818ab4bdc588c640d0a55d1eb6bf7bdcb83b78787f6fe4804da"
+POLICY_SHA256 = "8d47b94faa3d1932fdf94472814503147762647471c194421775984d76999251"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -68,10 +70,21 @@ def framed_digest(members: Iterable[tuple[str, bytes]]) -> str:
     return digest.hexdigest()
 
 
+# Explicit runtime source domain: do not include documentation, tests, or build
+# artifacts. These files execute the reviewed native measurement authority.
+NATIVE_SOURCE_NAMES = (
+    "Cargo.toml", "Cargo.lock", "rust/sf-oracle/Cargo.toml", "rust/sf-oracle/build.rs",
+    "rust/sf-oracle/src/encoder.rs", "rust/sf-oracle/src/identity.rs",
+    "rust/sf-oracle/src/main.rs", "rust/sf-oracle/src/neuron.rs",
+    "rust/sf-oracle/src/protocol.rs",
+)
+
+
 def catalog_digest(package: Path) -> str:
     """Seal implementation and executable schema bytes from one source tree."""
     root = package.parent.parent
     domain = [path for path in package.glob("*.py") if path.name != Path(__file__).name]
+    domain.extend(root / name for name in NATIVE_SOURCE_NAMES)
     domain.append(root / "schemas/oracle-grounded-v1.schema.json")
     domain.extend((root / "schemas/oracle-grounded").glob("*.schema.json"))
     members = sorted(domain, key=lambda path: path.relative_to(root).as_posix())

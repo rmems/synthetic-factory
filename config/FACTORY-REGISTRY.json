@@ -1234,8 +1234,8 @@
       "provenance_contract_by_kind": {
         "episode": "synthetic_shape_implies_designed"
       }
-    }
-    ,{
+    },
+    {
       "path_id": "python-function-repair-factory",
       "generator": "python-repair-mutator",
       "generator_version": "2.0.0",
@@ -1275,8 +1275,8 @@
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "oracle-grounded-v1",
-      "catalog_sha256": "2bf95517bd91b1b562d0982a21664b3b4a6e2804dac250df6bd9f382544f61cd",
-      "programs_sha256": "6e808c0fd151d72ca51f430c52c9c2b13b126743fba7a5747b49025266ff07c4",
+      "catalog_sha256": "e613b597bbaacf91db064b6041feff935be00120fe44ba79d285928eecf90237",
+      "programs_sha256": "d8c5ea84d315b7317e64a836df93e431389203f1fe2b59e5af3ad9be4d0901e6",
       "intended_use": "training_candidate",
       "project_training_policy": "allowed",
       "publication_target": null,
@@ -1288,7 +1288,7 @@
         "license": "Apache-2.0",
         "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
       },
-      "procedural_policy_sha256": "25fc9617bd932818ab4bdc588c640d0a55d1eb6bf7bdcb83b78787f6fe4804da",
+      "procedural_policy_sha256": "8d47b94faa3d1932fdf94472814503147762647471c194421775984d76999251",
       "record_kinds": [
         "oracle"
       ],

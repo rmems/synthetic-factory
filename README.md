@@ -178,6 +178,11 @@ Because prefix and goal ownership are cross-factory properties, a single file
 or one-factory source remains dry-run only; cleaned output fails closed until
 the source provides multi-factory ownership context.
 
+The factory supports agentic and coding datasets for LLMs and neuromorphic
+datasets for SNNs. An explicit [Rust backend](docs/oracle-rust-backend.md) uses
+`axon-encoder 0.4.0` and `neuromod 0.6.0` for crate-native encoder and neuron
+episodes, with fresh execution replay during assembly and local export.
+
 Oracle-grounded families (generator proposes, oracle measures — see
 [`docs/oracle-grounded-datasets.md`](docs/oracle-grounded-datasets.md)):
 
@@ -186,10 +191,10 @@ python3 pipelines/oracle_generate.py --count 8 outputs/oracle-grounded/2026-09-0
 python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09-01
 ```
 
-None of the runtimes issue #77 names (`axon-encoder`, `neuromod`,
-`synaptic-mesh`, `limbic-critic`, `plasticity-lab`, a validated recurrent SNN)
-are available here, so those runs use deterministic in-repo reference
-simulators and are stamped `implementation: "reference"`. Under [#171] an
+Those default runs use deterministic in-repo reference simulators and are
+stamped `implementation: "reference"`. Selecting `--backend rust` runs the
+two crate-native profiles through a prebuilt executable; the remaining three
+families continue to use their reference implementations. Under [#171] an
 accepted reference record whose `oracle.module_digest` matches the current
 sources is publishable as a reproducible simulator measurement; it is never
 publishable as a measurement of the named runtimes, and a digest the current

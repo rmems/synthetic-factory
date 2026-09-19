@@ -94,6 +94,8 @@ def parse_args(argv):
     parser.add_argument("--oracle-dirty", dest="oracle_dirty", action="store_true", default=None)
     parser.add_argument("--no-oracle-dirty", dest="oracle_dirty", action="store_false")
     parser.add_argument("--require-runtime", action="store_true")
+    parser.add_argument("--backend", choices=("reference", "rust"), default="reference")
+    parser.add_argument("--oracle-rust-bin")
     parser.add_argument("--list-families", action="store_true")
     return parser.parse_args(argv)
 
@@ -162,7 +164,12 @@ def _argument_errors(args):
 
 def _select_families(args):
     """The requested families, de-duplicated in order. (selected, exit code)."""
-    selected = list(dict.fromkeys(args.family_names or families.FAMILY_NAMES))
+    from oracle_grounded.native_profiles import PROFILES
+    default = tuple(PROFILES) if args.backend == 'rust' else families.FAMILY_NAMES
+    selected = list(dict.fromkeys(args.family_names or default))
+    if args.backend == 'rust' and any(name not in PROFILES for name in selected):
+        print('oracle_generate: Rust backend supports only encoder and neuron families', file=sys.stderr)
+        return None, 2
     unknown = [name for name in selected if name not in families.SPECS]
     if unknown:
         print(f"oracle_generate: unknown families: {', '.join(unknown)}", file=sys.stderr)
@@ -257,7 +264,15 @@ def _prepare_run(args):
     selected, selection_error = _select_families(args)
     if selection_error is not None:
         return None, selection_error
-    availability = oracles.availability_report(_requested_runtimes(selected))
+    args.runtime_environ = {}
+    if args.backend == 'rust':
+        from oracle_grounded.native_runtime import runtime_environ
+        try:
+            args.runtime_environ = runtime_environ(args.oracle_rust_bin)
+        except oracles.OracleError as exc:
+            print(f'oracle_generate: {exc}', file=sys.stderr)
+            return None, 3
+    availability = oracles.availability_report(_requested_runtimes(selected), args.runtime_environ)
     if args.require_runtime and not availability["all_bound"]:
         print(
             "oracle_generate: --require-runtime was passed but these oracles are "
@@ -295,6 +310,8 @@ def _generate_selected(args, selected, commit, dirty):
             dirty,
             args.require_runtime,
             byte_budget=byte_budget,
+            backend=args.backend,
+            environ=args.runtime_environ,
         )
         errors = generated[family][2]
         if errors:

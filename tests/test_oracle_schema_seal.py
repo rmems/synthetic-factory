@@ -21,7 +21,12 @@ class OracleSchemaSealTests(unittest.TestCase):
             shutil.copytree(source_policy.ROOT / directory, self.root / directory)
         relatives = ["schemas/oracle-grounded-v1.schema.json", "LICENSE"]
         relatives.extend(f"pipelines/{name}" for name in source_policy.PROGRAM_NAMES)
+        relatives.extend(("Cargo.toml", "Cargo.lock", "rust/sf-oracle/Cargo.toml",
+                          "rust/sf-oracle/build.rs"))
+        relatives.extend(f"rust/sf-oracle/src/{name}.rs"
+                         for name in ("encoder", "identity", "main", "neuron", "protocol"))
         for relative in relatives:
+            (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_policy.ROOT / relative, self.root / relative)
         patcher = mock.patch.object(source_policy, "ROOT", self.root)
         patcher.start()
@@ -83,6 +88,27 @@ class OracleSchemaSealTests(unittest.TestCase):
                 with self.assertRaises(source_policy.SourcePolicyError):
                     source_policy.verify_source_bytes()
                 path.write_bytes(original)
+
+
+class RustCatalogSealTests(unittest.TestCase):
+    def test_rust_and_lock_changes_alter_independent_catalog_seal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in ("pipelines/oracle_grounded", "schemas/oracle-grounded", "rust"):
+                shutil.copytree(source_policy.ROOT / relative, root / relative)
+            for relative in ("Cargo.toml", "Cargo.lock", "schemas/oracle-grounded-v1.schema.json"):
+                shutil.copyfile(source_policy.ROOT / relative, root / relative)
+            package = root / "pipelines/oracle_grounded"
+            baseline = source_policy.catalog_digest(package)
+            for relative in ("Cargo.lock", "Cargo.toml", "rust/sf-oracle/Cargo.toml",
+                             "rust/sf-oracle/build.rs", "rust/sf-oracle/src/encoder.rs",
+                             "rust/sf-oracle/src/neuron.rs"):
+                with self.subTest(relative=relative):
+                    path = root / relative
+                    original = path.read_bytes()
+                    path.write_bytes(original + b"\n# altered authoritative runtime\n")
+                    self.assertNotEqual(source_policy.catalog_digest(package), baseline)
+                    path.write_bytes(original)
 
 
 if __name__ == "__main__":

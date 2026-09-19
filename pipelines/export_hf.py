@@ -471,18 +471,24 @@ def export_run(
     *,
     split: SplitOptions = DEFAULT_SPLIT,
     dataset_name: str | None = None,
+    oracle_rust_bin: str | Path | None = None,
 ) -> dict[str, Any]:
     """Export one composed curated tree, refusing anything not training-ready."""
 
-    return _export_request(
-        _ExportRequest(
-            Path(curated_root),
-            Path(destination),
-            split.eval_fraction,
-            split.salt,
-            dataset_name,
+    if __package__:
+        from .oracle_grounded.native_gate import runtime_gate
+    else:
+        from oracle_grounded.native_gate import runtime_gate
+    with runtime_gate(oracle_rust_bin):
+        return _export_request(
+            _ExportRequest(
+                Path(curated_root),
+                Path(destination),
+                split.eval_fraction,
+                split.salt,
+                dataset_name,
+            )
         )
-    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -500,6 +506,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SPLIT_SALT,
         help="salt for the deterministic split hash",
     )
+    parser.add_argument("--oracle-rust-bin", help="prebuilt native oracle executable for fresh replay")
     parser.add_argument("--dataset-name", help="optional dataset name recorded in provenance")
     return parser.parse_args(argv)
 
@@ -512,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             args.destination,
             split=SplitOptions(args.eval_fraction, args.split_salt),
             dataset_name=args.dataset_name,
+            oracle_rust_bin=args.oracle_rust_bin,
         )
     except (ExportError, OSError, ValueError) as exc:
         print(f"export_hf: {exc}", file=sys.stderr)

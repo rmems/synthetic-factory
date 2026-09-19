@@ -18,3 +18,10 @@ pipelines/compose_destination_directory.py text eol=lf
 pipelines/compose_contract.py text eol=lf
 pipelines/oracle_record_envelope.py text eol=lf
 pipelines/oracle_record_generator.py text eol=lf
+# Native measurements and source-license evidence are sealed over exact bytes.
+LICENSE text eol=lf
+Cargo.toml text eol=lf
+Cargo.lock text eol=lf
+rust/sf-oracle/Cargo.toml text eol=lf
+rust/sf-oracle/build.rs text eol=lf
+rust/sf-oracle/src/*.rs text eol=lf

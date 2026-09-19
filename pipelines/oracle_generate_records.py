@@ -5,7 +5,7 @@ class GenerationRecords:
     def __init__(self, api):
         self.api = api
 
-    def generate_family(self, family, count, seed, round_number, commit, dirty, require_runtime, environ=None, *, byte_budget=None):
+    def generate_family(self, family, count, seed, round_number, commit, dirty, require_runtime, environ=None, *, byte_budget=None, backend="reference"):
         """Build records by verdict, stopping at the first fatal generation error."""
         accepted = []
         rejected = []
@@ -14,7 +14,7 @@ class GenerationRecords:
         file_bytes = {'accepted': 0, 'rejected': 0}
         for index in range(count):
             try:
-                item = self.api.record.build_record(family, index, seed=seed, round_number=round_number, commit=commit, dirty=dirty, environ=environ)
+                item = self.api.record.build_record(family, index, seed=seed, round_number=round_number, commit=commit, dirty=dirty, environ=environ, backend=backend)
             except (self.api.oracles.OracleError, self.api.record.GenerationError) as exc:
                 errors.append(f'{family}#{index}: {type(exc).__name__}: {exc}')
                 break

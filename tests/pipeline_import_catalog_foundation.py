@@ -1263,7 +1263,53 @@ def _package_reward_parse_patterns() -> ModuleType:
     return module
 
 
+
+
+def _direct_native_profiles():
+    from oracle_grounded import native_profiles as module
+    return module
+
+
+def _package_native_profiles():
+    from pipelines.oracle_grounded import native_profiles as module
+    return module
+
+
+def _direct_native_runtime():
+    from oracle_grounded import native_runtime as module
+    return module
+
+
+def _package_native_runtime():
+    from pipelines.oracle_grounded import native_runtime as module
+    return module
+
+
+def _direct_native_checks():
+    from oracle_grounded import native_checks as module
+    return module
+
+
+def _package_native_checks():
+    from pipelines.oracle_grounded import native_checks as module
+    return module
+
+
+def _direct_native_gate():
+    from oracle_grounded import native_gate as module
+    return module
+
+
+def _package_native_gate():
+    from pipelines.oracle_grounded import native_gate as module
+    return module
+
+
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
+    "oracle_grounded.native_gate": (_direct_native_gate, _package_native_gate),
+    "oracle_grounded.native_checks": (_direct_native_checks, _package_native_checks),
+    "oracle_grounded.native_runtime": (_direct_native_runtime, _package_native_runtime),
+    "oracle_grounded.native_profiles": (_direct_native_profiles, _package_native_profiles),
     "oracle_validate": (_direct_oracle_validate, _package_oracle_validate),
     "oracle_record_generator": (_direct_oracle_record_generator, _package_oracle_record_generator),
     "oracle_record_envelope": (_direct_oracle_record_envelope, _package_oracle_record_envelope),

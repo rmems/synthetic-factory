@@ -27,7 +27,8 @@ class RecordChecks:
     def _parse_record_line(self, line, where, scope):
         """Parse one JSONL line into a record object, or None with a finding."""
         try:
-            item = self.api.strict_json_loads(line)
+            text = line.decode("utf-8") if isinstance(line, bytes) else line
+            item = self.api.strict_json_loads(text)
         except (ValueError, RecursionError) as exc:
             scope.totals["parse_failures"] += 1
             scope.report(where, f"JSON parse error: {exc}")
@@ -107,7 +108,17 @@ class RecordChecks:
     def _reproduce_record(self, item, where, scope):
         """Re-derive one record's oracle result and count the outcome."""
         try:
-            status, detail = self.api.record.reproduce(item)
+            if __package__:
+                from .oracle_grounded import native_gate
+            else:
+                from oracle_grounded import native_gate
+            environment = native_gate.replay_environ() if native_gate.is_native_record(item) else None
+            if item["oracle"]["implementation"] == "reference":
+                environment = {}
+            if native_gate.is_native_record(item) and environment is None:
+                status, detail = "unavailable", "native replay requires an explicit oracle Rust binary"
+            else:
+                status, detail = self.api.record.reproduce(item, environ=environment)
         except Exception as exc:  # defensive boundary around stored data
             status = "invalid"
             detail = f"reproduction raised {type(exc).__name__}"

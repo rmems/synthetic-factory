@@ -60,7 +60,9 @@ class EnvelopeChecksPart1:
 
     def _oracle_spec_findings(self, oracle, family, require_named_runtime, findings):
         """The oracle envelope must match the family's declared contract."""
-        spec = self.api.families.spec_for(family)
+        spec = self.api.families.spec_for_profile(
+            family, oracle.get("configuration", {}).get("profile")
+        )
         if oracle.get("type") != spec.oracle_type:
             findings.append(
                 f"oracle.type {oracle.get('type')!r} does not match family oracle type "

@@ -163,9 +163,19 @@ def build_record(
     environ=None,
     model=None,
     factory="oracle-grounded",
+    backend="reference",
 ):
     """Propose a scenario, execute the oracle, and assemble one record."""
-    spec = families.spec_for(family)
+    if backend not in ('reference', 'rust'):
+        raise GenerationError('unsupported oracle backend')
+    if backend == 'rust':
+        from . import native_profiles, native_runtime
+        if family not in native_profiles.PROFILES:
+            raise GenerationError('Rust backend does not support this family')
+        environ = native_runtime.runtime_environ(base=environ)
+        spec = families.spec_for_profile(family, native_profiles.PROFILES[family])
+    else:
+        spec = families.spec_for(family)
     record_seed = seed_from_label(seed, f"{family}:{index}")
     rng = Rng(record_seed)
     scenario, intervention, candidate = spec.propose(rng)
@@ -265,7 +275,7 @@ def assess(record):
     # block when the record is read back through ``validate_record``.
     layers = classify(record, check_declared_status=False)
     findings = layers["envelope"] + layers["family"]
-    spec = families.spec_for(record["family"])
+    spec = families.spec_for_record(record)
     try:
         score = spec.score(record)
     except Exception:
@@ -428,7 +438,7 @@ def classify(record, require_named_runtime=False, check_declared_status=True, ex
         return {"envelope": envelope, "family": [], "status": []}
 
     try:
-        family_findings = families.spec_for(family).checks(record)
+        family_findings = families.spec_for_record(record).checks(record)
     except Exception as exc:
         return {
             "envelope": [f"family checks could not run on this record: {type(exc).__name__}"],
@@ -583,7 +593,7 @@ def _validate_declared_status(record, findings_so_far):
             "validation.checks do not match the recomputed validation layers: "
             f"stored {validation.get('checks')!r}, recomputed {expected_checks!r}"
         )
-    spec = families.spec_for(record["family"])
+    spec = families.spec_for_record(record)
     try:
         expected_score = spec.score(record)
     except Exception:

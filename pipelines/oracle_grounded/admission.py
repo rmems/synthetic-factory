@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure oracle-grounded admission: is this record trustworthy as training data?
+"""Oracle-grounded admission: is this record trustworthy as training data?
 
 Mirrors the code-repair admission shape: technical validity comes from the
 shared oracle validator, never from the record's own ``validation`` block, so
@@ -14,7 +14,9 @@ corruption, not honest rejection, and raises.
 Accepted reference measurements must reproduce exactly using the built-in
 oracle. Named or mixed runtime measurements need authenticated replay evidence
 from an explicitly invoked runtime gate; metadata admission never launches an
-external command. Publication remains a separate gate.
+external command. An explicitly scoped native gate replays each accepted native
+record using only the executable selected by the caller. Publication remains
+a separate gate.
 """
 
 from __future__ import annotations
@@ -48,14 +50,21 @@ row_findings = _checks.row_findings
 
 
 def _measurement_eligibility(record: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
-    """Use the fresh classification replay; runtime receipts remain unavailable.
+    """Replay native measurements only under explicit caller authority."""
+    if record["oracle"]["implementation"] == "reference":
+        return True, ()
+    from . import native_gate, record as oracle_record
 
-    Called only after _require_consistent_validation proves this accepted
-    reference record through classify's exact replay. Nothing in the payload
-    can replace that invocation or supply a cached successful receipt.
-    """
-    if record["oracle"]["implementation"] != "reference":
+    environment = native_gate.replay_environ()
+    if (record["oracle"]["implementation"] != "named-runtime"
+            or environment is None or not native_gate.is_native_record(record)):
         return False, ("authenticated runtime replay required",)
+    try:
+        status, detail = oracle_record.reproduce(record, environ=environment)
+    except Exception as exc:  # untrusted records must never bypass admission
+        _refuse("ORACLE_VALIDATION_INVALID", f"native replay raised {type(exc).__name__}")
+    if status != "reproduced":
+        _refuse("ORACLE_VALIDATION_INVALID", f"native replay {status}: {detail}")
     return True, ()
 
 

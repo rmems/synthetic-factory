@@ -20,6 +20,10 @@ else:
 
 
 NEW_SPLIT_MODULES = (
+    "oracle_grounded.native_profiles",
+    "oracle_grounded.native_runtime",
+    "oracle_grounded.native_checks",
+    "oracle_grounded.native_gate",
     "oracle_validate",
     "oracle_record_stages",
     "oracle_record_envelope",

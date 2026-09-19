@@ -72,9 +72,7 @@ class GeneratorChecks:
 
     def _reproduce_proposal(self, record, family, record_seed, findings):
         try:
-            expected_scenario, expected_intervention, expected_candidate = self.api.families.spec_for(
-                family
-            ).propose(self.api.Rng(record_seed))
+            expected_scenario, expected_intervention, expected_candidate = self.api.families.spec_for_record(record).propose(self.api.Rng(record_seed))
             expected_proposal = {
                 "scenario": self.api.canon.normalize(expected_scenario),
                 "intervention": self.api.canon.normalize(expected_intervention),
@@ -127,7 +125,7 @@ class GeneratorChecks:
 
     def _configuration_findings(self, record, findings):
         try:
-            request = self.api.families.spec_for(record["family"]).build_request(
+            request = self.api.families.spec_for_record(record).build_request(
                 record["scenario"], record["intervention"]
             )
             rebuilt = self.api.canon.normalize(request.get("configuration"))

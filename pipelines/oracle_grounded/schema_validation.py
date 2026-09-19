@@ -433,7 +433,13 @@ def validate_record_schemas(instance, family, include_validation=True):
     findings.extend(f"base schema: {item}" for item in _document_findings(
         instance, BASE_SCHEMA_PATH, include_validation,
     ))
-    family_path = FAMILY_SCHEMA_DIR / f"{family}.schema.json"
+    scenario = instance.get('scenario')
+    profile = scenario.get('profile') if isinstance(scenario, dict) else None
+    if profile is not None:
+        from .native_profiles import PROFILES
+        if PROFILES.get(family) != profile:
+            return findings + ['unsupported crate-native family/profile combination']
+    family_path = FAMILY_SCHEMA_DIR / f"{profile or family}.schema.json"
     findings.extend(f"family schema: {item}" for item in _document_findings(instance, family_path))
     return findings
 

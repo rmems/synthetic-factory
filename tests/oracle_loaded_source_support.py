@@ -34,6 +34,8 @@ SOURCE_NAMES = (
     "generator_mesh.py",
     "generator_neuron.py",
     "generators.py",
+    "native_profiles.py",
+    "native_runtime.py",
     "oracle_adapters.py",
     "oracle_binding.py",
     "oracle_core.py",

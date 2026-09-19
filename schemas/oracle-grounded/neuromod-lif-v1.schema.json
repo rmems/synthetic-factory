@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "neuromod-lif-v1",
+  "type": "object",
+  "required": [
+    "family",
+    "scenario",
+    "intervention",
+    "candidate_prediction",
+    "result"
+  ],
+  "properties": {
+    "family": {
+      "const": "neuron-dynamics-counterfactuals"
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "profile",
+        "parameters",
+        "signal"
+      ],
+      "properties": {
+        "profile": {
+          "const": "neuromod-lif-v1"
+        },
+        "parameters": {
+          "type": "object",
+          "required": [
+            "dt_ms",
+            "threshold",
+            "decay",
+            "input_scale"
+          ],
+          "properties": {
+            "dt_ms": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 100
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 0.0001,
+              "maximum": 100
+            },
+            "decay": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "input_scale": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false
+        },
+        "signal": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 1,
+          "maxItems": 4096
+        }
+      },
+      "additionalProperties": false
+    },
+    "intervention": {
+      "type": "object",
+      "required": [
+        "parameter",
+        "factor"
+      ],
+      "properties": {
+        "parameter": {
+          "enum": [
+            "threshold",
+            "decay",
+            "input_scale"
+          ]
+        },
+        "factor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidate_prediction": {
+      "type": "null"
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "measured"
+      ],
+      "properties": {
+        "measured": {
+          "type": "object",
+          "required": [
+            "profile",
+            "identity",
+            "before",
+            "after",
+            "spike_count_delta"
+          ],
+          "properties": {
+            "profile": {
+              "const": "neuromod-lif-v1"
+            },
+            "identity": {
+              "type": "object",
+              "required": [
+                "source_revision",
+                "lock_sha256",
+                "adapter_source_sha256",
+                "adapter_revision",
+                "executable_sha256",
+                "crate_name",
+                "crate_version"
+              ],
+              "properties": {
+                "source_revision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "lock_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "adapter_source_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "adapter_revision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "executable_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "crate_name": {
+                  "type": "string"
+                },
+                "crate_version": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "before": {
+              "type": "object",
+              "required": [
+                "spikes",
+                "v_trace",
+                "spike_count"
+              ],
+              "properties": {
+                "spikes": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "minItems": 0,
+                  "maxItems": 4096
+                },
+                "v_trace": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000000000.0
+                  },
+                  "minItems": 1,
+                  "maxItems": 4096
+                },
+                "spike_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4096
+                }
+              },
+              "additionalProperties": false
+            },
+            "after": {
+              "type": "object",
+              "required": [
+                "spikes",
+                "v_trace",
+                "spike_count"
+              ],
+              "properties": {
+                "spikes": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "minItems": 0,
+                  "maxItems": 4096
+                },
+                "v_trace": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000000000.0
+                  },
+                  "minItems": 1,
+                  "maxItems": 4096
+                },
+                "spike_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4096
+                }
+              },
+              "additionalProperties": false
+            },
+            "spike_count_delta": {
+              "type": "integer",
+              "minimum": -4096,
+              "maximum": 4096
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

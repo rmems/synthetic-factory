@@ -193,3 +193,14 @@ def spec_for(family):
     if family not in SPECS:
         raise KeyError(f"unknown dataset family: {family}")
     return SPECS[family]
+
+
+def spec_for_profile(family, profile=None):
+    if profile is None:
+        return spec_for(family)
+    from . import native_profiles
+    return native_profiles.spec_for(family, profile)
+
+
+def spec_for_record(record):
+    return spec_for_profile(record['family'], record['scenario'].get('profile'))

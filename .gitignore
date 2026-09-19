@@ -49,3 +49,6 @@ scripts/*_mill.py
 pipelines/*_mill.py
 pipelines/*_mill_leftover*.py
 /mill_*_r*.py
+
+# Rust build artifacts
+/target/

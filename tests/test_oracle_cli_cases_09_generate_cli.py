@@ -116,7 +116,7 @@ class GenerateCliCase05(unittest.TestCase):
 
 
 class GenerateCliCase06(unittest.TestCase):
-    def test_require_runtime_checks_only_the_selected_family(self):
+    def test_reference_backend_does_not_treat_ambient_command_as_selected_runtime(self):
         with tempfile.TemporaryDirectory(prefix="oracle-selected-runtime-") as temp:
             out = Path(temp) / "run"
             env = dict(os.environ)
@@ -137,11 +137,9 @@ class GenerateCliCase06(unittest.TestCase):
                 out,
                 env=env,
             )
-            # The selected runtime clears the --require-runtime preflight.  The
-            # generic protocol double then fails the encoder family schema, so
-            # the transaction aborts instead of publishing a malformed run.
-            self.assertEqual(completed.returncode, 1, completed.stderr)
-            self.assertNotIn("these oracles are not bound", completed.stderr)
-            self.assertIn("generated record failed its envelope", completed.stderr)
+            # Reference is now an explicit backend: ambient command bindings do
+            # not authorize execution. Only the selected family is reported.
+            self.assertEqual(completed.returncode, 3, completed.stderr)
+            self.assertIn("not bound: axon-encoder", completed.stderr)
+            self.assertNotIn("neuromod", completed.stderr)
             self.assertFalse(out.exists())
-
