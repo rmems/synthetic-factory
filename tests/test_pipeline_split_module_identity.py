@@ -152,6 +152,7 @@ NEW_SPLIT_MODULES = (
     "curate_identity_registry_rows",
     "curate_identity_registry",
     "curate_identity_json",
+    "curate_identity_provenance",
     "curate_gate_promotion",
     "round_txn_agentic_cascade",
     "round_txn_agentic_types",
@@ -282,6 +283,14 @@ class SplitModuleIdentityContracts(unittest.TestCase):
         self.assertIs(
             direct["curate_identity"].dumps_exact_json,
             direct["curate_identity_json"].dumps_exact_json,
+        )
+        self.assertIs(
+            direct["curate_identity"]._provenance_mapping_sha256,
+            direct["curate_identity_provenance"].provenance_mapping_sha256,
+        )
+        self.assertIs(
+            direct["curate_identity"]._seal_provenance_mapping,
+            direct["curate_identity_provenance"].seal_provenance_mapping,
         )
         self.assertIs(
             direct["curate_identity"].PROVIDERS,
