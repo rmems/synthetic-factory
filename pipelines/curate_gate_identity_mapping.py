@@ -58,6 +58,11 @@ _mapping_value = _identity_gate._mapping_value
 _canonical_identity_output_id = _identity_gate._canonical_identity_output_id
 _claimed_identity_source_evidence = _identity_gate._claimed_identity_source_evidence
 
+if __package__:
+    from .curate_gate_rights import replay_gate_identity
+else:
+    from curate_gate_rights import replay_gate_identity
+
 
 @dataclass
 class _MappingTally:
@@ -221,6 +226,20 @@ def _tally_provenance_mappings(tally: _MappingTally, context: _MappingEntry) -> 
 # ---------------------------------------------------------------------------
 
 
+def _tally_procedural_mapping(tally: _MappingTally, context: _MappingEntry) -> None:
+    try:
+        replay = replay_gate_identity(context.entry)
+        if not _same_json(replay.record, context.record):
+            raise ValueError("procedural output does not preserve reviewed source")
+        if record_sha256(context.entry["identity_detail"]) != context.entry.get("source_originals_sha256"):
+            raise ValueError("procedural source attestation drifted")
+    except ValueError as exc:
+        tally.refuse(context.where, str(exc))
+        return
+    tally.checked_ids += 1
+    tally.checked_source_originals += 1
+
+
 def _identity_mapping_gate(
     identity_entries: Sequence[dict[str, Any]],
     records_by_source: dict[tuple[str, int], Any],
@@ -239,6 +258,9 @@ def _identity_mapping_gate(
         if entry.get("output_id") != canonical_record_id(record):
             tally.refuse(where, "identity output_id mismatches final record")
         context = _MappingEntry(entry, entry_index, record, where)
+        if curate_identity.classify_kind(record) == "code_repair":
+            _tally_procedural_mapping(tally, context)
+            continue
         _tally_source_originals(tally, context)
         if _tally_id_mappings(tally, context):
             continue

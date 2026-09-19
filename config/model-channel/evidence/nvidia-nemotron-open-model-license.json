@@ -1,0 +1,18 @@
+{
+  "schema": "model-license-declaration-v1",
+  "license_id": "nvidia-nemotron-open-model-license",
+  "license_name": "NVIDIA Nemotron Open Model License",
+  "license_url": "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/",
+  "model_id": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+  "model_revision": "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
+  "huggingface_card_license": "other",
+  "huggingface_card_license_name": "NVIDIA Open Model License",
+  "huggingface_card_license_link": "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
+  "huggingface_LICENSE_file_bytes": 0,
+  "notes": [
+    "The Hub LICENSE file for this checkpoint is empty (0 bytes).",
+    "First-party license identity is the NVIDIA Nemotron Open Model License URL plus the Hub card license fields.",
+    "This declaration is the pinned snapshot for factory admission; it is not a substitute for the live NVIDIA license text."
+  ],
+  "retrieved_at": "2026-09-15T04:30:00Z"
+}

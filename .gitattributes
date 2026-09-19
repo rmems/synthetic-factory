@@ -1,0 +1,19 @@
+# oracle.module_digest hashes these bytes; a CRLF checkout must not change it.
+pipelines/oracle_grounded/*.py text eol=lf
+# golden manifest sha256 pins hash these bytes too; keep LF on every checkout.
+tests/fixtures/oracle-grounded/**/*.jsonl text eol=lf
+# The independent policy seal and every executable catalog/program input.
+schemas/procedural-oracle-policy-v1.json text eol=lf
+schemas/oracle-grounded-v1.schema.json text eol=lf
+schemas/oracle-grounded/*.schema.json text eol=lf
+pipelines/oracle_*.py text eol=lf
+pipelines/compose_destination_rename.py text eol=lf
+pipelines/compose_destination_directory.py text eol=lf
+pipelines/compose_contract.py text eol=lf
+# Native measurements and source-license evidence are sealed over exact bytes.
+LICENSE text eol=lf
+Cargo.toml text eol=lf
+Cargo.lock text eol=lf
+rust/sf-oracle/Cargo.toml text eol=lf
+rust/sf-oracle/build.rs text eol=lf
+rust/sf-oracle/src/*.rs text eol=lf
