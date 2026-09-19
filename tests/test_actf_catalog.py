@@ -172,13 +172,15 @@ class CatalogRefusals(unittest.TestCase):
         self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
 
     def test_recovery_root_under_outputs_raw_is_refused(self):
+        under_raw = Path(tempfile.gettempdir()) / "outputs" / "raw" / "actf"
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.lineages_from_recovery(Path("/tmp/outputs/raw/actf"))
+            cat.lineages_from_recovery(under_raw)
         self.assertEqual(caught.exception.code, cv.FINDING_RECOVERY_ROOT_UNDER_RAW)
 
     def test_vendored_mill_recovery_root_is_refused(self):
+        vendored = Path(tempfile.gettempdir()) / "actf-mill-r10"
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.lineages_from_recovery(Path("/tmp/actf-mill-r10"))
+            cat.lineages_from_recovery(vendored)
         self.assertEqual(caught.exception.code, cv.FINDING_VENDOR_PATH)
 
 
