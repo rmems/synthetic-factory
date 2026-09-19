@@ -1,0 +1,9 @@
+tests/pipeline_import_catalog_foundation.py
+  ba91f7d56776d78d 145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "78b18bad3bd9b2aaa2f84299c40abdda4d646134",
+  "prompts": {}
+}
