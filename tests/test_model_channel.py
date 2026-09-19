@@ -24,6 +24,7 @@ import rights_policy  # noqa: E402
 import round_txn  # noqa: E402
 from round_txn_test_helpers import write_records  # noqa: E402
 from model_channel import generate  # noqa: E402
+from model_channel import ollama  # noqa: E402
 from model_channel import openrouter  # noqa: E402
 from model_channel import source_policy as policy  # noqa: E402
 from model_channel import vllm as vllm_mod  # noqa: E402
@@ -31,6 +32,9 @@ from model_channel import vllm as vllm_mod  # noqa: E402
 SNAPSHOT = REPO / "tests/fixtures/model-channel/openrouter-distillable-snapshot.json"
 TASK = {"goal": "repair a deterministic fixture that fails when the lock file exists"}
 NANO = "nemotron-nano-4b-vllm-factory"
+NANO_OLLAMA = "nemotron-nano-4b-ollama-factory"
+OLLAMA_TAG = "nemotron-3-nano:4b-bf16"
+OLLAMA_DIGEST = "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394"
 PHI = "openrouter-phi-4-factory"
 
 
@@ -55,6 +59,19 @@ def episode_payload(**overrides):
 class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
+
+    def do_GET(self):
+        if self.path == "/api/tags":
+            payload = {"models": self.server.ollama_models}
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(404)
+        self.end_headers()
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -85,11 +102,12 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class _Server:
-    def __init__(self, content: str, response_model: str):
+    def __init__(self, content: str, response_model: str, ollama_models=None):
         self.httpd = HTTPServer(("127.0.0.1", 0), _Handler)
         self.httpd.requests = []
         self.httpd.content = content
         self.httpd.response_model = response_model
+        self.httpd.ollama_models = ollama_models or []
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
     def __enter__(self):
@@ -150,11 +168,8 @@ class ModelChannelPolicyTests(unittest.TestCase):
         )
         self.assertEqual(ibm_hosted.project_training_policy, "blocked")
 
-    def test_no_ollama_or_minimax_rows_are_admitted(self):
+    def test_no_minimax_rows_are_admitted(self):
         registry = identity.load_registry()
-        self.assertFalse(
-            any(row.channel == "local_ollama" for row in registry.by_path_id.values())
-        )
         self.assertFalse(
             any("minimax" in row.path_id for row in registry.by_path_id.values())
         )
@@ -385,6 +400,107 @@ class ModelChannelRoundTxnTests(unittest.TestCase):
         remote_manifest = self._publish(PHI, remote)
         self.assertEqual(local_manifest["records"], 1)
         self.assertEqual(remote_manifest["records"], 1)
+
+
+class OllamaLaneTests(unittest.TestCase):
+    def _runtime(self):
+        return {
+            "runtime": "ollama",
+            "ollama_version": "0.12.6",
+            "device": "NVIDIA GeForce RTX 4080 Laptop GPU",
+            "ollama_model_digest": OLLAMA_DIGEST,
+        }
+
+    def _models(self, name=OLLAMA_TAG, digest=OLLAMA_DIGEST):
+        return [{"name": name, "model": name, "digest": digest}]
+
+    def test_spec_pins_pull_serve_and_manifest_digest(self):
+        spec = ollama.launch_spec(
+            NANO_OLLAMA, ollama_version="0.12.6", device="test-gpu"
+        )
+        self.assertEqual(spec["runtime"], "ollama")
+        self.assertEqual(spec["model_tag"], OLLAMA_TAG)
+        self.assertEqual(spec["model_revision"], OLLAMA_DIGEST)
+        self.assertEqual(spec["base_url"], "http://127.0.0.1:11434/v1")
+        self.assertEqual(spec["pull_command"], ["ollama", "pull", OLLAMA_TAG])
+        self.assertFalse(spec["require_tool_parser"])
+        self.assertFalse(spec["require_reasoning_parser"])
+
+    def test_spec_rejects_non_ollama_rows(self):
+        with self.assertRaisesRegex(ollama.OllamaSpecError, "local ollama"):
+            ollama.launch_spec(NANO, ollama_version="0.12.6", device="test-gpu")
+
+    def test_verify_refuses_non_loopback_and_tls_endpoints(self):
+        row = policy.reviewed_row(NANO_OLLAMA)
+        for endpoint in (
+            "http://192.168.1.10:11434/v1",
+            "https://127.0.0.1:11434/v1",
+            "http://ollama.example.com/v1",
+        ):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(ollama.OllamaSpecError):
+                    ollama.verify_served_identity(endpoint, row)
+
+    def test_verify_refuses_wrong_digest_or_missing_model(self):
+        row = policy.reviewed_row(NANO_OLLAMA)
+        with _Server(json.dumps(episode_payload()), OLLAMA_TAG,
+                   ollama_models=self._models(digest="sha256:" + "0" * 64)) as server:
+            with self.assertRaisesRegex(ollama.OllamaSpecError, "digest"):
+                ollama.verify_served_identity(server.endpoint, row)
+        with _Server(json.dumps(episode_payload()), OLLAMA_TAG,
+                   ollama_models=self._models(name="nemotron-3-nano:30b")) as server:
+            with self.assertRaisesRegex(ollama.OllamaSpecError, "not served"):
+                ollama.verify_served_identity(server.endpoint, row)
+
+    def test_verify_refuses_cloud_tag_identity(self):
+        row = dict(policy.reviewed_row(NANO_OLLAMA))
+        row["runtime_tag"] = "nemotron-3-nano:30b-cloud"
+        with self.assertRaisesRegex(ollama.OllamaSpecError, "cloud"):
+            ollama.verify_served_identity("http://127.0.0.1:11434/v1", row)
+
+    def test_candidate_preserves_ollama_provenance(self):
+        content = json.dumps(episode_payload())
+        with _Server(content, OLLAMA_TAG, ollama_models=self._models()) as server:
+            record = generate.generate_candidate(
+                NANO_OLLAMA,
+                TASK,
+                endpoint=server.endpoint,
+                runtime=self._runtime(),
+                generated_at="2026-09-19T12:30:00Z",
+            )
+            request = server.httpd.requests[0]
+        self.assertEqual(request["model"], OLLAMA_TAG)
+        self.assertEqual(record["meta"]["channel"], "local_ollama")
+        self.assertEqual(record["meta"]["ollama_model_tag"], OLLAMA_TAG)
+        self.assertEqual(record["meta"]["ollama_model_digest"], OLLAMA_DIGEST)
+        self.assertEqual(record["meta"]["runtime_ollama_version"], "0.12.6")
+        self.assertEqual(record["meta"]["runtime_device"], self._runtime()["device"])
+        self.assertTrue(record["meta"]["candidate_only"])
+
+    def test_missing_or_drifting_runtime_provenance_refuses_before_network(self):
+        with self.assertRaisesRegex(ollama.OllamaSpecError, "runtime"):
+            generate.generate_candidate(
+                NANO_OLLAMA, TASK, endpoint="http://127.0.0.1:11434/v1"
+            )
+        bad = self._runtime()
+        bad["ollama_model_digest"] = "sha256:" + "f" * 64
+        with self.assertRaisesRegex(ollama.OllamaSpecError, "digest"):
+            generate.generate_candidate(
+                NANO_OLLAMA, TASK, endpoint="http://127.0.0.1:11434/v1", runtime=bad
+            )
+
+    def test_unverified_served_identity_refuses_generation(self):
+        content = json.dumps(episode_payload())
+        with _Server(content, OLLAMA_TAG,
+                   ollama_models=self._models(name="nemotron-3-nano:30b-cloud")) as server:
+            with self.assertRaisesRegex(ollama.OllamaSpecError, "not served"):
+                generate.generate_candidate(
+                    NANO_OLLAMA,
+                    TASK,
+                    endpoint=server.endpoint,
+                    runtime=self._runtime(),
+                )
+        self.assertEqual(server.httpd.requests, [])
 
 
 if __name__ == "__main__":

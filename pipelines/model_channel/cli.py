@@ -13,6 +13,7 @@ from typing import Any
 
 from ._contract import bind_import_twin, dumps_exact_json, load_strict_json
 from . import generate
+from . import ollama as ollama_mod
 from . import openai_client
 from . import openrouter
 from . import source_policy as policy
@@ -62,6 +63,13 @@ def build_parser() -> argparse.ArgumentParser:
     spec.add_argument("--container-image", default=None)
     spec.add_argument("--container-digest", default=None)
     spec.add_argument("--json", action="store_true")
+
+    ospec = commands.add_parser("ollama-spec", help="print the pinned local Ollama launch spec")
+    ospec.add_argument("--path-id", required=True)
+    ospec.add_argument("--ollama-version", required=True)
+    ospec.add_argument("--device", required=True)
+    ospec.add_argument("--num-ctx", type=int, default=None)
+    ospec.add_argument("--json", action="store_true")
     return parser
 
 
@@ -124,6 +132,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         openrouter.OpenRouterError,
         openai_client.OpenAIClientError,
         vllm_mod.VLLMSpecError,
+        ollama_mod.OllamaSpecError,
     ) as exc:
         rejected.append(str(exc))
     summary = generate.write_run(
@@ -184,6 +193,17 @@ def _run_vllm_spec(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_ollama_spec(args: argparse.Namespace) -> int:
+    spec = ollama_mod.launch_spec(
+        args.path_id,
+        ollama_version=args.ollama_version,
+        device=args.device,
+        num_ctx=args.num_ctx,
+    )
+    _print(spec, args.json)
+    return 0
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -195,12 +215,15 @@ def run(argv: list[str] | None = None) -> int:
             return _run_discover(args)
         if args.command == "vllm-spec":
             return _run_vllm_spec(args)
+        if args.command == "ollama-spec":
+            return _run_ollama_spec(args)
     except (
         generate.GenerateError,
         policy.SourcePolicyError,
         openrouter.OpenRouterError,
         openai_client.OpenAIClientError,
         vllm_mod.VLLMSpecError,
+        ollama_mod.OllamaSpecError,
         OSError,
         ValueError,
     ) as exc:

@@ -21,6 +21,7 @@ from ._contract import (
     bind_import_twin, check_episode, dumps_exact_json, is_under_raw, load_strict_json,
     normalized_key, rename_noreplace,
 )
+from . import ollama as ollama_spec
 from . import openai_client
 from . import openrouter
 from . import source_policy as policy
@@ -251,6 +252,9 @@ def _route_evidence(row: Mapping, options: GenerationOptions, stamp: str) -> dic
         return _openrouter_evidence(row, options, stamp)
     if row["channel"] == "local_vllm":
         vllm_spec.require_plain_generation(options.runtime or {"require_tool_parser": False})
+    if row["channel"] == "local_ollama":
+        ollama_spec.require_runtime_provenance(row, options.runtime)
+        return ollama_spec.verify_served_identity(options.endpoint, row)
     return None
 
 
@@ -258,7 +262,7 @@ def _completion(row: Mapping, task: Mapping, options: GenerationOptions) -> dict
     remote = row["channel"] == "openrouter_api"
     response = openai_client.chat_completions(
         options.endpoint,
-        row["runtime_tag"] if row["channel"] == "local_vllm" else row["model_id"],
+        row["runtime_tag"] if row["channel"] in ("local_vllm", "local_ollama") else row["model_id"],
         _messages(task), api_key=options.api_key,
         extra=openrouter.provider_extra() if remote else None,
     )

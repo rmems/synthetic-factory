@@ -1303,7 +1303,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "nemotron-nano-4b-vllm-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "nemotron-lightning-30b-vllm-factory",
@@ -1340,7 +1340,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "nemotron-lightning-30b-vllm-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "muse-glimmer-30b-local-factory",
@@ -1377,7 +1377,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "muse-glimmer-30b-local-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "granite-4.2-30b-local-factory",
@@ -1415,7 +1415,46 @@
       },
       "source_type": "model_channel",
       "payload_factory": "granite-4.2-30b-local-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
+    },
+    {
+      "path_id": "nemotron-nano-4b-ollama-factory",
+      "generator": "nvidia-nemotron-3-nano-4b-ollama",
+      "generator_version": "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394",
+      "generator_ownership": "third_party_checkpoint",
+      "generation_method": "openai_compatible_http",
+      "model_id": "nemotron-3-nano",
+      "model_revision": "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394",
+      "generation_surface": "local_ollama_openai_compatible",
+      "runtime_tag": "nemotron-3-nano:4b-bf16",
+      "provider": "nvidia",
+      "channel": "local_ollama",
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "publication_target": null,
+      "source_license_evidence": {
+        "checkpoint": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+        "revision": "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
+        "ollama_model_tag": "nemotron-3-nano:4b-bf16",
+        "ollama_model_digest": "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394",
+        "license": "nvidia-nemotron-open-model-license",
+        "license_sha256": "efc52b8e24fb6a638a9214520399d93f2857ec555ae3222fed868a23484919d3"
+      },
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      },
+      "source_type": "model_channel",
+      "payload_factory": "nemotron-nano-4b-ollama-factory",
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "openrouter-deepseek-v4-pro-factory",
@@ -1454,7 +1493,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "openrouter-deepseek-v4-pro-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "openrouter-nemotron-3.5-lightning-factory",
@@ -1493,7 +1532,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "openrouter-nemotron-3.5-lightning-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "openrouter-kimi-k3-factory",
@@ -1532,7 +1571,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "openrouter-kimi-k3-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "openrouter-qwen3.8-flash-factory",
@@ -1571,7 +1610,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "openrouter-qwen3.8-flash-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "openrouter-phi-4-factory",
@@ -1610,7 +1649,7 @@
       },
       "source_type": "model_channel",
       "payload_factory": "openrouter-phi-4-factory",
-      "model_channel_policy_sha256": "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+      "model_channel_policy_sha256": "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
     },
     {
       "path_id": "oracle-grounded",
