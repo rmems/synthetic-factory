@@ -1,0 +1,28 @@
+pipelines/validate_run.py
+  s_5660553172852b::t_6f776b8f85c319 354-355
+  s_0fa35954eba2a7::t_32c670b27f498b 338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6e39052abac71394e779a219a7d336046cb6ceb5",
+  "prompts": {},
+  "sessions": {
+    "s_0fa35954eba2a7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4e86a36bffe0nKWflT7CDPsaf",
+        "model": "muse-spark-1.3-contributor"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    },
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
