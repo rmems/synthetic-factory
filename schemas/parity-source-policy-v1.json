@@ -6,7 +6,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:197409fed64154e24326c98ba66b4c64c74cc635ae3f0b05519591c72093dc46",
+      "generator_version": "sha256:c3d82abf99eaa9a808a320b4446d77e9e91e7cbdd0f10201a8636e46d7e6743c",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",

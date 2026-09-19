@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:197409fed64154e24326c98ba66b4c64c74cc635ae3f0b05519591c72093dc46",
+      "generator_version": "sha256:c3d82abf99eaa9a808a320b4446d77e9e91e7cbdd0f10201a8636e46d7e6743c",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,7 +1709,7 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "bcff6ee74d4ece19f93240d6d068cb1642e0a5f35d70f31b0235f00dff763b62"
+      "parity_policy_sha256": "31271e7119b189569c05a21fb876bab02883a7774b1f12bd3a983e5d7ae7723a"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
@@ -1736,7 +1736,7 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "bcff6ee74d4ece19f93240d6d068cb1642e0a5f35d70f31b0235f00dff763b62"
+      "parity_policy_sha256": "31271e7119b189569c05a21fb876bab02883a7774b1f12bd3a983e5d7ae7723a"
     }
   ]
 }

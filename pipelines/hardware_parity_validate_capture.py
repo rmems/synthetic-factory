@@ -204,18 +204,18 @@ def _capture_identity_errors(source, deployment, payload, where):
 
 def _dual_quantization_pin_errors(source, payload, where):
     """When both locations pin quantization, the pins must agree."""
-    if (
-        "quantization" in source
-        and "quantization" in payload
-        and not contract.strict_json_equal(
-            source["quantization"], payload["quantization"]
-        )
+    if "quantization" not in source:
+        return []
+    if "quantization" not in payload:
+        return []
+    if contract.strict_json_equal(
+        source["quantization"], payload["quantization"]
     ):
-        return [
-            f"{where}: capture.source.quantization disagrees with "
-            "capture.source.payload.quantization [Q88_PROVENANCE_MISMATCH]"
-        ]
-    return []
+        return []
+    return [
+        f"{where}: capture.source.quantization disagrees with "
+        "capture.source.payload.quantization [Q88_PROVENANCE_MISMATCH]"
+    ]
 
 
 def _capture_quantization_errors(source, deployment, payload, where):

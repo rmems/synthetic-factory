@@ -35,9 +35,12 @@ def _rectangular(grid):
     would otherwise raise mid-comparison and take down the scan of an entire
     run directory instead of reporting one bad record.
     """
-    if not (isinstance(grid, list) and grid and _list_rows(grid)):
-        return False
-    return _uniform_row_width(grid)
+    return (
+        isinstance(grid, list)
+        and bool(grid)
+        and _list_rows(grid)
+        and _uniform_row_width(grid)
+    )
 
 
 def _list_rows(grid):

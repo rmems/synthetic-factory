@@ -34,8 +34,8 @@ AT_FDCWD = -100
 RENAME_NOREPLACE = 1
 
 
-def rename_snapshot_noreplace(src, dst):
-    """Atomically publish a directory without replacing an existing path."""
+def _renameat2():
+    """The libc ``renameat2`` symbol, typed for a directory-only no-replace call."""
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
     except AttributeError as exc:
@@ -48,8 +48,22 @@ def rename_snapshot_noreplace(src, dst):
         ctypes.c_uint,
     )
     renameat2.restype = ctypes.c_int
+    return renameat2
+
+
+def _rename_error(error_number, src, dst):
+    """Translate a failed ``renameat2`` errno into the caller-facing exception."""
+    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
+        return FileExistsError(error_number, os.strerror(error_number), dst)
+    if error_number in {errno.EINVAL, errno.ENOSYS}:
+        return TransactionError("atomic no-replace snapshot rename is unavailable")
+    return OSError(error_number, os.strerror(error_number), f"{src} -> {dst}")
+
+
+def rename_snapshot_noreplace(src, dst):
+    """Atomically publish a directory without replacing an existing path."""
     if (
-        renameat2(
+        _renameat2()(
             AT_FDCWD,
             os.fsencode(src),
             AT_FDCWD,
@@ -59,12 +73,7 @@ def rename_snapshot_noreplace(src, dst):
         == 0
     ):
         return
-    error_number = ctypes.get_errno()
-    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
-        raise FileExistsError(error_number, os.strerror(error_number), dst)
-    if error_number in {errno.EINVAL, errno.ENOSYS}:
-        raise TransactionError("atomic no-replace snapshot rename is unavailable")
-    raise OSError(error_number, os.strerror(error_number), f"{src} -> {dst}")
+    raise _rename_error(ctypes.get_errno(), src, dst)
 
 
 def reject_snapshot_symlinks(src):
@@ -88,25 +97,27 @@ def _open_snapshot_entry(entry, source_fd, source_path):
         ) from exc
 
 
-def _copy_snapshot_child_directory(entry_fd, entry_stat, entry_name, destination_fd, entry_path):
+def _copy_snapshot_child_directory(entry, entry_fd, destination_fd, source_path):
     """Recreate one directory entry and copy its subtree into it."""
-    os.mkdir(entry_name, mode=0o700, dir_fd=destination_fd)
+    entry_stat = os.fstat(entry_fd)
+    os.mkdir(entry.name, mode=0o700, dir_fd=destination_fd)
     child_destination_fd = os.open(
-        entry_name,
+        entry.name,
         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
         dir_fd=destination_fd,
     )
     try:
-        _copy_snapshot_directory(entry_fd, child_destination_fd, entry_path)
+        _copy_snapshot_directory(entry_fd, child_destination_fd, source_path / entry.name)
         os.fchmod(child_destination_fd, stat.S_IMODE(entry_stat.st_mode))
     finally:
         os.close(child_destination_fd)
 
 
-def _copy_snapshot_file(entry_fd, entry_stat, entry_name, destination_fd):
+def _copy_snapshot_file(entry, entry_fd, destination_fd):
     """Copy one regular file's bytes and mode into the staged tree."""
+    entry_stat = os.fstat(entry_fd)
     destination_file_fd = os.open(
-        entry_name,
+        entry.name,
         os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
         mode=0o600,
         dir_fd=destination_fd,
@@ -129,11 +140,9 @@ def _copy_snapshot_entry(entry, source_fd, destination_fd, source_path):
     try:
         entry_stat = os.fstat(entry_fd)
         if stat.S_ISDIR(entry_stat.st_mode):
-            _copy_snapshot_child_directory(
-                entry_fd, entry_stat, entry.name, destination_fd, entry_path
-            )
+            _copy_snapshot_child_directory(entry, entry_fd, destination_fd, source_path)
         elif stat.S_ISREG(entry_stat.st_mode):
-            _copy_snapshot_file(entry_fd, entry_stat, entry.name, destination_fd)
+            _copy_snapshot_file(entry, entry_fd, destination_fd)
         else:
             raise TransactionError(f"cannot snapshot unsafe non-file path: {entry_path}")
     finally:
@@ -186,7 +195,9 @@ def marker_visible_jsonl_paths(run_dir):
     """Resolve marker visibility while the original staging layout is intact."""
     visible = {}
     for factory in run_dir.iterdir():
-        if not factory.is_dir() or factory.is_symlink() or marker_mode_path(factory) is None:
+        if not factory.is_dir() or factory.is_symlink():
+            continue
+        if marker_mode_path(factory) is None:
             continue
         visible[factory.name] = {
             path.relative_to(factory) for path in committed_jsonl_paths(factory)
