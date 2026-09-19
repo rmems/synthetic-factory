@@ -99,14 +99,15 @@ def _record_source_coordinate(source, entry, seen_coordinates, dependencies):
     seen_coordinates[coordinate] = entry.index
 
 
-def _record_preserved_code_repair_id(expected_mapping, preserved_ids, dependencies):
-    """Enforce global identity for retained code-repair evidence."""
+def _record_preserved_id(expected_mapping, preserved_ids, dependencies):
+    """Enforce global identity for retained code-repair and oracle evidence."""
 
-    if expected_mapping.get("record_kind") != "code_repair":
+    kind = expected_mapping.get("record_kind")
+    if kind not in ("code_repair", "oracle"):
         return
     preserved_id = expected_mapping["output_id"]
     if preserved_id in preserved_ids:
-        raise dependencies.identity_tree_error(f"duplicate preserved code_repair ID: {preserved_id}")
+        raise dependencies.identity_tree_error(f"duplicate preserved {kind} ID: {preserved_id}")
     preserved_ids.add(preserved_id)
 
 
@@ -143,7 +144,7 @@ def expected_identity_outputs(manifest, registry, dependencies):
         replay = _replay_identity_manifest_entry(entry, registry, dependencies)
         _record_source_coordinate(replay.source, entry, seen_coordinates, dependencies)
         if replay.result.action == "retained":
-            _record_preserved_code_repair_id(
+            _record_preserved_id(
                 replay.result.mapping,
                 preserved_ids,
                 dependencies,

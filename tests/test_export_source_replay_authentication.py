@@ -8,14 +8,14 @@ import unittest
 from pathlib import Path
 
 from compose_curated_test_support import preference_pair, write_jsonl  # noqa: E402
-from export_test_support import ONE_CALIBRATION, compose_fixture  # noqa: E402
+from export_test_support import ONE_CALIBRATION, compose_fixture, ResearchExportAllowed  # noqa: E402
 import compose_curated  # noqa: E402
 import export_compose_auth  # noqa: E402
 import export_contract  # noqa: E402
 import export_hf  # noqa: E402
 
 
-class ExportSourceReplayAuthentication(unittest.TestCase):
+class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase):
     def test_direct_factory_root_replays_the_published_factory_coordinate(self):
         """Physical root members replay under the coordinate compose published."""
 
@@ -33,9 +33,11 @@ class ExportSourceReplayAuthentication(unittest.TestCase):
                 encoding="utf-8",
             )
             curated = root / "curated"
-            summary = compose_curated.compose_run(source, curated)
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, curated)
+            )
 
-            provenance = export_hf.export_run(curated, root / "export")
+            provenance = export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
 
         self.assertEqual(summary["calibration"]["mode"], "source_run")
         self.assertEqual(summary["calibration"]["records"], 1)
@@ -180,8 +182,9 @@ class ExportSourceReplayAuthentication(unittest.TestCase):
                 }
                 getattr(self, f"_mutate_{mutation}")(ctx)
 
+                request = export_hf.ExportRequest(curated, root / "export")
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, root / "export")
+                    export_hf.export_run(request)
                 self.assertFalse((root / "export").exists())
 
     # ---- one forgery per mutation; the manifest-editing ones reseal below ----
@@ -308,8 +311,9 @@ class ExportSourceReplayAuthentication(unittest.TestCase):
                     encoding="utf-8",
                 )
 
+                request = export_hf.ExportRequest(curated, root / "export")
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, root / "export")
+                    export_hf.export_run(request)
                 self.assertFalse((root / "export").exists())
 
 

@@ -30,6 +30,7 @@ htmlcov/
 # Large curated datasets (promote to hf/ when ready)
 outputs/cleaned/
 outputs/curated/
+outputs/oracle-grounded/
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
 
@@ -57,3 +58,6 @@ experiments/*-hop*.py
 experiments/*_hop*.py
 experiments/*-chain-*.py
 experiments/irc-pub-r*.py
+
+# Rust build artifacts
+/target/

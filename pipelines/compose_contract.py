@@ -75,6 +75,34 @@ class ComposeError(RuntimeError):
     """Raised when composition input, output, or run integrity is unsafe."""
 
 
+def retained_json_line(decision: ComposeDecision) -> str:
+    """Preserved native records reuse authenticated source text; other outputs are canonical."""
+    if curate_identity.classify_kind(decision.record) not in curate_identity.PRESERVED_KINDS:
+        return canonical_json(decision.record)
+    source = next((stage["detail"]["source"] for stage in decision.stages
+                   if stage["lane"] == "identity"), None)
+    if source is None:
+        raise ComposeError("preserved native output has no identity evidence")
+    return _preserved_source_line(decision.record, source)
+
+
+def _preserved_source_line(record, source):
+    original = source.get("original")
+    if not isinstance(original, str):
+        raise ComposeError("preserved native output has no exact source text")
+    if sha256_hex(original.encode("utf-8")) != source.get("sha256"):
+        raise ComposeError("preserved native source text does not match its line digest")
+    supplied = curate_identity.SourceRecord(
+        record, source["path"], source["line"], source["sha256"], source_json=original,
+    )
+    try:
+        # Reuse identity's strict JSON, semantic equality, physical-line and hash checks.
+        curate_identity._source_identity(supplied)
+    except curate_identity.IdentityCurationError as exc:
+        raise ComposeError(f"preserved native source text is unauthenticated: {exc}") from exc
+    return original
+
+
 def default_units_migration_path(source_root: Path) -> Path:
     """Return the canonical calibration candidate for either supported root."""
 
