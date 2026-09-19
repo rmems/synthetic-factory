@@ -1,0 +1,517 @@
+pipelines/oracle_generate.py
+  s_e2a5c1e5cbed51::t_552152fa9b30e9 102,108
+  s_e2a5c1e5cbed51::t_f0e08abaaf7d09 34
+  s_e2a5c1e5cbed51::t_d779b0af5402b7 156-168
+  s_e2a5c1e5cbed51::t_a6501ec149255b 190
+  s_e2a5c1e5cbed51::t_675dfa92086a3c 42-50
+  s_e2a5c1e5cbed51::t_f116432b7de3e7 225,232,244-245
+  s_e2a5c1e5cbed51::t_cf97904483818f 150-155,169,183,186-187
+  s_e2a5c1e5cbed51::t_3cd4de91bff855 292
+  s_e2a5c1e5cbed51::t_d7be37c72e312e 363
+  s_e2a5c1e5cbed51::t_a5d897b7b64c9a 313
+  s_e2a5c1e5cbed51::t_1c498a170f2d7b 193
+  s_e2a5c1e5cbed51::t_a72373633d5ab2 100-101,106-107,112,114-116,118-123,126,130-131,134-139,141
+  s_e2a5c1e5cbed51::t_9aa183a32cede8 357-358,364-365
+  s_e2a5c1e5cbed51::t_2da0a77393bfe4 90-91,93-95
+  s_e2a5c1e5cbed51::t_bc2310f04f1f16 99,105,111,117,124,128-129
+  s_e2a5c1e5cbed51::t_5c88199b66fee1 41,62
+  s_e2a5c1e5cbed51::t_c1077e5e809c6e 63-71
+  s_e2a5c1e5cbed51::t_86f8accc8f42b6 286,293-302,304,307-312,314,316,325-326,329,337,339
+pipelines/curate_identity_registry_rows.py
+  s_e2a5c1e5cbed51::t_9b62c800fea468 362,384-387,389
+pipelines/training_audit_axes.py
+  s_e2a5c1e5cbed51::t_536fbf68468c06 1-168
+tests/test_oracle_seed_contract.py
+  s_e2a5c1e5cbed51::t_e7b8340716af3b 16-21
+pipelines/oracle_grounded/family_credit.py
+  s_e2a5c1e5cbed51::t_a393fa7b89dd3e 69-73,79-85,93-97
+pipelines/oracle_grounded/family_encoder.py
+  s_e2a5c1e5cbed51::t_27771d085e76fb 77-83
+  s_e2a5c1e5cbed51::t_4b30d8166b7982 95-96,108-112,114,116-121,129,139-149
+  s_e2a5c1e5cbed51::t_b29f333a0a68fa 59
+pipelines/oracle_validate_manifest_records_part3.py
+  s_e2a5c1e5cbed51::t_8a16b5b31353f8 6,8,15,19,23
+  s_e2a5c1e5cbed51::t_acbbd0f552fca7 1-5,7,9-14,16-18,20-22,24-68
+pipelines/oracle_grounded/oracle_core.py
+  s_e2a5c1e5cbed51::t_16d73250d978b6 85,87-90,92-101,104,106,114-125,127-132,134-138
+tests/test_oracle_rust_end_to_end.py
+  s_e2a5c1e5cbed51::t_cedf6ec6b6f665 65-67
+  s_e2a5c1e5cbed51::t_f9ca2d53c9a771 34-36
+  s_e2a5c1e5cbed51::t_90afe1da3bcad8 85-90
+pipelines/oracle_grounded/family_common.py
+  s_e2a5c1e5cbed51::t_366ead057b2a2d 4
+  s_e2a5c1e5cbed51::t_90dea5e1cf0e28 41,45-50,52-56,59
+  s_e2a5c1e5cbed51::t_439681f526c671 3,5
+  s_e2a5c1e5cbed51::t_9ab21dce825b72 51
+pipelines/oracle_grounded/generator_encoder.py
+  s_e2a5c1e5cbed51::t_7f8a76488cff9b 91-127,130-196,198,200,202,204-205,210,212
+pipelines/oracle_record_stages_part5.py
+  s_e2a5c1e5cbed51::t_fe3d5e2741b3c4 1-60
+tests/test_oracle_record_cases_17_external_oracle_protocol.py
+  s_e2a5c1e5cbed51::t_e4c373f624e332 44,46
+  s_e2a5c1e5cbed51::t_ab96d74b0cd6a8 53-57
+  s_e2a5c1e5cbed51::t_1084de987d4437 62-63,65
+  s_e2a5c1e5cbed51::t_c73351240a797b 86-90
+pipelines/oracle_grounded/schema_keywords.py
+  s_e2a5c1e5cbed51::t_288ba5e784ae2a 1-2,4-40,45,51,54-58,61,77,85-89,94,97-102,105,122-153,160-168,170-173,178,184,187-188,198-202,209,211,219-221,223-225,232-241,246-250,252-259,261-263,266-267,279-282
+  s_e2a5c1e5cbed51::t_028aaf09db327a 3,41-44,46-50,52-53,59-60,62-76,78-84,90-93,95-96,103-104,106-121,154-159,169,174-177,179-183,185-186,189-197,203-208,210,212-218,222,226-231,242-245,251,260,264-265,268-278
+pipelines/curate_identity_manifest.py
+  s_e2a5c1e5cbed51::t_414c90d576683b 50
+  s_e2a5c1e5cbed51::t_1db9416f095ec0 111-113
+  s_e2a5c1e5cbed51::t_d5d4dc15d8bf50 149,151-152,154
+  s_e2a5c1e5cbed51::t_9254e59775f67c 168-170
+  s_e2a5c1e5cbed51::t_5e3348a1a3bf1b 19
+  s_e2a5c1e5cbed51::t_d3da6cb88d3e69 129-130,135-136
+  s_e2a5c1e5cbed51::t_0e9178708b1ce2 52
+  s_e2a5c1e5cbed51::t_addcd9fc4a2d4c 45
+  s_e2a5c1e5cbed51::t_a73f7981336c4b 12-14,30,40,49,53,55,78,89-99,104,125,159,161
+  s_e2a5c1e5cbed51::t_193d88d733fe56 60-62
+  s_e2a5c1e5cbed51::t_2124b07530d6f8 1,3-8,15-18,20,22-27,29,31-37,39,41-44,46-47,51,54,56-59,63-71,73-74,76-77,82-88,100-102,106-110,114-118,120-121,123-124,127-128,132-133,137-143,147-148,156-157,160,162-167,171-178,180-189,196,198-225,227-228,230-238
+  s_e2a5c1e5cbed51::t_97555f7fdb234a 2,9-11,21,28,38,48,103,105,126,144-146,179
+  s_e2a5c1e5cbed51::t_a659cea328a164 79-81
+  s_e2a5c1e5cbed51::t_3bf7e786f2a470 190,192,194
+pipelines/oracle_validate_manifest_part2.py
+  s_e2a5c1e5cbed51::t_32f30f2b2ab14b 5,7-12,14,16-17,42,44
+  s_e2a5c1e5cbed51::t_901de344b55a6a 43
+  s_e2a5c1e5cbed51::t_0f5d54187d01c3 4,6
+pipelines/oracle_grounded/sim_memory.py
+  s_e2a5c1e5cbed51::t_63f29a85b3cd81 5
+  s_e2a5c1e5cbed51::t_8661daefc83ebf 138,158-159,170-174,176-202,210-211,218,226,236-237
+  s_e2a5c1e5cbed51::t_86a440676dd8ea 121-137,139-157,168-169
+tests/test_oracle_cli_cases_09_generate_cli.py
+  s_e2a5c1e5cbed51::t_dccdc5c08e0075 52-55
+  s_e2a5c1e5cbed51::t_7a3ff3044a757e 33-41,47
+pipelines/curate_identity_writer.py
+  s_e2a5c1e5cbed51::t_d91ba059188ebb 143-150,155,162,168
+  s_e2a5c1e5cbed51::t_5041cb82176e70 45
+  s_e2a5c1e5cbed51::t_51a610ba298530 25
+  s_e2a5c1e5cbed51::t_24d954bc95652a 51-52,66-68
+  s_e2a5c1e5cbed51::t_dd0f37728b6527 184
+  s_e2a5c1e5cbed51::t_7486f84e864a91 1-24,26-43,53-65,69-113,115,117-123,125-126,128-142,151-154,156-161,163-167,169-178,180,182,185-189,191-195,197-199,202-209,211-217
+  s_e2a5c1e5cbed51::t_a49945405571d9 190,196,200-201,210
+pipelines/curate_identity_procedural.py
+  s_e2a5c1e5cbed51::t_808fff8c0148a8 19
+  s_e2a5c1e5cbed51::t_71ce4e114c88c8 1-18,20-46,48,50-97,99-126,128-157
+  s_e2a5c1e5cbed51::t_4b8606350bde0c 47,49
+tests/test_oracle_validate_metadata.py
+  s_e2a5c1e5cbed51::t_add6890fc86e90 457
+  s_e2a5c1e5cbed51::t_21e2633651062a 506
+  s_e2a5c1e5cbed51::t_1bb5f364e982d1 45
+pipelines/curate_identity_owners.py
+  s_e2a5c1e5cbed51::t_6971c0e61b07a4 1-85,87-92,103-106,115-116,118-119,129-155,165-168,170-173
+  s_e2a5c1e5cbed51::t_ac2aaae6698e3e 97-102
+  s_e2a5c1e5cbed51::t_c3a890972710ad 156-164,169
+  s_e2a5c1e5cbed51::t_4c78f97eb86154 86,93-96,107-111,117,120-128
+  s_e2a5c1e5cbed51::t_a8aa8556c206b4 112-114
+pipelines/oracle_validate_snapshot_part1.py
+  s_e2a5c1e5cbed51::t_fd12b01f471ce4 1-75
+pipelines/oracle_record_stages_part6.py
+  s_e2a5c1e5cbed51::t_12476d9f66cce3 1-57
+tests/test_oracle_record_cases_13_authoritative_record_semantics.py
+  s_e2a5c1e5cbed51::t_9a9f03f4aabfdb 123-125,130-131,150,165,171,178,184-190
+  s_e2a5c1e5cbed51::t_94d2c372c27875 34-35,43-44,49-68,70-79
+pipelines/census_sim.py
+  s_e2a5c1e5cbed51::t_7d4766a305ad67 1-66
+pipelines/oracle_grounded/record_replay.py
+  s_e2a5c1e5cbed51::t_9f0fbf3b6a1b43 82,105
+  s_e2a5c1e5cbed51::t_9e9e078b834cbf 83,94-95
+pipelines/oracle_grounded/sim_encoder.py
+  s_e2a5c1e5cbed51::t_93f07308f9bd00 114-116,125
+  s_e2a5c1e5cbed51::t_a8a30327feec2c 171-175,194,197-198,201
+  s_e2a5c1e5cbed51::t_27a0538661ee44 153-154
+  s_e2a5c1e5cbed51::t_2a237245de4965 121,127-128
+  s_e2a5c1e5cbed51::t_9bb87806e6b1a4 210-211,214-229,235
+pipelines/oracle_grounded/family_credit_checks.py
+  s_e2a5c1e5cbed51::t_f377e57d7d9a15 54-75,78-85,95,99,102-103,106
+  s_e2a5c1e5cbed51::t_bcc247609aedf1 110-111
+  s_e2a5c1e5cbed51::t_53a3ad9858cc21 76-77
+  s_e2a5c1e5cbed51::t_1f56492ae17db5 116,122-124,126-146
+pipelines/oracle_grounded/schema_values.py
+  s_e2a5c1e5cbed51::t_8a04906ba4676d 1-130
+pipelines/oracle_validate_manifest_records.py
+  s_e2a5c1e5cbed51::t_4e591247070211 20,24,29-31
+pipelines/curate_identity_shapes.py
+  s_e2a5c1e5cbed51::t_9435608afdcdd8 1-161
+pipelines/oracle_validate_snapshot.py
+  s_e2a5c1e5cbed51::t_9dd8179851b22a 24-26
+  s_e2a5c1e5cbed51::t_d9eb0a9c41a9ea 1,3-5,12-13,19-20
+  s_e2a5c1e5cbed51::t_55c981a91f95c7 2,6-10,14-17,21-22,28-31
+  s_e2a5c1e5cbed51::t_2531da20996bbe 11,18,23,27
+tests/test_oracle_boundary_regressions.py
+  s_e2a5c1e5cbed51::t_b5d327bd6b06e7 116,120
+  s_e2a5c1e5cbed51::t_10c057211a0d8d 140,145
+  s_e2a5c1e5cbed51::t_e34e80c9df6691 23,27
+  s_e2a5c1e5cbed51::t_8244ead11fd957 96-104
+tests/test_oracle_grounded_sim.py
+  s_e2a5c1e5cbed51::t_cf0ae3f1ce16eb 369
+  s_e2a5c1e5cbed51::t_635e0142219399 361
+  s_e2a5c1e5cbed51::t_0c9aee6159fead 195
+  s_e2a5c1e5cbed51::t_b981df3b6166b4 61-62,64
+  s_e2a5c1e5cbed51::t_83b677ff53a534 341,344,351,354
+  s_e2a5c1e5cbed51::t_38eb7787635c91 51,53
+  s_e2a5c1e5cbed51::t_a9c10471b62474 201
+  s_e2a5c1e5cbed51::t_0e357787be62fb 81-84
+tests/test_oracle_grounded_cli.py
+  s_e2a5c1e5cbed51::t_cd1b42b3a8ebe7 89-108,118
+  s_e2a5c1e5cbed51::t_b0f7d096536a72 169-170,176-178,183,185-194
+  s_e2a5c1e5cbed51::t_e64cf169c40075 272
+pipelines/oracle_grounded/oracles.py
+  s_e2a5c1e5cbed51::t_27f1d452bcb4b3 32
+tests/test_oracle_training_integrity.py
+  s_e2a5c1e5cbed51::t_e020eb159facb6 68,71
+  s_e2a5c1e5cbed51::t_ea44056510bdee 34,38,42
+pipelines/oracle_grounded/generator_mesh.py
+  s_e2a5c1e5cbed51::t_c0ab48e8c20725 99-122,130-134
+pipelines/oracle_grounded/sim_mesh.py
+  s_e2a5c1e5cbed51::t_ca00393503bbc1 73-75,77-79,112-200
+  s_e2a5c1e5cbed51::t_f4167229b0abb4 4
+pipelines/oracle_generate_records.py
+  s_e2a5c1e5cbed51::t_e57926587f2486 4,16-40,46,51,53-60,62,66,92,96-97,102,107
+pipelines/oracle_grounded/native_runtime.py
+  s_e2a5c1e5cbed51::t_0f237e7291337c 100-102
+pipelines/oracle_grounded/generator_neuron.py
+  s_e2a5c1e5cbed51::t_e9ff213af371b5 63-71,75
+  s_e2a5c1e5cbed51::t_faf6f727efdc86 56-58,72,76-78,82-90
+  s_e2a5c1e5cbed51::t_68afd49dd890b7 112-136,141
+pipelines/oracle_grounded/sim_credit.py
+  s_e2a5c1e5cbed51::t_d767fcaf703e9d 5
+  s_e2a5c1e5cbed51::t_b4a51f038d7742 115-116
+  s_e2a5c1e5cbed51::t_bfa67c09aa0d32 127-146,155-158
+tests/test_oracle_record_cases_15_external_oracle_protocol.py
+  s_e2a5c1e5cbed51::t_c5c554ed4e0aa2 83-87
+  s_e2a5c1e5cbed51::t_5a4ae4a3d2cc8e 49
+  s_e2a5c1e5cbed51::t_be07b7e8dd0b0b 67-71
+  s_e2a5c1e5cbed51::t_8ec0097a2346bf 58
+  s_e2a5c1e5cbed51::t_db24ad7ed5b825 47
+  s_e2a5c1e5cbed51::t_494e2d9315ac5d 98-102
+  s_e2a5c1e5cbed51::t_2d80b8d320f064 118-122
+  s_e2a5c1e5cbed51::t_7126ffa0563649 60
+  s_e2a5c1e5cbed51::t_abeb95873d649a 15-18,22-27
+tests/compose_curated_facade_contract_data.py
+  s_e2a5c1e5cbed51::t_78459930d46910 186
+pipelines/record_kind.py
+  s_e2a5c1e5cbed51::t_c37adcccb1c36d 80-91,108
+pipelines/oracle_validate_manifest_part4.py
+  s_e2a5c1e5cbed51::t_f1a4472e158960 1-83,86-92,94-95
+pipelines/oracle_grounded/sim.py
+  s_e2a5c1e5cbed51::t_e98dd046dfc073 45
+tests/test_compose_curated_facade_contract.py
+  s_e2a5c1e5cbed51::t_153256e9e59a20 438
+  s_e2a5c1e5cbed51::t_a3ed63d8ef712e 81-85,88-89,91-94
+  s_e2a5c1e5cbed51::t_5430a4867dfec0 408
+  s_e2a5c1e5cbed51::t_b8810211e2ecbd 305,329
+  s_e2a5c1e5cbed51::t_d5ff28bb509347 214-219,223
+  s_e2a5c1e5cbed51::t_c1084927966054 424
+  s_e2a5c1e5cbed51::t_5dfe501875f7f5 427
+  s_e2a5c1e5cbed51::t_6b0ba1344f6bb1 120
+pipelines/oracle_record_generator.py
+  s_e2a5c1e5cbed51::t_04f9108a4eb326 37-38,41
+tests/test_oracle_record_cases_16_external_oracle_protocol.py
+  s_e2a5c1e5cbed51::t_1634ea1ca10e5d 63,65
+  s_e2a5c1e5cbed51::t_1b4aa97d4d6d2f 70,72
+tests/test_oracle_grounded_record.py
+  s_e2a5c1e5cbed51::t_7d2c6ad279f795 51-53
+tests/test_oracle_native_gate.py
+  s_e2a5c1e5cbed51::t_00b938be438815 105-107
+pipelines/export_replay.py
+  s_e2a5c1e5cbed51::t_b258f46fc7db8d 40-51
+pipelines/curate_identity_materialize.py
+  s_e2a5c1e5cbed51::t_c29cfabda3ef91 26-31
+  s_e2a5c1e5cbed51::t_403915e66a5cd8 1-25,32-326
+pipelines/oracle_checks_facade.py
+  s_e2a5c1e5cbed51::t_af42b22880c0a5 1-22
+tests/test_oracle_checkout_bytes.py
+  s_e2a5c1e5cbed51::t_7e9dd16436f447 12-13
+  s_e2a5c1e5cbed51::t_32095f588df23c 2
+  s_e2a5c1e5cbed51::t_960569efb314b3 17
+pipelines/oracle_grounded/schema_validation.py
+  s_e2a5c1e5cbed51::t_b69c22cc9b4663 18,20-24
+  s_e2a5c1e5cbed51::t_f7ccc803c5af1c 19,37-41,138-139
+pipelines/oracle_generate_fs.py
+  s_e2a5c1e5cbed51::t_3194becd90e159 65-95,107
+pipelines/__init__.py
+  s_e2a5c1e5cbed51::t_c06f9f1cdc476b 120-122
+  s_e2a5c1e5cbed51::t_4276fd9bd0f170 132-135
+  s_e2a5c1e5cbed51::t_4bfb51a2cbe9e2 242,247-248
+  s_e2a5c1e5cbed51::t_660863deeacf2f 202-203
+  s_e2a5c1e5cbed51::t_879988283ef52b 239-241,243-246,249-251
+pipelines/oracle_grounded/family_memory.py
+  s_e2a5c1e5cbed51::t_8bd7d87ded08cc 137-143
+pipelines/oracle_validate_records.py
+  s_e2a5c1e5cbed51::t_1168964b9ca260 108-127,129,131-135
+  s_e2a5c1e5cbed51::t_d386d2d99314f6 172-190
+pipelines/oracle_grounded/sim_neuron.py
+  s_e2a5c1e5cbed51::t_28686b99a9562c 47-89,96,98-118,129-130,135
+pipelines/oracle_record_stages.py
+  s_e2a5c1e5cbed51::t_9f2fa4c613bb4e 14,25,35
+  s_e2a5c1e5cbed51::t_0e8b3131e050e6 16-18
+  s_e2a5c1e5cbed51::t_b41d95667ce936 12,23,28,36,40
+  s_e2a5c1e5cbed51::t_4c2ee06ed90464 8,19,37
+  s_e2a5c1e5cbed51::t_f1766228b00647 13,24,29-34
+pipelines/curate_identity_provenance.py
+  s_e2a5c1e5cbed51::t_345cdc113c0ea2 1-194,196,207,215,226,232,234-249
+  s_e2a5c1e5cbed51::t_4bd7a1f6d1c50b 195,197-206,208-214,216-225,227-231,233
+pipelines/oracle_validate_capture_part2.py
+  s_e2a5c1e5cbed51::t_9c056b518375a3 1-55,57-78,80-107,109-110,112-123,125-126
+pipelines/oracle_generate_prepare.py
+  s_e2a5c1e5cbed51::t_3cb13f7cc451a8 1-209
+pipelines/oracle_grounded/admission.py
+  s_e2a5c1e5cbed51::t_e53baaa602fb79 52-62,70
+pipelines/training_audit.py
+  s_e2a5c1e5cbed51::t_04551a69805a02 53
+  s_e2a5c1e5cbed51::t_b5e807db0a1c80 33
+  s_e2a5c1e5cbed51::t_6be900abe318be 28-29,31-32,35,39,48-49,51-52,55,59,66-86
+  s_e2a5c1e5cbed51::t_af0b6a8a4b6b60 303-304,306-309,311-313
+pipelines/oracle_grounded/source_policy.py
+  s_e2a5c1e5cbed51::t_835f4e9e71ee4d 174,176
+  s_e2a5c1e5cbed51::t_0c8ed223fccb90 123,126-127,130-137
+  s_e2a5c1e5cbed51::t_8ba970e8740a1e 111-113
+  s_e2a5c1e5cbed51::t_96ed00ad4cdefd 128-129
+  s_e2a5c1e5cbed51::t_daa2de1bdd2dd0 204-210,213
+pipelines/compose_oracle_selection.py
+  s_e2a5c1e5cbed51::t_f02e50120764be 33-37,43-45
+  s_e2a5c1e5cbed51::t_30df22e2c99ac0 68
+  s_e2a5c1e5cbed51::t_4b39dc62e9bc13 75-76,83-91
+  s_e2a5c1e5cbed51::t_5781e271f760e0 23
+pipelines/oracle_grounded/family_mesh.py
+  s_e2a5c1e5cbed51::t_0f1a5449927353 103,105,107,109,111,113,121,124,126,131,133-138,140,143-146,158-168,170,172,175-176,183-186
+  s_e2a5c1e5cbed51::t_3f02495409f9a7 209-218,221-224,227
+  s_e2a5c1e5cbed51::t_8c9cfa2bb1f54c 71-77
+  s_e2a5c1e5cbed51::t_f918f5d134cb66 3-4
+  s_e2a5c1e5cbed51::t_635cfd2409cc61 50-51
+pipelines/export_replay_verify.py
+  s_e2a5c1e5cbed51::t_07be611433fee3 1-157
+tests/test_oracle_generate_package.py
+  s_e2a5c1e5cbed51::t_ccdeb9bb1daa7b 5
+  s_e2a5c1e5cbed51::t_c55c022a30430f 16
+pipelines/oracle_generate_parents.py
+  s_e2a5c1e5cbed51::t_a69fcb4dd3201d 1-91
+pipelines/compose_curated.py
+  s_e2a5c1e5cbed51::t_4624af528d2729 362,367
+  s_e2a5c1e5cbed51::t_11f2712246d00b 393-399
+pipelines/oracle_validate_manifest_part1.py
+  s_e2a5c1e5cbed51::t_08b3746a78f4ff 20,25-31,34,40-48,55-58,73-74,76-77,80-96,103,111,113-114
+tests/test_oracle_record_cases_11_authoritative_record_semantics.py
+  s_e2a5c1e5cbed51::t_94da3791527263 53-54,57-58,61-62,65-66,69-70,73-108
+tests/test_training_audit_readiness.py
+  s_e2a5c1e5cbed51::t_ecda6420f8200b 339,345,351
+  s_e2a5c1e5cbed51::t_4660ee96a45a63 247,249
+  s_e2a5c1e5cbed51::t_b43d0517129b00 337,341
+pipelines/oracle_validate_manifest.py
+  s_e2a5c1e5cbed51::t_9c2eeb4e8f8974 11,20,27-28,33,37
+  s_e2a5c1e5cbed51::t_1edd8c364cf104 15,24,29-32
+  s_e2a5c1e5cbed51::t_90322989e6e131 17-19
+tests/test_oracle_staged_file_identity.py
+  s_e2a5c1e5cbed51::t_bab236ed9af17e 70-80,83
+tests/pipeline_import_catalog_foundation.py
+  s_e2a5c1e5cbed51::t_3c84811235a270 1077-1112
+  s_e2a5c1e5cbed51::t_eb5eb59183957b 1540-1551
+  s_e2a5c1e5cbed51::t_30229ddee4650e 741-752,765-772
+  s_e2a5c1e5cbed51::t_b3363500ea0950 1500-1539
+  s_e2a5c1e5cbed51::t_633879f42dc636 957-1076
+  s_e2a5c1e5cbed51::t_75404dc06350b5 1470,1472
+tests/test_oracle_cli_cases_01_golden_fixture.py
+  s_e2a5c1e5cbed51::t_520e13e08eb826 93,99,106-108
+pipelines/oracle_validate_capture.py
+  s_e2a5c1e5cbed51::t_d0b73672311882 2,6-10,14-17,21-22,24,28-31
+  s_e2a5c1e5cbed51::t_0b5f0243330299 1,3-5,12-13,19-20
+  s_e2a5c1e5cbed51::t_d6951882b6841b 11,18,23,27
+  s_e2a5c1e5cbed51::t_1c5190aa9f7021 25-26
+pipelines/oracle_record_stages_part4.py
+  s_e2a5c1e5cbed51::t_8613fdf4a16402 1-85
+pipelines/oracle_grounded/oracle_protocol.py
+  s_e2a5c1e5cbed51::t_364163affd10ee 3,18-21
+  s_e2a5c1e5cbed51::t_52c73e724a0893 174,186
+  s_e2a5c1e5cbed51::t_48e08007ce83d5 94-97
+  s_e2a5c1e5cbed51::t_03653ae22d47b2 84,93
+  s_e2a5c1e5cbed51::t_22f6600c5ac182 31
+  s_e2a5c1e5cbed51::t_49b83c760a6512 60
+  s_e2a5c1e5cbed51::t_db0e221a95f461 91
+  s_e2a5c1e5cbed51::t_f1fdf89553597f 103,117-118,123
+  s_e2a5c1e5cbed51::t_f7cb5c79f6c00d 203-204
+tests/test_pipeline_split_module_identity.py
+  s_e2a5c1e5cbed51::t_6d6430eade3590 111-112
+  s_e2a5c1e5cbed51::t_4d4d9813854052 180-207
+  s_e2a5c1e5cbed51::t_68254e04ce429f 229-241,245-246
+  s_e2a5c1e5cbed51::t_9e102312301067 29-31
+  s_e2a5c1e5cbed51::t_d1183621b622d4 41-44
+pipelines/oracle_grounded/record.py
+  s_e2a5c1e5cbed51::t_bb3a3943c2417b 26
+  s_e2a5c1e5cbed51::t_f8af6c3b5bfeea 179-191
+  s_e2a5c1e5cbed51::t_d69681715bb7bb 449-450,452-454,456,458,461,464-465,467,483-496,498,503,508-510,514
+  s_e2a5c1e5cbed51::t_0ad8d25ca9207e 631-632,657-660,667,670-674,676,689-697
+  s_e2a5c1e5cbed51::t_203cced09258e8 58-63
+  s_e2a5c1e5cbed51::t_c41c10eb999a18 192-193,196-224,229-233,243,246-251,253-255,261,263-264,272-275,278-279,282-291,294,301-303,310-325
+  s_e2a5c1e5cbed51::t_dbb69cb03b6abe 468-470,472,476-479,482
+  s_e2a5c1e5cbed51::t_59abf03d6124d6 117-160
+  s_e2a5c1e5cbed51::t_7f3c7b4ffc0b43 65-70
+pipelines/oracle_validate_run.py
+  s_e2a5c1e5cbed51::t_9c645b4dc59add 141-148,150,152-155,173
+  s_e2a5c1e5cbed51::t_844b2ecde58441 1-50,52-87,89-90,92-140,149,151,156-172,174-190
+  s_e2a5c1e5cbed51::t_91632b93b91285 51
+  s_e2a5c1e5cbed51::t_c07d8dd5254dbd 88,91
+pipelines/oracle_validate_capture_part1.py
+  s_e2a5c1e5cbed51::t_422b82f59fd2bd 1-12,14-15,17-69,71-99,101-130
+tests/test_oracle_record_cases_14_reproducibility.py
+  s_e2a5c1e5cbed51::t_076c7f72072fcf 42-44
+  s_e2a5c1e5cbed51::t_151bcf10f65fd5 132-134
+  s_e2a5c1e5cbed51::t_f6ee6b4edd6b04 104-108
+  s_e2a5c1e5cbed51::t_9187036c09fed1 14-26
+  s_e2a5c1e5cbed51::t_f535cc6f5cf191 118
+pipelines/oracle_grounded/oracle_binding.py
+  s_e2a5c1e5cbed51::t_744d1a31cf03a6 7-13,24-25
+  s_e2a5c1e5cbed51::t_48517b769ba95a 95-106,113-115,117
+pipelines/oracle_grounded/family_neuron.py
+  s_e2a5c1e5cbed51::t_058bd37529c0ba 127-136,138,141-145,152,168-180,188-189,194-196,198,200,202-219,221,225-226
+  s_e2a5c1e5cbed51::t_1fa6c29790948a 80-86
+  s_e2a5c1e5cbed51::t_a37a561f5dd51c 252,256
+  s_e2a5c1e5cbed51::t_bd2de73e71ce9b 4
+pipelines/compose_curated_run_context.py
+  s_e2a5c1e5cbed51::t_d1edf9efcac71f 26-28,30-36
+tests/pipeline_import_catalog_oracle.py
+  s_e2a5c1e5cbed51::t_cc78121eecb169 250-252
+  s_e2a5c1e5cbed51::t_84c61e438a95d1 128-167
+  s_e2a5c1e5cbed51::t_f158171f196208 30-65
+  s_e2a5c1e5cbed51::t_a89da04560b745 242-245
+tests/test_training_audit_oracle.py
+  s_e2a5c1e5cbed51::t_fc7d77fd445db6 19-23
+tests/test_oracle_generation_failure.py
+  s_e2a5c1e5cbed51::t_bbf0e80f9a6135 18-29
+pipelines/curate_identity_json.py
+  s_e2a5c1e5cbed51::t_68a85cf0afd9dc 50-61,66,69
+  s_e2a5c1e5cbed51::t_8ce5c5031c7d9b 156-162,165-167
+tests/test_oracle_curation_wiring.py
+  s_e2a5c1e5cbed51::t_40b7410981981c 32
+  s_e2a5c1e5cbed51::t_1353f4a35a95be 166-169
+pipelines/curate_identity_tree.py
+  s_e2a5c1e5cbed51::t_9e571b2a49221a 79,84,92-95
+  s_e2a5c1e5cbed51::t_4efd867468fd2b 109-111
+  s_e2a5c1e5cbed51::t_732ae037a2be7d 1-17,19-49,51,54-64,69-78,80-83,85-91,96-98,100-101,103-108,112-118,134-137,139-140,142-143,145-160,163-194,196-292
+  s_e2a5c1e5cbed51::t_ef51c27df5361e 50,52-53,65-68
+  s_e2a5c1e5cbed51::t_657fe967c835f4 18
+  s_e2a5c1e5cbed51::t_a6b2db39da91c4 99,102,119-133,138,141,144
+  s_e2a5c1e5cbed51::t_1a10c71960a048 195
+  s_e2a5c1e5cbed51::t_bb9a84780f9ba0 161-162
+tests/oracle_loaded_source_support.py
+  s_e2a5c1e5cbed51::t_7e523071fdd6e7 209-211
+pipelines/curate_identity_sources.py
+  s_e2a5c1e5cbed51::t_0d6f81ec8d8875 1-40,48-50,54-103,119,124-127,134,136,138,140-147,149,151-156,158,160-161,163-186,195,198-216,218-219,221,223-232,236-239,243-250,272-294,304-307,309-310,312-316
+  s_e2a5c1e5cbed51::t_0042e9cc2b4030 113
+  s_e2a5c1e5cbed51::t_75f6da2b737fb5 233-235
+  s_e2a5c1e5cbed51::t_8dcd0f9ea657b4 295-297,299,301-303,311
+  s_e2a5c1e5cbed51::t_9ef05892c15a07 240-242,256-271
+  s_e2a5c1e5cbed51::t_32229b559b488e 114,116,118
+  s_e2a5c1e5cbed51::t_a2d653d1b19440 42
+  s_e2a5c1e5cbed51::t_67d2c41321314a 187-194,196
+  s_e2a5c1e5cbed51::t_f4c2608c8e78f3 251-255
+  s_e2a5c1e5cbed51::t_7e0a88e2ea7ab6 51-53
+  s_e2a5c1e5cbed51::t_1efc804f30cb80 104-105,107,109-112,115,117,120-123,128,130,132
+pipelines/census.py
+  s_e2a5c1e5cbed51::t_c1d76163a15972 22-26,41-45
+  s_e2a5c1e5cbed51::t_b1f58862ed1359 90-100
+  s_e2a5c1e5cbed51::t_a4dd1582a42b63 107-117,135
+pipelines/curate_identity_source_iter.py
+  s_e2a5c1e5cbed51::t_291b0850e042cd 1-48,50-54,56-236
+  s_e2a5c1e5cbed51::t_3062971b03af62 49,55
+pipelines/oracle_grounded/family_memory_checks.py
+  s_e2a5c1e5cbed51::t_0eddc02798b24d 128,136-138,144-146,149-164
+  s_e2a5c1e5cbed51::t_9d06cd3fb35217 14,21-25,37-43,54-56,58,67-69
+pipelines/curate_identity_evidence.py
+  s_e2a5c1e5cbed51::t_b1ebf77cfb6b9f 180-181,183,185-187,189-193,204-208,217-221,251,253,255,257,259
+  s_e2a5c1e5cbed51::t_d84f567f6cb7e1 175-176
+  s_e2a5c1e5cbed51::t_250d5b7a4c556f 161
+  s_e2a5c1e5cbed51::t_ad0f3b43f7fcd4 267,269,281-294,299-301,307,320,322,324-325,327,332-338,340-341,343-344,346-347,349-356,358-359
+  s_e2a5c1e5cbed51::t_c7a0c6f14f05a6 1-18,20-39,41-42,56-61,66-71,73-77,80-84,89-94,96-98,119,133,135,157-160,162-174,177-179,188,194-196,200-203,209-216,222-250,260-261,263,265-266,268,270-276,278,280,295,297-298,302-306,309-310,317-319,321,329-330,357,360-364
+  s_e2a5c1e5cbed51::t_541ca257eaeab5 62-65
+  s_e2a5c1e5cbed51::t_25abe686314b5a 111,115,123-126,128,134,139-141,143,146,150-152
+  s_e2a5c1e5cbed51::t_2aadb9429faf35 198-199
+  s_e2a5c1e5cbed51::t_eeea398d2079c8 99-110,113,117,121,127,129,131,137,142,144-145,148,153-156
+  s_e2a5c1e5cbed51::t_36bf2c12dc2f19 19
+  s_e2a5c1e5cbed51::t_81326df654bfc1 43-49
+  s_e2a5c1e5cbed51::t_d9ca1a4169cd3d 78,85,87
+  s_e2a5c1e5cbed51::t_61fdb03583be6f 40
+  s_e2a5c1e5cbed51::t_e3a22a6dbce784 312-316
+pipelines/oracle_generate_publish.py
+  s_e2a5c1e5cbed51::t_d0aa428935e241 1-98
+pipelines/export_hf.py
+  s_e2a5c1e5cbed51::t_2409be7c55f501 445-451
+  s_e2a5c1e5cbed51::t_2c844e39e1d6d1 241-242,244-252,259
+  s_e2a5c1e5cbed51::t_3d73c9cba686a1 111,119-120
+  s_e2a5c1e5cbed51::t_3ac4ebb574beef 378-379
+  s_e2a5c1e5cbed51::t_c0cb3160e8ef61 393
+  s_e2a5c1e5cbed51::t_c6491e2cba02e7 280
+  s_e2a5c1e5cbed51::t_e43873928a5103 51-62,70,74,79-109,112-118
+  s_e2a5c1e5cbed51::t_3355ff3c9fc981 410,417-418
+  s_e2a5c1e5cbed51::t_1366a5c0965514 297-298
+pipelines/curate_identity.py
+  s_e2a5c1e5cbed51::t_0f9226ff3c7067 553-555
+  s_e2a5c1e5cbed51::t_f562165b32b87a 87
+  s_e2a5c1e5cbed51::t_a74d78d361dd92 474-495,507
+  s_e2a5c1e5cbed51::t_84c049e5da8a74 283-287
+  s_e2a5c1e5cbed51::t_a2d360e2124db8 54
+  s_e2a5c1e5cbed51::t_dee2d80d633834 75
+  s_e2a5c1e5cbed51::t_98668d1db00f95 334-335,344-345
+  s_e2a5c1e5cbed51::t_ebfe55da8d53aa 19-26,44,46-51,55,57-58,66,68-73,77,79-80,96-100,104-105,109,111,114,144-148,176-188,190-211,215-219,243-244,247-255,258-266,269-279,290-300,303-304,307-308,311-314,317-323,326-329,331,336-340,346-349,352-355,358-360,366-368,373-374,376-379,383-386,388-392,512-514,518,520,538-542,565
+  s_e2a5c1e5cbed51::t_6ab074de6cb231 88-91
+  s_e2a5c1e5cbed51::t_c25871b2fe6f00 189
+  s_e2a5c1e5cbed51::t_07ab2cc315091c 364-365,371-372
+  s_e2a5c1e5cbed51::t_3df0705767f391 53
+  s_e2a5c1e5cbed51::t_3ab51911198450 84-86,92-95
+  s_e2a5c1e5cbed51::t_3e7dbc3f7e8076 76
+  s_e2a5c1e5cbed51::t_c8ec2a96ae1c70 212-214
+  s_e2a5c1e5cbed51::t_22e1758284f656 36,59-60,81-82
+tests/test_code_repair_admission.py
+  s_e2a5c1e5cbed51::t_3e634260862d1a 79
+  s_e2a5c1e5cbed51::t_ff12a433d7969f 76-77
+tests/test_validate_run_contracts.py
+  s_e2a5c1e5cbed51::t_fee77e8923b7b3 285-288
+pipelines/oracle_validate.py
+  s_e2a5c1e5cbed51::t_71ebc53b7dbad2 361-363,365,367,369-370,372,374,376-377,379
+  s_e2a5c1e5cbed51::t_4aa021d10a0af6 51,69
+  s_e2a5c1e5cbed51::t_6ffa9eb4464b54 347,349
+  s_e2a5c1e5cbed51::t_d4f6b0941b05f2 40-42,58-60,303-306,310-346,348,350-360,364,366,368,371,373,375,378,380-402
+  s_e2a5c1e5cbed51::t_b33ea7bdbfae39 21-23,26,28,30,32,45-50,63-68,74-83
+  s_e2a5c1e5cbed51::t_31a9074702d9a3 71-73,84-85
+pipelines/oracle_validate_snapshot_part2.py
+  s_e2a5c1e5cbed51::t_dba64164229de6 1-27,29-31,33-41,43-46,48-57
+tests/test_oracle_mesh_bounds.py
+  s_e2a5c1e5cbed51::t_e30339acc2d561 33-35
+  s_e2a5c1e5cbed51::t_f108b1f704371d 42-44
+  s_e2a5c1e5cbed51::t_e07165589cdc36 21
+pipelines/training_audit_observe.py
+  s_e2a5c1e5cbed51::t_607eced40dd263 264,266
+  s_e2a5c1e5cbed51::t_e1026a555d8dbc 35,37-41
+  s_e2a5c1e5cbed51::t_fb7393d0f0076b 17
+  s_e2a5c1e5cbed51::t_7165f6f4b413b8 240-256,259,262-263,265,267-280,282-285,287-288,290-291,293,295
+  s_e2a5c1e5cbed51::t_da9c3053217b9e 340-341
+  s_e2a5c1e5cbed51::t_8b073b73b4ad3f 223
+  s_e2a5c1e5cbed51::t_78cc5a2ff95969 1-16,18-32,44-222,224-239,257-258,260-261,281,286,289,292,294,296-339,342-387
+  s_e2a5c1e5cbed51::t_e50b426c1efbd1 33-34,36,42-43
+pipelines/oracle_grounded/oracle_adapters.py
+  s_e2a5c1e5cbed51::t_e8e8b661a49a7e 193,198-202
+  s_e2a5c1e5cbed51::t_84812a471a90dc 139-140,161,163,177-178,191-192,207-233,237
+  s_e2a5c1e5cbed51::t_edbb50229cbb7a 4,18-34,49-51,60-64,81-82
+tests/oracle_fixture_replay.py
+  s_e2a5c1e5cbed51::t_230bc7db511753 26-34,36,44-50
+pipelines/curate_identity_manifest_fields.py
+  s_e2a5c1e5cbed51::t_8ba5b78bde7b4a 1-46,48-295
+  s_e2a5c1e5cbed51::t_d194e0970771c3 47
+tests/test_oracle_rust_backend.py
+  s_e2a5c1e5cbed51::t_44d6ec0173bee7 52-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "39cc363e834ff341cc50a6064564b1f10775d7ab",
+  "prompts": {},
+  "sessions": {
+    "s_e2a5c1e5cbed51": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "massive-homburg",
+        "model": "unknown"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
