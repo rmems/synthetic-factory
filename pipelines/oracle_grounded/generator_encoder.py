@@ -88,81 +88,128 @@ def make_signal(family, rng, sample_count, params):
     return [sim.clamp(value, 0.0, 1.0) for value in builder(rng, sample_count, params)]
 
 
+def _no_perturbation(values, rng, params):
+    return list(values)
+
+
+def _additive_noise(values, rng, params):
+    level = params["level"]
+    return [sim.clamp(value + level * rng.symmetric_noise(), 0.0, 1.0) for value in values]
+
+
+def _dropout(values, rng, params):
+    keep = params["keep_probability"]
+    return [value if rng.random() < keep else 0.0 for value in values]
+
+
+def _quantization(values, rng, params):
+    steps = params["steps"]
+    return [sim.clamp(round(value * (steps - 1)) / (steps - 1), 0.0, 1.0) for value in values]
+
+
+def _gain_drift(values, rng, params):
+    span = params["span"]
+    count = len(values)
+    return [
+        sim.clamp(value * (1.0 - span + 2.0 * span * index / max(1, count - 1)), 0.0, 1.0)
+        for index, value in enumerate(values)
+    ]
+
+
+_PERTURBATION_FNS = {
+    "none": _no_perturbation,
+    "additive_noise": _additive_noise,
+    "dropout": _dropout,
+    "quantization": _quantization,
+    "gain_drift": _gain_drift,
+}
+
+
 def apply_perturbation(values, perturbation, rng, params):
     """Sensor-side degradation. Still generator territory: it is the scenario."""
-    if perturbation == "none":
-        return list(values)
+    try:
+        apply = _PERTURBATION_FNS[perturbation]
+    except KeyError as exc:
+        raise ValueError(f"unknown perturbation: {perturbation}") from exc
+    return apply(values, rng, params)
+
+
+def _baseline_params(rng, sample_count):
+    return {"level": rng.uniform(0.35, 0.65), "noise": rng.uniform(0.02, 0.12)}
+
+
+def _burst_params(rng, sample_count):
+    return {
+        "low": rng.uniform(0.05, 0.2),
+        "high": rng.uniform(0.75, 0.98),
+        "burst_width": rng.randint(3, 7),
+        "burst_starts": sorted(rng.sample(range(2, sample_count - 8), rng.randint(1, 3))),
+        "noise": rng.uniform(0.01, 0.06),
+    }
+
+
+def _drift_params(rng, sample_count):
+    return {
+        "start": rng.uniform(0.05, 0.35),
+        "end": rng.uniform(0.6, 0.95),
+        "noise": rng.uniform(0.01, 0.06),
+    }
+
+
+def _outlier_params(rng, sample_count):
+    return {
+        "level": rng.uniform(0.3, 0.6),
+        "noise": rng.uniform(0.01, 0.05),
+        "outlier_at": sorted(rng.sample(range(sample_count), rng.randint(2, 5))),
+        "outlier_level": rng.uniform(0.9, 1.0),
+    }
+
+
+def _periodic_params(rng, sample_count):
+    return {
+        "offset": rng.uniform(0.4, 0.6),
+        "amplitude": rng.uniform(0.2, 0.4),
+        "cycles": rng.randint(2, 7),
+        "noise": rng.uniform(0.01, 0.05),
+    }
+
+
+def _sparse_params(rng, sample_count):
+    return {
+        "floor": rng.uniform(0.0, 0.06),
+        "event_level": rng.uniform(0.7, 1.0),
+        "event_at": sorted(rng.sample(range(sample_count), rng.randint(2, 6))),
+        "noise": rng.uniform(0.0, 0.02),
+    }
+
+
+_SCENARIO_PARAMS = {
+    "baseline": _baseline_params,
+    "burst": _burst_params,
+    "drift": _drift_params,
+    "outlier": _outlier_params,
+    "periodic": _periodic_params,
+    "sparse_events": _sparse_params,
+}
+
+
+def _perturbation_params(rng, perturbation):
     if perturbation == "additive_noise":
-        level = params["level"]
-        return [sim.clamp(value + level * rng.symmetric_noise(), 0.0, 1.0) for value in values]
+        return {"level": rng.uniform(0.05, 0.25)}
     if perturbation == "dropout":
-        keep = params["keep_probability"]
-        return [value if rng.random() < keep else 0.0 for value in values]
+        return {"keep_probability": rng.uniform(0.6, 0.95)}
     if perturbation == "quantization":
-        steps = params["steps"]
-        return [sim.clamp(round(value * (steps - 1)) / (steps - 1), 0.0, 1.0) for value in values]
+        return {"steps": rng.randint(3, 8)}
     if perturbation == "gain_drift":
-        span = params["span"]
-        count = len(values)
-        return [
-            sim.clamp(value * (1.0 - span + 2.0 * span * index / max(1, count - 1)), 0.0, 1.0)
-            for index, value in enumerate(values)
-        ]
-    raise ValueError(f"unknown perturbation: {perturbation}")
+        return {"span": rng.uniform(0.1, 0.4)}
+    return {}
 
 
 def propose_encoder_scenario(rng, sample_count=64, sample_ms=10.0):
     family = rng.choice(SIGNAL_FAMILIES)
-    if family == "baseline":
-        params = {"level": rng.uniform(0.35, 0.65), "noise": rng.uniform(0.02, 0.12)}
-    elif family == "burst":
-        params = {
-            "low": rng.uniform(0.05, 0.2),
-            "high": rng.uniform(0.75, 0.98),
-            "burst_width": rng.randint(3, 7),
-            "burst_starts": sorted(rng.sample(range(2, sample_count - 8), rng.randint(1, 3))),
-            "noise": rng.uniform(0.01, 0.06),
-        }
-    elif family == "drift":
-        params = {
-            "start": rng.uniform(0.05, 0.35),
-            "end": rng.uniform(0.6, 0.95),
-            "noise": rng.uniform(0.01, 0.06),
-        }
-    elif family == "outlier":
-        params = {
-            "level": rng.uniform(0.3, 0.6),
-            "noise": rng.uniform(0.01, 0.05),
-            "outlier_at": sorted(rng.sample(range(sample_count), rng.randint(2, 5))),
-            "outlier_level": rng.uniform(0.9, 1.0),
-        }
-    elif family == "periodic":
-        params = {
-            "offset": rng.uniform(0.4, 0.6),
-            "amplitude": rng.uniform(0.2, 0.4),
-            "cycles": rng.randint(2, 7),
-            "noise": rng.uniform(0.01, 0.05),
-        }
-    else:
-        params = {
-            "floor": rng.uniform(0.0, 0.06),
-            "event_level": rng.uniform(0.7, 1.0),
-            "event_at": sorted(rng.sample(range(sample_count), rng.randint(2, 6))),
-            "noise": rng.uniform(0.0, 0.02),
-        }
-
+    params = _SCENARIO_PARAMS[family](rng, sample_count)
     perturbation = rng.choice(PERTURBATIONS)
-    if perturbation == "additive_noise":
-        perturbation_params = {"level": rng.uniform(0.05, 0.25)}
-    elif perturbation == "dropout":
-        perturbation_params = {"keep_probability": rng.uniform(0.6, 0.95)}
-    elif perturbation == "quantization":
-        perturbation_params = {"steps": rng.randint(3, 8)}
-    elif perturbation == "gain_drift":
-        perturbation_params = {"span": rng.uniform(0.1, 0.4)}
-    else:
-        perturbation_params = {}
-
+    perturbation_params = _perturbation_params(rng, perturbation)
     clean = make_signal(family, rng, sample_count, params)
     observed = apply_perturbation(clean, perturbation, rng, perturbation_params)
     encodings = rng.sample(sim.ENCODINGS, 2)

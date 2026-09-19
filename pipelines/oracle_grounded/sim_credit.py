@@ -2,7 +2,7 @@
 
 import math
 from .sim_common import WEIGHT_UPDATE_EPS, clamp
-from .sim_mesh import mesh_node, simulate_mesh
+from .sim_mesh import MeshBounds, mesh_node, simulate_mesh
 from .sim_neuron import _optional_delta
 
 # --------------------------------------------------------------------------
@@ -112,7 +112,8 @@ def _plasticity_circuit(weights, pre_spikes, config, readout_overrides=None):
                 }
             )
     events.sort(key=lambda item: (item["t_ms"], item["amplitude"]))
-    result = simulate_mesh([readout], [], events, config["duration_ms"], dt_ms=config["dt_ms"])
+    bounds = MeshBounds(config["duration_ms"], dt_ms=config["dt_ms"])
+    result = simulate_mesh([readout], [], events, bounds)
     post = result["spikes_by_node"]["readout"]
     duration_s = config["duration_ms"] / 1000.0
     return {
@@ -123,6 +124,26 @@ def _plasticity_circuit(weights, pre_spikes, config, readout_overrides=None):
     }
 
 
+def _pair_contribution(config, gap, post_time):
+    """One pre/post pair's STDP contribution, decayed to the reward time."""
+    if gap > 0:
+        contribution = config["a_plus"] * math.exp(-gap / config["tau_plus_ms"])
+    elif gap < 0:
+        contribution = -config["a_minus"] * math.exp(gap / config["tau_minus_ms"])
+    else:
+        return 0.0
+    reward_time = config["duration_ms"]
+    return contribution * math.exp(-(reward_time - post_time) / config["tau_eligibility_ms"])
+
+
+def _synapse_trace(pre_times, post_spikes, config):
+    total = 0.0
+    for pre_time in pre_times:
+        for post_time in post_spikes:
+            total += _pair_contribution(config, post_time - pre_time, post_time)
+    return total
+
+
 def eligibility_traces(weights, pre_spikes, post_spikes, config):
     """Per-synapse STDP eligibility, decayed to the reward time.
 
@@ -131,25 +152,10 @@ def eligibility_traces(weights, pre_spikes, post_spikes, config):
     eligibility time constant from the post spike to the end of the episode,
     which is when the modulator arrives.
     """
-    reward_time = config["duration_ms"]
-    tau_plus = config["tau_plus_ms"]
-    tau_minus = config["tau_minus_ms"]
-    tau_e = config["tau_eligibility_ms"]
-    traces = []
-    for index in range(len(weights)):
-        total = 0.0
-        for pre_time in pre_spikes[index]:
-            for post_time in post_spikes:
-                gap = post_time - pre_time
-                if gap > 0:
-                    contribution = config["a_plus"] * math.exp(-gap / tau_plus)
-                elif gap < 0:
-                    contribution = -config["a_minus"] * math.exp(gap / tau_minus)
-                else:
-                    continue
-                total += contribution * math.exp(-(reward_time - post_time) / tau_e)
-        traces.append(total)
-    return traces
+    return [
+        _synapse_trace(pre_spikes[index], post_spikes, config)
+        for index in range(len(weights))
+    ]
 
 
 def run_plasticity(weights, pre_spikes, modulators, config):

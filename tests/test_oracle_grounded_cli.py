@@ -86,6 +86,26 @@ def _ensure_jsonl_counterparts(run_dir):
             counterpart.write_text("", encoding="utf-8")
 
 
+def _runtime_probe(probe):
+    return isinstance(probe, dict) and isinstance(probe.get("runtime"), str)
+
+
+def _bound_runtime_probe(probe):
+    return _runtime_probe(probe) and isinstance(probe.get("bound"), bool)
+
+
+def _oracle_availability_shape(oracle):
+    if not isinstance(oracle, dict) or not isinstance(oracle.get("implementation"), str):
+        return False
+    availability = oracle.get("availability")
+    if not isinstance(availability, dict):
+        return False
+    probes = availability.get("runtimes")
+    return isinstance(probes, list) and all(
+        _bound_runtime_probe(probe) for probe in probes
+    )
+
+
 def _parsed_record(line):
     if not line.strip():
         return None
@@ -95,22 +115,8 @@ def _parsed_record(line):
         return None
     if not isinstance(item, dict) or not isinstance(item.get("family"), str):
         return None
-    oracle = item.get("oracle")
-    if not isinstance(oracle, dict) or not isinstance(oracle.get("implementation"), str):
+    if not _oracle_availability_shape(item.get("oracle")):
         return None
-    availability = oracle.get("availability")
-    if not isinstance(availability, dict):
-        return None
-    probes = availability.get("runtimes")
-    if not isinstance(probes, list):
-        return None
-    for probe in probes:
-        if not (
-            isinstance(probe, dict)
-            and isinstance(probe.get("runtime"), str)
-            and isinstance(probe.get("bound"), bool)
-        ):
-            return None
     return item
 
 
@@ -160,20 +166,32 @@ def _family_summary(parsed, family, count_per_family):
     }
 
 
-def _availability(parsed, family_names):
-    runtime_order = [
+def _requested_runtime_order(family_names):
+    return [
         runtime
         for family in families.FAMILY_NAMES
         if family in family_names
         for runtime in families.spec_for(family).runtimes
     ]
+
+
+def _observed_probes(parsed):
     probes = {}
     for _path, item in parsed:
         availability = item.get("oracle", {}).get("availability", {})
         for probe in availability.get("runtimes", []):
-            if isinstance(probe, dict) and isinstance(probe.get("runtime"), str):
+            if _runtime_probe(probe):
                 probes.setdefault(probe["runtime"], probe)
-    ordered = [probes[runtime] for runtime in runtime_order if runtime in probes]
+    return probes
+
+
+def _availability(parsed, family_names):
+    probes = _observed_probes(parsed)
+    ordered = [
+        probes[runtime]
+        for runtime in _requested_runtime_order(family_names)
+        if runtime in probes
+    ]
     unbound = [probe["runtime"] for probe in ordered if not probe["bound"]]
     return {
         "protocol": oracles.PROTOCOL,
@@ -251,9 +269,7 @@ def build(family, index=0):
         family,
         index,
         seed=20260823,
-        commit=PINNED_COMMIT,
-        dirty=False,
-        environ={},
+        run=record.RecordRunContext(commit=PINNED_COMMIT, dirty=False, environ={}),
     )
 
 

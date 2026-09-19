@@ -41,30 +41,28 @@ class ExternalOracleProtocolCase18(unittest.TestCase):
 
 class ExternalOracleProtocolCase19(unittest.TestCase):
     def test_nonfinite_reference_output_is_also_an_oracle_error(self):
+        value = float("inf")
         with self.assertRaises(oracles.OracleError):
-            oracles.OracleRun(
-                {"value": float("inf")},
-                {"value": "unit"},
-                [{"stage": "f"}],
-            )
+            oracles.OracleRun({"value": value}, {"value": "unit"}, [{"stage": "f"}])
 
 
 class ExternalOracleProtocolCase20(unittest.TestCase):
     def adapter(self, mode="ok"):
         return oracles.bind(
             runtime="axon-encoder",
-            oracle_id="encoder-ref",
-            oracle_type="spike-encoder",
-            description="reference",
+            identity=oracles.OracleIdentity(
+                oracle_id="encoder-ref",
+                oracle_type="spike-encoder",
+                description="reference",
+            ),
             reference_fn=lambda request: ({"unused": True}, {}),
             environ=double_env(mode),
         )
     def test_nonfinite_external_request_is_bounded_as_an_oracle_error(self):
+        adapter = self.adapter("ok")
+        request = {"configuration": {"overflow": float("inf")}, "data": {}}
         with self.assertRaises(oracles.OracleError):
-            self.adapter("ok").run(
-                "f",
-                {"configuration": {"overflow": float("inf")}, "data": {}},
-            )
+            adapter.run("f", request)
 
 
 class ExternalOracleProtocolCase21(unittest.TestCase):
@@ -85,9 +83,11 @@ class ExternalOracleProtocolCase21(unittest.TestCase):
             "sys.stdout.flush()\n"
         )
         adapter = oracles.ExternalCommandOracle(
-            oracle_id="axon-encoder",
-            oracle_type="spike-encoder",
-            description="pipe-holder",
+            oracles.OracleIdentity(
+                oracle_id="axon-encoder",
+                oracle_type="spike-encoder",
+                description="pipe-holder",
+            ),
             runtime="axon-encoder",
             command=[sys.executable, "-c", holder],
             timeout_s=0.2,

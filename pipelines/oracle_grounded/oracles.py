@@ -29,6 +29,7 @@ resolve_source_commit = _core.resolve_source_commit
 resolve_commit = _core.resolve_commit
 OracleRun = _adapters.OracleRun
 OracleAdapter = _adapters.OracleAdapter
+OracleIdentity = _adapters.OracleIdentity
 ReferenceOracle = _adapters.ReferenceOracle
 ExternalCommandOracle = _adapters.ExternalCommandOracle
 ChainOracle = _binding.ChainOracle

@@ -36,20 +36,24 @@ class ExportDestinationSafety(ResearchExportAllowed, unittest.TestCase):
             curated = compose_fixture(root)
 
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(root / "no-such-root", root / "export-a")
+                export_hf.export_run(
+                    export_hf.ExportRequest(root / "no-such-root", root / "export-a")
+                )
 
             empty = root / "empty-curated"
             (empty / compose_curated.RECORDS_DIRNAME).mkdir(parents=True)
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(empty, root / "export-b")
+                export_hf.export_run(export_hf.ExportRequest(empty, root / "export-b"))
 
-            export_hf.export_run(curated, root / "export")
+            export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(curated, curated / "nested-export")
+                export_hf.export_run(export_hf.ExportRequest(curated, curated / "nested-export"))
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(curated, root / "missing-parent" / "export")
+                export_hf.export_run(
+                    export_hf.ExportRequest(curated, root / "missing-parent" / "export")
+                )
 
     def test_refuses_export_destinations_lexically_or_resolved_under_raw(self):
         with tempfile.TemporaryDirectory() as td:
@@ -62,13 +66,13 @@ class ExportDestinationSafety(ResearchExportAllowed, unittest.TestCase):
 
             lexical = raw / ".." / ".." / "safe" / "lexical-export"
             with self.assertRaisesRegex(export_hf.ExportError, "immutable raw"):
-                export_hf.export_run(curated, lexical)
+                export_hf.export_run(export_hf.ExportRequest(curated, lexical))
             self.assertFalse((safe / "lexical-export").exists())
 
             raw_link = root / "raw-link"
             raw_link.symlink_to(raw, target_is_directory=True)
             with self.assertRaisesRegex(export_hf.ExportError, "immutable raw"):
-                export_hf.export_run(curated, raw_link / "resolved-export")
+                export_hf.export_run(export_hf.ExportRequest(curated, raw_link / "resolved-export"))
             self.assertFalse((raw / "resolved-export").exists())
 
             real_parent = root / "real-destination-parent"
@@ -76,7 +80,7 @@ class ExportDestinationSafety(ResearchExportAllowed, unittest.TestCase):
             symlink_parent = root / "destination-parent-alias"
             symlink_parent.symlink_to(real_parent, target_is_directory=True)
             with self.assertRaisesRegex(export_hf.ExportError, "exact non-symlink"):
-                export_hf.export_run(curated, symlink_parent / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, symlink_parent / "export"))
             self.assertFalse((real_parent / "export").exists())
 
     def test_refuses_a_destination_under_the_authenticated_compose_source(self):
@@ -89,7 +93,7 @@ class ExportDestinationSafety(ResearchExportAllowed, unittest.TestCase):
             destination = Path(summary["source_run"]) / "export"
 
             with self.assertRaisesRegex(export_hf.ExportError, "authenticated compose source"):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
             self.assertFalse(destination.exists())
 
     def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
@@ -124,7 +128,7 @@ class ExportDestinationSafety(ResearchExportAllowed, unittest.TestCase):
                     "destination parent changed while it was pinned",
                 ),
             ):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
 
             self.assertTrue(swapped)
             self.assertFalse((moved_parent / destination.name).exists())
@@ -213,7 +217,7 @@ class ExportCompositionMemberSafety(ResearchExportAllowed, unittest.TestCase):
                 getattr(self, f"_alias_{mutation}")(root, curated, summary_path, summary)
 
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, root / "export")
+                    export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
                 self.assertFalse((root / "export").exists())
 
     def test_rejects_a_compose_member_symlink_loop_as_export_error(self):
@@ -227,7 +231,7 @@ class ExportCompositionMemberSafety(ResearchExportAllowed, unittest.TestCase):
             member.symlink_to(member)
 
             try:
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             except export_hf.ExportError as exc:
                 self.assertIn("cannot resolve", str(exc))
             except (OSError, RuntimeError) as exc:
@@ -276,7 +280,7 @@ class ExportSnapshotCoherence(ResearchExportAllowed, unittest.TestCase):
                     export_hf.ExportError, "changed while the replay snapshot"
                 ),
             ):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
     def test_a_symlinked_directory_in_records_refuses_the_export(self):
@@ -296,7 +300,7 @@ class ExportSnapshotCoherence(ResearchExportAllowed, unittest.TestCase):
             (records_dir / "aliased-subtree").symlink_to(target, target_is_directory=True)
 
             with self.assertRaisesRegex(export_hf.ExportError, "symlink alias"):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
     def test_a_directory_named_like_jsonl_refuses_the_export(self):
@@ -314,7 +318,7 @@ class ExportSnapshotCoherence(ResearchExportAllowed, unittest.TestCase):
             (records_dir / "ignored.jsonl").mkdir()
 
             with self.assertRaisesRegex(export_hf.ExportError, "not an exact regular file"):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
     def test_a_member_added_during_capture_refuses_the_export(self):
@@ -356,7 +360,7 @@ class ExportSnapshotCoherence(ResearchExportAllowed, unittest.TestCase):
                     "member set changed while the replay snapshot",
                 ),
             ):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
     def test_a_curated_member_added_after_the_initial_snapshot_is_refused(self):
@@ -387,7 +391,7 @@ class ExportSnapshotCoherence(ResearchExportAllowed, unittest.TestCase):
                     "curated member set changed after the initial snapshot",
                 ),
             ):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
     def test_a_completed_export_artifact_is_reauthenticated_before_finish(self):
@@ -409,7 +413,7 @@ class ExportSnapshotCoherence(ResearchExportAllowed, unittest.TestCase):
                 mock.patch.object(export_hf, "_write_new_bytes", side_effect=write_then_mutate),
                 self.assertRaisesRegex(export_hf.ExportError, "changed before export commit"),
             ):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
             self.assertFalse(destination.exists())
 
 
@@ -489,7 +493,7 @@ class ExportAuditByteCapture(ResearchExportAllowed, unittest.TestCase):
             records = [first, second]
             write_jsonl(source / "batch-r01.jsonl", records)
             curated = root / "curated"
-            compose_curated.compose_run(root / "run", curated)
+            compose_curated.compose_run(compose_curated.ComposeRunContext(root / "run", curated))
             output = (
                 curated
                 / compose_curated.RECORDS_DIRNAME
@@ -516,7 +520,7 @@ class ExportAuditByteCapture(ResearchExportAllowed, unittest.TestCase):
                 mock.patch.object(export_hf, "collect_files", side_effect=capture_then_replace),
                 self.assertRaisesRegex(export_hf.ExportError, "hidden-thought"),
             ):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
 

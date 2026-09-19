@@ -122,7 +122,7 @@ class ExportPayloadAndProvenance(ResearchExportAllowed, unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             curated = compose_fixture(root)
-            provenance = export_hf.export_run(curated, root / "export")
+            provenance = export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             export = root / "export"
 
             self.assertTrue(provenance["training_ready"])
@@ -146,8 +146,8 @@ class ExportSemanticDuplicateReplay(ResearchExportAllowed, unittest.TestCase):
         """Compose/export once and require one duplicate to stay excluded."""
 
         curated = root / "curated"
-        summary = compose_curated.compose_run(source, curated)
-        provenance = export_hf.export_run(curated, root / "export")
+        summary = compose_curated.compose_run(compose_curated.ComposeRunContext(source, curated))
+        provenance = export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
         split_rows = []
         for relative in (export_hf.TRAIN_PATH, export_hf.EVAL_PATH):
             split_rows.extend(
@@ -178,10 +178,14 @@ class ExportSemanticDuplicateReplay(ResearchExportAllowed, unittest.TestCase):
             source = root / "run"
             source.mkdir()
             write_mill_run(source, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
             self.assertIn("FOREIGN_MILL_ID_PREFIX", summary["exclusions"])
 
-            provenance = export_hf.export_run(root / "curated", root / "export")
+            provenance = export_hf.export_run(
+                export_hf.ExportRequest(root / "curated", root / "export")
+            )
 
             self.assertTrue(provenance["training_ready"])
             self.assertEqual(provenance["records"], summary["counts"]["retained"])
@@ -251,7 +255,7 @@ class ExportCorpusGating(ResearchExportAllowed, unittest.TestCase):
                 ),
                 self.assertRaises(export_hf.ExportError) as caught,
             ):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertIn("not training_ready", str(caught.exception))
             self.assertFalse((root / "export").exists())
 
@@ -275,7 +279,7 @@ class ExportCorpusGating(ResearchExportAllowed, unittest.TestCase):
                 factory.mkdir(parents=True)
                 (factory / "batch-r01.jsonl").write_bytes(payload)
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(root / "curated", root / "export")
+                    export_hf.export_run(export_hf.ExportRequest(root / "curated", root / "export"))
                 self.assertFalse((root / "export").exists())
 
 

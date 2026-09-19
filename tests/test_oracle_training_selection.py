@@ -30,7 +30,13 @@ class OracleTrainingSelection(unittest.TestCase):
 
     def _compose(self, root):
         self._generate(root / 'source')
-        return compose_curated.compose_run(root / 'source', root / 'curated', oracle_selection='eligible-training')
+        return compose_curated.compose_run(
+            compose_curated.ComposeRunContext(
+                root / 'source',
+                root / 'curated',
+                oracle_selection='eligible-training',
+            )
+        )
 
     def _rewrite_summary(self, curated, summary):
         (curated / 'COMPOSE.json').write_text(json.dumps(summary))
@@ -41,7 +47,13 @@ class OracleTrainingSelection(unittest.TestCase):
             source, curated, exported = root / 'source', root / 'curated', root / 'export'
             self._generate(source)
             before = {p.relative_to(source): p.read_bytes() for p in source.rglob('*') if p.is_file()}
-            summary = compose_curated.compose_run(source, curated, oracle_selection='eligible-training')
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(
+                    source,
+                    curated,
+                    oracle_selection='eligible-training',
+                )
+            )
             self.assertEqual(summary['counts']['source_records'], 35)
             self.assertEqual(summary['counts']['retained'], 34)
             self.assertEqual(summary['counts']['excluded'], 1)
@@ -58,7 +70,7 @@ class OracleTrainingSelection(unittest.TestCase):
                 else:
                     self.assertIn('compose.oracle_training_ineligible', entry['reason_codes'])
                     self.assertIsNone(entry['output_path'])
-            result = export_hf.export_run(curated, exported)
+            result = export_hf.export_run(export_hf.ExportRequest(curated, exported))
             self.assertEqual(result['records'], 34)
             self.assertEqual(result['compose']['oracle_selection'], summary['oracle_selection'])
             self.assertEqual(before, {p.relative_to(source): p.read_bytes() for p in source.rglob('*') if p.is_file()})
@@ -69,13 +81,19 @@ class OracleTrainingSelection(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 self._generate(root / 'source', dirty=dirty)
-                summary = compose_curated.compose_run(root / 'source', root / 'curated', oracle_selection=mode)
+                summary = compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(
+                        root / 'source',
+                        root / 'curated',
+                        oracle_selection=mode,
+                    )
+                )
                 self.assertEqual('oracle_selection' in summary, mode != 'all')
                 self.assertEqual(summary['counts']['retained'], retained)
                 self.assertEqual(summary['counts']['excluded'], 35 - retained)
                 self.assertFalse(summary['audit']['training_ready'])
                 with self.assertRaises(ExportError):
-                    export_hf.export_run(root / 'curated', root / 'export')
+                    export_hf.export_run(export_hf.ExportRequest(root / 'curated', root / 'export'))
 
     def test_selection_declaration_must_match_manifest_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,7 +111,9 @@ class OracleTrainingSelection(unittest.TestCase):
                         altered['oracle_selection'] = variant
                     self._rewrite_summary(root / 'curated', altered)
                     with self.assertRaises(ExportError):
-                        export_hf.export_run(root / 'curated', root / 'export')
+                        export_hf.export_run(
+                            export_hf.ExportRequest(root / 'curated', root / 'export')
+                        )
                     self.assertFalse((root / 'export').exists())
 
     def test_forged_exclusion_reason_cannot_be_authenticated_by_rehashing(self):
@@ -108,7 +128,7 @@ class OracleTrainingSelection(unittest.TestCase):
             summary['manifest']['sha256'] = hashlib.sha256(manifest.read_bytes()).hexdigest()
             self._rewrite_summary(root / 'curated', summary)
             with self.assertRaisesRegex(ExportError, 'does not reproduce'):
-                export_hf.export_run(root / 'curated', root / 'export')
+                export_hf.export_run(export_hf.ExportRequest(root / 'curated', root / 'export'))
 
     def test_invalid_selected_out_source_is_fatal_even_with_refreshed_file_hash(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,7 +146,13 @@ class OracleTrainingSelection(unittest.TestCase):
             manifest['files'][relative]['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
             manifest_path.write_text(json.dumps(manifest))
             with self.assertRaises(compose_curated.ComposeError):
-                compose_curated.compose_run(source, root / 'curated', oracle_selection='eligible-training')
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(
+                        source,
+                        root / 'curated',
+                        oracle_selection='eligible-training',
+                    )
+                )
             self.assertFalse((root / 'curated').exists())
 
     def test_empty_manifest_member_cannot_be_omitted(self):
@@ -136,7 +162,13 @@ class OracleTrainingSelection(unittest.TestCase):
             empty = next(path for path in (root / 'source').rglob('*.jsonl') if not path.read_bytes())
             empty.unlink()
             with self.assertRaises(compose_curated.ComposeError):
-                compose_curated.compose_run(root / 'source', root / 'curated', oracle_selection='eligible-training')
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(
+                        root / 'source',
+                        root / 'curated',
+                        oracle_selection='eligible-training',
+                    )
+                )
             self.assertFalse((root / 'curated').exists())
 
     def test_selection_requires_whole_authenticated_oracle_run(self):
@@ -145,7 +177,13 @@ class OracleTrainingSelection(unittest.TestCase):
             self._generate(root / 'source')
             (root / 'source' / 'manifest.json').unlink()
             with self.assertRaisesRegex(compose_curated.ComposeError, 'complete authenticated oracle run'):
-                compose_curated.compose_run(root / 'source', root / 'curated', oracle_selection='eligible-training')
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(
+                        root / 'source',
+                        root / 'curated',
+                        oracle_selection='eligible-training',
+                    )
+                )
             self.assertFalse((root / 'curated').exists())
 
     def test_named_and_mixed_records_are_excluded_without_implicit_runtime_execution(self):

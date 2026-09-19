@@ -48,8 +48,9 @@ class DeterministicRng(unittest.TestCase):
         self.assertEqual(seen, {2, 3, 4, 5})
 
     def test_randint_rejects_an_empty_range(self):
+        stream = Rng(1)
         with self.assertRaises(ValueError):
-            Rng(1).randint(5, 4)
+            stream.randint(5, 4)
 
     def test_sample_returns_distinct_items(self):
         picked = Rng(5).sample(range(10), 4)
@@ -57,8 +58,10 @@ class DeterministicRng(unittest.TestCase):
         self.assertEqual(len(set(picked)), 4)
 
     def test_sample_refuses_to_overdraw(self):
+        stream = Rng(5)
+        population = range(3)
         with self.assertRaises(ValueError):
-            Rng(5).sample(range(3), 4)
+            stream.sample(population, 4)
 
     def test_derive_is_stable_and_label_dependent(self):
         base = Rng(99)
@@ -75,8 +78,10 @@ class DeterministicRng(unittest.TestCase):
         self.assertEqual([after.next_u64() for _ in range(5)], expected)
 
     def test_seed_from_label_is_deterministic(self):
-        self.assertEqual(seed_from_label(1, "x"), seed_from_label(1, "x"))
-        self.assertNotEqual(seed_from_label(1, "x"), seed_from_label(1, "y"))
+        first = seed_from_label(1, "x")
+        second = seed_from_label(1, "x")
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, seed_from_label(1, "y"))
 
     def test_symmetric_noise_is_centred(self):
         stream = Rng(21)
@@ -187,13 +192,13 @@ class Encoders(unittest.TestCase):
         self.assertEqual(sum(1 for s in spikes if s["channel"] == "temporal_phase"), 3)
 
     def test_identical_encodings_tie(self):
-        comparison = sim.compare_encodings(self.signal, "rate", "rate", self.config)
+        comparison = sim.compare_encodings(self.signal, ("rate", "rate"), self.config)
         self.assertIsNone(comparison["winner"])
         self.assertEqual(comparison["winner_basis"], "tie")
         self.assertEqual(comparison["retention_margin"], 0.0)
 
     def test_the_winner_follows_the_measured_margin(self):
-        comparison = sim.compare_encodings(self.signal, "temporal", "rate", self.config)
+        comparison = sim.compare_encodings(self.signal, ("temporal", "rate"), self.config)
         if comparison["winner_basis"] == "information_retention":
             expected = "temporal" if comparison["retention_margin"] > 0 else "rate"
         elif comparison["winner_basis"] == "spike_count_tiebreak":
@@ -333,25 +338,27 @@ class DelayMesh(unittest.TestCase):
                 sim.mesh_causal_summary(result, source, sink)
 
     def test_unknown_edge_endpoint_is_refused(self):
+        nodes = [sim.mesh_node("A")]
         with self.assertRaises(ValueError):
             sim.simulate_mesh(
-                [sim.mesh_node("A")],
+                nodes,
                 [{"src": "A", "dst": "Z", "weight": 1.0, "delay_ms": 1.0}],
                 [],
                 10.0,
             )
 
     def test_an_unknown_event_target_is_refused(self):
+        nodes = [sim.mesh_node("A")]
         with self.assertRaises(ValueError):
             sim.simulate_mesh(
-                [sim.mesh_node("A")], [], [{"target": "Z", "t_ms": 1.0, "amplitude": 1.0}], 10.0
+                nodes, [], [{"target": "Z", "t_ms": 1.0, "amplitude": 1.0}], 10.0
             )
 
     def test_a_runaway_loop_is_bounded_and_reported(self):
         nodes = [sim.mesh_node("A", t_refractory_ms=0.5)]
         edges = [{"src": "A", "dst": "A", "weight": 5.0, "delay_ms": 0.5}]
         events = [{"target": "A", "t_ms": 1.0, "amplitude": 2.0}]
-        result = sim.simulate_mesh(nodes, edges, events, 5000.0, max_spikes=50)
+        result = sim.simulate_mesh(nodes, edges, events, sim.MeshBounds(5000.0, max_spikes=50))
         self.assertTrue(result["spike_budget_exhausted"])
         self.assertLessEqual(result["total_spikes"], 51)
 
@@ -359,7 +366,7 @@ class DelayMesh(unittest.TestCase):
         nodes = [sim.mesh_node("A", t_refractory_ms=0.0)]
         edges = [{"src": "A", "dst": "A", "weight": 2.0, "delay_ms": 0.0}]
         events = [{"target": "A", "t_ms": 0.0, "amplitude": 2.0}]
-        result = sim.simulate_mesh(nodes, edges, events, 3.0, dt_ms=1.0)
+        result = sim.simulate_mesh(nodes, edges, events, sim.MeshBounds(3.0, dt_ms=1.0))
         self.assertGreaterEqual(result["spike_counts"]["A"], 2)
 
     def test_the_causal_delta_names_suppressed_and_recruited_nodes(self):

@@ -75,10 +75,7 @@ class ValidateCliCase22(unittest.TestCase):
             snapshot = next(item for item in snapshots if item.body.strip())
             snapshot.path.write_text("not json\n", encoding="utf-8")
             totals, findings, _records = oracle_validate.validate_file(
-                snapshot,
-                require_runtime=False,
-                reproduce=False,
-                selected=set(),
+                snapshot, oracle_validate.ValidationContext()
             )
             self.assertGreater(totals["records"], 0)
             self.assertEqual(totals["parse_failures"], 0)
@@ -96,10 +93,7 @@ class ValidateCliCase23(unittest.TestCase):
         )
         with mock.patch.object(record, "classify", side_effect=RuntimeError("boom")):
             totals, findings, _records = oracle_validate.validate_file(
-                snapshot,
-                require_runtime=False,
-                reproduce=False,
-                selected=set(),
+                snapshot, oracle_validate.ValidationContext()
             )
         self.assertEqual(totals["invalid"], 1)
         self.assertTrue(any("internal exception: RuntimeError" in f for f in findings))

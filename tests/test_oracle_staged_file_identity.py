@@ -67,14 +67,20 @@ class StagedFileIdentity(unittest.TestCase):
                     path.write_bytes(body)
                 return result
 
+            if manifest:
+                verify = generation_output._verify_staged_manifest
+                verify_args = (root_fd, body)
+            else:
+                verify = generation_output._verify_staged_payloads
+                verify_args = (
+                    root_fd,
+                    {relative: {"sha256": hashlib.sha256(body).hexdigest()}},
+                    1024,
+                )
+
             with mock.patch.object(generation_output, "_bounded_digest", side_effect=mutate_after_read):
                 with self.assertRaises(OSError):
-                    if manifest:
-                        generation_output._verify_staged_manifest(root_fd, body)
-                    else:
-                        generation_output._verify_staged_payloads(
-                            root_fd, {relative: {"sha256": hashlib.sha256(body).hexdigest()}}, 1024,
-                        )
+                    verify(*verify_args)
 
 
 if __name__ == "__main__":

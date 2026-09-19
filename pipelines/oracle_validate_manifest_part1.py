@@ -17,26 +17,34 @@ class ManifestChecksPart1:
         header = context.header
         if not header.round_ok:
             context.report(f"round must be an integer in [1, {self.api.MAX_ROUND}]")
-        if not self.api._plain_int(header.master_seed):
-            context.report("seed must be an integer")
-        elif not 0 <= header.master_seed <= self.api.MAX_SEED:
-            context.report(f"seed must lie in [0, {self.api.MAX_SEED}] (a 64-bit integer)")
+        self._seed_field_errors(context)
         if not header.count_ok:
             context.report(f"count_per_family must be an integer in [1, {self.api.MAX_RUN_RECORDS}]")
         self._header_identity_errors(context)
 
+    def _seed_field_errors(self, context):
+        seed = context.header.master_seed
+        if not self.api._plain_int(seed):
+            context.report("seed must be an integer")
+        elif not 0 <= seed <= self.api.MAX_SEED:
+            context.report(f"seed must lie in [0, {self.api.MAX_SEED}] (a 64-bit integer)")
+
     def _header_identity_errors(self, context):
         header = context.header
-        if not self.api.oracles.is_source_commit(header.commit):
-            context.report(
-                "oracle_commit must be a resolved lowercase 40- or 64-hex source commit"
-            )
-        elif self.api.oracles.resolve_source_commit(header.commit) != header.commit:
-            context.report("oracle_commit does not resolve in the source repository")
+        self._commit_identity_errors(context)
         if header.dirty is not None and not isinstance(header.dirty, bool):
             context.report("oracle_dirty must be boolean or null")
         if not self.api.canon.is_digest(header.module_digest):
             context.report("module_digest must be a sha256 digest")
+
+    def _commit_identity_errors(self, context):
+        commit = context.header.commit
+        if not self.api.oracles.is_source_commit(commit):
+            context.report(
+                "oracle_commit must be a resolved lowercase 40- or 64-hex source commit"
+            )
+        elif self.api.oracles.resolve_source_commit(commit) != commit:
+            context.report("oracle_commit does not resolve in the source repository")
 
     def _declared_families_block(self, manifest, context):
         """Validate the declared families mapping and return it."""
@@ -44,6 +52,10 @@ class ManifestChecksPart1:
         if not isinstance(declared, dict):
             context.report("families must be an object")
             return {}
+        self._declared_family_count_errors(declared, context)
+        return declared
+
+    def _declared_family_count_errors(self, declared, context):
         if not declared:
             context.report("families must declare at least one family")
         elif context.header.count_ok and (
@@ -52,30 +64,35 @@ class ManifestChecksPart1:
             context.report(
                 f"count_per_family across declared families exceeds {self.api.MAX_RUN_RECORDS} records"
             )
-        return declared
 
     def _run_file_layout(self, snapshots, context):
         """Map each captured file to ``(family, verdict, round)``."""
-        header = context.header
         file_info = {}
         actual_families = set()
         for snapshot in snapshots:
-            match = self.api._RUN_FILE_RE.fullmatch(snapshot.relative)
-            if match is None:
-                context.report(f"manifest path is not a canonical run file: {snapshot.relative}")
+            entry = self._file_layout_entry(snapshot, context)
+            if entry is None:
                 continue
-            family = match.group("family")
-            file_round = int(match.group("round"))
-            file_info[snapshot.relative] = (family, match.group("verdict"), file_round)
-            actual_families.add(family)
-            if family not in self.api.families.SPECS:
-                context.report(f"run contains unknown family {family!r}")
-            if header.round_ok and file_round != header.round_number:
-                context.report(
-                    f"{snapshot.relative} round {file_round} "
-                    f"does not match manifest round {header.round_number}"
-                )
+            file_info[snapshot.relative] = entry
+            actual_families.add(entry[0])
         return file_info, actual_families
+
+    def _file_layout_entry(self, snapshot, context):
+        header = context.header
+        match = self.api._RUN_FILE_RE.fullmatch(snapshot.relative)
+        if match is None:
+            context.report(f"manifest path is not a canonical run file: {snapshot.relative}")
+            return None
+        family = match.group("family")
+        file_round = int(match.group("round"))
+        if family not in self.api.families.SPECS:
+            context.report(f"run contains unknown family {family!r}")
+        if header.round_ok and file_round != header.round_number:
+            context.report(
+                f"{snapshot.relative} round {file_round} "
+                f"does not match manifest round {header.round_number}"
+            )
+        return family, match.group("verdict"), file_round
 
     def _family_file_pairing_errors(self, file_info, actual_families, context):
         """Each family must carry exactly one accepted and one rejected file."""
@@ -83,10 +100,7 @@ class ManifestChecksPart1:
         if not header.round_ok:
             return
         for family in sorted(actual_families):
-            expected_files = {
-                f"{family}/accepted-r{header.round_number:02d}.jsonl",
-                f"{family}/rejected-r{header.round_number:02d}.jsonl",
-            }
+            expected_files = self._expected_family_files(family, header.round_number)
             actual_files = {relative for relative, info in file_info.items() if info[0] == family}
             if actual_files != expected_files:
                 context.report(
@@ -94,26 +108,8 @@ class ManifestChecksPart1:
                     "and one rejected file for the manifest round"
                 )
 
-    def _expected_runtime_set(self, actual_families):
-        """Every runtime the captured families request."""
+    def _expected_family_files(self, family, round_number):
         return {
-            runtime
-            for family in actual_families
-            if family in self.api.families.SPECS
-            for runtime in self.api.families.spec_for(family).runtimes
+            f"{family}/accepted-r{round_number:02d}.jsonl",
+            f"{family}/rejected-r{round_number:02d}.jsonl",
         }
-
-    def _availability_probe_errors(self, probes, context):
-        """Each declared probe must match the one captured in the records."""
-        for probe in probes:
-            if not isinstance(probe, dict) or not isinstance(probe.get("runtime"), str):
-                # The sibling runtime-name check already rejects these shapes;
-                # report rather than skip so a malformed probe can never pass.
-                context.report("availability declares a malformed runtime probe")
-                continue
-            runtime = probe["runtime"]
-            expected_probe = context.probe_values.get(runtime)
-            if not self._probe_matches(probe, expected_probe):
-                context.report(
-                    f"availability for runtime {runtime!r} does not match captured records"
-                )

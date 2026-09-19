@@ -359,25 +359,12 @@ def _run_hooks() -> ComposeRunHooks:
     return _facade_delegate(_facade_run_hooks, sys.modules[__name__])
 
 
-def compose_run(
-    source_run: str | Path,
-    destination: str | Path,
-    *,
-    units_migration: str | Path | None = None,
-    oracle_selection: str = "all",
-    oracle_rust_bin: str | Path | None = None,
-) -> dict[str, Any]:
-    context = ComposeRunContext(
-        Path(source_run),
-        Path(destination),
-        Path(units_migration) if units_migration is not None else None,
-        oracle_selection,
-    )
+def compose_run(context: ComposeRunContext) -> dict[str, Any]:
     if __package__:
         from .oracle_grounded.native_gate import runtime_gate
     else:
         from oracle_grounded.native_gate import runtime_gate
-    with runtime_gate(oracle_rust_bin):
+    with runtime_gate(context.oracle_rust_bin):
         return _facade_delegate(_compose_run_impl, context, _run_services(), _run_hooks())
 
 
@@ -403,8 +390,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         summary = compose_run(
-            args.source_run, args.destination, units_migration=args.units_migration,
-            oracle_selection=args.oracle_selection, oracle_rust_bin=args.oracle_rust_bin,
+            ComposeRunContext(
+                args.source_run,
+                args.destination,
+                units_migration=args.units_migration,
+                oracle_selection=args.oracle_selection,
+                oracle_rust_bin=args.oracle_rust_bin,
+            )
         )
     except (
         ComposeError,

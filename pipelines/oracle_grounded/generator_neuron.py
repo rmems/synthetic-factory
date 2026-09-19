@@ -53,9 +53,33 @@ def propose_neuron_scenario(rng, duration_ms=300.0, dt_ms=0.5):
 
 
 def _finite_number(value, name):
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"{name} must be a finite number")
+    if not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number")
     return value
+
+
+def _bounded_ratio(ratio):
+    message = f"duration_ms / dt_ms must be in [1, {MAX_NEURON_STEPS}]"
+    if not math.isfinite(ratio):
+        raise ValueError(message)
+    if not 1 <= ratio <= MAX_NEURON_STEPS:
+        raise ValueError(message)
+    return ratio
+
+
+def _step_ratio(duration_ms, dt_ms):
+    if duration_ms <= 0 or dt_ms <= 0:
+        raise ValueError("duration_ms and dt_ms must be positive")
+    return _bounded_ratio(duration_ms / dt_ms)
+
+
+def _bounded_steps(ratio):
+    steps = int(round(ratio))
+    if steps < 1 or steps > MAX_NEURON_STEPS:
+        raise ValueError(f"rounded neuron sample count must be in [1, {MAX_NEURON_STEPS}]")
+    return steps
 
 
 def _sample_geometry(scenario):
@@ -63,15 +87,7 @@ def _sample_geometry(scenario):
         raise ValueError("neuron scenario must be an object")
     duration_ms = _finite_number(scenario.get("duration_ms"), "duration_ms")
     dt_ms = _finite_number(scenario.get("dt_ms"), "dt_ms")
-    if duration_ms <= 0 or dt_ms <= 0:
-        raise ValueError("duration_ms and dt_ms must be positive")
-    ratio = duration_ms / dt_ms
-    if not math.isfinite(ratio) or ratio < 1 or ratio > MAX_NEURON_STEPS:
-        raise ValueError(f"duration_ms / dt_ms must be in [1, {MAX_NEURON_STEPS}]")
-    steps = int(round(ratio))
-    if steps < 1 or steps > MAX_NEURON_STEPS:
-        raise ValueError(f"rounded neuron sample count must be in [1, {MAX_NEURON_STEPS}]")
-    return duration_ms, steps
+    return duration_ms, _bounded_steps(_step_ratio(duration_ms, dt_ms))
 
 
 def _stimulus_values(scenario):
@@ -93,20 +109,36 @@ def _stimulus_values(scenario):
     return kind, values
 
 
+def _validate_step_window(values, onset_ms, duration_ms):
+    if values["offset_ms"] <= onset_ms or values["offset_ms"] > duration_ms:
+        raise ValueError("step offset_ms must follow onset_ms and stay in the trial")
+
+
+def _validate_pulse_train_window(values, onset_ms, duration_ms):
+    period_ms = values["period_ms"]
+    width_ms = values["width_ms"]
+    if period_ms <= 0:
+        raise ValueError("pulse_train period_ms must be positive")
+    if width_ms <= 0 or width_ms > period_ms:
+        raise ValueError("pulse_train width_ms must be in (0, period_ms]")
+
+
+def _validate_ramp_window(values, onset_ms, duration_ms):
+    return None
+
+
+_STIMULUS_WINDOW_CHECKS = {
+    "step": _validate_step_window,
+    "pulse_train": _validate_pulse_train_window,
+    "ramp": _validate_ramp_window,
+}
+
+
 def _validate_stimulus_window(kind, values, duration_ms):
     onset_ms = values["onset_ms"]
     if onset_ms < 0 or onset_ms >= duration_ms:
         raise ValueError("stimulus onset_ms must be inside the trial")
-    if kind == "step":
-        if values["offset_ms"] <= onset_ms or values["offset_ms"] > duration_ms:
-            raise ValueError("step offset_ms must follow onset_ms and stay in the trial")
-    elif kind == "pulse_train":
-        period_ms = values["period_ms"]
-        width_ms = values["width_ms"]
-        if period_ms <= 0:
-            raise ValueError("pulse_train period_ms must be positive")
-        if width_ms <= 0 or width_ms > period_ms:
-            raise ValueError("pulse_train width_ms must be in (0, period_ms]")
+    _STIMULUS_WINDOW_CHECKS[kind](values, onset_ms, duration_ms)
 
 
 def neuron_sample_count(scenario):

@@ -44,55 +44,80 @@ def neuron_config(overrides=None):
     return config
 
 
+class _NeuronRun:
+    """Mutable in-flight state for one forward-Euler LIF integration."""
+
+    def __init__(self, config):
+        self.dt_ms = config["dt_ms"]
+        self.tau_m = config["tau_m_ms"]
+        self.tau_w = config["tau_w_ms"]
+        self.v_rest = config["v_rest"]
+        self.v_reset = config["v_reset"]
+        self.v_floor = config["v_floor"]
+        self.threshold = config["v_threshold"] + config["neuromod_threshold_shift"]
+        self.refractory_steps = max(0, int(round(config["t_refractory_ms"] / self.dt_ms)))
+        self.input_scale = config["input_scale"] * config["neuromod_gain"] * config["r_m"]
+        self.adaptation_b = config["adaptation_b"]
+        self.membrane = self.v_rest
+        self.adaptation = 0.0
+        self.refractory_left = 0
+        self.spikes = []
+        self.trace = []
+
+    def _leak_and_inject(self, current):
+        if self.refractory_left > 0:
+            self.refractory_left -= 1
+            self.membrane = self.v_reset
+            return
+        self.membrane += (
+            -(self.membrane - self.v_rest) + current - self.adaptation
+        ) * (self.dt_ms / self.tau_m)
+        if self.membrane < self.v_floor:
+            self.membrane = self.v_floor
+
+    def step(self, index, raw):
+        current = raw * self.input_scale
+        self._leak_and_inject(current)
+        self.adaptation += (-self.adaptation) * (self.dt_ms / self.tau_w)
+        self.trace.append(self.membrane)
+        if self.refractory_left <= 0 and self.membrane >= self.threshold:
+            self.spikes.append(index * self.dt_ms)
+            self.membrane = self.v_reset
+            self.adaptation += self.adaptation_b
+            self.refractory_left = self.refractory_steps
+
+
 def simulate_neuron(config, input_current, trace_points=48):
     """Adaptive exponential-free LIF, forward Euler.
 
     Per step, in this order: expire refractory, leak, inject, adapt-decay,
     threshold test. ``input_current`` is one value per ``dt_ms`` step.
     """
-    dt_ms = config["dt_ms"]
-    tau_m = config["tau_m_ms"]
-    tau_w = config["tau_w_ms"]
-    v_rest = config["v_rest"]
-    v_reset = config["v_reset"]
-    v_floor = config["v_floor"]
-    threshold = config["v_threshold"] + config["neuromod_threshold_shift"]
-    refractory_steps = max(0, int(round(config["t_refractory_ms"] / dt_ms)))
-
-    membrane = v_rest
-    adaptation = 0.0
-    refractory_left = 0
-    spikes = []
-    trace = []
+    run = _NeuronRun(config)
     for index, raw in enumerate(input_current):
-        current = raw * config["input_scale"] * config["neuromod_gain"] * config["r_m"]
-        if refractory_left > 0:
-            refractory_left -= 1
-            membrane = v_reset
-        else:
-            membrane += (-(membrane - v_rest) + current - adaptation) * (dt_ms / tau_m)
-            if membrane < v_floor:
-                membrane = v_floor
-        adaptation += (-adaptation) * (dt_ms / tau_w)
-        trace.append(membrane)
-        if refractory_left <= 0 and membrane >= threshold:
-            spikes.append(index * dt_ms)
-            membrane = v_reset
-            adaptation += config["adaptation_b"]
-            refractory_left = refractory_steps
-    return _neuron_summary(spikes, trace, config, len(input_current), trace_points)
+        run.step(index, raw)
+    return _neuron_summary(run, len(input_current), trace_points)
 
 
-def _neuron_summary(spikes, trace, config, steps, trace_points):
-    dt_ms = config["dt_ms"]
-    duration_ms = steps * dt_ms
+def _cv_isi(intervals, mean_isi):
+    if len(intervals) <= 1 or not mean_isi:
+        return None
+    variance = sum((item - mean_isi) ** 2 for item in intervals) / len(intervals)
+    return math.sqrt(variance) / mean_isi
+
+
+def _adaptation_index(intervals):
+    if len(intervals) < 2 or not intervals[0]:
+        return None
+    return intervals[-1] / intervals[0]
+
+
+def _neuron_summary(run, steps, trace_points):
+    spikes = run.spikes
+    trace = run.trace
+    duration_ms = steps * run.dt_ms
     intervals = [b - a for a, b in pairwise(spikes)]
     mean_isi = (sum(intervals) / len(intervals)) if intervals else None
-    if intervals and len(intervals) > 1 and mean_isi:
-        variance = sum((item - mean_isi) ** 2 for item in intervals) / len(intervals)
-        cv_isi = math.sqrt(variance) / mean_isi
-    else:
-        cv_isi = None
     stride = max(1, math.ceil(len(trace) / trace_points)) if trace else 1
     return {
         "spike_count": len(spikes),
@@ -101,15 +126,13 @@ def _neuron_summary(spikes, trace, config, steps, trace_points):
         "last_spike_ms": spikes[-1] if spikes else None,
         "mean_rate_hz": len(spikes) / (duration_ms / 1000.0) if duration_ms else 0.0,
         "mean_isi_ms": mean_isi,
-        "cv_isi": cv_isi,
-        "adaptation_index": (
-            (intervals[-1] / intervals[0]) if len(intervals) >= 2 and intervals[0] else None
-        ),
+        "cv_isi": _cv_isi(intervals, mean_isi),
+        "adaptation_index": _adaptation_index(intervals),
         "v_mean": (sum(trace) / len(trace)) if trace else None,
         "v_max": max(trace) if trace else None,
         "v_min": min(trace) if trace else None,
         "v_trace": trace[::stride],
-        "v_trace_stride_ms": stride * dt_ms,
+        "v_trace_stride_ms": stride * run.dt_ms,
         "duration_ms": duration_ms,
     }
 

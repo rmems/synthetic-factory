@@ -233,7 +233,9 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
 
             self.assertTrue((root / "curated").exists())
             self.assertEqual(summary["counts"]["source_records"], 2)
@@ -270,7 +272,9 @@ class ComposeSourceSnapshotRaces(unittest.TestCase):
                     "identity changed while capturing the source snapshot",
                 ),
             ):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             self.assertFalse((root / "curated").exists())
 
 
@@ -407,7 +411,7 @@ class CalibrationLookup(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        compose_curated.compose_run(source, root / "curated")
+        compose_curated.compose_run(compose_curated.ComposeRunContext(source, root / "curated"))
         return read_jsonl(
             root
             / "curated"
@@ -538,7 +542,9 @@ class DefaultCalibrationEvidence(unittest.TestCase):
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "duplicate JSON object key"
             ):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             self.assertFalse((root / "curated").exists())
 
     def test_non_regular_default_calibration_evidence_refuses_composition(self):
@@ -570,7 +576,9 @@ class DefaultCalibrationEvidence(unittest.TestCase):
                     compose_curated.ComposeError,
                     refusal,
                 ):
-                    compose_curated.compose_run(source, root / "curated")
+                    compose_curated.compose_run(
+                        compose_curated.ComposeRunContext(source, root / "curated")
+                    )
                 self.assertFalse((root / "curated").exists())
 
 

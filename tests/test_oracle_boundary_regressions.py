@@ -20,10 +20,11 @@ from oracle_fixture_replay import replay_diagnostic_fixture
 
 class OracleBoundaryTests(unittest.TestCase):
     def test_historical_replay_cannot_claim_resolved_checkout_provenance(self):
+        unused = Path("unused")
         for dirty in (False, True):
             with self.subTest(dirty=dirty):
                 with self.assertRaisesRegex(ValueError, "unresolved provenance"):
-                    replay_diagnostic_fixture({"oracle_dirty": dirty}, Path("unused"))
+                    replay_diagnostic_fixture({"oracle_dirty": dirty}, unused)
 
     def test_reference_stamp_matches_checkout(self):
         with (
@@ -92,7 +93,15 @@ class OracleBoundaryTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "per-file limit"):
                 oracle_generate.generate_family(
-                    families.ENCODER_FAMILY, 3, 7, 1, None, None, False
+                    families.ENCODER_FAMILY,
+                    oracle_generate.FamilyJob(
+                        count=3,
+                        seed=7,
+                        round_number=1,
+                        commit=None,
+                        dirty=None,
+                        require_runtime=False,
+                    ),
                 )
         self.assertEqual(build.call_count, 1)
 
@@ -104,10 +113,11 @@ class OracleBoundaryTests(unittest.TestCase):
             outside.mkdir()
             (root / "family").symlink_to(outside, target_is_directory=True)
             descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            target = Path("family/accepted.jsonl")
             try:
                 with self.assertRaises(OSError):
                     oracle_generate.write_jsonl(
-                        Path("family/accepted.jsonl"), [{"sample": 1}], root_fd=descriptor
+                        target, [{"sample": 1}], root_fd=descriptor
                     )
             finally:
                 os.close(descriptor)
@@ -127,11 +137,12 @@ class OracleBoundaryTests(unittest.TestCase):
                 (root / component).rmdir()
                 (root / component).symlink_to(outside, target_is_directory=True)
 
+            target = Path("family/accepted.jsonl")
             try:
                 with mock.patch.object(oracle_generate.os, "mkdir", side_effect=swap):
                     with self.assertRaises(OSError):
                         oracle_generate.write_jsonl(
-                            Path("family/accepted.jsonl"), [{"sample": 1}], root_fd=descriptor
+                            target, [{"sample": 1}], root_fd=descriptor
                         )
                 with self.assertRaises(OSError):
                     oracle_generate._verify_staged_payloads(

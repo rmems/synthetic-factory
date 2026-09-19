@@ -23,7 +23,7 @@ Validation fails closed. A record with a missing, unattributed, or unhashed
 oracle result is rejected, never downgraded to "probably fine".
 """
 
-import re as re
+import re
 import sys
 from dataclasses import dataclass
 
@@ -55,40 +55,19 @@ else:
     import oracle_record_generator as _record_generator
 
 SCHEMA_ID = "oracle-grounded/v1"
-ENVELOPE_KEYS = (
-    "schema",
-    "id",
-    "family",
-    "generator",
-    "scenario",
-    "intervention",
-    "candidate_prediction",
-    "proposal_hash",
-    "oracle",
-    "result",
-    "result_hash",
-    "provenance",
-    "validation",
-    "meta",
+ENVELOPE_KEYS = tuple(
+    (
+        "schema id family generator scenario intervention "
+        "candidate_prediction proposal_hash oracle result result_hash "
+        "provenance validation meta"
+    ).split()
 )
-ORACLE_KEYS = (
-    "id",
-    "type",
-    "implementation",
-    "authority",
-    "requested_runtime",
-    "runtime_bound",
-    "repo",
-    "commit",
-    "dirty",
-    "module",
-    "module_digest",
-    "version",
-    "configuration",
-    "seed",
-    "units",
-    "stages",
-    "availability",
+ORACLE_KEYS = tuple(
+    (
+        "id type implementation authority requested_runtime runtime_bound "
+        "repo commit dirty module module_digest version configuration "
+        "seed units stages availability"
+    ).split()
 )
 # The oracle, provenance, and meta blocks are authoritative execution
 # provenance that no content hash covers, so their vocabularies are closed: a
@@ -135,6 +114,50 @@ class GenerationError(RuntimeError):
     """A record could not be produced; the caller decides whether to skip."""
 
 
+@dataclass(frozen=True)
+class RecordRunContext:
+    """Run-level provenance stamped identically on every record of one pass."""
+
+    round_number: int = 1
+    commit: object = None
+    dirty: object = None
+    environ: object = None
+    model: object = None
+    factory: str = "oracle-grounded"
+    backend: str = "reference"
+
+
+@dataclass(frozen=True)
+class _Subject:
+    """One record's identity inside a run: family, position, seed, spec."""
+
+    family: str
+    index: int
+    record_seed: int
+    spec: object
+    run: RecordRunContext
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    """What executing the oracle produced plus resolved stored provenance."""
+
+    execution: object
+    commit: object
+    dirty: object
+    record_seed: int
+    availability: dict
+
+
+@dataclass(frozen=True)
+class _RecordParts:
+    """The three subtrees one record assembles around."""
+
+    proposal: dict
+    oracle: dict
+    result: dict
+
+
 def _reserved_key_hits(value):
     """Paths of oracle-reserved keys in the generator sections of ``value``.
 
@@ -153,43 +176,61 @@ def _reserved_key_listing(hits):
     return listed
 
 
-def build_record(
-    family,
-    index,
-    seed,
-    round_number=1,
-    commit=None,
-    dirty=None,
-    environ=None,
-    model=None,
-    factory="oracle-grounded",
-    backend="reference",
-):
-    """Propose a scenario, execute the oracle, and assemble one record."""
+def _record_id_parts(family, identifier):
+    """The (round, index) a record id encodes, or None when it is malformed.
+
+    The id grammar is this contract's: ``build_record`` mints
+    ``{family}-r{round:02d}-{index:04d}``, so the same shape is what a
+    retained id is checked against.
+    """
+    match = re.fullmatch(rf"{re.escape(family)}-r([0-9]+)-([0-9]+)", identifier)
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _backend_spec(family, backend, environ):
+    """The family spec and effective environ for the selected oracle backend."""
     if backend not in ('reference', 'rust'):
         raise GenerationError('unsupported oracle backend')
-    if backend == 'rust':
-        from . import native_profiles, native_runtime
-        if family not in native_profiles.PROFILES:
-            raise GenerationError('Rust backend does not support this family')
-        environ = native_runtime.runtime_environ(base=environ)
-        spec = families.spec_for_profile(family, native_profiles.PROFILES[family])
-    else:
-        spec = families.spec_for(family)
-    record_seed = seed_from_label(seed, f"{family}:{index}")
-    rng = Rng(record_seed)
-    scenario, intervention, candidate = spec.propose(rng)
-    # Round the proposal to canonical precision *before* the oracle sees it.
-    # Otherwise the oracle measures full-precision inputs while the record
-    # stores rounded ones, and replaying the stored scenario reproduces a
-    # slightly different measurement.
+    if backend == 'reference':
+        return families.spec_for(family), environ
+    from . import native_profiles, native_runtime
+    if family not in native_profiles.PROFILES:
+        raise GenerationError('Rust backend does not support this family')
+    return (
+        families.spec_for_profile(family, native_profiles.PROFILES[family]),
+        native_runtime.runtime_environ(base=environ),
+    )
+
+
+def _resolved_provenance(commit, dirty):
+    """Fill an unpinned commit (and its dirty flag) from the working tree."""
+    if commit is not None:
+        return commit, dirty
+    resolved_commit, resolved_dirty = oracles.resolve_commit()
+    return resolved_commit, resolved_dirty if dirty is None else dirty
+
+
+def _proposal(subject):
+    """The generator sections, normalized before the oracle sees them.
+
+    Round the proposal to canonical precision *before* the oracle sees it.
+    Otherwise the oracle measures full-precision inputs while the record
+    stores rounded ones, and replaying the stored scenario reproduces a
+    slightly different measurement.
+    """
+    rng = Rng(subject.record_seed)
+    scenario, intervention, candidate = subject.spec.propose(rng)
     scenario = canon.normalize(scenario)
     intervention = canon.normalize(intervention)
     candidate = canon.normalize(candidate)
-
-    generator = generators.generator_block(record_seed, f"{family}#{index}", model=model)
     proposal = {
-        "generator": generator,
+        "generator": generators.generator_block(
+            subject.record_seed,
+            f"{subject.family}#{subject.index}",
+            model=subject.run.model,
+        ),
         "scenario": scenario,
         "intervention": intervention,
         "candidate_prediction": candidate,
@@ -199,27 +240,28 @@ def build_record(
         raise GenerationError(
             f"generator emitted oracle-reserved keys: {_reserved_key_listing(reserved)}"
         )
+    return proposal
 
-    request = spec.build_request(scenario, intervention)
-    adapter = spec.oracle(environ)
-    run = adapter.run(family, request)
 
-    if commit is None:
-        commit, resolved_dirty = oracles.resolve_commit()
-        if dirty is None:
-            dirty = resolved_dirty
+def _measure(adapter, request, subject, environ):
+    """Execute the oracle and resolve the run's stored provenance."""
+    execution = adapter.run(subject.family, request)
+    commit, dirty = _resolved_provenance(subject.run.commit, subject.run.dirty)
+    availability = oracles.availability_report(subject.spec.runtimes, environ)
+    return _Outcome(execution, commit, dirty, subject.record_seed, availability)
 
-    availability = oracles.availability_report(spec.runtimes, environ)
-    oracle_block = {
+
+def _oracle_block(adapter, spec, request, outcome):
+    return {
         "id": adapter.oracle_id,
         "type": adapter.oracle_type,
         "implementation": adapter.implementation,
         "authority": adapter.authority,
         "requested_runtime": list(spec.runtimes),
-        "runtime_bound": availability["all_bound"],
+        "runtime_bound": outcome.availability["all_bound"],
         "repo": oracles.REPO_SLUG,
-        "commit": commit,
-        "dirty": dirty,
+        "commit": outcome.commit,
+        "dirty": outcome.dirty,
         "module": oracles.MODULE_PATH,
         "module_digest": oracles.module_digest(),
         "version": adapter.version,
@@ -227,45 +269,60 @@ def build_record(
         "configuration": request["configuration"],
         # The reference oracles draw no randomness of their own; this is the
         # seed that produced the scenario they were handed.
-        "seed": record_seed,
-        "units": run.units,
-        "stages": run.stages,
-        "availability": availability,
-    }
-    result = {
-        "produced_by": adapter.oracle_id,
-        "measured": run.measured,
-        "units": run.units,
+        "seed": outcome.record_seed,
+        "units": outcome.execution.units,
+        "stages": outcome.execution.stages,
+        "availability": outcome.availability,
     }
 
+
+def _assemble(subject, parts):
     record = {
         "schema": SCHEMA_ID,
-        "id": f"{family}-r{round_number:02d}-{index:04d}",
-        "family": family,
-        "generator": generator,
-        "scenario": scenario,
-        "intervention": intervention,
-        "candidate_prediction": candidate,
-        "proposal_hash": canon.digest(proposal),
-        "oracle": oracle_block,
-        "result": result,
-        "result_hash": canon.digest(result),
+        "id": f"{subject.family}-r{subject.run.round_number:02d}-{subject.index:04d}",
+        "family": subject.family,
+        "generator": parts.proposal["generator"],
+        "scenario": parts.proposal["scenario"],
+        "intervention": parts.proposal["intervention"],
+        "candidate_prediction": parts.proposal["candidate_prediction"],
+        "proposal_hash": canon.digest(parts.proposal),
+        "oracle": parts.oracle,
+        "result": parts.result,
+        "result_hash": canon.digest(parts.result),
         "provenance": {
             "kind": "simulated",
-            "claimed": adapter.authority,
+            "claimed": parts.oracle["authority"],
             "oracle_grounded": True,
             "generator_authored": list(GENERATOR_SECTIONS),
             "oracle_authored": ["result", "oracle.stages"],
         },
         "validation": {},
         "meta": {
-            "factory": factory,
-            "round": round_number,
-            "tags": ["oracle-grounded", family, adapter.implementation],
+            "factory": subject.run.factory,
+            "round": subject.run.round_number,
+            "tags": ["oracle-grounded", subject.family, parts.oracle["implementation"]],
         },
     }
     record["validation"] = assess(record)
     return canon.normalize(record)
+
+
+def build_record(family, index, seed, run=None):
+    """Propose a scenario, execute the oracle, and assemble one record."""
+    run = run or RecordRunContext()
+    spec, environ = _backend_spec(family, run.backend, run.environ)
+    subject = _Subject(family, index, seed_from_label(seed, f"{family}:{index}"), spec, run)
+    proposal = _proposal(subject)
+    request = spec.build_request(proposal["scenario"], proposal["intervention"])
+    adapter = spec.oracle(environ)
+    outcome = _measure(adapter, request, subject, environ)
+    result = {
+        "produced_by": adapter.oracle_id,
+        "measured": outcome.execution.measured,
+        "units": outcome.execution.units,
+    }
+    parts = _RecordParts(proposal, _oracle_block(adapter, spec, request, outcome), result)
+    return _assemble(subject, parts)
 
 
 def assess(record):
@@ -389,6 +446,42 @@ def publishability(record, findings=()):
     return True, PUBLISHABLE_REASONS[implementation]
 
 
+def _layers(envelope, family=(), status=()):
+    return {"envelope": list(envelope), "family": list(family), "status": list(status)}
+
+
+def _envelope_gate_findings(record, check_declared_status):
+    """Structural findings that stop classification before content checks."""
+    if not isinstance(record, dict):
+        return ["record is not a JSON object"]
+    if record.get("schema") != SCHEMA_ID:
+        return [f"schema must be {SCHEMA_ID!r}, got {record.get('schema')!r}"]
+    missing = [key for key in ENVELOPE_KEYS if key not in record]
+    if missing:
+        return [f"missing envelope keys: {', '.join(missing)}"]
+    family = record["family"]
+    if family not in families.SPECS:
+        return [f"unknown dataset family: {family!r}"]
+    findings = []
+    if not isinstance(record.get("id"), str) or not record["id"]:
+        findings.append("id must be a non-empty string")
+    findings.extend(_schema_gate_findings(record, family, check_declared_status))
+    return findings
+
+
+def _schema_gate_findings(record, family, check_declared_status):
+    # The checked-in JSON Schemas are executable curation constraints, not
+    # documentation.  Keep this stdlib-only through the local subset validator.
+    try:
+        return schema_validation.validate_record_schemas(
+            record,
+            family,
+            include_validation=check_declared_status,
+        )
+    except Exception as exc:
+        return [f"record schema validation could not run: {type(exc).__name__}"]
+
+
 def classify(record, require_named_runtime=False, check_declared_status=True, expected_commit=None):
     """Split findings into layers so a rejected record still validates.
 
@@ -400,55 +493,25 @@ def classify(record, require_named_runtime=False, check_declared_status=True, ex
     * ``status`` — disagreement between the record's declared verdict and the
       recomputed one. Always fatal.
     """
-    envelope = []
-    if not isinstance(record, dict):
-        return {"envelope": ["record is not a JSON object"], "family": [], "status": []}
-    if record.get("schema") != SCHEMA_ID:
-        envelope.append(f"schema must be {SCHEMA_ID!r}, got {record.get('schema')!r}")
-        return {"envelope": envelope, "family": [], "status": []}
-    missing = [key for key in ENVELOPE_KEYS if key not in record]
-    if missing:
-        envelope.append(f"missing envelope keys: {', '.join(missing)}")
-        return {"envelope": envelope, "family": [], "status": []}
-    family = record["family"]
-    if family not in families.SPECS:
-        envelope.append(f"unknown dataset family: {family!r}")
-        return {"envelope": envelope, "family": [], "status": []}
-    if not isinstance(record.get("id"), str) or not record["id"]:
-        envelope.append("id must be a non-empty string")
-
-    # The checked-in JSON Schemas are executable curation constraints, not
-    # documentation.  Keep this stdlib-only through the local subset validator.
-    try:
-        envelope.extend(
-            schema_validation.validate_record_schemas(
-                record,
-                family,
-                include_validation=check_declared_status,
-            )
-        )
-    except Exception as exc:
-        envelope.append(f"record schema validation could not run: {type(exc).__name__}")
+    envelope = _envelope_gate_findings(record, check_declared_status)
     if envelope:
-        return {"envelope": envelope, "family": [], "status": []}
+        return _layers(envelope)
 
     envelope.extend(_validate_generator_side(record))
     envelope.extend(_validate_oracle_side(record, require_named_runtime, expected_commit))
     if envelope:
-        return {"envelope": envelope, "family": [], "status": []}
+        return _layers(envelope)
 
     try:
         family_findings = families.spec_for_record(record).checks(record)
     except Exception as exc:
-        return {
-            "envelope": [f"family checks could not run on this record: {type(exc).__name__}"],
-            "family": [],
-            "status": [],
-        }
+        return _layers(
+            [f"family checks could not run on this record: {type(exc).__name__}"]
+        )
     envelope.extend(_reference_replay_findings(record))
     status = (_validate_declared_status(record, family_findings)
               if check_declared_status and not envelope else [])
-    return {"envelope": envelope, "family": family_findings, "status": status}
+    return _layers(envelope, family_findings, status)
 
 
 def _reference_replay_findings(record):
@@ -565,10 +628,8 @@ def _validate_stage_consistency(oracle, family):
     return _stages.StageChecks(sys.modules[__name__])._validate_stage_consistency(oracle, family)
 
 
-def _validate_declared_status(record, findings_so_far):
-    validation = record.get("validation")
-    if not isinstance(validation, dict):
-        return ["validation must be an object"]
+def _declared_verdict_findings(validation, findings_so_far):
+    """The stored status, reasons, and layer checks against recomputation."""
     out = []
     expected_status = "rejected" if findings_so_far else "accepted"
     status = validation.get("status")
@@ -593,17 +654,26 @@ def _validate_declared_status(record, findings_so_far):
             "validation.checks do not match the recomputed validation layers: "
             f"stored {validation.get('checks')!r}, recomputed {expected_checks!r}"
         )
+    return out
+
+
+def _declared_score_findings(record, validation):
     spec = families.spec_for_record(record)
     try:
         expected_score = spec.score(record)
     except Exception:
         expected_score = None
     if validation.get("candidate_prediction_correct") is not expected_score:
-        out.append(
+        return [
             "validation.candidate_prediction_correct does not match the "
             f"recomputed candidate score {expected_score!r}"
-        )
+        ]
+    return []
+
+
+def _declared_publishability_findings(record, validation, findings_so_far):
     expected_publishable, expected_reason = publishability(record, findings_so_far)
+    out = []
     if validation.get("publishable") is not expected_publishable:
         out.append(
             f"validation.publishable is {validation.get('publishable')!r} but the "
@@ -614,6 +684,17 @@ def _validate_declared_status(record, findings_so_far):
             "validation.publishable_reason does not match the recomputed publishability decision"
         )
     return out
+
+
+def _validate_declared_status(record, findings_so_far):
+    validation = record.get("validation")
+    if not isinstance(validation, dict):
+        return ["validation must be an object"]
+    return (
+        _declared_verdict_findings(validation, findings_so_far)
+        + _declared_score_findings(record, validation)
+        + _declared_publishability_findings(record, validation, findings_so_far)
+    )
 
 
 def reproduce(record, environ=None):

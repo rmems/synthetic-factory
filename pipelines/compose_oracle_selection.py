@@ -20,7 +20,7 @@ REASON = 'compose.oracle_training_ineligible'
 
 
 def require_mode(mode):
-    if type(mode) is not str or mode not in MODES:
+    if not isinstance(mode, str) or mode not in MODES:
         raise ComposeError('oracle selection must be all or eligible-training')
     return mode
 
@@ -30,12 +30,19 @@ def descriptor(mode):
     return {'name': NAME, 'version': VERSION, 'mode': mode}
 
 
+def _integral_version(version):
+    """Whether a declared selection version is a real int, never a bool."""
+    return isinstance(version, int) and not isinstance(version, bool)
+
+
 def published_mode(summary):
     if 'oracle_selection' not in summary:
         return 'all'
     supplied = summary['oracle_selection']
     expected = descriptor('eligible-training')
-    if supplied != expected or type(supplied.get('version')) is not int:
+    if supplied != expected:
+        raise ComposeError('COMPOSE.json: invalid oracle selection declaration')
+    if not _integral_version(supplied.get('version')):
         raise ComposeError('COMPOSE.json: invalid oracle selection declaration')
     return 'eligible-training'
 
@@ -58,11 +65,21 @@ def _fresh_admission(decision):
     reasons = authority.get('ineligibility_reasons')
     if decision.record is None:
         raise ComposeError('oracle selection requires a valid retained source record')
-    if type(eligible) is not bool:
+    if not isinstance(eligible, bool):
         raise ComposeError('oracle selection requires freshly validated identity admission')
     if not isinstance(reasons, list):
         raise ComposeError('oracle selection requires fresh admission reasons')
     return eligible, reasons
+
+
+def _selection_stage(mode, eligible, reasons):
+    return {
+        'lane': 'selection', 'transform_name': NAME, 'transform_version': VERSION,
+        'action': 'retained' if eligible else 'excluded',
+        'reason_codes': [] if eligible else [REASON],
+        'detail': {'mode': mode, 'eligible_training_candidate': eligible,
+                   'ineligibility_reasons': list(reasons)},
+    }
 
 
 def apply_selection(decision, mode):
@@ -71,14 +88,7 @@ def apply_selection(decision, mode):
         return decision
     require_mode(mode)
     eligible, reasons = _fresh_admission(decision)
-    stage = {
-        'lane': 'selection', 'transform_name': NAME, 'transform_version': VERSION,
-        'action': 'retained' if eligible else 'excluded',
-        'reason_codes': [] if eligible else [REASON],
-        'detail': {'mode': mode, 'eligible_training_candidate': eligible,
-                   'ineligibility_reasons': list(reasons)},
-    }
-    stages = (*decision.stages, stage)
+    stages = (*decision.stages, _selection_stage(mode, eligible, reasons))
     if eligible:
         return replace(decision, stages=stages)
     return replace(decision, action='excluded', record=None, reason_codes=(REASON,),

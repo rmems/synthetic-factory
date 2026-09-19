@@ -105,23 +105,34 @@ class RecordChecks:
         if item["validation"].get("publishable"):
             totals["publishable"] += 1
 
+    def _replay_oracle_result(self, item):
+        """Re-run the oracle one stored record claims, or explain why not."""
+        if __package__:
+            from .oracle_grounded import native_gate
+        else:
+            from oracle_grounded import native_gate
+        environment = (
+            native_gate.replay_environ() if native_gate.is_native_record(item) else None
+        )
+        if item["oracle"]["implementation"] == "reference":
+            environment = {}
+        if native_gate.is_native_record(item) and environment is None:
+            return (
+                "unavailable",
+                "native replay requires an explicit oracle Rust binary",
+            )
+        return self.api.record.reproduce(item, environ=environment)
+
+    def _reproduction_outcome(self, item):
+        """The replay verdict, containing any internal failure as 'invalid'."""
+        try:
+            return self._replay_oracle_result(item)
+        except Exception as exc:  # defensive boundary around stored data
+            return "invalid", f"reproduction raised {type(exc).__name__}"
+
     def _reproduce_record(self, item, where, scope):
         """Re-derive one record's oracle result and count the outcome."""
-        try:
-            if __package__:
-                from .oracle_grounded import native_gate
-            else:
-                from oracle_grounded import native_gate
-            environment = native_gate.replay_environ() if native_gate.is_native_record(item) else None
-            if item["oracle"]["implementation"] == "reference":
-                environment = {}
-            if native_gate.is_native_record(item) and environment is None:
-                status, detail = "unavailable", "native replay requires an explicit oracle Rust binary"
-            else:
-                status, detail = self.api.record.reproduce(item, environ=environment)
-        except Exception as exc:  # defensive boundary around stored data
-            status = "invalid"
-            detail = f"reproduction raised {type(exc).__name__}"
+        status, detail = self._reproduction_outcome(item)
         scope.totals[f"reproduce_{status}"] += 1
         if status != "reproduced":
             # The record is already tallied as accepted or rejected by
@@ -158,7 +169,25 @@ class RecordChecks:
         for finding in findings:
             scope.report(where, finding)
 
-    def validate_file(self, snapshot, scope):
+    def validate_file(self, snapshot, context, seen_ids=None, expected_commit=None):
+        """Validate one captured JSONL snapshot. Returns totals, errors, records.
+
+        ``expected_commit`` is the run manifest's already-resolved oracle commit;
+        when provided, a record stamped with a different commit is rejected by
+        string comparison instead of launching its own repository resolution, so
+        a run full of distinct forged commits cannot hold the CLI in git.
+        """
+        scope = self.api._FileScope(
+            path=snapshot.path,
+            relative=snapshot.relative,
+            require_runtime=context.require_runtime,
+            reproduce=context.reproduce,
+            selected=context.selected,
+            totals=self.api.Counter(),
+            errors=[],
+            seen_ids={} if seen_ids is None else seen_ids,
+            expected_commit=expected_commit,
+        )
         expected_verdict = self.api._verdict_for_file(scope.path.name)
         parsed_records = []
         for number, line in enumerate(self.api.io.BytesIO(snapshot.body), start=1):

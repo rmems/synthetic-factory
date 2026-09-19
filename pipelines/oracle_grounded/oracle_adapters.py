@@ -1,6 +1,7 @@
 """Reference and external-command oracle adapter implementations."""
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import canon, oracle_protocol
@@ -14,6 +15,23 @@ from .oracle_core import (
     is_runtime_commit,
     module_digest,
 )
+
+
+@dataclass(frozen=True)
+class OracleIdentity:
+    """The static identity every adapter stamps into its oracle block."""
+
+    oracle_id: str
+    oracle_type: str
+    description: str
+    version: str = "1.0.0"
+
+
+def _require_payload(value, kind, message):
+    if not isinstance(value, kind) or not value:
+        raise OracleError(message)
+
+
 class OracleRun:
     """One authoritative execution: what was measured and who measured it."""
 
@@ -28,12 +46,9 @@ class OracleRun:
             raise OracleError(
                 f"oracle returned a non-canonical value: {type(exc).__name__}"
             ) from exc
-        if not isinstance(measured, dict) or not measured:
-            raise OracleError("oracle returned an empty measurement")
-        if not isinstance(units, dict) or not units:
-            raise OracleError("oracle returned no units mapping")
-        if not isinstance(stages, list) or not stages:
-            raise OracleError("oracle returned no executed stages")
+        _require_payload(measured, dict, "oracle returned an empty measurement")
+        _require_payload(units, dict, "oracle returned no units mapping")
+        _require_payload(stages, list, "oracle returned no executed stages")
         self.measured = measured
         self.units = units
         self.stages = stages
@@ -42,11 +57,11 @@ class OracleRun:
 class OracleAdapter:
     """Common surface for every oracle, named runtime or reference."""
 
-    def __init__(self, oracle_id, oracle_type, description, version="1.0.0"):
-        self.oracle_id = oracle_id
-        self.oracle_type = oracle_type
-        self.description = description
-        self.version = version
+    def __init__(self, identity):
+        self.oracle_id = identity.oracle_id
+        self.oracle_type = identity.oracle_type
+        self.description = identity.description
+        self.version = identity.version
 
     @property
     def implementation(self):
@@ -63,8 +78,8 @@ class OracleAdapter:
 class ReferenceOracle(OracleAdapter):
     """Deterministic in-repo simulator standing in for an absent runtime."""
 
-    def __init__(self, oracle_id, oracle_type, description, fn, requested_runtime, version="1.0.0"):
-        super().__init__(oracle_id, oracle_type, description, version)
+    def __init__(self, identity, fn, requested_runtime):
+        super().__init__(identity)
         self._fn = fn
         self.requested_runtime = requested_runtime
 
@@ -121,17 +136,8 @@ class ExternalCommandOracle(OracleAdapter):
     ``OracleError``. There is no fallback path.
     """
 
-    def __init__(
-        self,
-        oracle_id,
-        oracle_type,
-        description,
-        runtime,
-        command,
-        version="1.0.0",
-        timeout_s=DEFAULT_TIMEOUT_S,
-    ):
-        super().__init__(oracle_id, oracle_type, description, version)
+    def __init__(self, identity, runtime, command, timeout_s=DEFAULT_TIMEOUT_S):
+        super().__init__(identity)
         self.runtime = runtime
         self.requested_runtime = runtime
         self.command = list(command)
@@ -152,9 +158,9 @@ class ExternalCommandOracle(OracleAdapter):
     def authority(self):
         return "measured-runtime"
 
-    def run(self, family, request):
+    def _request_payload(self, family, request):
         try:
-            payload = json.dumps(
+            return json.dumps(
                 {
                     "protocol": PROTOCOL,
                     "oracle": self.runtime,
@@ -168,17 +174,8 @@ class ExternalCommandOracle(OracleAdapter):
             raise OracleError(
                 f"{self.runtime}: request could not be canonicalized: {type(exc).__name__}"
             ) from exc
-        returncode, stdout = oracle_protocol._run_protocol_command(
-            self.command,
-            payload.encode("utf-8"),
-            self.timeout_s,
-            self.runtime,
-        )
-        if returncode != 0:
-            # stderr is controlled by an external process and may echo command
-            # arguments or environment secrets.  The status is sufficient for
-            # the fail-closed record boundary; operator logs remain external.
-            raise OracleError(f"{self.runtime}: configured command exited {returncode}")
+
+    def _parse_response(self, stdout):
         try:
             response = json.loads(
                 stdout,
@@ -191,28 +188,51 @@ class ExternalCommandOracle(OracleAdapter):
             raise OracleError(f"{self.runtime}: response was not JSON: {exc}") from exc
         if not isinstance(response, dict):
             raise OracleError(f"{self.runtime}: response was not a JSON object")
-        if response.get("protocol") != PROTOCOL:
-            raise OracleError(f"{self.runtime}: protocol mismatch; expected {PROTOCOL}")
+        return response
+
+    def _require_identity_fields(self, response):
         for field in ("runtime_version", "runtime_commit"):
             value = response.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise OracleError(f"{self.runtime}: response is missing {field}")
+
+    def _require_protocol_fields(self, response):
+        if response.get("protocol") != PROTOCOL:
+            raise OracleError(f"{self.runtime}: protocol mismatch; expected {PROTOCOL}")
+        self._require_identity_fields(response)
         if not is_runtime_commit(response["runtime_commit"]):
             raise OracleError(
                 f"{self.runtime}: runtime_commit must be a resolved 7-64 digit hexadecimal revision"
             )
+
+    def _stage_entry(self, family, response):
+        return {
+            "stage": family,
+            "requested_runtime": self.runtime,
+            "implementation": "named-runtime",
+            "oracle_id": self.oracle_id,
+            "version": response["runtime_version"],
+            "runtime_commit": response["runtime_commit"],
+            "executable": self.executable_identity,
+        }
+
+    def run(self, family, request):
+        payload = self._request_payload(family, request)
+        returncode, stdout = oracle_protocol._run_protocol_command(
+            self.command,
+            payload.encode("utf-8"),
+            self.timeout_s,
+            self.runtime,
+        )
+        if returncode != 0:
+            # stderr is controlled by an external process and may echo command
+            # arguments or environment secrets.  The status is sufficient for
+            # the fail-closed record boundary; operator logs remain external.
+            raise OracleError(f"{self.runtime}: configured command exited {returncode}")
+        response = self._parse_response(stdout)
+        self._require_protocol_fields(response)
         return OracleRun(
             response.get("measured"),
             response.get("units", {}),
-            [
-                {
-                    "stage": family,
-                    "requested_runtime": self.runtime,
-                    "implementation": "named-runtime",
-                    "oracle_id": self.oracle_id,
-                    "version": response["runtime_version"],
-                    "runtime_commit": response["runtime_commit"],
-                    "executable": self.executable_identity,
-                }
-            ],
+            [self._stage_entry(family, response)],
         )

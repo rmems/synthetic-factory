@@ -1,5 +1,6 @@
 """Bounded process transport for the sf-oracle/1 protocol."""
 
+import contextlib
 import os
 import select
 import signal
@@ -14,6 +15,11 @@ from .oracle_core import (
     OracleError,
 )
 
+_STREAM_LIMITS = {
+    "stdout": MAX_PROTOCOL_STDOUT_BYTES,
+    "stderr": MAX_PROTOCOL_STDERR_BYTES,
+}
+
 
 class _ProtocolSession:
     def __init__(self, command, payload, timeout_s, runtime):
@@ -22,7 +28,7 @@ class _ProtocolSession:
         self.runtime = runtime
         self.deadline = time.monotonic() + float(timeout_s)
         try:
-            self.process = subprocess.Popen(  # nosec B603 -- explicit binding, never a shell
+            self.process = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- explicit binding, never a shell
                 command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -51,10 +57,8 @@ class _ProtocolSession:
             try:
                 os.killpg(self.process.pid, signal.SIGKILL)
             except OSError:
-                try:
+                with contextlib.suppress(OSError):
                     self.process.kill()
-                except OSError:
-                    pass
 
     def wait_process(self, timeout):
         """Wait in short locked slices so stream threads can still stop the process."""
@@ -77,29 +81,26 @@ class _ProtocolSession:
             self._redirect_pipes(devnull)
         finally:
             if devnull is not None:
-                try:
+                with contextlib.suppress(OSError):
                     os.close(devnull)
-                except OSError:
-                    pass
 
     def _redirect_pipes(self, devnull):
         for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
-            if stream is None:
-                continue
             try:
                 descriptor = stream.fileno()
-            except (ValueError, OSError):
+            except (AttributeError, ValueError, OSError):
                 continue
-            try:
-                os.dup2(devnull, descriptor) if devnull is not None else os.close(descriptor)
-            except OSError:
-                pass
+            with contextlib.suppress(OSError):
+                if devnull is not None:
+                    os.dup2(devnull, descriptor)
+                else:
+                    os.close(descriptor)
 
     def read_stream(self, name, stream, limit):
         total = 0
         try:
             descriptor = stream.fileno()
-            while self._stream_has_time(name):
+            while self.remaining() > 0:
                 ready, _, _ = select.select([descriptor], [], [], self.remaining())
                 if not ready:
                     self.timed_out_streams.append(name)
@@ -113,20 +114,14 @@ class _ProtocolSession:
                     self.stop_process()
                     break
                 self.chunks[name].append(chunk)
+            else:
+                self.timed_out_streams.append(name)
         except OSError as exc:
             self.io_errors.append((name, exc))
             self.stop_process()
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 stream.close()
-            except OSError:
-                pass
-
-    def _stream_has_time(self, name):
-        if self.remaining() > 0:
-            return True
-        self.timed_out_streams.append(name)
-        return False
 
     def _read_chunk(self, name, descriptor):
         try:
@@ -176,10 +171,8 @@ class _ProtocolSession:
         self.stop_process()
         self.close_pipes()
         self.join_readers(max(0.05, self.remaining()))
-        try:
+        with contextlib.suppress(subprocess.TimeoutExpired):
             self.wait_process(timeout=max(0.05, self.remaining()))
-        except subprocess.TimeoutExpired:
-            pass
 
     def run(self):
         self.start_threads()
@@ -190,7 +183,7 @@ class _ProtocolSession:
             raise OracleError(
                 f"{self.runtime}: timed out after {self.timeout_s}s"
             ) from exc
-        if self.join_readers(max(0.05, self.remaining())) or self.timed_out_streams:
+        if any((self.join_readers(max(0.05, self.remaining())), self.timed_out_streams)):
             self.reap()
             raise OracleError(
                 f"{self.runtime}: timed out after {self.timeout_s}s "
@@ -206,13 +199,9 @@ class _ProtocolSession:
     def _raise_stream_error(self):
         if self.overflow:
             stream = self.overflow[0]
-            limit = (
-                MAX_PROTOCOL_STDOUT_BYTES
-                if stream == "stdout"
-                else MAX_PROTOCOL_STDERR_BYTES
-            )
             raise OracleError(
-                f"{self.runtime}: {stream} exceeded the {limit}-byte protocol limit"
+                f"{self.runtime}: {stream} exceeded the "
+                f"{_STREAM_LIMITS[stream]}-byte protocol limit"
             )
         if self.io_errors:
             stream, exc = self.io_errors[0]

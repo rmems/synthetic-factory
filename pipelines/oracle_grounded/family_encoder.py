@@ -56,8 +56,7 @@ def _encoder_reference(request):
     pair = config["encoding_pair"]
     comparison = sim.compare_encodings(
         request["data"]["signal"],
-        pair[0],
-        pair[1],
+        (pair[0], pair[1]),
         config["encoder"],
         tie_epsilon=config["tie_epsilon"],
     )
@@ -75,11 +74,13 @@ def _encoder_reference(request):
 def _encoder_oracle(environ=None):
     return oracles.bind(
         runtime="axon-encoder",
-        oracle_id="encoder-ref",
-        oracle_type="spike-encoder",
-        description=(
-            "Deterministic rate / latency / delta / temporal encoders with matched "
-            "decoders, standing in for axon-encoder"
+        identity=oracles.OracleIdentity(
+            oracle_id="encoder-ref",
+            oracle_type="spike-encoder",
+            description=(
+                "Deterministic rate / latency / delta / temporal encoders with matched "
+                "decoders, standing in for axon-encoder"
+            ),
         ),
         reference_fn=_encoder_reference,
         environ=environ,
@@ -91,10 +92,8 @@ def _encoder_propose(rng):
     return scenario, None, generators.predict_encoder_winner(scenario)
 
 
-def _encoding_summary_findings(record, side, expected_encoding):
-    measured = record["result"]["measured"]
-    scenario = record["scenario"]
-    state = measured[side]
+def _encoding_shape_findings(record, side, expected_encoding):
+    state = record["result"]["measured"][side]
     findings = []
     if state["encoding"] != expected_encoding:
         findings.append(
@@ -106,13 +105,20 @@ def _encoding_summary_findings(record, side, expected_encoding):
         findings.append(f"{side}.information_retention out of range: {retention}")
     if state["spike_count"] < 0:
         findings.append(f"{side}.spike_count is negative")
-    decoded = state["reconstruction"]
+    return findings
+
+
+def _reconstruction_gate_findings(record, side, scenario):
+    decoded = record["result"]["measured"][side]["reconstruction"]
     if len(decoded) not in (scenario["sample_count"], len(scenario["signal"])):
-        findings.append(f"{side}.reconstruction length does not match the scenario")
-        return findings
+        return [f"{side}.reconstruction length does not match the scenario"]
     if scenario["sample_count"] != len(scenario["signal"]):
-        findings.append("scenario.sample_count does not match signal length")
-        return findings
+        return ["scenario.sample_count does not match signal length"]
+    return []
+
+
+def _reconstruction_derived(scenario, state):
+    decoded = state["reconstruction"]
     errors = [
         abs(actual - reconstructed)
         for actual, reconstructed in zip(scenario["signal"], decoded, strict=True)
@@ -120,7 +126,7 @@ def _encoding_summary_findings(record, side, expected_encoding):
     expected_rmse = sim.rmse(scenario["signal"], decoded)
     retention = sim.clamp(1.0 - expected_rmse, 0.0, 1.0)
     elapsed_s = scenario["sample_count"] * scenario["sample_ms"] / 1000.0
-    derived = {
+    return {
         "rmse": expected_rmse,
         "mean_abs_error": sum(errors) / len(errors) if errors else 0.0,
         "max_abs_error": max(errors) if errors else 0.0,
@@ -130,7 +136,17 @@ def _encoding_summary_findings(record, side, expected_encoding):
         "energy_pJ": state["spike_count"] * sim.ENERGY_PJ_PER_SPIKE,
         "retention_per_spike": retention / state["spike_count"] if state["spike_count"] else None,
     }
-    for field, expected in derived.items():
+
+
+def _encoding_summary_findings(record, side, expected_encoding):
+    scenario = record["scenario"]
+    findings = _encoding_shape_findings(record, side, expected_encoding)
+    gate = _reconstruction_gate_findings(record, side, scenario)
+    if gate:
+        findings.extend(gate)
+        return findings
+    state = record["result"]["measured"][side]
+    for field, expected in _reconstruction_derived(scenario, state).items():
         if not _measurement_matches(state.get(field), expected):
             findings.append(
                 f"{side}.{field} does not match the value derived from "

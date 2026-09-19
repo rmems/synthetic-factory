@@ -4,7 +4,13 @@ import os
 import shlex
 import shutil
 
-from .oracle_adapters import ExternalCommandOracle, OracleAdapter, OracleRun, ReferenceOracle
+from .oracle_adapters import (
+    ExternalCommandOracle,
+    OracleAdapter,
+    OracleIdentity,
+    OracleRun,
+    ReferenceOracle,
+)
 from .oracle_core import PROTOCOL, OracleError, env_key
 
 class ChainOracle(OracleAdapter):
@@ -15,8 +21,8 @@ class ChainOracle(OracleAdapter):
     half was measured by the named runtime and which half was the reference.
     """
 
-    def __init__(self, oracle_id, oracle_type, description, steps, version="1.0.0"):
-        super().__init__(oracle_id, oracle_type, description, version)
+    def __init__(self, identity, steps):
+        super().__init__(identity)
         # steps: [(stage_name, adapter, build_request)]
         self._steps = list(steps)
         self.requested_runtime = [
@@ -86,32 +92,29 @@ def probe_runtime(runtime, environ=None):
     }
 
 
-def bind(runtime, oracle_id, oracle_type, description, reference_fn, environ=None):
+def _bound_argv(key, command):
+    """The bound command split to argv, refusing a malformed or empty one."""
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        raise OracleError(f"{key} contains a malformed command") from exc
+    if not argv or not argv[0]:
+        raise OracleError(f"{key} contains a command with no executable")
+    return argv
+
+
+def bind(runtime, identity, reference_fn, environ=None):
     """Return the external adapter when bound, else the reference adapter."""
     env = os.environ if environ is None else environ
     key = env_key(runtime)
     command = env.get(key, "").strip()
     if command:
-        try:
-            argv = shlex.split(command)
-        except ValueError as exc:
-            raise OracleError(f"{key} contains a malformed command") from exc
-        if not argv or not argv[0]:
-            raise OracleError(f"{key} contains a command with no executable")
         return ExternalCommandOracle(
-            oracle_id=runtime,
-            oracle_type=oracle_type,
-            description=f"{runtime} via {PROTOCOL}",
-            runtime=runtime,
-            command=argv,
+            OracleIdentity(runtime, identity.oracle_type, f"{runtime} via {PROTOCOL}"),
+            runtime,
+            _bound_argv(key, command),
         )
-    return ReferenceOracle(
-        oracle_id=oracle_id,
-        oracle_type=oracle_type,
-        description=description,
-        fn=reference_fn,
-        requested_runtime=runtime,
-    )
+    return ReferenceOracle(identity, reference_fn, runtime)
 
 
 def availability_report(runtimes, environ=None):

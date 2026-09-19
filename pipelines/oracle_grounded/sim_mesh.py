@@ -1,6 +1,7 @@
 """Deterministic delayed-spiking-mesh reference simulation."""
 
 import math
+from dataclasses import dataclass
 from .sim_neuron import _optional_delta
 
 # --------------------------------------------------------------------------
@@ -69,17 +70,13 @@ def _mesh_outgoing(edges, state, order):
     return outgoing
 
 
-def _schedule(pending, steps, step, node_id, amount):
-    if 0 <= step < steps:
-        pending.setdefault(step, []).append((node_id, amount))
+@dataclass(frozen=True)
+class MeshBounds:
+    """Bounds for one mesh execution: duration, timestep, spike budget."""
 
-
-def _schedule_events(events, state, pending, steps, dt_ms):
-    for event in events:
-        if event["target"] not in state:
-            raise ValueError(f"event references unknown node: {event}")
-        step = int(round(event["t_ms"] / dt_ms))
-        _schedule(pending, steps, step, event["target"], event["amplitude"])
+    duration_ms: float
+    dt_ms: float = 0.5
+    max_spikes: int = 4000
 
 
 def _leak_mesh_state(state, order, dt_ms):
@@ -112,64 +109,95 @@ def _firing_nodes(state, order, dt_ms):
     return fired
 
 
-def _record_firings(state, outgoing, pending, steps, step, dt_ms, fired):
-    for node_id in fired:
-        cell = state[node_id]
-        cell["spikes"].append(step * dt_ms)
-        cell["v"] = cell["v_reset"]
-        cell["w"] += cell["adaptation_b"]
-        cell["refractory_left"] = max(0, int(round(cell["t_refractory_ms"] / dt_ms)))
-        for edge in outgoing[node_id]:
-            # The current step's pending inputs have already been consumed.
-            # Deliver zero/sub-step delays on the next integration step rather
-            # than silently scheduling them in the past.
-            delay_steps = max(1, int(round(edge["delay_ms"] / dt_ms)))
-            arrival = step + delay_steps
-            _schedule(pending, steps, arrival, edge["dst"], edge["weight"])
+class _MeshRun:
+    """Mutable in-flight state for one bounded mesh execution."""
+
+    def __init__(self, nodes, edges, events, bounds):
+        self.bounds = bounds
+        self.steps = mesh_step_count(bounds.duration_ms, bounds.dt_ms)
+        self.order = [node["id"] for node in nodes]
+        self.state = _mesh_state(nodes)
+        self.outgoing = _mesh_outgoing(edges, self.state, self.order)
+        self.pending = {}
+        self.total_spikes = 0
+        self.truncated = False
+        self._schedule_events(events)
+
+    def _schedule(self, step, node_id, amount):
+        if 0 <= step < self.steps:
+            self.pending.setdefault(step, []).append((node_id, amount))
+
+    def _schedule_events(self, events):
+        for event in events:
+            if event["target"] not in self.state:
+                raise ValueError(f"event references unknown node: {event}")
+            step = int(round(event["t_ms"] / self.bounds.dt_ms))
+            self._schedule(step, event["target"], event["amplitude"])
+
+    def _record_firings(self, step, fired):
+        dt_ms = self.bounds.dt_ms
+        for node_id in fired:
+            cell = self.state[node_id]
+            cell["spikes"].append(step * dt_ms)
+            cell["v"] = cell["v_reset"]
+            cell["w"] += cell["adaptation_b"]
+            cell["refractory_left"] = max(0, int(round(cell["t_refractory_ms"] / dt_ms)))
+            for edge in self.outgoing[node_id]:
+                # The current step's pending inputs have already been consumed.
+                # Deliver zero/sub-step delays on the next integration step rather
+                # than silently scheduling them in the past.
+                delay_steps = max(1, int(round(edge["delay_ms"] / dt_ms)))
+                self._schedule(step + delay_steps, edge["dst"], edge["weight"])
+
+    def run(self):
+        for step in range(self.steps):
+            _leak_mesh_state(self.state, self.order, self.bounds.dt_ms)
+            _deliver_mesh_inputs(self.state, self.pending.pop(step, ()))
+            fired = _firing_nodes(self.state, self.order, self.bounds.dt_ms)
+            self._record_firings(step, fired)
+            self.total_spikes += len(fired)
+            if self.total_spikes > self.bounds.max_spikes:
+                self.truncated = True
+                break
+        return self._summary()
+
+    def _summary(self):
+        by_node = {node_id: self.state[node_id]["spikes"] for node_id in self.order}
+        all_spikes = sorted(
+            (
+                (time_ms, node_id)
+                for node_id, times in by_node.items()
+                for time_ms in times
+            ),
+            key=lambda item: (item[0], item[1]),
+        )
+        first_spike = {
+            node_id: (times[0] if times else None) for node_id, times in by_node.items()
+        }
+        firing_order = list(dict.fromkeys(node_id for _time, node_id in all_spikes))
+        return {
+            "nodes": self.order,
+            "spikes_by_node": by_node,
+            "spike_counts": {node_id: len(times) for node_id, times in by_node.items()},
+            "first_spike_ms": first_spike,
+            "firing_order": firing_order,
+            "activated": [node_id for node_id in self.order if by_node[node_id]],
+            "total_spikes": self.total_spikes,
+            "duration_ms": self.bounds.duration_ms,
+            "dt_ms": self.bounds.dt_ms,
+            "spike_budget_exhausted": self.truncated,
+        }
 
 
-def _mesh_summary(state, order, total_spikes, duration_ms, dt_ms, truncated):
-    by_node = {node_id: state[node_id]["spikes"] for node_id in order}
-    all_spikes = sorted(
-        ((time_ms, node_id) for node_id, times in by_node.items() for time_ms in times),
-        key=lambda item: (item[0], item[1]),
-    )
-    first_spike = {node_id: (times[0] if times else None) for node_id, times in by_node.items()}
-    firing_order = list(dict.fromkeys(node_id for _time, node_id in all_spikes))
-    return {
-        "nodes": order,
-        "spikes_by_node": by_node,
-        "spike_counts": {node_id: len(times) for node_id, times in by_node.items()},
-        "first_spike_ms": first_spike,
-        "firing_order": firing_order,
-        "activated": [node_id for node_id in order if by_node[node_id]],
-        "total_spikes": total_spikes,
-        "duration_ms": duration_ms,
-        "dt_ms": dt_ms,
-        "spike_budget_exhausted": truncated,
-    }
+def simulate_mesh(nodes, edges, events, bounds):
+    """Run a bounded delta-synapse LIF network with per-edge delays.
 
-
-def simulate_mesh(nodes, edges, events, duration_ms, dt_ms=0.5, max_spikes=4000):
-    """Run a bounded delta-synapse LIF network with per-edge delays."""
-    steps = mesh_step_count(duration_ms, dt_ms)
-    order = [node["id"] for node in nodes]
-    state = _mesh_state(nodes)
-    outgoing = _mesh_outgoing(edges, state, order)
-    pending = {}
-    _schedule_events(events, state, pending, steps, dt_ms)
-    total_spikes = 0
-    truncated = False
-    for step in range(steps):
-        _leak_mesh_state(state, order, dt_ms)
-        _deliver_mesh_inputs(state, pending.pop(step, ()))
-        fired = _firing_nodes(state, order, dt_ms)
-        _record_firings(state, outgoing, pending, steps, step, dt_ms, fired)
-        total_spikes += len(fired)
-        if total_spikes > max_spikes:
-            truncated = True
-            break
-    return _mesh_summary(state, order, total_spikes, duration_ms, dt_ms, truncated)
+    ``bounds`` is a :class:`MeshBounds`; a bare number is taken as the
+    duration in milliseconds with the default timestep and spike budget.
+    """
+    if not isinstance(bounds, MeshBounds):
+        bounds = MeshBounds(duration_ms=bounds)
+    return _MeshRun(nodes, edges, events, bounds).run()
 
 
 def mesh_causal_summary(result, source, sink):

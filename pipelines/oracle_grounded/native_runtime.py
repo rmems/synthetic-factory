@@ -97,8 +97,9 @@ def _verify_build_identity(identity):
 
 def adapter(runtime, oracle_type, environ=None):
     env = runtime_environ(base=environ)
-    return NativeOracle(oracle_id=runtime, oracle_type=oracle_type,
-                        description=f'{runtime} crate-native sf-oracle/1',
+    return NativeOracle(identity=oracles.OracleIdentity(
+                            oracle_id=runtime, oracle_type=oracle_type,
+                            description=f'{runtime} crate-native sf-oracle/1'),
                         runtime=runtime, command=[env['SF_ORACLE_RUST_BIN']])
 
 

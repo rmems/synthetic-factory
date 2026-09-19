@@ -16,7 +16,11 @@ import training_audit
 def oracle_record_for(family="temporal-memory-spike-challenges", index=0):
     """One genuine reference-simulator oracle record in the committed shape."""
     return json.loads(
-        json.dumps(oracle_record.build_record(family, index, 7, round_number=1))
+        json.dumps(
+            oracle_record.build_record(
+                family, index, 7, run=oracle_record.RecordRunContext()
+            )
+        )
     )
 
 

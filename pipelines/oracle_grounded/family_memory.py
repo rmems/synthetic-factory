@@ -134,11 +134,13 @@ def _memory_reference(request):
 def _memory_oracle(environ=None):
     return oracles.bind(
         runtime="recurrent-snn",
-        oracle_id="rsnn-ref",
-        oracle_type="recurrent-snn",
-        description=(
-            "Two mutually inhibiting delay loops read out through a probe gate; "
-            "retention is limited by the loops' own spike-frequency adaptation"
+        identity=oracles.OracleIdentity(
+            oracle_id="rsnn-ref",
+            oracle_type="recurrent-snn",
+            description=(
+                "Two mutually inhibiting delay loops read out through a probe gate; "
+                "retention is limited by the loops' own spike-frequency adaptation"
+            ),
         ),
         reference_fn=_memory_reference,
         environ=environ,

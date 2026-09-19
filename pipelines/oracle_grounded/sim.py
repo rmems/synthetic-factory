@@ -42,6 +42,7 @@ mesh_node = _mesh.mesh_node
 MAX_MESH_STEPS = _mesh.MAX_MESH_STEPS
 _require_positive_mesh_number = _mesh._require_positive_mesh_number
 mesh_step_count = _mesh.mesh_step_count
+MeshBounds = _mesh.MeshBounds
 simulate_mesh = _mesh.simulate_mesh
 mesh_causal_summary = _mesh.mesh_causal_summary
 mesh_causal_delta = _mesh.mesh_causal_delta

@@ -206,7 +206,9 @@ def _edit_revert_measurement(package, first):
         path.write_bytes(before)
         return {"marker": sim.MARKER}, {"marker": "text"}
 
-    adapter = oracles.ReferenceOracle("test", "test", "test", measure, "test")
+    adapter = oracles.ReferenceOracle(
+        oracles.OracleIdentity("test", "test", "test"), measure, "test"
+    )
     result = adapter.run("test", {})
     _assert_equal(result.measured, {"marker": "before"})
     _assert_equal(result.stages[0]["module_digest"], expected)

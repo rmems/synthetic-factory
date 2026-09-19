@@ -11,15 +11,18 @@ class MemoryChecks:
     def __init__(self, api):
         self.api = api
 
-    def _memory_scenario_findings(self, record):
-        scenario = record['scenario']
-        measured = record['result']['measured']
+    def _memory_delay_findings(self, scenario, measured):
         expected_delay = scenario['probe_ms'] - scenario['cue_ms']
         findings = []
         if not _measurement_matches(scenario['delay_ms'], expected_delay):
             findings.append('scenario.delay_ms does not match probe_ms - cue_ms')
         if not _measurement_matches(measured['delay_ms'], expected_delay):
             findings.append('result.measured.delay_ms does not match the scenario delay')
+        return findings
+
+    def _memory_distractor_findings(self, scenario):
+        expected_delay = scenario['probe_ms'] - scenario['cue_ms']
+        findings = []
         if scenario['distractor_count'] != len(scenario['distractor_ms']):
             findings.append('scenario.distractor_count does not match distractor_ms')
         expected_sparsity = (len(scenario['distractor_ms']) + 1) / max(1.0, expected_delay / 100.0)
@@ -31,7 +34,13 @@ class MemoryChecks:
             findings.append('scenario distractors must lie strictly between cue and probe')
         return findings
 
-    def _memory_response_findings(self, name, trial, configuration):
+    def _memory_scenario_findings(self, record):
+        scenario = record['scenario']
+        findings = self._memory_delay_findings(scenario, record['result']['measured'])
+        findings.extend(self._memory_distractor_findings(scenario))
+        return findings
+
+    def _response_match_findings(self, name, trial):
         expected_response, expected_ambiguous = sim.memory_response_from_counts(trial['output_spike_counts'])
         findings = []
         if trial['response'] != expected_response:
@@ -42,13 +51,22 @@ class MemoryChecks:
             findings.append(f"{name}.response is unexpected: {trial['response']!r}")
         if trial['response_ambiguous']:
             findings.append(f'{name} has an ambiguous response')
+        return findings
+
+    def _latency_findings(self, name, trial, configuration):
         latency = trial['response_latency_ms']
+        findings = []
         if latency is not None and latency < 0:
             findings.append(f'{name}.response_latency_ms is negative')
         if latency is not None and latency > configuration['response_window_ms']:
             findings.append(f'{name}.response_latency_ms leaves the response window')
         if (trial['response'] == 'none') is not (latency is None):
             findings.append(f'{name}.response and response_latency_ms disagree')
+        return findings
+
+    def _memory_response_findings(self, name, trial, configuration):
+        findings = self._response_match_findings(name, trial)
+        findings.extend(self._latency_findings(name, trial, configuration))
         return findings
 
     def _memory_replay_findings(self, record, name, trial):
@@ -107,13 +125,7 @@ class MemoryChecks:
         findings.extend(self._memory_accounting_findings(record, name, trial))
         return findings
 
-    def _memory_control_findings(self, record):
-        measured = record['result']['measured']
-        baseline = measured['baseline']
-        probes = measured['probes']
-        scenario = record['scenario']
-        differing = sorted((name for name in ('cue_ablation', 'reset_ablation') if name in probes and self.api._memory_ablation_changed(baseline, probes[name])))
-        dependence = measured['temporal_dependence']
+    def _dependence_findings(self, dependence, differing):
         findings = []
         if dependence.get('demonstrated') != bool(differing):
             findings.append('temporal_dependence.demonstrated does not match the ablation responses')
@@ -121,18 +133,35 @@ class MemoryChecks:
             findings.append('temporal_dependence.changed_by does not match the changed controls')
         if not differing:
             findings.append('no temporal dependence: removing the earlier events left the measured response and retained latch state unchanged')
-        if 'cue_ablation' not in probes:
-            findings.append('the cue-ablation control is missing')
+        return findings
+
+    def _probe_set_findings(self, scenario, probes):
         expected_probe_names = {'cue_ablation'}
         if scenario['reset_ms'] is not None:
             expected_probe_names.add('reset_ablation')
         if scenario['distractor_ms']:
             expected_probe_names.add('distractor_swap')
+        findings = []
+        if 'cue_ablation' not in probes:
+            findings.append('the cue-ablation control is missing')
         if set(probes) != expected_probe_names:
             findings.append('memory control probes do not match the scenario controls')
-        expected_invariant = probes['distractor_swap']['response'] == baseline['response'] if 'distractor_swap' in probes else None
-        if measured.get('distractor_invariant') is not expected_invariant:
-            findings.append('distractor_invariant does not match the distractor control')
+        return findings
+
+    def _distractor_invariant_findings(self, probes, baseline, measured):
+        expected = probes['distractor_swap']['response'] == baseline['response'] if 'distractor_swap' in probes else None
+        if measured.get('distractor_invariant') is not expected:
+            return ['distractor_invariant does not match the distractor control']
+        return []
+
+    def _memory_control_findings(self, record):
+        measured = record['result']['measured']
+        baseline = measured['baseline']
+        probes = measured['probes']
+        differing = sorted((name for name in ('cue_ablation', 'reset_ablation') if name in probes and self.api._memory_ablation_changed(baseline, probes[name])))
+        findings = self._dependence_findings(measured['temporal_dependence'], differing)
+        findings.extend(self._probe_set_findings(record['scenario'], probes))
+        findings.extend(self._distractor_invariant_findings(probes, baseline, measured))
         return findings
 
     def _memory_checks(self, record):

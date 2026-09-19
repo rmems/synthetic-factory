@@ -31,20 +31,26 @@ class RustDatasetIntegration(unittest.TestCase):
                 status = oracle_generate.main(['--backend', 'rust', '--oracle-rust-bin', str(BINARY),
                                                '--count', '2', '--seed', '20260918', str(source)])
             self.assertEqual(status, 0)
-            report, errors = oracle_validate.validate_run(source, oracle_rust_bin=str(BINARY))
+            report, errors = oracle_validate.validate_run(
+                oracle_validate.ValidationContext(source, oracle_rust_bin=str(BINARY))
+            )
             self.assertEqual(errors, [])
             self.assertEqual(report['invalid'], 0, report)
             originals = [line for path in source.rglob('accepted-*.jsonl')
                          for line in path.read_bytes().splitlines()]
             self.assertEqual(len(originals), 4)
-            summary = compose_curated.compose_run(source, curated, oracle_rust_bin=str(BINARY))
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, curated, oracle_rust_bin=str(BINARY))
+            )
             self.assertEqual(summary['counts']['retained'], 4)
             self.assertTrue(summary['audit']['training_ready'], summary['audit'])
             entries = [json.loads(line) for line in (curated / 'manifest/compose-manifest.jsonl').read_text().splitlines()]
             retained = [(curated / entry['output_path']).read_bytes().splitlines()[entry['output_line'] - 1]
                         for entry in entries]
             self.assertCountEqual(retained, originals)
-            result = export_hf.export_run(curated, exported, oracle_rust_bin=str(BINARY))
+            result = export_hf.export_run(
+                export_hf.ExportRequest(curated, exported, oracle_rust_bin=str(BINARY))
+            )
             self.assertEqual(result['records'], 4)
             # Local export keeps the native payload files, beyond split indexing.
             for entry in entries:
@@ -56,7 +62,9 @@ class RustDatasetIntegration(unittest.TestCase):
     def test_replay_detects_rehashed_measurement_and_identity_tampering(self):
         env = native_runtime.runtime_environ(BINARY, base={})
         for family in (families.ENCODER_FAMILY, families.NEURON_FAMILY):
-            original = record.build_record(family, 0, seed=7, backend='rust', environ=env)
+            original = record.build_record(
+                family, 0, seed=7, run=record.RecordRunContext(backend='rust', environ=env)
+            )
             self.assertEqual(original['validation']['status'], 'accepted', original['validation'])
             for field in ('lock_sha256', 'adapter_source_sha256', 'executable_sha256'):
                 item = copy.deepcopy(original)
@@ -74,7 +82,12 @@ class RustDatasetIntegration(unittest.TestCase):
 
     def test_missing_native_binary_cannot_replay_with_reference(self):
         env = native_runtime.runtime_environ(BINARY, base={})
-        item = record.build_record(families.NEURON_FAMILY, 0, seed=7, backend='rust', environ=env)
+        item = record.build_record(
+            families.NEURON_FAMILY,
+            0,
+            seed=7,
+            run=record.RecordRunContext(backend='rust', environ=env),
+        )
         status, _ = record.reproduce(item, environ={})
         self.assertEqual(status, 'unavailable')
 

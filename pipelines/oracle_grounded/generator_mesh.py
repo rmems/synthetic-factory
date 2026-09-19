@@ -96,6 +96,30 @@ def propose_mesh_intervention(rng, scenario):
     }
 
 
+def _edge_removed(edges, index, parameters):
+    edges.pop(index)
+
+
+def _delay_changed(edges, index, parameters):
+    edges[index]["delay_ms"] = parameters["new_delay_ms"]
+
+
+def _sign_flipped(edges, index, parameters):
+    edges[index]["weight"] = -edges[index]["weight"]
+
+
+def _weight_changed(edges, index, parameters):
+    edges[index]["weight"] *= parameters["weight_factor"]
+
+
+_MESH_EDITS = {
+    "edge_removal": _edge_removed,
+    "delay_change": _delay_changed,
+    "sign_flip": _sign_flipped,
+    "weight_change": _weight_changed,
+}
+
+
 def apply_mesh_intervention(scenario, intervention):
     """Produce the perturbed edge list. Structural, not a measurement."""
     edges = [dict(edge) for edge in scenario["edges"]]
@@ -103,17 +127,11 @@ def apply_mesh_intervention(scenario, intervention):
     if kind == "add_recurrent_edge":
         edges.append(dict(intervention["parameters"]))
         return edges
-    index = intervention["edge_index"]
-    if kind == "edge_removal":
-        edges.pop(index)
-    elif kind == "delay_change":
-        edges[index]["delay_ms"] = intervention["parameters"]["new_delay_ms"]
-    elif kind == "sign_flip":
-        edges[index]["weight"] = -edges[index]["weight"]
-    elif kind == "weight_change":
-        edges[index]["weight"] *= intervention["parameters"]["weight_factor"]
-    else:
-        raise ValueError(f"unknown mesh intervention: {kind}")
+    try:
+        edit = _MESH_EDITS[kind]
+    except KeyError as exc:
+        raise ValueError(f"unknown mesh intervention: {kind}") from exc
+    edit(edges, intervention["edge_index"], intervention["parameters"])
     return edges
 
 

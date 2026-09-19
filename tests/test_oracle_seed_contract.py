@@ -13,7 +13,12 @@ class OracleSeedContract(unittest.TestCase):
         boundaries = (
             rng.Rng,
             lambda seed: rng.seed_from_label(seed, "boundary"),
-            lambda seed: record.build_record(families.ENCODER_FAMILY, 0, seed=seed, environ={}),
+            lambda seed: record.build_record(
+                families.ENCODER_FAMILY,
+                0,
+                seed=seed,
+                run=record.RecordRunContext(environ={}),
+            ),
         )
         for seed in (True, 1.9, "1", -1, rng.MAX_SEED + 1):
             for index, boundary in enumerate(boundaries):

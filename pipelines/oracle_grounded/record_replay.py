@@ -79,15 +79,8 @@ def _digest_result(record, adapter, run):
     return "mismatch", f"expected {expected_digest}, recomputed {replay_digest}"
 
 
-def reproduce(record, environ=None):
-    """Re-run a stored measurement, bounding malformed input as invalid."""
-    try:
-        rebuilt, error = _rebuild(record)
-    except Exception as exc:
-        detail = f"stored record cannot rebuild an oracle request: {type(exc).__name__}"
-        return "invalid", detail
-    if error is not None:
-        return error
+def _replay_measurement(record, rebuilt, environ):
+    """Resolve and run the adapter, then check stage and result identity."""
     stored_oracle, spec, request = rebuilt
     adapter, error = _resolve_adapter(record, spec, environ)
     if error is not None:
@@ -98,3 +91,15 @@ def reproduce(record, environ=None):
     if (error := _stage_result(run, stored_oracle)) is not None:
         return error
     return _digest_result(record, adapter, run)
+
+
+def reproduce(record, environ=None):
+    """Re-run a stored measurement, bounding malformed input as invalid."""
+    try:
+        rebuilt, error = _rebuild(record)
+    except Exception as exc:
+        detail = f"stored record cannot rebuild an oracle request: {type(exc).__name__}"
+        return "invalid", detail
+    if error is not None:
+        return error
+    return _replay_measurement(record, rebuilt, environ)

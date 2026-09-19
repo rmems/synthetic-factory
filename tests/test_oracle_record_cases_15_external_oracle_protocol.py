@@ -12,16 +12,20 @@ from test_oracle_grounded_record import (
 )
 
 
-class ExternalOracleProtocolCase04(unittest.TestCase):
-    def adapter(self, mode="ok"):
-        return oracles.bind(
-            runtime="axon-encoder",
+def _bind_encoder_double(mode="ok"):
+    return oracles.bind(
+        runtime="axon-encoder",
+        identity=oracles.OracleIdentity(
             oracle_id="encoder-ref",
             oracle_type="spike-encoder",
             description="reference",
-            reference_fn=lambda request: ({"unused": True}, {}),
-            environ=double_env(mode),
-        )
+        ),
+        reference_fn=lambda request: ({"unused": True}, {}),
+        environ=double_env(mode),
+    )
+
+
+class ExternalOracleProtocolCase04(unittest.TestCase):
     def test_every_malformed_answer_raises_rather_than_falling_back(self):
         for mode in (
             "fail",
@@ -40,36 +44,31 @@ class ExternalOracleProtocolCase04(unittest.TestCase):
             "stderr_flood",
         ):
             with self.subTest(mode=mode):
+                adapter = _bind_encoder_double(mode)
                 with self.assertRaises(oracles.OracleError):
-                    self.adapter(mode).run("f", {"configuration": {}, "data": {}})
+                    adapter.run("f", {"configuration": {}, "data": {}})
 
 
 class ExternalOracleProtocolCase05(unittest.TestCase):
-    def adapter(self, mode="ok"):
-        return oracles.bind(
-            runtime="axon-encoder",
-            oracle_id="encoder-ref",
-            oracle_type="spike-encoder",
-            description="reference",
-            reference_fn=lambda request: ({"unused": True}, {}),
-            environ=double_env(mode),
-        )
     def test_a_duplicate_key_in_a_runtime_response_is_rejected(self):
         # Python's json.loads applies last-key-wins to a duplicate key by
         # default; a bound runtime is an external process, so silently
         # picking one interpretation of an ambiguous response could stamp a
         # value into provenance that another conforming reader would not.
+        adapter = _bind_encoder_double("dupkey")
         with self.assertRaises(oracles.OracleError) as ctx:
-            self.adapter("dupkey").run("f", {"configuration": {}, "data": {}})
+            adapter.run("f", {"configuration": {}, "data": {}})
         self.assertIn("duplicate", str(ctx.exception))
 
 
 class ExternalOracleProtocolCase06(unittest.TestCase):
     def test_a_missing_command_raises(self):
         adapter = oracles.ExternalCommandOracle(
-            oracle_id="axon-encoder",
-            oracle_type="spike-encoder",
-            description="missing",
+            oracles.OracleIdentity(
+                oracle_id="axon-encoder",
+                oracle_type="spike-encoder",
+                description="missing",
+            ),
             runtime="axon-encoder",
             command=[str(REPO / "definitely" / "not" / "here")],
         )
@@ -81,9 +80,11 @@ class ExternalOracleProtocolCase07(unittest.TestCase):
     def test_stage_provenance_and_errors_never_copy_full_argv(self):
         marker = "ARGUMENT-MARKER"
         adapter = oracles.ExternalCommandOracle(
-            oracle_id="axon-encoder",
-            oracle_type="spike-encoder",
-            description="double",
+            oracles.OracleIdentity(
+                oracle_id="axon-encoder",
+                oracle_type="spike-encoder",
+                description="double",
+            ),
             runtime="axon-encoder",
             command=[sys.executable, str(DOUBLE), "ok", f"--token={marker}"],
         )
@@ -94,9 +95,11 @@ class ExternalOracleProtocolCase07(unittest.TestCase):
         self.assertNotIn(marker, json.dumps(stage))
 
         missing = oracles.ExternalCommandOracle(
-            oracle_id="axon-encoder",
-            oracle_type="spike-encoder",
-            description="missing",
+            oracles.OracleIdentity(
+                oracle_id="axon-encoder",
+                oracle_type="spike-encoder",
+                description="missing",
+            ),
             runtime="axon-encoder",
             command=[f"/definitely/not/{marker}", f"--token={marker}"],
         )
@@ -112,9 +115,11 @@ class ExternalOracleProtocolCase08(unittest.TestCase):
         with self.assertRaises(oracles.OracleError) as raised:
             oracles.bind(
                 runtime="axon-encoder",
-                oracle_id="encoder-ref",
-                oracle_type="spike-encoder",
-                description="reference",
+                identity=oracles.OracleIdentity(
+                    oracle_id="encoder-ref",
+                    oracle_type="spike-encoder",
+                    description="reference",
+                ),
                 reference_fn=lambda request: ({"ok": True}, {"ok": "unit"}),
                 environ={key: f'{sys.executable} "{marker}'},
             )

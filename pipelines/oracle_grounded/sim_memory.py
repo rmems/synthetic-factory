@@ -2,7 +2,7 @@
 
 import math
 from .sim_common import ENERGY_PJ_PER_SPIKE
-from .sim_mesh import mesh_node, simulate_mesh
+from .sim_mesh import MeshBounds, mesh_node, simulate_mesh
 
 # --------------------------------------------------------------------------
 # Family 5 oracle: recurrent memory network (stand-in for a validated rSNN)
@@ -118,6 +118,45 @@ def memory_events(task, config):
     return events
 
 
+def _numeric(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _finite(value):
+    return not isinstance(value, float) or math.isfinite(value)
+
+
+def _integral_nonnegative(value):
+    return value == math.trunc(value) and value >= 0
+
+
+# Order matters: each predicate is only safe once the earlier ones pass
+# (``math.trunc`` raises on non-numbers and non-finite floats).
+_SPIKE_COUNT_CHECKS = (_numeric, _finite, _integral_nonnegative)
+
+
+def _readout_spike_count(value, node_id):
+    if all(check(value) for check in _SPIKE_COUNT_CHECKS):
+        return value
+    raise ValueError(f"output_spike_counts.{node_id} must be a non-negative integer")
+
+
+def _validated_counts(output_spike_counts):
+    if not isinstance(output_spike_counts, dict):
+        raise ValueError("output_spike_counts must be an object")
+    if set(output_spike_counts) != {"OA", "OB"}:
+        raise ValueError("output_spike_counts must contain exactly OA and OB")
+    return {
+        node_id: _readout_spike_count(output_spike_counts[node_id], node_id)
+        for node_id in ("OA", "OB")
+    }
+
+
+def _response_label(active_a, active_b):
+    label = {(True, False): "A", (False, True): "B"}.get((active_a, active_b), "none")
+    return label, active_a and active_b
+
+
 def memory_response_from_counts(output_spike_counts):
     """Derive the categorical response from the retained OA/OB primitives.
 
@@ -126,29 +165,41 @@ def memory_response_from_counts(output_spike_counts):
     also carries the neutral ``none`` label rather than choosing one by
     iteration order.
     """
-    if not isinstance(output_spike_counts, dict):
-        raise ValueError("output_spike_counts must be an object")
-    if set(output_spike_counts) != {"OA", "OB"}:
-        raise ValueError("output_spike_counts must contain exactly OA and OB")
-    counts = {}
+    counts = _validated_counts(output_spike_counts)
+    return _response_label(counts["OA"] > 0, counts["OB"] > 0)
+
+
+def _window_responses(spikes_by_node, probe_ms, window_end):
+    """Output spikes inside the declared response window, sorted by time."""
+    responses = []
     for node_id in ("OA", "OB"):
-        value = output_spike_counts[node_id]
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or (isinstance(value, float) and not math.isfinite(value))
-            or value != math.trunc(value)
-            or value < 0
-        ):
-            raise ValueError(f"output_spike_counts.{node_id} must be a non-negative integer")
-        counts[node_id] = value
-    active_a = counts["OA"] > 0
-    active_b = counts["OB"] > 0
-    if active_a and not active_b:
-        return "A", False
-    if active_b and not active_a:
-        return "B", False
-    return "none", active_a and active_b
+        for time_ms in spikes_by_node[node_id]:
+            if probe_ms <= time_ms <= window_end:
+                responses.append((time_ms, node_id))
+    responses.sort()
+    return responses
+
+
+def _response_latency(responses, response, probe_ms):
+    if response == "none":
+        return None
+    response_node = "OA" if response == "A" else "OB"
+    response_time = next(time_ms for time_ms, node_id in responses if node_id == response_node)
+    return response_time - probe_ms
+
+
+def _latch_last_spikes(spikes_by_node, probe_ms):
+    return {
+        node_id: next(
+            (
+                time_ms
+                for time_ms in reversed(spikes_by_node[node_id])
+                if time_ms <= probe_ms
+            ),
+            None,
+        )
+        for node_id in ("MA", "MB")
+    }
 
 
 def run_memory_task(task, config):
@@ -156,34 +207,23 @@ def run_memory_task(task, config):
     nodes, edges = memory_network(config)
     events = memory_events(task, config)
     duration_ms = task["probe_ms"] + config["response_window_ms"] + 5.0
-    result = simulate_mesh(nodes, edges, events, duration_ms, dt_ms=config["dt_ms"])
+    bounds = MeshBounds(duration_ms, dt_ms=config["dt_ms"])
+    result = simulate_mesh(nodes, edges, events, bounds)
     probe_ms = task["probe_ms"]
     window_end = probe_ms + config["response_window_ms"]
-    responses = []
-    for node_id in ("OA", "OB"):
-        for time_ms in result["spikes_by_node"][node_id]:
-            if probe_ms <= time_ms <= window_end:
-                responses.append((time_ms, node_id))
-    responses.sort()
     # Retain exactly the primitive used for the categorical answer: output
     # spikes inside the declared response window.  Counting whole-trial spikes
     # here would let an unrelated pre/post-window event select a label whose
     # latency cannot be derived from the retained response evidence.
+    responses = _window_responses(result["spikes_by_node"], probe_ms, window_end)
     output_spike_counts = {
         node_id: sum(1 for _time_ms, observed in responses if observed == node_id)
         for node_id in ("OA", "OB")
     }
     response, ambiguous = memory_response_from_counts(output_spike_counts)
-    if response == "none":
-        latency = None
-    else:
-        response_node = "OA" if response == "A" else "OB"
-        response_time = next(time_ms for time_ms, node_id in responses if node_id == response_node)
-        latency = response_time - probe_ms
-    latch_alive = _latch_alive(result, probe_ms, config)
     return {
         "response": response,
-        "response_latency_ms": latency,
+        "response_latency_ms": _response_latency(responses, response, probe_ms),
         "response_ambiguous": ambiguous,
         "output_spike_counts": output_spike_counts,
         "memory_spike_counts": {
@@ -193,18 +233,8 @@ def run_memory_task(task, config):
         # Retain the primitive that actually supports the state-at-probe label.
         # A loop may keep spiking after the probe; the final trial spike cannot
         # establish whether it was alive when the probe arrived.
-        "latch_last_spike_ms": {
-            node_id: next(
-                (
-                    time_ms
-                    for time_ms in reversed(result["spikes_by_node"][node_id])
-                    if time_ms <= probe_ms
-                ),
-                None,
-            )
-            for node_id in ("MA", "MB")
-        },
-        "state_retained_at_probe": latch_alive,
+        "latch_last_spike_ms": _latch_last_spikes(result["spikes_by_node"], probe_ms),
+        "state_retained_at_probe": _latch_alive(result, probe_ms, config),
         "total_spikes": result["total_spikes"],
         "energy_pJ": result["total_spikes"] * ENERGY_PJ_PER_SPIKE,
         "duration_ms": duration_ms,

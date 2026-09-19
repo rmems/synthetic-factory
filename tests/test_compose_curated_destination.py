@@ -27,22 +27,30 @@ class ComposeDestinationSafety(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = build_source_run(root / "run")
-            compose_curated.compose_run(source, root / "curated")
+            compose_curated.compose_run(compose_curated.ComposeRunContext(source, root / "curated"))
 
             with self.assertRaisesRegex(compose_curated.ComposeError, "refusing to overwrite"):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "cannot be written inside the source run"
             ):
-                compose_curated.compose_run(source, source / "nested")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, source / "nested")
+                )
             with self.assertRaisesRegex(compose_curated.ComposeError, "refusing to overwrite"):
-                compose_curated.compose_run(source, source)
+                compose_curated.compose_run(compose_curated.ComposeRunContext(source, source))
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "destination parent is missing"
             ):
-                compose_curated.compose_run(source, root / "missing-parent" / "dest")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "missing-parent" / "dest")
+                )
             with self.assertRaisesRegex(compose_curated.ComposeError, "source run is missing"):
-                compose_curated.compose_run(root / "absent-run", root / "other")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(root / "absent-run", root / "other")
+                )
 
             raw = root / "outputs" / "raw"
             raw.mkdir(parents=True)
@@ -50,7 +58,9 @@ class ComposeDestinationSafety(unittest.TestCase):
             safe.mkdir()
             lexical_alias = raw / ".." / ".." / "safe" / "lexical-curated"
             with self.assertRaisesRegex(compose_curated.ComposeError, "immutable raw"):
-                compose_curated.compose_run(source, lexical_alias)
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, lexical_alias)
+                )
             self.assertFalse((safe / "lexical-curated").exists())
 
             real_parent = root / "real-destination-parent"
@@ -60,7 +70,9 @@ class ComposeDestinationSafety(unittest.TestCase):
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "exact non-symlink directory"
             ):
-                compose_curated.compose_run(source, symlink_parent / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, symlink_parent / "curated")
+                )
             self.assertFalse((real_parent / "curated").exists())
 
     def test_pinned_writer_refuses_a_child_directory_swapped_for_a_symlink(self):
@@ -197,7 +209,7 @@ class ComposeDestinationSafety(unittest.TestCase):
                 ),
                 self.assertRaises(OSError),
             ):
-                compose_curated.compose_run(source, destination)
+                compose_curated.compose_run(compose_curated.ComposeRunContext(source, destination))
             self.assertFalse(destination.exists())
 
     def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
@@ -240,7 +252,7 @@ class ComposeDestinationSafety(unittest.TestCase):
                     "destination parent changed while it was pinned",
                 ),
             ):
-                compose_curated.compose_run(source, destination)
+                compose_curated.compose_run(compose_curated.ComposeRunContext(source, destination))
 
             self.assertTrue(swapped)
             self.assertFalse((moved_parent / destination.name).exists())

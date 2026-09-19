@@ -23,11 +23,17 @@ def replay_diagnostic_fixture(manifest, destination):
     selected = list(manifest["families"])
     generated = {}
     files = {}
+    job = oracle_generate.FamilyJob(
+        count=args.count,
+        seed=args.seed,
+        round_number=args.round_number,
+        commit=manifest["oracle_commit"],
+        dirty=None,
+        require_runtime=False,
+        environ={},
+    )
     for family in selected:
-        accepted, rejected, errors = oracle_generate.generate_family(
-            family, args.count, args.seed, args.round_number,
-            manifest["oracle_commit"], None, False, environ={},
-        )
+        accepted, rejected, errors = oracle_generate.generate_family(family, job)
         _require_diagnostic_records(accepted, rejected, errors)
         generated[family] = accepted, rejected, errors
         files.update(_write_family(destination, family, args.round_number, (accepted, rejected)))
@@ -35,8 +41,13 @@ def replay_diagnostic_fixture(manifest, destination):
         runtime for family in selected for runtime in families.spec_for(family).runtimes
     ))
     replayed = oracle_generate.build_manifest(
-        args, selected, oracles.availability_report(runtimes, environ={}),
-        manifest["oracle_commit"], None, generated, files,
+        job,
+        oracle_generate.RunOutputs(
+            selected,
+            oracles.availability_report(runtimes, environ={}),
+            generated,
+            files,
+        ),
     )
     (destination / "manifest.json").write_text(
         json.dumps(canon.normalize(replayed), indent=2, sort_keys=True) + "\n",

@@ -244,11 +244,9 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             outside_file.write_bytes(b'{}\n')
             (root / "alias").symlink_to(outside, target_is_directory=True)
 
+            member = Path("alias/batch-r01.jsonl")
             with self.assertRaisesRegex(ValueError, "cannot be captured"):
-                training_audit._read_pinned_member(
-                    root,
-                    Path("alias/batch-r01.jsonl"),
-                )
+                training_audit._read_pinned_member(root, member)
 
     def test_authenticated_snapshot_rejects_unsafe_paths_and_non_bytes(self):
         """Exporter snapshots keep strict relative-path and byte-payload types."""
@@ -325,8 +323,6 @@ class TrainingAuditReadinessReport(unittest.TestCase):
         the round committed, so a member swapped for another regular file
         under a committed coordinate can never be certified.
         """
-        import training_audit as audit_module
-
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             factory = root / "thalamic-trajectory-factory"
@@ -338,20 +334,21 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             # The capture-time binding itself: bytes that disagree with the
             # committed digest are refused even after visibility resolved.
             digest_cache = {}
+            member = Path("batch-r01.jsonl")
             with self.assertRaisesRegex(ValueError, "committed round digest"):
-                audit_module._require_committed_digest(
+                training_audit._require_committed_digest(
                     b"not the committed bytes\n",
-                    Path("batch-r01.jsonl"),
+                    member,
                     factory,
                     digest_cache,
                 )
-            audit_module._require_committed_digest(
+            training_audit._require_committed_digest(
                 batch.read_bytes(), Path("batch-r01.jsonl"), factory, digest_cache
             )
 
             write(batch, [thalamic("swapped-1")])
             with self.assertRaises(
-                (ValueError, audit_module.TransactionError)
+                (ValueError, training_audit.TransactionError)
             ):
                 training_audit.audit_run(root)
 

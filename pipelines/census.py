@@ -19,6 +19,11 @@ from collections import Counter
 from pathlib import Path
 
 if __package__:
+    from .census_sim import (
+        _record_simulation_buckets,
+        bucket_sim_or_real,
+        iter_sim_or_real,
+    )
     from .curate_identity import default_registry
     from .mill_family import (
         MillFinding,
@@ -33,6 +38,11 @@ else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    from census_sim import (
+        _record_simulation_buckets,
+        bucket_sim_or_real,
+        iter_sim_or_real,
+    )
     from curate_identity import default_registry
     from mill_family import (
         MillFinding,
@@ -74,72 +84,35 @@ __all__ = [
 ]
 
 
-# Near-real labels: not the bare word ``real``, but still claiming a live or
-# production run rather than a simulation.
-_REAL_STAR_PREFIXES = ("real", "live")
-_REAL_STAR_SUBSTRINGS = ("production", "actions live")
-
-
-def _is_real_star(low):
-    """True for a label that claims a live/production run without being ``real``."""
-    if low.startswith(_REAL_STAR_PREFIXES):
-        return True
-    return any(fragment in low for fragment in _REAL_STAR_SUBSTRINGS)
-
-
-def _is_hil(low):
-    """True for a hardware-in-the-loop label."""
-    return "hardware-in-the-loop" in low or low.startswith("hil")
-
-
-def bucket_sim_or_real(value):
-    if not isinstance(value, str):
-        return "other"
-    low = value.strip().lower()
-    if low == "real":
-        return "real"
-    if _is_real_star(low):
-        return "real*"
-    if "simulat" in low:
-        return "sim*"
-    if _is_hil(low):
-        return "hil*"
-    return "other"
-
-
-def _iter_mapping_sim_or_real(obj):
-    """Yield ``sim_or_real`` values carried by one mapping and its children."""
-    for key, val in obj.items():
-        if key == "sim_or_real":
-            yield val
-        yield from iter_sim_or_real(val)
-
-
-def iter_sim_or_real(obj):
-    if isinstance(obj, dict):
-        yield from _iter_mapping_sim_or_real(obj)
-    elif isinstance(obj, list):
-        for item in obj:
-            yield from iter_sim_or_real(item)
-
-
 def enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
     """Return the nearest marker-mode factory enclosing ``path``."""
 
-    current = path.parent
-    while True:
-        if marker_mode_path(current) is not None:
-            return current
-        if current == run_dir:
-            return None
-        parent = current.parent
-        if parent == current:  # Defensive: ``relative_to`` should prevent this.
-            return None
-        current = parent
+    enclosing = next(
+        (
+            current
+            for current in path.parents
+            if marker_mode_path(current) is not None or current == run_dir
+        ),
+        None,
+    )
+    if enclosing is None or marker_mode_path(enclosing) is None:
+        return None
+    return enclosing
 
 
 # Compatibility alias for direct callers of the pre-split private helper.
 _enclosing_marker_root = enclosing_marker_root
+
+
+def _committed_paths(marker_root: Path, visible_by_marker_root: dict) -> set[Path]:
+    """The committed JSONL set for one marker root, computed once."""
+
+    if marker_root not in visible_by_marker_root:
+        visible_by_marker_root[marker_root] = {
+            candidate.resolve()
+            for candidate in committed_jsonl_paths(marker_root)
+        }
+    return visible_by_marker_root[marker_root]
 
 
 def visible_jsonl_paths(run_dir: Path) -> list[Path]:
@@ -159,13 +132,7 @@ def visible_jsonl_paths(run_dir: Path) -> list[Path]:
         marker_root = enclosing_marker_root(run_dir, path)
         if marker_root is None:
             visible.append(path)
-            continue
-        if marker_root not in visible_by_marker_root:
-            visible_by_marker_root[marker_root] = {
-                candidate.resolve()
-                for candidate in committed_jsonl_paths(marker_root)
-            }
-        if path.resolve() in visible_by_marker_root[marker_root]:
+        elif path.resolve() in _committed_paths(marker_root, visible_by_marker_root):
             visible.append(path)
     return visible
 
@@ -233,13 +200,6 @@ def _read_census_records(path: Path, source: str):
         except (json.JSONDecodeError, ValueError):
             parse_failures += 1
     return decoded, parse_failures, unreadable
-
-
-def _record_simulation_buckets(obj) -> Counter:
-    values = list(iter_sim_or_real(obj))
-    if not values:
-        return Counter({"<missing>": 1})
-    return Counter(bucket_sim_or_real(value) for value in values)
 
 
 class _CensusTotals:

@@ -738,6 +738,18 @@ def _package_training_audit() -> ModuleType:
     return module
 
 
+def _direct_training_audit_axes() -> ModuleType:
+    import training_audit_axes as module
+
+    return module
+
+
+def _package_training_audit_axes() -> ModuleType:
+    import pipelines.training_audit_axes as module
+
+    return module
+
+
 def _direct_training_audit_mill() -> ModuleType:
     import training_audit_mill as module
 
@@ -746,6 +758,18 @@ def _direct_training_audit_mill() -> ModuleType:
 
 def _package_training_audit_mill() -> ModuleType:
     import pipelines.training_audit_mill as module
+
+    return module
+
+
+def _direct_training_audit_observe() -> ModuleType:
+    import training_audit_observe as module
+
+    return module
+
+
+def _package_training_audit_observe() -> ModuleType:
+    import pipelines.training_audit_observe as module
 
     return module
 
@@ -926,6 +950,162 @@ def _direct_curate_identity_registry_rows() -> ModuleType:
 
 def _package_curate_identity_registry_rows() -> ModuleType:
     import pipelines.curate_identity_registry_rows as module
+
+    return module
+
+
+def _direct_curate_identity_checks() -> ModuleType:
+    import curate_identity_checks as module
+
+    return module
+
+
+def _package_curate_identity_checks() -> ModuleType:
+    import pipelines.curate_identity_checks as module
+
+    return module
+
+
+def _direct_curate_identity_evidence() -> ModuleType:
+    import curate_identity_evidence as module
+
+    return module
+
+
+def _package_curate_identity_evidence() -> ModuleType:
+    import pipelines.curate_identity_evidence as module
+
+    return module
+
+
+def _direct_curate_identity_manifest() -> ModuleType:
+    import curate_identity_manifest as module
+
+    return module
+
+
+def _package_curate_identity_manifest() -> ModuleType:
+    import pipelines.curate_identity_manifest as module
+
+    return module
+
+
+def _direct_curate_identity_materialize() -> ModuleType:
+    import curate_identity_materialize as module
+
+    return module
+
+
+def _package_curate_identity_materialize() -> ModuleType:
+    import pipelines.curate_identity_materialize as module
+
+    return module
+
+
+def _direct_curate_identity_owners() -> ModuleType:
+    import curate_identity_owners as module
+
+    return module
+
+
+def _package_curate_identity_owners() -> ModuleType:
+    import pipelines.curate_identity_owners as module
+
+    return module
+
+
+def _direct_curate_identity_procedural() -> ModuleType:
+    import curate_identity_procedural as module
+
+    return module
+
+
+def _package_curate_identity_procedural() -> ModuleType:
+    import pipelines.curate_identity_procedural as module
+
+    return module
+
+
+def _direct_curate_identity_provenance() -> ModuleType:
+    import curate_identity_provenance as module
+
+    return module
+
+
+def _package_curate_identity_provenance() -> ModuleType:
+    import pipelines.curate_identity_provenance as module
+
+    return module
+
+
+def _direct_curate_identity_sources() -> ModuleType:
+    import curate_identity_sources as module
+
+    return module
+
+
+def _package_curate_identity_sources() -> ModuleType:
+    import pipelines.curate_identity_sources as module
+
+    return module
+
+
+def _direct_curate_identity_tree() -> ModuleType:
+    import curate_identity_tree as module
+
+    return module
+
+
+def _package_curate_identity_tree() -> ModuleType:
+    import pipelines.curate_identity_tree as module
+
+    return module
+
+
+def _direct_curate_identity_writer() -> ModuleType:
+    import curate_identity_writer as module
+
+    return module
+
+
+def _package_curate_identity_writer() -> ModuleType:
+    import pipelines.curate_identity_writer as module
+
+    return module
+
+
+def _direct_curate_identity_manifest_fields() -> ModuleType:
+    import curate_identity_manifest_fields as module
+
+    return module
+
+
+def _package_curate_identity_manifest_fields() -> ModuleType:
+    import pipelines.curate_identity_manifest_fields as module
+
+    return module
+
+
+def _direct_curate_identity_shapes() -> ModuleType:
+    import curate_identity_shapes as module
+
+    return module
+
+
+def _package_curate_identity_shapes() -> ModuleType:
+    import pipelines.curate_identity_shapes as module
+
+    return module
+
+
+def _direct_curate_identity_source_iter() -> ModuleType:
+    import curate_identity_source_iter as module
+
+    return module
+
+
+def _package_curate_identity_source_iter() -> ModuleType:
+    import pipelines.curate_identity_source_iter as module
 
     return module
 
@@ -1287,7 +1467,9 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "round_txn_preference": (_direct_round_txn_preference, _package_round_txn_preference),
     "round_txn_raster": (_direct_round_txn_raster, _package_round_txn_raster),
     "training_audit": (_direct_training_audit, _package_training_audit),
+    "training_audit_axes": (_direct_training_audit_axes, _package_training_audit_axes),
     "training_audit_mill": (_direct_training_audit_mill, _package_training_audit_mill),
+    "training_audit_observe": (_direct_training_audit_observe, _package_training_audit_observe),
     "training_audit_record": (_direct_training_audit_record, _package_training_audit_record),
     "training_audit_reasoning": (
         _direct_training_audit_reasoning,
@@ -1314,6 +1496,58 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "curate_identity_registry_rows": (
         _direct_curate_identity_registry_rows,
         _package_curate_identity_registry_rows,
+    ),
+    "curate_identity_checks": (
+        _direct_curate_identity_checks,
+        _package_curate_identity_checks,
+    ),
+    "curate_identity_evidence": (
+        _direct_curate_identity_evidence,
+        _package_curate_identity_evidence,
+    ),
+    "curate_identity_manifest": (
+        _direct_curate_identity_manifest,
+        _package_curate_identity_manifest,
+    ),
+    "curate_identity_materialize": (
+        _direct_curate_identity_materialize,
+        _package_curate_identity_materialize,
+    ),
+    "curate_identity_owners": (
+        _direct_curate_identity_owners,
+        _package_curate_identity_owners,
+    ),
+    "curate_identity_procedural": (
+        _direct_curate_identity_procedural,
+        _package_curate_identity_procedural,
+    ),
+    "curate_identity_provenance": (
+        _direct_curate_identity_provenance,
+        _package_curate_identity_provenance,
+    ),
+    "curate_identity_sources": (
+        _direct_curate_identity_sources,
+        _package_curate_identity_sources,
+    ),
+    "curate_identity_tree": (
+        _direct_curate_identity_tree,
+        _package_curate_identity_tree,
+    ),
+    "curate_identity_writer": (
+        _direct_curate_identity_writer,
+        _package_curate_identity_writer,
+    ),
+    "curate_identity_manifest_fields": (
+        _direct_curate_identity_manifest_fields,
+        _package_curate_identity_manifest_fields,
+    ),
+    "curate_identity_shapes": (
+        _direct_curate_identity_shapes,
+        _package_curate_identity_shapes,
+    ),
+    "curate_identity_source_iter": (
+        _direct_curate_identity_source_iter,
+        _package_curate_identity_source_iter,
     ),
     "round_txn_agentic": (_direct_round_txn_agentic, _package_round_txn_agentic),
     "round_txn_agentic_terms": (_direct_round_txn_agentic_terms, _package_round_txn_agentic_terms),

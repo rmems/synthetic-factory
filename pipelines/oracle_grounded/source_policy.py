@@ -39,7 +39,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "c7b2db1331be4a75f619ad58a0ba387b9a976bcb2ecd73d7f1244ca44514cd6a"
+POLICY_SHA256 = "f3259872ea4b64041861ff1995cf8c06fa8e8c6ece7317bac843ec4490075f75"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -108,6 +108,9 @@ PROGRAM_NAMES = (
     "oracle_record_generator.py",
     # Delegation changes must extend the seal, not just the facade imports.
     "oracle_generate_fs.py",
+    "oracle_generate_parents.py",
+    "oracle_generate_prepare.py",
+    "oracle_generate_publish.py",
     "oracle_generate_records.py",
     "oracle_record_envelope_part1.py",
     "oracle_record_envelope_part2.py",
@@ -117,8 +120,21 @@ PROGRAM_NAMES = (
     "oracle_validate_manifest_part1.py",
     "oracle_validate_manifest_part2.py",
     "oracle_validate_manifest_part3.py",
+    "oracle_validate_manifest_part4.py",
     "oracle_validate_manifest_records_part1.py",
     "oracle_validate_manifest_records_part2.py",
+    "oracle_validate_manifest_records_part3.py",
+    "oracle_record_stages_part4.py",
+    "oracle_record_stages_part5.py",
+    "oracle_record_stages_part6.py",
+    "oracle_checks_facade.py",
+    "oracle_validate_snapshot.py",
+    "oracle_validate_snapshot_part1.py",
+    "oracle_validate_snapshot_part2.py",
+    "oracle_validate_capture.py",
+    "oracle_validate_capture_part1.py",
+    "oracle_validate_capture_part2.py",
+    "oracle_validate_run.py",
     "compose_destination_rename.py",
     "compose_destination_directory.py", "compose_contract.py",
 )
@@ -155,9 +171,9 @@ def _source_digest_checks():
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, dict):
-        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+        return MappingProxyType(dict(zip(value, map(_freeze, value.values()))))
     if isinstance(value, list):
-        return tuple(_freeze(item) for item in value)
+        return tuple(map(_freeze, value))
     return value
 
 
@@ -185,13 +201,16 @@ def load_policy(path: Path = POLICY_PATH) -> Mapping[str, Any]:
 POLICY = load_policy()
 
 
+_REVIEWED_ROW_KEYS = (
+    "path_id", "generator", "generator_version", "generator_ownership",
+    "generation_method", "catalog_id", "catalog_sha256", "programs_sha256",
+    "intended_use", "project_training_policy", "publication_target",
+)
+
+
 def reviewed_row() -> dict[str, Any]:
     """Fresh registry representation of the sealed, single approved route."""
-    result = {key: POLICY[key] for key in (
-        "path_id", "generator", "generator_version", "generator_ownership", "generation_method",
-        "catalog_id", "catalog_sha256", "programs_sha256", "intended_use",
-        "project_training_policy", "publication_target",
-    )}
+    result = {key: POLICY[key] for key in _REVIEWED_ROW_KEYS}
     result.update(
         source_type="procedural", payload_factory=POLICY["path_id"],
         source_license_evidence=dict(POLICY["source_license_evidence"]),

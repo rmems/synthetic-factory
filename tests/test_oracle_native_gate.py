@@ -91,14 +91,20 @@ class NativeGateTests(unittest.TestCase):
 
         with mock.patch.object(native_gate, "runtime_environ", return_value=environment):
             with mock.patch.object(compose_curated, "_facade_delegate", side_effect=observed):
-                self.assertEqual(compose_curated.compose_run("in", "out", oracle_rust_bin="chosen"),
+                self.assertEqual(compose_curated.compose_run(
+                    compose_curated.ComposeRunContext("in", "out", oracle_rust_bin="chosen")
+                ),
                                  {"observed": True})
             with mock.patch.object(export_hf, "_export_request", side_effect=observed):
-                self.assertEqual(export_hf.export_run("in", "out", oracle_rust_bin="chosen"),
+                self.assertEqual(export_hf.export_run(
+                    export_hf.ExportRequest("in", "out", oracle_rust_bin="chosen")
+                ),
                                  {"observed": True})
             with mock.patch.object(oracle_validate, "authenticate_manifest", return_value=None):
                 with mock.patch.object(oracle_validate, "validate_run_snapshot", side_effect=observed) as validate:
-                    oracle_validate.validate_run("in", oracle_rust_bin="chosen")
+                    oracle_validate.validate_run(
+                        oracle_validate.ValidationContext("in", oracle_rust_bin="chosen")
+                    )
                 self.assertTrue(validate.call_args.kwargs["options"].reproduce)
         self.assertIsNone(native_gate.replay_environ())
 

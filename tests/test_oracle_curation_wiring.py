@@ -29,7 +29,7 @@ SOURCE_PATH = f"oracle-grounded/{FAMILY}/accepted-r01.jsonl"
 
 def _build(seed=7):
     """One deterministic accepted record from the reference oracle."""
-    return oracle_record.build_record(FAMILY, 0, seed, round_number=1)
+    return oracle_record.build_record(FAMILY, 0, seed, run=oracle_record.RecordRunContext())
 
 
 class OracleKindTests(unittest.TestCase):
@@ -163,7 +163,10 @@ class OracleCurationTests(unittest.TestCase):
         filtered = next(
             item for index in range(20)
             if (item := oracle_record.build_record(
-                "temporal-memory-spike-challenges", index, 7, round_number=1,
+                "temporal-memory-spike-challenges",
+                index,
+                7,
+                run=oracle_record.RecordRunContext(),
             ))["validation"]["status"] == "rejected"
         )
         self.assertEqual(filtered["validation"]["status"], "rejected")

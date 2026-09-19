@@ -248,7 +248,7 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
             source = build_source_run(root / "run")
             calibration, _digest = self.write_calibration(source)
             curated = root / "curated"
-            compose_curated.compose_run(source, curated)
+            compose_curated.compose_run(compose_curated.ComposeRunContext(source, curated))
             real_replay = export_replay._replay_source_lines
 
             def replay_then_rewrite(*args, **kwargs):
@@ -272,7 +272,7 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
                     "calibration evidence changed during source replay",
                 ),
             ):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
 

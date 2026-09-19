@@ -111,19 +111,21 @@ def encode_delta(signal, config):
     return spikes
 
 
+_DELTA_STEP = {"delta_on": 1}
+
+
 def decode_delta(spikes, sample_count, config):
     sample_ms = config["sample_ms"]
     theta = config["delta_theta"]
     level = config["delta_init"]
-    by_sample = [[] for _ in range(sample_count)]
+    net_steps = [0] * sample_count
     for spike in spikes:
         index = int(spike["t_ms"] // sample_ms)
         if 0 <= index < sample_count:
-            by_sample[index].append(spike["channel"])
+            net_steps[index] += _DELTA_STEP.get(spike["channel"], -1)
     decoded = []
-    for channels in by_sample:
-        for channel in channels:
-            level += theta if channel == "delta_on" else -theta
+    for steps in net_steps:
+        level += steps * theta
         decoded.append(clamp(level, 0.0, 1.0))
     return decoded
 
@@ -148,9 +150,8 @@ def decode_temporal(spikes, sample_count, config):
     bins = int(config["temporal_bins"])
     bin_ms = sample_ms / bins
     decoded = [0.0] * sample_count
-    for spike in spikes:
-        if spike["channel"] != "temporal_phase":
-            continue
+    phases = (spike for spike in spikes if spike["channel"] == "temporal_phase")
+    for spike in phases:
         index = int(spike["t_ms"] // sample_ms)
         if not (0 <= index < sample_count):
             continue
@@ -165,6 +166,11 @@ _ENCODERS = {
     "delta": (encode_delta, decode_delta),
     "temporal": (encode_temporal, decode_temporal),
 }
+
+
+def _ratio(part, whole):
+    """A bounded ratio whose empty denominator reads as zero, not a crash."""
+    return part / whole if whole else 0.0
 
 
 def run_encoder(signal, encoding, config):
@@ -185,14 +191,14 @@ def run_encoder(signal, encoding, config):
         "encoding": encoding,
         "spike_count": count,
         "channels": sorted({spike["channel"] for spike in spikes}),
-        "mean_rate_hz": (count / (duration_ms / 1000.0)) if duration_ms else 0.0,
+        "mean_rate_hz": _ratio(count, duration_ms / 1000.0),
         "energy_pJ": count * ENERGY_PJ_PER_SPIKE,
         "rmse": error,
-        "max_abs_error": max(errors) if errors else 0.0,
-        "mean_abs_error": (sum(errors) / len(errors)) if errors else 0.0,
+        "max_abs_error": max(errors, default=0.0),
+        "mean_abs_error": _ratio(sum(errors), len(errors)),
         "pearson_r": pearson(signal, decoded),
         "information_retention": retention,
-        "retention_per_spike": (retention / count) if count else None,
+        "retention_per_spike": retention / count if count else None,
         "reconstruction": decoded,
         "representation_excerpt": excerpt,
         "representation_excerpt_truncated": count > len(excerpt),
@@ -201,26 +207,32 @@ def run_encoder(signal, encoding, config):
     }
 
 
-def compare_encodings(signal, encoding_a, encoding_b, config, tie_epsilon=0.005):
-    """Run two encodings on one signal and let the measurements pick a winner."""
-    left = run_encoder(signal, encoding_a, config)
-    right = run_encoder(signal, encoding_b, config)
+def _encoding_winner(left, right, encodings, tie_epsilon):
+    encoding_a, encoding_b = encodings
     gap = left["information_retention"] - right["information_retention"]
     if abs(gap) >= tie_epsilon:
-        winner = encoding_a if gap > 0 else encoding_b
-        basis = "information_retention"
-    elif left["spike_count"] != right["spike_count"]:
-        winner = encoding_a if left["spike_count"] < right["spike_count"] else encoding_b
-        basis = "spike_count_tiebreak"
-    else:
-        winner = None
-        basis = "tie"
+        return (encoding_a if gap > 0 else encoding_b), "information_retention"
+    if left["spike_count"] != right["spike_count"]:
+        cheaper = encoding_a if left["spike_count"] < right["spike_count"] else encoding_b
+        return cheaper, "spike_count_tiebreak"
+    return None, "tie"
+
+
+def compare_encodings(signal, encodings, config, tie_epsilon=0.005):
+    """Run two encodings on one signal and let the measurements pick a winner.
+
+    ``encodings`` is the ``(encoding_a, encoding_b)`` pair to compare.
+    """
+    encoding_a, encoding_b = encodings
+    left = run_encoder(signal, encoding_a, config)
+    right = run_encoder(signal, encoding_b, config)
+    winner, basis = _encoding_winner(left, right, encodings, tie_epsilon)
     return {
         "a": left,
         "b": right,
         "winner": winner,
         "winner_basis": basis,
-        "retention_margin": gap,
+        "retention_margin": left["information_retention"] - right["information_retention"],
         "energy_margin_pJ": left["energy_pJ"] - right["energy_pJ"],
         "tie_epsilon": tie_epsilon,
     }

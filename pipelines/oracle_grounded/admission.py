@@ -49,6 +49,17 @@ _refuse, _refuse_when, _refuse_first = refusals.helpers(OracleAdmissionError)
 row_findings = _checks.row_findings
 
 
+def _native_replay_possible(record: Mapping[str, Any], environment: Any) -> bool:
+    """Only a named-runtime record the bound gate recognizes may replay."""
+    if record["oracle"]["implementation"] != "named-runtime":
+        return False
+    if environment is None:
+        return False
+    from . import native_gate
+
+    return native_gate.is_native_record(record)
+
+
 def _measurement_eligibility(record: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
     """Replay native measurements only under explicit caller authority."""
     if record["oracle"]["implementation"] == "reference":
@@ -56,8 +67,7 @@ def _measurement_eligibility(record: Mapping[str, Any]) -> tuple[bool, tuple[str
     from . import native_gate, record as oracle_record
 
     environment = native_gate.replay_environ()
-    if (record["oracle"]["implementation"] != "named-runtime"
-            or environment is None or not native_gate.is_native_record(record)):
+    if not _native_replay_possible(record, environment):
         return False, ("authenticated runtime replay required",)
     try:
         status, detail = oracle_record.reproduce(record, environ=environment)

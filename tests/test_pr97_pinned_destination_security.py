@@ -33,10 +33,10 @@ class OrdinaryComposeCommit(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             destination = root / "curated"
-            summary = compose_curated.compose_run(
+            summary = compose_curated.compose_run(compose_curated.ComposeRunContext(
                 build_source_run(root / "source"),
                 destination,
-            )
+            ))
 
             self.assertTrue(destination.is_dir())
             self.assertGreater(summary["counts"]["retained"], 0)
@@ -64,7 +64,9 @@ class ComposePublishedCoordinates(unittest.TestCase):
                 "_read_exact_regular_file",
                 side_effect=capture_physical_read,
             ):
-                summary = compose_curated.compose_run(factory, destination)
+                summary = compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(factory, destination)
+                )
 
             coordinate = "thalamic-trajectory-factory/batch-r01.jsonl"
             self.assertEqual(reads, ["batch-r01.jsonl"])
@@ -87,7 +89,9 @@ class ComposePublishedCoordinates(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = build_source_run(root / "run")
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             coordinate = "thalamic-trajectory-factory/batch-r01.jsonl"
             self.assertIn(
@@ -114,7 +118,9 @@ class ComposePublishedCoordinates(unittest.TestCase):
                 compose_curated.ComposeError,
                 "published source coordinate collision",
             ):
-                compose_curated.compose_run(factory, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(factory, root / "curated")
+                )
 
             self.assertFalse((root / "curated").exists())
 
@@ -151,7 +157,7 @@ class ComposeRollbackIdentity(unittest.TestCase):
                 ),
                 self.assertRaises(compose_destination.ComposeError),
             ):
-                compose_curated.compose_run(source, destination)
+                compose_curated.compose_run(compose_curated.ComposeRunContext(source, destination))
 
             self.assertTrue(replaced)
             self.assertFalse(destination.exists())

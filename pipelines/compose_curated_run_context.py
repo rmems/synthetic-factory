@@ -23,10 +23,17 @@ else:
 
 @dataclass(frozen=True)
 class ComposeRunContext:
-    source_run: Path
-    destination: Path
-    units_migration: Path | None = None
+    source_run: str | Path
+    destination: str | Path
+    units_migration: str | Path | None = None
     oracle_selection: str = "all"
+    oracle_rust_bin: str | Path | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_run", Path(self.source_run))
+        object.__setattr__(self, "destination", Path(self.destination))
+        if self.units_migration is not None:
+            object.__setattr__(self, "units_migration", Path(self.units_migration))
 
 
 @dataclass(frozen=True)

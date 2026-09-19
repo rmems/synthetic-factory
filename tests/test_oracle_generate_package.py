@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-import subprocess
+import subprocess  # nosec B404 -- tests spawn only the running Python interpreter
 import sys
 import unittest
 
@@ -13,7 +13,7 @@ class OracleGenerationPackageTests(unittest.TestCase):
     def run_isolated(self, source):
         environment = {key: value for key, value in os.environ.items()
                        if key != "PYTHONPATH" and not key.startswith("SF_ORACLE_")}
-        return subprocess.run(
+        return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed interpreter argv, no shell
             [sys.executable, "-I", "-B", "-c", source, str(ROOT)],
             cwd=ROOT, env=environment, capture_output=True, text=True, timeout=30,
             check=False,

@@ -48,7 +48,7 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 ),
                 self.assertRaises(export_hf.ExportError),
             ):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
 
             self.assertFalse(destination.exists())
 
@@ -73,7 +73,7 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 ),
                 self.assertRaises(export_hf.ExportError),
             ):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
 
             self.assertFalse(destination.exists())
 
@@ -102,7 +102,7 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 ),
                 self.assertRaises(export_hf.ExportError),
             ):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
 
             self.assertEqual(
                 (destination / "concurrent-owner").read_bytes(),
@@ -137,7 +137,7 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                     "curated member set changed",
                 ),
             ):
-                export_hf.export_run(curated, destination)
+                export_hf.export_run(export_hf.ExportRequest(curated, destination))
 
             self.assertFalse(destination.exists())
 

@@ -66,19 +66,23 @@ def _plasticity_reference(request):
 def _credit_oracle(environ=None):
     critic = oracles.bind(
         runtime="limbic-critic",
-        oracle_id="critic-ref",
-        oracle_type="critic",
-        description="Reference reward critic mapping an outcome to modulator levels",
+        identity=oracles.OracleIdentity(
+            oracle_id="critic-ref",
+            oracle_type="critic",
+            description="Reference reward critic mapping an outcome to modulator levels",
+        ),
         reference_fn=_critic_reference,
         environ=environ,
     )
     plasticity = oracles.bind(
         runtime="plasticity-lab",
-        oracle_id="plasticity-ref",
-        oracle_type="plasticity",
-        description=(
-            "Reference three-factor STDP that applies the weight update and "
-            "re-runs the circuit to measure the post-update behaviour"
+        identity=oracles.OracleIdentity(
+            oracle_id="plasticity-ref",
+            oracle_type="plasticity",
+            description=(
+                "Reference three-factor STDP that applies the weight update and "
+                "re-runs the circuit to measure the post-update behaviour"
+            ),
         ),
         reference_fn=_plasticity_reference,
         environ=environ,
@@ -86,9 +90,11 @@ def _credit_oracle(environ=None):
     return oracles.ChainOracle(
         # Built from the resolved adapters so a half-bound chain does not claim
         # to be the all-reference one.
-        oracle_id=f"{critic.oracle_id}+{plasticity.oracle_id}",
-        oracle_type="critic-plasticity-chain",
-        description="limbic-critic -> plasticity-lab oracle path",
+        oracles.OracleIdentity(
+            oracle_id=f"{critic.oracle_id}+{plasticity.oracle_id}",
+            oracle_type="critic-plasticity-chain",
+            description="limbic-critic -> plasticity-lab oracle path",
+        ),
         steps=[
             (
                 "critic",

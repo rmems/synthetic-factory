@@ -82,6 +82,39 @@ def is_source_commit(value):
     return isinstance(value, str) and SOURCE_COMMIT_RE.fullmatch(value) is not None
 
 
+_UNRESOLVED = object()  # git could not answer; never reaches the cache
+
+
+def _commit_answer(resolved, value):
+    """The exact commit id a finished ``rev-parse`` answered, else ``None``."""
+    if resolved.returncode != 0:
+        return None
+    canonical = resolved.stdout.strip()
+    if canonical != value:
+        return None
+    if not is_source_commit(canonical):
+        return None
+    return canonical
+
+
+def _ask_git(root, value):
+    """Query git once. ``_UNRESOLVED`` marks a transient miss, never cached."""
+    git = shutil.which("git")
+    if git is None:
+        return _UNRESOLVED
+    try:
+        resolved = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
+            [git, "-C", str(root), "rev-parse", "--verify", f"{value}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return _UNRESOLVED
+    return _commit_answer(resolved, value)
+
+
 def resolve_source_commit(value, repo_root=None):
     """Return the canonical commit object id, or ``None`` when it is absent.
 
@@ -95,28 +128,14 @@ def resolve_source_commit(value, repo_root=None):
     key = (str(root.resolve()), value)
     if key in _SOURCE_COMMIT_CACHE:
         return _SOURCE_COMMIT_CACHE[key]
-    git = shutil.which("git")
-    if git is None:
+    resolved = _ask_git(root, value)
+    if resolved is _UNRESOLVED:
         return None
-    try:
-        resolved = subprocess.run(  # nosec B603 -- fixed git argv, no shell
-            [git, "-C", str(root), "rev-parse", "--verify", f"{value}^{{commit}}"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    canonical = resolved.stdout.strip()
-    if resolved.returncode != 0 or canonical != value or not is_source_commit(canonical):
-        # A definitive miss (git ran and said no) is cached too, so repeated
-        # queries for the same absent commit cost one subprocess per process,
-        # not one per record. Transient failures above are never cached.
-        _SOURCE_COMMIT_CACHE[key] = None
-        return None
-    _SOURCE_COMMIT_CACHE[key] = canonical
-    return canonical
+    # A definitive miss (git ran and said no) is cached too, so repeated
+    # queries for the same absent commit cost one subprocess per process,
+    # not one per record. Transient failures above are never cached.
+    _SOURCE_COMMIT_CACHE[key] = resolved
+    return resolved
 
 
 def resolve_commit(repo_root=None):
@@ -130,7 +149,7 @@ def resolve_commit(repo_root=None):
     if git is None:
         return "unknown", None
     try:
-        head = subprocess.run(  # nosec B603 -- fixed git argv, no shell
+        head = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
             [git, "-C", str(root), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
@@ -139,7 +158,7 @@ def resolve_commit(repo_root=None):
         )
         if head.returncode != 0:
             return "unknown", None
-        status = subprocess.run(  # nosec B603 -- fixed git argv, no shell
+        status = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
             [git, "-C", str(root), "status", "--porcelain"],
             capture_output=True,
             text=True,

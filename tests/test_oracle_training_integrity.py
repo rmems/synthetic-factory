@@ -31,14 +31,15 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
         for family in (families.NEURON_FAMILY, families.MESH_FAMILY):
             with self.subTest(family=family):
                 item = build(family)
+                row = self._row()
                 item["result"]["measured"]["delta"]["external_attestation"] = "invented"
                 item["result_hash"] = canon.digest(item["result"])
                 with self.assertRaises(admission.OracleAdmissionError):
-                    admission.natural_eligibility(item, self._row())
+                    admission.natural_eligibility(item, row)
                 item["validation"] = record.assess(item)
                 self.assertEqual(item["validation"]["status"], "rejected")
                 with self.assertRaises(admission.OracleAdmissionError):
-                    admission.natural_eligibility(item, self._row())
+                    admission.natural_eligibility(item, row)
 
     def test_runtime_measurements_require_authenticated_replay_without_implicit_execution(self):
         reference = build(families.CREDIT_FAMILY)
@@ -64,9 +65,10 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
             identity_tree_error=ValueError, sha256_pattern=re.compile(r"[0-9a-f]{64}"),
             replay_manifest_mapping=mock.Mock(side_effect=replays),
         )
+        registry = SimpleNamespace(sha256="registry-pin")
         with self.assertRaisesRegex(ValueError, "duplicate preserved oracle ID"):
             curate_identity_output.expected_identity_outputs(
-                [mapping, mapping], SimpleNamespace(sha256="registry-pin"), dependencies,
+                [mapping, mapping], registry, dependencies,
             )
 
     def test_untrusted_neuron_trace_is_bounded_before_per_sample_findings(self):

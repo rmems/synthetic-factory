@@ -282,7 +282,10 @@ class OracleStagingRoute(unittest.TestCase):
         return json.loads(
             json.dumps(
                 oracle_record.build_record(
-                    "temporal-memory-spike-challenges", index, 7, round_number=1
+                    "temporal-memory-spike-challenges",
+                    index,
+                    7,
+                    run=oracle_record.RecordRunContext(),
                 )
             )
         )

@@ -15,7 +15,18 @@ from test_oracle_grounded_record import build
 
 class OracleGenerationFailureTests(unittest.TestCase):
     def _generate(self, family=families.ENCODER_FAMILY, count=20):
-        return oracle_generate.generate_family(family, count, 7, 1, None, None, False, environ={})
+        return oracle_generate.generate_family(
+            family,
+            oracle_generate.FamilyJob(
+                count=count,
+                seed=7,
+                round_number=1,
+                commit=None,
+                dirty=None,
+                require_runtime=False,
+                environ={},
+            ),
+        )
 
     def test_fatal_build_errors_are_not_retried_for_every_proposal(self):
         for error_type in (oracles.OracleError, record.GenerationError):

@@ -11,6 +11,19 @@ from test_oracle_grounded_record import (
 )
 
 
+def _bind_encoder_double(mode="ok"):
+    return oracles.bind(
+        runtime="axon-encoder",
+        identity=oracles.OracleIdentity(
+            oracle_id="encoder-ref",
+            oracle_type="spike-encoder",
+            description="reference",
+        ),
+        reference_fn=lambda request: ({"unused": True}, {}),
+        environ=double_env(mode),
+    )
+
+
 class ReproducibilityCase01(unittest.TestCase):
     def test_every_family_reproduces_from_its_stored_scenario(self):
         for family in families.FAMILY_NAMES:
@@ -26,10 +39,9 @@ class ReproducibilityCase02(unittest.TestCase):
     def test_the_same_seed_produces_the_same_record(self):
         for family in families.FAMILY_NAMES:
             with self.subTest(family=family):
-                self.assertEqual(
-                    canon.dumps_record(build(family, 2)),
-                    canon.dumps_record(build(family, 2)),
-                )
+                first = canon.dumps_record(build(family, 2))
+                second = canon.dumps_record(build(family, 2))
+                self.assertEqual(first, second)
 
 
 class ReproducibilityCase03(unittest.TestCase):
@@ -89,9 +101,11 @@ class ExternalOracleProtocolCase01(unittest.TestCase):
     def test_an_unbound_runtime_falls_back_to_the_reference_adapter(self):
         reference = oracles.bind(
             runtime="axon-encoder",
-            oracle_id="encoder-ref",
-            oracle_type="spike-encoder",
-            description="reference",
+            identity=oracles.OracleIdentity(
+                oracle_id="encoder-ref",
+                oracle_type="spike-encoder",
+                description="reference",
+            ),
             reference_fn=lambda request: ({"ok": True}, {}),
             environ={},
         )
@@ -100,17 +114,8 @@ class ExternalOracleProtocolCase01(unittest.TestCase):
 
 
 class ExternalOracleProtocolCase02(unittest.TestCase):
-    def adapter(self, mode="ok"):
-        return oracles.bind(
-            runtime="axon-encoder",
-            oracle_id="encoder-ref",
-            oracle_type="spike-encoder",
-            description="reference",
-            reference_fn=lambda request: ({"unused": True}, {}),
-            environ=double_env(mode),
-        )
     def test_a_bound_runtime_is_used_and_attributed(self):
-        adapter = self.adapter("ok")
+        adapter = _bind_encoder_double("ok")
         self.assertIsInstance(adapter, oracles.ExternalCommandOracle)
         self.assertEqual(adapter.implementation, "named-runtime")
         self.assertEqual(adapter.authority, "measured-runtime")
@@ -123,17 +128,10 @@ class ExternalOracleProtocolCase02(unittest.TestCase):
 
 
 class ExternalOracleProtocolCase03(unittest.TestCase):
-    def adapter(self, mode="ok"):
-        return oracles.bind(
-            runtime="axon-encoder",
-            oracle_id="encoder-ref",
-            oracle_type="spike-encoder",
-            description="reference",
-            reference_fn=lambda request: ({"unused": True}, {}),
-            environ=double_env(mode),
-        )
     def test_the_request_reaches_the_runtime_in_protocol_form(self):
-        run = self.adapter("ok").run("a-family", {"configuration": {"x": 1}, "data": {"y": 2}})
+        run = _bind_encoder_double("ok").run(
+            "a-family", {"configuration": {"x": 1}, "data": {"y": 2}}
+        )
         self.assertEqual(run.measured["echoed_family"], "a-family")
         self.assertEqual(run.measured["echoed_request_keys"], ["configuration", "data"])
 

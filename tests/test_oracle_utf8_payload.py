@@ -24,7 +24,7 @@ class OracleUtf8PayloadTests(unittest.TestCase):
                 path.parent.mkdir()
                 path.write_text(text, encoding="utf-8")
                 write_test_manifest(root)
-                baseline, findings = oracle_validate.validate_run(root)
+                baseline, findings = oracle_validate.validate_run(oracle_validate.ValidationContext(root))
                 self.assertEqual(findings, [])
                 self.assertEqual(baseline["accepted"], 1)
 
@@ -36,7 +36,7 @@ class OracleUtf8PayloadTests(unittest.TestCase):
                 manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
                 self.assertEqual(oracle_validate.authenticate_manifest(root)[2], [])
 
-                report, findings = oracle_validate.validate_run(root)
+                report, findings = oracle_validate.validate_run(oracle_validate.ValidationContext(root))
                 self.assertEqual(report["parse_failures"], 1)
                 self.assertEqual(report["accepted"], 0)
                 self.assertTrue(any("JSON parse error" in error for error in findings), findings)

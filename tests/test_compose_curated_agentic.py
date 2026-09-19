@@ -64,7 +64,9 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
             source / "safety-calibration-factory" / "batch-r01.jsonl",
             [safety],
         )
-        summary = compose_curated.compose_run(source, root / "curated")
+        summary = compose_curated.compose_run(
+            compose_curated.ComposeRunContext(source, root / "curated")
+        )
         records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
         return summary, records_dir
 

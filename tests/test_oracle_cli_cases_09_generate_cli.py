@@ -30,20 +30,29 @@ class GenerateCliCase03(unittest.TestCase):
         availability = oracles.availability_report(())
 
         def manifest_for(item):
-            return oracle_generate.build_manifest(
-                args,
+            job = oracle_generate.FamilyJob(
+                count=args.count,
+                seed=args.seed,
+                round_number=args.round_number,
+                commit=PINNED_COMMIT,
+                dirty=False,
+                require_runtime=args.require_runtime,
+            )
+            outputs = oracle_generate.RunOutputs(
                 [families.ENCODER_FAMILY],
                 availability,
-                PINNED_COMMIT,
-                False,
                 {families.ENCODER_FAMILY: ([item], [], [])},
                 {},
             )
+            return oracle_generate.build_manifest(job, outputs)
 
         # Unresolved dirty state is unresolved provenance, so even a reference
         # record at the current digest cannot be published.
         unpublishable = record.build_record(
-            families.ENCODER_FAMILY, 0, seed=20260823, commit=PINNED_COMMIT, dirty=None, environ={}
+            families.ENCODER_FAMILY,
+            0,
+            seed=20260823,
+            run=record.RecordRunContext(commit=PINNED_COMMIT, dirty=None, environ={}),
         )
         self.assertFalse(unpublishable["validation"]["publishable"])
         manifest = manifest_for(unpublishable)

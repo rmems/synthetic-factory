@@ -23,7 +23,9 @@ class ComposeCuratedRights(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
         source = build_source_run(root / "run")
-        summary = compose_curated.compose_run(source, root / "curated")
+        summary = compose_curated.compose_run(
+            compose_curated.ComposeRunContext(source, root / "curated")
+        )
 
         self.assertGreater(summary["counts"]["retained"], 0)
         assert_research_only_audit(self, summary["audit"])

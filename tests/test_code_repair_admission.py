@@ -73,9 +73,10 @@ class ProceduralRegistryTests(unittest.TestCase):
         for key, bad in (("generator", "invented"), ("source_license_evidence", {}),
                          ("procedural_policy_sha256", "0" * 64),
                          ("identity_authoritative", 1)):
+            def change(value, key=key, bad=bad):
+                value["factories"][-1].update({key: bad})
             with self.subTest(key=key), self.assertRaises(ci.IdentityCurationError):
-                self.load_changed(lambda value, key=key, bad=bad:
-                                  value["factories"][-1].update({key: bad}))
+                self.load_changed(change)
 
     def test_old_schema_refuses_procedural_fields_on_hosted_row(self):
         for version in ("factory-registry-v0.1", "factory-registry-v0.2"):

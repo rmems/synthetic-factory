@@ -50,32 +50,62 @@ class AuthoritativeRecordSemanticsCase03(unittest.TestCase):
 
 
 class AuthoritativeRecordSemanticsCase04(unittest.TestCase):
-    def test_stdlib_schema_gate_enforces_nested_required_types_and_uniqueness(self):
-        item = build(families.ENCODER_FAMILY)
+    @staticmethod
+    def _drop_sample_count(item):
         del item["scenario"]["sample_count"]
-        findings = proposal_findings(item)
-        self.assertTrue(any("sample_count" in f and "required" in f for f in findings), findings)
 
-        item = build(families.ENCODER_FAMILY)
+    @staticmethod
+    def _boolean_sample_count(item):
         item["scenario"]["sample_count"] = True
-        findings = proposal_findings(item)
-        self.assertTrue(any("sample_count" in f and "type" in f for f in findings), findings)
 
-        item = build(families.ENCODER_FAMILY)
+    @staticmethod
+    def _duplicate_encoding_pair(item):
         item["scenario"]["encoding_pair"][1] = item["scenario"]["encoding_pair"][0]
-        findings = proposal_findings(item)
-        self.assertTrue(any("encoding_pair" in f and "unique" in f for f in findings), findings)
 
-        item = build(families.MESH_FAMILY)
+    @staticmethod
+    def _duplicate_node(item):
         item["scenario"]["nodes"][1] = item["scenario"]["nodes"][0]
-        findings = proposal_findings(item)
-        self.assertTrue(any("nodes" in f and "unique" in f for f in findings), findings)
 
-        item = build(families.MESH_FAMILY)
+    @staticmethod
+    def _duplicate_firing_order(item):
         order = item["result"]["measured"]["before"]["firing_order"]
         order.append(order[0])
-        findings = result_findings(item)
-        self.assertTrue(any("firing_order" in f and "unique" in f for f in findings), findings)
+
+    def _assert_finding_mentions_all(self, findings, needles):
+        self.assertTrue(
+            any(all(needle in finding for needle in needles) for finding in findings),
+            findings,
+        )
+
+    def _assert_proposal_gate_finding(self, family, mutate, *needles):
+        item = build(family)
+        mutate(item)
+        self._assert_finding_mentions_all(proposal_findings(item), needles)
+
+    def _assert_result_gate_finding(self, family, mutate, *needles):
+        item = build(family)
+        mutate(item)
+        self._assert_finding_mentions_all(result_findings(item), needles)
+
+    def test_stdlib_schema_gate_enforces_nested_required_types_and_uniqueness(self):
+        self._assert_proposal_gate_finding(
+            families.ENCODER_FAMILY, self._drop_sample_count, "sample_count", "required"
+        )
+        self._assert_proposal_gate_finding(
+            families.ENCODER_FAMILY, self._boolean_sample_count, "sample_count", "type"
+        )
+        self._assert_proposal_gate_finding(
+            families.ENCODER_FAMILY,
+            self._duplicate_encoding_pair,
+            "encoding_pair",
+            "unique",
+        )
+        self._assert_proposal_gate_finding(
+            families.MESH_FAMILY, self._duplicate_node, "nodes", "unique"
+        )
+        self._assert_result_gate_finding(
+            families.MESH_FAMILY, self._duplicate_firing_order, "firing_order", "unique"
+        )
 
 
 class AuthoritativeRecordSemanticsCase05(unittest.TestCase):

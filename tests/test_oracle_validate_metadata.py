@@ -42,7 +42,7 @@ def _load_golden():
     seen_ids = {}
     for snapshot in snapshots:
         _totals, _errors, parsed = oracle_validate.validate_file(
-            snapshot, False, False, set(), seen_ids=seen_ids
+            snapshot, oracle_validate.ValidationContext(), seen_ids=seen_ids
         )
         records.extend(parsed)
     return manifest, snapshots, records
@@ -271,33 +271,37 @@ class ValidateRunTest(unittest.TestCase):
     """validate_run aggregates per-file totals into the run report."""
 
     def test_golden_run_reports_no_errors(self):
-        report, errors = oracle_validate.validate_run(GOLDEN)
+        report, errors = oracle_validate.validate_run(oracle_validate.ValidationContext(GOLDEN))
         self.assertEqual(errors, [])
         self.assertTrue(report["manifest_valid"])
 
     def test_golden_run_totals(self):
-        report, _errors = oracle_validate.validate_run(GOLDEN)
+        report, _errors = oracle_validate.validate_run(oracle_validate.ValidationContext(GOLDEN))
         self.assertEqual(report["files"], 10)
         self.assertEqual(report["records"], 20)
         self.assertEqual(report["accepted"] + report["rejected"], 20)
         self.assertEqual(report["parse_failures"], 0)
 
     def test_family_counts_cover_manifest(self):
-        report, _errors = oracle_validate.validate_run(GOLDEN)
+        report, _errors = oracle_validate.validate_run(oracle_validate.ValidationContext(GOLDEN))
         self.assertEqual(sum(report["by_family"].values()), report["records"])
         self.assertEqual(len(report["by_family"]), 5)
 
     def test_reproduce_adds_a_reproduce_block(self):
-        report, _errors = oracle_validate.validate_run(GOLDEN, reproduce=True)
+        report, _errors = oracle_validate.validate_run(
+            oracle_validate.ValidationContext(GOLDEN, reproduce=True)
+        )
         self.assertIn("reproduce", report)
 
     def test_report_omits_reproduce_block_by_default(self):
-        report, _errors = oracle_validate.validate_run(GOLDEN)
+        report, _errors = oracle_validate.validate_run(oracle_validate.ValidationContext(GOLDEN))
         self.assertNotIn("reproduce", report)
 
     def test_family_filter_restricts_counted_records(self):
         report, _errors = oracle_validate.validate_run(
-            GOLDEN, selected={"neuron-dynamics-counterfactuals"}
+            oracle_validate.ValidationContext(
+                GOLDEN, selected={"neuron-dynamics-counterfactuals"}
+            )
         )
         self.assertEqual(list(report["by_family"]), ["neuron-dynamics-counterfactuals"])
         self.assertGreater(report["skipped"], 0)
@@ -309,7 +313,7 @@ class ValidateRunTest(unittest.TestCase):
             side_effect=RuntimeError("boom"),
         )
         with boom:
-            report, errors = oracle_validate.validate_run(GOLDEN)
+            report, errors = oracle_validate.validate_run(oracle_validate.ValidationContext(GOLDEN))
         self.assertFalse(report["manifest_valid"])
         self.assertTrue(any("raised an internal exception: RuntimeError" in e for e in errors))
 
@@ -448,11 +452,9 @@ class RunBoundCommitTest(GoldenRunFixture):
     """Run-level validation binds records to the manifest's resolved commit."""
 
     def test_a_record_with_a_foreign_commit_is_rejected_without_resolving(self):
-        import copy as _copy
-
         from oracle_grounded import canon, oracles
 
-        parsed = _copy.deepcopy(self.records[0].item)
+        parsed = copy.deepcopy(self.records[0].item)
         parsed["oracle"]["commit"] = "b" * 40
         body = (canon.dumps_record(parsed) + "\n").encode("utf-8")
         snapshot = oracle_validate.FileSnapshot(
@@ -469,7 +471,9 @@ class RunBoundCommitTest(GoldenRunFixture):
             side_effect=AssertionError("per-record resolution must not run"),
         ):
             totals, errors, _parsed = oracle_validate.validate_file(
-                snapshot, False, False, set(), expected_commit=expected
+                snapshot,
+                oracle_validate.ValidationContext(),
+                expected_commit=expected,
             )
         self.assertEqual(totals["invalid"], 1)
         self.assertTrue(
@@ -484,9 +488,7 @@ class RunBoundCommitTest(GoldenRunFixture):
         snapshot = self.snapshots[0]
         totals, errors, _parsed = oracle_validate.validate_file(
             snapshot,
-            False,
-            False,
-            set(),
+            oracle_validate.ValidationContext(),
             expected_commit=self.manifest["oracle_commit"],
         )
         self.assertEqual(errors, [])
@@ -497,13 +499,11 @@ class RunBoundCommitTest(GoldenRunFixture):
         # Breaking the manifest's own commit must not regain per-record
         # repository lookups: the manifest value stays the comparison
         # sentinel, so mismatching records are rejected without git.
-        import shutil as _shutil
-
         from oracle_grounded import oracles
 
         with tempfile.TemporaryDirectory(prefix="oracle-bind-") as temp:
             run = Path(temp) / "run"
-            _shutil.copytree(GOLDEN, run)
+            shutil.copytree(GOLDEN, run)
             manifest = json.loads((run / "manifest.json").read_text())
             manifest["oracle_commit"] = "c" * 40
             (run / "manifest.json").write_text(
@@ -517,7 +517,7 @@ class RunBoundCommitTest(GoldenRunFixture):
                 return real(value, repo_root)
 
             with mock.patch.object(oracles, "resolve_source_commit", side_effect=counting):
-                report, errors = oracle_validate.validate_run(run)
+                report, errors = oracle_validate.validate_run(oracle_validate.ValidationContext(run))
         self.assertGreater(report["invalid"], 0)
         self.assertTrue(
             any("does not match the run manifest" in e for e in errors), errors[:5]

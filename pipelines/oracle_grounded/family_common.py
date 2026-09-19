@@ -1,5 +1,8 @@
 """Shared contracts and constants for oracle-grounded family definitions."""
 
+from dataclasses import dataclass
+from typing import Callable
+
 from . import canon
 
 ENCODER_FAMILY = "spike-encoder-equivalence-pairs"
@@ -35,31 +38,23 @@ def _measurement_matches(actual, expected):
     return actual == expected
 
 
+@dataclass(frozen=True)
 class FamilySpec:
     """Everything the pipeline needs to know about one dataset family."""
 
-    def __init__(
-        self,
-        name,
-        runtimes,
-        oracle_type,
-        units,
-        propose,
-        build_request,
-        build_oracle,
-        checks,
-        score,
-    ):
-        self.name = name
-        self.runtimes = tuple(runtimes)
-        self.oracle_type = oracle_type
-        self.units = units
-        self.propose = propose
-        self.build_request = build_request
-        self._build_oracle = build_oracle
-        self.checks = checks
-        self.score = score
+    name: str
+    runtimes: tuple
+    oracle_type: str
+    units: dict
+    propose: object
+    build_request: object
+    build_oracle: Callable[..., object]
+    checks: object
+    score: object
+
+    def __post_init__(self):
+        object.__setattr__(self, "runtimes", tuple(self.runtimes))
 
     def oracle(self, environ=None):
-        return self._build_oracle(environ)
+        return self.build_oracle(environ)
 

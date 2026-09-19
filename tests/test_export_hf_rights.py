@@ -20,7 +20,7 @@ class ResearchOnlyExportRefusal(unittest.TestCase):
             root = Path(td)
             curated = compose_fixture(root)
             with self.assertRaisesRegex(export_hf.ExportError, BLOCKER_PREFIX):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
 
@@ -35,7 +35,7 @@ class RightsAuditBinding(unittest.TestCase):
             summary["rights"]["training_exportable"] = True
             path.write_text(json.dumps(summary))
             with self.assertRaisesRegex(export_hf.ExportError, "rights"):
-                export_hf.export_run(curated, root / "export")
+                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())
 
     def test_export_rejects_audit_from_different_manifest_bytes(self):
@@ -51,5 +51,5 @@ class RightsAuditBinding(unittest.TestCase):
 
             with patch.object(export_hf, "_training_ready_audit", mismatched_audit):
                 with self.assertRaisesRegex(export_hf.ExportError, "rights.*manifest"):
-                    export_hf.export_run(curated, root / "export")
+                    export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertFalse((root / "export").exists())

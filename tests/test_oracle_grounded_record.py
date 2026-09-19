@@ -48,7 +48,9 @@ def build(family, index=0, **kwargs):
     kwargs.setdefault("commit", PINNED_COMMIT)
     kwargs.setdefault("dirty", False)
     kwargs.setdefault("environ", {})
-    return record.build_record(family, index, seed=12345, **kwargs)
+    return record.build_record(
+        family, index, seed=12345, run=record.RecordRunContext(**kwargs)
+    )
 
 
 def double_env(mode="ok", runtimes=("axon-encoder",)):

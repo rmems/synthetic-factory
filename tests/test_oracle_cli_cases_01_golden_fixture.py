@@ -90,18 +90,22 @@ class GoldenFixtureCase06(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.manifest = json.loads((GOLDEN / "manifest.json").read_text())
-    def test_accepted_and_rejected_records_are_filed_separately(self):
+    def _assert_accepted_records_are_valid(self):
         for path in GOLDEN.rglob("accepted-*.jsonl"):
             for item in read_jsonl(path):
                 with self.subTest(record=item["id"]):
                     self.assertEqual(item["validation"]["status"], "accepted")
                     self.assertEqual(record.validate_record(item), [])
+    def _assert_rejected_records_are_reasoned(self):
         for path in GOLDEN.rglob("rejected-*.jsonl"):
             for item in read_jsonl(path):
                 with self.subTest(record=item["id"]):
                     self.assertEqual(item["validation"]["status"], "rejected")
                     self.assertTrue(item["validation"]["reasons"])
                     self.assertEqual(record.classify(item)["envelope"], [])
+    def test_accepted_and_rejected_records_are_filed_separately(self):
+        self._assert_accepted_records_are_valid()
+        self._assert_rejected_records_are_reasoned()
 
 
 class GoldenFixtureCase07(unittest.TestCase):

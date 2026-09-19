@@ -33,7 +33,7 @@ class OracleComposeRoute(unittest.TestCase):
     def test_golden_run_retains_all_records_and_replays_physical_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "composed"
-            summary = compose.compose_run(GOLDEN, out)
+            summary = compose.compose_run(compose.ComposeRunContext(GOLDEN, out))
             self.assertEqual(summary["counts"]["retained"], 20)
             self.assertEqual(summary["counts"]["excluded"], 0)
             self.assertFalse(summary["audit"]["training_ready"])
@@ -67,7 +67,7 @@ class OracleComposeRoute(unittest.TestCase):
                 path.write_bytes(body)
                 metadata["sha256"] = hashlib.sha256(body).hexdigest()
             manifest_path.write_text(json.dumps(manifest))
-            summary = compose.compose_run(source, out)
+            summary = compose.compose_run(compose.ComposeRunContext(source, out))
             self.assertEqual(summary["counts"]["retained"], 20)
             entries = [json.loads(line) for line in (out / "manifest/compose-manifest.jsonl").read_text().splitlines()]
             for entry in entries:
@@ -120,7 +120,7 @@ class OracleComposeRoute(unittest.TestCase):
             manifest["files"][member]["sha256"] = "0" * 64
             path.write_text(json.dumps(manifest))
             with self.assertRaises(compose.ComposeError):
-                compose.compose_run(source, out)
+                compose.compose_run(compose.ComposeRunContext(source, out))
             self.assertFalse(out.exists())
 
     def test_manifest_must_authenticate_the_exact_compose_snapshot(self):
@@ -136,7 +136,7 @@ class OracleComposeRoute(unittest.TestCase):
 
             with mock.patch.object(compose, "_capture_source_snapshot", side_effect=changed):
                 with self.assertRaises(compose.ComposeError):
-                    compose.compose_run(GOLDEN, out)
+                    compose.compose_run(compose.ComposeRunContext(GOLDEN, out))
             self.assertFalse(out.exists())
 
 
@@ -147,7 +147,7 @@ class OracleComposeRoute(unittest.TestCase):
             manifest["count_per_family"] += 1
             path.write_text(json.dumps(manifest))
             with self.assertRaisesRegex(compose.ComposeError, "failed validation"):
-                compose.compose_run(source, out)
+                compose.compose_run(compose.ComposeRunContext(source, out))
             self.assertFalse(out.exists())
 
     def test_corrupt_schema_and_unreadable_manifests_refuse_routing(self):
@@ -159,14 +159,14 @@ class OracleComposeRoute(unittest.TestCase):
                 with self.subTest(body=body[:40]):
                     path.write_text(body)
                     with self.assertRaises(compose.ComposeError):
-                        compose.compose_run(source, out)
+                        compose.compose_run(compose.ComposeRunContext(source, out))
                     self.assertFalse(out.exists())
 
     def test_family_folders_and_payloads_do_not_authorize_a_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             source, out = copy_golden(tmp)
             (source / "manifest.json").unlink()
-            summary = compose.compose_run(source, out)
+            summary = compose.compose_run(compose.ComposeRunContext(source, out))
             self.assertEqual(summary["counts"]["retained"], 0)
             self.assertEqual(summary["exclusions"]["identity.unknown_factory"], 20)
 

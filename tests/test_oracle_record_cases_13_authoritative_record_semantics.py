@@ -31,35 +31,52 @@ class AuthoritativeRecordSemanticsCase15(unittest.TestCase):
 
 
 class AuthoritativeRecordSemanticsCase16(unittest.TestCase):
-    def test_mesh_arrivals_cannot_be_shifted_outside_the_run(self):
-        item = build(families.MESH_FAMILY)
+    @staticmethod
+    def _shift_arrivals_outside_the_run(item):
         duration = item["scenario"]["duration_ms"]
         for side in ("before", "after"):
             arrivals = item["result"]["measured"][side]["first_arrival_ms"]
             for node, time_ms in list(arrivals.items()):
                 if time_ms is not None:
                     arrivals[node] = time_ms + duration * 4
-        findings = result_findings(item)
-        self.assertTrue(any("outside the simulated duration" in f for f in findings), findings)
 
+    @staticmethod
+    def _boundary_arrival_item(duration):
         boundary = build(families.MESH_FAMILY)
         arrivals = boundary["result"]["measured"]["before"]["first_arrival_ms"]
         node = next(node for node, time_ms in arrivals.items() if time_ms is not None)
         arrivals[node] = duration
-        findings = result_findings(boundary)
-        self.assertTrue(any("outside the simulated duration" in f for f in findings), findings)
+        return boundary
 
-        expected_delta = item["result"]["measured"]["delta"]
-        for field, value in expected_delta.items():
-            candidate = build(families.MESH_FAMILY)
-            delta = candidate["result"]["measured"]["delta"]
-            if isinstance(value, bool):
-                delta[field] = not value
-            elif isinstance(value, list):
-                delta[field] = value + ["forged-node"]
-            else:
-                delta[field] = 123.0 if value is None else value + 123.0
-            findings = result_findings(candidate)
+    @staticmethod
+    def _forged_delta_value(value):
+        if isinstance(value, bool):
+            return not value
+        if isinstance(value, list):
+            return value + ["forged-node"]
+        return 123.0 if value is None else value + 123.0
+
+    def _forged_delta_candidate(self, field, value):
+        candidate = build(families.MESH_FAMILY)
+        candidate["result"]["measured"]["delta"][field] = self._forged_delta_value(value)
+        return candidate
+
+    def _assert_outside_duration_finding(self, item):
+        findings = result_findings(item)
+        self.assertTrue(
+            any("outside the simulated duration" in f for f in findings), findings
+        )
+
+    def test_mesh_arrivals_cannot_be_shifted_outside_the_run(self):
+        item = build(families.MESH_FAMILY)
+        duration = item["scenario"]["duration_ms"]
+        self._shift_arrivals_outside_the_run(item)
+        self._assert_outside_duration_finding(item)
+
+        self._assert_outside_duration_finding(self._boundary_arrival_item(duration))
+
+        for field, value in item["result"]["measured"]["delta"].items():
+            findings = result_findings(self._forged_delta_candidate(field, value))
             with self.subTest(delta=field):
                 self.assertTrue(any(field in finding for finding in findings), findings)
 
@@ -103,12 +120,15 @@ class AuthoritativeRecordSemanticsCase17(unittest.TestCase):
 
 
 class AuthoritativeRecordSemanticsCase18(unittest.TestCase):
-    def test_temporal_controls_and_all_derivable_summaries_are_recomputed(self):
-        item = next(
+    @staticmethod
+    def _distractor_item():
+        return next(
             build(families.MEMORY_FAMILY, index)
             for index in range(24)
             if build(families.MEMORY_FAMILY, index)["scenario"]["distractor_ms"]
         )
+
+    def _assert_scenario_mutations_are_recomputed(self, item):
         scenario_mutations = {
             "delay_ms": item["scenario"]["delay_ms"] + 1,
             "distractor_count": item["scenario"]["distractor_count"] + 1,
@@ -127,6 +147,7 @@ class AuthoritativeRecordSemanticsCase18(unittest.TestCase):
                     findings,
                 )
 
+    def _assert_trial_mutations_are_recomputed(self, item):
         trial_mutations = {
             "state_retained_at_probe": not item["result"]["measured"]["baseline"][
                 "state_retained_at_probe"
@@ -141,19 +162,30 @@ class AuthoritativeRecordSemanticsCase18(unittest.TestCase):
             with self.subTest(trial=field):
                 self.assertTrue(any(field in finding for finding in findings), findings)
 
+    def _assert_measured_delay_is_recomputed(self, item):
         candidate = copy.deepcopy(item)
         candidate["result"]["measured"]["delay_ms"] += 1
         findings = result_findings(candidate)
         self.assertTrue(any("measured.delay_ms" in f for f in findings), findings)
 
+    def _assert_distractor_invariant_is_recomputed(self, item):
         candidate = copy.deepcopy(item)
         invariant = candidate["result"]["measured"]["distractor_invariant"]
         candidate["result"]["measured"]["distractor_invariant"] = not invariant
         findings = result_findings(candidate)
         self.assertTrue(any("distractor_invariant" in f for f in findings), findings)
 
+    def _assert_missing_control_probe_is_reported(self, item):
         candidate = copy.deepcopy(item)
         del candidate["result"]["measured"]["probes"]["distractor_swap"]
         findings = result_findings(candidate)
         self.assertTrue(any("control probes" in f for f in findings), findings)
+
+    def test_temporal_controls_and_all_derivable_summaries_are_recomputed(self):
+        item = self._distractor_item()
+        self._assert_scenario_mutations_are_recomputed(item)
+        self._assert_trial_mutations_are_recomputed(item)
+        self._assert_measured_delay_is_recomputed(item)
+        self._assert_distractor_invariant_is_recomputed(item)
+        self._assert_missing_control_probe_is_reported(item)
 

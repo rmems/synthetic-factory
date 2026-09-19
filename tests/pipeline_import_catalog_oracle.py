@@ -27,6 +27,42 @@ def _package_oracle_generate_fs() -> ModuleType:
     return module
 
 
+def _direct_oracle_generate_parents() -> ModuleType:
+    import oracle_generate_parents as module
+
+    return module
+
+
+def _package_oracle_generate_parents() -> ModuleType:
+    import pipelines.oracle_generate_parents as module
+
+    return module
+
+
+def _direct_oracle_generate_prepare() -> ModuleType:
+    import oracle_generate_prepare as module
+
+    return module
+
+
+def _package_oracle_generate_prepare() -> ModuleType:
+    import pipelines.oracle_generate_prepare as module
+
+    return module
+
+
+def _direct_oracle_generate_publish() -> ModuleType:
+    import oracle_generate_publish as module
+
+    return module
+
+
+def _package_oracle_generate_publish() -> ModuleType:
+    import pipelines.oracle_generate_publish as module
+
+    return module
+
+
 def _direct_oracle_generate_records() -> ModuleType:
     import oracle_generate_records as module
 
@@ -86,6 +122,46 @@ def _direct_oracle_validate_records() -> ModuleType:
 
 def _package_oracle_validate_records() -> ModuleType:
     import pipelines.oracle_validate_records as module
+
+    return module
+
+def _direct_oracle_checks_facade() -> ModuleType:
+    import oracle_checks_facade as module
+
+    return module
+
+def _package_oracle_checks_facade() -> ModuleType:
+    import pipelines.oracle_checks_facade as module
+
+    return module
+
+def _direct_oracle_validate_snapshot() -> ModuleType:
+    import oracle_validate_snapshot as module
+
+    return module
+
+def _package_oracle_validate_snapshot() -> ModuleType:
+    import pipelines.oracle_validate_snapshot as module
+
+    return module
+
+def _direct_oracle_validate_capture() -> ModuleType:
+    import oracle_validate_capture as module
+
+    return module
+
+def _package_oracle_validate_capture() -> ModuleType:
+    import pipelines.oracle_validate_capture as module
+
+    return module
+
+def _direct_oracle_validate_run() -> ModuleType:
+    import oracle_validate_run as module
+
+    return module
+
+def _package_oracle_validate_run() -> ModuleType:
+    import pipelines.oracle_validate_run as module
 
     return module
 
@@ -163,10 +239,17 @@ LOADER_PAIRS = {
     'oracle_record_stages': (_direct_oracle_record_stages, _package_oracle_record_stages),
     'oracle_validate_records': (_direct_oracle_validate_records, _package_oracle_validate_records),
     'oracle_validate_tree': (_direct_oracle_validate_tree, _package_oracle_validate_tree),
+    'oracle_checks_facade': (_direct_oracle_checks_facade, _package_oracle_checks_facade),
+    'oracle_validate_snapshot': (_direct_oracle_validate_snapshot, _package_oracle_validate_snapshot),
+    'oracle_validate_capture': (_direct_oracle_validate_capture, _package_oracle_validate_capture),
+    'oracle_validate_run': (_direct_oracle_validate_run, _package_oracle_validate_run),
     'oracle_validate_manifest': (_direct_oracle_validate_manifest, _package_oracle_validate_manifest),
     'oracle_validate_manifest_records': (_direct_oracle_validate_manifest_records, _package_oracle_validate_manifest_records),
     "oracle_generate": (_direct_oracle_generate, _package_oracle_generate),
     "oracle_generate_fs": (_direct_oracle_generate_fs, _package_oracle_generate_fs),
+    "oracle_generate_parents": (_direct_oracle_generate_parents, _package_oracle_generate_parents),
+    "oracle_generate_prepare": (_direct_oracle_generate_prepare, _package_oracle_generate_prepare),
+    "oracle_generate_publish": (_direct_oracle_generate_publish, _package_oracle_generate_publish),
     "oracle_generate_records": (_direct_oracle_generate_records, _package_oracle_generate_records),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}

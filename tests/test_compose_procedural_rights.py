@@ -56,10 +56,12 @@ class CompletedProceduralRights(unittest.TestCase):
             before = training_audit.audit_run(source)
             self.assertTrue(before["training_ready"], before["blockers"])
             curated = root / "curated"
-            summary = compose_curated.compose_run(source, curated)
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, curated)
+            )
             self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
             self.assertTrue(summary["rights"]["training_exportable"])
-            exported = export_hf.export_run(curated, root / "export")
+            exported = export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertTrue(exported["training_ready"])
 
     def test_reviewed_procedural_source_passes_gate_and_promotion(self):
@@ -117,7 +119,7 @@ class CompletedProceduralRights(unittest.TestCase):
             factory.mkdir(parents=True)
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             curated = root / "curated"
-            compose_curated.compose_run(source, curated)
+            compose_curated.compose_run(compose_curated.ComposeRunContext(source, curated))
             manifest = curated / COMPOSE_MANIFEST
             entries = _jsonl_objects(manifest)
             retained = _retained_entry(entries)
@@ -133,7 +135,9 @@ class CompletedProceduralRights(unittest.TestCase):
             factory.mkdir(parents=True)
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             curated = root / "curated"
-            summary = compose_curated.compose_run(factory, curated)
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(factory, curated)
+            )
             self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
             report = training_audit.audit_run(curated / "records", completion_source=factory)
             self.assertTrue(report["training_ready"], report["blockers"])
@@ -142,19 +146,23 @@ class CompletedProceduralRights(unittest.TestCase):
                 report["code_repair"]["completed_records"],
                 report["code_repair"]["records"],
             )
-            exported = export_hf.export_run(curated, root / "export")
+            exported = export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
             self.assertTrue(exported["training_ready"])
 
     def test_transplanted_procedural_proof_cannot_authorize_hosted_output(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             hosted = root / "hosted"
-            compose_curated.compose_run(build_source_run(root / "hosted-source"), hosted)
+            compose_curated.compose_run(
+                compose_curated.ComposeRunContext(build_source_run(root / "hosted-source"), hosted)
+            )
             factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
             factory.mkdir(parents=True)
             publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
             procedural = root / "procedural"
-            compose_curated.compose_run(factory.parent, procedural)
+            compose_curated.compose_run(
+                compose_curated.ComposeRunContext(factory.parent, procedural)
+            )
             _transplant_procedural_proof(hosted, procedural)
             blockers = training_audit_rights.collect_rights_blockers(hosted / "records")
             self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)

@@ -59,7 +59,9 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                 source_argument = self._aliased_source(root, source, mutation)
 
                 with self.assertRaisesRegex(compose_curated.ComposeError, "symlink|hard-link"):
-                    compose_curated.compose_run(source_argument, root / "curated")
+                    compose_curated.compose_run(
+                        compose_curated.ComposeRunContext(source_argument, root / "curated")
+                    )
                 self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_a_jsonl_named_source_directory(self):
@@ -71,7 +73,9 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
             (source / "ignored.jsonl").mkdir()
 
             with self.assertRaisesRegex(compose_curated.ComposeError, "not a regular file"):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_a_source_member_added_after_capture(self):
@@ -101,7 +105,9 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     "member set changed while capturing the source snapshot",
                 ),
             ):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_hard_linked_calibration_evidence(self):
@@ -121,11 +127,11 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     kwargs = {}
 
                 with self.assertRaisesRegex(compose_curated.ComposeError, "hard-link"):
-                    compose_curated.compose_run(
+                    compose_curated.compose_run(compose_curated.ComposeRunContext(
                         source,
                         root / "curated",
                         **kwargs,
-                    )
+                    ))
                 self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_calibration_through_a_symlinked_parent(self):
@@ -143,11 +149,11 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                 compose_curated.ComposeError,
                 "calibration parent must be an exact non-symlink directory",
             ):
-                compose_curated.compose_run(
+                compose_curated.compose_run(compose_curated.ComposeRunContext(
                     source,
                     root / "curated",
                     units_migration=alias_parent / calibration.name,
-                )
+                ))
             self.assertFalse((root / "curated").exists())
 
     def test_calibration_parent_swap_cannot_redirect_the_captured_payload(self):
@@ -191,11 +197,11 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     "calibration parent changed while it was pinned",
                 ),
             ):
-                compose_curated.compose_run(
+                compose_curated.compose_run(compose_curated.ComposeRunContext(
                     source,
                     root / "curated",
                     units_migration=calibration,
-                )
+                ))
 
             self.assertTrue(swapped)
             self.assertFalse((root / "curated").exists())
@@ -224,7 +230,9 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     compose_curated.ComposeError, "identity changed while reading"
                 ),
             ):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_nonfinite_calibration_even_when_ignored(self):
@@ -242,11 +250,11 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     compose_curated.ComposeError,
                     "invalid calibration JSON",
                 ):
-                    compose_curated.compose_run(
+                    compose_curated.compose_run(compose_curated.ComposeRunContext(
                         source,
                         root / "curated",
                         units_migration=calibration,
-                    )
+                    ))
                 self.assertFalse((root / "curated").exists())
 
     def test_completed_compose_artifacts_are_reauthenticated_before_finish(self):
@@ -281,7 +289,7 @@ class ComposeSourceCaptureSafety(unittest.TestCase):
                     "changed before compose commit",
                 ),
             ):
-                compose_curated.compose_run(source, destination)
+                compose_curated.compose_run(compose_curated.ComposeRunContext(source, destination))
             self.assertFalse(destination.exists())
 
 

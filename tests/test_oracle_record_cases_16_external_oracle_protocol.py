@@ -60,17 +60,16 @@ class ExternalOracleProtocolCase13(unittest.TestCase):
     def test_a_chain_stage_that_cannot_consume_its_input_fails_closed(self):
         # The double answers stage one in a shape the plasticity stage cannot
         # use. That must surface as an OracleError, not a traceback.
+        environ = double_env("ok", runtimes=("limbic-critic",))
         with self.assertRaises(oracles.OracleError):
-            build(
-                families.CREDIT_FAMILY,
-                environ=double_env("ok", runtimes=("limbic-critic",)),
-            )
+            build(families.CREDIT_FAMILY, environ=environ)
 
 
 class ExternalOracleProtocolCase14(unittest.TestCase):
     def test_a_failing_bound_oracle_drops_the_record(self):
+        environ = double_env("fail")
         with self.assertRaises(oracles.OracleError):
-            build(families.ENCODER_FAMILY, environ=double_env("fail"))
+            build(families.ENCODER_FAMILY, environ=environ)
 
 
 class ExternalOracleProtocolCase15(unittest.TestCase):

@@ -34,11 +34,11 @@ class GeneratorChecks:
 
     def _identity_findings(self, record, generator, family, findings):
         identifier = record["id"]
-        match = self.api.re.fullmatch(rf"{self.api.re.escape(family)}-r([0-9]+)-([0-9]+)", identifier)
-        if match is None:
+        parts = self.api._record_id_parts(family, identifier)
+        if parts is None:
             findings.append("id does not encode the record family, round, and index")
         else:
-            round_number, index = int(match.group(1)), int(match.group(2))
+            round_number, index = parts
             if record["meta"]["round"] != round_number:
                 findings.append("meta.round does not match the round encoded in id")
             if identifier != f"{family}-r{round_number:02d}-{index:04d}":

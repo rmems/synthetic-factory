@@ -385,7 +385,9 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                     "relocated into immutable raw evidence",
                 ),
             ):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(
+                    compose_curated.ComposeRunContext(source, root / "curated")
+                )
             self.assertEqual(list((raw / "curated").rglob("*")), [])
 
     def test_source_and_calibration_fifo_swaps_are_rejected_without_blocking(self):
