@@ -5,6 +5,7 @@ from test_oracle_grounded_cli import (
     PINNED_COMMIT,
     Path,
     families,
+    generate_status,
     io,
     mock,
     oracle_generate,
@@ -18,27 +19,12 @@ class GenerateCliCase25(unittest.TestCase):
     def test_oversized_run_is_refused(self):
         with tempfile.TemporaryDirectory(prefix="oracle-oversized-run-") as temp:
             out = Path(temp) / "run"
-            captured = io.StringIO()
-            with (
-                mock.patch.object(oracle_generate, "MAX_RUN_BYTES", 1),
-                mock.patch("sys.stderr", captured),
-            ):
-                status = oracle_generate.main(
-                    [
-                        "--family",
-                        families.ENCODER_FAMILY,
-                        "--count",
-                        "1",
-                        "--oracle-commit",
-                        PINNED_COMMIT,
-                        "--no-oracle-dirty",
-                        str(out),
-                    ]
-                )
+            status, err = generate_status(
+                out, mock.patch.object(oracle_generate, "MAX_RUN_BYTES", 1))
             self.assertEqual(status, 1)
             self.assertFalse(out.exists())
-            self.assertIn("exceeding the validator's", captured.getvalue())
-            self.assertIn("per-run limit", captured.getvalue())
+            self.assertIn("exceeding the validator's", err)
+            self.assertIn("per-run limit", err)
 
 
 class GenerateCliCase26(unittest.TestCase):

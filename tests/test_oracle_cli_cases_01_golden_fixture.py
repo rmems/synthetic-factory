@@ -2,8 +2,8 @@
 
 from test_oracle_grounded_cli import (
     GOLDEN,
-    INVALID,
     Path,
+    defect_pairs,
     families,
     json,
     oracles,
@@ -154,17 +154,8 @@ class GoldenFixtureCase09(unittest.TestCase):
 
 
 class InvalidFixturesCase01(unittest.TestCase):
-    def defects(self, name):
-        # The tag names the committed defect for the reader. It is popped out
-        # of the record before validation because the meta vocabulary is
-        # closed: left in place it would be rejected first and mask the one
-        # defect each fixture exists to prove.
-        pairs = []
-        for item in read_jsonl(INVALID / f"{name}.jsonl"):
-            pairs.append((item["meta"].pop("_defect"), item))
-        return pairs
     def test_every_invalid_oracle_record_is_rejected(self):
-        pairs = self.defects("invalid-oracle")
+        pairs = defect_pairs("invalid-oracle")
         self.assertGreaterEqual(len(pairs), 9)
         for defect, item in pairs:
             with self.subTest(defect=defect):

@@ -5,8 +5,7 @@ from test_oracle_grounded_cli import (
     PINNED_COMMIT,
     Path,
     VALIDATE,
-    families,
-    io,
+    generate_status,
     json,
     mock,
     oracle_generate,
@@ -54,27 +53,12 @@ class GenerateCliCase15(unittest.TestCase):
         # limits; refuse to publish one instead of exiting successfully.
         with tempfile.TemporaryDirectory(prefix="oracle-oversized-file-") as temp:
             out = Path(temp) / "run"
-            captured = io.StringIO()
-            with (
-                mock.patch.object(oracle_generate, "MAX_JSONL_BYTES", 1),
-                mock.patch("sys.stderr", captured),
-            ):
-                status = oracle_generate.main(
-                    [
-                        "--family",
-                        families.ENCODER_FAMILY,
-                        "--count",
-                        "1",
-                        "--oracle-commit",
-                        PINNED_COMMIT,
-                        "--no-oracle-dirty",
-                        str(out),
-                    ]
-                )
+            status, err = generate_status(
+                out, mock.patch.object(oracle_generate, "MAX_JSONL_BYTES", 1))
             self.assertEqual(status, 1)
             self.assertFalse(out.exists())
-            self.assertIn("exceeding the validator's", captured.getvalue())
-            self.assertIn("per-file limit", captured.getvalue())
+            self.assertIn("exceeding the validator's", err)
+            self.assertIn("per-file limit", err)
 
 
 class GenerateCliCase16(unittest.TestCase):

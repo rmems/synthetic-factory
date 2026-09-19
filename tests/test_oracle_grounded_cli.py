@@ -8,6 +8,7 @@ changes, `oracle.module_digest` changes and this test fails loudly rather than
 letting a fixture quietly stop describing the code that produced it.
 """
 
+import contextlib
 import copy
 import errno
 import hashlib
@@ -41,10 +42,11 @@ PINNED_COMMIT = oracles.resolve_commit(REPO)[0]
 
 __all__ = (
     "FIXTURES", "GENERATE", "GOLDEN", "INVALID", "PINNED_COMMIT", "Path", "REPO",
-    "VALIDATE", "build", "canon", "errno", "families", "io", "json", "mock",
-    "oracle_generate", "oracle_validate", "oracles", "os", "read_jsonl", "record",
-    "relabel_as_named_runtime", "replay_diagnostic_fixture", "run_cli", "shutil", "sys",
-    "tempfile", "unittest", "write_test_manifest",
+    "VALIDATE", "build", "canon", "defect_pairs", "errno", "families",
+    "generate_status", "io", "json", "mock", "oracle_generate", "oracle_validate",
+    "oracles", "os", "read_jsonl", "record", "relabel_as_named_runtime",
+    "replay_diagnostic_fixture", "run_cli", "shutil", "sys", "tempfile",
+    "unittest", "write_test_manifest",
 )
 
 
@@ -70,6 +72,43 @@ def run_cli(script, *args, env=None):
 
 def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def defect_pairs(name):
+    # The tag names the committed defect for the reader. It is popped out
+    # of the record before validation because the meta vocabulary is
+    # closed: left in place it would be rejected first and mask the one
+    # defect each fixture exists to prove.
+    pairs = []
+    for item in read_jsonl(INVALID / f"{name}.jsonl"):
+        pairs.append((item["meta"].pop("_defect"), item))
+    return pairs
+
+
+def generate_status(destination, *patchers):
+    """Run ``oracle_generate.main`` on the pinned argv under ``patchers``.
+
+    Returns ``(status, stderr_text)`` so oversized-write and raw-tree
+    refusal cases share one invocation shape.
+    """
+    captured = io.StringIO()
+    with contextlib.ExitStack() as stack:
+        for patcher in patchers:
+            stack.enter_context(patcher)
+        stack.enter_context(mock.patch("sys.stderr", captured))
+        status = oracle_generate.main(
+            [
+                "--family",
+                families.ENCODER_FAMILY,
+                "--count",
+                "1",
+                "--oracle-commit",
+                PINNED_COMMIT,
+                "--no-oracle-dirty",
+                str(destination),
+            ]
+        )
+    return status, captured.getvalue()
 
 
 def _ensure_jsonl_counterparts(run_dir):

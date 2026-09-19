@@ -13,6 +13,7 @@ import shutil
 import subprocess  # nosec B404 -- the protocol test executes a fixed local fixture
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -40,7 +41,7 @@ __all__ = (
     "copy", "double_env", "families", "forge_consistent_eligibility", "generators", "json",
     "math", "mock", "oracles", "proposal_findings", "record", "relabel_as_named_runtime",
     "relabel_plasticity_stage_as_named", "result_findings", "schema_validation", "shutil",
-    "sim", "subprocess", "sys", "tempfile", "threading", "time", "unittest",
+    "sim", "subprocess", "sys", "tempfile", "textwrap", "threading", "time", "unittest",
 )
 
 

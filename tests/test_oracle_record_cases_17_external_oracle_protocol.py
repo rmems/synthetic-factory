@@ -10,6 +10,7 @@ from test_oracle_grounded_record import (
     shutil,
     sys,
     tempfile,
+    textwrap,
     threading,
     time,
     unittest,
@@ -67,20 +68,22 @@ class ExternalOracleProtocolCase20(unittest.TestCase):
 
 class ExternalOracleProtocolCase21(unittest.TestCase):
     def test_inherited_pipe_holders_are_bound_by_the_oracle_deadline(self):
-        holder = (
-            "import json, os, sys, time\n"
-            "if os.fork() == 0:\n"
-            "    os.setsid()\n"
-            "    time.sleep(30)\n"
-            "    os._exit(0)\n"
-            "sys.stdout.write(json.dumps({\n"
-            '    "protocol": "sf-oracle/1",\n'
-            '    "runtime_version": "0.0.0-double",\n'
-            '    "runtime_commit": "a" * 40,\n'
-            '    "measured": {"ok": True},\n'
-            '    "units": {"ok": "unit"},\n'
-            "}))\n"
-            "sys.stdout.flush()\n"
+        holder = textwrap.dedent(
+            """\
+            import json, os, sys, time
+            if os.fork() == 0:
+                os.setsid()
+                time.sleep(30)
+                os._exit(0)
+            sys.stdout.write(json.dumps({
+                "protocol": "sf-oracle/1",
+                "runtime_version": "0.0.0-double",
+                "runtime_commit": "a" * 40,
+                "measured": {"ok": True},
+                "units": {"ok": "unit"},
+            }))
+            sys.stdout.flush()
+            """
         )
         adapter = oracles.ExternalCommandOracle(
             oracles.OracleIdentity(

@@ -4,6 +4,7 @@ from test_oracle_grounded_cli import (
     PINNED_COMMIT,
     Path,
     families,
+    generate_status,
     io,
     json,
     mock,
@@ -83,25 +84,11 @@ class GenerateCliCase22(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="oracle-raw-guard-") as temp:
             raw = Path(temp) / "outputs" / "raw"
             raw.mkdir(parents=True)
-            captured = io.StringIO()
-            with (
-                mock.patch.object(oracle_generate, "RAW_TREE", raw),
-                mock.patch("sys.stderr", captured),
-            ):
-                status = oracle_generate.main(
-                    [
-                        "--family",
-                        families.ENCODER_FAMILY,
-                        "--count",
-                        "1",
-                        "--oracle-commit",
-                        PINNED_COMMIT,
-                        "--no-oracle-dirty",
-                        str(raw / "2026-09-01"),
-                    ]
-                )
+            status, err = generate_status(
+                raw / "2026-09-01",
+                mock.patch.object(oracle_generate, "RAW_TREE", raw))
             self.assertEqual(status, 2)
-            self.assertIn("immutable raw tree", captured.getvalue())
+            self.assertIn("immutable raw tree", err)
             self.assertEqual(list(raw.iterdir()), [])
 
 
@@ -114,25 +101,11 @@ class GenerateCliCase23(unittest.TestCase):
             raw.mkdir(parents=True)
             link = Path(temp) / "innocent-looking"
             link.symlink_to(raw, target_is_directory=True)
-            captured = io.StringIO()
-            with (
-                mock.patch.object(oracle_generate, "RAW_TREE", raw),
-                mock.patch("sys.stderr", captured),
-            ):
-                status = oracle_generate.main(
-                    [
-                        "--family",
-                        families.ENCODER_FAMILY,
-                        "--count",
-                        "1",
-                        "--oracle-commit",
-                        PINNED_COMMIT,
-                        "--no-oracle-dirty",
-                        str(link / "run"),
-                    ]
-                )
+            status, err = generate_status(
+                link / "run",
+                mock.patch.object(oracle_generate, "RAW_TREE", raw))
             self.assertEqual(status, 2)
-            self.assertIn("immutable raw tree", captured.getvalue())
+            self.assertIn("immutable raw tree", err)
             self.assertEqual(list(raw.iterdir()), [])
 
 

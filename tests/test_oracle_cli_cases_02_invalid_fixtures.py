@@ -4,9 +4,9 @@ from test_oracle_grounded_cli import (
     GOLDEN,
     INVALID,
     VALIDATE,
+    defect_pairs,
     families,
     json,
-    read_jsonl,
     record,
     run_cli,
     unittest,
@@ -14,17 +14,8 @@ from test_oracle_grounded_cli import (
 
 
 class InvalidFixturesCase02(unittest.TestCase):
-    def defects(self, name):
-        # The tag names the committed defect for the reader. It is popped out
-        # of the record before validation because the meta vocabulary is
-        # closed: left in place it would be rejected first and mask the one
-        # defect each fixture exists to prove.
-        pairs = []
-        for item in read_jsonl(INVALID / f"{name}.jsonl"):
-            pairs.append((item["meta"].pop("_defect"), item))
-        return pairs
     def test_every_malformed_generator_record_is_rejected(self):
-        pairs = self.defects("malformed-generator")
+        pairs = defect_pairs("malformed-generator")
         self.assertGreaterEqual(len(pairs), 7)
         for defect, item in pairs:
             with self.subTest(defect=defect):
@@ -35,15 +26,6 @@ class InvalidFixturesCase02(unittest.TestCase):
 
 
 class InvalidFixturesCase03(unittest.TestCase):
-    def defects(self, name):
-        # The tag names the committed defect for the reader. It is popped out
-        # of the record before validation because the meta vocabulary is
-        # closed: left in place it would be rejected first and mask the one
-        # defect each fixture exists to prove.
-        pairs = []
-        for item in read_jsonl(INVALID / f"{name}.jsonl"):
-            pairs.append((item["meta"].pop("_defect"), item))
-        return pairs
     def test_each_defect_is_caught_for_the_stated_reason(self):
         expected = {
             "missing_result": "$.result",
@@ -65,7 +47,7 @@ class InvalidFixturesCase03(unittest.TestCase):
         }
         seen = set()
         for name in ("invalid-oracle", "malformed-generator"):
-            for defect, item in self.defects(name):
+            for defect, item in defect_pairs(name):
                 seen.add(defect)
                 findings = " | ".join(record.validate_record(item))
                 with self.subTest(defect=defect):
