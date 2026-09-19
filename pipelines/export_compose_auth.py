@@ -405,7 +405,7 @@ def _exported_compose_metadata(
 ) -> dict[str, Any]:
     """Format metadata only after all compose evidence has authenticated."""
 
-    return {
+    metadata = {
         "present": True,
         "summary": {
             "path": compose_curated.SUMMARY_FILENAME,
@@ -420,6 +420,10 @@ def _exported_compose_metadata(
         "reward_sidecars": authenticated.evidence.reward_sidecars,
     }
 
+    if "oracle_selection" in authenticated.summary:
+        metadata["oracle_selection"] = authenticated.summary["oracle_selection"]
+    return metadata
+
 
 def _compose_metadata(
     curated_root: Path,
@@ -429,11 +433,21 @@ def _compose_metadata(
     """Authenticate COMPOSE paths, bytes, coordinates, and reward links."""
 
     _summary_path, summary_payload, summary = _authenticated_compose_summary(curated_root)
+    _require_equal(
+        audit_report.get("rights_compose_sha256"),
+        hashlib.sha256(summary_payload).hexdigest(),
+        "rights audit compose summary does not match authenticated summary",
+    )
     actual_outputs = _curated_outputs_by_compose_path(curated_files)
     authenticated_outputs = _authenticated_output_declarations(
         curated_root, summary, actual_outputs
     )
     evidence = _authenticated_compose_evidence(curated_root, summary)
+    _require_equal(
+        audit_report.get("rights_manifest_sha256"),
+        evidence.manifest["sha256"],
+        "rights audit manifest does not match authenticated compose manifest",
+    )
     expected_coordinates = _expected_output_coordinates(actual_outputs)
     manifest_coordinates, referenced_sidecars = _authenticate_compose_manifest(
         evidence.manifest_documents, actual_outputs, evidence.sidecars_by_id

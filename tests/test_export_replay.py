@@ -71,6 +71,7 @@ class ReplayAuthenticationContexts(unittest.TestCase):
             expected_outputs=[],
             expected_payloads={},
             source_files=[],
+            rights_lanes=Counter(),
         )
         summary = {
             "counts": {
@@ -85,12 +86,14 @@ class ReplayAuthenticationContexts(unittest.TestCase):
             "lane_actions": {"identity": {"retained": 1}},
             "exclusions": {"compose.test": 1},
             "transforms": compose_curated.transform_contract(),
+            "rights": {"lanes": {"research": 0, "training": 0}, "training_exportable": False},
         }
         mutations = (
             ("counts", {}, "source/output counts do not reproduce"),
             ("lane_actions", {}, "lane action counts do not reproduce"),
             ("exclusions", {}, "exclusions do not reproduce"),
             ("transforms", {}, "transform declarations do not match"),
+            ("rights", {}, "rights summary does not reproduce"),
         )
 
         for field, forged, message in mutations:
@@ -113,6 +116,7 @@ class ReplayCompatibilityAdapters(unittest.TestCase):
             expected_outputs=[],
             expected_payloads={},
             source_files=[],
+            rights_lanes=Counter(),
         )
         summary = {
             "counts": {
@@ -127,6 +131,7 @@ class ReplayCompatibilityAdapters(unittest.TestCase):
             "lane_actions": {},
             "exclusions": {},
             "transforms": compose_curated.transform_contract(),
+            "rights": {"lanes": {"research": 0, "training": 0}, "training_exportable": False},
             "outputs": [],
         }
         return snapshot, summary

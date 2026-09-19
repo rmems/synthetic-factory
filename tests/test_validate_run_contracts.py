@@ -19,11 +19,20 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
+REPO_PIPELINES = _TESTS.parent / "pipelines"
+if str(REPO_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(REPO_PIPELINES))
+
 from round_txn_test_helpers import distillation_sidecars  # noqa: E402
 from validate_run_test_helpers import TINY_THALAMIC, _invoke  # noqa: E402
 
 import check_records  # noqa: E402
 import round_txn  # noqa: E402
+
+from oracle_grounded import canon as oracle_canon  # noqa: E402
+from oracle_grounded import record as oracle_record  # noqa: E402
+
+import validate_run  # noqa: E402
 
 STRICT_FIXTURES = _TESTS / "fixtures" / "strict-validator"
 
@@ -258,6 +267,56 @@ class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
 
         self.assertEqual(shape.returncode, 0, shape.stderr)
         self.assertEqual(deep["exit_code"], 0, deep)
+
+
+class OracleStagingRoute(unittest.TestCase):
+    """The oracle staging route must not pass a fabricated accepted record.
+
+    ``_route_oracle`` is the staging boundary for oracle-grounded JSONL. An
+    honest rejection is evidence and stays owned by oracle_validate, but a
+    record that *claims* acceptance while its measured content fails the
+    family invariants must surface those findings as staging errors.
+    """
+
+    def _record(self, index=0):
+        return json.loads(
+            json.dumps(
+                oracle_record.build_record(
+                    "temporal-memory-spike-challenges",
+                    index,
+                    7,
+                    run=oracle_record.RecordRunContext(),
+                )
+            )
+        )
+
+    def _fabricated(self):
+        """A record whose stored stamp claims acceptance it cannot reproduce."""
+        record = self._record()
+        measured = record["result"]["measured"]
+        measured["probes"] = {
+            name: copy.deepcopy(measured["baseline"]) for name in measured["probes"]
+        }
+        record["result_hash"] = oracle_canon.digest(record["result"])
+        return record
+
+    def test_an_accepted_filed_fabrication_reports_its_family_findings(self):
+        where = "oracle-grounded/temporal-memory-spike-challenges/accepted-r01.jsonl:1"
+        errors = validate_run._route_oracle(self._fabricated(), where, None)
+
+        self.assertTrue(
+            any("does not match the complete reference replay" in e for e in errors),
+            errors,
+        )
+
+    def test_a_honest_rejection_filed_as_rejected_is_not_a_staging_error(self):
+        record = self._record(index=5)
+        self.assertEqual(record["validation"]["status"], "rejected")
+        self.assertTrue(record["validation"]["checks"]["envelope"])
+        self.assertEqual(oracle_record.reproduce(record, environ={})[0], "reproduced")
+
+        where = "oracle-grounded/temporal-memory-spike-challenges/rejected-r01.jsonl:1"
+        self.assertEqual(validate_run._route_oracle(record, where, None), [])
 
 
 if __name__ == "__main__":

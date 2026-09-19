@@ -1,0 +1,23 @@
+{
+  "schema_version": "procedural-oracle-policy-v1",
+  "policy_id": "oracle-grounded-reviewed-source-v1",
+  "generator": "deterministic-scenario-generator",
+  "generator_version": "1.0.0",
+  "generator_ownership": "project_owned",
+  "generation_method": "deterministic_execution",
+  "family": "oracle-grounded",
+  "path_id": "oracle-grounded",
+  "catalog_id": "oracle-grounded-v1",
+  "catalog_relative_path": "pipelines/oracle_grounded",
+  "catalog_sha256": "ad01730f2256a9991519b658e9c2cd7cbb4cb18367cc1295a5290d8028272998",
+  "programs_sha256": "2fb3627aa69ef07a4d7db840c5048c8a44ccde5e8aece6842003e1c2ec032818",
+  "source_license_evidence": {
+    "repository": "rmems/synthetic-factory",
+    "path": "pipelines/oracle_grounded",
+    "license": "Apache-2.0",
+    "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
+  },
+  "intended_use": "training_candidate",
+  "project_training_policy": "allowed",
+  "publication_target": null
+}

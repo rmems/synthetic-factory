@@ -89,6 +89,34 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
             "must end with a newline",
         )
 
+    def test_completed_crlf_frames_are_parsed_after_completion_match(self):
+        record = {"family": "python-function-repair", "id": "completed-crlf"}
+        payload = (json.dumps(record) + "\r\n").encode("utf-8")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            relative = Path("python-function-repair-factory/batch-r01.jsonl")
+            mill_findings, mill_mix = training_audit.index_mill_quarantine(root, [])
+            audit = training_audit._CorpusAudit(root, mill_findings, mill_mix)
+            audit._completed_published_payload = lambda rel, body: body == payload
+            audit.observe_file(relative, payload)
+        self.assertFalse(any("carriage returns" in item for item in audit.record_errors), audit.record_errors)
+        self.assertEqual(audit.code_repair["records"], 1)
+        self.assertEqual(audit.code_repair["completed_records"], 1)
+
+    def test_unmatched_crlf_frames_remain_invalid(self):
+        record = {"family": "python-function-repair", "id": "unmatched-crlf"}
+        payload = (json.dumps(record) + "\r\n").encode("utf-8")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            relative = Path("python-function-repair-factory/batch-r01.jsonl")
+            mill_findings, mill_mix = training_audit.index_mill_quarantine(root, [])
+            audit = training_audit._CorpusAudit(root, mill_findings, mill_mix)
+            audit._completed_published_payload = lambda rel, body: False
+            audit.observe_file(relative, payload)
+        self.assertTrue(any("carriage returns" in item for item in audit.record_errors))
+        self.assertEqual(audit.code_repair["records"], 0)
+        self.assertEqual(audit.code_repair["completed_records"], 0)
+
     def test_duplicate_object_keys_are_not_training_eligible(self):
         serialized = json.dumps(thalamic("ttf-duplicate-key"))
         serialized = serialized[:-1] + ',"duplicate":1,"duplicate":2}'

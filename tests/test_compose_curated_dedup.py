@@ -45,7 +45,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 first + "\n" + duplicate + "\n", encoding="utf-8"
             )
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
 
             self.assertEqual(summary["counts"]["source_records"], 2)
@@ -80,7 +82,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 [record],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
 
             self.assertEqual(summary["counts"]["source_records"], 2)
@@ -102,7 +106,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
             second["steps"][0]["thought"] = "different hidden text"
             write_jsonl(source / "batch-r01.jsonl", [first, second])
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
 
             self.assertEqual(summary["counts"]["source_records"], 2)
@@ -137,7 +143,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
             second["meta"]["id"] = "legacy-b"
             write_jsonl(source / "batch-r01.jsonl", [first, second])
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
 
             self.assertEqual(summary["counts"]["source_records"], 2)
@@ -169,7 +177,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
             second["meta"]["generator_version"] = "2026.08-b"
             write_jsonl(source / "batch-r01.jsonl", [first, second])
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["retained"], 1)
             self.assertEqual(summary["counts"]["excluded"], 1)
@@ -209,7 +219,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 [second],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
 
             self.assertEqual(summary["counts"]["source_records"], 2)
@@ -271,7 +283,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 [side_stamped("code-review-preference-factory", "b")],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 2)
             self.assertEqual(summary["counts"]["retained"], 1)
@@ -307,7 +321,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 [second],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 2)
             self.assertEqual(summary["counts"]["retained"], 1)
@@ -341,7 +357,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 [first, second],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 2)
             self.assertEqual(summary["counts"]["retained"], 1)
@@ -392,9 +410,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 json.dumps(migration) + "\n", encoding="utf-8"
             )
 
-            summary = compose_curated.compose_run(
+            summary = compose_curated.compose_run(compose_curated.ComposeRunContext(
                 source, root / "curated", units_migration=migration_path
-            )
+            ))
 
             self.assertEqual(summary["counts"]["source_records"], 2)
             self.assertEqual(summary["counts"]["retained"], 1)
