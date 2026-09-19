@@ -31,7 +31,7 @@ from code_repair_test_support import (  # noqa: E402
 # bwrap OS boundary + #200 repr update move the harness fingerprint.
 # Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
 # Landlock child allowlist on the OS-boundary path changes harness bytes (#339).
-GOLDEN_SHA256 = "2bd8680e305f0a4d4ce42f71b7f6ddad37d9fc6fcf778abd05f1bb820c8f2c59"
+GOLDEN_SHA256 = "61a875007958454ec3b882d3d64482b2ca09e8fc300902b05023f94fd83bbbfd"
 
 
 def accepting_executor():

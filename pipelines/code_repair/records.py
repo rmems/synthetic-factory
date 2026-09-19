@@ -171,6 +171,7 @@ def _oracle(candidate: Candidate, batch: Batch) -> dict[str, Any]:
             "cases": [dict(case) for case in program.cases],
         },
         "isolation": sb.isolation_prose(environment["sandbox_identity"]),
+        "confinement": candidate.phases.original.environment.get("landlock") or None,
     }
     run = oc.OracleRun(configuration, candidate.seed, ORACLE_COMMIT, environment)
     return oc.new_oracle(identity, run)
