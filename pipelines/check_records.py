@@ -495,21 +495,26 @@ def root_record_id(obj):
     return None
 
 
+def _provenance_publish_claims(k, v, cur, sink):
+    """Report one node's 'real' provenance claims; `sink` is `(errs, where)`."""
+    errs, where = sink
+    if k == "sim_or_real" and claims_real(v):
+        # Other invalid values are surfaced as non-training
+        # provenance warnings by check_record; this gate is only
+        # for real-world claims.
+        errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
+    if k == "provenance" and isinstance(v, dict):
+        kind = v.get("kind")
+        if claims_real(kind):
+            errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
+
+
 def _provenance_publish_walk(node, path, sink):
     """Collect 'real' provenance claims under `node`; `sink` is `(errs, where)`."""
-    errs, where = sink
     if isinstance(node, dict):
         for k, v in node.items():
             cur = f"{path}.{k}" if path else k
-            if k == "sim_or_real" and claims_real(v):
-                # Other invalid values are surfaced as non-training
-                # provenance warnings by check_record; this gate is only
-                # for real-world claims.
-                errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
-            if k == "provenance" and isinstance(v, dict):
-                kind = v.get("kind")
-                if claims_real(kind):
-                    errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
+            _provenance_publish_claims(k, v, cur, sink)
             _provenance_publish_walk(v, cur, sink)
     elif isinstance(node, list):
         for i, item in enumerate(node):
@@ -524,14 +529,7 @@ def check_provenance_publish(obj, where):
     """
     errs = []
     _provenance_publish_walk(obj, "", (errs, where))
-    # Deduplicate
-    seen = set()
-    out = []
-    for e in errs:
-        if e not in seen:
-            seen.add(e)
-            out.append(e)
-    return out
+    return list(dict.fromkeys(errs))
 
 
 def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
@@ -645,11 +643,23 @@ def _record_mapping_findings(obj, where, kind):
     return errors, warnings
 
 
+def _parity_wide_findings(obj, kind, where, errors):
+    """The repository-wide stream/reward pass with family-owned streams exempt."""
+    if not isinstance(obj, dict):
+        return [], []
+    stream_errors, stream_warnings = _record_stream_and_reward_findings(
+        obj,
+        where,
+        kind,
+        family_owned=parity_validators.family_owned_streams(obj, kind),
+    )
+    return [error for error in stream_errors if error not in errors], stream_warnings
+
+
 def _parity_kind_findings(obj, kind, where, seeded):
     """The deep family check plus repository-wide passes for parity kinds.
     ``seeded`` is ``(shape_errs, errors)`` — the findings already gathered."""
     shape_errs, errors = seeded
-    warnings = []
     # The family validator is the deep check for these kinds. Record id
     # still flows through so cross-file duplicate detection covers them.
     # The family validators assume the shared envelope members have the
@@ -667,15 +677,8 @@ def _parity_kind_findings(obj, kind, where, seeded):
     # Canonical family streams are exempt by identity -- their validity
     # (and their family-specific event shapes) belong to the validator
     # above, so nothing is reported twice.
-    if isinstance(obj, dict):
-        stream_errors, stream_warnings = _record_stream_and_reward_findings(
-            obj,
-            where,
-            kind,
-            family_owned=parity_validators.family_owned_streams(obj, kind),
-        )
-        errors.extend(error for error in stream_errors if error not in errors)
-        warnings.extend(stream_warnings)
+    stream_errors, warnings = _parity_wide_findings(obj, kind, where, errors)
+    errors.extend(stream_errors)
     # The publish-time provenance scan is repository-wide and owns every
     # nested 'real' claim. Skipping it for these kinds would make a parity
     # record the one place in the factory where a buried real-world claim

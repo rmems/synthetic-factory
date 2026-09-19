@@ -52,9 +52,7 @@ ERROR_CLASSES = (
 )
 
 
-def _forget_repository_modules() -> None:
-    """Drop every module loaded from this repository, except the probe itself."""
-
+def _drop_loaded_repository_modules() -> None:
     stale = [
         name
         for name, module in sys.modules.items()
@@ -62,9 +60,19 @@ def _forget_repository_modules() -> None:
     ]
     for name in stale:
         del sys.modules[name]
+
+
+def _drop_repository_paths() -> None:
     keep = (REPO, PIPELINES)
     sys.path[:] = [entry for entry in sys.path
                    if Path(entry or ".").resolve() not in keep]
+
+
+def _forget_repository_modules() -> None:
+    """Drop every module loaded from this repository, except the probe itself."""
+
+    _drop_loaded_repository_modules()
+    _drop_repository_paths()
 
 
 def _cli_form() -> dict[str, Any]:

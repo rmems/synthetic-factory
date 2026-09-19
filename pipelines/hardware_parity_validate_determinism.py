@@ -138,11 +138,15 @@ def _repeat_derivation_errors(run, digests, loc, may_recheck):
 def _distinct_count_matches(recorded_distinct, distinct):
     """distinct_digests must be an exact int equal to the observed count.
 
-    ``bool`` is an ``int`` subclass, so ``True == 1``: an ordinary
-    ``isinstance`` check would accept a Boolean where the documented evidence
-    shape is an exact integer count.
+    ``bool`` is an ``int`` subclass, so ``True == 1``: the isinstance check is
+    paired with a ``bool`` exclusion so a Boolean cannot stand in for the
+    documented integer count.
     """
-    return type(recorded_distinct) is int and recorded_distinct == distinct
+    return (
+        isinstance(recorded_distinct, int)
+        and not isinstance(recorded_distinct, bool)
+        and recorded_distinct == distinct
+    )
 
 
 def _identical_repeats_matches(recorded_identical, distinct):
