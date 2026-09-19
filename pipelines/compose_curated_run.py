@@ -24,6 +24,7 @@ if __package__:
     from . import compose_curated_run_artifacts as _artifacts
     from . import compose_curated_run_context as _run_context
     from . import compose_curated_run_lines as _lines
+    from . import compose_curated_rights as _rights
     from .compose_curated_calibration import CalibrationContext
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -34,6 +35,7 @@ else:
     import compose_curated_run_artifacts as _artifacts
     import compose_curated_run_context as _run_context
     import compose_curated_run_lines as _lines
+    import compose_curated_rights as _rights
     from compose_curated_calibration import CalibrationContext
 
 ACTION_RETAINED = _contract.ACTION_RETAINED
@@ -113,6 +115,7 @@ def compose_one_line(
             context.emitted,
         )
         active.record_retained_line(state, decision, retained_context)
+        _rights.bind_retained_rights(state, entry, decision, physical_line)
     else:
         active.record_excluded_line(state, decision, entry)
     state.manifest_lines.append(canonical_json(entry))

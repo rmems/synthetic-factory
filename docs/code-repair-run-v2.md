@@ -36,7 +36,16 @@ The new `original_repeat` phase executes the same original source in a fresh
 process before mutants run. Differing stable observations reject with
 `SOURCE_NONDETERMINISTIC`; a restored repair must also reproduce those observations.
 Reference checks certify hidden wants independently. Resource limits must be
-reported as applied before generation continues.
+attested before generation continues. An explicit false out-of-band attestation
+refuses the run with `SANDBOX_UNAVAILABLE`; the executor preserves that trusted
+failure as structured environment evidence. Candidate-controlled error text and
+JSON `limits_applied` values cannot override the attestation.
+A child that crashes after applying limits and loses its JSON environment is a
+candidate-level harness error, not a run-wide sandbox failure. The catch-all
+includes the exception type so an empty-message `MemoryError` is diagnosable.
+Missing or malformed protocol evidence cannot certify any phase. Injected
+executors must also provide a true limits claim on every `PHASE_OK` report,
+including a module-load failure; explicit non-true claims refuse the run.
 
 Stored evidence is locally checked by re-deriving the decision and public
 projection. This is an integrity check, not authentication of a consistently

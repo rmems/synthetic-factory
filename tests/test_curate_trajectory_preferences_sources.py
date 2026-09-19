@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from trajectory_preference_support import (
@@ -210,9 +210,13 @@ class WriteDestinations(unittest.TestCase):
             self.assertTrue(ctp.pair_passes_gate(emitted))
             self.assertEqual(len(manifest.read_text().splitlines()), 3)
 
-            # Second run must refuse rather than overwrite.
-            with redirect_stdout(io.StringIO()):
-                rerun = ctp.main(
+            # Second run must refuse at the CLI boundary rather than scan first.
+            with (
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()) as stderr,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                ctp.main(
                     [
                         "curate",
                         str(FIXTURE_DIR),
@@ -222,7 +226,8 @@ class WriteDestinations(unittest.TestCase):
                         str(manifest),
                     ]
                 )
-            self.assertEqual(rerun, 1)
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("the destination already exists", stderr.getvalue())
 
     def test_output_hash_matches_the_written_line(self):
         with tempfile.TemporaryDirectory() as td:

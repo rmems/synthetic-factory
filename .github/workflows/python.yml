@@ -18,8 +18,8 @@ jobs:
   test:
     name: unittest (Python 3.14)
     runs-on: ubuntu-latest
-    # Full procedural publication/replay coverage exceeds ten minutes on hosted runners.
-    timeout-minutes: 20
+    # Full rights replay/promotion coverage exceeded the prior 20-minute hosted-runner budget.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

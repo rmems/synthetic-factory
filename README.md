@@ -47,20 +47,27 @@ are two lanes:
   epic [#76]); DeepSeek / Nemotron lanes only after their terms snapshots are
   pinned ([#170], [#163]).
 
-Identity curation, composition, training audits, and export replay enforce
-applicable source-policy and admission checks. The registry includes two
-independently sealed procedural routes with `project_training_policy: allowed`:
-`python-function-repair-factory` and `oracle-grounded`. A record must also pass
-its route's technical and evidence checks; the policy label alone does not
-make it eligible. Hosted-model and mill-catalog routes remain research-only
-with training blocked.
-
-`training_ready` in an audit, `COMPOSE.json`, or `provenance.json` includes the
-applicable admission findings as well as structural and quality checks. It
-does not authorize publication or replace source rights and release gates.
-Broader promotion-gate integration remains tracked in [#167]. The contract every new generator must
-meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
-preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
+Today identity attaches a bound rights envelope to every retained mapping.
+Compose, the training audit, the curation gate, and Hugging Face export
+enforce that envelope. Research-only records stay available for measurement
+and, where redistribution is cleared, publication; they cannot become
+`training_ready` or enter a training export. `training_ready` for identity-cleaned or composed records, in `COMPOSE.json`,
+or in export `provenance.json` includes both structural and rights checks.
+Raw-run audits remain structural diagnostics and do not grant export authority. Hosted frontier rows stay `research_only` / `blocked`. The procedural
+`python-function-repair-factory` and `oracle-grounded` rows are training-candidate paths
+(`training_candidate` / `allowed`) after sealed source admission, fresh
+replay, and completed-round gates. Project policy and provider training
+status are independent: both must be `allowed`, with reviewed evidence and an
+exact source-byte binding, before a record can enter a training-ready export.
+Retained rights are replayed from the reviewed registry and exact source
+bytes; a declared `allowed` value is insufficient. Existing curated artifacts
+without complete bound rights evidence must be regenerated through identity
+and compose before training export. Procedural curation preserves the
+original record bytes and verifies completion against the original published
+source tree, which must remain available for audit and promotion.
+The contract every new generator must meet is the "Generator rule"
+(formerly `AGENTS.md`, retired in [#184]; preserved
+[at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Public dataset family
 

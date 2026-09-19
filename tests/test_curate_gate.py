@@ -30,6 +30,7 @@ if str(PIPELINES) not in sys.path:
 
 import curate_gate  # noqa: E402
 import curate_gate_digest  # noqa: E402
+import curate_gate_gates  # noqa: E402
 import curate_gate_plan  # noqa: E402
 import curate_rewards  # noqa: E402
 
@@ -40,13 +41,26 @@ class IntegrationTests(unittest.TestCase):
         self.addCleanup(self._temp.cleanup)
         self.root = Path(self._temp.name)
 
-    def test_integrate_composes_lanes_and_reports_training_ready(self):
+    def test_confined_path_redacts_a_leaf_symlink_spelling(self):
+        target = self.root / "target.json"
+        target.touch()
+        marker_name = "operator-redaction-marker-symlink"
+        link = self.root / marker_name
+        link.symlink_to(target)
+
+        with self.assertRaises(curate_gate.GateError) as raised:
+            curate_gate._confined_path(str(link))
+
+        self.assertEqual(str(raised.exception), "the path is a symlink")
+        self.assertNotIn(marker_name, str(raised.exception))
+
+    def test_integrate_composes_legacy_lanes_but_refuses_training(self):
         fixture = GateFixture(self.root)
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
 
         manifest = fixture.manifest()
         self.assertEqual(manifest["schema"], curate_gate.MANIFEST_SCHEMA)
-        self.assertTrue(manifest["training_ready"])
+        self.assertFalse(manifest["training_ready"])
         self.assertEqual(
             [lane["transform"] for lane in manifest["composition_order"]],
             [transform for _bead, transform in curate_gate.REQUIRED_LANES],
@@ -84,6 +98,8 @@ class IntegrationTests(unittest.TestCase):
             "reward_sidecars",
         ):
             self.assertTrue(manifest["gates"][gate]["passed"], gate)
+        self.assertFalse(manifest["gates"]["rights"]["passed"])
+        self.assertTrue(manifest["blockers"])
         # Composition happened, and both lane trees landed under one destination.
         self.assertTrue((fixture.cleaned / "bridge-factory" / "batch-r02.jsonl").is_file())
         self.assertTrue((fixture.cleaned / "thalamic-mini" / "batch-r02.jsonl").is_file())
@@ -136,6 +152,9 @@ class IntegrationTests(unittest.TestCase):
         )
 
     def test_terminal_record_repairs_replay_without_summary_drift(self):
+        # Isolate repaired-record summary replay from the independent rights decision.
+        self.enterContext(mock.patch.object(curate_gate_gates, "evaluate_rights",
+            return_value=({"passed": True, "enforced": False}, [])))
         fixture = GateFixture(self.root)
         repaired_entries = json.loads(fixture.manifest_paths[1].read_text())
         repaired = next(entry for entry in repaired_entries if entry["source_line"] == 3)
@@ -236,7 +255,7 @@ class IntegrationTests(unittest.TestCase):
         _write_jsonl(tag_output, records)
         fixture.sync_lane_manifest(5)
 
-        self.assertEqual(fixture.integrate("--per-stratum", "100"), 0)
+        self.assertEqual(fixture.integrate("--per-stratum", "100"), 1)
         manifest = fixture.manifest()
         changed = [
             candidate
@@ -265,7 +284,7 @@ class IntegrationTests(unittest.TestCase):
 
     def test_manifest_preserves_complete_retained_identity_mappings(self):
         fixture = GateFixture(self.root)
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
 
         mappings = fixture.manifest()["identity_mappings"]
         self.assertEqual(len(mappings), 4)
@@ -308,7 +327,7 @@ class IntegrationTests(unittest.TestCase):
         }
         fixture.manifest_paths[1].write_text(json.dumps(entries))
 
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
         entry = next(
             item
             for item in fixture.manifest()["exclusions"]
@@ -327,7 +346,7 @@ class IntegrationTests(unittest.TestCase):
         entries[1]["reason_codes"] = ["BRANCH_ONLY_PROPOSAL_ANNOTATION_REMOVED"]
         fixture.manifest_paths[2].write_text(json.dumps(entries))
 
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
         manifest = fixture.manifest()
         self.assertEqual(len(manifest["repairs"]), 1)
         repair = manifest["repairs"][0]
@@ -350,7 +369,7 @@ class IntegrationTests(unittest.TestCase):
             identity_records,
         )
         fixture.sync_lane_manifest(1)
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
         manifest = fixture.manifest()
 
         supersession = next(
@@ -388,7 +407,7 @@ class IntegrationTests(unittest.TestCase):
         _write_jsonl(identity_path, identity_records)
         fixture.sync_lane_manifest(1)
 
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
         emitted = _read_jsonl(fixture.cleaned / "bridge-factory" / "batch-r02.jsonl")
         self.assertEqual(
             emitted[0]["bridge_notes"]["mapping"],
@@ -428,7 +447,7 @@ class IntegrationTests(unittest.TestCase):
         _write_jsonl(preference_path, preference_records)
         fixture.sync_lane_manifest(2)
 
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
         final_record = json.loads(
             (fixture.cleaned / "thalamic-mini" / "batch-r02.jsonl").read_text().split("\n")[0]
         )
@@ -583,7 +602,7 @@ class IntegrationTests(unittest.TestCase):
             mock.patch.object(curate_gate, "_REPO", project.resolve()),
             mock.patch.object(curate_gate, "RAW_OUTPUT_ROOT", raw_root.resolve()),
         ):
-            self.assertEqual(fixture.integrate(), 0)
+            self.assertEqual(fixture.integrate(), 1)
         self.assertTrue((fixture.cleaned / curate_gate.MANIFEST_FILENAME).is_file())
 
     def test_integrate_rejects_output_tampered_after_manifest_creation(self):
@@ -685,6 +704,9 @@ class IntegrationTests(unittest.TestCase):
         self.assertFalse(fixture.cleaned.exists())
 
     def test_jsonl_lane_manifest_remains_parseable_as_promoted_evidence(self):
+        # This case isolates evidence framing and promotion mechanics from rights policy.
+        self.enterContext(mock.patch.object(curate_gate_gates, "evaluate_rights",
+            return_value=({"passed": True, "enforced": False}, [])))
         fixture = GateFixture(self.root)
         entries = json.loads(fixture.manifest_paths[0].read_text())
         entries[0]["reason_codes"] = ["literal\u2028separator\u2029evidence"]
@@ -712,6 +734,9 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(copied.read_bytes(), jsonl_manifest.read_bytes())
 
     def test_jsonl_readers_keep_unicode_line_separators_inside_one_record(self):
+        # This case isolates evidence framing and promotion mechanics from rights policy.
+        self.enterContext(mock.patch.object(curate_gate_gates, "evaluate_rights",
+            return_value=({"passed": True, "enforced": False}, [])))
         record = _thalamic("unicode-separators")
         record["state"]["env"] = "before\u2028middle\u2029after"
         record["reward_components"]["note"] = "reward\u2028evidence\u2029value"
@@ -921,7 +946,7 @@ class IntegrationTests(unittest.TestCase):
     def test_a_lane_manifest_inside_the_output_tree_stays_out_of_the_corpus(self):
         fixture = GateFixture(self.root)
         self.assertTrue(fixture.manifest_paths[0].is_file())
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)
         self.assertFalse((fixture.cleaned / "manifest.json").exists())
         manifest = fixture.manifest()
         self.assertNotIn("manifest.json", {entry["path"] for entry in manifest["outputs"]})
@@ -1202,6 +1227,49 @@ class IntegrationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(curate_gate.GateError, "multiple source identities"):
             curate_gate._prepare_lane(lane, source_records)
+
+
+class RightsGateTests(unittest.TestCase):
+    def test_unauthenticated_research_envelope_blocks_the_gate(self):
+        log = curate_gate_gates._GateLog({}, [])
+        mapping = {
+            "action": "retained",
+            "rights": {
+                "intended_use": "research_only",
+                "project_training_policy": "blocked",
+                "provider_training_status": "blocked",
+                "source_sha256": "sha256:" + ("a" * 64),
+                "factory_registry_sha256": "sha256:" + ("b" * 64),
+            },
+        }
+        curate_gate_gates._rights_gate([mapping], log)
+        self.assertTrue(log.gates["rights"]["enforced"])
+        self.assertFalse(log.gates["rights"]["passed"])
+        self.assertTrue(
+            any(item.startswith("RIGHTS_INVALID_ENVELOPE:") for item in log.blockers),
+            log.blockers,
+        )
+
+    def test_forged_allowed_envelope_requires_authenticated_source(self):
+        log = curate_gate_gates._GateLog({}, [])
+        envelope = {
+            "authority": "procedural", "intended_use": "training_candidate",
+            "project_training_policy": "allowed", "provider_training_status": "allowed",
+            "eligible_training_candidate": True,
+            **{field: "sha256:" + "a" * 64 for field in (
+                "source_sha256", "factory_registry_sha256", "procedural_policy_sha256",
+                "catalog_sha256", "programs_sha256")},
+        }
+        curate_gate_gates._rights_gate([{"action": "retained", "rights": envelope}], log)
+        self.assertFalse(log.gates["rights"]["passed"])
+        self.assertTrue(log.blockers)
+
+    def test_mappings_without_envelopes_fail_closed(self):
+        log = curate_gate_gates._GateLog({}, [])
+        curate_gate_gates._rights_gate([{"action": "retained", "output_id": "x"}], log)
+        self.assertTrue(log.gates["rights"]["enforced"])
+        self.assertFalse(log.gates["rights"]["passed"])
+        self.assertTrue(log.blockers)
 
 
 
