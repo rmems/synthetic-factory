@@ -5,7 +5,6 @@ fixture, exercised on every field whose type is part of the sealed
 provenance contract.
 """
 
-import copy
 import json
 import tempfile
 import unittest

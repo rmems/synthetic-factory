@@ -42,19 +42,23 @@ else:
         q88_to_float,
     )
 
-def _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neurons):
+def _lif_step_neuron_float(neuron_input, model, state):
     """One neuron's float64 LIF update for one timestep.
 
-    Mutates ``membrane[i]``/``refractory[i]`` in place; returns 1 if the
-    neuron fires this step, else 0. Split out of ``simulate_float``'s nested
-    loop with the exact same operations in the exact same order, so this
-    does not change floating-point evaluation order or results.
+    ``neuron_input`` is ``(i, row)``: the neuron index and the stimulus row.
+    ``state`` is the ``(membrane, refractory, previous)`` triple the loop
+    owns; ``membrane[i]``/``refractory[i]`` are mutated in place. Returns 1
+    if the neuron fires this step, else 0. Split out of ``simulate_float``'s
+    nested loop with the exact same operations in the exact same order, so
+    this does not change floating-point evaluation order or results.
     """
+    i, row = neuron_input
+    membrane, refractory, previous = state
     if refractory[i] > 0:
         refractory[i] -= 1
         membrane[i] = 0.0
         return 0
-    drive = _lif_drive(i, row, model, previous, neurons)
+    drive = _lif_drive(i, row, model, previous)
     membrane[i] = model["decay"][i] * membrane[i] + drive
     if membrane[i] >= model["threshold"][i]:
         if model["reset"] == "zero":
@@ -66,7 +70,14 @@ def _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neuron
     return 0
 
 
-def _lif_drive(i, row, model, previous, neurons):
+def _lif_recurrent_terms(i, model, previous):
+    """The w_rec terms a neuron sees this step, empty without recurrence."""
+    if model["w_rec"] is None:
+        return []
+    return [model["w_rec"][i][k] for k in range(len(previous)) if previous[k]]
+
+
+def _lif_drive(i, row, model, previous):
     """One neuron's summed input drive for one timestep.
 
     The accumulation order (bias, then w_in left-to-right, then w_rec
@@ -74,13 +85,11 @@ def _lif_drive(i, row, model, previous, neurons):
     floating-point results are identical.
     """
     drive = model["bias"][i]
-    for j in range(model["inputs"]):
-        if row[j]:
-            drive += model["w_in"][i][j]
-    if model["w_rec"] is not None:
-        for k in range(neurons):
-            if previous[k]:
-                drive += model["w_rec"][i][k]
+    for term in [
+        *[model["w_in"][i][j] for j in range(model["inputs"]) if row[j]],
+        *_lif_recurrent_terms(i, model, previous),
+    ]:
+        drive += term
     return drive
 
 
@@ -97,7 +106,7 @@ def simulate_float(model, stimulus):
     for step in range(stimulus["steps"]):
         row = stimulus["events"][step]
         fired = [
-            _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neurons)
+            _lif_step_neuron_float((i, row), model, (membrane, refractory, previous))
             for i in range(neurons)
         ]
         previous = fired

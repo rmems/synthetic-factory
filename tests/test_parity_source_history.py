@@ -64,10 +64,10 @@ DEPLOYMENT_SOURCE_STAMPS = (
 # the workspace `nir-rs` binary, and `spikenaut_fpga` runs through the
 # `silicon-bridge` UART transport. Fixture bytes under the reviewed stamps.
 CRATE_ADAPTER_SOURCE_STAMPS = (
-    ('sha256:df67896d80106fed794146fdf8fe78184c4b6fe9e8782d18bba2aa5cd6aca3c2',
-     '262c8a2dbefd570264a9ad02c9f1358e23fb457d01a0383223b63b0c63c87fbe'),
-    ('sha256:e5ff8917778413606f02143d2b5068a3bed97f85cdf3e6fc8d5dff9317790d8e',
-     'b0c35fe54ba2c08cc9e1b49d12e18a497f3aff478462f20dba4cf7fbcef6285a'),
+    ('sha256:5bf2d64082be8744fb561bccd2bcce2ca76794f2db0333ba29c71e9c3190bcb6',
+     '58a88af171f255f7f15d7db57482ce177944ea444351006d691ed9b6c67c86dd'),
+    ('sha256:1054b0feb5d816a3a5238fb7f8c786410a0eb493adee55ab1dbc27d9d16e73dc',
+     '066589b6bcafc628b835f9b415a69cb3b163a5ebedb0aa51f597a36f0f6e5af0'),
 )
 
 
@@ -160,6 +160,7 @@ class SharedSourceClosure(unittest.TestCase):
         shared = (
             "oracle_grounded/parity_terms.py", "oracle_grounded/envelope.py",
             "oracle_grounded/family_digest.py", "oracle_grounded/import_twins.py",
+            "parity_validators.py",
             "exact_json.py", "exact_json_encoding.py", "tag_jsonutil.py", "raw_tree_guard.py",
             "validate_run_provenance.py", "validate_run_spikes.py",
             "../schemas/thalamic-trajectory.schema.json",

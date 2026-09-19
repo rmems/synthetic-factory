@@ -271,19 +271,36 @@ def _output_summary(relative: str, target: Path, records: list[dict[str, Any]]) 
     }
 
 
+def _canonical_line(item: dict[str, Any], record) -> bytes:
+    return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+
 def _composed_line(item: dict[str, Any]) -> bytes:
     record = item["record"]
-    kind = classify_kind(record)
-    if kind in {"hardware_parity", "nir_equivalence"}:
-        payload = item.get("source_bytes")
-        if not isinstance(payload, bytes) or record_sha256(record) != item["source_record_sha256"]:
-            raise GateError("native parity composition must preserve authenticated source bytes")
-        return payload
-    if kind in {"code_repair", "oracle"}:
-        if not _merge._same_json(record, item["source_record"]):
-            raise GateError("procedural evidence must preserve the reviewed source record")
-        return item["source_bytes"]
-    return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    return _LINE_COMPOSERS.get(classify_kind(record), _canonical_line)(item, record)
+
+
+def _native_parity_line(item: dict[str, Any], record) -> bytes:
+    """A native parity record composes as its authenticated source bytes."""
+    payload = item.get("source_bytes")
+    if not isinstance(payload, bytes) or record_sha256(record) != item["source_record_sha256"]:
+        raise GateError("native parity composition must preserve authenticated source bytes")
+    return payload
+
+
+def _reviewed_source_line(item: dict[str, Any], record) -> bytes:
+    """A procedural record composes as the reviewed source bytes it shadows."""
+    if not _merge._same_json(record, item["source_record"]):
+        raise GateError("procedural evidence must preserve the reviewed source record")
+    return item["source_bytes"]
+
+
+_LINE_COMPOSERS = {
+    "hardware_parity": _native_parity_line,
+    "nir_equivalence": _native_parity_line,
+    "code_repair": _reviewed_source_line,
+    "oracle": _reviewed_source_line,
+}
 
 
 def _composed_payload(records):

@@ -134,8 +134,10 @@ replay and completed-round gate. Hosted-frontier rows remain blocked.
 - **Record kind comes from the payload, not the directory.**
   `record_kind.classify_kind` is the single classifier. A self-declared
   `record_kind` in `DECLARED_KINDS` (`hardware_parity`, `nir_equivalence`) is
-  read first when present, so a family that names itself is never captured by a shape rule
-  it happens to overlap; the key-presence order follows (code_repair, thalamic,
+  read first when present — a family that names itself is never captured by a
+  shape rule it happens to overlap, except when a record omits `record_kind` or
+  carries a value outside `DECLARED_KINDS`; those fall back to the key-presence
+  order (code_repair, thalamic,
   preference, bridge_pair, safety_case, multi_agent, episode). "Mill mix" — a
   record whose `meta.factory`, id prefix, or goal family belongs to another
   lane — is resolved by `mill_family.py`, reported by census, and quarantined by

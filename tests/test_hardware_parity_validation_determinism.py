@@ -61,9 +61,7 @@ class DeterminismEvidence(unittest.TestCase):
         software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
         record = hp.build_record(
             scenario,
-            software,
-            deployment,
-            unavailable,
+            (software, deployment, unavailable),
             1,
             oracle.availability_report(env={})["spikenaut_fpga"],
         )

@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import parity_test_support  # noqa: E402
 from hardware_parity_support import (  # noqa: E402
     FIXTURE,
     WHERE,
@@ -227,7 +228,7 @@ class Generation(unittest.TestCase):
         self.assertIsNone(deployment)
         self.assertEqual(unavailable["reason_code"], "FPGA_DEVICE_NOT_DECLARED")
         record = hp.build_record(
-            scenario, software, deployment, unavailable, 1,
+            scenario, (software, deployment, unavailable), 1,
             oracle.availability_report(env={})["spikenaut_fpga"],
         )
         self.assertEqual(record["result"]["verdict"], contract.VERDICT_INCONCLUSIVE)
@@ -243,9 +244,7 @@ class Generation(unittest.TestCase):
         )
         record = hp.build_record(
             scenario,
-            software,
-            deployment,
-            unavailable,
+            (software, deployment, unavailable),
             1,
             oracle.availability_report(env={})["spikenaut_fpga"],
         )
@@ -275,9 +274,7 @@ class Generation(unittest.TestCase):
         )
         record = hp.build_record(
             scenario,
-            software,
-            deployment,
-            unavailable,
+            (software, deployment, unavailable),
             1,
             oracle.availability_report(env={})["spikenaut_fpga"],
         )
@@ -304,9 +301,7 @@ class Generation(unittest.TestCase):
         software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
         record = hp.build_record(
             scenario,
-            software,
-            deployment,
-            unavailable,
+            (software, deployment, unavailable),
             1,
             oracle.availability_report(env={})["spikenaut_fpga"],
         )
@@ -320,9 +315,7 @@ class Generation(unittest.TestCase):
         software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
         record = hp.build_record(
             scenario,
-            software,
-            deployment,
-            unavailable,
+            (software, deployment, unavailable),
             1,
             oracle.availability_report(env={})["spikenaut_fpga"],
         )
@@ -440,29 +433,9 @@ class Cli(unittest.TestCase):
             self.assertIn("non-finite JSON number", errors[0])
 
     def test_read_jsonl_reports_absurd_nesting_as_a_line_error(self):
-        # A syntactically valid but absurdly nested line must be a line-level
-        # parse error, not a decoder RecursionError that aborts the scan. The
-        # depth at which the decoder gives up is a platform property (stack
-        # budget), so probe for one it refuses rather than hard-coding it.
-        depth = 100_000
-        while depth <= 3_200_000:
-            try:
-                json.loads("[" * depth + "]" * depth)
-            except RecursionError:
-                break
-            depth *= 2
-        else:
-            self.skipTest("this platform's decoder accepts 3.2M-deep nesting")
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "batch.jsonl"
-            path.write_text(
-                "[" * depth + "]" * depth + '\n{"id": "after"}\n',
-                encoding="utf-8",
-            )
-            records, errors = hp.read_jsonl(path)
-            self.assertEqual(records, [{"id": "after"}])
-            self.assertEqual(len(errors), 1)
-            self.assertIn("JSON parse error", errors[0])
+        parity_test_support.assert_absurd_nesting_is_a_line_error(
+            self, hp.read_jsonl
+        )
 
     def test_validate_rejects_a_tampered_file(self):
         with tempfile.TemporaryDirectory() as tmp:

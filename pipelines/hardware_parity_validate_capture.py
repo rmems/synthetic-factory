@@ -63,8 +63,11 @@ def _repeat_cardinality_errors(payload, where):
     return zip(repeat_outputs, repeat_digests), []
 
 
-def _repeat_entry_errors(repeat_output, repeat_digest, index, scenario, where):
-    """One retained repeat: well formed, and its digest derives from it."""
+def _repeat_entry_errors(entry, scenario, where):
+    """One retained repeat: well formed, and its digest derives from it.
+
+    ``entry`` is ``(index, repeat_output, repeat_digest)``."""
+    index, repeat_output, repeat_digest = entry
     errors = _physical_observation_errors(
         repeat_output,
         scenario,
@@ -91,10 +94,8 @@ def _capture_repeat_errors(payload, scenario, where):
     repeats, errors = _repeat_cardinality_errors(payload, where)
     if repeats is None:
         return errors
-    for index, (repeat_output, repeat_digest) in enumerate(repeats):
-        errors += _repeat_entry_errors(
-            repeat_output, repeat_digest, index, scenario, where
-        )
+    for index, pair in enumerate(repeats):
+        errors += _repeat_entry_errors((index, *pair), scenario, where)
     repeat_outputs = payload["repeat_outputs"]
     primary_projection = _repeat_projection(payload)
     if not contract.strict_json_equal(
@@ -128,16 +129,18 @@ def _capture_output_digest_errors(deployment, payload, repeat_digests, where):
     return errors
 
 
+def _bound_timestamp(recorded_at, manifest_recorded_at):
+    """A non-empty capture timestamp must equal the manifest's."""
+    if not isinstance(recorded_at, str) or not recorded_at.strip():
+        return False
+    return recorded_at == manifest_recorded_at
+
+
 def _capture_manifest_binding_errors(capture, manifest, record, where):
     """capture.recorded_at and the input fixture must bind to the manifest."""
     errors = []
-    recorded_at = capture.get("recorded_at")
-    manifest_recorded_at = manifest.get("recorded_at")
-    if (
-        not isinstance(recorded_at, str)
-        or not recorded_at.strip()
-        or recorded_at != manifest_recorded_at
-    ):
+    bound_time = _bound_timestamp(capture.get("recorded_at"), manifest.get("recorded_at"))
+    if not bound_time:
         errors.append(
             f"{where}: capture.recorded_at is not bound to "
             "capture.source.manifest.recorded_at [HW_PROVENANCE_MISSING]"
@@ -161,21 +164,23 @@ def _capture_adapter_identity_errors(source, deployment, where):
         deployment.get("adapter"),
         deployment.get("runtime_class"),
     )
-    if deployment_identity == (
+    live_claim = deployment_identity == (
         FpgaHardwareAdapter.name,
         FpgaHardwareAdapter.runtime_class,
-    ) and (source_adapter, source_runtime) != deployment_identity:
+    )
+    identity_differs = (source_adapter, source_runtime) != deployment_identity
+    declared_source = source_adapter is not None or source_runtime is not None
+    if live_claim and identity_differs:
         return [
             f"{where}: live FPGA evidence must bind capture.source.adapter and "
             "capture.source.runtime_class to the live board adapter "
             "[HW_PROVENANCE_MISSING]"
         ]
-    if source_adapter is not None or source_runtime is not None:
-        if (source_adapter, source_runtime) != deployment_identity:
-            return [
-                f"{where}: capture source adapter identity disagrees with the "
-                "deployment [HW_PROVENANCE_MISSING]"
-            ]
+    if declared_source and identity_differs:
+        return [
+            f"{where}: capture source adapter identity disagrees with the "
+            "deployment [HW_PROVENANCE_MISSING]"
+        ]
     return []
 
 

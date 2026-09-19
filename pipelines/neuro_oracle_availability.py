@@ -80,6 +80,8 @@ FPGA_BOARD_SERIAL_ENV = "SPIKENAUT_FPGA_BOARD_SERIAL"
 FPGA_TRANSPORT_ENV = "SPIKENAUT_SILICON_BRIDGE"
 FPGA_TRANSPORT_EXECUTABLE = "silicon-bridge"
 
+_SHA256_PREFIX = "sha256:"
+
 _FPGA_DIAGNOSTIC_DETAILS = {
     "FPGA_DEVICE_NOT_DECLARED": f"{FPGA_DEVICE_ENV} is unset; no board is claimed and none is assumed",
     "FPGA_BITSTREAM_NOT_DECLARED": (
@@ -122,9 +124,9 @@ def _is_canonical_sha256(value):
     """True only for the canonical lowercase ``sha256:<64hex>`` spelling."""
     return (
         isinstance(value, str)
-        and len(value) == len("sha256:") + 64
-        and value.startswith("sha256:")
-        and all(char in "0123456789abcdef" for char in value[len("sha256:"):])
+        and len(value) == len(_SHA256_PREFIX) + 64
+        and value.startswith(_SHA256_PREFIX)
+        and all(char in "0123456789abcdef" for char in value[len(_SHA256_PREFIX):])
     )
 
 
@@ -257,10 +259,16 @@ class FpgaHardwareAdapter(OracleAdapter):
         measured = self._exchange(model, stimulus, repeats)
         runs = measured["runs"]
         outcomes = [self._outcome(model, stimulus, run) for run in runs]
-        return self._payload(stimulus, measured, runs, outcomes, quantization)
+        return self._payload((stimulus, quantization), (measured, runs, outcomes))
 
-    def _payload(self, stimulus, measured, runs, outcomes, quantization):
-        """The hardware-side payload: capture provenance around the outcome."""
+    def _payload(self, capture_inputs, executions):
+        """The hardware-side payload: capture provenance around the outcome.
+
+        ``capture_inputs`` is ``(stimulus, quantization)``; ``executions`` is
+        the ``(measured, runs, outcomes)`` the exchange produced.
+        """
+        _stimulus, quantization = capture_inputs
+        _measured, runs, outcomes = executions
         repeat_digests = [run_digest(outcome) for outcome in outcomes]
         distinct = len(set(repeat_digests))
         latency = self._latency_block(runs)
@@ -285,9 +293,7 @@ class FpgaHardwareAdapter(OracleAdapter):
             "quantization": quantization,
             "hardware": hardware,
             "bitstream": bitstream,
-            "capture": self._capture_document(
-                stimulus, (measured, runs, outcomes), quantization
-            ),
+            "capture": self._capture_document(capture_inputs, executions),
         }
         payload.update(primary)
         return payload
@@ -306,10 +312,10 @@ class FpgaHardwareAdapter(OracleAdapter):
             },
         )
 
-    def _capture_document(self, stimulus, executions, quantization):
+    def _capture_document(self, capture_inputs, executions):
         """The capture block: manifest, stored source, and its digests."""
         source, manifest, capture_payload, recorded_at = self._capture_source(
-            stimulus, executions, quantization
+            capture_inputs, executions
         )
         return {
             "attestation": {"status": "unverified", "basis": "self_contained_checksums"},
@@ -320,9 +326,11 @@ class FpgaHardwareAdapter(OracleAdapter):
             "source": source,
         }
 
-    def _capture_source(self, stimulus, executions, quantization):
+    def _capture_source(self, capture_inputs, executions):
         """``(source, manifest, capture_payload, recorded_at)`` — the replay
-        evidence stored inside the capture, before the digest layer wraps it."""
+        evidence stored inside the capture, before the digest layer wraps it.
+        ``capture_inputs`` is ``(stimulus, quantization)``."""
+        stimulus, quantization = capture_inputs
         measured, runs, outcomes = executions
         hardware, bitstream = self._hardware_terms()
         recorded_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")

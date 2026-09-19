@@ -2,12 +2,17 @@
 
 import tempfile
 import copy
-
-import neuro_oracle as oracle
 import unittest
+import sys
+from pathlib import Path
 
-import hardware_parity as hp
-import test_hardware_parity_capture as capture_tests
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import hardware_parity_support as capture_support  # noqa: E402
+import test_hardware_parity_capture as capture_tests  # noqa: E402
+
+import hardware_parity as hp  # noqa: E402
+import neuro_oracle as oracle  # noqa: E402
 
 
 class CaptureAuthority(unittest.TestCase):
@@ -62,7 +67,7 @@ class CaptureAuthority(unittest.TestCase):
             captured = adapter._capture
             spikes = copy.deepcopy(captured["payload"]["spikes"])
             spikes[0][0] ^= 1
-            payload = capture_tests._capture_payload(scenario, spikes, captured["payload"]["membrane"])
+            payload = capture_support._capture_payload(scenario, spikes, captured["payload"]["membrane"])
             captured["payload"] = payload
             captured["manifest"]["payload_sha256"] = oracle.digest(payload)
             record = hp.generate_records(steps=6, deployment_adapter=adapter)[0]

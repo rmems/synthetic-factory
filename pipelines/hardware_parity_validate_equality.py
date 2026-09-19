@@ -72,24 +72,25 @@ def _metrics_equal_float(recorded, recomputed, path, where):
     return []
 
 
-def _metrics_equal_scalar(recorded, recomputed, path, where):
-    # JSON numbers still arrive as distinct Python integer and float values,
-    # while `bool` is a subclass of `int`. Keep those types exact and reject
-    # non-finite floats before applying a tolerance; otherwise True can stand
-    # in for 1 and NaN compares equal to every finite metric here.
+def _scalar_matched(recorded, recomputed):
+    """Type-exact scalar equality: bools, ints, then plain values.
+
+    JSON numbers still arrive as distinct Python integer and float values,
+    while `bool` is a subclass of `int`, so True could otherwise stand in
+    for 1. ``type() is int`` is exact: bool (and any int subclass) cannot
+    stand in for an integer metric.
+    """
     if isinstance(recomputed, bool):
-        matched = isinstance(recorded, bool) and recorded is recomputed
-    elif isinstance(recomputed, int):
-        matched = (
-            isinstance(recorded, int)
-            and not isinstance(recorded, bool)
-            and recorded == recomputed
-        )
-    elif isinstance(recomputed, float):
+        return isinstance(recorded, bool) and recorded is recomputed
+    if isinstance(recomputed, int):
+        return type(recorded) is int and recorded == recomputed  # pylint: disable=unidiomatic-typecheck
+    return recorded == recomputed
+
+
+def _metrics_equal_scalar(recorded, recomputed, path, where):
+    if isinstance(recomputed, float):
         return _metrics_equal_float(recorded, recomputed, path, where)
-    else:
-        matched = recorded == recomputed
-    if matched:
+    if _scalar_matched(recorded, recomputed):
         return []
     return [_metric_mismatch(path, where, recorded, recomputed)]
 

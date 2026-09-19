@@ -6,10 +6,13 @@ responsibility (generation, validation gates, captured-evidence provenance)
 and share the committed parity-run fixture and the CLI shim from here.
 """
 
+import copy
 import json
 # Required only for the fixed-argv CLI subprocess in `cli` below.
 import subprocess  # nosec B404
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -47,21 +50,8 @@ def cli(args):
         text=True,
     )
 
-import copy
-import tempfile
-import unittest
-
 import hardware_parity as hp  # noqa: E402
 import neuro_oracle as oracle  # noqa: E402
-
-CAPTURE_MUTATIONS = (
-    "bitstream_sha256",
-    "truncate_spikes",
-    "narrow_spikes",
-    "invalid_spike_cell",
-    "narrow_membrane",
-)
-
 
 CAPTURE_MUTATIONS = (
     "bitstream_sha256",
@@ -122,7 +112,6 @@ def _capture_payload(scenario, spikes, membrane):
         oracle.run_digest(repeat) for repeat in payload["repeat_outputs"]
     ]
     return payload
-
 
 
 class CaptureCase(unittest.TestCase):
@@ -217,7 +206,6 @@ class CaptureCase(unittest.TestCase):
         capture["source_sha256"] = oracle.digest(source)
         record["result"]["derived_from"][-1] = hp._capture_evidence_digest(deployment)
         return record
-
 
     def _with_q88_raw(self, record, raw_value):
         deployment = record["oracle"]["deployment"]

@@ -105,29 +105,36 @@ def normalize_model(model):
     return normalized
 
 
-def normalize_stimulus(stimulus, inputs):
-    """Validate an encoded input fixture against the model input width."""
-    events = stimulus["events"]
-    steps = int(stimulus.get("steps", len(events)))
-    if steps != len(events):
+def _stimulus_steps(stimulus, event_count):
+    """A positive step count that agrees with the recorded event grid."""
+    steps = int(stimulus.get("steps", event_count))
+    if steps != event_count:
         raise ValueError("stimulus.steps disagrees with len(events)")
     if steps < 1:
         raise ValueError("stimulus needs at least one step")
-    grid = []
-    for index, row in enumerate(events):
-        if len(row) != inputs:
-            raise ValueError(f"stimulus step {index} must have {inputs} channels")
-        if any(cell not in (0, 1) for cell in row):
-            raise ValueError(f"stimulus step {index} must be binary")
-        grid.append([int(cell) for cell in row])
+    return steps
+
+
+def normalize_stimulus(stimulus, inputs):
+    """Validate an encoded input fixture against the model input width."""
+    events = stimulus["events"]
     return {
         "name": str(stimulus["name"]),
         "encoding": str(stimulus.get("encoding", "binary_event_grid")),
         "dt_ms": float(stimulus.get("dt_ms", 1.0)),
-        "steps": steps,
+        "steps": _stimulus_steps(stimulus, len(events)),
         "channels": inputs,
-        "events": grid,
+        "events": [_binary_row(index, row, inputs) for index, row in enumerate(events)],
     }
+
+
+def _binary_row(index, row, inputs):
+    """One grid row: exactly ``inputs`` binary cells, normalized to ints."""
+    if len(row) != inputs:
+        raise ValueError(f"stimulus step {index} must have {inputs} channels")
+    if any(cell not in (0, 1) for cell in row):
+        raise ValueError(f"stimulus step {index} must be binary")
+    return [int(cell) for cell in row]
 
 
 def stimulus_fixture(stimulus):

@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import parity_test_support  # noqa: E402
 from hardware_parity_support import (  # noqa: E402
     WHERE,
     fixture_records as _fixture_records,
@@ -64,23 +65,8 @@ class TrainingViews(unittest.TestCase):
         ]
         self.assertTrue(retained and len(retained) < len(records))
         views, errors = hp.build_training_views(retained, source="filtered")
-        self._assert_catalog_rejected_after_clean_projection(views, retained, errors)
-
-    def _assert_catalog_rejected_after_clean_projection(self, views, retained, errors):
-        # The projection itself is clean -- one view per retained record, none
-        # of them flagged -- so the catalog check is the only thing that can
-        # reject this batch.
-        self.assertEqual(
-            [view["id"] for view in views], [record["id"] for record in retained]
-        )
-        self.assertFalse([view["id"] for view in views if view["parity_failed"]])
-        self.assertTrue(
-            any(
-                "does not cover the scenario catalog" in error
-                and "TRAINING_VIEW_HIDES_FAILURE" in error
-                for error in errors
-            ),
-            errors,
+        parity_test_support.assert_catalog_rejected_after_clean_projection(
+            self, views, retained, errors
         )
 
     def test_empty_batch_fails_catalog_authentication(self):

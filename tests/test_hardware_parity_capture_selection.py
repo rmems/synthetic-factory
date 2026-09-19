@@ -7,10 +7,15 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+import sys
 
-import hardware_parity as hp
-import hardware_parity_cli as cli
-import test_hardware_parity_capture as capture_tests
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import hardware_parity_support  # noqa: E402, F401  (puts pipelines/ on sys.path)
+import test_hardware_parity_capture as capture_tests  # noqa: E402
+
+import hardware_parity as hp  # noqa: E402
+import hardware_parity_cli as cli  # noqa: E402
 
 
 class CaptureSelection(unittest.TestCase):

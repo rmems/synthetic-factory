@@ -30,7 +30,7 @@ else:
     from hardware_parity_validate_deployment import _is_canonical_sha256  # noqa: E402
 
 def _check_determinism(
-    run, label, where, require_rederived_repeats=False, expected_meaning=None
+    run, label, where, grading=(False, None)
 ):
     """Cross-check a declared determinism block against its own repeat digests.
 
@@ -42,6 +42,7 @@ def _check_determinism(
     capture) cannot claim its bit-determinism is instead measured hardware
     variability.
     """
+    require_rederived_repeats, expected_meaning = grading
     errors, digests = _repeat_digest_evidence_errors(
         run, label, where, require_rederived_repeats
     )
@@ -54,7 +55,7 @@ def _check_determinism(
             "[REPEATABILITY_UNPROVEN]"
         ]
     errors += _determinism_claim_errors(
-        determinism, digests, label, where, expected_meaning
+        determinism, digests, (label, where), expected_meaning
     )
     return errors
 
@@ -105,14 +106,15 @@ def _repeat_digest_evidence_errors(run, label, where, require_rederived_repeats)
             "digests were recorded [REPEATABILITY_UNPROVEN]"
         )
     errors += _repeat_derivation_errors(
-        run, digests, label, where, require_rederived_repeats and valid_repeats
+        run, digests, (label, where), require_rederived_repeats and valid_repeats
     )
     return errors, digests
 
 
-def _repeat_derivation_errors(run, digests, label, where, may_recheck):
+def _repeat_derivation_errors(run, digests, loc, may_recheck):
     """output_digest must sit inside repeat_digests and, for deterministic
-    sides, every digest must equal it."""
+    sides, every digest must equal it. ``loc`` is ``(label, where)``."""
+    label, where = loc
     errors = []
     if run.get("output_digest") not in digests:
         errors.append(
@@ -133,30 +135,42 @@ def _repeat_derivation_errors(run, digests, label, where, may_recheck):
     return errors
 
 
-def _determinism_claim_errors(determinism, digests, label, where, expected_meaning):
-    """Grade the declared determinism block against its digest evidence."""
+def _distinct_count_matches(recorded_distinct, distinct):
+    """distinct_digests must be an exact int equal to the observed count.
+
+    ``bool`` is an ``int`` subclass, so ``True == 1``: an ordinary
+    ``isinstance`` check would accept a Boolean where the documented evidence
+    shape is an exact integer count.
+    """
+    return type(recorded_distinct) is int and recorded_distinct == distinct
+
+
+def _identical_repeats_matches(recorded_identical, distinct):
+    return recorded_identical is (distinct == 1)
+
+
+def _meaning_matches(meaning, expected_meaning):
+    return expected_meaning is None or meaning == expected_meaning
+
+
+def _determinism_claim_errors(determinism, digests, loc, expected_meaning):
+    """Grade the declared determinism block against its digest evidence.
+    ``loc`` is ``(label, where)``."""
+    label, where = loc
     errors = []
     distinct = len(set(digests))
-    recorded_distinct = determinism.get("distinct_digests")
-    # `bool` is an `int` subclass, so `True == 1`: an ordinary comparison
-    # would accept a Boolean where the documented evidence shape is an exact
-    # integer count.
-    if (
-        not isinstance(recorded_distinct, int)
-        or isinstance(recorded_distinct, bool)
-        or recorded_distinct != distinct
-    ):
+    if not _distinct_count_matches(determinism.get("distinct_digests"), distinct):
         errors.append(
             f"{where}: oracle.{label}.determinism.distinct_digests claims "
-            f"{recorded_distinct!r} but the repeat digests contain "
+            f"{determinism.get('distinct_digests')!r} but the repeat digests contain "
             f"{distinct} [REPEATABILITY_UNPROVEN]"
         )
-    if determinism.get("identical_repeats") is not (distinct == 1):
+    if not _identical_repeats_matches(determinism.get("identical_repeats"), distinct):
         errors.append(
             f"{where}: oracle.{label}.determinism.identical_repeats disagrees with its "
             "own repeat digests [REPEATABILITY_UNPROVEN]"
         )
-    if expected_meaning is not None and determinism.get("meaning") != expected_meaning:
+    if not _meaning_matches(determinism.get("meaning"), expected_meaning):
         errors.append(
             f"{where}: oracle.{label}.determinism.meaning does not match its "
             "adapter-owned canonical text [REPEATABILITY_UNPROVEN]"

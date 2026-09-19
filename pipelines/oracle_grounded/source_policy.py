@@ -39,7 +39,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "3565f2ad05ce6de738bdbd11bd91dfde34ae77f0f7cc561eed020c69cfb7670f"
+POLICY_SHA256 = "cafed6d47728c3449b96cf45c0ae4a7fe654c44cd21250d649a1a999e63e11f8"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -82,6 +82,7 @@ NATIVE_SOURCE_NAMES = (
     "rust/nir-rs/Cargo.toml", "rust/nir-rs/src/main.rs",
     "rust/nir-rs/src/meta.rs", "rust/nir-rs/src/codec.rs",
     "rust/nir-rs/src/decode.rs", "rust/nir-rs/src/exec.rs",
+    "rust/nir-rs/src/step.rs",
     "rust/silicon-bridge/Cargo.toml", "rust/silicon-bridge/src/main.rs",
 )
 

@@ -28,6 +28,7 @@ class OracleSchemaSealTests(unittest.TestCase):
         relatives.extend(("rust/nir-rs/Cargo.toml", "rust/nir-rs/src/main.rs",
                           "rust/nir-rs/src/meta.rs", "rust/nir-rs/src/codec.rs",
                           "rust/nir-rs/src/decode.rs", "rust/nir-rs/src/exec.rs",
+                          "rust/nir-rs/src/step.rs",
                           "rust/silicon-bridge/Cargo.toml",
                           "rust/silicon-bridge/src/main.rs"))
         for relative in relatives:

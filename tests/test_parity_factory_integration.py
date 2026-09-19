@@ -25,6 +25,7 @@ sys.path.insert(0, str(PIPELINES))
 
 import census  # noqa: E402
 import check_records  # noqa: E402
+import parity_validators  # noqa: E402
 import exact_json  # noqa: E402
 from oracle_grounded import parity_contract as contract  # noqa: E402
 import validate_run  # noqa: E402
@@ -303,7 +304,7 @@ class DeepLayer(unittest.TestCase):
 
     def test_an_unroutable_parity_kind_is_loud(self):
         # No silent fallthrough to whichever validator happened to be last.
-        errors = check_records.check_parity_record({}, "some_future_kind", "unit:1")
+        errors = parity_validators.check_parity_record({}, "some_future_kind", "unit:1")
         self.assertTrue(any("no parity validator" in error for error in errors))
 
     def test_a_malformed_record_does_not_abort_the_whole_run_scan(self):

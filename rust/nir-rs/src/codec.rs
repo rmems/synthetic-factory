@@ -156,10 +156,11 @@ fn delay_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode
 }
 
 fn lif_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
+    let (tau, r, v_leak) = decay_params(name, node)?;
     Ok(NirNode::Lif(nodes::Lif {
-        tau: scalar_tensor(name, node, "tau")?,
-        r: scalar_tensor_default(name, node, "r", 1.0)?,
-        v_leak: scalar_tensor_default(name, node, "v_leak", 0.0)?,
+        tau,
+        r,
+        v_leak,
         v_threshold: scalar_tensor(name, node, "v_threshold")?,
         v_reset: None,
         metadata,
@@ -167,12 +168,22 @@ fn lif_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, 
 }
 
 fn li_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
+    let (tau, r, v_leak) = decay_params(name, node)?;
     Ok(NirNode::Li(nodes::Li {
-        tau: scalar_tensor(name, node, "tau")?,
-        r: scalar_tensor_default(name, node, "r", 1.0)?,
-        v_leak: scalar_tensor_default(name, node, "v_leak", 0.0)?,
+        tau,
+        r,
+        v_leak,
         metadata,
     }))
+}
+
+/// The `(tau, r, v_leak)` parameter triple the decay-integrate kinds share.
+fn decay_params(name: &str, node: &Value) -> Result<(Tensor, Tensor, Tensor), AdapterError> {
+    Ok((
+        scalar_tensor(name, node, "tau")?,
+        scalar_tensor_default(name, node, "r", 1.0)?,
+        scalar_tensor_default(name, node, "v_leak", 0.0)?,
+    ))
 }
 
 fn if_node(name: &str, node: &Value, metadata: MetadataMap) -> Result<NirNode, AdapterError> {
@@ -254,11 +265,21 @@ fn scalar_tensor_default(
     default: f64,
 ) -> Result<Tensor, AdapterError> {
     match node.get(field) {
-        Some(value) => Ok(Tensor::scalar_f64(value.as_f64().ok_or_else(|| {
-            AdapterError::graph(format!("node {name:?} needs numeric {field:?}"))
-        })?)),
+        Some(_) => scalar_tensor(name, node, field),
         None => Ok(Tensor::scalar_f64(default)),
     }
+}
+
+/// Decode a JSON number array cell by cell, refusing non-numeric entries.
+fn numeric_cells(name: &str, field: &str, values: &[Value]) -> Result<Vec<f64>, AdapterError> {
+    values
+        .iter()
+        .map(|value| {
+            value.as_f64().ok_or_else(|| {
+                AdapterError::graph(format!("node {name:?} has non-numeric {field:?}"))
+            })
+        })
+        .collect()
 }
 
 fn vector_tensor(name: &str, node: &Value, field: &str) -> Result<Tensor, AdapterError> {
@@ -266,12 +287,7 @@ fn vector_tensor(name: &str, node: &Value, field: &str) -> Result<Tensor, Adapte
         .get(field)
         .and_then(Value::as_array)
         .ok_or_else(|| AdapterError::graph(format!("node {name:?} needs vector {field:?}")))?;
-    let mut data = Vec::with_capacity(values.len());
-    for value in values {
-        data.push(value.as_f64().ok_or_else(|| {
-            AdapterError::graph(format!("node {name:?} has non-numeric {field:?}"))
-        })?);
-    }
+    let data = numeric_cells(name, field, values)?;
     Tensor::from_f64([data.len()], data)
         .map_err(|err| AdapterError::graph(format!("node {name:?}: {err}")))
 }
@@ -316,10 +332,6 @@ fn matrix_row(
             "node {name:?}: {field} rows must share one width"
         )));
     }
-    for value in row {
-        data.push(value.as_f64().ok_or_else(|| {
-            AdapterError::graph(format!("node {name:?} has non-numeric {field:?}"))
-        })?);
-    }
+    data.extend(numeric_cells(name, field, row)?);
     Ok(row.len())
 }

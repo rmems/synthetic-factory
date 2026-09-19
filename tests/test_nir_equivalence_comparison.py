@@ -13,6 +13,23 @@ import nir_equivalence_support  # noqa: E402,F401  # pylint: disable=unused-impo
 import nir_equivalence as nir  # noqa: E402
 from oracle_grounded import parity_contract as contract  # noqa: E402
 
+
+def _comparison_dict(**overrides):
+    """A fully-executed in-repo comparison shaped like ``compare_runtimes`` output."""
+
+    comparison = {
+        "executed_runtimes": [],
+        "executed_count": 0,
+        "parse_write_parity": {"per_runtime": {}, "agree": True},
+        "structure_parity": {"digests": {}, "agree": True},
+        "output_parity": {"comparable": False, "agree": None, "pairs": []},
+        "unsupported": [],
+        "unavailable": [],
+    }
+    comparison.update(overrides)
+    return comparison
+
+
 class Comparison(unittest.TestCase):
     def test_convention_delta_lists_only_differences(self):
         scenario = nir.build_scenario(nir.GRAPH_SPECS[0], steps=4)
@@ -74,30 +91,18 @@ class Comparison(unittest.TestCase):
         self.assertIn("DIVERGENCE_EVENT_STREAM", pair["reason_codes"])
 
     def test_fewer_than_two_executed_runtimes_is_never_a_match(self):
-        comparison = {
-            "executed_runtimes": ["only_one"],
-            "executed_count": 1,
-            "parse_write_parity": {"per_runtime": {}, "agree": True},
-            "structure_parity": {"digests": {}, "agree": True},
-            "output_parity": {"comparable": False, "agree": None, "pairs": []},
-            "unsupported": [],
-            "unavailable": [],
-        }
-        verdict, codes = nir.verdict_for(comparison)
+        verdict, codes = nir.verdict_for(
+            _comparison_dict(executed_runtimes=["only_one"], executed_count=1)
+        )
         self.assertEqual(verdict, contract.VERDICT_INCONCLUSIVE)
         self.assertIn("NO_EXECUTED_RUNTIME_PAIR", codes)
 
     def test_unsupported_construct_yields_the_unsupported_verdict(self):
-        comparison = {
-            "executed_runtimes": [],
-            "executed_count": 0,
-            "parse_write_parity": {"per_runtime": {}, "agree": True},
-            "structure_parity": {"digests": {}, "agree": True},
-            "output_parity": {"comparable": False, "agree": None, "pairs": []},
-            "unsupported": [{"runtime": "a", "reason_code": "UNSUPPORTED_CONSTRUCT"}],
-            "unavailable": [],
-        }
-        verdict, codes = nir.verdict_for(comparison)
+        verdict, codes = nir.verdict_for(
+            _comparison_dict(
+                unsupported=[{"runtime": "a", "reason_code": "UNSUPPORTED_CONSTRUCT"}]
+            )
+        )
         self.assertEqual(verdict, contract.VERDICT_UNSUPPORTED)
         self.assertIn("UNSUPPORTED_CONSTRUCT", codes)
 

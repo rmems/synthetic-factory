@@ -299,6 +299,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "neuro_oracle_quantize",
     "neuro_oracle_reference",
     "neuro_oracle_simulate",
+    "parity_validators",
     "nir_equivalence",
     "nir_equivalence_base",
     "nir_equivalence_catalog",

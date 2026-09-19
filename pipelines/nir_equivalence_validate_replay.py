@@ -76,21 +76,19 @@ def _reexecutable_runtime(entry):
     `_check_runtimes`: replaying it could only reproduce the probe's own
     refusal, which is already bound to the record there.
     """
-    if not isinstance(entry, dict):
-        return None
-    runtime_name = entry.get("runtime")
-    if not isinstance(runtime_name, str):
-        return None
-    runtime = _RUNTIME_BY_NAME.get(runtime_name)
+    runtime_name = entry.get("runtime") if isinstance(entry, dict) else None
+    runtime = (
+        _RUNTIME_BY_NAME.get(runtime_name) if isinstance(runtime_name, str) else None
+    )
     if runtime is None:
         return None
     try:
         status = runtime.availability()
     except Exception:  # noqa: BLE001 - an unprobeable runtime is not re-executable
-        return None
-    if not isinstance(status, dict) or status.get("available") is not True:
-        return None
-    return runtime
+        status = None
+    if isinstance(status, dict) and status.get("available") is True:
+        return runtime
+    return None
 
 
 def _replay_entry_errors(runtime, entry, scenario, label):
@@ -103,18 +101,10 @@ def _replay_entry_errors(runtime, entry, scenario, label):
     try:
         outputs = runtime.execute(graph, scenario["stimulus"])
     except UnsupportedConstruct as exc:
-        return _unsupported_replay_errors(entry, exc, label) + _roundtrip_replay_errors(
-            runtime, entry, graph, label
-        )
-    except RuntimeUnavailable as exc:
-        return [
-            f"{label}: runtime reported available at probe time but refused "
-            f"re-execution ({exc.reason_code}); the entry's evidence is "
-            "unfalsifiable in this environment [RUNTIME_STATUS_UNKNOWN]"
-        ]
-    except GraphError as exc:
-        return [f"{label}: graph is not executable: {exc}"]
+        errors, roundtrip = _unsupported_replay_errors(entry, exc, label), True
     except (
+        RuntimeUnavailable,
+        GraphError,
         KeyError,
         TypeError,
         ValueError,
@@ -122,15 +112,36 @@ def _replay_entry_errors(runtime, entry, scenario, label):
         AttributeError,
         OverflowError,
     ) as exc:
-        return [f"{label}: scenario is not executable: {exc}"]
+        errors, roundtrip = _execution_refusal_errors(exc, label), False
+    else:
+        errors = _executed_claim_errors(entry, outputs, label)
+        roundtrip = entry.get("status") == STATUS_EXECUTED
+    if roundtrip:
+        errors += _roundtrip_replay_errors(runtime, entry, graph, label)
+    return errors
+
+
+def _execution_refusal_errors(exc, label):
+    """Map a re-execution refusal to the diagnostic its kind carries."""
+    if isinstance(exc, RuntimeUnavailable):
+        return [
+            f"{label}: runtime reported available at probe time but refused "
+            f"re-execution ({exc.reason_code}); the entry's evidence is "
+            "unfalsifiable in this environment [RUNTIME_STATUS_UNKNOWN]"
+        ]
+    if isinstance(exc, GraphError):
+        return [f"{label}: graph is not executable: {exc}"]
+    return [f"{label}: scenario is not executable: {exc}"]
+
+
+def _executed_claim_errors(entry, outputs, label):
+    """The entry must admit the execution, then match the fresh outputs."""
     if entry.get("status") != STATUS_EXECUTED:
         return [
             f"{label}: runtime executes this graph but the record says "
             f"{entry.get('status')!r} [RUNTIME_STATUS_UNKNOWN]"
         ]
-    return _executed_replay_errors(entry, outputs, label) + _roundtrip_replay_errors(
-        runtime, entry, graph, label
-    )
+    return _executed_replay_errors(entry, outputs, label)
 
 
 def _unsupported_replay_errors(entry, exc, label):

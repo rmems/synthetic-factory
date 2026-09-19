@@ -5,10 +5,6 @@ training views derived from them.
 """
 
 import copy
-import json
-import os
-# Required only for the fixed-argv interpreter subprocess below.
-import subprocess  # nosec B404
 import tempfile
 import unittest
 import sys
@@ -16,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hardware_parity_support import PIPELINES, WHERE, CaptureCase  # noqa: E402
+from hardware_parity_support import WHERE, CaptureCase  # noqa: E402
 
 import hardware_parity as hp  # noqa: E402
 import neuro_oracle as oracle  # noqa: E402

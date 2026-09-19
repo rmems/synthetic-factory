@@ -194,8 +194,7 @@ def build_record(scenario, entries, round_number):
             "input_fixture": copy.deepcopy(scenario["input_fixture"]),
             "evidence_scope": _evidence_scope(entries),
         },
-        "result": _record_result(scenario, entries, comparison, verdict,
-                                 reason_codes),
+        "result": _record_result(scenario, entries, (comparison, verdict, reason_codes)),
         "provenance": _record_provenance(scenario),
         "validation": {
             "validator": VALIDATOR,
@@ -217,8 +216,13 @@ def build_record(scenario, entries, round_number):
     return record
 
 
-def _record_result(scenario, entries, comparison, verdict, reason_codes):
-    """The result block: verdict, lineage, comparison, and its summary."""
+def _record_result(scenario, entries, outcome):
+    """The result block: verdict, lineage, comparison, and its summary.
+
+    ``outcome`` is the ``(comparison, verdict, reason_codes)`` the comparison
+    step produced.
+    """
+    comparison, verdict, reason_codes = outcome
     return {
         "oracle_backed": True,
         "verdict": verdict,

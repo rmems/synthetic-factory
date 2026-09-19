@@ -83,6 +83,7 @@ SHARED_SOURCES = (
     "oracle_grounded/envelope.py",
     "oracle_grounded/family_digest.py",
     "oracle_grounded/import_twins.py",
+    "parity_validators.py",
     "raw_tree_guard.py",
     "tag_jsonutil.py",
     "validate_run_provenance.py",

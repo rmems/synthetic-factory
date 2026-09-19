@@ -32,6 +32,7 @@ mod codec;
 mod decode;
 mod exec;
 mod meta;
+mod step;
 
 use std::io::Read;
 

@@ -11,7 +11,6 @@ Usage: python3 pipelines/check_records.py [--strict] <run_dir>
 """
 
 import argparse
-import importlib
 import json
 import math
 import re
@@ -21,13 +20,13 @@ from pathlib import Path
 
 if __package__:
     from .record_kind import DECLARED_FACTORY_KINDS
+    from . import parity_validators
     from .tag_jsonutil import reject_duplicate_object_keys
     from .exact_json import (
         dumps_exact_json,
         exact_fraction,
         parse_finite_json_float as _parse_exact_json_float,
     )
-    from .oracle_grounded import parity_contract
     from .validate_run import (
         ALLOWED_SIM_OR_REAL,
         BRIDGE_SPIKE_EVENT_KEYS,
@@ -45,13 +44,13 @@ else:
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
     from record_kind import DECLARED_FACTORY_KINDS
+    import parity_validators
     from tag_jsonutil import reject_duplicate_object_keys
     from exact_json import (
         dumps_exact_json,
         exact_fraction,
         parse_finite_json_float as _parse_exact_json_float,
     )
-    from oracle_grounded import parity_contract
     from validate_run import (
         ALLOWED_SIM_OR_REAL,
         BRIDGE_SPIKE_EVENT_KEYS,
@@ -268,6 +267,18 @@ def reward_tolerance(rc):
     return min(MAX_DECLARED_TOL, max(TOL, requested))
 
 
+def _weighted_lookup(containers, key):
+    """The declared value for one weight key across the containers, or None."""
+    for container in containers:
+        for candidate in WEIGHT_ALIASES.get(key, (key,)):
+            if candidate not in container:
+                continue
+            value = component_value(container[candidate])
+            if value is not None:
+                return value
+    return None
+
+
 def weighted_components(rc, weights):
     """Resolve every declared weight from direct or known nested maps."""
     containers = [rc]
@@ -277,17 +288,7 @@ def weighted_components(rc, weights):
     for key, weight in weights.items():
         if key in WEIGHTED_SKIP_KEYS or not is_number(weight):
             continue
-        value = None
-        aliases = WEIGHT_ALIASES.get(key, (key,))
-        for container in containers:
-            for candidate in aliases:
-                if candidate not in container:
-                    continue
-                value = component_value(container[candidate])
-                if value is not None:
-                    break
-            if value is not None:
-                break
+        value = _weighted_lookup(containers, key)
         if value is None:
             missing.append(key)
         else:
@@ -362,24 +363,32 @@ def check_reward(rc, where):
     return errors, warnings
 
 
+def _preference_states(obj):
+    for side in ("chosen", "rejected"):
+        sub = obj.get(side)
+        if not isinstance(sub, dict):
+            continue
+        # Episode-sided DPO pairs have no Thalamic state object.
+        if episode_like(sub):
+            continue
+        yield f"{side}.state", sub.get("state")
+
+
+def _bridge_pair_states(obj):
+    lv = obj.get("language_view")
+    if isinstance(lv, dict):
+        traj = lv.get("trajectory")
+        if isinstance(traj, dict):
+            yield "language_view.trajectory.state", traj.get("state")
+
+
 def expected_states(obj, kind):
     if kind == "thalamic":
         yield "state", obj.get("state")
     elif kind == "preference":
-        for side in ("chosen", "rejected"):
-            sub = obj.get(side)
-            if not isinstance(sub, dict):
-                continue
-            # Episode-sided DPO pairs have no Thalamic state object.
-            if episode_like(sub):
-                continue
-            yield f"{side}.state", sub.get("state")
+        yield from _preference_states(obj)
     elif kind == "bridge_pair":
-        lv = obj.get("language_view")
-        if isinstance(lv, dict):
-            traj = lv.get("trajectory")
-            if isinstance(traj, dict):
-                yield "language_view.trajectory.state", traj.get("state")
+        yield from _bridge_pair_states(obj)
 
 
 # The shape layer also recomputes reward sums, with a simpler weighted model
@@ -486,6 +495,27 @@ def root_record_id(obj):
     return None
 
 
+def _provenance_publish_walk(node, path, sink):
+    """Collect 'real' provenance claims under `node`; `sink` is `(errs, where)`."""
+    errs, where = sink
+    if isinstance(node, dict):
+        for k, v in node.items():
+            cur = f"{path}.{k}" if path else k
+            if k == "sim_or_real" and claims_real(v):
+                # Other invalid values are surfaced as non-training
+                # provenance warnings by check_record; this gate is only
+                # for real-world claims.
+                errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
+            if k == "provenance" and isinstance(v, dict):
+                kind = v.get("kind")
+                if claims_real(kind):
+                    errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
+            _provenance_publish_walk(v, cur, sink)
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            _provenance_publish_walk(item, f"{path}[{i}]", sink)
+
+
 def check_provenance_publish(obj, where):
     """Publish-time provenance gate — any 'real' sim_or_real/provenance.kind is an error.
 
@@ -493,26 +523,7 @@ def check_provenance_publish(obj, where):
     cannot publish with real-world provenance claims.
     """
     errs = []
-
-    def walk(node, path):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                cur = f"{path}.{k}" if path else k
-                if k == "sim_or_real" and claims_real(v):
-                    # Other invalid values are surfaced as non-training
-                    # provenance warnings by check_record; this gate is only
-                    # for real-world claims.
-                    errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
-                if k == "provenance" and isinstance(v, dict):
-                    kind = v.get("kind")
-                    if claims_real(kind):
-                        errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
-                walk(v, cur)
-        elif isinstance(node, list):
-            for i, item in enumerate(node):
-                walk(item, f"{path}[{i}]")
-
-    walk(obj, "")
+    _provenance_publish_walk(obj, "", (errs, where))
     # Deduplicate
     seen = set()
     out = []
@@ -521,71 +532,6 @@ def check_provenance_publish(obj, where):
             seen.add(e)
             out.append(e)
     return out
-
-
-# Each parity kind is validated by the family module of the same name.
-_PARITY_VALIDATOR_MODULES = {
-    "hardware_parity": "hardware_parity",
-    "nir_equivalence": "nir_equivalence",
-}
-
-
-def _family_module(name):
-    """Load a family validator lazily, in whichever mode this module loaded.
-
-    ``pipelines/`` is on ``sys.path`` only under the direct CLI convention;
-    as ``pipelines.check_records`` (the form ``round_txn`` imports) the
-    sibling has to be resolved through the package. Only literal names from
-    ``_PARITY_VALIDATOR_MODULES`` are ever imported -- the record can select
-    the module but never spell it.
-    """
-    if name == "hardware_parity":
-        if __package__:
-            return importlib.import_module(".hardware_parity", __package__)
-        return importlib.import_module("hardware_parity")
-    if name == "nir_equivalence":
-        if __package__:
-            return importlib.import_module(".nir_equivalence", __package__)
-        return importlib.import_module("nir_equivalence")
-    raise ValueError(f"no parity validator module named {name!r}")
-
-
-def _family_record_view(obj):
-    """The record exactly as the family readers decode it.
-
-    ``check_jsonl`` decodes every non-integer number as an
-    ``exact_json.ExactJSONFloat`` so the exact-JSON contract can be held over
-    the whole record. The family validators compare evidence type-strictly
-    (``strict_json_equal``, ``type(value) is float``) against catalog entries
-    and re-derived measurements that are plain floats, so the deep layer hands
-    them the same tokens decoded through the families' own parse hooks: what
-    ``hardware_parity.py validate`` reads from the line itself.
-    """
-    return json.loads(
-        dumps_exact_json(obj, ensure_ascii=False, sort_keys=False),
-        parse_constant=parity_contract.reject_json_constant,
-        parse_float=parity_contract.reject_nonfinite_float,
-    )
-
-
-def check_parity_record(obj, kind, where):
-    """Deep layer for the oracle-grounded parity families.
-
-    The family validators re-derive every parity number from the record's own
-    traces, re-simulate the in-repo oracles, and for NIR re-execute the
-    interpreters outright, so a fabricated result cannot pass. All of that is
-    far too expensive for the shape layer, which is why it lives here.
-    """
-    module_name = _PARITY_VALIDATOR_MODULES.get(kind)
-    if module_name is None:
-        # No silent fallthrough: an unrouted kind must be loud, not validated
-        # by whichever validator happened to be last.
-        return [f"{where}: no parity validator for record_kind {kind!r}"]
-    try:
-        record = _family_record_view(obj)
-    except (ValueError, RecursionError) as exc:
-        return [f"{where}: record cannot be re-read as exact JSON for the {kind} validator: {exc}"]
-    return _family_module(module_name).validate_record(record, where)
 
 
 def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
@@ -607,40 +553,6 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     return isinstance(value, str) and any(
         owner is reward_components for _path, reward_components in reward_component_entries
     )
-
-
-def _nir_owned_streams(oracle):
-    """Canonical NIR evidence streams: ``oracle.runtimes[*].outputs.spike_events``."""
-    runtimes = oracle.get("runtimes")
-    for entry in runtimes if isinstance(runtimes, list) else ():
-        outputs = entry.get("outputs") if isinstance(entry, dict) else None
-        if isinstance(outputs, dict) and "spike_events" in outputs:
-            yield outputs["spike_events"]
-
-
-def _hardware_owned_streams(oracle):
-    """Canonical hardware evidence streams: ``oracle.deployment/software.spike_events``."""
-    for side in ("deployment", "software"):
-        block = oracle.get(side)
-        if isinstance(block, dict) and "spike_events" in block:
-            yield block["spike_events"]
-
-
-def _parity_family_owned_streams(obj, kind):
-    """Stream objects whose validity the parity family validator owns.
-
-    NIR runtime outputs and hardware capture sides carry ``spike_events``
-    in family-specific shapes (discrete steps, integer channel/neuron ids)
-    that the family validators check against a re-execution. Returned by
-    identity so a literal key elsewhere in the record cannot claim the
-    exemption by name.
-    """
-    oracle = obj.get("oracle") if isinstance(obj, dict) else None
-    if not isinstance(oracle, dict):
-        return ()
-    if kind == "nir_equivalence":
-        return tuple(_nir_owned_streams(oracle))
-    return tuple(_hardware_owned_streams(oracle))
 
 
 def _record_spike_errors(obj, where, kind, reward_component_entries, family_owned=()):
@@ -733,6 +645,47 @@ def _record_mapping_findings(obj, where, kind):
     return errors, warnings
 
 
+def _parity_kind_findings(obj, kind, where, seeded):
+    """The deep family check plus repository-wide passes for parity kinds.
+    ``seeded`` is ``(shape_errs, errors)`` — the findings already gathered."""
+    shape_errs, errors = seeded
+    warnings = []
+    # The family validator is the deep check for these kinds. Record id
+    # still flows through so cross-file duplicate detection covers them.
+    # The family validators assume the shared envelope members have the
+    # shapes enforced above.  Running them after a shape failure both adds
+    # noise and lets one truthy malformed member raise deep in a helper,
+    # aborting diagnostics for the rest of the JSONL file.
+    if not shape_errs:
+        deep = parity_validators.check_parity_record(obj, kind, where)
+        errors.extend(error for error in deep if error not in errors)
+    # The repository-wide deep passes still run: both schemas allow
+    # additional properties, and the family validators inspect only their
+    # canonical evidence locations. Without this pass a parity record
+    # would be the one place in the factory where a buried malformed
+    # spike stream or reward component survives the deep publish check.
+    # Canonical family streams are exempt by identity -- their validity
+    # (and their family-specific event shapes) belong to the validator
+    # above, so nothing is reported twice.
+    if isinstance(obj, dict):
+        stream_errors, stream_warnings = _record_stream_and_reward_findings(
+            obj,
+            where,
+            kind,
+            family_owned=parity_validators.family_owned_streams(obj, kind),
+        )
+        errors.extend(error for error in stream_errors if error not in errors)
+        warnings.extend(stream_warnings)
+    # The publish-time provenance scan is repository-wide and owns every
+    # nested 'real' claim. Skipping it for these kinds would make a parity
+    # record the one place in the factory where a buried real-world claim
+    # is allowed through.
+    errors.extend(
+        error for error in check_provenance_publish(obj, where) if error not in errors
+    )
+    return errors, warnings
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
@@ -740,41 +693,8 @@ def check_record(obj, where, factory_staging=False):
     if kind == "code_repair":
         # The shared pure validator owns this envelope, including its deep hashes.
         return errors, warnings, kind, canonical_record_id(obj)
-
     if kind in ("hardware_parity", "nir_equivalence"):
-        # The family validator is the deep check for these kinds. Record id
-        # still flows through so cross-file duplicate detection covers them.
-        # The family validators assume the shared envelope members have the
-        # shapes enforced above.  Running them after a shape failure both adds
-        # noise and lets one truthy malformed member raise deep in a helper,
-        # aborting diagnostics for the rest of the JSONL file.
-        if not shape_errs:
-            deep = check_parity_record(obj, kind, where)
-            errors.extend(error for error in deep if error not in errors)
-        # The repository-wide deep passes still run: both schemas allow
-        # additional properties, and the family validators inspect only their
-        # canonical evidence locations. Without this pass a parity record
-        # would be the one place in the factory where a buried malformed
-        # spike stream or reward component survives the deep publish check.
-        # Canonical family streams are exempt by identity -- their validity
-        # (and their family-specific event shapes) belong to the validator
-        # above, so nothing is reported twice.
-        if isinstance(obj, dict):
-            stream_errors, stream_warnings = _record_stream_and_reward_findings(
-                obj,
-                where,
-                kind,
-                family_owned=_parity_family_owned_streams(obj, kind),
-            )
-            errors.extend(error for error in stream_errors if error not in errors)
-            warnings.extend(stream_warnings)
-        # The publish-time provenance scan is repository-wide and owns every
-        # nested 'real' claim. Skipping it for these kinds would make a parity
-        # record the one place in the factory where a buried real-world claim
-        # is allowed through.
-        errors.extend(
-            error for error in check_provenance_publish(obj, where) if error not in errors
-        )
+        errors, warnings = _parity_kind_findings(obj, kind, where, (shape_errs, errors))
         record_id = canonical_record_id(obj)
         if record_id is None:
             warnings.append(f"{where}: missing canonical record id")

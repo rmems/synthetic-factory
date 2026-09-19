@@ -7,12 +7,12 @@ use std::collections::{HashMap, HashSet};
 
 use nir_rs::graph::NirGraph;
 use nir_rs::nodes::NirNode;
-use nir_rs::types::{Tensor, TensorData};
 use serde_json::{Value, json};
 
 use crate::AdapterError;
-use crate::decode::{tensor_f64_scalar, tensor_f64_vec};
+use crate::decode::{FieldLabel, tensor_f64_scalar};
 use crate::meta::{META_DT_S, META_SIZE, metadata_f64, metadata_i64, node_metadata_ref};
+use crate::step;
 
 pub(crate) fn execute(graph: &NirGraph, stimulus: &Value) -> Result<Value, AdapterError> {
     let (steps, events) = stimulus_terms(stimulus)?;
@@ -171,39 +171,6 @@ fn incoming_edges(
     incoming
 }
 
-/// Neuron dynamics shared by the LIF/LI decay-integrate kinds.
-struct NeuronParams {
-    tau: f64,
-    r: f64,
-    v_leak: f64,
-}
-
-impl NeuronParams {
-    fn integrate(
-        &self,
-        name: &str,
-        membrane: &mut [f64],
-        drive: &[f64],
-        dt_s: f64,
-    ) -> Result<(), AdapterError> {
-        if self.tau <= 0.0 {
-            return Err(AdapterError::graph(format!(
-                "node {name:?}: tau must be > 0"
-            )));
-        }
-        if drive.len() != membrane.len() {
-            return Err(AdapterError::graph(format!(
-                "node {name:?}: drive width does not match its size"
-            )));
-        }
-        let factor = dt_s / self.tau;
-        for index in 0..membrane.len() {
-            membrane[index] += factor * ((self.v_leak - membrane[index]) + self.r * drive[index]);
-        }
-        Ok(())
-    }
-}
-
 /// One step of a simulation: everything mutable the steppers touch, plus the
 /// stimulus and timestep they read.
 struct Simulation<'a> {
@@ -232,8 +199,8 @@ impl<'a> Simulation<'a> {
                 .keys()
                 .map(|name| (name.clone(), vec![0.0; sizes[name]]))
                 .collect(),
-            membrane: initial_membrane(graph, sizes),
-            delay_buffers: initial_delay_buffers(graph, sizes),
+            membrane: step::initial_membrane(graph, sizes),
+            delay_buffers: step::initial_delay_buffers(graph, sizes),
             events,
             dt_s,
         }
@@ -258,7 +225,7 @@ impl<'a> Simulation<'a> {
         step: usize,
     ) -> Result<Vec<f64>, AdapterError> {
         if matches!(node, NirNode::Input(_)) {
-            return input_drive(self.events, step);
+            return step::input_drive(self.events, step);
         }
         let sources = self
             .incoming
@@ -276,7 +243,7 @@ impl<'a> Simulation<'a> {
             })?;
             parts.push(values);
         }
-        sum_drive_parts(name, &parts)
+        step::sum_drive_parts(name, &parts)
     }
 
     fn step_node(
@@ -287,9 +254,11 @@ impl<'a> Simulation<'a> {
     ) -> Result<Vec<f64>, AdapterError> {
         match node {
             NirNode::Input(_) | NirNode::Output(_) => Ok(drive.to_vec()),
-            NirNode::Affine(affine) => step_affine(name, &affine.weight, Some(&affine.bias), drive),
-            NirNode::Linear(linear) => step_affine(name, &linear.weight, None, drive),
-            NirNode::Threshold(threshold) => step_threshold(name, threshold, drive),
+            NirNode::Affine(affine) => {
+                step::step_affine(name, &affine.weight, Some(&affine.bias), drive)
+            }
+            NirNode::Linear(linear) => step::step_affine(name, &linear.weight, None, drive),
+            NirNode::Threshold(threshold) => step::step_threshold(name, threshold, drive),
             NirNode::Delay(_) => self.step_delay(name, drive),
             NirNode::Lif(lif) => self.step_lif(name, lif, drive),
             NirNode::If(integrator) => self.step_if(name, integrator, drive),
@@ -323,12 +292,23 @@ impl<'a> Simulation<'a> {
         lif: &nir_rs::nodes::Lif,
         drive: &[f64],
     ) -> Result<Vec<f64>, AdapterError> {
-        let params = neuron_params(name, &lif.tau, &lif.r, &lif.v_leak)?;
-        let threshold = tensor_f64_scalar(&lif.v_threshold, name, "v_threshold")?;
+        let params = step::neuron_params(name, &lif.tau, &lif.r, &lif.v_leak)?;
+        let threshold = tensor_f64_scalar(
+            &lif.v_threshold,
+            FieldLabel {
+                node: name,
+                field: "v_threshold",
+            },
+        )?;
         let dt_s = self.dt_s;
         let v = self.membrane_of(name)?;
-        params.integrate(name, v, drive, dt_s)?;
-        Ok(emit_spikes(v, threshold))
+        params.integrate(&mut step::Integration {
+            name,
+            membrane: v,
+            drive,
+            dt_s,
+        })?;
+        Ok(step::emit_spikes(v, threshold))
     }
 
     fn step_li(
@@ -337,10 +317,15 @@ impl<'a> Simulation<'a> {
         li: &nir_rs::nodes::Li,
         drive: &[f64],
     ) -> Result<Vec<f64>, AdapterError> {
-        let params = neuron_params(name, &li.tau, &li.r, &li.v_leak)?;
+        let params = step::neuron_params(name, &li.tau, &li.r, &li.v_leak)?;
         let dt_s = self.dt_s;
         let v = self.membrane_of(name)?;
-        params.integrate(name, v, drive, dt_s)?;
+        params.integrate(&mut step::Integration {
+            name,
+            membrane: v,
+            drive,
+            dt_s,
+        })?;
         Ok(v.clone())
     }
 
@@ -350,7 +335,13 @@ impl<'a> Simulation<'a> {
         integrator: &nir_rs::nodes::If,
         drive: &[f64],
     ) -> Result<Vec<f64>, AdapterError> {
-        let r = tensor_f64_scalar(&integrator.r, name, "r")?;
+        let r = tensor_f64_scalar(
+            &integrator.r,
+            FieldLabel {
+                node: name,
+                field: "r",
+            },
+        )?;
         let v = self
             .membrane
             .get_mut(name)
@@ -363,132 +354,13 @@ impl<'a> Simulation<'a> {
         for index in 0..v.len() {
             v[index] += r * drive[index];
         }
-        let threshold = tensor_f64_scalar(&integrator.v_threshold, name, "v_threshold")?;
-        Ok(emit_spikes(v, threshold))
+        let threshold = tensor_f64_scalar(
+            &integrator.v_threshold,
+            FieldLabel {
+                node: name,
+                field: "v_threshold",
+            },
+        )?;
+        Ok(step::emit_spikes(v, threshold))
     }
-}
-
-fn neuron_params(
-    name: &str,
-    tau: &Tensor,
-    r: &Tensor,
-    v_leak: &Tensor,
-) -> Result<NeuronParams, AdapterError> {
-    Ok(NeuronParams {
-        tau: tensor_f64_scalar(tau, name, "tau")?,
-        r: tensor_f64_scalar(r, name, "r")?,
-        v_leak: tensor_f64_scalar(v_leak, name, "v_leak")?,
-    })
-}
-
-fn input_drive(events: &[Value], step: usize) -> Result<Vec<f64>, AdapterError> {
-    let row = events
-        .get(step)
-        .and_then(Value::as_array)
-        .ok_or_else(|| AdapterError::graph("stimulus.events rows must be arrays"))?;
-    row.iter()
-        .map(|value| {
-            value
-                .as_f64()
-                .ok_or_else(|| AdapterError::graph("stimulus events must be numeric"))
-        })
-        .collect()
-}
-
-fn sum_drive_parts(name: &str, parts: &[&Vec<f64>]) -> Result<Vec<f64>, AdapterError> {
-    let width = parts[0].len();
-    if parts.iter().any(|part| part.len() != width) {
-        return Err(AdapterError::graph(format!(
-            "node {name:?} sums inputs of different widths"
-        )));
-    }
-    Ok((0..width)
-        .map(|index| parts.iter().map(|part| part[index]).sum())
-        .collect())
-}
-
-fn step_threshold(
-    name: &str,
-    threshold: &nir_rs::nodes::Threshold,
-    drive: &[f64],
-) -> Result<Vec<f64>, AdapterError> {
-    let threshold = tensor_f64_scalar(&threshold.threshold, name, "threshold")?;
-    Ok(drive
-        .iter()
-        .map(|value| if *value >= threshold { 1.0 } else { 0.0 })
-        .collect())
-}
-
-/// Threshold the membrane and apply the `subtract` reset convention.
-fn emit_spikes(membrane: &mut [f64], threshold: f64) -> Vec<f64> {
-    let mut spikes = Vec::with_capacity(membrane.len());
-    for value in membrane.iter_mut() {
-        if *value >= threshold {
-            spikes.push(1.0);
-            *value -= threshold;
-        } else {
-            spikes.push(0.0);
-        }
-    }
-    spikes
-}
-
-fn step_affine(
-    name: &str,
-    weight: &Tensor,
-    bias: Option<&Tensor>,
-    drive: &[f64],
-) -> Result<Vec<f64>, AdapterError> {
-    let weights = tensor_f64_vec(weight)
-        .map_err(|err| AdapterError::graph(format!("node {name:?}: {}", err.detail)))?;
-    let shape = weight.shape();
-    if shape.len() != 2 || shape[0] * shape[1] != weights.len() {
-        return Err(AdapterError::graph(format!(
-            "node {name:?}: weight must be a 2-D tensor"
-        )));
-    }
-    let (rows, columns) = (shape[0], shape[1]);
-    if columns != drive.len() {
-        return Err(AdapterError::graph(format!(
-            "node {name:?}: weight columns do not match its input"
-        )));
-    }
-    let bias_values: Vec<f64> = match bias {
-        Some(tensor) => tensor_f64_vec(tensor)
-            .map_err(|err| AdapterError::graph(format!("node {name:?}: {}", err.detail)))?,
-        None => vec![0.0; rows],
-    };
-    let mut output = Vec::with_capacity(rows);
-    for (index, row) in weights.chunks(columns).enumerate() {
-        let sum: f64 = row.iter().zip(drive.iter()).map(|(w, d)| w * d).sum();
-        output.push(sum + bias_values.get(index).copied().unwrap_or(0.0));
-    }
-    Ok(output)
-}
-
-fn initial_membrane(graph: &NirGraph, sizes: &HashMap<String, usize>) -> HashMap<String, Vec<f64>> {
-    let mut membrane = HashMap::new();
-    for (name, node) in &graph.nodes {
-        if matches!(node, NirNode::Lif(_) | NirNode::Li(_) | NirNode::If(_)) {
-            membrane.insert(name.clone(), vec![0.0; sizes[name]]);
-        }
-    }
-    membrane
-}
-
-fn initial_delay_buffers(
-    graph: &NirGraph,
-    sizes: &HashMap<String, usize>,
-) -> HashMap<String, Vec<Vec<f64>>> {
-    let mut buffers = HashMap::new();
-    for (name, node) in &graph.nodes {
-        if let NirNode::Delay(delay) = node {
-            let depth = match delay.delay.data() {
-                TensorData::I64(values) => values.first().copied().unwrap_or(0).max(0) as usize,
-                _ => 0,
-            };
-            buffers.insert(name.clone(), vec![vec![0.0; sizes[name]]; depth]);
-        }
-    }
-    buffers
 }

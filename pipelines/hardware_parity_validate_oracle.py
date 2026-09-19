@@ -46,8 +46,36 @@ else:
     )
     from hardware_parity_validate_equality import _metrics_equal  # noqa: E402
 
-def _compare_side(recorded, fresh, label, where):
-    """Compare one recorded oracle run against a fresh re-simulation."""
+def _compare_section(recorded, fresh, key, loc):
+    """One metric section of a re-simulation comparison; ``loc`` is
+    ``(label, where)``."""
+    label, where = loc
+    section_errors = _metrics_equal(
+        recorded.get(key), fresh[key], f"oracle.{label}.{key}", where
+    )
+    errors = []
+    if section_errors:
+        reason_code = (
+            "MEMBRANE_DIVERGENCE"
+            if key == "membrane"
+            else "PARITY_METRIC_MISMATCH"
+        )
+        errors.append(
+            f"{where}: oracle.{label}.{key} does not match a re-simulation "
+            f"[{reason_code}]"
+        )
+    if key == "membrane":
+        section_errors = [
+            error.replace("[PARITY_METRIC_MISMATCH]", "[MEMBRANE_DIVERGENCE]")
+            for error in section_errors
+        ]
+    return errors + section_errors
+
+
+def _compare_side(recorded, fresh, loc):
+    """Compare one recorded oracle run against a fresh re-simulation.
+    ``loc`` is ``(label, where)``."""
+    label, where = loc
     errors = []
     for key in (
         "spikes",
@@ -57,25 +85,7 @@ def _compare_side(recorded, fresh, label, where):
         "arithmetic",
         "latency",
     ):
-        section_errors = _metrics_equal(
-            recorded.get(key), fresh[key], f"oracle.{label}.{key}", where
-        )
-        if section_errors:
-            reason_code = (
-                "MEMBRANE_DIVERGENCE"
-                if key == "membrane"
-                else "PARITY_METRIC_MISMATCH"
-            )
-            errors.append(
-                f"{where}: oracle.{label}.{key} does not match a re-simulation "
-                f"[{reason_code}]"
-            )
-        if key == "membrane":
-            section_errors = [
-                error.replace("[PARITY_METRIC_MISMATCH]", "[MEMBRANE_DIVERGENCE]")
-                for error in section_errors
-            ]
-        errors += section_errors
+        errors += _compare_section(recorded, fresh, key, loc)
     expected = run_digest(fresh)
     if recorded.get("output_digest") != expected:
         errors.append(
@@ -85,8 +95,10 @@ def _compare_side(recorded, fresh, label, where):
     return errors
 
 
-def _check_reference_identity(run, adapter_type, label, where):
-    """Bind a reference result to the exact in-repo adapter that produced it."""
+def _check_reference_identity(run, adapter_type, loc):
+    """Bind a reference result to the exact in-repo adapter that produced it.
+    ``loc`` is ``(label, where)``."""
+    label, where = loc
     errors = []
     expected = {
         "adapter": adapter_type.name,
@@ -135,42 +147,58 @@ def _reexecute_reference_sides(record, where):
 
     side_errors, fatal = _reexecute_side(
         oracle.get("software"),
-        SoftwareFloatAdapter,
-        "software",
-        model,
-        stimulus,
-        "the recorded model and stimulus are not simulable",
+        (
+            SoftwareFloatAdapter,
+            "software",
+            model,
+            stimulus,
+            "the recorded model and stimulus are not simulable",
+        ),
         where,
     )
     errors += side_errors
     if fatal:
         return errors
 
+    return errors + _reference_deployment_errors(oracle, (model, stimulus), where)
+
+
+def _reference_deployment_errors(oracle, case, where):
+    """The fixed-point deployment leg — only when the record names it.
+    ``case`` is ``(model, stimulus)``."""
+    model, stimulus = case
     deployment = oracle.get("deployment")
-    if isinstance(deployment, dict):
-        if deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL:
-            side_errors, _ = _reexecute_side(
-                deployment,
-                FixedPointReferenceAdapter,
-                "deployment",
-                model,
-                stimulus,
-                "the recorded model is not quantizable/simulable",
-                where,
-            )
-            errors += side_errors
-    return errors
+    is_reference_target = (
+        isinstance(deployment, dict)
+        and deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL
+    )
+    if not is_reference_target:
+        return []
+    side_errors, _ = _reexecute_side(
+        deployment,
+        (
+            FixedPointReferenceAdapter,
+            "deployment",
+            model,
+            stimulus,
+            "the recorded model is not quantizable/simulable",
+        ),
+        where,
+    )
+    return side_errors
 
 
-def _reexecute_side(side, adapter_cls, label, model, stimulus, failure, where):
+def _reexecute_side(side, check, where):
     """Re-run one in-repo reference side against the recorded model/stimulus.
 
+    ``check`` is ``(adapter_cls, label, model, stimulus, failure)``.
     Returns ``(errors, fatal)`` — ``fatal`` means the recorded inputs could
     not even be simulated, so no further side can be graded.
     """
+    adapter_cls, label, model, stimulus, failure = check
     if not isinstance(side, dict):
         return [], False
-    errors = _check_reference_identity(side, adapter_cls, label, where)
+    errors = _check_reference_identity(side, adapter_cls, (label, where))
     try:
         fresh = adapter_cls().run(model, stimulus, repeats=1)
     except (
@@ -183,7 +211,7 @@ def _reexecute_side(side, adapter_cls, label, model, stimulus, failure, where):
     ) as exc:
         errors.append(f"{where}: {failure}: {exc}")
         return errors, True
-    errors += _compare_side(side, fresh, label, where)
+    errors += _compare_side(side, fresh, (label, where))
     return errors, False
 
 

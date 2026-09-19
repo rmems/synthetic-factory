@@ -37,11 +37,7 @@ def training_view(record):
     """A supervised view that carries the parity verdict on its face."""
     scenario = record.get("scenario") or {}
     oracle = record.get("oracle") or {}
-    targets = [
-        side.get("execution_target")
-        for side in (oracle.get("software"), oracle.get("deployment"))
-        if isinstance(side, dict)
-    ]
+    targets = _side_targets(oracle)
     deployment = oracle.get("deployment")
     fixture_sha = (scenario.get("input_fixture") or {}).get("sha256")
     prompt = _view_prompt(scenario, oracle, deployment, fixture_sha)
@@ -50,6 +46,15 @@ def training_view(record):
     view["stress"] = scenario.get("stress")
     view["scenario_id"] = scenario.get("id")
     return view
+
+
+def _side_targets(oracle):
+    """The execution targets both oracle legs declared, in order."""
+    return [
+        side.get("execution_target")
+        for side in (oracle.get("software"), oracle.get("deployment"))
+        if isinstance(side, dict)
+    ]
 
 
 def _view_prompt(scenario, oracle, deployment, fixture_sha):

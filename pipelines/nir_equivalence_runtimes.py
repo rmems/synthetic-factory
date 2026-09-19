@@ -170,12 +170,7 @@ class NirRsRuntime:
                 "reason_code": "RUNTIME_PROBE_FAILED",
                 "detail": NIR_RS_PROBE_FAILED_DETAIL,
             }
-        declared_conventions = probe.get("conventions") if isinstance(probe, dict) else None
-        declared_types = probe.get("supported_types") if isinstance(probe, dict) else None
-        if (
-            declared_conventions != self.conventions
-            or tuple(declared_types or ()) != self.supported_types
-        ):
+        if not self._contract_ok(probe):
             return {
                 "available": False,
                 "reason_code": "RUNTIME_CONTRACT_MISMATCH",
@@ -245,6 +240,13 @@ class NirRsRuntime:
                 [list(edge) for edge in measured["recurrent_edges"]]
             ),
         }
+
+    def _contract_ok(self, probe):
+        """The probe's declared conventions and coverage match this adapter."""
+        if not isinstance(probe, dict):
+            return False
+        types_ok = tuple(probe.get("supported_types") or ()) == self.supported_types
+        return probe.get("conventions") == self.conventions and types_ok
 
     def _binary(self):
         """The ``nir-rs`` adapter binary this run would drive, or None.

@@ -116,7 +116,7 @@ def _observed_spike_errors(observation, window, path, where):
     neurons, labels, steps, dt_ms = window
     spikes = observation.get("spikes")
     errors = _matrix_errors(
-        spikes, steps, neurons, f"{path}.spikes", where, binary=True
+        spikes, (steps, neurons, True, False), (f"{path}.spikes", where)
     )
     if errors:
         return errors
@@ -150,13 +150,14 @@ def _observable_membrane_errors(membrane, dimensions, path, where):
     """Validate both matrices before comparing Q8.8 correspondence."""
     neurons, steps = dimensions
     trace_errors = _matrix_errors(
-        membrane.get("trace"), steps, neurons, f"{path}.membrane.trace", where,
+        membrane.get("trace"), (steps, neurons, False, False),
+        (f"{path}.membrane.trace", where),
     )
     if "trace_q88_raw" not in membrane:
         return trace_errors
     raw_errors = _matrix_errors(
-        membrane.get("trace_q88_raw"), steps, neurons,
-        f"{path}.membrane.trace_q88_raw", where, integer=True,
+        membrane.get("trace_q88_raw"), (steps, neurons, False, True),
+        (f"{path}.membrane.trace_q88_raw", where),
     )
     if trace_errors or raw_errors:
         return trace_errors + raw_errors

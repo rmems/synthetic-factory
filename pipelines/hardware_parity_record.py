@@ -121,9 +121,13 @@ def run_pair(scenario, deployment_adapter, software_adapter=None, repeats=3):
     return software_run, deployment_run, unavailable
 
 
-def build_record(scenario, software_run, deployment_run, unavailable, round_number,
-                 fpga_status):
-    """Assemble one envelope record from a paired run."""
+def build_record(scenario, runs, round_number, fpga_status):
+    """Assemble one envelope record from a paired run.
+
+    ``runs`` is ``(software_run, deployment_run, unavailable)`` — the
+    ``run_pair`` outcome triple.
+    """
+    software_run, deployment_run, unavailable = runs
     # Deep-copied so no two records (and no two fields of one record) share a
     # mutable sub-object: an edit to one would otherwise silently rewrite the
     # other, which is precisely the failure mode these records exist to catch.
@@ -400,7 +404,7 @@ def generate_records(round_number=1, steps=12, deployment_adapter=None, repeats=
         )
         records.append(
             build_record(
-                scenario, software_run, deployment_run, unavailable, round_number,
+                scenario, (software_run, deployment_run, unavailable), round_number,
                 fpga_status,
             )
         )

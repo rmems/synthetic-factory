@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nir_equivalence_support import (  # noqa: E402
     WHERE,
-    fixture_records as _fixture_records,
     rebuild_scenario as _rebuild_scenario,
 )
 

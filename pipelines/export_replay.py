@@ -28,9 +28,7 @@ from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
     EmittedRecord,
-    default_units_migration_path,
     emitted_record_line,
-    published_source_snapshot,
     retained_json_line,
 )
 from census import factory_identity_for_path  # noqa: E402

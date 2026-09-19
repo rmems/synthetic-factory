@@ -68,15 +68,14 @@ def _fixture_terms(record):
 
 def _check_input_fixture(record, where):
     """Both sides must provably have run the same encoded input."""
-    stimulus, fixture, oracle_fixture, identical = _fixture_terms(record)
+    terms = _fixture_terms(record)
+    stimulus = terms[0]
     if not isinstance(stimulus, dict) or not isinstance(stimulus.get("events"), list):
         return [f"{where}: scenario.stimulus.events missing [INPUT_FIXTURE_MISMATCH]"]
     recomputed, shape_error = _recomputed_fixture_sha(stimulus, where)
     if shape_error is not None:
         return shape_error
-    return _fixture_binding_errors(
-        stimulus, fixture, oracle_fixture, identical, recomputed, where
-    )
+    return _fixture_binding_errors(terms, recomputed, where)
 
 
 def _recomputed_fixture_sha(stimulus, where):
@@ -91,10 +90,13 @@ def _recomputed_fixture_sha(stimulus, where):
         ]
 
 
-def _fixture_binding_errors(
-    stimulus, fixture, oracle_fixture, identical, recomputed, where
-):
-    """The four-way fixture binding checks, all keyed by the recomputed digest."""
+def _fixture_binding_errors(terms, recomputed, where):
+    """The four-way fixture binding checks, all keyed by the recomputed digest.
+
+    ``terms`` is the ``(stimulus, fixture, oracle_fixture, identical)``
+    tuple from ``_fixture_terms``.
+    """
+    stimulus, fixture, oracle_fixture, identical = terms
     errors = []
     if fixture.get("sha256") != recomputed:
         errors.append(
@@ -133,8 +135,8 @@ def _materialized_catalog_scenario(scenario, where):
             "catalog [SCENARIO_LABEL_MISMATCH]"
         ]
     stimulus = scenario.get("stimulus")
-    steps = stimulus.get("steps") if isinstance(stimulus, dict) else None
-    if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
+    steps = _catalog_steps(stimulus)
+    if steps is None:
         return None, [
             f"{where}: scenario.stimulus.steps must be a positive integer before "
             f"scenario {scenario_id!r} can be bound to the catalog "
@@ -150,6 +152,14 @@ def _materialized_catalog_scenario(scenario, where):
             f"{where}: catalog scenario {scenario_id!r} cannot be materialized: {exc} "
             "[SCENARIO_LABEL_MISMATCH]"
         ]
+
+
+def _catalog_steps(stimulus):
+    """A positive int step count, or None when the claim cannot be bound."""
+    steps = stimulus.get("steps") if isinstance(stimulus, dict) else None
+    if type(steps) is not int or steps < 1:  # pylint: disable=unidiomatic-typecheck
+        return None
+    return steps
 
 
 def _event_grid_binding_error(scenario_id, stimulus, steps, where):

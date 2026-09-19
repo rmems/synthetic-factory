@@ -32,7 +32,7 @@ def _spiking_signals(graph):
 def _analog_pending(pending, known):
     """Transparent nodes not (yet) established as spike-carrying."""
     return {name for name, sources in pending.items()
-            if not sources or not sources <= known}
+            if not sources or sources - known}
 
 
 def _transparent_inputs(graph):

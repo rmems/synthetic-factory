@@ -114,25 +114,19 @@ def _requested_records(args, adapter):
         raise ValueError(f"selected capture cannot execute: {unavailable['reason_code']}: {unavailable['detail']}")
     env = {} if isinstance(adapter, FixedPointReferenceAdapter) else None
     fpga_status = availability_report(env=env)["spikenaut_fpga"]
-    return [build_record(scenario, software, deployment, unavailable, args.round, fpga_status)]
+    return [build_record(scenario, (software, deployment, unavailable), args.round, fpga_status)]
 
 
 def _cmd_generate(args):
     """Write a validated catalog round or an explicitly selected diagnostic."""
-    argument_error = _generation_argument_error(args)
-    if argument_error:
-        print(f"hardware_parity: {argument_error}", file=sys.stderr)
-        return 2
     out = _generation_destination(args)
-    raw_error = contract.raw_tree_destination_error(out)
-    if raw_error:
-        print(f"hardware_parity: {raw_error}", file=sys.stderr)
-        return 2
-    if out.exists():
-        print(
-            f"hardware_parity: refusing to overwrite existing round {out}",
-            file=sys.stderr,
-        )
+    usage_error = (
+        _generation_argument_error(args)
+        or contract.raw_tree_destination_error(out)
+        or (f"refusing to overwrite existing round {out}" if out.exists() else None)
+    )
+    if usage_error:
+        print(f"hardware_parity: {usage_error}", file=sys.stderr)
         return 2
     try:
         adapter = _load_deployment_adapter(args.target, args.capture)

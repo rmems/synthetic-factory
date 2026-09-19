@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import parity_test_support  # noqa: E402
 from nir_equivalence_support import (  # noqa: E402
     FIXTURE,
     WHERE,
@@ -109,23 +110,8 @@ class TrainingViews(unittest.TestCase):
         ]
         self.assertTrue(retained and len(retained) < len(records))
         views, errors = nir.build_training_views(retained, source="filtered")
-        self._assert_catalog_rejected_after_clean_projection(views, retained, errors)
-
-    def _assert_catalog_rejected_after_clean_projection(self, views, retained, errors):
-        # The projection itself is clean -- one view per retained record, none
-        # of them flagged -- so the catalog check is the only thing that can
-        # reject this batch.
-        self.assertEqual(
-            [view["id"] for view in views], [record["id"] for record in retained]
-        )
-        self.assertFalse([view["id"] for view in views if view["parity_failed"]])
-        self.assertTrue(
-            any(
-                "does not cover the scenario catalog" in error
-                and "TRAINING_VIEW_HIDES_FAILURE" in error
-                for error in errors
-            ),
-            errors,
+        parity_test_support.assert_catalog_rejected_after_clean_projection(
+            self, views, retained, errors
         )
 
     def test_completion_is_rederived_instead_of_copying_summary(self):
@@ -250,29 +236,9 @@ class Cli(unittest.TestCase):
             self.assertIn("non-finite JSON number", errors[0])
 
     def test_read_jsonl_reports_absurd_nesting_as_a_line_error(self):
-        # A syntactically valid but absurdly nested line must be a line-level
-        # parse error, not a decoder RecursionError that aborts the scan. The
-        # depth at which the decoder gives up is a platform property (stack
-        # budget), so probe for one it refuses rather than hard-coding it.
-        depth = 100_000
-        while depth <= 3_200_000:
-            try:
-                json.loads("[" * depth + "]" * depth)
-            except RecursionError:
-                break
-            depth *= 2
-        else:
-            self.skipTest("this platform's decoder accepts 3.2M-deep nesting")
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "batch.jsonl"
-            path.write_text(
-                "[" * depth + "]" * depth + '\n{"id": "after"}\n',
-                encoding="utf-8",
-            )
-            records, errors = nir.read_jsonl(path)
-            self.assertEqual(records, [{"id": "after"}])
-            self.assertEqual(len(errors), 1)
-            self.assertIn("JSON parse error", errors[0])
+        parity_test_support.assert_absurd_nesting_is_a_line_error(
+            self, nir.read_jsonl
+        )
 
 
 

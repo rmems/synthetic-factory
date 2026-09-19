@@ -252,14 +252,26 @@ fn tensor_i64_scalar_json(name: &str, tensor: &Tensor) -> Result<Value, AdapterE
     }
 }
 
+/// Which field of which node a scalar tensor backs — one label so decoders
+/// don't take separate string arguments for node and field.
+pub(crate) struct FieldLabel<'a> {
+    pub(crate) node: &'a str,
+    pub(crate) field: &'a str,
+}
+
 pub(crate) fn tensor_f64_scalar(
     tensor: &Tensor,
-    name: &str,
-    field: &str,
+    label: FieldLabel<'_>,
 ) -> Result<f64, AdapterError> {
+    let name = label.node;
     tensor_f64_vec(tensor)
         .map_err(|err| AdapterError::graph(format!("node {name:?}: {}", err.detail)))?
         .first()
         .copied()
-        .ok_or_else(|| AdapterError::graph(format!("node {name:?}: {field} must be a scalar")))
+        .ok_or_else(|| {
+            AdapterError::graph(format!(
+                "node {name:?}: {field} must be a scalar",
+                field = label.field
+            ))
+        })
 }

@@ -85,16 +85,15 @@ def _spike_cell_tally(software, hardware):
 
 def _tally_cell(tally, a, b):
     """Accumulate one (software, hardware) spike pair into the agreement buckets."""
+    fired_a, fired_b = bool(a), bool(b)
     if a == b:
         tally["matches"] += 1
-    elif b and not a:
+    elif fired_b and not fired_a:
         tally["false_positive"] += 1
     else:
         tally["false_negative"] += 1
-    if a or b:
-        tally["either"] += 1
-    if a and b:
-        tally["both"] += 1
+    tally["either"] += int(fired_a or fired_b)
+    tally["both"] += int(fired_a and fired_b)
 
 
 def spike_bitmap_metrics(software, hardware):

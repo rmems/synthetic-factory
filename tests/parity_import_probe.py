@@ -55,13 +55,16 @@ ERROR_CLASSES = (
 def _forget_repository_modules() -> None:
     """Drop every module loaded from this repository, except the probe itself."""
 
-    for name, module in list(sys.modules.items()):
-        location = getattr(module, "__file__", None) or ""
-        if name != __name__ and location.startswith(str(REPO)):
-            del sys.modules[name]
-    sys.path[:] = [
-        entry for entry in sys.path if Path(entry or ".").resolve() not in (REPO, PIPELINES)
+    stale = [
+        name
+        for name, module in sys.modules.items()
+        if name != __name__ and (getattr(module, "__file__", None) or "").startswith(str(REPO))
     ]
+    for name in stale:
+        del sys.modules[name]
+    keep = (REPO, PIPELINES)
+    sys.path[:] = [entry for entry in sys.path
+                   if Path(entry or ".").resolve() not in keep]
 
 
 def _cli_form() -> dict[str, Any]:
@@ -124,14 +127,14 @@ def run_form(form: str) -> dict[str, Any]:
         packaged = _package_form()
         return {"facades": sorted(packaged), "split_siblings": _split_siblings()}
     first, _second = form.split("_then_")
-    if first == "package":
-        packaged = _package_form()
-        flat = _cli_form()
-    else:
-        flat = _cli_form()
-        packaged = _package_form()
+    forms = (("package", _package_form), ("cli", _cli_form))
+    if first != "package":
+        forms = forms[::-1]
+    bound = {}
+    for label, loader in forms:
+        bound[label] = loader()
     return {
-        "one_object": all(flat[f] is packaged[f] for f in FACADES),
-        "one_error_class": _one_error_class(flat, packaged),
+        "one_object": all(bound["cli"][f] is bound["package"][f] for f in FACADES),
+        "one_error_class": _one_error_class(bound["cli"], bound["package"]),
         "split_siblings": _split_siblings(),
     }

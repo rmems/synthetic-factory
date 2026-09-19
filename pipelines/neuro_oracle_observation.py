@@ -31,19 +31,21 @@ def _spike_events(spike_grid, dt_ms):
     return events
 
 
-def _decode_action(spike_grid, labels):
-    """Population argmax decode; ties resolve to the lowest neuron index."""
+def _spike_counts(spike_grid, labels):
+    """Per-label spike totals over the grid."""
     counts = [0] * len(labels)
     for row in spike_grid:
         for neuron, fired in enumerate(row):
-            if fired:
-                counts[neuron] += 1
+            counts[neuron] += 1 if fired else 0
+    return counts
+
+
+def _decode_action(spike_grid, labels):
+    """Population argmax decode; ties resolve to the lowest neuron index."""
+    counts = _spike_counts(spike_grid, labels)
     if max(counts) == 0:
         return {"index": None, "label": "no_spike", "counts": counts, "rule": "argmax_count"}
-    best = 0
-    for index in range(1, len(counts)):
-        if counts[index] > counts[best]:
-            best = index
+    best = counts.index(max(counts))
     return {"index": best, "label": labels[best], "counts": counts, "rule": "argmax_count"}
 
 

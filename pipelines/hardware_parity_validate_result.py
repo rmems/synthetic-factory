@@ -84,8 +84,8 @@ else:
     )
     from hardware_parity_validate_quantization import _check_quantization  # noqa: E402
 
-def _scenario_binding_errors(record, oracle, scenario, where):
-    """provenance.scenario_sha256 must identify the recorded model+stimulus."""
+def _scenario_digest(oracle, scenario, where):
+    """``(digest, None)`` or ``(None, errors)`` for the recorded model+stimulus."""
     scenario_evidence = {
         "model": scenario.get("model_float"),
         "stimulus": scenario.get("stimulus"),
@@ -95,11 +95,18 @@ def _scenario_binding_errors(record, oracle, scenario, where):
             "requested_deployment"
         )
     try:
-        expected_scenario_digest = digest(scenario_evidence)
+        return digest(scenario_evidence), None
     except (TypeError, ValueError, OverflowError) as exc:
-        return [
+        return None, [
             f"{where}: scenario is not canonical JSON: {exc} [ENVELOPE_MALFORMED]"
         ]
+
+
+def _scenario_binding_errors(record, oracle, scenario, where):
+    """provenance.scenario_sha256 must identify the recorded model+stimulus."""
+    expected_scenario_digest, digest_errors = _scenario_digest(oracle, scenario, where)
+    if digest_errors is not None:
+        return digest_errors
     provenance = record.get("provenance")
     if (
         not isinstance(provenance, dict)
@@ -121,9 +128,16 @@ def _unpaired_result_errors(record, software, result, where):
         software,
         "software",
         where,
-        require_rederived_repeats=True,
-        expected_meaning=REFERENCE_DETERMINISM_MEANING,
+        grading=(True, REFERENCE_DETERMINISM_MEANING),
     )
+    errors += _unpaired_result_claim_errors(record, result, where)
+    errors += _check_unavailable_deployment(record, where)
+    return errors
+
+
+def _unpaired_result_claim_errors(record, result, where):
+    """Verdict, parity, reason codes, and summary for an unpaired record."""
+    errors = []
     if result.get("verdict") != contract.VERDICT_INCONCLUSIVE:
         errors.append(
             f"{where}: no deployment-side run, so the verdict must be "
@@ -139,9 +153,7 @@ def _unpaired_result_errors(record, software, result, where):
             f"{where}: an unpaired record must carry exactly ORACLE_UNAVAILABLE "
             "[ORACLE_UNAVAILABLE]"
         )
-    errors += _check_unavailable_deployment(record, where)
-    expected_summary = _expected_summary(record)
-    if result.get("summary") != expected_summary:
+    if result.get("summary") != _expected_summary(record):
         errors.append(
             f"{where}: result.summary is not derived from the unavailable-oracle "
             "evidence [PARITY_METRIC_MISMATCH]"
@@ -149,26 +161,34 @@ def _unpaired_result_errors(record, software, result, where):
     return errors
 
 
-def _recorded_parity_errors(result, parity, verdict, reason_codes, where):
-    """The recorded result must reproduce the freshly recomputed parity."""
-    errors = []
-    recorded_parity = result.get("parity")
+def _parity_sections_errors(recorded_parity, parity, where):
+    """Every parity section must equal the recomputed one."""
     if not isinstance(recorded_parity, dict):
-        errors.append(f"{where}: result.parity must be an object [PARITY_METRIC_MISMATCH]")
-    else:
-        for section in (
-            "spike_bitmap",
-            "action",
-            "timing",
-            "membrane",
-            "quantization",
-            "repeatability",
-            "verdict_rule",
-        ):
-            errors += _metrics_equal(
-                recorded_parity.get(section), parity[section], f"result.parity.{section}",
-                where,
-            )
+        return [f"{where}: result.parity must be an object [PARITY_METRIC_MISMATCH]"]
+    errors = []
+    for section in (
+        "spike_bitmap",
+        "action",
+        "timing",
+        "membrane",
+        "quantization",
+        "repeatability",
+        "verdict_rule",
+    ):
+        errors += _metrics_equal(
+            recorded_parity.get(section), parity[section], f"result.parity.{section}",
+            where,
+        )
+    return errors
+
+
+def _recorded_parity_errors(result, recomputed, where):
+    """The recorded result must reproduce the freshly recomputed parity.
+
+    ``recomputed`` is ``(parity, verdict, reason_codes)``.
+    """
+    parity, verdict, reason_codes = recomputed
+    errors = _parity_sections_errors(result.get("parity"), parity, where)
     if result.get("verdict") != verdict:
         errors.append(
             f"{where}: result.verdict is {result.get('verdict')!r} but the recorded "
@@ -183,8 +203,14 @@ def _recorded_parity_errors(result, parity, verdict, reason_codes, where):
     return errors
 
 
-def _paired_result_errors(record, oracle, software, deployment, result, where):
-    """The result contract for a record with both oracle legs executed."""
+def _paired_preamble_errors(record, claim, where):
+    """The paired-record checks that precede parity recomputation.
+
+    ``claim`` is ``(legs, result)``; ``legs`` is ``(software, deployment)``.
+    """
+    legs, result = claim
+    software, deployment = legs
+    oracle = record.get("oracle") or {}
     errors = []
     # A paired record has no unavailable oracle to diagnose; anything but an
     # empty list is either a fabricated diagnostic contradicting the completed
@@ -194,12 +220,23 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
             f"{where}: a paired record must carry exactly an empty "
             "oracle.unavailable list [ENVELOPE_MALFORMED]"
         )
-    if deployment.get("execution_target") in PHYSICAL_TARGETS:
-        if result.get("evidence_basis") != "reference_execution_and_unverified_capture":
-            errors.append(f"{where}: capture result must name its unverified evidence basis [HW_PROVENANCE_MISSING]")
+    is_capture_target = deployment.get("execution_target") in PHYSICAL_TARGETS
+    basis_missing = result.get("evidence_basis") != "reference_execution_and_unverified_capture"
+    if is_capture_target and basis_missing:
+        errors.append(f"{where}: capture result must name its unverified evidence basis [HW_PROVENANCE_MISSING]")
     errors += _check_quantization(record, where)
     errors += _reexecute_reference_sides(record, where)
     errors += _paired_determinism_errors(software, deployment, where)
+    return errors
+
+
+def _paired_result_errors(record, legs, result, where):
+    """The result contract for a record with both oracle legs executed.
+
+    ``legs`` is ``(software, deployment)`` — the two run blocks.
+    """
+    software, deployment = legs
+    errors = _paired_preamble_errors(record, (legs, result), where)
 
     scenario = record.get("scenario") or {}
     try:
@@ -214,9 +251,8 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
     ) as exc:
         return errors + [f"{where}: parity metrics are not recomputable: {exc}"]
 
-    errors += _recorded_parity_errors(result, parity, verdict, reason_codes, where)
-    expected_summary = _expected_summary(record)
-    if result.get("summary") != expected_summary:
+    errors += _recorded_parity_errors(result, (parity, verdict, reason_codes), where)
+    if result.get("summary") != _expected_summary(record):
         errors.append(
             f"{where}: result.summary is not derived from the validated parity evidence "
             "[PARITY_METRIC_MISMATCH]"
@@ -230,8 +266,7 @@ def _paired_determinism_errors(software, deployment, where):
         software,
         "software",
         where,
-        require_rederived_repeats=True,
-        expected_meaning=REFERENCE_DETERMINISM_MEANING,
+        grading=(True, REFERENCE_DETERMINISM_MEANING),
     )
     # The deployment side binds to its adapter-owned meaning just like both
     # reference sides: a fixed-point reference deployment must describe
@@ -241,19 +276,34 @@ def _paired_determinism_errors(software, deployment, where):
     # and mirror that text into result.parity.repeatability unchallenged.
     # An unknown target is already [HW_TARGET_UNKNOWN]; grading it against
     # the capture text keeps the claim checked rather than skipped.
+    is_reference_target = (
+        deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL
+    )
     errors += _check_determinism(
         deployment,
         "deployment",
         where,
-        require_rederived_repeats=(
-            deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL
-        ),
-        expected_meaning=(
+        grading=(
+            is_reference_target,
             REFERENCE_DETERMINISM_MEANING
-            if deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL
-            else CAPTURE_DETERMINISM_MEANING
+            if is_reference_target
+            else CAPTURE_DETERMINISM_MEANING,
         ),
     )
+    return errors
+
+
+def _scenario_gate_errors(record, oracle, where):
+    """The scenario-bound checks, empty when no scenario object is recorded."""
+    scenario = record.get("scenario")
+    if not isinstance(scenario, dict):
+        return []
+    errors = _scenario_binding_errors(record, oracle, scenario, where)
+    errors += _check_input_fixture(record, where)
+    errors += _check_catalog_scenario(record, where)
+    errors += _check_record_identity(record, where)
+    errors += _check_fpga_environment(record, where)
+    errors += _check_physical_claim(record, where)
     return errors
 
 
@@ -275,15 +325,7 @@ def _validate_record(record, where):
             f"{where}: oracle.pairing must be the canonical {ORACLE_PAIRING!r} "
             "[ENVELOPE_MALFORMED]"
         )
-    scenario = record.get("scenario")
-    if not isinstance(scenario, dict):
-        return errors
-    errors += _scenario_binding_errors(record, oracle, scenario, where)
-    errors += _check_input_fixture(record, where)
-    errors += _check_catalog_scenario(record, where)
-    errors += _check_record_identity(record, where)
-    errors += _check_fpga_environment(record, where)
-    errors += _check_physical_claim(record, where)
+    errors += _scenario_gate_errors(record, oracle, where)
 
     return errors + _result_binding_errors(record, oracle, where)
 
@@ -305,7 +347,7 @@ def _result_binding_errors(record, oracle, where):
             f"{where}: oracle.deployment must be an object or absent [ENVELOPE_MALFORMED]"
         ]
     return _paired_result_errors(
-        record, oracle, software, deployment, result, where
+        record, (software, deployment), result, where
     )
 
 
