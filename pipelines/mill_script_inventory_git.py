@@ -24,6 +24,7 @@ _GIT_REQUIRED = "git is required for inventory scope checks"
 _INDEX_UNPARSEABLE = "git index is not parseable"
 _INDEX_TRUNCATED = "git index is truncated"
 _INDEX_UNSUPPORTED = "unsupported git index version"
+_INDEX_SPARSE = "sparse git index directories are not expanded"
 GITIGNORE_NAME = ".gitignore"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -145,8 +146,7 @@ def _wildcard_token(pattern: str, index: int) -> tuple[str, int]:
     return re.escape(pattern[index]), index + 1
 
 
-def _wildcard_regex(pattern: str) -> re.Pattern[str]:
-    directory_only = pattern.endswith("/")
+def _wildcard_regex(pattern: str, flags: int = 0) -> re.Pattern[str]:
     pattern = pattern.removesuffix("/")
     anchored = pattern.startswith("/") or "/" in pattern
     pattern = pattern.removeprefix("/")
@@ -156,8 +156,7 @@ def _wildcard_regex(pattern: str) -> re.Pattern[str]:
         token, index = _wildcard_token(pattern, index)
         chunks.append(token)
     prefix = "^" if anchored else "(?:^|/)"
-    suffix = "(?:/|$)" if directory_only else "$"
-    return re.compile(prefix + "".join(chunks) + suffix)
+    return re.compile(prefix + "".join(chunks) + "$", flags)
 
 
 def _collect_ignore_files(root: Path, paths: Iterable[str]) -> tuple[tuple[str, Path], ...]:
@@ -170,33 +169,94 @@ def _collect_ignore_files(root: Path, paths: Iterable[str]) -> tuple[tuple[str, 
     return tuple((scope, path) for scope, path in sorted(files.items()) if path.is_file())
 
 
-def _parse_ignore_file(path: Path, source: str) -> tuple[tuple[str, str, str, re.Pattern[str]], ...]:
+def _parse_ignore_file(
+    path: Path, source: str, flags: int = 0
+) -> tuple[tuple[str, str, str, re.Pattern[str]], ...]:
     rules: list[tuple[str, str, str, re.Pattern[str]]] = []
     for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         pattern = line[1:] if line.startswith("!") else line
-        rules.append((source, str(number), line, _wildcard_regex(pattern)))
+        rules.append((source, str(number), line, _wildcard_regex(pattern, flags)))
     return tuple(rules)
 
 
-def _scope_relative(path: str, scope: str) -> str | None:
+def _scope_relative(path: str, scope: str, flags: int = 0) -> str | None:
     if not scope:
         return path
-    if path.startswith(scope):
+    haystack, needle = path, scope
+    if flags & re.IGNORECASE:
+        haystack, needle = path.lower(), scope.lower()
+    if haystack.startswith(needle):
         return path[len(scope):]
     return None
+
+
+def _truthy(value: str) -> bool:
+    return value.lower() in {"true", "yes", "on", "1"}
+
+
+def _git_config_file(gitdir: Path) -> Path:
+    marker = gitdir / "commondir"
+    if not marker.is_file():
+        return gitdir / "config"
+    raw = marker.read_text(encoding="utf-8").splitlines()[0].strip()
+    common = Path(raw)
+    if not common.is_absolute():
+        common = (gitdir / common).resolve()
+    return common / "config"
+
+
+def _config_pairs(path: Path) -> tuple[tuple[str, str], ...]:
+    if not path.is_file():
+        return ()
+    pairs: list[tuple[str, str]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].split(";", 1)[0].strip()
+        if "=" in line:
+            key, value = line.split("=", 1)
+            pairs.append((key.strip().lower(), value.strip()))
+    return tuple(pairs)
+
+
+def _core_ignore_case(root: Path) -> bool:
+    try:
+        pairs = _config_pairs(_git_config_file(_git_dir(root)))
+    except MillScriptInventoryError:
+        return False
+    return any(key == "ignorecase" and _truthy(value) for key, value in pairs)
 
 
 def _load_ignore_rules(
     root: Path, paths: Iterable[str]
 ) -> tuple[tuple[str, str, str, str, re.Pattern[str]], ...]:
+    flags = re.IGNORECASE if _core_ignore_case(root) else 0
     rules: list[tuple[str, str, str, str, re.Pattern[str]]] = []
     for scope, path in _collect_ignore_files(root, paths):
-        parsed = _parse_ignore_file(path, f"{scope}{GITIGNORE_NAME}")
+        parsed = _parse_ignore_file(path, f"{scope}{GITIGNORE_NAME}", flags)
         rules.extend((scope, source, line, original, regex) for source, line, original, regex in parsed)
     return tuple(rules)
+
+
+def _path_prefixes(path: str) -> tuple[str, ...]:
+    parts = path.split("/")
+    return tuple("/".join(parts[:index]) for index in range(1, len(parts) + 1))
+
+
+def _matching_prefix(
+    prefixes: Sequence[str], scope: str, regex: re.Pattern[str], directory_only: bool
+) -> str | None:
+    keys = prefixes[:-1] if directory_only else prefixes
+    for prefix in keys:
+        relative = _scope_relative(prefix, scope, regex.flags)
+        if relative is not None and regex.search(relative):
+            return prefix
+    return None
+
+
+def _parent_excluded(path: str, excluded: Sequence[str]) -> bool:
+    return any(path == folder or path.startswith(f"{folder}/") for folder in excluded)
 
 
 def _last_ignore_hit(
@@ -204,13 +264,21 @@ def _last_ignore_hit(
     rules: Sequence[tuple[str, str, str, str, re.Pattern[str]]],
 ) -> tuple[str, str, str] | None:
     last = None
+    excluded: list[str] = []
     normalized = path.replace("\\", "/")
+    prefixes = _path_prefixes(normalized)
     for scope, source, line, original, regex in rules:
-        relative = _scope_relative(normalized, scope)
-        if relative is None:
+        hit = _matching_prefix(prefixes, scope, regex, original.removeprefix("!").endswith("/"))
+        if hit is None:
             continue
-        if regex.search(relative):
+        if original.startswith("!"):
+            if _parent_excluded(normalized, excluded):
+                continue
             last = (source, line, original)
+            continue
+        last = (source, line, original)
+        if hit != normalized:
+            excluded.append(hit)
     return last
 
 
@@ -249,6 +317,7 @@ def _git_index_header(payload: bytes) -> int:
 
 def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
     _need(payload, offset, 62)
+    mode = int.from_bytes(payload[offset + 24 : offset + 28], "big")
     flags = int.from_bytes(payload[offset + 60 : offset + 62], "big")
     start = offset
     offset += 62
@@ -265,6 +334,8 @@ def _git_index_entry(payload: bytes, offset: int) -> tuple[str, int]:
         if offset < len(payload) and payload[offset] == 0:
             offset += 1
     pad = (8 - ((offset - start) % 8)) % 8
+    if mode & 0o170000 == 0o040000:
+        raise MillScriptInventoryError(_INDEX_SPARSE)
     return path.replace("\\", "/"), offset + pad
 
 

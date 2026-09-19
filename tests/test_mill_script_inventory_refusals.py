@@ -12,9 +12,11 @@ from unittest.mock import patch
 from tests.test_mill_script_inventory import REPO, msi
 
 
-def _index_entry(path: str, *, flags: int = 0) -> bytes:
+def _index_entry(path: str, *, flags: int = 0, mode: int = 0) -> bytes:
     encoded = path.encode()
-    payload = bytes(60) + (len(encoded) | flags).to_bytes(2, "big")
+    header = bytearray(60)
+    header[24:28] = mode.to_bytes(4, "big")
+    payload = bytes(header) + (len(encoded) | flags).to_bytes(2, "big")
     if flags & 0x4000:
         payload += bytes(2)
     payload += encoded + b"\0"
@@ -171,6 +173,17 @@ class InventoryEvidenceRefusals(unittest.TestCase):
             gitdir.mkdir()
             (gitdir / "index").write_bytes(_git_index((_index_entry("README"),), version=4))
             with self.assertRaisesRegex(msi.MillScriptInventoryError, "unsupported git index"):
+                msi.tracked_paths(root)
+
+    def test_sparse_directory_index_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(
+                _git_index((_index_entry("skip/", mode=0o040000),))
+            )
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "sparse git index"):
                 msi.tracked_paths(root)
 
     def test_split_index_inherits_shared_paths_for_empty_replacements(self):

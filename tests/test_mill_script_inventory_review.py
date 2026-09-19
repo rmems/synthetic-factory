@@ -135,6 +135,35 @@ class PublisherAndFamilyScope(unittest.TestCase):
         self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
         self.assertNotIn("pipelines/will/cli.py", matches)
 
+    def test_nested_basename_gitignore_covers_production_package_descendants(self):
+        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+        with _scope_repo() as root:
+            (root / "pipelines").mkdir()
+            (root / "pipelines" / ".gitignore").write_text("mill\n")
+            report = msi.check_inventory(root, tracked=paths)
+        self.assertFalse(report["ok"], report)
+        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
+
+    def test_nested_gitignore_cannot_reinclude_under_an_excluded_parent(self):
+        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+        with _scope_repo() as root:
+            (root / "pipelines").mkdir()
+            (root / "pipelines" / ".gitignore").write_text("mill/\n!mill/**\n")
+            report = msi.check_inventory(root, tracked=paths)
+        self.assertFalse(report["ok"], report)
+        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
+
+    def test_ignorecase_gitignore_cannot_hide_cleaned_production_family_package(self):
+        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+        with _scope_repo() as root:
+            config = root / ".git" / "config"
+            config.write_text(config.read_text() + "\tignoreCase = true\n")
+            ignore = root / ".gitignore"
+            ignore.write_text(ignore.read_text() + "\nPIPELINES/MILL/**\n")
+            report = msi.check_inventory(root, tracked=paths)
+        self.assertFalse(report["ok"], report)
+        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
+
     def test_gitignore_bracket_class_cannot_hide_production_mill_package(self):
         paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
         with _scope_repo() as root:
