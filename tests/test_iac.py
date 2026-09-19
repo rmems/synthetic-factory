@@ -293,14 +293,8 @@ class IacArchiveBExtractTests(unittest.TestCase):
         self.assertEqual(more_slugs & r609, set())
         self.assertEqual(more_slugs & archive_slugs, set())
 
-    def _assert_live_extract_matches_committed(
-        self,
-        source_path,
-        blob_sha,
-        source_sha256,
-        committed,
-        extract,
-    ):
+    def _assert_live_extract_matches_committed(self, spec):
+        source_path, blob_sha, source_sha256, committed, extract = spec
         found = _archive_b_show(source_path)
         if found is None:
             self.skipTest(f"archive B {source_path} is not available via git show")
@@ -319,20 +313,24 @@ class IacArchiveBExtractTests(unittest.TestCase):
 
     def test_committed_plants_match_live_ast_extract(self):
         self._assert_live_extract_matches_committed(
-            cv.PLANTS_SOURCE_PATH,
-            cv.PLANTS_BLOB_SHA,
-            cv.PLANTS_SOURCE_SHA256,
-            CATALOG.plants,
-            extract_archive_b_plants,
+            (
+                cv.PLANTS_SOURCE_PATH,
+                cv.PLANTS_BLOB_SHA,
+                cv.PLANTS_SOURCE_SHA256,
+                CATALOG.plants,
+                extract_archive_b_plants,
+            )
         )
 
     def test_committed_plants_b_match_live_ast_extract(self):
         self._assert_live_extract_matches_committed(
-            cv.PLANTS_B_SOURCE_PATH,
-            cv.PLANTS_B_BLOB_SHA,
-            cv.PLANTS_B_SOURCE_SHA256,
-            CATALOG.plants_b,
-            extract_archive_b_more_plants,
+            (
+                cv.PLANTS_B_SOURCE_PATH,
+                cv.PLANTS_B_BLOB_SHA,
+                cv.PLANTS_B_SOURCE_SHA256,
+                CATALOG.plants_b,
+                extract_archive_b_more_plants,
+            )
         )
 
 
@@ -427,18 +425,14 @@ class IacCatalogLoadTests(unittest.TestCase):
     def test_load_catalog_rejects_document_drift(self):
         for key in ("schema", "preserve_commit", "slice", "factory", "generator"):
             with tempfile.TemporaryDirectory() as tmp:
-                path = self._catalog_tree(
-                    Path(tmp), lambda doc, k=key: doc.update({k: "drifted"})
-                )
+                path = self._catalog_tree(Path(tmp), lambda doc, k=key: doc.update({k: "drifted"}))
                 with self.assertRaises(ValueError, msg=key):
                     load_catalog(path)
 
     def test_load_catalog_rejects_plants_digest_drift(self):
         for key in ("plants_sha256", "plants_b_sha256"):
             with tempfile.TemporaryDirectory() as tmp:
-                path = self._catalog_tree(
-                    Path(tmp), lambda doc, k=key: doc.update({k: "0" * 64})
-                )
+                path = self._catalog_tree(Path(tmp), lambda doc, k=key: doc.update({k: "0" * 64}))
                 with self.assertRaises(ValueError, msg=key):
                     load_catalog(path)
 
@@ -456,9 +450,7 @@ class IacCatalogLoadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             path = self._catalog_tree(tmp_path, lambda doc: None)
-            (tmp_path / cv.PLANTS_FILENAME).write_text(
-                '{"index": 0}\n', encoding="utf-8"
-            )
+            (tmp_path / cv.PLANTS_FILENAME).write_text('{"index": 0}\n', encoding="utf-8")
             document = json.loads(path.read_text(encoding="utf-8"))
             document["plants_sha256"] = sha256_bytes(b'{"index": 0}\n')
             path.write_text(dumps_catalog(document), encoding="utf-8")
@@ -491,9 +483,7 @@ class IacLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
             self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            mills.append(
-                mill_summary(live, include_pairs=source.mill_id == "iac-mill-r609")
-            )
+            mills.append(mill_summary(live, include_pairs=source.mill_id == "iac-mill-r609"))
         committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
         live_doc = catalog_document(
             mills,
