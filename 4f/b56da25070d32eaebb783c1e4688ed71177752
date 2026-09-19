@@ -1,0 +1,19 @@
+scripts/refresh_vset_fixture_pins.py
+  s_e2a5c1e5cbed51::t_cf9ace8e7178e8 171-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4fb56da25070d32eaebb783c1e4688ed71177752",
+  "prompts": {},
+  "sessions": {
+    "s_e2a5c1e5cbed51": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "massive-homburg",
+        "model": "unknown"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
