@@ -38,9 +38,7 @@ class DeterministicRng(unittest.TestCase):
     def test_random_stays_in_the_unit_interval(self):
         stream = Rng(11)
         for _ in range(500):
-            value = stream.random()
-            self.assertGreaterEqual(value, 0.0)
-            self.assertLess(value, 1.0)
+            self.assertTrue(0.0 <= stream.random() < 1.0)
 
     def test_randint_is_inclusive_and_covers_its_range(self):
         stream = Rng(3)
@@ -92,10 +90,7 @@ class DeterministicRng(unittest.TestCase):
 
 class CanonicalJson(unittest.TestCase):
     def test_key_order_does_not_change_the_digest(self):
-        self.assertEqual(
-            canon.digest({"a": 1, "b": 2}),
-            canon.digest({"b": 2, "a": 1}),
-        )
+        self.assertEqual(canon.digest({"a": 1, "b": 2}), canon.digest({"b": 2, "a": 1}))
 
     def test_floats_are_rounded_to_canonical_precision(self):
         self.assertEqual(canon.normalize({"x": 0.1 + 0.2}), {"x": 0.3})
@@ -144,11 +139,9 @@ class Encoders(unittest.TestCase):
                 measured = sim.run_encoder(self.signal, encoding, self.config)
                 self.assertEqual(len(measured["reconstruction"]), len(self.signal))
                 self.assertGreater(measured["spike_count"], 0)
-                self.assertGreaterEqual(measured["information_retention"], 0.0)
-                self.assertLessEqual(measured["information_retention"], 1.0)
+                self.assertTrue(0.0 <= measured["information_retention"] <= 1.0)
                 self.assertAlmostEqual(
-                    measured["energy_pJ"],
-                    measured["spike_count"] * sim.ENERGY_PJ_PER_SPIKE,
+                    measured["energy_pJ"], measured["spike_count"] * sim.ENERGY_PJ_PER_SPIKE,
                 )
 
     def test_spike_times_are_non_decreasing(self):
@@ -202,11 +195,8 @@ class Encoders(unittest.TestCase):
         if comparison["winner_basis"] == "information_retention":
             expected = "temporal" if comparison["retention_margin"] > 0 else "rate"
         elif comparison["winner_basis"] == "spike_count_tiebreak":
-            expected = (
-                "temporal"
-                if comparison["a"]["spike_count"] < comparison["b"]["spike_count"]
-                else "rate"
-            )
+            fewer = comparison["a"]["spike_count"] < comparison["b"]["spike_count"]
+            expected = "temporal" if fewer else "rate"
         else:
             self.assertEqual(comparison["winner_basis"], "tie")
             expected = None
