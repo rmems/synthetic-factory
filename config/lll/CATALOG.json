@@ -1,0 +1,56 @@
+{
+  "schema_version": "lll-case-catalog-v1",
+  "family": "lll",
+  "factory": "email-webhook-retry-factory",
+  "prefix": "ewr",
+  "generator": "grok-4.6",
+  "source_branch": "origin/legacy-mill-lane",
+  "source_commit": "813f93f1969c1c4421e5663492e9663739efa642",
+  "extraction": "AST literals only; legacy modules were never imported or executed",
+  "catalogs": [
+    {
+      "source_path": "experiments/mill_leftover_leftover_leftover_r56.py",
+      "source_format": "pairs-dict-v1",
+      "source_blob_sha1": "e0096debbc417c648cd41b078dc62b8277e5104d",
+      "source_sha256": "38a1304441ecb930579fe3e3fc065e704c3f18db746170c103c3965769f84fb5",
+      "source_lines": 758,
+      "catalog_first": 56,
+      "pair_count": 16,
+      "first_slug": "pm-serverid-bind",
+      "last_slug": "fb-msgid-bind"
+    },
+    {
+      "source_path": "experiments/mill_leftover_leftover_leftover_r59.py",
+      "source_format": "pairs-dict-v1",
+      "source_blob_sha1": "84e0143cdfc64c31da21e6cb14863f385f277c0a",
+      "source_sha256": "d112d255a1053f8a69fcc6247e029b45d894fe6831ca875867a2203e768129a9",
+      "source_lines": 776,
+      "catalog_first": 59,
+      "pair_count": 16,
+      "first_slug": "loops-contactid-bind",
+      "last_slug": "rs-broadcast-bind"
+    },
+    {
+      "source_path": "experiments/mill_leftover_leftover_leftover_r75.py",
+      "source_format": "pairs-dict-v1",
+      "source_blob_sha1": "9165f46a9328706867749a59ea3b4158deb9645d",
+      "source_sha256": "946a1180d1d90690b60844bab4d6a176f45f53759085da7eddf8b78ff7d46d47",
+      "source_lines": 776,
+      "catalog_first": 75,
+      "pair_count": 16,
+      "first_slug": "loops-mailingid-bind",
+      "last_slug": "rs-template-bind"
+    },
+    {
+      "source_path": "experiments/mill_leftover_leftover_leftover_r91.py",
+      "source_format": "pairs-dict-v1",
+      "source_blob_sha1": "745303a780bb1cb90c747952edce0b12a6420a55",
+      "source_sha256": "f81136f578a3ff1384e9fa7cf058afe24b416203ade1c22475920e3fc99d7a4c",
+      "source_lines": 781,
+      "catalog_first": 91,
+      "pair_count": 16,
+      "first_slug": "sg-asm-group-bind",
+      "last_slug": "drip-broadcast-bind"
+    }
+  ]
+}
