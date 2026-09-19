@@ -174,6 +174,15 @@ def _facade_registry_cache():
     return sys.modules[__name__]
 
 
+def _bind_default_registry(cached: FactoryRegistry) -> FactoryRegistry:
+    """Publish the cache onto the facade when load_registry imported it first."""
+
+    global _DEFAULT_REGISTRY
+    _DEFAULT_REGISTRY = cached
+    setattr(_facade_registry_cache(), "_DEFAULT_REGISTRY", cached)
+    return cached
+
+
 def default_registry() -> FactoryRegistry:
     """Return the committed reviewed registry, loaded once per process."""
 
@@ -181,10 +190,7 @@ def default_registry() -> FactoryRegistry:
     cached = getattr(holder, "_DEFAULT_REGISTRY")
     if cached is None:
         cached = load_registry(FACTORY_REGISTRY_PATH)
-        setattr(holder, "_DEFAULT_REGISTRY", cached)
-    global _DEFAULT_REGISTRY
-    _DEFAULT_REGISTRY = cached
-    return cached
+    return _bind_default_registry(cached)
 
 
 if __package__:

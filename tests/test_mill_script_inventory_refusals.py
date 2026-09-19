@@ -1,0 +1,259 @@
+"""Malformed inventories and unavailable exclusion evidence must fail closed."""
+
+import contextlib
+import io
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from tests.test_mill_script_inventory import REPO, msi
+
+
+def _index_entry(path: str, *, flags: int = 0, mode: int = 0) -> bytes:
+    encoded = path.encode()
+    header = bytearray(60)
+    header[24:28] = mode.to_bytes(4, "big")
+    payload = bytes(header) + (len(encoded) | flags).to_bytes(2, "big")
+    if flags & 0x4000:
+        payload += bytes(2)
+    payload += encoded + b"\0"
+    return payload + bytes((8 - (len(payload) % 8)) % 8)
+
+
+def _ewah_bitmap(bit_size: int, words: tuple[int, ...]) -> bytes:
+    payload = bit_size.to_bytes(4, "big") + len(words).to_bytes(4, "big")
+    payload += b"".join(word.to_bytes(8, "big") for word in words)
+    return payload + (0).to_bytes(4, "big")
+
+
+def _git_index(
+    entries: tuple[bytes, ...],
+    extensions: dict[bytes, bytes] | None = None,
+    version: int = 2,
+) -> bytes:
+    body = b"".join(entries)
+    extra = b""
+    for signature, data in (extensions or {}).items():
+        extra += signature + len(data).to_bytes(4, "big") + data
+    header = b"DIRC" + version.to_bytes(4, "big") + len(entries).to_bytes(4, "big")
+    return header + body + extra + bytes(20)
+
+
+def _repo_gitdir(repo: Path) -> Path:
+    marker = repo / ".git"
+    if marker.is_file():
+        for line in marker.read_text(encoding="utf-8").splitlines():
+            if line.startswith("gitdir:"):
+                return Path(line.split(":", 1)[1].strip())
+    return marker
+
+
+class InventorySchemaRefusals(unittest.TestCase):
+    def test_invalid_encoded_documents_are_refused(self):
+        for payload in (None, b" " * 256001, b"\xff", b"{", b"[]"):
+            with self.subTest(payload_type=type(payload).__name__):
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.load_inventory_bytes(payload)
+
+    def test_invalid_top_level_collections_are_refused(self):
+        for field, value in (("scripts", None), ("scripts", []), ("mill_families", []),
+                             ("match_patterns", []), ("notes", ""), ("quality_policy", [])):
+            with self.subTest(field=field, value=value):
+                document = json.loads(msi.INVENTORY_BYTES)
+                document[field] = value
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.load_inventory_bytes(json.dumps(document).encode())
+
+    def test_invalid_script_identity_and_scope_are_refused(self):
+        cases = (("classification", "unknown"), ("quality_scope", "unknown"),
+                 ("quality_scope", "archived"), ("canonical_replacement", 42),
+                 ("path", "/outside.py"), ("owner", ""))
+        for field, value in cases:
+            with self.subTest(field=field):
+                document = json.loads(msi.INVENTORY_BYTES)
+                document["scripts"][0][field] = value
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.load_inventory_bytes(json.dumps(document).encode())
+
+    def test_duplicate_script_coordinates_are_refused(self):
+        document = json.loads(msi.INVENTORY_BYTES)
+        document["scripts"].append(document["scripts"][0])
+        with self.assertRaisesRegex(msi.MillScriptInventoryError, "unique"):
+            msi.load_inventory_bytes(json.dumps(document).encode())
+
+    def test_invalid_archive_and_family_policies_are_refused(self):
+        cases = (("historical_generator_policy", "classification", "production"),
+                 ("historical_generator_policy", "quality_scope", "production"),
+                 ("mill_families", "classification", "unknown"))
+        for group, field, value in cases:
+            with self.subTest(group=group, field=field):
+                document = json.loads(msi.INVENTORY_BYTES)
+                row = document[group][0] if group == "mill_families" else document[group]
+                row[field] = value
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.load_inventory_bytes(json.dumps(document).encode())
+
+
+class InventoryEvidenceRefusals(unittest.TestCase):
+    def test_missing_git_cannot_be_reported_as_clean_scope(self):
+        with patch.object(msi._git, "_git_available", return_value=False):
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"):
+                msi.tracked_paths()
+
+    def test_git_helper_refuses_commands_outside_the_allowlist(self):
+        for arguments in ((), ("status",), ("ls-files",), ("check-ignore", "-z")):
+            with self.subTest(arguments=arguments):
+                with self.assertRaisesRegex(
+                    msi.MillScriptInventoryError, "ls-files or check-ignore"
+                ):
+                    msi._git_output(REPO, arguments)
+
+    def test_git_helper_lists_tracked_paths_from_the_index(self):
+        tracked = msi.tracked_paths(REPO)
+        self.assertIn("pipelines/mill_script_inventory.py", tracked)
+        self.assertIn("config/MILL-SCRIPT-INVENTORY.json", tracked)
+
+    def test_linked_worktree_gitfile_reads_the_worktree_index(self):
+        gitdir = _repo_gitdir(REPO)
+        self.assertTrue((gitdir / "index").is_file())
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+            tracked = msi.tracked_paths(root)
+            self.assertIn("pipelines/mill_script_inventory.py", tracked)
+            self.assertIn("config/MILL-SCRIPT-INVENTORY.json", tracked)
+
+    def test_relative_gitfile_pointer_reads_the_worktree_index(self):
+        gitdir = _repo_gitdir(REPO)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            linked = root / "linked-gitdir"
+            linked.mkdir()
+            shutil.copy(gitdir / "index", linked / "index")
+            (root / ".git").write_text("gitdir: linked-gitdir\n", encoding="utf-8")
+            tracked = msi.tracked_paths(root)
+            self.assertIn("pipelines/mill_script_inventory.py", tracked)
+
+    def test_malformed_gitfile_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".git").write_text("not a gitdir\n", encoding="utf-8")
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"):
+                msi.tracked_paths(root)
+
+    def test_non_repository_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(msi.MillScriptInventoryError):
+                msi.tracked_paths(Path(temp))
+
+    def test_index_version_3_extended_entries_are_tracked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(
+                _git_index(
+                    (
+                        _index_entry("README"),
+                        _index_entry("pipelines/leftover_mill.py", flags=0x4000),
+                    ),
+                    version=3,
+                )
+            )
+            tracked = msi.tracked_paths(root)
+        self.assertEqual(tracked, ("README", "pipelines/leftover_mill.py"))
+
+    def test_index_version_4_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(_git_index((_index_entry("README"),), version=4))
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "unsupported git index"):
+                msi.tracked_paths(root)
+
+    def test_sparse_directory_index_cannot_be_reported_as_clean_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(
+                _git_index((_index_entry("skip/", mode=0o040000),))
+            )
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "sparse git index"):
+                msi.tracked_paths(root)
+
+    def test_split_index_inherits_shared_paths_for_empty_replacements(self):
+        oid = b"\x01" * 20
+        empty = _index_entry("")
+        named = (_index_entry("README"), _index_entry("pipelines/leftover_mill.py"))
+        link = oid + _ewah_bitmap(0, (0,)) + _ewah_bitmap(2, (1 << 33, 0b11))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / f"sharedindex.{oid.hex()}").write_bytes(_git_index(named))
+            (gitdir / "index").write_bytes(_git_index((empty, empty), {b"link": link}))
+            tracked = msi.tracked_paths(root)
+        self.assertEqual(tracked, ("README", "pipelines/leftover_mill.py"))
+        self.assertNotIn("", tracked)
+
+    def test_split_index_merge_applies_deletes_replacements_and_additions(self):
+        merged = msi._merge_split_paths(
+            ("README", "pipelines/leftover_mill.py", "pipelines/old_mill.py"),
+            ("pipelines/leftover_mill.py", "pipelines/added_mill.py"),
+            frozenset({0}),
+            frozenset({1}),
+        )
+        self.assertEqual(
+            merged,
+            ("pipelines/leftover_mill.py", "pipelines/old_mill.py", "pipelines/added_mill.py"),
+        )
+
+    def test_ewah_replace_bitmap_from_split_index_sets_the_shared_slots(self):
+        bits = msi._ewah_decode((8589934592, 7), 3)
+        self.assertEqual(bits, frozenset({0, 1, 2}))
+
+    def test_missing_shared_index_cannot_be_reported_as_clean_scope(self):
+        oid = b"\x02" * 20
+        link = oid + _ewah_bitmap(0, (0,)) + _ewah_bitmap(0, (0,))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gitdir = root / ".git"
+            gitdir.mkdir()
+            (gitdir / "index").write_bytes(_git_index((), {b"link": link}))
+            with self.assertRaisesRegex(msi.MillScriptInventoryError, "git index"):
+                msi.tracked_paths(root)
+
+    def test_invalid_qlty_exclusion_configuration_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".qlty").mkdir()
+            for value in ('"not an array"', '[42]'):
+                with self.subTest(value=value):
+                    (root / ".qlty/qlty.toml").write_text(f"exclude_patterns = {value}\n")
+                    with self.assertRaises(msi.MillScriptInventoryError):
+                        msi.qlty_exclude_patterns(root)
+
+    def test_explicit_inventory_cannot_bypass_shape_checks(self):
+        for field, value in (("scripts", None), ("match_patterns", None), ("quality_policy", None)):
+            with self.subTest(field=field):
+                document = dict(msi.INVENTORY)
+                document[field] = value
+                with self.assertRaises(msi.MillScriptInventoryError):
+                    msi.check_inventory(inventory=document, tracked=())
+
+    def test_check_mode_refuses_reported_defects_but_report_mode_exposes_them(self):
+        report = {"ok": False, "unclassified": ["pipelines/new_mill.py"]}
+        for arguments, expected in ((["--check"], 1), ([], 0)):
+            with self.subTest(arguments=arguments), patch.object(msi, "check_inventory", return_value=report):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(msi.main(arguments), expected)
+                self.assertEqual(json.loads(output.getvalue()), report)
+
+    def test_experiment_imports_are_refused_even_without_a_listed_stem(self):
+        self.assertEqual(msi.archived_import_hits("import experiments.unknown", ()), ("experiments",))

@@ -20,6 +20,10 @@ else:
 
 
 NEW_SPLIT_MODULES = (
+    "mill_script_inventory_schema",
+    "mill_script_inventory_families",
+    "mill_script_inventory_git",
+    "mill_script_inventory",
     "oracle_grounded.native_profiles",
     "oracle_grounded.native_runtime",
     "oracle_grounded.native_checks",
