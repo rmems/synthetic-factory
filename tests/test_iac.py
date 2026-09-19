@@ -126,6 +126,19 @@ def _archive_b_show(path: str) -> tuple[str, str] | None:
     return None
 
 
+def _archive_kwargs(committed: dict) -> dict:
+    return {
+        "archives": {
+            "archive_b": committed["archive_b"],
+            "archive_b_more": committed["archive_b_more"],
+        },
+        "plant_digests": {
+            "plants_sha256": committed["plants_sha256"],
+            "plants_b_sha256": committed["plants_b_sha256"],
+        },
+    }
+
+
 def _legacy_available() -> bool:
     try:
         subprocess.check_output(
@@ -485,17 +498,7 @@ class IacLegacyExtractTests(unittest.TestCase):
             self.assertEqual(live["shape"], committed.shape, source.mill_id)
             mills.append(mill_summary(live, include_pairs=source.mill_id == "iac-mill-r609"))
         committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
-        live_doc = catalog_document(
-            mills,
-            archives={
-                "archive_b": committed["archive_b"],
-                "archive_b_more": committed["archive_b_more"],
-            },
-            plant_digests={
-                "plants_sha256": committed["plants_sha256"],
-                "plants_b_sha256": committed["plants_b_sha256"],
-            },
-        )
+        live_doc = catalog_document(mills, **_archive_kwargs(committed))
         self.assertEqual(live_doc, committed)
 
     def test_regenerated_catalog_round_trips_through_loader(self):
@@ -532,14 +535,7 @@ class IacLegacyExtractTests(unittest.TestCase):
                 )
                 for mill in CATALOG.mills.values()
             ],
-            archives={
-                "archive_b": committed["archive_b"],
-                "archive_b_more": committed["archive_b_more"],
-            },
-            plant_digests={
-                "plants_sha256": committed["plants_sha256"],
-                "plants_b_sha256": committed["plants_b_sha256"],
-            },
+            **_archive_kwargs(committed),
         )
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)
