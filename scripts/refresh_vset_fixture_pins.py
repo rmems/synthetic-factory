@@ -168,7 +168,10 @@ def main(argv: list[str] | None = None) -> int:
         _report(stale, "stale")
         return 1
     for path in stale:
-        path.write_text(wanted[path], encoding="utf-8")
+        target = path.resolve()
+        if not target.is_relative_to(FIXTURES):
+            raise SystemExit(f"refusing to write outside the fixture tree: {path}")
+        target.write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
     return 0
 
