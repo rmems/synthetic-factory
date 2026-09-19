@@ -210,7 +210,11 @@ def _compose_identity_stage(
     facade = _facade()
     side_kinds, mixed = facade._source_preference_shape(record)
     result = facade.curate_identity.curate_record(
-        facade.curate_identity.SourceRecord(record, source.path, source.line, source.sha256)
+        facade.curate_identity.SourceRecord(
+            record, source.path, source.line, source.sha256,
+            source_json=(source.source_json if facade.curate_identity.classify_kind(record)
+                         in facade.curate_identity.PRESERVED_KINDS else None),
+        )
     )
     result, deferred = facade._deferred_lane_repair(record, result, source)
     reasons, detail = facade._identity_stage_evidence(result, deferred, side_kinds, mixed)

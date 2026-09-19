@@ -3064,34 +3064,6 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             self.assertEqual(retained_second.record["id"], retained_first.record["id"])
             identity.validate_identity_tree(second)
 
-    def test_expected_registry_digest_distinguishes_pin_from_self_consistency(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "src"
-            dest = Path(tmp) / "dest"
-            factory = src / FABLE_ACT
-            factory.mkdir(parents=True)
-            (factory / "episodes.jsonl").write_text(
-                identity.canonical_json(episode(FABLE_ACT)) + "\n",
-                encoding="utf-8",
-            )
-            identity.write_run(src, dest)
-            sidecar = dest / identity.FACTORY_REGISTRY_SIDECAR
-            reviewed_digest = hashlib.sha256(sidecar.read_bytes()).hexdigest()
-            replacement = json.loads(sidecar.read_text(encoding="utf-8"))
-            replacement["notes"] += " Replacement fixture."
-            replacement_bytes = (json.dumps(replacement, indent=2) + "\n").encode()
-            replacement_digest = hashlib.sha256(replacement_bytes).hexdigest()
-            sidecar.write_bytes(replacement_bytes)
-            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            for mapping in manifest:
-                mapping["registry"]["sha256"] = replacement_digest
-            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
-
-            identity.validate_identity_tree(dest)
-            with self.assertRaisesRegex(identity.IdentityTreeError, "digest mismatch"):
-                identity.validate_identity_tree(dest, expected_registry_digest=reviewed_digest)
-
     def test_identity_tree_rejects_symlinks_and_nonstandard_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"

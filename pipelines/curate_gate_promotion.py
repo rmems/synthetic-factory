@@ -265,6 +265,18 @@ def staged_evidence(staged: Path) -> PromotionEvidence:
     return PromotionEvidence(manifest, sample, review, digest, evidence_digest, bindings)
 
 
+def _completion_source(manifest: dict[str, Any]) -> Path | None:
+    plan = manifest.get("plan")
+    if not isinstance(plan, dict):
+        raise GateError("curation manifest plan must be an object")
+    source = plan.get("source_run_dir")
+    if source is None:
+        return None
+    if not isinstance(source, str) or not Path(source).is_absolute():
+        raise GateError("curation completion source must be an absolute path")
+    return Path(source)
+
+
 def _regate_staged(
     staged: Path,
     evidence: PromotionEvidence,
@@ -283,6 +295,7 @@ def _regate_staged(
         evidence.manifest,
         RetentionView(retained_source_keys, source_record_sha256_by_key),
     )
+    evidence_lanes[0]["_completion_source"] = _completion_source(evidence.manifest)
     gate_result = run_gates(
         staged,
         record_bindings=evidence.bindings,

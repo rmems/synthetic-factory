@@ -193,11 +193,14 @@ def _factory_report(factories):
 
 
 def _identity_report(state, eligible_records):
+    identity_records = eligible_records + sum(
+        state[kind].get("evidence_only_records", 0) for kind in ("oracle", "code_repair")
+    )
     return {
         "top_level_id_records": state["root_id_records"],
         "unique_top_level_ids": len(state["root_ids"]),
         "coverage_pct": (
-            round(100 * state["root_id_records"] / eligible_records, 1) if eligible_records else 0
+            round(100 * state["root_id_records"] / identity_records, 1) if identity_records else 0
         ),
         "legacy_meta_fallback_records": (state["canonical_id_records"] - state["root_id_records"]),
         "missing_top_level": len(state["missing_root_ids"]),
@@ -276,6 +279,52 @@ def _report_blockers(state, eligible_records, provenance_total):
     )
 
 
+def _procedural_report(counts, reasons, keys):
+    return {
+        **{key: counts[key] for key in keys},
+        "ineligibility_reasons": dict(sorted(reasons.items())),
+    }
+
+
+def _add_code_repair_report(report, state):
+    counts = state.get("code_repair")
+    if not counts:
+        return
+    report["code_repair"] = {
+        **_procedural_report(counts, state["code_repair_reasons"], (
+            "records", "eligible_records", "evidence_only_records", "invalid_records",
+            "completed_records",
+        )),
+        "validation_scope": "pure_inspection",
+        "fresh_publication_gate_required": True,
+    }
+    if counts["completed_records"] != counts["records"]:
+        report["blockers"].append("code_repair requires fresh replay and round completion gate")
+        report["training_ready"] = False
+
+
+def _add_oracle_report(report, state):
+    counts = state.get("oracle")
+    if not counts:
+        return
+    report["oracle"] = {
+        **_procedural_report(counts, state["oracle_reasons"], (
+            "records", "eligible_records", "evidence_only_records", "invalid_records",
+        )),
+        "validation_scope": "reference_replay_runtime_receipt_required",
+    }
+    messages = (
+        ("invalid_records", "oracle records failed validation and are not admissible"),
+        # Export copies every curated row without filtering, so retained
+        # evidence-only measurements must block publication.
+        ("evidence_only_records", "oracle records are ineligible and must not be exported"),
+    )
+    for key, message in messages:
+        if counts[key]:
+            report["blockers"].append(message)
+            report["training_ready"] = False
+
+
 def build_report(**state):
     """Assemble the stable public report from eligible-record counters."""
 
@@ -291,7 +340,7 @@ def build_report(**state):
         provenance_report["expected_states"],
     )
     gates, gate_errors = _gate_report(state)
-    return {
+    report = {
         "run_dir": str(state["run_dir"]),
         "totals": {
             "files": totals["files"],
@@ -327,6 +376,10 @@ def build_report(**state):
         "blockers": blockers,
         "training_ready": not blockers,
     }
+
+    _add_code_repair_report(report, state)
+    _add_oracle_report(report, state)
+    return report
 
 
 def _corpus_observation_lines(report):
