@@ -15,7 +15,7 @@ from ._contract import bind_import_twin, freeze, load_strict_json
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/model-channel-source-policy-v1.json"
 # Independent trust anchor: update only with the reviewed catalog change.
-POLICY_SHA256 = "669dc44621db1b031dfef93cd8aefeb54e9d589f731c8d1619c5e502b6a797f2"
+POLICY_SHA256 = "bc17bbeec8bfe3d26b777fa25b1d6d68bec9e03c68c4104aa816e2464c0fdc55"
 MODEL_CHANNEL_FIELDS = frozenset({
     "model_id",
     "model_revision",

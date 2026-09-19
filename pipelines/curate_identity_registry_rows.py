@@ -106,6 +106,10 @@ _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
             "9e668ce1c538387ef24d3644e9b0606647762636",
         ): ("ibm", "local_vllm"),
         (
+            "nvidia-nemotron-3-nano-4b-ollama",
+            "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394",
+        ): ("nvidia", "local_ollama"),
+        (
             "openrouter-deepseek-v4-pro",
             "deepseek/deepseek-v4-pro-0813",
         ): ("deepseek", "openrouter_api"),

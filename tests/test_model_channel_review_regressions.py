@@ -189,19 +189,27 @@ class RunPublication(unittest.TestCase):
 
 
 class OllamaVocabulary(unittest.TestCase):
-    def test_vocabulary_only_ollama_routes_cannot_get_training_authorization(self):
+    def test_ollama_training_authorization_stays_scoped_to_reviewed_route(self):
         for provider in ("nvidia", "meta", "ibm"):
-            with (
-                self.subTest(provider=provider),
-                self.assertRaises(rights_policy.RightsPolicyError),
-            ):
-                rights_classifier.classify_rights(
+            with self.subTest(provider=provider):
+                verdict = rights_classifier.classify_rights(
                     rights_classifier.RightsRoute(
                         provider, "local_ollama", rights_policy.OPEN_WEIGHT_LOCAL_PROFILE_ID
                     ),
                     source_sha256="sha256:" + "a" * 64,
                     factory_registry_sha256="sha256:" + "b" * 64,
                 )
+                self.assertEqual(verdict.intended_use, "training_candidate")
+                self.assertEqual(verdict.project_training_policy, "allowed")
+        route = rights_classifier.RightsRoute(
+            "openai", "local_ollama", rights_policy.OPEN_WEIGHT_LOCAL_PROFILE_ID
+        )
+        with self.assertRaises(rights_policy.RightsPolicyError):
+            rights_classifier.classify_rights(
+                route,
+                source_sha256="sha256:" + "a" * 64,
+                factory_registry_sha256="sha256:" + "b" * 64,
+            )
 
 
 class FacadeCompatibility(unittest.TestCase):

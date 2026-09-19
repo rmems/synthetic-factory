@@ -56,6 +56,21 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
+    def do_GET(self):
+        if self.path == "/api/tags":
+            tags = self.server.ollama_tags
+            body = tags.get("body")
+            if body is None:
+                body = json.dumps({"models": tags.get("models", [])}).encode("utf-8")
+            self.send_response(tags.get("status", 200))
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length)
@@ -85,11 +100,12 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class _Server:
-    def __init__(self, content: str, response_model: str):
+    def __init__(self, content: str, response_model: str, tags=None):
         self.httpd = HTTPServer(("127.0.0.1", 0), _Handler)
         self.httpd.requests = []
         self.httpd.content = content
         self.httpd.response_model = response_model
+        self.httpd.ollama_tags = tags or {}
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
     def __enter__(self):
@@ -150,11 +166,8 @@ class ModelChannelPolicyTests(unittest.TestCase):
         )
         self.assertEqual(ibm_hosted.project_training_policy, "blocked")
 
-    def test_no_ollama_or_minimax_rows_are_admitted(self):
+    def test_no_minimax_rows_are_admitted(self):
         registry = identity.load_registry()
-        self.assertFalse(
-            any(row.channel == "local_ollama" for row in registry.by_path_id.values())
-        )
         self.assertFalse(
             any("minimax" in row.path_id for row in registry.by_path_id.values())
         )
@@ -385,6 +398,7 @@ class ModelChannelRoundTxnTests(unittest.TestCase):
         remote_manifest = self._publish(PHI, remote)
         self.assertEqual(local_manifest["records"], 1)
         self.assertEqual(remote_manifest["records"], 1)
+
 
 
 if __name__ == "__main__":
