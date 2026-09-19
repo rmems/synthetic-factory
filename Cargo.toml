@@ -1,0 +1,3 @@
+[workspace]
+members = ["rust/sf-oracle", "rust/nir-rs", "rust/silicon-bridge"]
+resolver = "2"

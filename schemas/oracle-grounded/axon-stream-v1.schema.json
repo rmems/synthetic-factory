@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "axon-stream-v1",
+  "type": "object",
+  "required": [
+    "family",
+    "scenario",
+    "intervention",
+    "candidate_prediction",
+    "result"
+  ],
+  "properties": {
+    "family": {
+      "const": "spike-encoder-equivalence-pairs"
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "profile",
+        "parameters",
+        "signal"
+      ],
+      "properties": {
+        "profile": {
+          "const": "axon-stream-v1"
+        },
+        "parameters": {
+          "type": "object",
+          "required": [
+            "sample_ms",
+            "rate_hz",
+            "delta_threshold"
+          ],
+          "properties": {
+            "sample_ms": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 100
+            },
+            "rate_hz": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 1000
+            },
+            "delta_threshold": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "signal": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 1,
+          "maxItems": 4096
+        }
+      },
+      "additionalProperties": false
+    },
+    "intervention": {
+      "type": "null"
+    },
+    "candidate_prediction": {
+      "type": "null"
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "measured"
+      ],
+      "properties": {
+        "measured": {
+          "type": "object",
+          "required": [
+            "profile",
+            "identity",
+            "rate",
+            "delta",
+            "winner"
+          ],
+          "properties": {
+            "profile": {
+              "const": "axon-stream-v1"
+            },
+            "identity": {
+              "type": "object",
+              "required": [
+                "source_revision",
+                "lock_sha256",
+                "adapter_source_sha256",
+                "adapter_revision",
+                "executable_sha256",
+                "crate_name",
+                "crate_version"
+              ],
+              "properties": {
+                "source_revision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "lock_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "adapter_source_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "adapter_revision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "executable_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "crate_name": {
+                  "type": "string"
+                },
+                "crate_version": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "rate": {
+              "type": "object",
+              "required": [
+                "spikes",
+                "reconstruction",
+                "spike_count",
+                "rmse",
+                "spike_preview",
+                "spike_preview_truncated"
+              ],
+              "properties": {
+                "spikes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "channel",
+                      "t_ms",
+                      "polarity"
+                    ],
+                    "properties": {
+                      "channel": {
+                        "const": 0
+                      },
+                      "t_ms": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "polarity": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 1000000
+                },
+                "reconstruction": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "minItems": 1,
+                  "maxItems": 4096
+                },
+                "spike_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "rmse": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "spike_preview": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "channel",
+                      "t_ms",
+                      "polarity"
+                    ],
+                    "properties": {
+                      "channel": {
+                        "const": 0
+                      },
+                      "t_ms": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "polarity": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 24
+                },
+                "spike_preview_truncated": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "delta": {
+              "type": "object",
+              "required": [
+                "spikes",
+                "reconstruction",
+                "spike_count",
+                "rmse",
+                "spike_preview",
+                "spike_preview_truncated"
+              ],
+              "properties": {
+                "spikes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "channel",
+                      "t_ms",
+                      "polarity"
+                    ],
+                    "properties": {
+                      "channel": {
+                        "const": 0
+                      },
+                      "t_ms": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "polarity": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 1000000
+                },
+                "reconstruction": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "minItems": 1,
+                  "maxItems": 4096
+                },
+                "spike_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "rmse": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "spike_preview": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "channel",
+                      "t_ms",
+                      "polarity"
+                    ],
+                    "properties": {
+                      "channel": {
+                        "const": 0
+                      },
+                      "t_ms": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "polarity": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 24
+                },
+                "spike_preview_truncated": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "winner": {
+              "enum": [
+                "rate",
+                "delta",
+                "tie"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}
