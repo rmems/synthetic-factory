@@ -1,0 +1,20 @@
+tests/test_pipeline_split_module_identity.py
+  s_e2a5c1e5cbed51::t_24bf845d9e697d 151
+  s_e2a5c1e5cbed51::t_a62b26a032da10 285,289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7673e89d799fc9ada6762d1226a574e5a543f4cf",
+  "prompts": {},
+  "sessions": {
+    "s_e2a5c1e5cbed51": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "massive-homburg",
+        "model": "unknown"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
