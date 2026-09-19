@@ -259,27 +259,34 @@ def _parent_excluded(path: str, excluded: Sequence[str]) -> bool:
     return any(path == folder or path.startswith(f"{folder}/") for folder in excluded)
 
 
+def _apply_ignore_hit(
+    state: tuple[tuple[str, str, str] | None, tuple[str, ...], str],
+    hit: str | None,
+    rule: tuple[str, str, str],
+) -> tuple[tuple[str, str, str] | None, tuple[str, ...], str]:
+    if hit is None:
+        return state
+    excluded, normalized = state[1], state[2]
+    source, line, original = rule
+    if not original.startswith("!"):
+        extra = (hit,) if hit != normalized else ()
+        return (source, line, original), excluded + extra, normalized
+    if _parent_excluded(normalized, excluded):
+        return state
+    return (source, line, original), excluded, normalized
+
+
 def _last_ignore_hit(
     path: str,
     rules: Sequence[tuple[str, str, str, str, re.Pattern[str]]],
 ) -> tuple[str, str, str] | None:
-    last = None
-    excluded: list[str] = []
     normalized = path.replace("\\", "/")
     prefixes = _path_prefixes(normalized)
+    state: tuple[tuple[str, str, str] | None, tuple[str, ...], str] = (None, (), normalized)
     for scope, source, line, original, regex in rules:
         hit = _matching_prefix(prefixes, scope, regex, original.removeprefix("!").endswith("/"))
-        if hit is None:
-            continue
-        if original.startswith("!"):
-            if _parent_excluded(normalized, excluded):
-                continue
-            last = (source, line, original)
-            continue
-        last = (source, line, original)
-        if hit != normalized:
-            excluded.append(hit)
-    return last
+        state = _apply_ignore_hit(state, hit, (source, line, original))
+    return state[0]
 
 
 def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, str, str]]:

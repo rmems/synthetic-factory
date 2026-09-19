@@ -7,6 +7,30 @@ from unittest.mock import patch
 
 from tests.test_mill_script_inventory import REPO, _scope_repo, msi
 
+_MILL_PATHS = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
+
+
+def _write_root_ignore(root, rule: str) -> None:
+    path = root / ".gitignore"
+    path.write_text(path.read_text() + "\n" + rule + "\n")
+
+
+def _write_nested_ignore(root, text: str) -> None:
+    (root / "pipelines").mkdir()
+    (root / "pipelines" / ".gitignore").write_text(text)
+
+
+def _enable_ignorecase_mill_rule(root) -> None:
+    config = root / ".git" / "config"
+    config.write_text(config.read_text() + "\tignoreCase = true\n")
+    _write_root_ignore(root, "PIPELINES/MILL/**")
+
+
+def _assert_mill_hidden(test, root) -> None:
+    report = msi.check_inventory(root, tracked=_MILL_PATHS)
+    test.assertFalse(report["ok"], report)
+    test.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(_MILL_PATHS))
+
 
 class CanonicalPaths(unittest.TestCase):
     def test_noncanonical_path_components_are_refused(self):
@@ -115,65 +139,22 @@ class PublisherAndFamilyScope(unittest.TestCase):
         self.assertEqual(msi.uncovered_paths(msi.qlty_exclude_patterns(REPO), paths), ())
         self.assertEqual(msi._ignored_paths(msi.gitignore_matches(REPO, paths)), set(paths))
 
-    def test_gitignore_cannot_hide_cleaned_production_family_package(self):
-        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
-        with _scope_repo() as root:
-            ignore = root / ".gitignore"
-            ignore.write_text(ignore.read_text() + "\npipelines/mill/\n")
-            report = msi.check_inventory(root, tracked=paths)
-        self.assertFalse(report["ok"], report)
-        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
-
-    def test_nested_gitignore_cannot_hide_cleaned_production_family_package(self):
-        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
-        with _scope_repo() as root:
-            (root / "pipelines").mkdir()
-            (root / "pipelines" / ".gitignore").write_text("mill/**\n")
-            report = msi.check_inventory(root, tracked=paths)
-            matches = msi.gitignore_matches(root, (*paths, "pipelines/will/cli.py"))
-        self.assertFalse(report["ok"], report)
-        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
-        self.assertNotIn("pipelines/will/cli.py", matches)
-
-    def test_nested_basename_gitignore_covers_production_package_descendants(self):
-        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
-        with _scope_repo() as root:
-            (root / "pipelines").mkdir()
-            (root / "pipelines" / ".gitignore").write_text("mill\n")
-            report = msi.check_inventory(root, tracked=paths)
-        self.assertFalse(report["ok"], report)
-        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
-
-    def test_nested_gitignore_cannot_reinclude_under_an_excluded_parent(self):
-        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
-        with _scope_repo() as root:
-            (root / "pipelines").mkdir()
-            (root / "pipelines" / ".gitignore").write_text("mill/\n!mill/**\n")
-            report = msi.check_inventory(root, tracked=paths)
-        self.assertFalse(report["ok"], report)
-        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
-
-    def test_ignorecase_gitignore_cannot_hide_cleaned_production_family_package(self):
-        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
-        with _scope_repo() as root:
-            config = root / ".git" / "config"
-            config.write_text(config.read_text() + "\tignoreCase = true\n")
-            ignore = root / ".gitignore"
-            ignore.write_text(ignore.read_text() + "\nPIPELINES/MILL/**\n")
-            report = msi.check_inventory(root, tracked=paths)
-        self.assertFalse(report["ok"], report)
-        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
-
-    def test_gitignore_bracket_class_cannot_hide_production_mill_package(self):
-        paths = ("pipelines/mill/__init__.py", "pipelines/mill/cli.py")
-        with _scope_repo() as root:
-            ignore = root / ".gitignore"
-            ignore.write_text(ignore.read_text() + "\npipelines/[m]ill/**\n")
-            report = msi.check_inventory(root, tracked=paths)
-            matches = msi.gitignore_matches(root, (*paths, "pipelines/will/cli.py"))
-        self.assertFalse(report["ok"], report)
-        self.assertEqual({path for _, path in report["gitignore_hits_on_production"]}, set(paths))
-        self.assertNotIn("pipelines/will/cli.py", matches)
+    def test_gitignore_variants_cannot_hide_cleaned_production_family_package(self):
+        cases = (
+            ("root directory", lambda root: _write_root_ignore(root, "pipelines/mill/"), False),
+            ("nested glob", lambda root: _write_nested_ignore(root, "mill/**\n"), True),
+            ("nested basename", lambda root: _write_nested_ignore(root, "mill\n"), False),
+            ("excluded parent", lambda root: _write_nested_ignore(root, "mill/\n!mill/**\n"), False),
+            ("ignorecase", _enable_ignorecase_mill_rule, False),
+            ("bracket class", lambda root: _write_root_ignore(root, "pipelines/[m]ill/**"), True),
+        )
+        for name, setup, check_unrelated in cases:
+            with self.subTest(name=name), _scope_repo() as root:
+                setup(root)
+                _assert_mill_hidden(self, root)
+                if check_unrelated:
+                    matches = msi.gitignore_matches(root, (*_MILL_PATHS, "pipelines/will/cli.py"))
+                    self.assertNotIn("pipelines/will/cli.py", matches)
 
     def test_escaped_gitignore_bracket_is_literal(self):
         with _scope_repo() as root:
