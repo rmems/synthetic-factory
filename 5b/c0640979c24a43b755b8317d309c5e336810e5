@@ -1,0 +1,23 @@
+tests/test_oracle_grounded_sim.py
+  s_e2a5c1e5cbed51::t_48eac7208b2c72 195-196,198,201-202
+  s_e2a5c1e5cbed51::t_f3291771540217 197,199-200
+pipelines/oracle_grounded/schema_keywords.py
+  s_e2a5c1e5cbed51::t_5cd6da2a119192 130-133,136-137
+  s_e2a5c1e5cbed51::t_543d7ce5a5da0f 23-25,27-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5bc0640979c24a43b755b8317d309c5e336810e5",
+  "prompts": {},
+  "sessions": {
+    "s_e2a5c1e5cbed51": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "massive-homburg",
+        "model": "unknown"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
