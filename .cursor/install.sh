@@ -13,3 +13,24 @@ export TMPDIR="${TMPDIR:-/tmp}"
 python3 -m venv .venv
 .venv/bin/python -m compileall -q pipelines tests .claude/skills/run-synthetic-factory/driver.py
 .venv/bin/python .claude/skills/run-synthetic-factory/driver.py smoke
+
+# Rust sf-oracle (same toolchain and gates as .github/workflows/python.yml).
+export CC=gcc
+export CXX=g++
+if ! command -v rustup >/dev/null 2>&1; then
+  curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.98.1 --profile minimal
+fi
+# shellcheck source=/dev/null
+source "${HOME}/.cargo/env"
+rustup toolchain install 1.98.1 \
+  --profile minimal \
+  --component rustfmt \
+  --component clippy
+rustup default 1.98.1
+cargo +1.98.1 fetch --locked
+cargo +1.98.1 fmt --all --check
+cargo +1.98.1 clippy --locked --all-targets -- -D warnings
+cargo +1.98.1 test --locked -p sf-oracle
+cargo +1.98.1 build --locked -p sf-oracle
+export SF_ORACLE_RUST_BIN="${PWD}/target/debug/sf-oracle"
+.venv/bin/python -m unittest discover -s tests -p 'test_oracle_rust_end_to_end.py' -q
