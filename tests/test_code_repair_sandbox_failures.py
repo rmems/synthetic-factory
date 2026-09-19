@@ -27,6 +27,23 @@ def _serving(report):
 
 
 class SandboxFailures(unittest.TestCase):
+    def test_os_boundary_nonzero_exit_requires_both_startup_attestations(self):
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        limits = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n"
+        complete = (limits + f"{ex.LANDLOCK_ATTESTATION_PREFIX}landlock-abi4\n").encode()
+        report = ex._parse_report(job, 1, complete, require_landlock=True)
+        self.assertEqual(report.detail, "exit status 1")
+        self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+        self.assertEqual(report.environment["landlock"], "landlock-abi4")
+
+        for stdout in (b"", limits.encode()):
+            with self.subTest(stdout=stdout):
+                unavailable = ex._parse_report(
+                    job, 1, stdout, require_landlock=True,
+                )
+                self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, unavailable.detail)
+
     def test_attested_crash_without_environment_is_a_candidate_harness_error(self):
         """The trusted attestation survives a crash that loses the JSON environment."""
 

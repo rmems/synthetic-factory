@@ -143,6 +143,8 @@ def _unisolated(report: ex.PhaseReport) -> bool:
     identity = report.environment.get("sandbox_identity")
     if identity not in sb.OS_IDENTITIES:
         return False
+    if report.status == cv.PHASE_TIMEOUT:
+        return False
     return not ex.landlock_applied(report.environment.get("landlock"))
 
 

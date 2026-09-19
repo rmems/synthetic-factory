@@ -6,8 +6,9 @@ Runs under ``python -P -s -S -B -X utf8`` in a fresh working directory holding
 module through ``importlib``; runs the target function's doctest examples once
 in order (they may carry state) through a ``DocTestRunner`` whose report hooks
 record one row per example; evaluates the pinned hidden cases; writes an
-out-of-band limits attestation line on real stdout before ``program.py`` is
-read; then writes one JSON object to an inherited unlinked report fd. It exits 0
+out-of-band limits and Landlock startup attestations on real stdout before
+``program.py`` is read; then writes one JSON object to an inherited unlinked
+report fd. It exits 0
 whatever the program did: failures are rows, never exit codes, and any
 internal error is reported in ``load``.
 """
@@ -35,6 +36,7 @@ _OS_EXIT = os._exit
 
 PROTOCOL = "code-repair-harness/2"
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
+LANDLOCK_ATTESTATION_PREFIX = "code-repair-landlock-attestation/1 "
 REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
@@ -299,6 +301,14 @@ def _write_limits_attestation(stream, limits_applied: bool) -> None:
     stream.flush()
 
 
+def _write_landlock_attestation(stream, token: object) -> None:
+    """Out-of-band Landlock proof before ``program.py`` is read."""
+
+    attested = token if isinstance(token, str) and token else "none"
+    stream.write(f"{LANDLOCK_ATTESTATION_PREFIX}{attested}\n")
+    stream.flush()
+
+
 def _write_protocol_report(report: dict, dumps) -> None:
     """JSON report on the inherited capture fd after dropping candidate atexit hooks."""
 
@@ -310,7 +320,7 @@ def _write_protocol_report(report: dict, dumps) -> None:
     os.ftruncate(fd, len(data))
 
 
-def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
+def _startup_report(*, limits_applied: bool) -> dict:
     report: dict = {"protocol": PROTOCOL, "load": {"status": "ok", "error": None}}
     report["environment"] = {
         "python": platform.python_version(),
@@ -320,8 +330,12 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     }
     if not limits_applied:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
-        return report
-    _isolation_module().enforce(str(workdir), spec, report)
+    return report
+
+
+def _run_program(workdir: Path, spec: dict, report: dict) -> dict:
+    """Read and execute candidate code after immutable startup proofs are emitted."""
+
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
 
@@ -347,6 +361,14 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     return report
 
 
+def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
+    report = _startup_report(limits_applied=limits_applied)
+    if not limits_applied:
+        return report
+    _isolation_module().enforce(str(workdir), spec, report)
+    return _run_program(workdir, spec, report)
+
+
 def main(argv: list[str], *, _dumps=json.dumps) -> int:
     if len(argv) != 2:
         sys.stderr.write("usage: _harness.py <workdir>\n")
@@ -360,7 +382,21 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
     except (OSError, TypeError, ValueError):
         spec = {}
     limits_applied = _apply_limits(spec)
+    report = _startup_report(limits_applied=limits_applied)
+    startup_error = None
+    if limits_applied:
+        try:
+            _isolation_module().enforce(str(workdir), spec, report)
+        except Exception as exc:
+            startup_error = exc
+            report["load"] = {
+                "status": "error",
+                "error": _scrub_workdir(
+                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir),
+                ),
+            }
     _write_limits_attestation(real_stdout, limits_applied)
+    _write_landlock_attestation(real_stdout, report.get("environment", {}).get("landlock"))
     # Drop the capture fds without keeping a dup. A leftover seekable stdout fd
     # (or a workdir path the candidate can reopen) can rewrite the attestation.
     with open(os.devnull, "w", encoding="utf-8") as sink:
@@ -368,13 +404,11 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            report = _run(workdir, spec, limits_applied=limits_applied)
+            if limits_applied and startup_error is None:
+                report = _run_program(workdir, spec, report)
         except Exception as exc:
-            report = {
-                "protocol": PROTOCOL,
-                "load": {"status": "error", "error": _scrub_workdir(
-                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))},
-            }
+            report["load"] = {"status": "error", "error": _scrub_workdir(
+                f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))}
         _write_protocol_report(report, _dumps)
     sys.stdout, sys.stderr = real_stdout, real_stderr
     return 0

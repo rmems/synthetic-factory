@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import sysconfig
 
 DEV_NODES = ("/dev/null", "/dev/zero", "/dev/urandom", "/dev/random")
 SYSTEM_LIB_ROOTS = ("/lib", "/lib64", "/usr/lib", "/usr/lib64")
@@ -20,19 +21,23 @@ __all__ = [
 
 
 def runtime_prefixes() -> set[str]:
-    prefixes = {
-        os.path.realpath(path)
-        for path in (
-            sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix, sys.executable,
-        )
-        if path
+    """Exact interpreter executable and Python library roots for this layout."""
+
+    layout = sysconfig.get_paths()
+    paths = {sys.executable}
+    paths.update(
+        layout.get(name)
+        for name in ("stdlib", "platstdlib", "purelib", "platlib")
+    )
+    return {
+        resolved
+        for path in paths
+        if path and (resolved := os.path.realpath(path)) != "/" and os.path.exists(resolved)
     }
-    resolved = {path if os.path.isdir(path) else os.path.dirname(path) for path in prefixes}
-    return {path for path in resolved if path and path != "/"}
 
 
 def read_roots() -> set[str]:
-    """Interpreter prefixes plus fixed system library roots; never ``/``."""
+    """Exact interpreter paths plus fixed system library roots; never ``/``."""
 
     roots = set(runtime_prefixes())
     for root in SYSTEM_LIB_ROOTS:

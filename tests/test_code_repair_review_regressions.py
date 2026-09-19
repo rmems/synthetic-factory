@@ -99,7 +99,19 @@ class ExecutionEvidence(unittest.TestCase):
                 result = runner.run(ex.Job("snapshot", "def f():\n    return 1\n", "f",
                                            ({"args": "()", "want": "1"},), False))
             self.assertTrue(result.ok, result.detail)
-            self.assertEqual(runner.harness_sha256, hashlib.sha256(original).hexdigest())
+            expected = ex._execution_bundle_sha256(
+                original, ex.SANDBOX_PATH.read_bytes(), ex.SANDBOX_PATHS_PATH.read_bytes(),
+            )
+            self.assertEqual(runner.harness_sha256, expected)
+
+    def test_execution_bundle_digest_covers_each_framed_child_module(self):
+        payloads = (b"harness", b"sandbox", b"paths")
+        original = ex._execution_bundle_sha256(*payloads)
+        for index in range(len(payloads)):
+            changed = list(payloads)
+            changed[index] += b"-changed"
+            with self.subTest(index=index):
+                self.assertNotEqual(ex._execution_bundle_sha256(*changed), original)
 
     def test_reports_without_applied_limits_are_rejected(self):
         for flag in (None, False, 1):

@@ -49,6 +49,7 @@ FLOAT_ABS_TOL = 1e-12
 STDERR_TAIL_CHARS = 400
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # above the child's file-size limit, so a full read is complete
 LIMITS_ATTESTATION_PREFIX = _harness_report.LIMITS_ATTESTATION_PREFIX
+LANDLOCK_ATTESTATION_PREFIX = _harness_report.LANDLOCK_ATTESTATION_PREFIX
 REPORT_FILENAME = _harness_report.REPORT_FILENAME
 REPORT_FD_ENV = _harness_report.REPORT_FD_ENV
 
@@ -87,8 +88,29 @@ class PhaseReport:
         return self.status == cv.PHASE_OK and self.load_ok
 
 
+def _execution_bundle_sha256(
+    harness_bytes: bytes, sandbox_bytes: bytes, sandbox_paths_bytes: bytes,
+) -> str:
+    """Unambiguous identity for every child module copied into the workdir."""
+
+    digest = hashlib.sha256()
+    for name, payload in (
+        (HARNESS_FILENAME, harness_bytes),
+        (SANDBOX_FILENAME, sandbox_bytes),
+        (SANDBOX_PATHS_FILENAME, sandbox_paths_bytes),
+    ):
+        encoded_name = name.encode("utf-8")
+        digest.update(len(encoded_name).to_bytes(4, "big"))
+        digest.update(encoded_name)
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()
+
+
 def harness_sha256() -> str:
-    return hashlib.sha256(HARNESS_PATH.read_bytes()).hexdigest()
+    return _execution_bundle_sha256(
+        HARNESS_PATH.read_bytes(), SANDBOX_PATH.read_bytes(), SANDBOX_PATHS_PATH.read_bytes(),
+    )
 
 
 def landlock_applied(token: Any) -> bool:
@@ -173,7 +195,9 @@ class Executor:
         self._harness_bytes = HARNESS_PATH.read_bytes()
         self._sandbox_bytes = SANDBOX_PATH.read_bytes()
         self._sandbox_paths_bytes = SANDBOX_PATHS_PATH.read_bytes()
-        self.harness_sha256 = hashlib.sha256(self._harness_bytes).hexdigest()
+        self.harness_sha256 = _execution_bundle_sha256(
+            self._harness_bytes, self._sandbox_bytes, self._sandbox_paths_bytes,
+        )
         self.log: list[dict[str, Any]] = []
 
     @property
@@ -258,12 +282,10 @@ class Executor:
             report = PhaseReport(cv.PHASE_TIMEOUT, False, (), (), {}, "timed out")
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
-            if completed.returncode != 0 and self.isolation.is_os_boundary:
-                report = _harness_error(
-                    f"{cv.FINDING_SANDBOX_UNAVAILABLE}: isolation wrapper failed",
-                )
-            else:
-                report = _parse_report(job, completed.returncode, stdout, body)
+            report = _parse_report(
+                job, completed.returncode, stdout, body,
+                require_landlock=self.isolation.is_os_boundary,
+            )
         finally:
             if confined is not None:
                 confined.close()
@@ -295,6 +317,7 @@ def _harness_error(detail: str) -> PhaseReport:
 
 
 _limits_attested = _harness_report.limits_attested
+_landlock_attested = _harness_report.landlock_attested
 _parsed_report = _harness_report.parsed_report
 
 
@@ -322,32 +345,53 @@ def _write_child(workdir: Path, name: str, payload: bytes) -> None:
     dest.write_bytes(payload)
 
 
-def _parse_report(job: Job, returncode: int, stdout: bytes, body: bytes = b"") -> PhaseReport:
+def _parse_report(
+    job: Job, returncode: int, stdout: bytes, body: bytes = b"", *,
+    require_landlock: bool = False,
+) -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
     Every row the job asked for must be present and well formed: a truncated
     or malformed suite is a harness error, never a suite with no failures.
-    ``stdout`` is the out-of-band limits attestation; ``body`` is the JSON file.
+    ``stdout`` carries immutable startup attestations; ``body`` is the JSON file.
     """
 
-    if _limits_attested(stdout) is False:
+    limits = _limits_attested(stdout)
+    if limits is False or (require_landlock and limits is not True):
         return PhaseReport(
             cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
-            f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not applied")
+            f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not attested")
+    attested_environment = {"limits_applied": True} if limits is True else {}
+    if require_landlock:
+        token = _landlock_attested(stdout)
+        if not landlock_applied(token):
+            return PhaseReport(
+                cv.PHASE_HARNESS_ERROR, False, (), (),
+                {**attested_environment, "landlock": ""},
+                f"{cv.FINDING_SANDBOX_UNAVAILABLE}: landlock not attested",
+            )
+        attested_environment["landlock"] = token
     parsed = _parsed_report(returncode, stdout, body)
     if isinstance(parsed, str):
-        return _harness_error(parsed)
+        return PhaseReport(
+            cv.PHASE_HARNESS_ERROR, False, (), (), attested_environment, parsed,
+        )
     parsed.pop("_limits_attested", None)
-    return _reported_phase(job, parsed)
+    return _reported_phase(job, parsed, attested_environment)
 
 
-def _reported_phase(job: Job, parsed: dict[str, Any]) -> PhaseReport:
-    """Interpret complete report rows after the limits attestation is verified."""
+def _reported_phase(
+    job: Job, parsed: dict[str, Any], attested_environment: dict[str, Any],
+) -> PhaseReport:
+    """Interpret complete report rows after both required startup proofs are verified."""
 
     if "limits_applied" not in _object(parsed, "environment"):
         reason = _object(parsed, "load").get("error") or "the child reported no environment"
-        return _harness_error(_scrub_detail(str(reason)))
-    environment = {**_object(parsed, "environment"), "limits_applied": True}
+        return PhaseReport(
+            cv.PHASE_HARNESS_ERROR, False, (), (), attested_environment,
+            _scrub_detail(str(reason)),
+        )
+    environment = {**_object(parsed, "environment"), **attested_environment}
     load = _object(parsed, "load")
     if load.get("status") != "ok":
         detail = _scrub_detail(str(load.get("error") or "load failed"))
@@ -355,7 +399,10 @@ def _reported_phase(job: Job, parsed: dict[str, Any]) -> PhaseReport:
     public = _rows("public", parsed.get("public"), job.expected_public if job.run_public else 0)
     hidden = _rows("hidden", parsed.get("hidden"), len(job.cases))
     if public is None or hidden is None:
-        return _harness_error("report rows are missing or malformed")
+        return PhaseReport(
+            cv.PHASE_HARNESS_ERROR, False, (), (), attested_environment,
+            "report rows are missing or malformed",
+        )
     return PhaseReport(cv.PHASE_OK, True, public, hidden, environment)
 
 

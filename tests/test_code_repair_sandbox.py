@@ -16,7 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    executor as ex, fixture, refusal, vocabulary as cv,
+    executor as ex, fixture, generate, refusal, vocabulary as cv,
 )
 from code_repair import _sandbox as landlock  # noqa: E402
 from code_repair import catalog_build as cb  # noqa: E402
@@ -136,6 +136,14 @@ class FingerprintIdentity(unittest.TestCase):
     def test_reviewed_records_carry_no_confinement_claim(self):
         self.assertIsNone(positives()[0]["oracle"]["configuration"].get("confinement"))
 
+    def test_os_boundary_timeouts_do_not_require_a_post_startup_landlock_report(self):
+        timed_out = ex.PhaseReport(
+            cv.PHASE_TIMEOUT, False, (), (), {"sandbox_identity": sb.IDENTITY_BWRAP}, "",
+        )
+        failed = dataclasses.replace(timed_out, status=cv.PHASE_HARNESS_ERROR)
+        self.assertFalse(generate._unisolated(timed_out))
+        self.assertTrue(generate._unisolated(failed))
+
 
 def _live_skip_reason() -> str:
     """Why the live boundary test cannot run, with the environment recorded."""
@@ -193,6 +201,30 @@ class LandlockTokens(unittest.TestCase):
         self.assertNotIn("/", landlock._read_roots())
         self.assertNotIn("/", landlock.SYSTEM_LIB_ROOTS)
 
+    def test_runtime_prefixes_exclude_broad_interpreter_prefixes(self):
+        paths = landlock._paths_mod
+        with tempfile.TemporaryDirectory() as root:
+            executable = Path(root) / "bin" / "python"
+            stdlib = Path(root) / "lib" / "python3.14"
+            executable.parent.mkdir()
+            executable.touch()
+            stdlib.mkdir(parents=True)
+            layout = {
+                "stdlib": str(stdlib), "platstdlib": str(stdlib),
+                "purelib": str(stdlib / "site-packages"),
+                "platlib": str(stdlib / "site-packages"),
+            }
+            (stdlib / "site-packages").mkdir()
+            with (
+                mock.patch.object(paths.sys, "executable", str(executable)),
+                mock.patch.object(paths.sys, "prefix", "/usr"),
+                mock.patch.object(paths.sys, "base_prefix", "/"),
+                mock.patch.object(paths.sysconfig, "get_paths", return_value=layout),
+            ):
+                prefixes = paths.runtime_prefixes()
+        self.assertEqual(prefixes, {str(executable), str(stdlib), str(stdlib / "site-packages")})
+        self.assertNotIn("/usr", prefixes)
+
     def test_open_allowed_refuses_host_canaries(self):
         self.assertIsNone(landlock._open_allowed("/etc/passwd", set(landlock._read_roots())))
         self.assertIsNone(landlock._open_allowed("/etc/passwd", set(landlock.DEV_NODES)))
@@ -211,7 +243,7 @@ class _StubLibc:
         return 0
 
 
-def _stub_active(fd: int, rule_ok: bool = True) -> "landlock._ActiveRuleset":
+def _stub_active(fd: int, rule_ok: bool = True) -> landlock._ActiveRuleset:
     active = landlock._ActiveRuleset()
     active.libc = _StubLibc(0 if rule_ok else -1)
     active.fd = fd
@@ -231,9 +263,11 @@ class LandlockInternals(unittest.TestCase):
 
     def test_enforce_raises_when_the_boundary_cannot_be_applied(self):
         report = {"environment": {}}
-        with mock.patch.object(landlock, "apply", return_value=None):
-            with self.assertRaises(RuntimeError):
-                landlock.enforce("workdir", {"require_landlock": True}, report)
+        with (
+            mock.patch.object(landlock, "apply", return_value=None),
+            self.assertRaises(RuntimeError),
+        ):
+            landlock.enforce("workdir", {"require_landlock": True}, report)
         self.assertEqual(report["environment"]["landlock"], "")
 
     def test_enforce_records_the_applied_token(self):
@@ -296,8 +330,10 @@ class LandlockInternals(unittest.TestCase):
             self.assertFalse(landlock._host_paths_are_closed(workdir))
             canary = Path(workdir) / "canary"
             canary.write_text("x", encoding="utf-8")
-            canary.chmod(0)
-            with mock.patch.object(landlock, "HOST_CANARIES", (str(canary),)):
+            with (
+                mock.patch.object(landlock, "HOST_CANARIES", (str(canary),)),
+                mock.patch("builtins.open", side_effect=PermissionError),
+            ):
                 self.assertTrue(landlock._host_paths_are_closed(workdir))
             self.assertFalse(landlock._host_paths_are_closed(str(Path(workdir) / "missing")))
 

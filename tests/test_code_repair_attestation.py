@@ -22,6 +22,7 @@ class LimitsAttestation(unittest.TestCase):
 
     def test_parent_and_child_share_the_attestation_constants(self):
         self.assertEqual(ex.LIMITS_ATTESTATION_PREFIX, harness.LIMITS_ATTESTATION_PREFIX)
+        self.assertEqual(ex.LANDLOCK_ATTESTATION_PREFIX, harness.LANDLOCK_ATTESTATION_PREFIX)
         self.assertEqual(ex.REPORT_FD_ENV, harness.REPORT_FD_ENV)
         self.assertEqual(cv.HARNESS_PROTOCOL, harness.PROTOCOL)
         self.assertTrue(callable(harness._write_protocol_report))
@@ -44,6 +45,20 @@ class LimitsAttestation(unittest.TestCase):
                 stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}{token}\n".encode()
                 self.assertIs(ex._limits_attested(stdout), expected)
 
+    def test_landlock_attestation_is_the_second_complete_startup_line(self):
+        prefix = ex.LANDLOCK_ATTESTATION_PREFIX
+        for stdout, expected in (
+            (b"", "missing landlock attestation line"),
+            (f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode(),
+             "missing landlock attestation line"),
+            (f"{ex.LIMITS_ATTESTATION_PREFIX}true\n{prefix} landlock-abi4\n".encode(),
+             "landlock attestation malformed"),
+            (f"{ex.LIMITS_ATTESTATION_PREFIX}true\n{prefix}landlock-abi4\n".encode(),
+             "landlock-abi4"),
+        ):
+            with self.subTest(stdout=stdout):
+                self.assertEqual(ex._landlock_attested(stdout), expected)
+
     def test_limit_setup_errors_attest_unavailable_instead_of_raising(self):
         self.assertIs(harness._apply_limits({}), False)
         spec = {"cpu_seconds": 1, "address_space_bytes": 1024, "file_size_bytes": 1024}
@@ -59,6 +74,10 @@ class LimitsAttestation(unittest.TestCase):
             f"{harness.LIMITS_ATTESTATION_PREFIX}{str(True).lower()}\n"
             f"{harness.LIMITS_ATTESTATION_PREFIX}{str(False).lower()}\n",
         )
+        harness._write_landlock_attestation(buffer, "landlock-abi4")
+        self.assertTrue(buffer.getvalue().endswith(
+            f"{harness.LANDLOCK_ATTESTATION_PREFIX}landlock-abi4\n"
+        ))
 
     def test_run_executes_only_when_limits_were_applied(self):
         text = "def f(n):\n    return n\n"
@@ -102,7 +121,11 @@ class LimitsAttestation(unittest.TestCase):
             (workdir / "spec.json").write_text(json.dumps(ex.Executor(timeout_s=3).spec(job)))
             code, attested, body = self._run_main(workdir, limits_applied=True)
         self.assertEqual(code, 0)
-        self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}true\n")
+        self.assertEqual(
+            attested,
+            f"{harness.LIMITS_ATTESTATION_PREFIX}true\n"
+            f"{harness.LANDLOCK_ATTESTATION_PREFIX}none\n",
+        )
         self.assertEqual(body["protocol"], harness.PROTOCOL)
         self.assertEqual(body["load"]["status"], "ok")
 
@@ -112,7 +135,11 @@ class LimitsAttestation(unittest.TestCase):
             (workdir / "spec.json").write_text("not json", encoding="utf-8")
             code, attested, body = self._run_main(workdir, limits_applied=False)
         self.assertEqual(code, 0)
-        self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}false\n")
+        self.assertEqual(
+            attested,
+            f"{harness.LIMITS_ATTESTATION_PREFIX}false\n"
+            f"{harness.LANDLOCK_ATTESTATION_PREFIX}none\n",
+        )
         self.assertEqual(body["load"]["status"], "error")
         self.assertIn("SANDBOX_UNAVAILABLE", body["load"]["error"])
 
@@ -124,11 +151,15 @@ class LimitsAttestation(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as root:
                     workdir = Path(root)
                     (workdir / "spec.json").write_text("{}", encoding="utf-8")
-                    with mock.patch.object(harness, "_run", side_effect=error):
+                    with mock.patch.object(harness, "_run_program", side_effect=error):
                         code, attested, body = self._run_main(workdir, limits_applied=True)
                 self.assertEqual(code, 0)
-                self.assertEqual(attested, f"{harness.LIMITS_ATTESTATION_PREFIX}true\n")
-                self.assertNotIn("environment", body)
+                self.assertEqual(
+                    attested,
+                    f"{harness.LIMITS_ATTESTATION_PREFIX}true\n"
+                    f"{harness.LANDLOCK_ATTESTATION_PREFIX}none\n",
+                )
+                self.assertTrue(body["environment"]["limits_applied"])
                 self.assertEqual(body["load"]["status"], "error")
                 self.assertIn(f"HarnessError: {type(error).__name__}: {error}", body["load"]["error"])
 

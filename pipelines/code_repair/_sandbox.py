@@ -220,12 +220,14 @@ def _add_path(active: _ActiveRuleset, path: str, access: int, allowed: set[str])
 
 def _allow_roots(active: _ActiveRuleset, workdir: str) -> bool:
     ro = (RO_ACCESS | FS_REFER) & active.handled_fs
+    executable = (FS_EXECUTE | FS_READ_FILE) & active.handled_fs
     rw = (RW_ACCESS | FS_REFER | FS_TRUNCATE) & active.handled_fs
     work = {os.path.realpath(workdir)}
     if not _add_path(active, workdir, rw, work):
         return False
     for prefix in _read_roots():
-        if not os.path.isdir(prefix) or not _add_path(active, prefix, ro, {prefix}):
+        access = ro if os.path.isdir(prefix) else executable
+        if not os.path.exists(prefix) or not _add_path(active, prefix, access, {prefix}):
             return False
     return True
 
