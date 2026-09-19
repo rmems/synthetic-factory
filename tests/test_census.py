@@ -25,6 +25,7 @@ EXPECTED = {
         "multi_agent": 0,
         "safety_case": 0,
         "episode": 0,
+        "oracle": 0,
         "unknown": 0,
     },
     "sim_or_real": {

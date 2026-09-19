@@ -20,6 +20,28 @@ else:
 
 
 NEW_SPLIT_MODULES = (
+    "oracle_grounded.native_profiles",
+    "oracle_grounded.native_runtime",
+    "oracle_grounded.native_checks",
+    "oracle_grounded.native_gate",
+    "oracle_generate",
+    "oracle_generate_fs",
+    "oracle_generate_parents",
+    "oracle_generate_prepare",
+    "oracle_generate_publish",
+    "oracle_generate_records",
+    "oracle_validate",
+    "oracle_record_stages",
+    "oracle_record_envelope",
+    "oracle_record_generator",
+    "oracle_validate_records",
+    "oracle_validate_tree",
+    "oracle_validate_manifest",
+    "oracle_validate_manifest_records",
+    "oracle_checks_facade",
+    "oracle_validate_snapshot",
+    "oracle_validate_capture",
+    "oracle_validate_run",
     "compose_contract",
     "compose_curated",
     "compose_mill",
@@ -41,6 +63,7 @@ NEW_SPLIT_MODULES = (
     "compose_curated_run",
     "compose_curated_run_context",
     "compose_curated_run_lines",
+    "compose_oracle_selection",
     "compose_curated_run_artifacts",
     "compose_curated_run_cli",
     "compose_curated_run_facade",
@@ -79,10 +102,23 @@ NEW_SPLIT_MODULES = (
     "raw_tree_guard",
     "preference_context",
     "reward_mapping",
+    "reward_parse",
+    "reward_parse_values",
+    "reward_parse_patterns",
     "reward_policy",
+    "rights_record",
+    "training_audit",
+    "training_audit_axes",
+    "training_audit_observe",
+    "training_audit_rights",
+    "training_audit_rights_manifest",
+    "training_audit_rights_coverage",
+    "compose_curated_rights",
+    "curate_gate_rights",
     "training_audit_record",
     "training_audit_reasoning",
     "training_audit_snapshot",
+    "training_audit_completion",
     "curate_agentic",
     "curate_gate",
     "curate_gate_contract",
@@ -117,15 +153,20 @@ NEW_SPLIT_MODULES = (
     "round_txn_agentic_types",
     "round_txn_agentic_terms",
     "round_txn_agentic",
-    "validate_run_preference",
-    "validate_run_episode",
-    "validate_run_multi_agent",
     "validate_run_safety",
     "operator_paths",
     "validate_run_rewards",
     "validate_run_thalamic",
     "validate_run_outcomes",
     "validate_run_reward_total",
+    "validate_run_episode",
+    "validate_run_episode_turns",
+    "validate_run_multi_agent",
+    "validate_run_multi_agent_roster",
+    "validate_run_preference",
+    "validate_run_preference_context",
+    "validate_run_routes",
+    "validate_run_cli",
 )
 RUN_SUPPORT_MODULES = (
     "compose_curated_run_cli",
@@ -134,6 +175,34 @@ RUN_SUPPORT_MODULES = (
     # validate_run_reward_total, which imports validate_run_rewards back, so
     # importing reward_total first raised AttributeError on a partial module.
     "validate_run_reward_total",
+)
+
+# (module in the direct map, attribute, module in the packaged map): the
+# direct and packaged copies of a split module must expose the same object.
+# The core CLIs raise and classify across the twin boundary — a split copy
+# makes ``except GateError`` miss and ``isinstance`` of a FactoryRow fail —
+# so the classes and functions are pinned, not just the modules.
+SPLIT_TWIN_ATTRIBUTES = (
+    ("compose_curated_context", "SourceCoordinates", "compose_curated_context"),
+    ("compose_curated_run", "ComposeRunState", "compose_curated_run"),
+    ("compose_curated_run_context", "ComposeRunState", "compose_curated_run"),
+    ("export_members_auth", "AuthenticationRequest", "export_members_auth"),
+    ("reward_mapping", "RewardOntologyError", "reward_mapping"),
+    ("reward_parse", "RewardOntologyError", "reward_mapping"),
+    ("validate_run_provenance", "check_provenance", "validate_run_provenance"),
+    ("validate_run_thalamic", "check_meta_round", "validate_run_thalamic"),
+    ("validate_run_outcomes", "terminal_outcome_agrees", "validate_run_outcomes"),
+    ("validate_run_reward_total", "check_reward_total", "validate_run_reward_total"),
+    ("curate_gate", "GateError", "curate_gate"),
+    ("round_txn", "TransactionError", "round_txn"),
+    ("validate_run", "check_line", "validate_run"),
+    ("validate_run_episode", "check_episode", "validate_run_episode"),
+    (
+        "validate_run_preference",
+        "staging_preference_goal_errors",
+        "validate_run_preference",
+    ),
+    ("validate_run_routes", "check_line", "validate_run_routes"),
 )
 
 
@@ -157,64 +226,25 @@ def _load_in_order(names: tuple[str, ...], first: str):
 
 
 class SplitModuleIdentityContracts(unittest.TestCase):
+    def _assert_module_twins(self, direct, packaged, first: str) -> None:
+        for name in NEW_SPLIT_MODULES:
+            with self.subTest(first=first, name=name):
+                self.assertIs(direct[name], packaged[name])
+
+    def _assert_twin_attributes(self, direct, packaged) -> None:
+        for left_name, attribute, right_name in SPLIT_TWIN_ATTRIBUTES:
+            with self.subTest(left=left_name, attribute=attribute, right=right_name):
+                self.assertIs(
+                    getattr(direct[left_name], attribute),
+                    getattr(packaged[right_name], attribute),
+                )
+
     def _assert_new_split_module_identity(self, first: str) -> None:
         with isolated_pipeline_modules(NEW_SPLIT_MODULES):
             direct, packaged = _load_in_order(NEW_SPLIT_MODULES, first)
-            for name in NEW_SPLIT_MODULES:
-                with self.subTest(first=first, name=name):
-                    self.assertIs(direct[name], packaged[name])
-            self.assertIs(
-                direct["compose_curated_context"].SourceCoordinates,
-                packaged["compose_curated_context"].SourceCoordinates,
-            )
-            self.assertIs(
-                direct["compose_curated_run"].ComposeRunState,
-                packaged["compose_curated_run"].ComposeRunState,
-            )
-            self.assertIs(
-                direct["compose_curated_run_context"].ComposeRunState,
-                packaged["compose_curated_run"].ComposeRunState,
-            )
-            self.assertIs(
-                direct["export_members_auth"].AuthenticationRequest,
-                packaged["export_members_auth"].AuthenticationRequest,
-            )
-            self.assertIs(
-                direct["reward_mapping"].RewardOntologyError,
-                packaged["reward_mapping"].RewardOntologyError,
-            )
-            self.assertIs(
-                direct["validate_run_provenance"].check_provenance,
-                packaged["validate_run_provenance"].check_provenance,
-            )
-            self.assertIs(
-                direct["validate_run_thalamic"].check_meta_round,
-                packaged["validate_run_thalamic"].check_meta_round,
-            )
-            self.assertIs(
-                direct["validate_run_outcomes"].terminal_outcome_agrees,
-                packaged["validate_run_outcomes"].terminal_outcome_agrees,
-            )
-            self.assertIs(
-                direct["validate_run_reward_total"].check_reward_total,
-                packaged["validate_run_reward_total"].check_reward_total,
-            )
-            # The four core CLIs raise and classify across the twin boundary:
-            # a split copy makes ``except GateError`` miss and ``isinstance``
-            # of a FactoryRow fail, so pin the classes, not just the modules.
-            self.assertIs(
-                direct["curate_gate"].GateError,
-                packaged["curate_gate"].GateError,
-            )
+            self._assert_module_twins(direct, packaged, first)
+            self._assert_twin_attributes(direct, packaged)
             self._assert_identity_export_twins(direct, packaged)
-            self.assertIs(
-                direct["round_txn"].TransactionError,
-                packaged["round_txn"].TransactionError,
-            )
-            self.assertIs(
-                direct["validate_run"].check_line,
-                packaged["validate_run"].check_line,
-            )
 
     def _assert_identity_export_twins(self, direct, packaged) -> None:
         self.assertIs(

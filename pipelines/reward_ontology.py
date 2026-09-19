@@ -24,6 +24,7 @@ if __package__:
         _pointer,
         _pointer_unescape,
     )
+    from .reward_parse import _unknown_members
     from .reward_policy import (
         ANNOTATION_FIELD,
         CALIBRATION_KEYS,
@@ -61,6 +62,7 @@ else:
     _pointer,
     _pointer_unescape,
     )
+    from reward_parse import _unknown_members
     from reward_policy import (
     ANNOTATION_FIELD,
     CALIBRATION_KEYS,
@@ -244,7 +246,7 @@ def _mapped_verdict(rule_id, payload=None, *, optional_reason_codes=()):
     rule = comparability_rule(rule_id)
     reasons = list(rule["reason_codes"])
     allowed = set(reasons) | set(rule.get("optional_reason_codes", ()))
-    unknown = sorted(set(optional_reason_codes) - allowed)
+    unknown = _unknown_members(optional_reason_codes, allowed)
     if unknown:
         raise RewardOntologyError(
             f"rule {rule_id} does not allow optional reason codes {unknown}"
@@ -474,7 +476,7 @@ def _magnitude_payload(arithmetic_by_pointer, units, calibration_sources):
 
 
 def _require_catalogued_reasons(reasons):
-    unknown = sorted(set(reasons) - REASON_CODES)
+    unknown = _unknown_members(reasons, REASON_CODES)
     if unknown:
         raise RewardOntologyError(f"uncatalogued reason codes: {unknown}")
 

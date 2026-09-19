@@ -253,3 +253,14 @@ def read_jsonl(path):
     return [
         json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
+
+
+def assert_research_only_audit(test, audit):
+    """Hosted compose trees retain records but cannot become training-ready."""
+
+    test.assertFalse(audit["training_ready"], audit.get("blockers"))
+    blockers = audit.get("blockers") or []
+    test.assertTrue(
+        any(str(item).startswith("rights:") for item in blockers),
+        blockers,
+    )

@@ -15,6 +15,7 @@ for _path in (TESTS, REPO / "pipelines"):
 
 import compose_curated  # noqa: E402
 from compose_curated_test_support import (  # noqa: E402
+    assert_research_only_audit,
     bridge_pair,
     read_jsonl,
     thalamic,
@@ -93,12 +94,12 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
                 [pair],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["retained"], 1)
-            self.assertTrue(
-                summary["audit"]["training_ready"], summary["audit"]["blockers"]
-            )
+            assert_research_only_audit(self, summary["audit"])
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
             coding_stage = next(
                 stage
@@ -144,12 +145,12 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
                 [pair],
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["retained"], 2)
-            self.assertTrue(
-                summary["audit"]["training_ready"], summary["audit"]["blockers"]
-            )
+            assert_research_only_audit(self, summary["audit"])
             records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
             emitted = "".join(
                 path.read_text(encoding="utf-8")
@@ -178,12 +179,12 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
                 source / "thalamic-trajectory-factory" / "batch-r01.jsonl", [record]
             )
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["retained"], 1)
-            self.assertTrue(
-                summary["audit"]["training_ready"], summary["audit"]["blockers"]
-            )
+            assert_research_only_audit(self, summary["audit"])
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
             coding_stage = next(
                 stage
@@ -220,7 +221,9 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
             source.mkdir()
             write_mill_run(source, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
 
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 5)
             self.assertEqual(summary["counts"]["excluded"], 1)

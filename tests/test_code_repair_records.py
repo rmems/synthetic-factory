@@ -27,8 +27,10 @@ from code_repair_test_support import (  # noqa: E402
 # then for digests on passing rows (Codex on #196, round 3), then for the parent-stamped
 # sandbox identity on the oracle fingerprint (#201).
 # S3 adds policy_sha256 to split_lineage. Removing exactly that field reproduces the S2 pin.
-# bwrap OS boundary + #200 repr update move harness fingerprint
-GOLDEN_SHA256 = "0fba64fe62fe6dd99bc30ad35ea57d655a87bbb0f06befc2a2e468d09864de2e"
+# Harness protocol v2 (#213): out-of-band limits attestation line before program load.
+# bwrap OS boundary + #200 repr update move the harness fingerprint.
+# Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
+GOLDEN_SHA256 = "ad548000fdd72169f9ea5feba31ed1e70a3aa694efc320606987a63606493f51"
 
 
 def accepting_executor():

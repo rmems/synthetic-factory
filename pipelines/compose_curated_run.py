@@ -19,19 +19,23 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run")
+    from . import compose_oracle_selection as _selection
     from . import compose_contract as _contract
     from . import compose_curated_run_artifacts as _artifacts
     from . import compose_curated_run_context as _run_context
     from . import compose_curated_run_lines as _lines
+    from . import compose_curated_rights as _rights
     from .compose_curated_calibration import CalibrationContext
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run"
     )
+    import compose_oracle_selection as _selection
     import compose_contract as _contract
     import compose_curated_run_artifacts as _artifacts
     import compose_curated_run_context as _run_context
     import compose_curated_run_lines as _lines
+    import compose_curated_rights as _rights
     from compose_curated_calibration import CalibrationContext
 
 ACTION_RETAINED = _contract.ACTION_RETAINED
@@ -90,7 +94,10 @@ def compose_one_line(
     context = source_line.context
     state.counts["source_records"] += 1
     entry = active.new_manifest_entry(context, sha256_hex(physical_line))
-    decision = _line_decision(state, source_line, services, active)
+    _lines.add_physical_source_evidence(entry, context.physical_source_path, physical_line)
+    decision = _selection.apply_selection(
+        _line_decision(state, source_line, services, active), state.oracle_selection
+    )
     entry.update(
         {
             "action": decision.action,
@@ -108,6 +115,7 @@ def compose_one_line(
             context.emitted,
         )
         active.record_retained_line(state, decision, retained_context)
+        _rights.bind_retained_rights(state, entry, decision, physical_line)
     else:
         active.record_excluded_line(state, decision, entry)
     state.manifest_lines.append(canonical_json(entry))
@@ -134,6 +142,7 @@ def compose_source_file(
             context.catalog,
             emitted,
             context.mill_findings,
+            context.physical_source_path,
         )
         active.compose_one_line(
             state,
@@ -176,6 +185,69 @@ def capture_source_snapshot(
     return source_members, payloads, factory_identities
 
 
+def _oracle_validator():
+    if __package__:
+        from . import oracle_validate
+    else:
+        import oracle_validate
+    return oracle_validate
+
+
+def _require_oracle_snapshot(resolved_source, payloads, authentication):
+    _, snapshots, errors = authentication
+    captured = {snapshot.relative: bytes(snapshot.body) for snapshot in snapshots}
+    if errors or captured != payloads:
+        raise ComposeError("oracle manifest does not authenticate the compose source snapshot")
+    _, errors = _oracle_validator().validate_run_snapshot(
+        resolved_source, authentication
+    )
+    if errors:
+        raise ComposeError("oracle source snapshot failed validation: " + errors[0])
+
+
+def _is_oracle_manifest(manifest):
+    if not isinstance(manifest, dict):
+        raise ComposeError("source run manifest is unreadable")
+    if manifest.get("schema") != "oracle-grounded/v1":
+        if "oracle_commit" in manifest or "oracle_availability" in manifest:
+            raise ComposeError("oracle source manifest has an unsupported schema")
+        return False
+    return True
+
+
+def authenticated_oracle_routes(resolved_source, payloads):
+    """Only an authenticated run manifest can override physical folder identity.
+
+    Other well-formed manifest schemas keep ordinary path-derived routing.
+    An unreadable manifest refuses composition because its authority is unknown.
+    """
+    manifest_path = resolved_source / "manifest.json"
+    if not manifest_path.exists() and not manifest_path.is_symlink():
+        return {}
+    authentication = _oracle_validator().authenticate_manifest(resolved_source)
+    manifest = authentication[0]
+    if not _is_oracle_manifest(manifest):
+        return {}
+    _require_oracle_snapshot(resolved_source, payloads, authentication)
+    return {relative: ("oracle-grounded", True) for relative in payloads}
+
+
+def authenticated_published_snapshot(resolved_source, source_members, payload_by_member, identities):
+    """Rekey authenticated bytes and retain their physical replay coordinates."""
+    oracle_routes = authenticated_oracle_routes(resolved_source, payload_by_member)
+    identities.update(oracle_routes)
+    physical_source_paths = {
+        published_source_coordinate(relative, identities[relative][0]): relative
+        for relative in oracle_routes
+    }
+    source_members, payload_by_member, identities = published_source_snapshot(
+        source_members,
+        payload_by_member,
+        identities,
+    )
+    return source_members, payload_by_member, identities, physical_source_paths
+
+
 def _write_source_members(
     state: ComposeRunState,
     context: SourceBatchContext,
@@ -189,6 +261,7 @@ def _write_source_members(
             context.destination_target,
             context.catalog,
             context.mill_findings,
+            context.physical_source_paths.get(relative),
         )
         hooks.compose_source_file(state, source_context, services)
 
@@ -213,6 +286,7 @@ def _write_transaction(
         destination_target,
         context.catalog,
         context.mill_findings,
+        context.physical_source_paths,
     )
     _write_source_members(state, member_context, services, hooks)
     manifest_sha256, sidecar_sha256 = hooks.write_compose_provenance(
@@ -228,6 +302,8 @@ def _write_transaction(
         pinned_destination.root / RECORDS_DIRNAME,
     )
     summary = hooks.compose_run_summary(state, summary_context, services.report)
+    if state.oracle_selection != "all":
+        summary["oracle_selection"] = _selection.descriptor(state.oracle_selection)
     commit_context = SummaryCommitContext(
         pinned_destination,
         summary,
@@ -248,10 +324,11 @@ def compose_run(
     source_members, payload_by_member, identities = active.capture_source_snapshot(
         resolved_source, services.source
     )
-    source_members, payload_by_member, identities = published_source_snapshot(
-        source_members,
-        payload_by_member,
-        identities,
+    source_members, payload_by_member, identities, physical_source_paths = authenticated_published_snapshot(
+        resolved_source, source_members, payload_by_member, identities
+    )
+    _selection.require_authenticated_source(
+        context.oracle_selection, source_members, physical_source_paths
     )
     mill_findings = services.source.index_compose_mills(
         payload_by_member, identities, active.jsonl_physical_lines
@@ -262,7 +339,7 @@ def compose_run(
     pinned_destination = services.destination.create_pinned_destination(
         resolved_source, context.destination
     )
-    state = ComposeRunState()
+    state = ComposeRunState(oracle_selection=context.oracle_selection)
     transaction = TransactionContext(
         pinned_destination,
         resolved_source,
@@ -271,6 +348,7 @@ def compose_run(
         mill_findings,
         catalog,
         calibration_descriptor,
+        physical_source_paths,
     )
     try:
         summary = _write_transaction(state, transaction, services, active)

@@ -14,12 +14,15 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import (  # noqa: E402
-    boundary_site, catalog, executor as ex, mutate, program, refusal, vocabulary as cv,
+    boundary_site, catalog, executor as ex, mutate, program, refusal,
+    vocabulary as cv,
 )
 from code_repair import _harness as harness  # noqa: E402
 from code_repair import sandbox as sb  # noqa: E402
 
 RUNNER = ex.Executor(timeout_s=5.0)
+
+
 
 
 class OriginalAndMutant(unittest.TestCase):
@@ -85,6 +88,134 @@ class Agreement(unittest.TestCase):
     def test_floats_agree_within_the_pinned_tolerance(self):
         module = "def f(x):\n    return x + 1e-15\n"
         self.assertEqual(self._hidden(module, [{"args": "(0.5,)", "want": "0.5"}]), ["pass"])
+
+
+class TamperResistance(unittest.TestCase):
+    """Issue #213: in-band ``limits_applied`` must not downgrade a limited run."""
+
+    _FRAME_WALK = (
+        "import sys\n"
+        "def _tamper():\n"
+        "    frame = sys._getframe()\n"
+        "    while frame is not None:\n"
+        "        report = frame.f_locals.get('report')\n"
+        "        if isinstance(report, dict) and isinstance(report.get('environment'), dict):\n"
+        "            report['environment']['limits_applied'] = False\n"
+        "            return True\n"
+        "        frame = frame.f_back\n"
+        "_tamper()\n\n"
+    )
+    _GC_WALK = (
+        "import gc\n"
+        "for obj in gc.get_objects():\n"
+        "    if (\n"
+        "        isinstance(obj, dict) and obj.get('limits_applied') is True\n"
+        "        and 'platform' in obj\n"
+        "    ):\n"
+        "        obj['limits_applied'] = False\n\n"
+    )
+    _STDOUT_REWRITE = (
+        "from pathlib import Path\n"
+        "Path('stdout').write_bytes(b'code-repair-limits-attestation/1 false\\n')\n\n"
+    )
+    _SAVED_FD_WALK = (
+        "import os, sys\n"
+        "def _tamper():\n"
+        "    frame = sys._getframe()\n"
+        "    token = b'code-repair-limits-attestation/1 false\\n'\n"
+        "    while frame is not None:\n"
+        "        saved = frame.f_locals.get('saved')\n"
+        "        if isinstance(saved, tuple):\n"
+        "            for item in saved:\n"
+        "                if isinstance(item, int):\n"
+        "                    try:\n"
+        "                        os.lseek(item, 0, os.SEEK_SET)\n"
+        "                        os.write(item, token)\n"
+        "                    except OSError:\n"
+        "                        pass\n"
+        "        frame = frame.f_back\n"
+        "_tamper()\n\n"
+    )
+
+    @staticmethod
+    def _run_tamper(preamble: str) -> ex.PhaseReport:
+        module = preamble + "def f(n):\n    return n\n"
+        job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
+        return RUNNER.run(job)
+
+    def test_frame_walk_cannot_refuse_the_run_by_clearing_limits(self):
+        report = self._run_tamper(self._FRAME_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_gc_walk_cannot_refuse_the_run_by_clearing_limits(self):
+        report = self._run_tamper(self._GC_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_rewriting_workdir_stdout_cannot_refuse_the_run(self):
+        report = self._run_tamper(self._STDOUT_REWRITE)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    def test_frame_walk_of_saved_stdout_fd_cannot_refuse_the_run(self):
+        report = self._run_tamper(self._SAVED_FD_WALK)
+        self.assertTrue(report.ok, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+
+    _ATEXIT_WORKDIR = (
+        "import atexit, json\n"
+        "from pathlib import Path\n"
+        "def _forge():\n"
+        "    Path('report.json').write_text(json.dumps({\n"
+        "        'protocol': 'code-repair-harness/2',\n"
+        "        'environment': {'limits_applied': True},\n"
+        "        'load': {'status': 'ok', 'error': None},\n"
+        "        'public': [],\n"
+        "        'hidden': [{'id': 'hidden:0', 'status': 'pass'}],\n"
+        "    }))\n"
+        "atexit.register(_forge)\n\n"
+    )
+    _ATEXIT_REPORT_FD = (
+        "import atexit, json, os\n"
+        "def _forge():\n"
+        "    payload = json.dumps({\n"
+        "        'protocol': 'code-repair-harness/2',\n"
+        "        'environment': {'limits_applied': True},\n"
+        "        'load': {'status': 'ok', 'error': None},\n"
+        "        'public': [],\n"
+        "        'hidden': [{'id': 'hidden:0', 'status': 'pass'}],\n"
+        "    }).encode()\n"
+        "    fd = int(os.environ['CODE_REPAIR_REPORT_FD'])\n"
+        "    os.lseek(fd, 0, os.SEEK_SET)\n"
+        "    os.write(fd, payload)\n"
+        "    os.ftruncate(fd, len(payload))\n"
+        "atexit.register(_forge)\n\n"
+    )
+    _ATEXIT_CLEAR_NOOP = "import atexit\natexit._clear = lambda: None\n" + _ATEXIT_REPORT_FD
+
+    def _run_forged_pass(self, preamble: str) -> ex.PhaseReport:
+        module = preamble + "def f(n):\n    return 999\n"
+        job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
+        return RUNNER.run(job)
+
+    def test_atexit_cannot_forge_passing_rows_via_workdir_report(self):
+        report = self._run_forged_pass(self._ATEXIT_WORKDIR)
+        self.assertEqual(report.status, cv.PHASE_OK, report.detail)
+        self.assertTrue(report.load_ok)
+        self.assertEqual(report.hidden[0]["status"], "fail")
+
+    def test_atexit_cannot_forge_passing_rows_via_inherited_report_fd(self):
+        report = self._run_forged_pass(self._ATEXIT_REPORT_FD)
+        self.assertEqual(report.status, cv.PHASE_OK, report.detail)
+        self.assertTrue(report.load_ok)
+        self.assertEqual(report.hidden[0]["status"], "fail")
+
+    def test_replacing_atexit_clear_cannot_keep_a_report_fd_forge_alive(self):
+        report = self._run_forged_pass(self._ATEXIT_CLEAR_NOOP)
+        self.assertEqual(report.status, cv.PHASE_OK, report.detail)
+        self.assertTrue(report.load_ok)
+        self.assertEqual(report.hidden[0]["status"], "fail")
 
 
 class Failures(unittest.TestCase):
@@ -157,22 +288,44 @@ class Failures(unittest.TestCase):
 
     def test_unreadable_foreign_or_incomplete_reports_are_harness_errors(self):
         job = ex.Job("x", "def f():\n    pass\n", "f", ({"args": "()", "want": "None"},), True, 2)
-        head = '{"protocol": "code-repair-harness/1", "environment": {"limits_applied": true}, "load": {"status": "ok", "error": null}, '
-        full = head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
-        self.assertTrue(ex._parse_report(job, 0, full.encode()).ok)
-        bad = (
-            (1, b"{}"), (0, b"not json"), (0, b'{"protocol": "other/1"}'), (0, b'{"a": 1, "a": 2}'),
-            (0, (head + '"public": [], "hidden": []}').encode()),
-            (0, (head + '"public": [{"id": "public:0", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
-            (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:9", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
-            (0, (head + '"public": [{"id": "public:0", "status": "pass"}, {"id": "public:1"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}').encode()),
-            (0, (head + '"public": "nine", "hidden": []}').encode()),
+        attest = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode()
+        head = (
+            '{"protocol": "code-repair-harness/2", "environment": {"limits_applied": true}, '
+            '"load": {"status": "ok", "error": null}, '
         )
-        for returncode, stdout in bad:
-            with self.subTest(stdout=stdout[:60]):
-                report = ex._parse_report(job, returncode, stdout)
+        full = (
+            head + '"public": [{"id": "public:0", "status": "pass"}, '
+            '{"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
+        )
+        self.assertTrue(ex._parse_report(job, 0, attest, full.encode()).ok)
+        bad = (
+            (1, b"", b"{}"),
+            (0, b"not json", b""),
+            (0, attest, b'{"protocol": "other/1"}'),
+            (0, attest, b'{"a": 1, "a": 2}'),
+            (0, attest, (head + '"public": [], "hidden": []}').encode()),
+            (0, attest, (
+                head + '"public": [{"id": "public:0", "status": "pass"}], '
+                '"hidden": [{"id": "hidden:0", "status": "pass"}]}'
+            ).encode()),
+            (0, attest, (
+                head + '"public": [{"id": "public:0", "status": "pass"}, '
+                '{"id": "public:9", "status": "pass"}], '
+                '"hidden": [{"id": "hidden:0", "status": "pass"}]}'
+            ).encode()),
+            (0, attest, (
+                head + '"public": [{"id": "public:0", "status": "pass"}, '
+                '{"id": "public:1"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
+            ).encode()),
+            (0, attest, (head + '"public": "nine", "hidden": []}').encode()),
+            (0, b"", b""),
+        )
+        for returncode, stdout, body in bad:
+            with self.subTest(stdout=stdout[:60], body=body[:60]):
+                report = ex._parse_report(job, returncode, stdout, body)
                 self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
                 self.assertFalse(report.ok)
+
 
 
 class RoundThree(unittest.TestCase):

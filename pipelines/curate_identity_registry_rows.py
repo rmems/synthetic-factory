@@ -326,6 +326,16 @@ def _source_policy():
     return source_policy
 
 
+def _oracle_source_policy():
+    """The oracle route's separately sealed authority, bound lazily like above."""
+
+    if __package__:
+        from .oracle_grounded import source_policy
+    else:
+        from oracle_grounded import source_policy
+    return source_policy
+
+
 def _is_procedural_row(raw: Any, schema_version: str) -> bool:
     if schema_version != REGISTRY_SCHEMA_VERSION:
         return False
@@ -343,7 +353,13 @@ def _registry_row_for_validation(
 
 
 def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
-    policy = _source_policy()
+    try:
+        return _parse_code_repair_procedural_row(raw, index)
+    except IdentityCurationError:
+        return _parse_oracle_procedural_row(raw, index)
+
+
+def _procedural_row(policy: Any, raw: Any, index: int) -> FactoryRow:
     try:
         policy.validate_registry_row(raw)
     except policy.SourcePolicyError as exc:
@@ -363,6 +379,14 @@ def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
         procedural_policy_sha256=raw["procedural_policy_sha256"], catalog_id=raw["catalog_id"],
         catalog_sha256=raw["catalog_sha256"], programs_sha256=raw["programs_sha256"],
     )
+
+
+def _parse_code_repair_procedural_row(raw: Any, index: int) -> FactoryRow:
+    return _procedural_row(_source_policy(), raw, index)
+
+
+def _parse_oracle_procedural_row(raw: Any, index: int) -> FactoryRow:
+    return _procedural_row(_oracle_source_policy(), raw, index)
 
 
 if __package__:

@@ -12,6 +12,7 @@ if __package__:
         _json_number,
         _numeric_capture,
     )
+    from .reward_parse import _require_positive_decimal
     from .reward_policy import (
         CANONICAL_UNIT_USD,
         DECLARED_TOTAL_KEY,
@@ -36,6 +37,7 @@ else:
         _json_number,
         _numeric_capture,
     )
+    from reward_parse import _require_positive_decimal
     from reward_policy import (
         CANONICAL_UNIT_USD,
         DECLARED_TOTAL_KEY,
@@ -192,10 +194,11 @@ def _normalize_calibration(calibration):
         return None
     if not isinstance(calibration, dict):
         raise RewardOntologyError("calibration must be an object")
-    unit = _decimal(calibration.get("source_unit_usd"))
+    unit = _require_positive_decimal(
+        calibration.get("source_unit_usd"),
+        "calibration source_unit_usd must be positive",
+    )
     evidence_ref = calibration.get("evidence_ref")
-    if unit is None or unit <= 0:
-        raise RewardOntologyError("calibration source_unit_usd must be positive")
     if not isinstance(evidence_ref, str) or not evidence_ref.strip():
         raise RewardOntologyError("calibration evidence_ref must be nonempty")
     factor = calibration.get("canonical_factor")

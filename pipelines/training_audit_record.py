@@ -50,6 +50,44 @@ class PreferencePurityReaders(NamedTuple):
     thalamic_purity: Callable[[Any, Any], dict[str, Any]]
 
 
+class EmbeddedEpisodeReaders(NamedTuple):
+    """Live facade operations for checking nested episode records."""
+
+    wrapped_episodes: Callable
+    shape_check: Callable
+    check_episode: Callable
+
+
+def strict_agentic(obj, episode_check):
+    """Require strict validation for direct and preference-wrapped episodes."""
+    if not isinstance(obj, dict):
+        return False
+    keys = obj.keys()
+    direct = any(required <= keys for required in (
+        {"case_type"}, {"transcript", "agents"}, {"steps", "outcome", "reward"},
+    ))
+    preference = {"chosen", "rejected"} <= keys and any(
+        episode_check(obj.get(side)) for side in ("chosen", "rejected")
+    )
+    return direct or preference
+
+
+def embedded_episode_errors(obj, kind, where, readers):
+    """Check embedded episodes using the caller's current validation seams."""
+    findings = []
+    for embedded_path, embedded in readers.wrapped_episodes(obj, kind):
+        embedded_where = f"{where}.{embedded_path}"
+        if "steps" in embedded:
+            errors, _kind = readers.shape_check(embedded, embedded_where, factory_staging=True)
+        else:
+            errors = readers.check_episode(
+                embedded, embedded_where,
+                forbid_hidden_thought=True, enforce_terminal_outcome=True,
+            )
+        findings.extend(errors)
+    return findings
+
+
 def canonical_blob(value):
     return dumps_exact_json(value, sort_keys=True, ensure_ascii=False)
 
