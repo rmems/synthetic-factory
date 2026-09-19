@@ -281,6 +281,17 @@ def _with_isolated_main(action):
             sys.modules.pop("__main__", None)
 
 
+def _isolation_module():
+    """The copied Landlock helper; a load failure surfaces as a harness error."""
+
+    location = importlib.util.spec_from_file_location(
+        "_sandbox", Path(__file__).with_name("_sandbox.py"),
+    )
+    module = importlib.util.module_from_spec(location)
+    location.loader.exec_module(module)
+    return module
+
+
 def _write_limits_attestation(stream, limits_applied: bool) -> None:
     """Out-of-band limits proof on real stdout before ``program.py`` is read."""
 
@@ -310,6 +321,7 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     if not limits_applied:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
         return report
+    _isolation_module().enforce(str(workdir), spec, report)
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
 
@@ -345,7 +357,7 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
     real_stderr.flush()
     try:
         spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-    except (OSError, TypeError, UnicodeError, ValueError):
+    except (OSError, TypeError, ValueError):
         spec = {}
     limits_applied = _apply_limits(spec)
     _write_limits_attestation(real_stdout, limits_applied)
