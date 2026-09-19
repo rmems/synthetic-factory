@@ -74,20 +74,31 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             with self.subTest(name=name):
                 signature = inspect.signature(getattr(compose_curated, name))
                 if name == "compose_run":
+                    runtime = signature.parameters["oracle_rust_bin"]
+                    self.assertIsNone(runtime.default)
+                    self.assertEqual(runtime.kind, inspect.Parameter.KEYWORD_ONLY)
                     selection = signature.parameters["oracle_selection"]
                     self.assertEqual(selection.default, "all")
                     self.assertEqual(selection.kind, inspect.Parameter.KEYWORD_ONLY)
                     signature = signature.replace(parameters=[
                         value for key, value in signature.parameters.items()
-                        if key != "oracle_selection"
+                        if key not in ("oracle_selection", "oracle_rust_bin")
                     ])
                 self.assertEqual(
                     str(signature),
                     expected,
                 )
 
+        export_signature = inspect.signature(export_hf.export_run)
+        runtime = export_signature.parameters["oracle_rust_bin"]
+        self.assertIsNone(runtime.default)
+        self.assertEqual(runtime.kind, inspect.Parameter.KEYWORD_ONLY)
+        historical_export = export_signature.replace(parameters=[
+            value for key, value in export_signature.parameters.items()
+            if key != "oracle_rust_bin"
+        ])
         self.assertEqual(
-            str(inspect.signature(export_hf.export_run)),
+            str(historical_export),
             "(curated_root: 'str | Path', destination: 'str | Path', *, "
             "split: 'SplitOptions' = SplitOptions(eval_fraction=0.1, "
             "salt='spikenaut.synthetic-factory.split-v1'), "

@@ -35,12 +35,17 @@ class NativeGateTests(unittest.TestCase):
     def test_scope_survives_nested_default_and_resets_after_exception(self):
         from oracle_grounded import native_gate
         env = {"SF_ORACLE_RUST_BIN": "/explicit/runtime"}
+        failure = ValueError("simulated failure")
+
+        def fail_inside_nested_scope():
+            with native_gate.runtime_gate("/explicit/runtime"):
+                with native_gate.runtime_gate(None):
+                    self.assertEqual(native_gate.replay_environ(), env)
+                    raise failure
+
         with mock.patch.object(native_gate, "runtime_environ", return_value=env):
             with self.assertRaisesRegex(ValueError, "simulated failure"):
-                with native_gate.runtime_gate("/explicit/runtime"):
-                    with native_gate.runtime_gate(None):
-                        self.assertEqual(native_gate.replay_environ(), env)
-                        raise ValueError("simulated failure")
+                fail_inside_nested_scope()
         self.assertIsNone(native_gate.replay_environ())
 
     def test_non_native_and_wrong_family_never_use_explicit_gate(self):
@@ -58,9 +63,10 @@ class NativeGateTests(unittest.TestCase):
             with native_gate.runtime_gate("/explicit/runtime"):
                 for status in ("mismatch", "unavailable", "invalid"):
                     with self.subTest(status=status):
+                        item = self.item()
                         with mock.patch.object(record, "reproduce", return_value=(status, "reason")):
                             with self.assertRaises(admission.OracleAdmissionError):
-                                admission._measurement_eligibility(self.item())
+                                admission._measurement_eligibility(item)
 
     def test_entrypoint_parsers_accept_explicit_executable(self):
         import compose_curated

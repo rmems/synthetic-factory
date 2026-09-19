@@ -9,15 +9,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 import oracle_generate
-from oracle_grounded import families, record, rng
+from oracle_grounded import families, oracles, record, rng
 
 
 class RustBackendSelectionTests(unittest.TestCase):
     def test_cli_accepts_explicit_rust_backend(self):
-        try:
-            args = oracle_generate.parse_args(['--backend', 'rust', 'unused'])
-        except SystemExit:
-            self.fail('Rust backend must be an explicit supported CLI option')
+        args = oracle_generate.parse_args(['--backend', 'rust', 'unused'])
         self.assertEqual(args.backend, 'rust')
 
     def test_reference_cli_ignores_ambient_runtime_commands(self):
@@ -45,20 +42,14 @@ class RustBackendSelectionTests(unittest.TestCase):
     def test_rust_unsupported_family_does_not_create_output(self):
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp) / 'run'
-            try:
-                status = oracle_generate.main(['--backend', 'rust', '--family', families.MEMORY_FAMILY, str(out)])
-            except SystemExit:
-                self.fail('Backend family refusal must reach preflight')
+            status = oracle_generate.main(['--backend', 'rust', '--family', families.MEMORY_FAMILY, str(out)])
             self.assertNotEqual(status, 0)
             self.assertFalse(out.exists())
 
     def test_rust_without_executable_never_falls_back(self):
         with patch.dict(os.environ, {}, clear=True):
-            try:
-                with self.assertRaisesRegex(Exception, 'executable|SF_ORACLE_RUST_BIN'):
-                    record.build_record(families.ENCODER_FAMILY, 0, seed=1, backend='rust')
-            except TypeError:
-                self.fail('build_record must support explicit backend selection')
+            with self.assertRaisesRegex(oracles.OracleError, 'executable|SF_ORACLE_RUST_BIN'):
+                record.build_record(families.ENCODER_FAMILY, 0, seed=1, backend='rust')
 
 
 if __name__ == '__main__':

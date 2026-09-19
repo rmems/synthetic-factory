@@ -39,7 +39,7 @@ from .import_twins import bind_import_twin
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-oracle-policy-v1.json"
 # Independent trust anchor: update only with the reviewed generator/policy change.
-POLICY_SHA256 = "8d47b94faa3d1932fdf94472814503147762647471c194421775984d76999251"
+POLICY_SHA256 = "c7b2db1331be4a75f619ad58a0ba387b9a976bcb2ecd73d7f1244ca44514cd6a"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",
@@ -106,6 +106,19 @@ PROGRAM_NAMES = (
     "oracle_record_stages.py",
     "oracle_record_envelope.py",
     "oracle_record_generator.py",
+    # Delegation changes must extend the seal, not just the facade imports.
+    "oracle_generate_fs.py",
+    "oracle_generate_records.py",
+    "oracle_record_envelope_part1.py",
+    "oracle_record_envelope_part2.py",
+    "oracle_record_stages_part1.py",
+    "oracle_record_stages_part2.py",
+    "oracle_record_stages_part3.py",
+    "oracle_validate_manifest_part1.py",
+    "oracle_validate_manifest_part2.py",
+    "oracle_validate_manifest_part3.py",
+    "oracle_validate_manifest_records_part1.py",
+    "oracle_validate_manifest_records_part2.py",
     "compose_destination_rename.py",
     "compose_destination_directory.py", "compose_contract.py",
 )

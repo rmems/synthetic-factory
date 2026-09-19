@@ -68,9 +68,9 @@ class GeneratorChecks:
             findings.append(
                 "oracle.seed does not match the generator seed that produced this record"
             )
-        self._reproduce_proposal(record, family, record_seed, findings)
+        self._reproduce_proposal(record, record_seed, findings)
 
-    def _reproduce_proposal(self, record, family, record_seed, findings):
+    def _reproduce_proposal(self, record, record_seed, findings):
         try:
             expected_scenario, expected_intervention, expected_candidate = self.api.families.spec_for_record(record).propose(self.api.Rng(record_seed))
             expected_proposal = {

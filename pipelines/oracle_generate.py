@@ -33,14 +33,30 @@ import secrets
 import sys
 from pathlib import Path
 
-from oracle_grounded import canon, families, oracles, record as _record, rng
-from oracle_grounded.generation_output import (
-    _output_descriptor,
-    _verify_staged_manifest,
-    _verify_staged_payloads,
-    write_jsonl,
-)
-from oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("oracle_generate")
+    from .oracle_grounded import canon, families, native_profiles, native_runtime, oracles, record as _record, rng
+    from .oracle_grounded.generation_output import (
+        _output_descriptor,
+        _verify_staged_manifest,
+        _verify_staged_payloads,
+        write_jsonl,
+    )
+    from .oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "oracle_generate"
+    )
+    from oracle_grounded import canon, families, native_profiles, native_runtime, oracles, record as _record, rng
+    from oracle_grounded.generation_output import (
+        _output_descriptor,
+        _verify_staged_manifest,
+        _verify_staged_payloads,
+        write_jsonl,
+    )
+    from oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
 
 DEFAULT_SEED = 20260823
 DEFAULT_COUNT = 8
@@ -164,10 +180,9 @@ def _argument_errors(args):
 
 def _select_families(args):
     """The requested families, de-duplicated in order. (selected, exit code)."""
-    from oracle_grounded.native_profiles import PROFILES
-    default = tuple(PROFILES) if args.backend == 'rust' else families.FAMILY_NAMES
+    default = tuple(native_profiles.PROFILES) if args.backend == 'rust' else families.FAMILY_NAMES
     selected = list(dict.fromkeys(args.family_names or default))
-    if args.backend == 'rust' and any(name not in PROFILES for name in selected):
+    if args.backend == 'rust' and any(name not in native_profiles.PROFILES for name in selected):
         print('oracle_generate: Rust backend supports only encoder and neuron families', file=sys.stderr)
         return None, 2
     unknown = [name for name in selected if name not in families.SPECS]
@@ -266,9 +281,8 @@ def _prepare_run(args):
         return None, selection_error
     args.runtime_environ = {}
     if args.backend == 'rust':
-        from oracle_grounded.native_runtime import runtime_environ
         try:
-            args.runtime_environ = runtime_environ(args.oracle_rust_bin)
+            args.runtime_environ = native_runtime.runtime_environ(args.oracle_rust_bin)
         except oracles.OracleError as exc:
             print(f'oracle_generate: {exc}', file=sys.stderr)
             return None, 3
@@ -473,6 +487,10 @@ def main(argv=None):
     if status != 0:
         return status
     return _print_manifest(manifest_text, Path(args.out_dir))
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

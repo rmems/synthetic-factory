@@ -1,5 +1,17 @@
 """Record generation and manifest summaries behind the live CLI facade."""
 
+import sys
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("oracle_generate_records")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "oracle_generate_records"
+    )
+
+
 class GenerationRecords:
 
     def __init__(self, api):
@@ -67,3 +79,7 @@ class GenerationRecords:
         if rejected:
             return rejected[0]['oracle']['implementation']
         return None
+
+
+if __package__:
+    _expose_package_sibling(__name__)

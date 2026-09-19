@@ -13,6 +13,14 @@ from .import_twins import bind_import_twin
 def runtime_environ(executable=None, base=None):
     env = dict(os.environ if base is None else base)
     value = executable or env.get('SF_ORACLE_RUST_BIN')
+    path = _executable_path(value)
+    env['SF_ORACLE_RUST_BIN'] = str(path)
+    for runtime in ('axon-encoder', 'neuromod'):
+        env[oracles.env_key(runtime)] = shlex.quote(str(path))
+    return env
+
+
+def _executable_path(value):
     if not value:
         raise oracles.OracleError('SF_ORACLE_RUST_BIN or --oracle-rust-bin must name a prebuilt executable')
     path = Path(value).resolve()
@@ -22,10 +30,7 @@ def runtime_environ(executable=None, base=None):
         valid = False
     if not valid:
         raise oracles.OracleError('Rust oracle executable is missing or not executable')
-    env['SF_ORACLE_RUST_BIN'] = str(path)
-    for runtime in ('axon-encoder', 'neuromod'):
-        env[oracles.env_key(runtime)] = shlex.quote(str(path))
-    return env
+    return path
 
 
 def units_for(profile):
@@ -67,19 +72,27 @@ class NativeOracle(oracles.ExternalCommandOracle):
             run = super().run(family, request)
             after = file_digest(self.command[0])
             identity = run.measured.get('identity', {})
-            if before != after or identity.get('executable_sha256') != before:
-                raise oracles.OracleError('Rust executable identity changed or mismatched')
-            if identity.get('lock_sha256') != file_digest(oracles.REPO_ROOT / 'Cargo.lock'):
-                raise oracles.OracleError('Rust executable was built with a different dependency lock')
-            if identity.get('adapter_source_sha256') != adapter_source_digest():
-                raise oracles.OracleError('Rust executable was built from different adapter sources')
-            if oracles.resolve_source_commit(identity.get('adapter_revision')) is None:
-                raise oracles.OracleError('Rust adapter source revision cannot be resolved')
+            _verify_executable_identity(identity, before, after)
+            _verify_build_identity(identity)
             if run.units != units_for(request['configuration']['profile']):
                 raise oracles.OracleError('Rust executable returned incompatible units')
             return run
         except (OSError, ValueError) as exc:
             raise oracles.OracleError('Rust runtime identity could not be verified') from exc
+
+
+def _verify_executable_identity(identity, before, after):
+    if before != after or identity.get('executable_sha256') != before:
+        raise oracles.OracleError('Rust executable identity changed or mismatched')
+
+
+def _verify_build_identity(identity):
+    if identity.get('lock_sha256') != file_digest(oracles.REPO_ROOT / 'Cargo.lock'):
+        raise oracles.OracleError('Rust executable was built with a different dependency lock')
+    if identity.get('adapter_source_sha256') != adapter_source_digest():
+        raise oracles.OracleError('Rust executable was built from different adapter sources')
+    if oracles.resolve_source_commit(identity.get('adapter_revision')) is None:
+        raise oracles.OracleError('Rust adapter source revision cannot be resolved')
 
 
 def adapter(runtime, oracle_type, environ=None):

@@ -9,8 +9,18 @@ import secrets
 import stat
 import sys
 
-from compose_contract import ComposeError
-from compose_destination_rename import quarantine_owned_entry
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("oracle_generate_fs")
+    from .compose_contract import ComposeError
+    from .compose_destination_rename import quarantine_owned_entry
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "oracle_generate_fs"
+    )
+    from compose_contract import ComposeError
+    from compose_destination_rename import quarantine_owned_entry
 
 
 class GenerationFilesystem:
@@ -231,3 +241,7 @@ class GenerationFilesystem:
         finally:
             if owned_fd is not None:
                 os.close(owned_fd)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

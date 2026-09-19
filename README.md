@@ -133,6 +133,7 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
+
 - `schemas/` — Thalamic schema + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
@@ -303,7 +304,6 @@ approved decision, and only training-candidate rows
 [#161]: https://github.com/rmems/synthetic-factory/issues/161
 [#163]: https://github.com/rmems/synthetic-factory/issues/163
 [#165]: https://github.com/rmems/synthetic-factory/issues/165
-[#167]: https://github.com/rmems/synthetic-factory/issues/167
 [#169]: https://github.com/rmems/synthetic-factory/issues/169
 [#170]: https://github.com/rmems/synthetic-factory/issues/170
 [#171]: https://github.com/rmems/synthetic-factory/issues/171
