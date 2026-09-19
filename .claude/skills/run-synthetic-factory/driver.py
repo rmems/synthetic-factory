@@ -21,7 +21,7 @@ Usage:
 from __future__ import annotations
 
 import json
-import os  # noqa: F401 - tests inject races through factory_driver.os
+import os  # noqa: F401  # pylint: disable=unused-import - tests inject races through factory_driver.os
 import re
 import subprocess
 import sys
