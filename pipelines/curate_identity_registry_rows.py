@@ -311,7 +311,7 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         raise IdentityCurationError(f"factories[{index}] missing fields: {missing}")
     _apply_field_rules(raw, _PATH_RULES, index)
     identity = _generator_identity(raw, index)
-    _apply_field_rules(raw, _RIGHTS_VOCABULARY_RULES, index)
+    _apply_field_rules(raw, _MODEL_CHANNEL_RIGHTS_RULES, index)
     _require_reviewed_rights(raw, identity, index)
     _apply_field_rules(raw, _SHAPE_RULES, index)
     kinds = frozenset(raw["record_kinds"])
