@@ -21,6 +21,7 @@ if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from training_audit_test_helpers import (  # noqa: E402
+    assert_research_only,
     REPO,
     commit_marker_batch,
     thalamic,
@@ -176,7 +177,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
 
         self.assertEqual(report["totals"]["records"], 2)
         self.assertEqual(report["record_invariants"]["errors"], 0)
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
 
     def test_non_regular_jsonl_members_fail_the_audit_closed(self):
         """Codex #97 P2: a member that cannot be captured must not be skipped.
@@ -192,7 +193,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                 root = Path(td)
                 factory = root / "thalamic-trajectory-factory"
                 write(factory / "batch-r01.jsonl", [thalamic("clean-1")])
-                self.assertTrue(training_audit.audit_run(root)["training_ready"])
+                assert_research_only(self, training_audit.audit_run(root))
 
                 intruder = factory / "ignored.jsonl"
                 if member == "broken_symlink":
@@ -299,7 +300,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             root = Path(td)
             factory = root / "thalamic-trajectory-factory"
             write(factory / "batch-r01.jsonl", [thalamic("clean-1")])
-            self.assertTrue(training_audit.audit_run(root)["training_ready"])
+            assert_research_only(self, training_audit.audit_run(root))
 
             alias_target = Path(outside)
             (alias_target / "invalid.jsonl").write_text(
@@ -326,7 +327,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             batch = factory / "batch-r01.jsonl"
             write(batch, [thalamic("committed-1")])
             commit_marker_batch(factory, batch)
-            self.assertTrue(training_audit.audit_run(root)["training_ready"])
+            assert_research_only(self, training_audit.audit_run(root))
 
             # The capture-time binding itself: bytes that disagree with the
             # committed digest are refused even after visibility resolved.
@@ -355,7 +356,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [thalamic("clean-1")])
             report = training_audit.audit_run(root)
 
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         self.assertEqual(report["totals"]["records"], 1)
         self.assertEqual(report["identity"]["coverage_pct"], 100.0)
         self.assertEqual(report["provenance"]["canonical_pct"], 100.0)

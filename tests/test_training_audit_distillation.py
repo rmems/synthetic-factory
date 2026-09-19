@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from training_audit_test_helpers import (
+    assert_research_only,
     gate_snn_bridge,
     thalamic,
     write,
@@ -53,7 +54,7 @@ class DistillationRasterAudit(unittest.TestCase):
         with temporary:
             markdown = training_audit.render_markdown(report)
 
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         bridge = report["bridge"]
         self.assertEqual(bridge["pairs"], 1)
         self.assertEqual(bridge["distillation_records"], 1)
@@ -135,7 +136,7 @@ class DistillationRasterAudit(unittest.TestCase):
         )
         temporary.cleanup()
 
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         self.assertEqual(report["bridge"]["pairs"], 2)
         self.assertEqual(report["bridge"]["distillation_records"], 2)
         self.assertEqual(report["bridge"]["gate_snn_records"], 1)
@@ -328,7 +329,7 @@ class DistillationRasterAudit(unittest.TestCase):
             markdown = training_audit.render_markdown(report)
 
         bridge = report["bridge"]
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         self.assertEqual(bridge["pairs"], 1)
         self.assertEqual(bridge["sorted_pairs"], 1)
         self.assertEqual(bridge["distillation_records"], 4)
@@ -345,7 +346,7 @@ class DistillationRasterAudit(unittest.TestCase):
         temporary.cleanup()
 
         self.assertEqual(report["totals"]["records"], 2)
-        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
         self.assertEqual(report["mill_mix"]["records"], 1)
         self.assertEqual(report["bridge"]["distillation_records"], 1)
         self.assertEqual(report["bridge"]["raster_valid_pairs"], 1)

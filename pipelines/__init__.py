@@ -99,6 +99,14 @@ def _local_package_sibling(name: str, *, allow_initializing: bool = False):
 # static analyser sees carries no ``pipelines -> pipelines.<name>`` edge for it
 # (pylint R0401 reads a function-body ``from . import`` as a module-level one).
 _PACKAGE_SIBLING_NAMES = frozenset((
+    "rights_policy_placeholders",
+    "rights_policy_semantics",
+    "curate_identity_registry_evidence",
+    "curate_identity_registry_sources",
+    "curate_identity_simulator",
+    "curate_identity_simulator_process",
+    "curate_gate_simulator_identity",
+    "curate_identity_simulator_worker",
     "mill_script_inventory_schema",
     "mill_script_inventory_families",
     "mill_script_inventory_git",

@@ -156,6 +156,8 @@ names = (
     "rights_document_support",
     "rights_policy",
     "rights_policy_profiles",
+    "rights_policy_placeholders",
+    "rights_policy_semantics",
 )
 if {package_first!r}:
     packaged = {{name: importlib.import_module(f"pipelines.{{name}}") for name in names}}

@@ -78,7 +78,7 @@ def canonical_json(value: Any) -> str:
 
     try:
         _reject_unpaired_surrogates(value)
-        payload = dumps_exact_json(value) if classify_kind(value) == "code_repair" else json.dumps(
+        payload = dumps_exact_json(value) if classify_kind(value) in {"code_repair", "fault_recovery"} else json.dumps(
             value,
             ensure_ascii=False,
             allow_nan=False,
@@ -141,7 +141,7 @@ def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
         parse_constant=_reject_json_constant,
         parse_float=ExactJSONFloat if exact else parse_finite_json_float,
     )
-    if not exact and classify_kind(value) == "code_repair":
+    if not exact and classify_kind(value) in {"code_repair", "fault_recovery"}:
         return _strict_json_loads(payload, exact=True)
     _reject_unpaired_surrogates(value)
     return value

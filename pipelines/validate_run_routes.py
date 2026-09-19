@@ -141,6 +141,20 @@ def route_code_repair(obj, where):
     return sealed_record_findings(obj, where), "code_repair"
 
 
+def route_fault_recovery(obj, where):
+    """Bind native simulator checks to the sealed producer without execution.
+
+    Admission is imported here, not at module import: the simulator stack
+    materializes a replay snapshot. An eager import would pull that stack
+    into every CLI invoke that never sees a fault-recovery record.
+    """
+    if __package__:
+        from .curate_identity_simulator import record_findings
+    else:
+        from curate_identity_simulator import record_findings
+    return record_findings(obj, where), "fault_recovery"
+
+
 def _route_oracle(obj, where, _factory_staging):
     """Bind oracle-grounded envelope checks without re-running any oracle.
 
@@ -223,6 +237,8 @@ def check_line(obj, where, factory_staging=False, hooks=None):
         return [f"{where}: record must be a JSON object"], "unknown"
     if obj.get("family") == "python-function-repair":
         return route_code_repair(obj, where)
+    if obj.get("family") == "neuromorphic-fault-recovery":
+        return route_fault_recovery(obj, where)
     oracle_shape = obj.get("schema") == "oracle-grounded/v1" or all(
         key in obj for key in ("oracle", "result", "proposal_hash")
     )

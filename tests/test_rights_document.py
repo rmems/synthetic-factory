@@ -224,7 +224,7 @@ class RightsDocumentTests(unittest.TestCase):
         )
         self.assertEqual(
             len(rights_document.PROVIDER_ALIASES),
-            len(rights_document.CANONICAL_PROVIDERS),
+            len(rights_document.HOSTED_FRONTIER_PROVIDERS),
         )
         with self.assertRaises(TypeError):
             rights_document.PROVIDER_ALIASES["Anthropic"] = "xai"

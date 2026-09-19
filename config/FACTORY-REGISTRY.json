@@ -1684,5 +1684,76 @@
         "oracle": "synthetic_shape_implies_designed"
       }
     }
+    ,{
+      "path_id": "fault-recovery-simulator-factory",
+      "payload_factory": "fault-recovery-simulator-factory",
+      "generator": "relay-reflex-simulator",
+      "generator_version": "1",
+      "provider": "simulator",
+      "channel": "local",
+      "rights_profile_id": "simulator-local-oracle-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "commit_sha": "6ca641465bbf8ce8339de1dce6ce77f77186e34a",
+      "module_digest": "sha256:be267e0720662cf1f8c79b24384bd335df9ec127fce8184459e2e64e31c8d3e4",
+      "record_kinds": [
+        "fault_recovery"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "fault_recovery": "replay_fault_recovery"
+      }
+    }
+    ,{
+      "path_id": "deepseek-placeholder-factory",
+      "payload_factory": "deepseek-placeholder-factory",
+      "generator": "deepseek-placeholder",
+      "generator_version": "pending-terms",
+      "provider": "deepseek",
+      "channel": "api",
+      "rights_profile_id": "deepseek-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    }
+    ,{
+      "path_id": "nemotron-placeholder-factory",
+      "payload_factory": "nemotron-placeholder-factory",
+      "generator": "nemotron-placeholder",
+      "generator_version": "pending-terms",
+      "provider": "nemotron",
+      "channel": "api",
+      "rights_profile_id": "nemotron-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    }
   ]
 }

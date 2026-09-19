@@ -47,10 +47,12 @@ def write_emitted_records(
     services: DestinationServices,
 ) -> None:
     output_path = f"{RECORDS_DIRNAME}/{context.relative}"
+    if any(not line.endswith("\n") for line in emitted[:-1]):
+        raise ComposeError("unterminated native source cannot precede another composed record")
     digest = services.write_new_text(
         context.destination_target,
         output_path,
-        "".join(line + "\n" for line in emitted),
+        "".join(emitted),
     )
     state.outputs.append({"path": output_path, "records": len(emitted), "sha256": digest})
     state.counts["output_files"] += 1

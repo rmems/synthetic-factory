@@ -254,5 +254,9 @@ _PREFERENCE_SIDE_RULES: tuple[FieldRule, ...] = (
 )
 
 
+RIGHTS_VOCABULARY_RULES = _RIGHTS_VOCABULARY_RULES
+SHAPE_RULES = _SHAPE_RULES
+PREFERENCE_SIDE_RULES = _PREFERENCE_SIDE_RULES
+
 if __package__:
     _expose_package_sibling(__name__)

@@ -19,7 +19,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from training_audit_test_helpers import thalamic, write  # noqa: E402
+from training_audit_test_helpers import assert_research_only, thalamic, write  # noqa: E402
 
 import curate_coding  # noqa: E402
 import training_audit  # noqa: E402
@@ -209,8 +209,7 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
 
         self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
         self.assertEqual(report["hidden_thought_examples"], [])
-        self.assertEqual(report["blockers"], [])
-        self.assertTrue(report["training_ready"])
+        assert_research_only(self, report)
 
     def test_undelimited_internal_reasoning_suffixes_block_training(self):
         source = thalamic("wrap-reasoning-prefix")
@@ -253,8 +252,7 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
         self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
         self.assertEqual(report["episodes"]["steps"], 1)
         self.assertEqual(report["hidden_thought_examples"], [])
-        self.assertEqual(report["blockers"], [])
-        self.assertTrue(report["training_ready"])
+        assert_research_only(self, report)
 
 
 if __name__ == "__main__":

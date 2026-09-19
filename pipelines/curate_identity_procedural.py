@@ -127,9 +127,36 @@ def curate_oracle(original: Any, row: Any, mapping: dict[str, Any]):
     return _preserved_result(mapping, original, row, (eligible, reasons))
 
 
+def curate_fault_recovery(original: Any, row: Any, mapping: dict[str, Any]):
+    if __package__:
+        from .curate_identity_simulator import require_replayed_record
+    else:
+        from curate_identity_simulator import require_replayed_record
+    try:
+        require_replayed_record(original, row)
+    except IdentityCurationError as exc:
+        return _materialize.exclude(
+            mapping, "identity.simulator_replay_invalid", details=[str(exc)]
+        )
+    curated = copy.deepcopy(original)
+    output_id = curated["id"]
+    mapping.update(
+        action="retained",
+        reason_codes=["identity.preserved", "provenance.preserved"],
+        output_id=output_id,
+        output_sha256=_identity_json.sha256_json(curated),
+        id_mappings=[{"owner_path": "/", "output_id": output_id}],
+        provenance_mappings=[],
+        simulator_authority={"basis": "reviewed_producer_replay"},
+    )
+    return CurationResult("retained", curated, mapping)
+
+
 def curate_known_kind(kind: str, original: Any, row: Any, mapping: dict[str, Any]):
     if kind == "code_repair":
         return curate_code_repair(original, row, mapping)
+    if kind == "fault_recovery":
+        return curate_fault_recovery(original, row, mapping)
     if kind == "oracle":
         return curate_oracle(original, row, mapping)
     return None

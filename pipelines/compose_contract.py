@@ -76,7 +76,12 @@ class ComposeError(RuntimeError):
 
 
 def retained_json_line(decision: ComposeDecision) -> str:
-    """Preserved native records reuse authenticated source text; other outputs are canonical."""
+    """Preserved native records reuse authenticated source text; other outputs are canonical.
+
+    Identity forbids LF inside ``source.original`` because LF is the JSONL
+    record separator. The physical terminator is restored by
+    ``retained_emitted_record`` for fault-recovery simulator output.
+    """
     if curate_identity.classify_kind(decision.record) not in curate_identity.PRESERVED_KINDS:
         return canonical_json(decision.record)
     source = next((stage["detail"]["source"] for stage in decision.stages
@@ -84,6 +89,21 @@ def retained_json_line(decision: ComposeDecision) -> str:
     if source is None:
         raise ComposeError("preserved native output has no identity evidence")
     return _preserved_source_line(decision.record, source)
+
+
+def retained_emitted_record(decision: ComposeDecision, terminator: str = "\n") -> str:
+    """Return the exact bytes compose writes for one retained record.
+
+    Native simulator records restore the source JSONL terminator (LF, CRLF,
+    or empty for an unterminated final record). Other preserved kinds emit
+    canonical JSON plus LF.
+    """
+    payload = retained_json_line(decision)
+    if curate_identity.classify_kind(decision.record) != "fault_recovery":
+        return payload + "\n"
+    if terminator not in ("", "\n", "\r\n"):
+        raise ComposeError("native JSONL terminator must be LF, CRLF, or empty")
+    return payload + terminator
 
 
 def _preserved_source_line(record, source):

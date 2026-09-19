@@ -161,7 +161,7 @@ class ReplayCompatibilityAdapters(unittest.TestCase):
             state, decision, entry, "factory/batch-r1.jsonl", emitted
         )
 
-        self.assertEqual(emitted, ['{"id":"record-1"}'])
+        self.assertEqual(emitted, ['{"id":"record-1"}\n'])
         self.assertEqual(entry["output_path"], "records/factory/batch-r1.jsonl")
         self.assertEqual(entry["output_line"], 1)
         self.assertEqual(state.counts["retained"], 1)

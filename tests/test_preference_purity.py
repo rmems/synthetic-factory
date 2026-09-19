@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 import unittest
+from training_audit_test_helpers import assert_research_only
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -271,11 +272,9 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
             )
             for blocker in curated_audit["blockers"]:
                 self.assertNotIn("preference pairs change state or proposal", blocker)
-            # Audited alone, the curated preference lane clears every strict
-            # gate. This is a per-lane statement: the full corpus stays
-            # blocked until the remaining sf-c5l lanes land.
-            self.assertEqual(curated_audit["blockers"], [])
-            self.assertIs(curated_audit["training_ready"], True)
+            # Context purity is repaired; the reviewed hosted-row policy still
+            # keeps this otherwise valid evidence out of training.
+            assert_research_only(self, curated_audit)
 
             emitted = [
                 json.loads(line) for line in output.read_text().splitlines()

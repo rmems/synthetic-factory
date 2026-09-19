@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from training_audit_test_helpers import thalamic
+from training_audit_test_helpers import assert_research_only, thalamic
 
 import training_audit
 import training_audit_record
@@ -132,7 +132,7 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
 
         report = self._audit_payload(payload)
 
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         self.assertEqual(report["totals"]["records"], 1)
         self.assertEqual(report["bridge"]["distillation_records"], 1)
 

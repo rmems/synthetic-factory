@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 if __package__:
+    from .curate_identity_simulator_process import replay_session
     from .exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -37,6 +38,7 @@ if __package__:
         reject_json_constant,
     )
 else:
+    from curate_identity_simulator_process import replay_session
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -435,7 +437,7 @@ def shape_check(obj, where, factory_staging=False):
         errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
-    if kind == "code_repair":
+    if kind in {"code_repair", "fault_recovery"}:
         return errs, kind
     return _shape_only_errors(errs, where), kind
 
@@ -613,7 +615,7 @@ def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
-    if kind == "code_repair":
+    if kind in {"code_repair", "fault_recovery"}:
         # The shared pure validator owns this envelope, including its deep hashes.
         return errors, warnings, kind, canonical_record_id(obj)
 
@@ -729,6 +731,7 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     return errors, warnings, kinds, records
 
 
+@replay_session()
 def check_run(run_dir, strict=False):
     run_dir = Path(run_dir).resolve()
     errors, warnings = [], []

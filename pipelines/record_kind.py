@@ -21,6 +21,7 @@ THALAMIC_REQUIRED = (
 
 KIND_ORDER = (
     "code_repair",
+    "fault_recovery",
     "thalamic",
     "preference",
     "bridge_pair",
@@ -46,21 +47,28 @@ _PAYLOAD_KEY_RULES = (
 )
 
 
+def _is_fault_recovery(record: Mapping[str, Any]) -> bool:
+    # Family is sticky: a malformed claimant stays in fault_recovery and fails
+    # that family's validator instead of falling through to thalamic keys.
+    return record.get("family") == "neuromorphic-fault-recovery"
+
+
 def classify_kind(obj: Any) -> str:
     """Name a record from payload keys, never from a directory slug.
 
     Order (census/agentic, issue #32 comment 5377279101):
 
     1. code_repair — ``family`` is ``python-function-repair``
-    2. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    3. preference — ``chosen`` and ``rejected``
-    4. bridge_pair — ``language_view`` and ``spike_events``
-    5. safety_case — ``case_type``
-    6. multi_agent — ``transcript`` and ``agents``
-    7. episode — ``goal`` and ``steps``
-    8. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
+    2. fault_recovery — ``family`` is ``neuromorphic-fault-recovery``
+    3. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    4. preference — ``chosen`` and ``rejected``
+    5. bridge_pair — ``language_view`` and ``spike_events``
+    6. safety_case — ``case_type``
+    7. multi_agent — ``transcript`` and ``agents``
+    8. episode — ``goal`` and ``steps``
+    9. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
        measurement records; accepted and rejected share the envelope)
-    9. unknown
+    10. unknown
     """
 
     kind = "unknown"
@@ -68,6 +76,8 @@ def classify_kind(obj: Any) -> str:
         # A malformed claimant stays in its family and fails that family's validator.
         if obj.get("family") == "python-function-repair":
             kind = "code_repair"
+        elif _is_fault_recovery(obj):
+            kind = "fault_recovery"
         else:
             keys = obj.keys()
             kind = next(
