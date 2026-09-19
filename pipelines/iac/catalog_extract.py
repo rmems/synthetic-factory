@@ -455,10 +455,8 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
 def catalog_document(
     mills: list[dict[str, Any]],
     *,
-    archive_b: Mapping[str, Any] | None = None,
-    archive_b_more: Mapping[str, Any] | None = None,
-    plants_sha256: str | None = None,
-    plants_b_sha256: str | None = None,
+    archives: Mapping[str, Mapping[str, Any]] | None = None,
+    plant_digests: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills)
     document: dict[str, Any] = {
@@ -472,14 +470,10 @@ def catalog_document(
         "n_pair_rows": pair_rows,
         "mills": {mill["mill_id"]: mill for mill in mills},
     }
-    if archive_b is not None:
-        document["archive_b"] = dict(archive_b)
-    if archive_b_more is not None:
-        document["archive_b_more"] = dict(archive_b_more)
-    if plants_sha256 is not None:
-        document["plants_sha256"] = plants_sha256
-    if plants_b_sha256 is not None:
-        document["plants_b_sha256"] = plants_b_sha256
+    for key, block in (archives or {}).items():
+        document[key] = dict(block)
+    for key, digest in (plant_digests or {}).items():
+        document[key] = digest
     return document
 
 

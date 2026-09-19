@@ -99,14 +99,23 @@ class IacCatalog:
         return sum(mill.n_rows for mill in self.mills.values())
 
 
+@dataclass(frozen=True)
+class ArchivePin:
+    path: str
+    blob_sha: str
+    source_sha256: str
+
+
 _ARCHIVE_BINDS = (
-    ("archive_b", "plants", PLANTS_SOURCE_PATH, PLANTS_BLOB_SHA, PLANTS_SOURCE_SHA256),
+    (
+        "archive_b",
+        "plants",
+        ArchivePin(PLANTS_SOURCE_PATH, PLANTS_BLOB_SHA, PLANTS_SOURCE_SHA256),
+    ),
     (
         "archive_b_more",
         "plants_b",
-        PLANTS_B_SOURCE_PATH,
-        PLANTS_B_BLOB_SHA,
-        PLANTS_B_SOURCE_SHA256,
+        ArchivePin(PLANTS_B_SOURCE_PATH, PLANTS_B_BLOB_SHA, PLANTS_B_SOURCE_SHA256),
     ),
 )
 
@@ -147,13 +156,11 @@ def load_catalog(path=None) -> IacCatalog:
         plants_b=plants_b,
     )
     _bind_sources(catalog)
-    for attr, plants_attr, path_pin, blob_sha, source_sha256 in _ARCHIVE_BINDS:
+    for attr, plants_attr, pin in _ARCHIVE_BINDS:
         _bind_archive_b(
             getattr(catalog, attr),
             plants=getattr(catalog, plants_attr),
-            path=path_pin,
-            blob_sha=blob_sha,
-            source_sha256=source_sha256,
+            pin=pin,
         )
     return catalog
 
@@ -236,9 +243,7 @@ def _bind_archive_b(
     archive_b: ArchiveBSource,
     *,
     plants: tuple[ArchiveBPlant, ...],
-    path: str,
-    blob_sha: str,
-    source_sha256: str,
+    pin: ArchivePin,
 ) -> None:
     boundary_slugs_match = not plants or (
         plants[0].success_slug == archive_b.first_slug
@@ -249,9 +254,9 @@ def _bind_archive_b(
             archive_b.ref == ARCHIVE_B_REF and archive_b.commit == ARCHIVE_B_COMMIT,
             "archive ref/commit drifted from vocabulary",
         ),
-        (archive_b.path == path, "archive path drifted from vocabulary"),
+        (archive_b.path == pin.path, "archive path drifted from vocabulary"),
         (
-            archive_b.blob_sha == blob_sha and archive_b.sha256 == source_sha256,
+            archive_b.blob_sha == pin.blob_sha and archive_b.sha256 == pin.source_sha256,
             "archive source pin drifted from vocabulary",
         ),
         (archive_b.n_plants == len(plants), "n_plants does not match committed JSONL"),
@@ -259,7 +264,7 @@ def _bind_archive_b(
     )
     for ok, message in checks:
         if not ok:
-            raise ValueError(f"{path} {message}")
+            raise ValueError(f"{pin.path} {message}")
 
 
 def _bind_sources(catalog: IacCatalog) -> None:

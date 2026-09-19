@@ -293,10 +293,17 @@ class IacArchiveBExtractTests(unittest.TestCase):
         self.assertEqual(more_slugs & r609, set())
         self.assertEqual(more_slugs & archive_slugs, set())
 
-    def test_committed_plants_match_live_ast_extract(self):
-        found = _archive_b_show(cv.PLANTS_SOURCE_PATH)
+    def _assert_live_extract_matches_committed(
+        self,
+        source_path,
+        blob_sha,
+        source_sha256,
+        committed,
+        extract,
+    ):
+        found = _archive_b_show(source_path)
         if found is None:
-            self.skipTest("archive B mill_plants.py is not available via git show")
+            self.skipTest(f"archive B {source_path} is not available via git show")
         spec, text = found
         blob = subprocess.check_output(
             ["git", "rev-parse", spec],
@@ -304,31 +311,28 @@ class IacArchiveBExtractTests(unittest.TestCase):
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
-        self.assertEqual(blob, cv.PLANTS_BLOB_SHA)
-        live = extract_archive_b_plants(text)
+        self.assertEqual(blob, blob_sha)
+        live = extract(text)
         self.assertEqual(live["n_plants"], 8)
-        self.assertEqual(live["sha256"], cv.PLANTS_SOURCE_SHA256)
-        self.assertEqual(
-            live["plants"], [asdict(plant) for plant in CATALOG.plants]
+        self.assertEqual(live["sha256"], source_sha256)
+        self.assertEqual(live["plants"], [asdict(plant) for plant in committed])
+
+    def test_committed_plants_match_live_ast_extract(self):
+        self._assert_live_extract_matches_committed(
+            cv.PLANTS_SOURCE_PATH,
+            cv.PLANTS_BLOB_SHA,
+            cv.PLANTS_SOURCE_SHA256,
+            CATALOG.plants,
+            extract_archive_b_plants,
         )
 
     def test_committed_plants_b_match_live_ast_extract(self):
-        found = _archive_b_show(cv.PLANTS_B_SOURCE_PATH)
-        if found is None:
-            self.skipTest("archive B mill_plants_b.py is not available via git show")
-        spec, text = found
-        blob = subprocess.check_output(
-            ["git", "rev-parse", spec],
-            cwd=REPO,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        self.assertEqual(blob, cv.PLANTS_B_BLOB_SHA)
-        live = extract_archive_b_more_plants(text)
-        self.assertEqual(live["n_plants"], 8)
-        self.assertEqual(live["sha256"], cv.PLANTS_B_SOURCE_SHA256)
-        self.assertEqual(
-            live["plants"], [asdict(plant) for plant in CATALOG.plants_b]
+        self._assert_live_extract_matches_committed(
+            cv.PLANTS_B_SOURCE_PATH,
+            cv.PLANTS_B_BLOB_SHA,
+            cv.PLANTS_B_SOURCE_SHA256,
+            CATALOG.plants_b,
+            extract_archive_b_more_plants,
         )
 
 
@@ -493,10 +497,14 @@ class IacLegacyExtractTests(unittest.TestCase):
         committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
         live_doc = catalog_document(
             mills,
-            archive_b=committed["archive_b"],
-            archive_b_more=committed["archive_b_more"],
-            plants_sha256=committed["plants_sha256"],
-            plants_b_sha256=committed["plants_b_sha256"],
+            archives={
+                "archive_b": committed["archive_b"],
+                "archive_b_more": committed["archive_b_more"],
+            },
+            plant_digests={
+                "plants_sha256": committed["plants_sha256"],
+                "plants_b_sha256": committed["plants_b_sha256"],
+            },
         )
         self.assertEqual(live_doc, committed)
 
@@ -534,10 +542,14 @@ class IacLegacyExtractTests(unittest.TestCase):
                 )
                 for mill in CATALOG.mills.values()
             ],
-            archive_b=committed["archive_b"],
-            archive_b_more=committed["archive_b_more"],
-            plants_sha256=committed["plants_sha256"],
-            plants_b_sha256=committed["plants_b_sha256"],
+            archives={
+                "archive_b": committed["archive_b"],
+                "archive_b_more": committed["archive_b_more"],
+            },
+            plant_digests={
+                "plants_sha256": committed["plants_sha256"],
+                "plants_b_sha256": committed["plants_b_sha256"],
+            },
         )
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)

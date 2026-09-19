@@ -20,8 +20,6 @@ from .vocabulary import PLANTS_COMPACT_KEYS, PLANTS_FILENAME, PLANTS_SOURCE_PATH
 
 SHAPE_OK_FAIL_LABEL = "ok-fail-label"
 
-_PLANT_FIELD_TYPES = {"index": int, "fail_handoff": bool}
-
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
@@ -139,6 +137,13 @@ def _triple_row(index: int, triple: ast.Tuple) -> dict[str, Any] | None:
     return _compact_row(index, ok, fail, label)
 
 
+def _text_field(kwargs: Mapping[str, Any], key: str, default: str = "") -> str:
+    value = kwargs.get(key, default)
+    if not isinstance(value, str):
+        raise ValueError(f"plant field {key} is not a string")
+    return value
+
+
 def _compact_row(
     index: int,
     ok: Mapping[str, Any],
@@ -147,22 +152,15 @@ def _compact_row(
 ) -> dict[str, Any]:
     row = {
         "index": index,
-        "success_slug": ok.get("slug"),
-        "fail_slug": fail.get("slug"),
-        "success_seed": ok.get("seed", ""),
-        "fail_seed": fail.get("seed", ""),
+        "success_slug": _text_field(ok, "slug"),
+        "fail_slug": _text_field(fail, "slug"),
+        "success_seed": _text_field(ok, "seed"),
+        "fail_seed": _text_field(fail, "seed"),
         "scenario": label,
-        "ticket": ok.get("ticket", ""),
-        "test": ok.get("test", ""),
+        "ticket": _text_field(ok, "ticket"),
+        "test": _text_field(ok, "test"),
         "fail_handoff": bool(fail.get("handoff")),
     }
-    invalid = [
-        key
-        for key in PLANTS_COMPACT_KEYS
-        if key not in row or type(row[key]) is not _PLANT_FIELD_TYPES.get(key, str)
-    ]
-    if invalid:
-        raise ValueError(f"compact plant row has missing or invalid fields {invalid}")
     return {key: row[key] for key in PLANTS_COMPACT_KEYS}
 
 
