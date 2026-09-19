@@ -7,7 +7,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from actf_test_support import FIXTURE_TREE, REPO, cv
+from actf_test_support import REPO, cv
 from actf import catalog as cat
 
 ACTF_DIR = REPO / "pipelines" / "actf"
@@ -79,8 +79,8 @@ class CatalogLiveExtract(unittest.TestCase):
         self.assertEqual(len(actf_dirs), 68)
         pinned = {row.path_key for row in cat.load_catalog().lineages}
         helper_keys = set(cat.load_catalog().meta["helper_path_keys"])
-        self.assertEqual(len(pinned | helper_keys), 68)
         self.assertFalse(pinned & helper_keys)
+        self.assertEqual(pinned | helper_keys, set(actf_dirs))
 
     def test_git_show_canonical_row_matches_fixture_r10_shape(self):
         if not self._have_ref:

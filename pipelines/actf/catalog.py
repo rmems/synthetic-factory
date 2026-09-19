@@ -20,7 +20,7 @@ from typing import Any
 from . import lineage as lin
 from . import records as rec
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, load_strict_json
+from ._contract import bind_import_twin, is_under_raw, load_strict_json
 
 LINEAGE_ROW_FIELDS = (
     "path_key",
@@ -43,22 +43,32 @@ LINEAGE_ROW_FIELDS = (
     "operation_counts",
 )
 
-REQUIRED_META_FIELDS = (
-    "catalog_id",
-    "schema",
-    "family",
-    "corpus",
-    "factory",
-    "lineages_filename",
+PINNED_META = {
+    "catalog_id": cv.CATALOG_ID,
+    "schema": cv.CATALOG_SCHEMA,
+    "family": cv.FAMILY,
+    "corpus": cv.CORPUS,
+    "factory": cv.FACTORY,
+    "extract": "ast.parse",
+    "generator_name": cv.GENERATOR_NAME,
+    "generator_version": cv.GENERATOR_VERSION,
+    "intended_use": cv.INTENDED_USE,
+    "project_training_policy": cv.PROJECT_TRAINING_POLICY,
+    "source_ref": cv.SOURCE_REF,
+    "source_commit": cv.SOURCE_COMMIT,
+    "source_tree": cv.SOURCE_TREE,
+    "legacy_ref": cv.LEGACY_REF,
+    "legacy_commit": cv.LEGACY_COMMIT,
+    "legacy_mill_count": 0,
+    "recovery_lineages": 68,
+    "helper_lineages_excluded": len(cv.HELPER_BASENAMES),
+    "lineages_filename": cv.LINEAGES_FILENAME,
+}
+
+REQUIRED_META_FIELDS = tuple(PINNED_META) + (
     "lineages_sha256",
     "lineages",
-    "recovery_lineages",
-    "helper_lineages_excluded",
-    "source_ref",
-    "source_commit",
-    "legacy_ref",
-    "legacy_commit",
-    "legacy_mill_count",
+    "helper_path_keys",
 )
 
 __all__ = [
@@ -99,26 +109,11 @@ class LineageRow:
     operation_counts: Mapping[str, int]
 
     def as_mapping(self) -> dict[str, Any]:
-        return {
-            "path_key": self.path_key,
-            "original_path": self.original_path,
-            "original_basename": self.original_basename,
-            "classification": self.classification,
-            "version_count": self.version_count,
-            "canonical_version": self.canonical_version,
-            "canonical_version_id": self.canonical_version_id,
-            "syntax_status": self.syntax_status,
-            "source_sha256": self.source_sha256,
-            "excluded": self.excluded,
-            "reason": self.reason,
-            "functions": self.functions,
-            "classes": self.classes,
-            "imports": self.imports,
-            "calls": self.calls,
-            "episode_functions": list(self.episode_functions),
-            "factory_literals": list(self.factory_literals),
-            "operation_counts": dict(sorted(self.operation_counts.items())),
-        }
+        row = {field: getattr(self, field) for field in LINEAGE_ROW_FIELDS}
+        row["episode_functions"] = list(self.episode_functions)
+        row["factory_literals"] = list(self.factory_literals)
+        row["operation_counts"] = dict(sorted(self.operation_counts.items()))
+        return row
 
 
 @dataclass(frozen=True)
@@ -189,13 +184,51 @@ def compact_lineage_row(
 def lineages_from_recovery(recovery_root: Path) -> tuple[LineageRow, ...]:
     """Build compact rows for every real mill lineage under ``recovery_root``."""
 
+    root = Path(recovery_root)
+    cv.refuse_vendor_destination(root)
+    cv.refuse_when(
+        is_under_raw(root),
+        cv.FINDING_RECOVERY_ROOT_UNDER_RAW,
+        f"recovery root names the immutable raw tree: {cv.shown(str(root))}",
+    )
     rows: list[LineageRow] = []
-    for lineage in lin.read_recovery_tree(recovery_root):
+    for lineage in lin.read_recovery_tree(root):
         if not is_mill_catalog_lineage(lineage):
             continue
         extracted = rec.scan_lineage(lineage)
         rows.append(compact_lineage_row(lineage, extracted))
     return tuple(rows)
+
+
+def _string_list_field(payload: Mapping[str, Any], label: str, field: str) -> tuple[str, ...]:
+    value = payload[field]
+    cv.refuse_when(
+        not isinstance(value, list) or not all(isinstance(item, str) for item in value),
+        cv.FINDING_CATALOG_FIELD_INVALID,
+        f"{label} {field} must be a string list",
+    )
+    return tuple(value)
+
+
+def _counts_field(payload: Mapping[str, Any], label: str) -> dict[str, int]:
+    counts = payload["operation_counts"]
+    cv.refuse_when(
+        not isinstance(counts, dict)
+        or not all(isinstance(key, str) and isinstance(value, int) for key, value in counts.items()),
+        cv.FINDING_CATALOG_FIELD_INVALID,
+        f"{label} operation_counts must be a string-to-int map",
+    )
+    return dict(counts)
+
+
+def _excluded_field(payload: Mapping[str, Any], label: str) -> bool:
+    value = payload["excluded"]
+    cv.refuse_when(
+        not isinstance(value, bool),
+        cv.FINDING_CATALOG_FIELD_INVALID,
+        f"{label} excluded must be a JSON boolean",
+    )
+    return value
 
 
 def _row_from_mapping(payload: Mapping[str, Any], label: str) -> LineageRow:
@@ -204,25 +237,6 @@ def _row_from_mapping(payload: Mapping[str, Any], label: str) -> LineageRow:
         bool(missing),
         cv.FINDING_CATALOG_FIELD_MISSING,
         f"{label} missing {missing}",
-    )
-    episode = payload["episode_functions"]
-    factory = payload["factory_literals"]
-    counts = payload["operation_counts"]
-    cv.refuse_when(
-        not isinstance(episode, list) or not all(isinstance(item, str) for item in episode),
-        cv.FINDING_CATALOG_FIELD_INVALID,
-        f"{label} episode_functions must be a string list",
-    )
-    cv.refuse_when(
-        not isinstance(factory, list) or not all(isinstance(item, str) for item in factory),
-        cv.FINDING_CATALOG_FIELD_INVALID,
-        f"{label} factory_literals must be a string list",
-    )
-    cv.refuse_when(
-        not isinstance(counts, dict)
-        or not all(isinstance(key, str) and isinstance(value, int) for key, value in counts.items()),
-        cv.FINDING_CATALOG_FIELD_INVALID,
-        f"{label} operation_counts must be a string-to-int map",
     )
     return LineageRow(
         path_key=str(payload["path_key"]),
@@ -234,15 +248,15 @@ def _row_from_mapping(payload: Mapping[str, Any], label: str) -> LineageRow:
         canonical_version_id=payload["canonical_version_id"],
         syntax_status=str(payload["syntax_status"]),
         source_sha256=payload["source_sha256"],
-        excluded=bool(payload["excluded"]),
+        excluded=_excluded_field(payload, label),
         reason=payload["reason"],
         functions=payload["functions"],
         classes=payload["classes"],
         imports=payload["imports"],
         calls=payload["calls"],
-        episode_functions=tuple(episode),
-        factory_literals=tuple(factory),
-        operation_counts=dict(counts),
+        episode_functions=_string_list_field(payload, label, "episode_functions"),
+        factory_literals=_string_list_field(payload, label, "factory_literals"),
+        operation_counts=_counts_field(payload, label),
     )
 
 
@@ -268,14 +282,11 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         cv.FINDING_CATALOG_FIELD_MISSING,
         f"CATALOG.json missing {missing}",
     )
+    drifted = sorted(key for key, pinned in PINNED_META.items() if meta.get(key) != pinned)
     cv.refuse_when(
-        meta.get("catalog_id") != cv.CATALOG_ID
-        or meta.get("schema") != cv.CATALOG_SCHEMA
-        or meta.get("family") != cv.FAMILY
-        or meta.get("corpus") != cv.CORPUS
-        or meta.get("factory") != cv.FACTORY,
+        bool(drifted),
         cv.FINDING_CATALOG_FIELD_INVALID,
-        "unexpected catalog identity",
+        f"unexpected catalog identity: {drifted}",
     )
     lineages_bytes = lineages_path.read_bytes()
     digest = sha256_bytes(lineages_bytes)
