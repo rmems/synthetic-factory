@@ -1,0 +1,11 @@
+{
+  "task_id": "vset-counter-v1.review-off-by-one",
+  "record_kind": "review_remediation_v1",
+  "specification": "The initial sub() implementation is off by one. Review must cite the failing observation and the revised patch must restore correct subtraction.",
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "reference_tests": ["tests/reference.py"],
+    "hidden_tests": ["tests/hidden_sub.py"],
+    "command": "python3 -m unittest tests.reference tests.hidden_sub"
+  }
+}
