@@ -59,7 +59,7 @@ def clean_env(**updates):
 def run_cli(script, *args, env=None):
     if env is None:
         env = clean_env()
-    return subprocess.run(  # nosec B603 -- argv is explicit test input, never a shell command
+    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- argv is explicit test input, never a shell command
         [sys.executable, str(script), *[str(arg) for arg in args]],
         capture_output=True,
         text=True,

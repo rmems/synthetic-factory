@@ -101,20 +101,11 @@ class FamilyInvariantsCase25(unittest.TestCase):
 
 
 class FamilyInvariantsCase26(unittest.TestCase):
-    def test_encoder_reconstruction_is_bound_to_the_recomputed_decode(self):
-        # The excerpt/digest checks authenticate the spike train, and the old
-        # per-field checks only prove ``reconstruction`` is self-consistent
-        # with the *other* stored metrics -- not that it is the true decode.
-        # Forge a different decode and recompute every dependent field (and
-        # the cross-side winner decision) exactly as a self-consistent forger
-        # would, then confirm only comparing against the recomputed decode
-        # itself catches it.
-        item = build(families.ENCODER_FAMILY)
+    @staticmethod
+    def _forge_decode(item, forged_decoded):
         measured = item["result"]["measured"]
         state = measured["encoding_a"]
-        scenario = item["scenario"]
-        signal = scenario["signal"]
-        forged_decoded = [0.0 for _ in signal]
+        signal = item["scenario"]["signal"]
         errors = [abs(actual - guess) for actual, guess in zip(signal, forged_decoded, strict=True)]
         forged_rmse = sim.rmse(signal, forged_decoded)
         forged_retention = sim.clamp(1.0 - forged_rmse, 0.0, 1.0)
@@ -127,12 +118,15 @@ class FamilyInvariantsCase26(unittest.TestCase):
         state["retention_per_spike"] = (
             forged_retention / state["spike_count"] if state["spike_count"] else None
         )
-        # Keep the cross-side decision self-consistent too, so only the new
-        # per-side recompute check (not a stale winner/margin) fires.
+
+    @staticmethod
+    def _keep_winner_self_consistent(item):
+        measured = item["result"]["measured"]
+        state = measured["encoding_a"]
         retention_gap = state["information_retention"] - measured["encoding_b"]["information_retention"]
         measured["retention_margin"] = retention_gap
         tie_epsilon = item["oracle"]["configuration"]["tie_epsilon"]
-        pair = scenario["encoding_pair"]
+        pair = item["scenario"]["encoding_pair"]
         if abs(retention_gap) >= tie_epsilon:
             measured["winner_basis"] = "information_retention"
             measured["winner"] = pair[0] if retention_gap > 0 else pair[1]
@@ -144,6 +138,22 @@ class FamilyInvariantsCase26(unittest.TestCase):
         else:
             measured["winner_basis"] = "tie"
             measured["winner"] = None
+
+    def test_encoder_reconstruction_is_bound_to_the_recomputed_decode(self):
+        # The excerpt/digest checks authenticate the spike train, and the old
+        # per-field checks only prove ``reconstruction`` is self-consistent
+        # with the *other* stored metrics -- not that it is the true decode.
+        # Forge a different decode and recompute every dependent field (and
+        # the cross-side winner decision) exactly as a self-consistent forger
+        # would, then confirm only comparing against the recomputed decode
+        # itself catches it.
+        item = build(families.ENCODER_FAMILY)
+        signal = item["scenario"]["signal"]
+        forged_decoded = [0.0 for _ in signal]
+        self._forge_decode(item, forged_decoded)
+        # Keep the cross-side decision self-consistent too, so only the new
+        # per-side recompute check (not a stale winner/margin) fires.
+        self._keep_winner_self_consistent(item)
         findings = result_findings(item)
         self.assertEqual(
             [f for f in findings if "reconstruction" in f],

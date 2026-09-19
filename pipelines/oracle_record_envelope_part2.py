@@ -13,6 +13,9 @@ class EnvelopeChecksPart2:
                 "provenance carries unauthenticated sibling keys: " + ", ".join(unknown)
             )
         self._provenance_kind_findings(provenance.get("kind"), findings)
+        self._provenance_field_findings(provenance, oracle, findings)
+
+    def _provenance_field_findings(self, provenance, oracle, findings):
         if provenance.get("oracle_grounded") is not True:
             findings.append("provenance.oracle_grounded must be true")
         if provenance.get("claimed") != oracle.get("authority"):

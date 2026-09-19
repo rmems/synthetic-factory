@@ -42,15 +42,13 @@ class TrainingAuditReadinessReport(unittest.TestCase):
     def assert_facade_seam_reached(self, seam, action):
         """Require one facade patch to be resolved by the supplied action."""
         message = f"{seam} reached"
-        with (
-            mock.patch.object(
-                training_audit,
-                seam,
-                side_effect=FacadeSeamReached(message),
-            ),
-            self.assertRaisesRegex(FacadeSeamReached, message),
+        with mock.patch.object(
+            training_audit,
+            seam,
+            side_effect=FacadeSeamReached(message),
         ):
-            action()
+            with self.assertRaisesRegex(FacadeSeamReached, message):
+                action()
 
     def test_pinned_reader_resolves_facade_opener_at_call_time(self):
         with tempfile.TemporaryDirectory() as td:
@@ -225,15 +223,13 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                     write(factory / "late.jsonl", [thalamic("late")])
                 return payload
 
-            with (
-                mock.patch.object(
-                    training_audit,
-                    "_read_pinned_member",
-                    side_effect=read_then_add,
-                ),
-                self.assertRaisesRegex(ValueError, "member set changed"),
+            with mock.patch.object(
+                training_audit,
+                "_read_pinned_member",
+                side_effect=read_then_add,
             ):
-                training_audit.audit_run(root)
+                with self.assertRaisesRegex(ValueError, "member set changed"):
+                    training_audit.audit_run(root)
 
     def test_pinned_member_read_refuses_an_aliased_parent_directory(self):
         """Every parent component is descriptor-pinned with no symlink following."""
@@ -255,8 +251,9 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             root = Path(td)
             unsafe_paths = ("", "/absolute.jsonl", "../escape.jsonl", "a/../b.jsonl")
             for path in unsafe_paths:
-                with self.subTest(path=path), self.assertRaises(ValueError):
-                    training_audit.audit_run(root, snapshot={path: b'{}\n'})
+                with self.subTest(path=path):
+                    with self.assertRaises(ValueError):
+                        training_audit.audit_run(root, snapshot={path: b'{}\n'})
 
             with self.assertRaisesRegex(TypeError, "must be bytes"):
                 training_audit.audit_run(

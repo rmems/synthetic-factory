@@ -72,9 +72,9 @@ class OracleParentCreationTests(unittest.TestCase):
             with (
                 mock.patch.object(oracle_generate, "RAW_TREE", raw),
                 mock.patch.object(os, "mkdir", side_effect=race),
-                self.assertRaises(OSError),
             ):
-                oracle_generate.reserve_run(safe / "new-parent" / "run")
+                with self.assertRaises(OSError):
+                    oracle_generate.reserve_run(safe / "new-parent" / "run")
             self.assertEqual(list(raw.iterdir()), [])
 
 

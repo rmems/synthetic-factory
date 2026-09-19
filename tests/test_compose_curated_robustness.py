@@ -97,17 +97,14 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
 
             decoded = json.loads(payload)
             self.assertIsInstance(compose_curated._canonical_sha256(decoded), str)
+            source_record = compose_curated.curate_identity.SourceRecord(
+                record=decoded,
+                source_path=("agentic-coding-trajectory-factory/batch-r01.jsonl"),
+                source_line=1,
+                source_sha256="7" * 64,
+            )
             with self.assertRaises(RecursionError):
-                compose_curated.curate_identity.curate_record(
-                    compose_curated.curate_identity.SourceRecord(
-                        record=decoded,
-                        source_path=(
-                            "agentic-coding-trajectory-factory/batch-r01.jsonl"
-                        ),
-                        source_line=1,
-                        source_sha256="7" * 64,
-                    )
-                )
+                compose_curated.curate_identity.curate_record(source_record)
 
             decision = compose_curated.compose_source_line(
                 payload,
@@ -261,20 +258,17 @@ class ComposeSourceSnapshotRaces(unittest.TestCase):
                 [thalamic("factory-snapshot")],
             )
 
-            with (
-                mock.patch.object(
-                    compose_curated,
-                    "factory_identity_for_path",
-                    side_effect=(("captured-factory", True), ("later-factory", True)),
-                ),
-                self.assertRaisesRegex(
+            context = compose_curated.ComposeRunContext(source, root / "curated")
+            with mock.patch.object(
+                compose_curated,
+                "factory_identity_for_path",
+                side_effect=(("captured-factory", True), ("later-factory", True)),
+            ):
+                with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "identity changed while capturing the source snapshot",
-                ),
-            ):
-                compose_curated.compose_run(
-                    compose_curated.ComposeRunContext(source, root / "curated")
-                )
+                ):
+                    compose_curated.compose_run(context)
             self.assertFalse((root / "curated").exists())
 
 
@@ -539,12 +533,11 @@ class DefaultCalibrationEvidence(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            context = compose_curated.ComposeRunContext(source, root / "curated")
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "duplicate JSON object key"
             ):
-                compose_curated.compose_run(
-                    compose_curated.ComposeRunContext(source, root / "curated")
-                )
+                compose_curated.compose_run(context)
             self.assertFalse((root / "curated").exists())
 
     def test_non_regular_default_calibration_evidence_refuses_composition(self):
@@ -572,13 +565,12 @@ class DefaultCalibrationEvidence(unittest.TestCase):
 
                 # The directory hits the new default-calibration guard; a
                 # symlink is already refused by the alias-hardened scanner.
+                context = compose_curated.ComposeRunContext(source, root / "curated")
                 with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     refusal,
                 ):
-                    compose_curated.compose_run(
-                        compose_curated.ComposeRunContext(source, root / "curated")
-                    )
+                    compose_curated.compose_run(context)
                 self.assertFalse((root / "curated").exists())
 
 

@@ -88,7 +88,7 @@ def make_signal(family, rng, sample_count, params):
     return [sim.clamp(value, 0.0, 1.0) for value in builder(rng, sample_count, params)]
 
 
-def _no_perturbation(values, rng, params):
+def _no_perturbation(values, _rng, _params):
     return list(values)
 
 
@@ -102,12 +102,12 @@ def _dropout(values, rng, params):
     return [value if rng.random() < keep else 0.0 for value in values]
 
 
-def _quantization(values, rng, params):
+def _quantization(values, _rng, params):
     steps = params["steps"]
     return [sim.clamp(round(value * (steps - 1)) / (steps - 1), 0.0, 1.0) for value in values]
 
 
-def _gain_drift(values, rng, params):
+def _gain_drift(values, _rng, params):
     span = params["span"]
     count = len(values)
     return [
@@ -134,7 +134,7 @@ def apply_perturbation(values, perturbation, rng, params):
     return apply(values, rng, params)
 
 
-def _baseline_params(rng, sample_count):
+def _baseline_params(rng, _sample_count):
     return {"level": rng.uniform(0.35, 0.65), "noise": rng.uniform(0.02, 0.12)}
 
 
@@ -148,7 +148,7 @@ def _burst_params(rng, sample_count):
     }
 
 
-def _drift_params(rng, sample_count):
+def _drift_params(rng, _sample_count):
     return {
         "start": rng.uniform(0.05, 0.35),
         "end": rng.uniform(0.6, 0.95),
@@ -165,7 +165,7 @@ def _outlier_params(rng, sample_count):
     }
 
 
-def _periodic_params(rng, sample_count):
+def _periodic_params(rng, _sample_count):
     return {
         "offset": rng.uniform(0.4, 0.6),
         "amplitude": rng.uniform(0.2, 0.4),

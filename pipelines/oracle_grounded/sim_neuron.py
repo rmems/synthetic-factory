@@ -112,13 +112,23 @@ def _adaptation_index(intervals):
     return intervals[-1] / intervals[0]
 
 
+def _trace_summary(trace, dt_ms, trace_points):
+    stride = max(1, math.ceil(len(trace) / trace_points)) if trace else 1
+    return {
+        "v_mean": (sum(trace) / len(trace)) if trace else None,
+        "v_max": max(trace) if trace else None,
+        "v_min": min(trace) if trace else None,
+        "v_trace": trace[::stride],
+        "v_trace_stride_ms": stride * dt_ms,
+    }
+
+
 def _neuron_summary(run, steps, trace_points):
     spikes = run.spikes
     trace = run.trace
     duration_ms = steps * run.dt_ms
     intervals = [b - a for a, b in pairwise(spikes)]
     mean_isi = (sum(intervals) / len(intervals)) if intervals else None
-    stride = max(1, math.ceil(len(trace) / trace_points)) if trace else 1
     return {
         "spike_count": len(spikes),
         "spike_times_ms": spikes,
@@ -128,11 +138,7 @@ def _neuron_summary(run, steps, trace_points):
         "mean_isi_ms": mean_isi,
         "cv_isi": _cv_isi(intervals, mean_isi),
         "adaptation_index": _adaptation_index(intervals),
-        "v_mean": (sum(trace) / len(trace)) if trace else None,
-        "v_max": max(trace) if trace else None,
-        "v_min": min(trace) if trace else None,
-        "v_trace": trace[::stride],
-        "v_trace_stride_ms": stride * run.dt_ms,
+        **_trace_summary(trace, run.dt_ms, trace_points),
         "duration_ms": duration_ms,
     }
 

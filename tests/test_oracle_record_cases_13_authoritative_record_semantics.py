@@ -82,18 +82,19 @@ class AuthoritativeRecordSemanticsCase16(unittest.TestCase):
 
 
 class AuthoritativeRecordSemanticsCase17(unittest.TestCase):
-    def test_credit_labels_vectors_and_behavior_summaries_are_recomputed(self):
+    def _assert_weights_before_is_recomputed(self):
         item = build(families.CREDIT_FAMILY)
-        plasticity = item["result"]["measured"]["plasticity"]
-        plasticity["weights_before"][0] += 0.25
+        item["result"]["measured"]["plasticity"]["weights_before"][0] += 0.25
         findings = result_findings(item)
         self.assertTrue(any("weights_before" in f for f in findings), findings)
 
+    def _assert_eligibility_lengths_are_recomputed(self):
         item = build(families.CREDIT_FAMILY)
         item["result"]["measured"]["plasticity"]["eligibility"].pop()
         findings = result_findings(item)
         self.assertTrue(any("inconsistent lengths" in f for f in findings), findings)
 
+    def _assert_behavior_fields_are_recomputed(self):
         for field in ("spike_count", "first_spike_ms", "output_rate_hz"):
             item = build(families.CREDIT_FAMILY)
             behavior = item["result"]["measured"]["plasticity"]["pre_update_behavior"]
@@ -102,21 +103,32 @@ class AuthoritativeRecordSemanticsCase17(unittest.TestCase):
             with self.subTest(behavior=field):
                 self.assertTrue(any(field in finding for finding in findings), findings)
 
+    def _assert_modulatory_gain_is_recomputed(self):
         item = build(families.CREDIT_FAMILY)
         item["result"]["measured"]["plasticity"]["modulatory_gain"] += 0.5
         findings = result_findings(item)
         self.assertTrue(any("modulatory_gain" in f for f in findings), findings)
 
+    def _assert_update_rule_is_recomputed(self):
         item = build(families.CREDIT_FAMILY)
         item["result"]["measured"]["plasticity"]["update_rule"] = "trust me"
         findings = result_findings(item)
         self.assertTrue(any("update_rule" in f for f in findings), findings)
 
+    def _assert_critic_valence_is_recomputed(self):
         item = build(families.CREDIT_FAMILY)
         critic = item["result"]["measured"]["critic"]
         critic["valence"] = "negative" if critic["valence"] != "negative" else "positive"
         findings = result_findings(item)
         self.assertTrue(any("critic.valence" in f for f in findings), findings)
+
+    def test_credit_labels_vectors_and_behavior_summaries_are_recomputed(self):
+        self._assert_weights_before_is_recomputed()
+        self._assert_eligibility_lengths_are_recomputed()
+        self._assert_behavior_fields_are_recomputed()
+        self._assert_modulatory_gain_is_recomputed()
+        self._assert_update_rule_is_recomputed()
+        self._assert_critic_valence_is_recomputed()
 
 
 class AuthoritativeRecordSemanticsCase18(unittest.TestCase):

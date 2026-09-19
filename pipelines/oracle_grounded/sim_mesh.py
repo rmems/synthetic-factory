@@ -163,17 +163,8 @@ class _MeshRun:
 
     def _summary(self):
         by_node = {node_id: self.state[node_id]["spikes"] for node_id in self.order}
-        all_spikes = sorted(
-            (
-                (time_ms, node_id)
-                for node_id, times in by_node.items()
-                for time_ms in times
-            ),
-            key=lambda item: (item[0], item[1]),
-        )
-        first_spike = {
-            node_id: (times[0] if times else None) for node_id, times in by_node.items()
-        }
+        all_spikes = _ordered_spikes(by_node)
+        first_spike = _first_spikes(by_node)
         firing_order = list(dict.fromkeys(node_id for _time, node_id in all_spikes))
         return {
             "nodes": self.order,
@@ -187,6 +178,23 @@ class _MeshRun:
             "dt_ms": self.bounds.dt_ms,
             "spike_budget_exhausted": self.truncated,
         }
+
+
+def _ordered_spikes(by_node):
+    return sorted(
+        (
+            (time_ms, node_id)
+            for node_id, times in by_node.items()
+            for time_ms in times
+        ),
+        key=lambda item: (item[0], item[1]),
+    )
+
+
+def _first_spikes(by_node):
+    return {
+        node_id: (times[0] if times else None) for node_id, times in by_node.items()
+    }
 
 
 def simulate_mesh(nodes, edges, events, bounds):

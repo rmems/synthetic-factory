@@ -96,7 +96,7 @@ def propose_mesh_intervention(rng, scenario):
     }
 
 
-def _edge_removed(edges, index, parameters):
+def _edge_removed(edges, index, _parameters):
     edges.pop(index)
 
 
@@ -104,7 +104,7 @@ def _delay_changed(edges, index, parameters):
     edges[index]["delay_ms"] = parameters["new_delay_ms"]
 
 
-def _sign_flipped(edges, index, parameters):
+def _sign_flipped(edges, index, _parameters):
     edges[index]["weight"] = -edges[index]["weight"]
 
 

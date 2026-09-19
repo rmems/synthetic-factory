@@ -110,10 +110,16 @@ def _mesh_identity_findings(context, side, state):
         findings.append(f"{side}.first_arrival_ms keys do not match scenario.nodes")
     if set(state["spike_counts"]) != context.nodes:
         findings.append(f"{side}.spike_counts keys do not match scenario.nodes")
-    unknown = [node for node in state["firing_order"] if node not in context.nodes]
+    findings.extend(_firing_order_findings(context, side, state["firing_order"]))
+    return findings
+
+
+def _firing_order_findings(context, side, firing_order):
+    findings = []
+    unknown = [node for node in firing_order if node not in context.nodes]
     if unknown:
         findings.append(f"{side}.firing_order names unknown nodes: {unknown}")
-    if len(set(state["firing_order"])) != len(state["firing_order"]):
+    if len(set(firing_order)) != len(firing_order):
         findings.append(f"{side}.firing_order repeats a node")
     return findings
 
@@ -133,13 +139,17 @@ def _mesh_arrival_findings(context, side, state):
     return findings
 
 
+def _expected_firing_order(order, arrivals):
+    return sorted(
+        (node for node in order if arrivals[node] is not None),
+        key=lambda node, current_arrivals=arrivals: (current_arrivals[node], node),
+    )
+
+
 def _mesh_aggregate_findings(context, side, state):
     arrivals = state["first_arrival_ms"]
     counts = state["spike_counts"]
-    expected_order = sorted(
-        (node for node in context.order if arrivals[node] is not None),
-        key=lambda node, current_arrivals=arrivals: (current_arrivals[node], node),
-    )
+    expected_order = _expected_firing_order(context.order, arrivals)
     expected_activation = [node for node in context.order if counts[node] > 0]
     expected_total = sum(counts.values())
     expected_energy = expected_total * sim.ENERGY_PJ_PER_SPIKE

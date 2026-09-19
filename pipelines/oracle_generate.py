@@ -54,7 +54,12 @@ if __package__:
         _verify_staged_payloads,
         write_jsonl,
     )
-    from .oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
+    from .oracle_validate import (
+        MANIFEST_FILENAME,
+        MAX_JSONL_BYTES,
+        MAX_MANIFEST_BYTES,
+        MAX_RUN_BYTES,
+    )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "oracle_generate"
@@ -75,7 +80,12 @@ else:
         _verify_staged_payloads,
         write_jsonl,
     )
-    from oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
+    from oracle_validate import (
+        MANIFEST_FILENAME,
+        MAX_JSONL_BYTES,
+        MAX_MANIFEST_BYTES,
+        MAX_RUN_BYTES,
+    )
 
 DEFAULT_SEED = 20260823
 DEFAULT_COUNT = 8
@@ -122,6 +132,7 @@ _claimed_reservation = _GENERATION_FS._claimed_reservation
 _cleanup_parent_descriptor = _GENERATION_PUBLISH._cleanup_parent_descriptor
 _cleanup_staging = _GENERATION_PUBLISH._cleanup_staging
 _create_pinned_parent = _GENERATION_PARENTS._create_pinned_parent
+_default_families = _PREPARATION._default_families
 _directory_identity = _GENERATION_FS._directory_identity
 _explicit_stamp = _PREPARATION._explicit_stamp
 _locked_lock_descriptor = _GENERATION_FS._locked_lock_descriptor
@@ -136,6 +147,7 @@ _requested_runtimes = _PREPARATION._requested_runtimes
 _reserve_destination = _PREPARATION._reserve_destination
 _resolve_stamp = _PREPARATION._resolve_stamp
 _select_families = _PREPARATION._select_families
+_selection_error = _PREPARATION._selection_error
 _stamp_contradicts_checkout = _PREPARATION._stamp_contradicts_checkout
 _verify_requested_publication = _GENERATION_FS._verify_requested_publication
 publish_noreplace = _GENERATION_PUBLISH.publish_noreplace
@@ -187,14 +199,18 @@ def parse_args(argv):
     return _argument_parser().parse_args(argv)
 
 
+def _report_errors(errors):
+    for error in errors:
+        print(f"oracle_generate: {error}", file=sys.stderr)
+
+
 def _generate_selected(selected, job):
     generated = {}
     for family in selected:
         generated[family] = generate_family(family, job)
         errors = generated[family][2]
         if errors:
-            for error in errors:
-                print(f"oracle_generate: {error}", file=sys.stderr)
+            _report_errors(errors)
             return None
     return generated
 
@@ -248,7 +264,7 @@ def _manifest_text(job, outputs, total_bytes):
     oversized = []
     if manifest_bytes > MAX_MANIFEST_BYTES:
         oversized.append(
-            f"manifest.json is {manifest_bytes} bytes, exceeding the "
+            f"{MANIFEST_FILENAME} is {manifest_bytes} bytes, exceeding the "
             f"validator's {MAX_MANIFEST_BYTES}-byte manifest limit"
         )
     run_bytes = total_bytes + manifest_bytes
@@ -261,7 +277,7 @@ def _manifest_text(job, outputs, total_bytes):
 
 
 def _write_manifest(staging_fd, manifest_text):
-    descriptor = _output_descriptor(Path("manifest.json"), staging_fd)
+    descriptor = _output_descriptor(Path(MANIFEST_FILENAME), staging_fd)
     with os.fdopen(descriptor, "w", encoding="utf-8") as output:
         output.write(manifest_text + "\n")
 
@@ -283,13 +299,26 @@ def _release_reservation(lock_descriptor, parent_fd):
     os.close(parent_fd)
 
 
-def _run_transaction(args, prepared):
-    staging = None
-    staging_identity = None
-    staging_fd = None
-    manifest_text = None
-    published = False
-    job = FamilyJob(
+def _release_staging(prepared, staging, staging_identity, staging_fd):
+    """Drop the staging descriptor and tree, then always free the reservation."""
+    try:
+        if staging_fd is not None:
+            os.close(staging_fd)
+        _cleanup_staging(staging, staging_identity, prepared.parent_fd)
+    finally:
+        _release_reservation(prepared.lock_descriptor, prepared.parent_fd)
+
+
+def _verify_staged_run(staging_fd, files, manifest_text):
+    """Write the manifest, then prove every staged byte reads back as digested."""
+    _write_manifest(staging_fd, manifest_text)
+    _verify_staged_payloads(staging_fd, files, MAX_JSONL_BYTES)
+    _verify_staged_manifest(staging_fd, (manifest_text + "\n").encode("utf-8"))
+
+
+def _family_job(args, prepared):
+    """The per-family work order one transaction shares."""
+    return FamilyJob(
         count=args.count,
         seed=args.seed,
         round_number=args.round_number,
@@ -300,6 +329,15 @@ def _run_transaction(args, prepared):
         backend=args.backend,
         byte_budget=[0],
     )
+
+
+def _run_transaction(args, prepared):
+    staging = None
+    staging_identity = None
+    staging_fd = None
+    manifest_text = None
+    published = False
+    job = _family_job(args, prepared)
     try:
         generated = _generate_selected(prepared.selected, job)
         if generated is None:
@@ -316,12 +354,9 @@ def _run_transaction(args, prepared):
         manifest_text, manifest_oversized = _manifest_text(job, outputs, total_bytes)
         oversized.extend(manifest_oversized)
         if oversized:
-            for error in oversized:
-                print(f"oracle_generate: {error}", file=sys.stderr)
+            _report_errors(oversized)
             return 1, None
-        _write_manifest(staging_fd, manifest_text)
-        _verify_staged_payloads(staging_fd, files, MAX_JSONL_BYTES)
-        _verify_staged_manifest(staging_fd, (manifest_text + "\n").encode("utf-8"))
+        _verify_staged_run(staging_fd, files, manifest_text)
         _verify_requested_publication(prepared.out_dir, prepared.parent_fd)
         publish_noreplace(staging, pinned_parent / prepared.out_dir.name, staging_identity)
         staging = None
@@ -331,12 +366,7 @@ def _run_transaction(args, prepared):
         _transaction_error(exc, published)
         return 1, None
     finally:
-        try:
-            if staging_fd is not None:
-                os.close(staging_fd)
-            _cleanup_staging(staging, staging_identity, prepared.parent_fd)
-        finally:
-            _release_reservation(prepared.lock_descriptor, prepared.parent_fd)
+        _release_staging(prepared, staging, staging_identity, staging_fd)
     return (0, manifest_text) if published else (1, None)
 
 

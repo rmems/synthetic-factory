@@ -43,25 +43,35 @@ class GenerationPreparation:
             return 2
         return None
 
-    def _select_families(self, args):
-        """The requested families, de-duplicated in order. (selected, exit code)."""
-        default = tuple(self.api.native_profiles.PROFILES) if args.backend == 'rust' else self.api.families.FAMILY_NAMES
-        selected = list(dict.fromkeys(args.family_names or default))
+    def _default_families(self, args):
+        """The family set an empty --family selection means for this backend."""
+        if args.backend == 'rust':
+            return tuple(self.api.native_profiles.PROFILES)
+        return self.api.families.FAMILY_NAMES
+
+    def _selection_error(self, args, selected):
+        """The first family-selection refusal, or None. Prints its own reason."""
         if args.backend == 'rust' and any(name not in self.api.native_profiles.PROFILES for name in selected):
             print('oracle_generate: Rust backend supports only encoder and neuron families', file=sys.stderr)
-            return None, 2
+            return 2
         unknown = [name for name in selected if name not in self.api.families.SPECS]
         if unknown:
             print(f"oracle_generate: unknown families: {', '.join(unknown)}", file=sys.stderr)
-            return None, 2
+            return 2
         if args.count * len(selected) > self.api.MAX_RUN_RECORDS:
             print(
                 "oracle_generate: requested run would contain "
                 f"{args.count * len(selected)} records; maximum is {self.api.MAX_RUN_RECORDS}",
                 file=sys.stderr,
             )
-            return None, 2
-        return selected, None
+            return 2
+        return None
+
+    def _select_families(self, args):
+        """The requested families, de-duplicated in order. (selected, exit code)."""
+        selected = list(dict.fromkeys(args.family_names or self._default_families(args)))
+        error = self._selection_error(args, selected)
+        return (selected, None) if error is None else (None, error)
 
     def _stamp_contradicts_checkout(self, commit, _availability):
         """Whether an explicit --oracle-commit may not be trusted.

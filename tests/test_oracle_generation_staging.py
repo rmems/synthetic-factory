@@ -46,9 +46,9 @@ class StagingSubstitutionTests(unittest.TestCase):
                         "_cleanup_staging",
                         wraps=cleanup,
                     ) as cleanup_spy,
-                    self.assertRaises(OSError),
                 ):
-                    oracle_generate._create_staging(parent / "run", parent_fd)
+                    with self.assertRaises(OSError):
+                        oracle_generate._create_staging(parent / "run", parent_fd)
                 cleanup_spy.assert_called_once()
                 self.assertEqual(len(list(parent.glob(".synthetic-factory-rollback-*"))), 1)
             finally:

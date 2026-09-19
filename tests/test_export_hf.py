@@ -249,13 +249,12 @@ class ExportCorpusGating(ResearchExportAllowed, unittest.TestCase):
                 "totals": {"records": 7, "by_kind": {}},
             }
 
-            with (
-                mock.patch.object(
-                    export_hf.training_audit, "audit_run", return_value=blocked_report
-                ),
-                self.assertRaises(export_hf.ExportError) as caught,
+            request = export_hf.ExportRequest(curated, root / "export")
+            with mock.patch.object(
+                export_hf.training_audit, "audit_run", return_value=blocked_report
             ):
-                export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
+                with self.assertRaises(export_hf.ExportError) as caught:
+                    export_hf.export_run(request)
             self.assertIn("not training_ready", str(caught.exception))
             self.assertFalse((root / "export").exists())
 
@@ -278,8 +277,9 @@ class ExportCorpusGating(ResearchExportAllowed, unittest.TestCase):
                 )
                 factory.mkdir(parents=True)
                 (factory / "batch-r01.jsonl").write_bytes(payload)
+                request = export_hf.ExportRequest(root / "curated", root / "export")
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(export_hf.ExportRequest(root / "curated", root / "export"))
+                    export_hf.export_run(request)
                 self.assertFalse((root / "export").exists())
 
 

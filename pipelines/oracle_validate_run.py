@@ -11,6 +11,12 @@ else:
     )
 
 
+_PATH_ARGUMENTS = {
+    "run_dir": "run_dir",
+    "oracle_rust_bin": "--oracle-rust-bin",
+}
+
+
 class RunChecks:
     """Drive a whole-run validation pass through live facade seams."""
 
@@ -80,8 +86,8 @@ class RunChecks:
                 )
             except Exception as exc:  # final boundary around untrusted manifest data
                 metadata_errors = [
-                    f"{self.api.Path(run_dir) / 'manifest.json'}: manifest metadata "
-                    f"validation raised an internal exception: {type(exc).__name__}"
+                    f"{self.api.Path(run_dir) / self.api.MANIFEST_FILENAME}: manifest "
+                    f"metadata validation raised an internal exception: {type(exc).__name__}"
                 ]
         return metadata_errors
 
@@ -113,10 +119,20 @@ class RunChecks:
             run_dir, manifest, snapshots, parsed_records
         )
         errors.extend(metadata_errors)
+        report = self._snapshot_report(
+            run_dir,
+            (snapshots, totals, by_family),
+            not (manifest_errors or metadata_errors),
+            context,
+        )
+        return report, errors
+
+    def _snapshot_report(self, run_dir, parts, manifest_valid, context):
+        snapshots, totals, by_family = parts
         report = {
             "run_dir": str(self.api.Path(run_dir).resolve()),
             "files": len(snapshots),
-            "manifest_valid": not (manifest_errors or metadata_errors),
+            "manifest_valid": manifest_valid,
             "records": totals["records"],
             "accepted": totals["accepted"],
             "rejected": totals["rejected"],
@@ -135,25 +151,26 @@ class RunChecks:
                 for key, value in sorted(totals.items())
                 if key.startswith("reproduce_")
             }
-        return report, errors
+        return report
 
-    def main(self, argv=None):
-        args = self.api.parse_args(
-            list(self.api.sys.argv[1:] if argv is None else argv)
-        )
+    def _argument_error(self, args):
+        """The usage failure for the parsed request, or None."""
         if not args.run_dir:
             print(
                 "oracle_validate: a run directory is required",
                 file=self.api.sys.stderr,
             )
             return 2
-        run_dir = self.api.Path(args.run_dir)
-        if not run_dir.is_dir():
+        if not args.run_dir.is_dir():
             print(
-                f"oracle_validate: not a directory: {run_dir}",
+                f"oracle_validate: not a directory: {args.run_dir}",
                 file=self.api.sys.stderr,
             )
             return 2
+        return None
+
+    def _selected_families(self, args):
+        """The requested --family set, or an exit code when a name is unknown."""
         selected = set(args.family_names or ())
         unknown = sorted(selected - set(self.api.families.SPECS))
         if unknown:
@@ -161,12 +178,36 @@ class RunChecks:
                 f"oracle_validate: unknown families: {', '.join(unknown)}",
                 file=self.api.sys.stderr,
             )
-            return 2
+            return None, 2
+        return selected, None
 
+    def _print_findings(self, errors, max_findings):
+        """Print findings, bounded by --max-findings with a truncation count."""
+        finding_limit = max(0, max_findings)
+        for finding in errors[:finding_limit]:
+            print(finding, file=self.api.sys.stderr)
+        hidden = max(0, len(errors) - finding_limit)
+        if hidden:
+            print(f"... {hidden} more findings", file=self.api.sys.stderr)
+
+    def main(self, argv=None):
+        parser = self._argument_parser()
+        args = parser.parse_args(
+            list(self.api.sys.argv[1:] if argv is None else argv)
+        )
+        paths = self.api.confine_named(parser, args, _PATH_ARGUMENTS)
+        args.run_dir = paths["run_dir"]
+        args.oracle_rust_bin = paths["oracle_rust_bin"]
+        error = self._argument_error(args)
+        if error is not None:
+            return error
+        selected, error = self._selected_families(args)
+        if error is not None:
+            return error
         try:
             report, errors = self.api.validate_run(
                 self.api.ValidationContext(
-                    run_dir,
+                    args.run_dir,
                     require_runtime=args.require_runtime,
                     reproduce=args.reproduce,
                     selected=selected,
@@ -177,12 +218,7 @@ class RunChecks:
             print(f"oracle_validate: {exc}", file=self.api.sys.stderr)
             return 2
         print(self.api.json.dumps(report, indent=2))
-        finding_limit = max(0, args.max_findings)
-        for finding in errors[:finding_limit]:
-            print(finding, file=self.api.sys.stderr)
-        hidden = max(0, len(errors) - finding_limit)
-        if hidden:
-            print(f"... {hidden} more findings", file=self.api.sys.stderr)
+        self._print_findings(errors, args.max_findings)
         return 1 if errors else 0
 
 

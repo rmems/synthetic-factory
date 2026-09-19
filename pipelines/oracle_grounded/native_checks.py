@@ -173,9 +173,11 @@ def _encoder_winner(measured, scenario):
     errors = [_rmse(scenario["signal"], _decoded(measured[side], scenario, side))
               for side in ("rate", "delta")]
     rate, delta = errors
-    if rate == delta:
-        return "tie"
-    return "rate" if rate < delta else "delta"
+    if rate < delta:
+        return "rate"
+    if delta < rate:
+        return "delta"
+    return "tie"
 
 
 def _encoder(record):

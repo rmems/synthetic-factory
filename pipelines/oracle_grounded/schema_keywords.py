@@ -25,6 +25,7 @@ MAX_SCHEMA_FINDINGS = 100
 # untrusted record, so an unbounded subject would let a catastrophic pattern
 # (or merely an expensive one) burn unbounded CPU on the validation gate.
 MAX_PATTERN_SUBJECT_CHARS = 10000
+MAX_PATTERN_CHARS = 200
 
 
 def _resolve_pointer(root, reference):
@@ -114,6 +115,11 @@ def _min_length_errors(value, schema, path):
 def _pattern_errors(value, schema, path):
     if "pattern" not in schema:
         return []
+    if len(schema["pattern"]) > MAX_PATTERN_CHARS:
+        return [
+            f"{path} declares a pattern beyond the "
+            f"{MAX_PATTERN_CHARS}-character schema bound"
+        ]
     if len(value) > MAX_PATTERN_SUBJECT_CHARS:
         return [f"{path} exceeds the {MAX_PATTERN_SUBJECT_CHARS}-character pattern-check bound"]
     if re.search(schema["pattern"], value) is None:

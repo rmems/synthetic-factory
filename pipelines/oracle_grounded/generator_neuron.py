@@ -114,7 +114,7 @@ def _validate_step_window(values, onset_ms, duration_ms):
         raise ValueError("step offset_ms must follow onset_ms and stay in the trial")
 
 
-def _validate_pulse_train_window(values, onset_ms, duration_ms):
+def _validate_pulse_train_window(values, _onset_ms, _duration_ms):
     period_ms = values["period_ms"]
     width_ms = values["width_ms"]
     if period_ms <= 0:
@@ -123,7 +123,7 @@ def _validate_pulse_train_window(values, onset_ms, duration_ms):
         raise ValueError("pulse_train width_ms must be in (0, period_ms]")
 
 
-def _validate_ramp_window(values, onset_ms, duration_ms):
+def _validate_ramp_window(_values, _onset_ms, _duration_ms):
     return None
 
 

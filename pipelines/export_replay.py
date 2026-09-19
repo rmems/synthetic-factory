@@ -437,17 +437,16 @@ def _require_coherent_capture(
             )
 
 
-def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all") -> _ReplaySnapshot:
-    """Run every source JSONL line back through compose and record what it yields."""
+def _capture_source_members(
+    source_root: Path, source_members: tuple[str, ...]
+) -> tuple[tuple[str, ...], dict[str, bytes], dict[str, Any], dict[tuple[str, int], Any]]:
+    """Capture every member once, then index corpus-level mill ownership.
 
-    try:
-        source_members = compose_curated.source_jsonl_members(source_root)
-    except (compose_curated.ComposeError, TransactionError) as exc:
-        raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
+    The capture and the mill resolution run over exactly those bytes — the same
+    order of operations compose_run applies, so a quarantined line replays as
+    the same exclusion.
+    """
 
-    # Capture every member once, then resolve corpus-level mill ownership over
-    # exactly those bytes — the same order of operations compose_run applies,
-    # so a quarantined line replays as the same exclusion.
     identities_before = _member_identities(source_root, source_members)
     payload_by_member = {
         relative: _read_exact_regular_file(source_root, relative, f"compose source {relative}")[1]
@@ -467,6 +466,23 @@ def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all"
     mill_findings = compose_mill.index_compose_mills(
         payload_by_member, factory_identities, _replay_physical_lines
     )
+    return source_members, payload_by_member, physical_source_paths, mill_findings
+
+
+def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all") -> _ReplaySnapshot:
+    """Run every source JSONL line back through compose and record what it yields."""
+
+    try:
+        source_members = compose_curated.source_jsonl_members(source_root)
+    except (compose_curated.ComposeError, TransactionError) as exc:
+        raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
+
+    (
+        source_members,
+        payload_by_member,
+        physical_source_paths,
+        mill_findings,
+    ) = _capture_source_members(source_root, source_members)
 
     _selection_result(
         compose_oracle_selection.require_authenticated_source,
@@ -499,6 +515,16 @@ def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all"
     )
 
 
+def _authenticated_source_root(summary: dict[str, Any]) -> Path:
+    raw_source_root = summary.get("source_run")
+    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
+        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
+    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
+    if raw_source_root != str(source_root):
+        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
+    return source_root
+
+
 def _authenticate_source_replay(
     summary: dict[str, Any],
     actual_outputs: dict[str, CuratedFile],
@@ -512,12 +538,7 @@ def _authenticate_source_replay(
     source directory was immutable between the original compose and this replay.
     """
 
-    raw_source_root = summary.get("source_run")
-    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
-        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
-    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
-    if raw_source_root != str(source_root):
-        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
+    source_root = _authenticated_source_root(summary)
     calibration_state = _authenticated_calibration_state(summary, source_root)
     catalog, calibration_descriptor, _calibration_evidence = calibration_state
 

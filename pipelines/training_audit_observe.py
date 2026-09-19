@@ -51,6 +51,12 @@ class CorpusAudit(AuditAxes):
         self.mill_mix = mill_mix
         self.rights_audit = self.api._rights_audit.RightsAudit(())
         self.completion_source = None
+        self._init_corpus_counters()
+        self._init_identity_axes()
+        self._init_signal_axes()
+
+    def _init_corpus_counters(self):
+        """Per-factory buckets and the flat record ledgers."""
         self.factories = defaultdict(
             lambda: {
                 "files": 0,
@@ -71,6 +77,9 @@ class CorpusAudit(AuditAxes):
         self.kinds = Counter()
         self.record_errors = []
         self.unresolved_record_warnings = []
+
+    def _init_identity_axes(self):
+        """Id, duplicate, provenance, and gate ledgers."""
         self.ids = {}
         self.root_ids = {}
         self.canonical_id_records = 0
@@ -85,6 +94,9 @@ class CorpusAudit(AuditAxes):
         self.gate_by_role = defaultdict(Counter)
         self.gate_errors = Counter()
         self.gate_error_examples = []
+
+    def _init_signal_axes(self):
+        """Preference, reward, distillation, and episode signal counters."""
         # Keep historic keys present for an all-episode preference corpus.
         self.preference = Counter(
             pairs=0,

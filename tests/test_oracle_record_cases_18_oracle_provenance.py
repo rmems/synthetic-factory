@@ -59,7 +59,7 @@ class OracleProvenanceCase07(unittest.TestCase):
 
 class OracleProvenanceCase08(unittest.TestCase):
     def test_the_double_is_a_runnable_script(self):
-        completed = subprocess.run(  # nosec B603 -- executes the fixed protocol fixture
+        completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- executes the fixed protocol fixture
             [sys.executable, str(DOUBLE), "ok"],
             input=json.dumps({"family": "f", "request": {}}),
             capture_output=True,

@@ -91,18 +91,16 @@ class OracleBoundaryTests(unittest.TestCase):
             mock.patch.object(oracle_generate, "MAX_JSONL_BYTES", 1),
             mock.patch.object(oracle_generate.record, "build_record", wraps=record.build_record) as build,
         ):
+            job = oracle_generate.FamilyJob(
+                count=3,
+                seed=7,
+                round_number=1,
+                commit=None,
+                dirty=None,
+                require_runtime=False,
+            )
             with self.assertRaisesRegex(ValueError, "per-file limit"):
-                oracle_generate.generate_family(
-                    families.ENCODER_FAMILY,
-                    oracle_generate.FamilyJob(
-                        count=3,
-                        seed=7,
-                        round_number=1,
-                        commit=None,
-                        dirty=None,
-                        require_runtime=False,
-                    ),
-                )
+                oracle_generate.generate_family(families.ENCODER_FAMILY, job)
         self.assertEqual(build.call_count, 1)
 
     def test_staging_family_symlink_cannot_redirect_payload(self):

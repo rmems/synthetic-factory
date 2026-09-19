@@ -452,6 +452,18 @@ def _layers(envelope, family=(), status=()):
 
 def _envelope_gate_findings(record, check_declared_status):
     """Structural findings that stop classification before content checks."""
+    gate = _envelope_shape_findings(record)
+    if gate is not None:
+        return gate
+    findings = []
+    if not isinstance(record.get("id"), str) or not record["id"]:
+        findings.append("id must be a non-empty string")
+    findings.extend(_schema_gate_findings(record, record["family"], check_declared_status))
+    return findings
+
+
+def _envelope_shape_findings(record):
+    """The hard structure gates; ``None`` means every gate passed."""
     if not isinstance(record, dict):
         return ["record is not a JSON object"]
     if record.get("schema") != SCHEMA_ID:
@@ -462,11 +474,7 @@ def _envelope_gate_findings(record, check_declared_status):
     family = record["family"]
     if family not in families.SPECS:
         return [f"unknown dataset family: {family!r}"]
-    findings = []
-    if not isinstance(record.get("id"), str) or not record["id"]:
-        findings.append("id must be a non-empty string")
-    findings.extend(_schema_gate_findings(record, family, check_declared_status))
-    return findings
+    return None
 
 
 def _schema_gate_findings(record, family, check_declared_status):

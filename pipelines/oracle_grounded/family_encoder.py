@@ -206,6 +206,24 @@ def _reference_encoding_findings(record, side, expected_encoding):
     return findings
 
 
+def _expected_winner_decision(measured, pair, tie_epsilon):
+    """The (winner_basis, winner) the measured retentions and counts imply."""
+    retention_gap = (
+        measured["encoding_a"]["information_retention"]
+        - measured["encoding_b"]["information_retention"]
+    )
+    if abs(retention_gap) >= tie_epsilon:
+        return "information_retention", (pair[0] if retention_gap > 0 else pair[1])
+    if measured["encoding_a"]["spike_count"] != measured["encoding_b"]["spike_count"]:
+        return "spike_count_tiebreak", min(
+            pair,
+            key=lambda encoding: measured[
+                "encoding_a" if encoding == pair[0] else "encoding_b"
+            ]["spike_count"],
+        )
+    return "tie", None
+
+
 def _encoder_winner_findings(record):
     measured = record["result"]["measured"]
     pair = record["scenario"]["encoding_pair"]
@@ -219,22 +237,9 @@ def _encoder_winner_findings(record):
     energy_gap = measured["encoding_a"]["energy_pJ"] - measured["encoding_b"]["energy_pJ"]
     if not _measurement_matches(measured["energy_margin_pJ"], energy_gap):
         findings.append("energy_margin_pJ does not match the two measured energies")
-    tie_epsilon = record["oracle"]["configuration"]["tie_epsilon"]
-    counts_differ = measured["encoding_a"]["spike_count"] != measured["encoding_b"]["spike_count"]
-    if abs(retention_gap) >= tie_epsilon:
-        expected_basis = "information_retention"
-        expected_winner = pair[0] if retention_gap > 0 else pair[1]
-    elif counts_differ:
-        expected_basis = "spike_count_tiebreak"
-        expected_winner = min(
-            pair,
-            key=lambda encoding: measured[
-                "encoding_a" if encoding == pair[0] else "encoding_b"
-            ]["spike_count"],
-        )
-    else:
-        expected_basis = "tie"
-        expected_winner = None
+    expected_basis, expected_winner = _expected_winner_decision(
+        measured, pair, record["oracle"]["configuration"]["tie_epsilon"]
+    )
     if measured["winner_basis"] != expected_basis:
         findings.append(
             f"winner_basis {measured['winner_basis']!r} does not match the measured "

@@ -16,9 +16,10 @@ class OracleMeshBounds(unittest.TestCase):
                  (0.0, 0.5), (-1.0, 0.5), ('1', 0.5), (True, 0.5), (1.0, True))
         for duration, dt in cases:
             with self.subTest(duration=duration, dt=dt):
+                bounds = sim.MeshBounds(duration, dt_ms=dt)
                 with mock.patch.object(sim, 'range', side_effect=AssertionError('entered simulation'), create=True):
                     with self.assertRaises(ValueError):
-                        sim.simulate_mesh([], [], [], sim.MeshBounds(duration, dt_ms=dt))
+                        sim.simulate_mesh([], [], [], bounds)
 
     def test_existing_ten_thousand_step_window_remains_supported(self):
         result = sim.simulate_mesh([sim.mesh_node('quiet')], [], [], 5000.0)

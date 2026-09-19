@@ -13,6 +13,7 @@ from types import ModuleType
 
 PACKAGED_NAME = "pipelines.oracle_grounded"
 SIM_SOURCE = "sim.py"
+DIRECT_SIM_MODULE = "oracle_grounded.sim"
 PACKAGE_INIT = "__init__.py"
 BEFORE_MARKER = b'MARKER = "before"'
 AFTER_MARKER = b'MARKER = "after!"'
@@ -256,7 +257,7 @@ def _stale_child(_package_path, first):
 def _injected_child(_package_path, first):
     _package(first)
     *_, oracles, _rng, _sim = _modules()
-    sys.modules["oracle_grounded.sim"] = ModuleType("oracle_grounded.sim")
+    sys.modules[DIRECT_SIM_MODULE] = ModuleType(DIRECT_SIM_MODULE)
     try:
         oracles.module_digest()
     except ImportError:
@@ -283,7 +284,12 @@ def _coexisting_foreign_package(package, first):
         if name.startswith(foreign_name + "."):
             sys.modules.pop(name)
     sys.modules[foreign_name] = foreign
-    loaded = importlib.import_module(foreign_name + ".sim")
+    if foreign_name == "oracle_grounded":
+        loaded = importlib.import_module("oracle_grounded.sim")
+    elif foreign_name == PACKAGED_NAME:
+        loaded = importlib.import_module("pipelines.oracle_grounded.sim")
+    else:
+        raise AssertionError("probe import is not allowlisted")
     _assert_equal(loaded.MARKER, "foreign")
     _assert_equal(oracles.module_digest(), expected)
     _assert_equal(sys.modules[owner.__name__], owner)

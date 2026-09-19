@@ -52,9 +52,9 @@ class OracleProtocolDeadlineTests(unittest.TestCase):
             mock.patch.object(oracles.os, "read", side_effect=[response, b""]),
             mock.patch.object(oracles.os, "killpg") as kill_group,
             mock.patch.object(oracles.os, "dup2"),
-            self.assertRaisesRegex(oracles.OracleError, "timed out"),
         ):
-            oracles._run_protocol_command(["fixture-command"], b"{}", 1, "fixture-runtime")
+            with self.assertRaisesRegex(oracles.OracleError, "timed out"):
+                oracles._run_protocol_command(["fixture-command"], b"{}", 1, "fixture-runtime")
         kill_group.assert_called_once_with(process.pid, oracles.signal.SIGKILL)
         self.assertEqual(process.wait.call_count, 2)
 

@@ -130,9 +130,10 @@ def visible_jsonl_paths(run_dir: Path) -> list[Path]:
         if not path.is_file() or path.is_symlink():
             continue
         marker_root = enclosing_marker_root(run_dir, path)
-        if marker_root is None:
-            visible.append(path)
-        elif path.resolve() in _committed_paths(marker_root, visible_by_marker_root):
+        if (
+            marker_root is None
+            or path.resolve() in _committed_paths(marker_root, visible_by_marker_root)
+        ):
             visible.append(path)
     return visible
 
@@ -197,7 +198,7 @@ def _read_census_records(path: Path, source: str):
             decoded.append(
                 (lineno, json.loads(line, parse_constant=reject_json_constant))
             )
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             parse_failures += 1
     return decoded, parse_failures, unreadable
 

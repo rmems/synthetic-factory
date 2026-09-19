@@ -35,6 +35,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("oracle_validate")
+    from .operator_paths import confine_named as _confine_named
     from . import oracle_validate_records as _oracle_validate_records
     from . import oracle_validate_tree as _oracle_validate_tree
     from . import oracle_validate_snapshot as _oracle_validate_snapshot
@@ -53,6 +54,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "oracle_validate"
     )
+    from operator_paths import confine_named as _confine_named
     import oracle_validate_records as _oracle_validate_records
     import oracle_validate_tree as _oracle_validate_tree
     import oracle_validate_snapshot as _oracle_validate_snapshot
@@ -71,6 +73,7 @@ else:
 # Re-exported for the delegated check classes, which read these through
 # ``self.api`` -- the live module namespace of this facade.
 canon = _canon
+confine_named = _confine_named
 families = _families
 oracles = _oracles
 record = _record

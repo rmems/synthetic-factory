@@ -112,16 +112,18 @@ class ExternalOracleProtocolCase08(unittest.TestCase):
     def test_malformed_shell_binding_is_bounded_and_names_only_the_env_key(self):
         key = oracles.env_key("axon-encoder")
         marker = "UNTERMINATED-ARGUMENT-MARKER"
+        identity = oracles.OracleIdentity(
+            oracle_id="encoder-ref",
+            oracle_type="spike-encoder",
+            description="reference",
+        )
+        environ = {key: f'{sys.executable} "{marker}'}
         with self.assertRaises(oracles.OracleError) as raised:
             oracles.bind(
                 runtime="axon-encoder",
-                identity=oracles.OracleIdentity(
-                    oracle_id="encoder-ref",
-                    oracle_type="spike-encoder",
-                    description="reference",
-                ),
+                identity=identity,
                 reference_fn=lambda request: ({"ok": True}, {"ok": "unit"}),
-                environ={key: f'{sys.executable} "{marker}'},
+                environ=environ,
             )
         self.assertIn(key, str(raised.exception))
         self.assertNotIn(marker, str(raised.exception))

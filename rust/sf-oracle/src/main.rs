@@ -3,6 +3,7 @@ mod identity;
 mod neuron;
 mod protocol;
 use std::io::{Read, Write};
+use std::path::Path;
 fn main() {
     if let Err(error) = run() {
         eprintln!("sf-oracle: {error}");
@@ -10,9 +11,13 @@ fn main() {
     }
 }
 fn run() -> Result<(), String> {
-    if std::env::args_os().len() != 1 {
+    // args() validates UTF-8; argv[0] is the invocation path the caller bound
+    // (the verifier digests that same path), so it anchors executable identity.
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() != 1 {
         return Err("arguments are not supported".into());
     }
+    let executable = Path::new(&args[0]);
     const LIMIT: u64 = 262_144;
     let mut bytes = vec![];
     std::io::stdin()
@@ -22,7 +27,7 @@ fn run() -> Result<(), String> {
     if bytes.len() as u64 > LIMIT {
         return Err("request byte limit exceeded".into());
     }
-    let result = protocol::execute(&bytes)?;
+    let result = protocol::execute(&bytes, executable)?;
     let output = serde_json::to_vec(&result).map_err(|e| e.to_string())?;
     if output.len() > 1_048_576 {
         return Err("response byte limit exceeded".into());

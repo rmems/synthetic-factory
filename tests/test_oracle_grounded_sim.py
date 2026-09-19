@@ -334,8 +334,9 @@ class DelayMesh(unittest.TestCase):
     def test_causal_summary_rejects_unknown_endpoints(self):
         result = sim.simulate_mesh([sim.mesh_node("A")], [], [], 1.0)
         for source, sink, role in (("missing", "A", "source"), ("A", "missing", "sink")):
-            with self.subTest(role=role), self.assertRaisesRegex(ValueError, role):
-                sim.mesh_causal_summary(result, source, sink)
+            with self.subTest(role=role):
+                with self.assertRaisesRegex(ValueError, role):
+                    sim.mesh_causal_summary(result, source, sink)
 
     def test_unknown_edge_endpoint_is_refused(self):
         nodes = [sim.mesh_node("A")]

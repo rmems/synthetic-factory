@@ -67,18 +67,16 @@ def assert_relocation_rolls_back(
 ) -> None:
     """Exercise one post-open relocation and preserve rollback assertions."""
 
-    with (
-        mock.patch.object(
-            exercise.patch_owner,
-            exercise.patch_name,
-            side_effect=exercise.side_effect,
-        ),
-        test.assertRaisesRegex(
+    with mock.patch.object(
+        exercise.patch_owner,
+        exercise.patch_name,
+        side_effect=exercise.side_effect,
+    ):
+        with test.assertRaisesRegex(
             compose_curated.ComposeError,
             "destination changed while it was pinned",
-        ),
-    ):
-        exercise.operation()
+        ):
+            exercise.operation()
     recovered = list(exercise.case.moved.rglob("*"))
     test.assertEqual(len(recovered), 1)
     test.assertTrue(
@@ -232,22 +230,20 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 real_verify(target)
 
             try:
-                with (
-                    mock.patch.object(
-                        compose_destination,
-                        "_verify_destination_target",
-                        side_effect=fail_after_open,
-                    ),
-                    self.assertRaisesRegex(
+                with mock.patch.object(
+                    compose_destination,
+                    "_verify_destination_target",
+                    side_effect=fail_after_open,
+                ):
+                    with self.assertRaisesRegex(
                         compose_curated.ComposeError,
                         "simulated post-open binding failure",
-                    ),
-                ):
-                    compose_curated.write_pinned_new_bytes(
-                        pinned,
-                        f"{compose_curated.RECORDS_DIRNAME}/row.jsonl",
-                        b"data\n",
-                    )
+                    ):
+                        compose_curated.write_pinned_new_bytes(
+                            pinned,
+                            f"{compose_curated.RECORDS_DIRNAME}/row.jsonl",
+                            b"data\n",
+                        )
                 self.assertTrue(existing.is_dir())
                 self.assertEqual(list(existing.iterdir()), [])
             finally:
@@ -292,18 +288,16 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 original(parent_descriptor, requested_destination)
                 parent.rename(relocated_parent)
 
-            with (
-                mock.patch.object(
-                    compose_destination,
-                    "_refuse_existing_destination",
-                    relocate_before_creation,
-                ),
-                self.assertRaisesRegex(
+            with mock.patch.object(
+                compose_destination,
+                "_refuse_existing_destination",
+                relocate_before_creation,
+            ):
+                with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "relocated into immutable raw evidence",
-                ),
-            ):
-                compose_curated.create_pinned_destination(source, destination)
+                ):
+                    compose_curated.create_pinned_destination(source, destination)
 
             self.assertFalse((relocated_parent / destination.name).exists())
 
@@ -340,18 +334,16 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                     relocated = True
                     parent.rename(relocated_parent)
 
-            with (
-                mock.patch.object(
-                    compose_destination.os,
-                    "mkdir",
-                    side_effect=mkdir_then_relocate,
-                ),
-                self.assertRaisesRegex(
+            with mock.patch.object(
+                compose_destination.os,
+                "mkdir",
+                side_effect=mkdir_then_relocate,
+            ):
+                with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "relocated into immutable raw evidence",
-                ),
-            ):
-                compose_curated.create_pinned_destination(source, destination)
+                ):
+                    compose_curated.create_pinned_destination(source, destination)
 
             self.assertTrue(relocated)
             self.assertFalse((relocated_parent / destination.name).exists())
@@ -378,16 +370,13 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 os.rename(staged_root(pinned), raw / "curated")
                 return pinned
 
-            with (
-                mock.patch.object(compose_curated, "create_pinned_destination", relocating),
-                self.assertRaisesRegex(
+            context = compose_curated.ComposeRunContext(source, root / "curated")
+            with mock.patch.object(compose_curated, "create_pinned_destination", relocating):
+                with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "relocated into immutable raw evidence",
-                ),
-            ):
-                compose_curated.compose_run(
-                    compose_curated.ComposeRunContext(source, root / "curated")
-                )
+                ):
+                    compose_curated.compose_run(context)
             self.assertEqual(list((raw / "curated").rglob("*")), [])
 
     def test_source_and_calibration_fifo_swaps_are_rejected_without_blocking(self):
@@ -403,17 +392,15 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             root = Path(td)
             member_fifo = root / "member.jsonl"
             os.mkfifo(member_fifo)
-            with (
-                mock.patch.object(
-                    compose_destination,
-                    "_source_member_path",
-                    lambda *args, **kwargs: member_fifo,
-                ),
-                self.assertRaisesRegex(compose_curated.ComposeError, "not a regular file"),
+            with mock.patch.object(
+                compose_destination,
+                "_source_member_path",
+                lambda *args, **kwargs: member_fifo,
             ):
-                compose_destination._read_exact_regular_file(
-                    root, "member.jsonl", "source member"
-                )
+                with self.assertRaisesRegex(compose_curated.ComposeError, "not a regular file"):
+                    compose_destination._read_exact_regular_file(
+                        root, "member.jsonl", "source member"
+                    )
 
             calibration_fifo = root / "calibration.json"
             os.mkfifo(calibration_fifo)

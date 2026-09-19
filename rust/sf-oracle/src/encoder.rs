@@ -13,33 +13,46 @@ pub struct Parameters {
     pub delta_threshold: f64,
 }
 pub fn run(signal: &[f64], p: &Parameters) -> Result<Value, String> {
+    validate(p)?;
+    let mut rate_encoder = build_rate_encoder(p)?;
+    let mut delta_encoder = build_delta_encoder(p)?;
+    let rate = encode(signal, p, &mut rate_encoder, false);
+    let delta = encode(signal, p, &mut delta_encoder, true);
+    Ok(
+        json!({"profile":"axon-stream-v1","rate":rate,"delta":delta,"winner":winner(&rate,&delta)}),
+    )
+}
+fn validate(p: &Parameters) -> Result<(), String> {
     bound(p.sample_ms, 0.01, 100.0, "sample_ms")?;
     bound(p.rate_hz, 0.01, 1000.0, "rate_hz")?;
     bound(p.delta_threshold, f64::MIN_POSITIVE, 1.0, "delta_threshold")?;
     if p.delta_threshold as f32 == 0.0 || p.rate_hz * p.sample_ms / 1000.0 > 1.0 {
         return Err("encoder resolution/rate bound".into());
     }
-    let mut rate = RateEncoder::try_new(
+    Ok(())
+}
+fn build_rate_encoder(p: &Parameters) -> Result<RateEncoder, String> {
+    RateEncoder::try_new(
         0.0,
         p.rate_hz as f32,
         (0.0, 1.0),
         (p.sample_ms / 1000.0) as f32,
     )
-    .map_err(|e| e.to_string())?;
-    let mut delta =
-        DeltaEncoder::try_new(p.delta_threshold as f32, 1).map_err(|e| e.to_string())?;
-    let r = encode(signal, p, &mut rate, false);
-    let d = encode(signal, p, &mut delta, true);
-    let a = r["rmse"].as_f64().unwrap();
-    let b = d["rmse"].as_f64().unwrap();
-    let winner = if a < b {
+    .map_err(|e| e.to_string())
+}
+fn build_delta_encoder(p: &Parameters) -> Result<DeltaEncoder, String> {
+    DeltaEncoder::try_new(p.delta_threshold as f32, 1).map_err(|e| e.to_string())
+}
+fn winner(rate: &Value, delta: &Value) -> &'static str {
+    let a = rate["rmse"].as_f64().unwrap();
+    let b = delta["rmse"].as_f64().unwrap();
+    if a < b {
         "rate"
     } else if b < a {
         "delta"
     } else {
         "tie"
-    };
-    Ok(json!({"profile":"axon-stream-v1","rate":r,"delta":d,"winner":winner}))
+    }
 }
 fn encode(signal: &[f64], p: &Parameters, encoder: &mut dyn Encoder, delta: bool) -> Value {
     encoder.reset();

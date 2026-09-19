@@ -47,13 +47,14 @@ class RustBackendSelectionTests(unittest.TestCase):
             self.assertFalse(out.exists())
 
     def test_rust_without_executable_never_falls_back(self):
+        run = record.RecordRunContext(backend='rust')
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(oracles.OracleError, 'executable|SF_ORACLE_RUST_BIN'):
                 record.build_record(
                     families.ENCODER_FAMILY,
                     0,
                     seed=1,
-                    run=record.RecordRunContext(backend='rust'),
+                    run=run,
                 )
 
 

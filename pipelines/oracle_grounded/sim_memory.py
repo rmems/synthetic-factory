@@ -127,7 +127,7 @@ def _finite(value):
 
 
 def _integral_nonnegative(value):
-    return value == math.trunc(value) and value >= 0
+    return not (value - math.trunc(value)) and value >= 0
 
 
 # Order matters: each predicate is only safe once the earlier ones pass

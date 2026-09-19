@@ -176,6 +176,22 @@ def _output_digest_matches(item, expected_result) -> bool:
     return _identity_json.sha256_json(item.record) == expected_output_sha256
 
 
+def _require_output_provenance(item, registry, replay, deps) -> None:
+    """Bind the emitted output to its declared authority, owners, and provenance."""
+    check_deps = deps.check_dependencies()
+    output_id, kind, row = _identity_checks.manifest_output_authority(
+        item, registry, replay.source, check_deps
+    )
+    owner_paths = _identity_checks.manifest_owner_paths(
+        item,
+        _identity_checks.OwnerContext(row, replay.source, kind, output_id),
+        check_deps,
+    )
+    validate_manifest_provenance(
+        ProvenanceCheck(item, kind, owner_paths, replay.result.mapping), deps
+    )
+
+
 def validate_manifest_ids(item, registry, replay, deps: ManifestDependencies) -> None:
     expected_result = replay.result
     expected_mapping = expected_result.mapping
@@ -187,11 +203,7 @@ def validate_manifest_ids(item, registry, replay, deps: ManifestDependencies) ->
             item.record, expected_result.record, "preserved oracle envelope"
         )
         return
-    if expected_result.action != "retained":
-        _fail(IdentityTreeError(
-            f"IDENTITY-MANIFEST.json[{item.index}] has output for a replayed exclusion"
-        ))
-    if expected_result.record is None:
+    if expected_result.action != "retained" or expected_result.record is None:
         _fail(IdentityTreeError(
             f"IDENTITY-MANIFEST.json[{item.index}] has output for a replayed exclusion"
         ))
@@ -205,18 +217,7 @@ def validate_manifest_ids(item, registry, replay, deps: ManifestDependencies) ->
         expected_mapping.get("id_mappings"),
         f"IDENTITY-MANIFEST.json[{item.index}].id_mappings",
     )
-    check_deps = deps.check_dependencies()
-    output_id, kind, row = _identity_checks.manifest_output_authority(
-        item, registry, replay.source, check_deps
-    )
-    owner_paths = _identity_checks.manifest_owner_paths(
-        item,
-        _identity_checks.OwnerContext(row, replay.source, kind, output_id),
-        check_deps,
-    )
-    validate_manifest_provenance(
-        ProvenanceCheck(item, kind, owner_paths, expected_mapping), deps
-    )
+    _require_output_provenance(item, registry, replay, deps)
     _identity_json._require_canonical_json_equal(
         item.record,
         expected_result.record,

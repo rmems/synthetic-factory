@@ -1,6 +1,7 @@
 use crate::{encoder, identity, neuron};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::Path;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Envelope {
@@ -35,7 +36,7 @@ pub fn bound(v: f64, lo: f64, hi: f64, name: &str) -> Result<(), String> {
         Err(format!("invalid {name}"))
     }
 }
-pub fn execute(bytes: &[u8]) -> Result<Value, String> {
+pub fn execute(bytes: &[u8], executable: &Path) -> Result<Value, String> {
     let env: Envelope = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if env.protocol != "sf-oracle/1" {
         return Err("protocol mismatch".into());
@@ -56,7 +57,7 @@ pub fn execute(bytes: &[u8]) -> Result<Value, String> {
         }
         _ => return Err("runtime/family/profile mismatch".into()),
     };
-    measured["identity"] = identity::make(&env.oracle, version, rev)?;
+    measured["identity"] = identity::make(&env.oracle, version, rev, executable)?;
     Ok(
         json!({"protocol":"sf-oracle/1","runtime_version":version,"runtime_commit":rev,"measured":measured,"units":units}),
     )

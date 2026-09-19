@@ -43,7 +43,10 @@ class NativeChecksTests(unittest.TestCase):
     def checks(self, record):
         spec = importlib.util.find_spec("pipelines.oracle_grounded.native_checks")
         self.assertIsNotNone(spec, "native admission checks are not implemented")
-        return importlib.import_module(spec.name).checks(record)
+        if spec.name != "pipelines.oracle_grounded.native_checks":
+            raise AssertionError("native checks resolved outside the allowlist")
+        module = importlib.import_module("pipelines.oracle_grounded.native_checks")
+        return module.checks(record)
 
     def test_silent_profiles_are_consistent(self):
         for profile in ("axon-stream-v1", "neuromod-lif-v1"):
