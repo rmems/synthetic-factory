@@ -183,7 +183,7 @@ HISTORICAL_SIGNATURES = dict(
     calibration_for\t(record: 'Mapping[str, Any]', catalog: 'Mapping[str, Any] | None') -> 'Any'
     compact_audit_report\t(report: 'Mapping[str, Any] | None', record_count: 'int') -> 'dict[str, Any]'
     compose_record\t(record: 'Any', context: 'RecordContext') -> 'ComposeDecision'
-    compose_run\t(source_run: 'str | Path', destination: 'str | Path', *, units_migration: 'str | Path | None' = None) -> 'dict[str, Any]'
+    compose_run\t(context: 'ComposeRunContext') -> 'dict[str, Any]'
     compose_source_line\t(physical_line: 'bytes', coordinate: 'SourceLineCoordinate', *, calibration_catalog: 'Mapping[str, Any] | None' = None, semantics: 'SemanticRegistry | None' = None) -> 'ComposeDecision'
     jsonl_physical_lines\t(raw_file: 'bytes') -> 'list[bytes]'
     main\t(argv: 'list[str] | None' = None) -> 'int'

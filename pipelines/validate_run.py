@@ -75,6 +75,10 @@ _is_number = _validate_run_spikes.is_number
 _typed_enum_errors = _validate_run_provenance.typed_enum_errors
 check_provenance_publish = _validate_run_provenance.check_provenance_publish
 
+# Preserve the oracle staging surface after extracting shape routing.
+_route_oracle = _validate_run_routes._route_oracle
+_oracle_filing_errors = _validate_run_routes._oracle_filing_errors
+
 # The spike-train surface lived here before it split into validate_run_spikes;
 # ``__all__`` declares the names this module still re-exports so existing
 # ``validate_run.X`` consumers (the CLI tests among them) resolve unchanged.

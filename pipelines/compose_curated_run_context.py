@@ -23,9 +23,17 @@ else:
 
 @dataclass(frozen=True)
 class ComposeRunContext:
-    source_run: Path
-    destination: Path
-    units_migration: Path | None = None
+    source_run: str | Path
+    destination: str | Path
+    units_migration: str | Path | None = None
+    oracle_selection: str = "all"
+    oracle_rust_bin: str | Path | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_run", Path(self.source_run))
+        object.__setattr__(self, "destination", Path(self.destination))
+        if self.units_migration is not None:
+            object.__setattr__(self, "units_migration", Path(self.units_migration))
 
 
 @dataclass(frozen=True)
@@ -94,6 +102,7 @@ class SourceLineContext:
     catalog: Mapping[str, Any] | None
     emitted: list[str]
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +126,7 @@ class SourceFileContext:
     destination_target: Any
     catalog: Mapping[str, Any] | None
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+    physical_source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +147,7 @@ class SourceBatchContext:
     destination_target: Any
     catalog: Mapping[str, Any]
     mill_findings: Mapping[tuple[str, int], Any]
+    physical_source_paths: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -148,6 +159,7 @@ class TransactionContext:
     mill_findings: Mapping[tuple[str, int], Any]
     catalog: Mapping[str, Any]
     calibration_descriptor: Mapping[str, Any]
+    physical_source_paths: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -160,6 +172,7 @@ class SummaryCommitContext:
 
 @dataclass
 class ComposeRunState:
+    oracle_selection: str = "all"
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
     lane_actions: dict[str, Counter[str]] = field(

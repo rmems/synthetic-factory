@@ -41,7 +41,9 @@ class ComposeCurated(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = build_source_run(root / "run")
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 8)
             self.assertEqual(summary["counts"]["retained"], 7)
@@ -252,7 +254,9 @@ class ComposeCurated(unittest.TestCase):
             first["state"]["domain"] = "line\u2028separator\u2029paragraph"
             write_jsonl(source / "batch-r01.jsonl", [first, thalamic("plain")])
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
             output = (
                 root
                 / "curated"
@@ -283,7 +287,9 @@ class ComposeCurated(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 4)
             self.assertEqual(summary["counts"]["blank_lines"], 1)
@@ -322,7 +328,9 @@ class ComposeCurated(unittest.TestCase):
                 compose_curated.source_jsonl_members(source),
                 ("thalamic-trajectory-factory/batch-r01.jsonl",),
             )
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 1)
             self.assertEqual(summary["counts"]["source_files"], 1)

@@ -33,7 +33,9 @@ class ComposeCuratedRunContracts(unittest.TestCase):
             (source / "batch-r01.jsonl").write_text(
                 json.dumps({"unknown": "shape"}) + "\n", encoding="utf-8"
             )
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["retained"], 0)
             self.assertFalse(summary["audit"]["training_ready"])
@@ -49,8 +51,12 @@ class ComposeCuratedRunContracts(unittest.TestCase):
                 path: path.read_bytes() for path in sorted(source.rglob("*.jsonl"))
             }
 
-            first = compose_curated.compose_run(source, root / "curated-a")
-            second = compose_curated.compose_run(source, root / "curated-b")
+            first = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated-a")
+            )
+            second = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated-b")
+            )
 
             self.assertEqual(first["manifest"]["sha256"], second["manifest"]["sha256"])
             self.assertEqual(

@@ -405,7 +405,7 @@ def _exported_compose_metadata(
 ) -> dict[str, Any]:
     """Format metadata only after all compose evidence has authenticated."""
 
-    return {
+    metadata = {
         "present": True,
         "summary": {
             "path": compose_curated.SUMMARY_FILENAME,
@@ -419,6 +419,10 @@ def _exported_compose_metadata(
         "manifest": authenticated.evidence.manifest,
         "reward_sidecars": authenticated.evidence.reward_sidecars,
     }
+
+    if "oracle_selection" in authenticated.summary:
+        metadata["oracle_selection"] = authenticated.summary["oracle_selection"]
+    return metadata
 
 
 def _compose_metadata(

@@ -54,7 +54,7 @@ and, where redistribution is cleared, publication; they cannot become
 `training_ready` or enter a training export. `training_ready` for identity-cleaned or composed records, in `COMPOSE.json`,
 or in export `provenance.json` includes both structural and rights checks.
 Raw-run audits remain structural diagnostics and do not grant export authority. Hosted frontier rows stay `research_only` / `blocked`. The procedural
-`python-function-repair-factory` row is the training-candidate path
+`python-function-repair-factory` and `oracle-grounded` rows are training-candidate paths
 (`training_candidate` / `allowed`) after sealed source admission, fresh
 replay, and completed-round gates. Project policy and provider training
 status are independent: both must be `allowed`, with reviewed evidence and an
@@ -133,12 +133,13 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
-- `schemas/` — Thalamic schema + `provenance.md`
+
+- `schemas/` — Thalamic schema + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
 - `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required.
-- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
 ## Historical prompt lane
@@ -177,6 +178,28 @@ on a destination-specific field being absent: published mixes defeat both.
 Because prefix and goal ownership are cross-factory properties, a single file
 or one-factory source remains dry-run only; cleaned output fails closed until
 the source provides multi-factory ownership context.
+
+The factory supports agentic and coding datasets for LLMs and neuromorphic
+datasets for SNNs. An explicit [Rust backend](docs/oracle-rust-backend.md) uses
+`axon-encoder 0.4.0` and `neuromod 0.6.0` for crate-native encoder and neuron
+episodes, with fresh execution replay during assembly and local export.
+
+Oracle-grounded families (generator proposes, oracle measures — see
+[`docs/oracle-grounded-datasets.md`](docs/oracle-grounded-datasets.md)):
+
+```bash
+python3 pipelines/oracle_generate.py --count 8 outputs/oracle-grounded/2026-09-01
+python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09-01
+```
+
+Those default runs use deterministic in-repo reference simulators and are
+stamped `implementation: "reference"`. Selecting `--backend rust` runs the
+two crate-native profiles through a prebuilt executable; the remaining three
+families continue to use their reference implementations. Under [#171] an
+accepted reference record whose `oracle.module_digest` matches the current
+sources is publishable as a reproducible simulator measurement; it is never
+publishable as a measurement of the named runtimes, and a digest the current
+sources cannot reproduce keeps `publishable: false`.
 
 ### Curation integration and promotion gate
 
@@ -281,7 +304,6 @@ approved decision, and only training-candidate rows
 [#161]: https://github.com/rmems/synthetic-factory/issues/161
 [#163]: https://github.com/rmems/synthetic-factory/issues/163
 [#165]: https://github.com/rmems/synthetic-factory/issues/165
-[#167]: https://github.com/rmems/synthetic-factory/issues/167
 [#169]: https://github.com/rmems/synthetic-factory/issues/169
 [#170]: https://github.com/rmems/synthetic-factory/issues/170
 [#171]: https://github.com/rmems/synthetic-factory/issues/171

@@ -33,9 +33,11 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
                 encoding="utf-8",
             )
             curated = root / "curated"
-            summary = compose_curated.compose_run(source, curated)
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, curated)
+            )
 
-            provenance = export_hf.export_run(curated, root / "export")
+            provenance = export_hf.export_run(export_hf.ExportRequest(curated, root / "export"))
 
         self.assertEqual(summary["calibration"]["mode"], "source_run")
         self.assertEqual(summary["calibration"]["records"], 1)
@@ -180,8 +182,9 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
                 }
                 getattr(self, f"_mutate_{mutation}")(ctx)
 
+                request = export_hf.ExportRequest(curated, root / "export")
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, root / "export")
+                    export_hf.export_run(request)
                 self.assertFalse((root / "export").exists())
 
     # ---- one forgery per mutation; the manifest-editing ones reseal below ----
@@ -308,8 +311,9 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
                     encoding="utf-8",
                 )
 
+                request = export_hf.ExportRequest(curated, root / "export")
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(curated, root / "export")
+                    export_hf.export_run(request)
                 self.assertFalse((root / "export").exists())
 
 

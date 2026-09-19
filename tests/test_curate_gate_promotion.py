@@ -155,7 +155,10 @@ class PromotionTests(unittest.TestCase):
         )
         promotion = manifest["promotion"]
         self.assertEqual(promotion["curated_dir"], str(curated))
-        self.assertEqual(promotion["records"], 10)
+        source = _read_jsonl(self.fixture.source_run / "python-function-repair-factory/batch-r01.jsonl")
+        self.assertTrue(source, "fixture must publish a nonempty admitted batch")
+        self.assertEqual(promotion["records"], len(source))
+        self.assertCountEqual(_read_jsonl(self.fixture.curated / "python-function-repair-factory/batch-r01.jsonl"), source)
         self.assertEqual(
             promotion["promoter"],
             "pipelines/curate_gate.py immutable-staged-snapshot",
@@ -600,7 +603,10 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(promoted.returncode, 0, promoted.stderr)
         result = json.loads(promoted.stdout)
         self.assertTrue(result["promoted"])
-        self.assertEqual(result["records"], 10)
+        source = _read_jsonl(fixture.source_run / "python-function-repair-factory/batch-r01.jsonl")
+        self.assertTrue(source, "fixture must publish a nonempty admitted batch")
+        self.assertEqual(result["records"], len(source))
+        self.assertCountEqual(_read_jsonl(fixture.curated / "python-function-repair-factory/batch-r01.jsonl"), source)
 
 
 if __name__ == "__main__":

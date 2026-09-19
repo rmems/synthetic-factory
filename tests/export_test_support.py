@@ -65,7 +65,7 @@ def compose_fixture(root):
 
     source = build_source_run(Path(root) / "run")
     curated = Path(root) / "curated"
-    compose_curated.compose_run(source, curated)
+    compose_curated.compose_run(compose_curated.ComposeRunContext(source, curated))
     return curated
 
 

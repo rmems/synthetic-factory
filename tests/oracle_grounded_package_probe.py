@@ -18,7 +18,12 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
-PHANTOM_NAMES = ("canon", "families", "generators", "oracles", "record", "sim")
+# Reserved names with no backing submodule. The six names main once carried here
+# (canon, families, generators, oracles, record, sim) graduated to real
+# submodules when the oracle-grounded family stack landed, so none remain.
+# Keep the machinery: a future reserved name is re-added here and stays pinned
+# absent until its module lands.
+PHANTOM_NAMES: tuple[str, ...] = ()
 DECLARED_NAMES = ("refusals", "rng")
 FLAT_NAME = "oracle_grounded"
 PACKAGED_NAME = f"pipelines.{FLAT_NAME}"
@@ -57,7 +62,7 @@ def _package_form() -> Any:
 
 
 def _phantom_outcomes(package_name: str) -> dict[str, str]:
-    """Each dropped ``__all__`` name resolves to nothing; none become a success.
+    """Each reserved phantom name resolves to nothing; none become a success.
 
     ``find_spec`` answers existence without executing the module, which is what
     this assertion is actually about. Importing a name to prove it is absent

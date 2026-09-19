@@ -11,6 +11,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 if __package__:
+    from .pipeline_import_catalog_oracle import DIRECT_LOADERS as ORACLE_DIRECT_LOADERS
+    from .pipeline_import_catalog_oracle import PACKAGE_LOADERS as ORACLE_PACKAGE_LOADERS
     from .pipeline_import_catalog_compose import (
         DIRECT_LOADERS as COMPOSE_DIRECT_LOADERS,
     )
@@ -36,6 +38,8 @@ if __package__:
         PACKAGE_LOADERS as RIGHTS_PACKAGE_LOADERS,
     )
 else:
+    from pipeline_import_catalog_oracle import DIRECT_LOADERS as ORACLE_DIRECT_LOADERS
+    from pipeline_import_catalog_oracle import PACKAGE_LOADERS as ORACLE_PACKAGE_LOADERS
     from pipeline_import_catalog_compose import DIRECT_LOADERS as COMPOSE_DIRECT_LOADERS
     from pipeline_import_catalog_compose import PACKAGE_LOADERS as COMPOSE_PACKAGE_LOADERS
     from pipeline_import_catalog_export import DIRECT_LOADERS as EXPORT_DIRECT_LOADERS
@@ -54,12 +58,14 @@ DIRECT_LOADERS = {
     **COMPOSE_DIRECT_LOADERS,
     **EXPORT_DIRECT_LOADERS,
     **FOUNDATION_DIRECT_LOADERS,
+    **ORACLE_DIRECT_LOADERS,
     **RIGHTS_DIRECT_LOADERS,
 }
 PACKAGE_LOADERS = {
     **COMPOSE_PACKAGE_LOADERS,
     **EXPORT_PACKAGE_LOADERS,
     **FOUNDATION_PACKAGE_LOADERS,
+    **ORACLE_PACKAGE_LOADERS,
     **RIGHTS_PACKAGE_LOADERS,
 }
 

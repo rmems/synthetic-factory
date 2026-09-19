@@ -76,7 +76,7 @@ class RightsAuditSnapshot(unittest.TestCase):
         root = Path(temp.name)
         source = build_source_run(root / "source")
         self.dest = root / "curated"
-        compose_curated.compose_run(source, self.dest)
+        compose_curated.compose_run(compose_curated.ComposeRunContext(source, self.dest))
         self.manifest = self.dest / "manifest/compose-manifest.jsonl"
         self.entries = [json.loads(line) for line in self.manifest.read_text().split("\n") if line]
 

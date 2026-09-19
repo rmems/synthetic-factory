@@ -82,8 +82,8 @@ class ExportSplitDeterminism(ResearchExportAllowed, unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             curated = compose_fixture(root)
-            first = export_hf.export_run(curated, root / "export-a")
-            second = export_hf.export_run(curated, root / "export-b")
+            first = export_hf.export_run(export_hf.ExportRequest(curated, root / "export-a"))
+            second = export_hf.export_run(export_hf.ExportRequest(curated, root / "export-b"))
             self.assertEqual(first["splits"]["train"], second["splits"]["train"])
             self.assertEqual(first["splits"]["eval"], second["splits"]["eval"])
 

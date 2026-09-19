@@ -48,62 +48,18 @@ import training_audit  # noqa: E402
 # ``export_hf`` split by responsibility (CodeScene: Lines of Code in a Single
 # File): the contract, viewer projection, exact-member reading, deterministic
 # split, calibration authentication, and source replay live in sibling
-# modules. Every name is re-imported here so existing ``export_hf.X`` call
-# sites and tests resolve unchanged.
-from export_contract import (  # noqa: E402,F401
-    CREATED_BY,
-    CURATED_DIRNAME,
-    CuratedFile,
-    DEFAULT_EVAL_FRACTION,
-    DEFAULT_SPLIT,
-    DEFAULT_SPLIT_SALT,
-    EVAL_PATH,
-    EXPORT_NAME,
-    EXPORT_VERSION,
-    ExportError,
-    PROTOCOL_PATH,
-    PROVENANCE_PATH,
-    SPLIT_POLICY,
-    SplitOptions,
-    TRAIN_PATH,
-    VIEWER_COLUMNS,
-    VIEWER_PATH,
-    ViewerRow,
-    _loads_json,
-    _reject_json_constant,
-    _reject_nonfinite_json_float,
-)
-from export_compose_auth import (  # noqa: E402,F401
-    _authenticated_compose_summary,
-    _authenticated_output_declarations,
-    _compose_metadata,
-)
-from export_calibration import (  # noqa: E402,F401
-    _absent_calibration_catalog,
-    _authenticated_calibration,
-    _entry_calibrations,
-    _file_calibration_catalog,
-    _load_calibration_payload,
-    _validated_calibration_descriptor,
-)
-from export_members import (  # noqa: E402,F401
-    _authenticated_descriptor,
-    iter_alias_free_jsonl,
-    _compose_member_path,
-    _contains_raw_segments,
-    _is_under_raw,
-    _lf_jsonl_documents,
-    _lf_jsonl_lines,
-    _read_exact_regular_file,
-    _require_exact_directory,
-)
-from export_curated import (  # noqa: E402,F401
-    _curated_snapshot_fingerprint,
-    _snapshot_payloads,
-    collect_files,
-    collect_rows,
-)
-from export_destination import (  # noqa: E402,F401
+# modules. The historical ``export_hf.X`` surface is re-bound through the
+# sibling imports below so existing call sites resolve unchanged and the
+# documented patch seams (``export_hf._compose_metadata`` and friends) stay
+# live.
+import export_calibration as _calibration  # noqa: E402
+import export_compose_auth as _compose_auth  # noqa: E402
+import export_contract as _contract  # noqa: E402
+import export_curated as _curated  # noqa: E402
+import export_members as _members  # noqa: E402
+import export_replay as _replay  # noqa: E402
+import export_split as _split  # noqa: E402
+from export_destination import (  # noqa: E402
     _create_pinned_destination,
     _finish_pinned_destination,
     _jsonl_payload,
@@ -111,75 +67,57 @@ from export_destination import (  # noqa: E402,F401
     _validated_export_paths,
     _write_new_bytes,
 )
-from export_protocol import (  # noqa: E402,F401
+from export_protocol import (  # noqa: E402
     render_eval_protocol,
 )
 from export_provenance import build_export_provenance  # noqa: E402
-from export_replay import (  # noqa: E402,F401
-    _authenticate_source_replay,
-    _replay_source_lines,
-    _verify_replay_matches,
-)
-from export_split import split_bucket, split_rows  # noqa: E402,F401
-from export_viewer import (  # noqa: E402,F401
+from export_viewer import (  # noqa: E402
     read_viewer_parquet,
     write_viewer_parquet,
 )
 
-__all__ = [
-    "CREATED_BY",
-    "CURATED_DIRNAME",
-    "CuratedFile",
-    "DEFAULT_EVAL_FRACTION",
-    "DEFAULT_SPLIT",
-    "DEFAULT_SPLIT_SALT",
-    "EVAL_PATH",
-    "EXPORT_NAME",
-    "EXPORT_VERSION",
-    "ExportError",
-    "PROTOCOL_PATH",
-    "PROVENANCE_PATH",
-    "SPLIT_POLICY",
-    "SplitOptions",
-    "TRAIN_PATH",
-    "VIEWER_COLUMNS",
-    "VIEWER_PATH",
-    "ViewerRow",
-    "_absent_calibration_catalog",
-    "_authenticate_source_replay",
-    "_authenticated_calibration",
-    "_authenticated_compose_summary",
-    "_authenticated_descriptor",
-    "_authenticated_output_declarations",
-    "_compose_member_path",
-    "_compose_metadata",
-    "_contains_raw_segments",
-    "_entry_calibrations",
-    "_file_calibration_catalog",
-    "_is_under_raw",
-    "_lf_jsonl_documents",
-    "_lf_jsonl_lines",
-    "_load_calibration_payload",
-    "_loads_json",
-    "_read_exact_regular_file",
-    "_reject_json_constant",
-    "_reject_nonfinite_json_float",
-    "_replay_source_lines",
-    "_require_exact_directory",
-    "_validated_calibration_descriptor",
-    "_verify_replay_matches",
-    "collect_files",
-    "collect_rows",
-    "export_run",
-    "iter_alias_free_jsonl",
-    "main",
-    "parse_args",
-    "read_viewer_parquet",
-    "render_eval_protocol",
-    "split_bucket",
-    "split_rows",
-    "write_viewer_parquet",
-]
+CURATED_DIRNAME = _contract.CURATED_DIRNAME
+CuratedFile = _contract.CuratedFile
+DEFAULT_EVAL_FRACTION = _contract.DEFAULT_EVAL_FRACTION
+DEFAULT_SPLIT = _contract.DEFAULT_SPLIT
+DEFAULT_SPLIT_SALT = _contract.DEFAULT_SPLIT_SALT
+EVAL_PATH = _contract.EVAL_PATH
+ExportError = _contract.ExportError
+PROTOCOL_PATH = _contract.PROTOCOL_PATH
+PROVENANCE_PATH = _contract.PROVENANCE_PATH
+SplitOptions = _contract.SplitOptions
+TRAIN_PATH = _contract.TRAIN_PATH
+VIEWER_COLUMNS = _contract.VIEWER_COLUMNS
+VIEWER_PATH = _contract.VIEWER_PATH
+ViewerRow = _contract.ViewerRow
+_loads_json = _contract._loads_json
+
+_compose_metadata = _compose_auth._compose_metadata
+
+_authenticated_calibration = _calibration._authenticated_calibration
+_load_calibration_payload = _calibration._load_calibration_payload
+
+_read_exact_regular_file = _members._read_exact_regular_file
+
+_curated_snapshot_fingerprint = _curated._curated_snapshot_fingerprint
+_snapshot_payloads = _curated._snapshot_payloads
+collect_files = _curated.collect_files
+collect_rows = _curated.collect_rows
+
+_verify_replay_matches = _replay._verify_replay_matches
+
+split_rows = _split.split_rows
+
+__all__ = """
+CURATED_DIRNAME CuratedFile DEFAULT_EVAL_FRACTION DEFAULT_SPLIT
+DEFAULT_SPLIT_SALT EVAL_PATH ExportError ExportRequest
+PROTOCOL_PATH PROVENANCE_PATH SplitOptions TRAIN_PATH VIEWER_COLUMNS
+VIEWER_PATH ViewerRow _authenticated_calibration _compose_metadata
+_load_calibration_payload _loads_json _read_exact_regular_file
+_verify_replay_matches collect_files collect_rows export_run
+main parse_args read_viewer_parquet render_eval_protocol split_rows
+write_viewer_parquet
+""".split()
 
 
 # ── Export ────────────────────────────────────────────────────────────
@@ -300,21 +238,25 @@ def _write_export_metadata(
 
 
 @dataclass(frozen=True)
-class _ExportRequest:
-    """One fully bound invocation of the historically frozen public API."""
+class ExportRequest:
+    """One fully bound invocation of the export."""
 
-    curated_root: Path
-    destination: Path
-    eval_fraction: float
-    split_salt: str
-    dataset_name: str | None
+    curated_root: str | Path
+    destination: str | Path
+    split: SplitOptions = DEFAULT_SPLIT
+    dataset_name: str | None = None
+    oracle_rust_bin: str | Path | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "curated_root", Path(self.curated_root))
+        object.__setattr__(self, "destination", Path(self.destination))
 
 
 @dataclass(frozen=True)
 class _PreparedExport:
     """Authenticated source state needed by the destination transaction."""
 
-    request: _ExportRequest
+    request: ExportRequest
     records_dir: Path
     resolved_root: Path
     curated_files: list[CuratedFile]
@@ -335,7 +277,7 @@ class _WrittenExport:
     eval_digest: str
 
 
-def _prepare_export(request: _ExportRequest) -> _PreparedExport:
+def _prepare_export(request: ExportRequest) -> _PreparedExport:
     """Validate and authenticate the exact source snapshot before any write."""
 
     _curated_root, records_dir, resolved_root = _validated_export_paths(
@@ -352,8 +294,8 @@ def _prepare_export(request: _ExportRequest) -> _PreparedExport:
     _require_curated_snapshot_unchanged(records_dir, curated_files)
     train, evaluate = split_rows(
         rows,
-        eval_fraction=request.eval_fraction,
-        salt=request.split_salt,
+        eval_fraction=request.split.eval_fraction,
+        salt=request.split.salt,
     )
     return _PreparedExport(
         request,
@@ -433,8 +375,8 @@ def _export_provenance(
             "audit": prepared.audit,
             "options": {
                 "dataset_name": prepared.request.dataset_name,
-                "eval_fraction": prepared.request.eval_fraction,
-                "split_salt": prepared.request.split_salt,
+                "eval_fraction": prepared.request.split.eval_fraction,
+                "split_salt": prepared.request.split.salt,
             },
             "written": {
                 "files": written.files,
@@ -448,7 +390,7 @@ def _export_provenance(
     )
 
 
-def _export_request(request: _ExportRequest) -> dict[str, Any]:
+def _export_request(request: ExportRequest) -> dict[str, Any]:
     """Execute one prepared export with append-only cleanup semantics."""
 
     prepared = _prepare_export(request)
@@ -465,24 +407,15 @@ def _export_request(request: _ExportRequest) -> dict[str, Any]:
     return provenance
 
 
-def export_run(
-    curated_root: str | Path,
-    destination: str | Path,
-    *,
-    split: SplitOptions = DEFAULT_SPLIT,
-    dataset_name: str | None = None,
-) -> dict[str, Any]:
+def export_run(request: ExportRequest) -> dict[str, Any]:
     """Export one composed curated tree, refusing anything not training-ready."""
 
-    return _export_request(
-        _ExportRequest(
-            Path(curated_root),
-            Path(destination),
-            split.eval_fraction,
-            split.salt,
-            dataset_name,
-        )
-    )
+    if __package__:
+        from .oracle_grounded.native_gate import runtime_gate
+    else:
+        from oracle_grounded.native_gate import runtime_gate
+    with runtime_gate(request.oracle_rust_bin):
+        return _export_request(request)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -500,6 +433,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SPLIT_SALT,
         help="salt for the deterministic split hash",
     )
+    parser.add_argument("--oracle-rust-bin", help="prebuilt native oracle executable for fresh replay")
     parser.add_argument("--dataset-name", help="optional dataset name recorded in provenance")
     return parser.parse_args(argv)
 
@@ -508,10 +442,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         provenance = export_run(
-            args.curated_root,
-            args.destination,
-            split=SplitOptions(args.eval_fraction, args.split_salt),
-            dataset_name=args.dataset_name,
+            ExportRequest(
+                args.curated_root,
+                args.destination,
+                split=SplitOptions(args.eval_fraction, args.split_salt),
+                dataset_name=args.dataset_name,
+                oracle_rust_bin=args.oracle_rust_bin,
+            )
         )
     except (ExportError, OSError, ValueError) as exc:
         print(f"export_hf: {exc}", file=sys.stderr)
