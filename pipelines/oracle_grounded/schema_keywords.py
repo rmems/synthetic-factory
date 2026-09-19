@@ -20,12 +20,24 @@ from .schema_values import (
 # Per-frame cap on accumulated findings. Anything past this on one array or
 # object adds a single summary line instead of one string per element.
 MAX_SCHEMA_FINDINGS = 100
-# Bound on a string fed to ``re.search`` for a ``pattern`` keyword.  The
-# pattern itself comes from a reviewed schema, but the subject comes from an
-# untrusted record, so an unbounded subject would let a catastrophic pattern
-# (or merely an expensive one) burn unbounded CPU on the validation gate.
+# Bound on a string matched against a ``pattern`` keyword.  The subject comes
+# from an untrusted record, so an unbounded subject would let even a cheap
+# pattern burn unbounded CPU on the validation gate.
 MAX_PATTERN_SUBJECT_CHARS = 10000
-MAX_PATTERN_CHARS = 200
+# Every ``pattern`` assertion the checked-in oracle-grounded schemas declare.
+# The regex engine only ever runs one of these reviewed constants: a schema
+# object whose pattern is absent fails closed, so a corrupted or hostile
+# schema cannot smuggle a catastrophic-backtracking regex into the gate.
+_REVIEWED_PATTERNS = {
+    pattern: re.compile(pattern)
+    for pattern in (
+        "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+        "^[0-9a-fA-F]{7,64}$",
+        "^[0-9a-f]{40}$",
+        "^[0-9a-f]{64}$",
+        "^sha256:[0-9a-f]{64}$",
+    )
+}
 
 
 def _resolve_pointer(root, reference):
@@ -115,15 +127,14 @@ def _min_length_errors(value, schema, path):
 def _pattern_errors(value, schema, path):
     if "pattern" not in schema:
         return []
-    if len(schema["pattern"]) > MAX_PATTERN_CHARS:
-        return [
-            f"{path} declares a pattern beyond the "
-            f"{MAX_PATTERN_CHARS}-character schema bound"
-        ]
+    declared = schema["pattern"]
+    compiled = _REVIEWED_PATTERNS.get(declared) if isinstance(declared, str) else None
+    if compiled is None:
+        return [f"{path} declares a pattern outside the reviewed schema set"]
     if len(value) > MAX_PATTERN_SUBJECT_CHARS:
         return [f"{path} exceeds the {MAX_PATTERN_SUBJECT_CHARS}-character pattern-check bound"]
-    if re.search(schema["pattern"], value) is None:
-        return [f"{path} does not match pattern {schema['pattern']!r}"]
+    if compiled.search(value) is None:
+        return [f"{path} does not match pattern {declared!r}"]
     return []
 
 

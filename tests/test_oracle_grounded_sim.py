@@ -192,14 +192,14 @@ class Encoders(unittest.TestCase):
 
     def test_the_winner_follows_the_measured_margin(self):
         comparison = sim.compare_encodings(self.signal, ("temporal", "rate"), self.config)
-        if comparison["winner_basis"] == "information_retention":
-            expected = "temporal" if comparison["retention_margin"] > 0 else "rate"
-        elif comparison["winner_basis"] == "spike_count_tiebreak":
-            fewer = comparison["a"]["spike_count"] < comparison["b"]["spike_count"]
-            expected = "temporal" if fewer else "rate"
-        else:
-            self.assertEqual(comparison["winner_basis"], "tie")
-            expected = None
+        basis = comparison["winner_basis"]
+        self.assertIn(basis, ("information_retention", "spike_count_tiebreak", "tie"))
+        a_first = comparison["a"]["spike_count"] < comparison["b"]["spike_count"]
+        expected = {
+            "information_retention": "temporal" if comparison["retention_margin"] > 0 else "rate",
+            "spike_count_tiebreak": "temporal" if a_first else "rate",
+            "tie": None,
+        }[basis]
         self.assertEqual(comparison["winner"], expected)
 
     def test_pearson_is_none_for_a_constant_series(self):
