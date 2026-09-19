@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oracle-grounded/neuron-dynamics-counterfactuals.schema.json",
+  "title": "NeuronDynamicsCounterfactual",
+  "description": "Family payload for neuron-dynamics-counterfactuals. Specified oracle: the `neuromod` simulation. When that runtime is not bound, the adaptive leaky integrate-and-fire neuron in pipelines/oracle_grounded/sim.py runs instead and the record is stamped implementation: 'reference'. The generator proposes a stimulus, a baseline configuration, and one parameter intervention; the oracle runs the same stimulus through the neuron before and after the intervention. Both runs use the same configuration and seed, which are retained in oracle.configuration, so the counterfactual pair is reproducible.",
+  "type": "object",
+  "properties": {
+    "scenario": {
+      "type": "object",
+      "required": ["stimulus", "duration_ms", "dt_ms", "baseline_parameters"],
+      "properties": {
+        "stimulus": {
+          "type": "object",
+          "required": ["kind", "parameters"],
+          "properties": {
+            "kind": { "enum": ["step", "pulse_train", "ramp"] },
+            "parameters": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["amplitude", "onset_ms", "offset_ms"],
+                  "properties": {
+                    "amplitude": { "type": "number" },
+                    "onset_ms": { "type": "number", "minimum": 0 },
+                    "offset_ms": { "type": "number", "exclusiveMinimum": 0 }
+                  },
+                  "additionalProperties": true
+                },
+                {
+                  "type": "object",
+                  "required": ["amplitude", "period_ms", "width_ms", "onset_ms"],
+                  "properties": {
+                    "amplitude": { "type": "number" },
+                    "period_ms": { "type": "number", "exclusiveMinimum": 0 },
+                    "width_ms": { "type": "number", "exclusiveMinimum": 0 },
+                    "onset_ms": { "type": "number", "minimum": 0 }
+                  },
+                  "additionalProperties": true
+                },
+                {
+                  "type": "object",
+                  "required": ["peak", "onset_ms"],
+                  "properties": {
+                    "peak": { "type": "number" },
+                    "onset_ms": { "type": "number", "minimum": 0 }
+                  },
+                  "additionalProperties": true
+                }
+              ]
+            }
+          }
+        },
+        "duration_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000
+        },
+        "dt_ms": { "type": "number", "minimum": 0.000001 },
+        "baseline_parameters": {
+          "type": "object",
+          "description": "Neuron parameters the generator proposes. Units: v_threshold in normalized membrane units (rest 0, threshold nominally 1), tau_m_ms and t_refractory_ms in milliseconds, adaptation_b in membrane units added per spike, input_scale and neuromod_gain dimensionless.",
+          "properties": {
+            "v_threshold": { "type": "number", "exclusiveMinimum": 0 },
+            "tau_m_ms": { "type": "number", "exclusiveMinimum": 0 },
+            "adaptation_b": { "type": "number", "minimum": 0 },
+            "t_refractory_ms": { "type": "number", "minimum": 0 },
+            "input_scale": { "type": "number" },
+            "neuromod_gain": { "type": "number" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "object",
+      "required": ["target", "parameter", "operation", "factor"],
+      "properties": {
+        "target": {
+          "enum": [
+            "threshold",
+            "decay",
+            "adaptation",
+            "refractory",
+            "input_intensity",
+            "neuromodulatory_state"
+          ]
+        },
+        "parameter": {
+          "type": "string",
+          "description": "The neuron configuration key the target maps to. The mapping is oracle-side."
+        },
+        "operation": { "const": "scale" },
+        "factor": { "type": "number", "exclusiveMinimum": 0 },
+        "description": { "type": "string" }
+      }
+    },
+    "candidate_prediction": {
+      "type": "object",
+      "required": ["kind", "predicted_direction"],
+      "properties": {
+        "kind": { "const": "non_authoritative_guess" },
+        "predicted_direction": { "enum": ["increases_firing", "decreases_firing"] },
+        "basis": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "measured": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["before", "after", "delta"],
+          "properties": {
+            "before": { "$ref": "#/$defs/neuronState" },
+            "after": { "$ref": "#/$defs/neuronState" },
+            "delta": {
+              "type": "object",
+              "required": [
+                "spike_count_delta",
+                "mean_rate_delta_hz",
+                "first_spike_shift_ms",
+                "mean_isi_delta_ms",
+                "v_mean_delta",
+                "direction",
+                "silenced",
+                "unsilenced"
+              ],
+              "properties": {
+                "spike_count_delta": { "type": "integer" },
+                "mean_rate_delta_hz": { "type": "number" },
+                "first_spike_shift_ms": { "type": ["number", "null"] },
+                "mean_isi_delta_ms": { "type": ["number", "null"] },
+                "v_mean_delta": { "type": ["number", "null"] },
+                "direction": {
+                  "enum": ["increases_firing", "decreases_firing", "unchanged_firing"]
+                },
+                "silenced": { "type": "boolean" },
+                "unsilenced": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "neuronState": {
+      "type": "object",
+      "required": [
+        "spike_count",
+        "spike_times_ms",
+        "first_spike_ms",
+        "last_spike_ms",
+        "mean_rate_hz",
+        "mean_isi_ms",
+        "cv_isi",
+        "adaptation_index",
+        "v_mean",
+        "v_max",
+        "v_min",
+        "v_trace",
+        "v_trace_stride_ms",
+        "duration_ms"
+      ],
+      "properties": {
+        "spike_count": { "type": "integer", "minimum": 0 },
+        "spike_times_ms": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 },
+          "description": "Non-decreasing spike times in milliseconds."
+        },
+        "first_spike_ms": { "type": ["number", "null"] },
+        "last_spike_ms": { "type": ["number", "null"] },
+        "mean_rate_hz": { "type": "number", "minimum": 0 },
+        "mean_isi_ms": { "type": ["number", "null"] },
+        "cv_isi": {
+          "type": ["number", "null"],
+          "description": "Coefficient of variation of the inter-spike intervals; null with fewer than three spikes."
+        },
+        "adaptation_index": {
+          "type": ["number", "null"],
+          "description": "Last ISI divided by first ISI; above 1 means the neuron slowed down."
+        },
+        "v_mean": { "type": ["number", "null"] },
+        "v_max": { "type": ["number", "null"] },
+        "v_min": { "type": ["number", "null"] },
+        "v_trace": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Membrane potential in normalized units, sampled every v_trace_stride_ms."
+        },
+        "v_trace_stride_ms": { "type": "number", "exclusiveMinimum": 0 },
+        "duration_ms": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": true
+    }
+  }
+}

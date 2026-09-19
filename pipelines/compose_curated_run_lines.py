@@ -97,6 +97,13 @@ def new_manifest_entry(context: SourceLineContext, source_sha256: str) -> dict[s
     }
 
 
+def add_physical_source_evidence(entry, physical_source_path, physical_line):
+    """Keep literal source evidence alongside the published registry coordinate."""
+    if physical_source_path is not None:
+        entry["physical_source_path"] = physical_source_path
+        entry["source_original"] = physical_line.decode("utf-8")
+
+
 def claim_output_id(state: ComposeRunState, output_id: Any, location: str) -> None:
     if output_id is None:
         return

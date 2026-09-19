@@ -1,0 +1,16 @@
+{
+  "schema": "ollama-artifact-declaration-v1",
+  "ollama_model_tag": "nemotron-3-nano:4b-bf16",
+  "ollama_model_digest": "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394",
+  "digest_source": "sha256 of registry.ollama.ai/v2/library/nemotron-3-nano/manifests/4b-bf16",
+  "upstream_checkpoint": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+  "upstream_revision": "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
+  "artifact_format": "BF16 (Ollama manifest; -cloud variants refused by the local lane)",
+  "license": "nvidia-nemotron-open-model-license",
+  "license_sha256": "efc52b8e24fb6a638a9214520399d93f2857ec555ae3222fed868a23484919d3",
+  "notes": [
+    "Operator must `ollama pull nemotron-3-nano:4b-bf16` on ShipOfTheseus and confirm `ollama list` reports this exact digest before the first admitted batch.",
+    "The `nemotron-3-nano:*-cloud` tags route to Ollama Cloud and are refused by verify_served_identity."
+  ],
+  "retrieved_at": "2026-09-19T12:22:00Z"
+}

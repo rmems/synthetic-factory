@@ -26,7 +26,6 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_gate_lanes")
-    from .curate_identity_simulator_process import replay_session
     from . import curate_gate_contract as _contract
     from . import curate_gate_digest as _digest
     from . import curate_gate_evidence as _evidence
@@ -44,7 +43,6 @@ else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
-    from curate_identity_simulator_process import replay_session
     import curate_gate_contract as _contract
     import curate_gate_digest as _digest
     import curate_gate_evidence as _evidence
@@ -155,7 +153,7 @@ def _bind_entry_source(
         raise GateError(f"{label} source hash does not match the declared source_run bytes")
     entry["_source_key"] = source_key
     entry["_source_record"] = source["record"]
-    entry["_source_bytes"] = source.get("source_bytes")
+    entry["_source_bytes"] = source["source_bytes"]
     return source
 
 
@@ -194,7 +192,6 @@ def _entry_output_hash(entry: dict[str, Any], scope: _EntryScope) -> str | None:
     return output_hash
 
 
-@replay_session()
 def _authenticate_manifest(
     lane: dict[str, Any],
     manifest_payload: bytes,
@@ -348,7 +345,7 @@ def _bound_record(
         "source_line": entry["source_line"],
         "source_key": entry["_source_key"],
         "source_record": copy.deepcopy(entry["_source_record"]),
-        "source_bytes": entry.get("_source_bytes"),
+        "source_bytes": entry["_source_bytes"],
         "source_hash": entry["source_hash"],
         "source_record_sha256": source_record_sha256,
         "output_id": actual_output_id,
@@ -471,6 +468,7 @@ def prepare_lanes(plan: dict[str, Any]) -> list[dict[str, Any]]:
             "source_run records lack a retained output or an explicit exclusion/quarantine: "
             f"count={len(missing)}, first={preview}"
         )
+    prepared[0]["_completion_source"] = plan["source_run_dir"]
     return prepared
 
 

@@ -19,6 +19,7 @@ if __package__:
     from .curate_identity_json import IdentityCurationError
     from .record_kind import PREFERENCE_SIDE_KINDS, SUPPORTED_RECORD_KINDS
     from .rights_mapping import (
+        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
     )
@@ -34,6 +35,7 @@ else:
     from curate_identity_json import IdentityCurationError
     from record_kind import PREFERENCE_SIDE_KINDS, SUPPORTED_RECORD_KINDS
     from rights_mapping import (
+        HOSTED_FRONTIER_PROFILE_ID,
         INTENDED_USES,
         PROJECT_TRAINING_POLICIES,
     )
@@ -146,7 +148,7 @@ _PATH_RULES: tuple[FieldRule, ...] = (
     ),
 )
 
-_RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
+_RIGHTS_VOCABULARY_BASE_RULES: tuple[FieldRule, ...] = (
     FieldRule("provider", _in_vocabulary(PROVIDERS), "factories[{index}] has unknown provider"),
     FieldRule("channel", _in_vocabulary(RIGHTS_CHANNELS), "factories[{index}] has unknown channel"),
     FieldRule(
@@ -165,6 +167,18 @@ _RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
         "factories[{index}] has unknown project_training_policy",
     ),
 )
+
+_HOSTED_PROFILE_RULE = FieldRule(
+    "rights_profile_id",
+    HOSTED_FRONTIER_PROFILE_ID.__eq__,
+    f"factories[{{index}}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}",
+)
+
+_RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
+    *_RIGHTS_VOCABULARY_BASE_RULES,
+    _HOSTED_PROFILE_RULE,
+)
+_MODEL_CHANNEL_RIGHTS_RULES = _RIGHTS_VOCABULARY_BASE_RULES
 
 _SHAPE_RULES: tuple[FieldRule, ...] = (
     FieldRule(

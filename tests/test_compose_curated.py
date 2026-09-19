@@ -9,8 +9,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from training_audit_test_helpers import assert_research_policy
-
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 for _path in (TESTS, REPO / "pipelines"):
@@ -30,6 +28,7 @@ from compose_curated_test_support import (  # noqa: E402
     read_jsonl,
     thalamic,
     write_jsonl,
+    assert_research_only_audit,
 )
 
 
@@ -42,7 +41,9 @@ class ComposeCurated(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = build_source_run(root / "run")
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 8)
             self.assertEqual(summary["counts"]["retained"], 7)
@@ -56,12 +57,14 @@ class ComposeCurated(unittest.TestCase):
                     else "compatible_core"
                 ),
             )
-            assert_research_policy(self, summary["audit"])
+            assert_research_only_audit(self, summary["audit"])
             self.assertEqual(summary["audit"]["records"], 7)
+            self.assertEqual(summary["rights"]["lanes"]["research"], 7)
+            self.assertFalse(summary["rights"]["training_exportable"])
 
             records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
             report = training_audit.audit_run(records_dir)
-            assert_research_policy(self, report)
+            assert_research_only_audit(self, report)
             self.assertEqual(report["identity"]["coverage_pct"], 100.0)
             self.assertEqual(report["preferences"]["context_purity_pct"], 100.0)
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
@@ -251,7 +254,9 @@ class ComposeCurated(unittest.TestCase):
             first["state"]["domain"] = "line\u2028separator\u2029paragraph"
             write_jsonl(source / "batch-r01.jsonl", [first, thalamic("plain")])
 
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
             output = (
                 root
                 / "curated"
@@ -263,7 +268,7 @@ class ComposeCurated(unittest.TestCase):
 
             self.assertEqual(summary["counts"]["source_records"], 2)
             self.assertEqual(summary["audit"]["records"], 2)
-            assert_research_policy(self, summary["audit"])
+            assert_research_only_audit(self, summary["audit"])
             self.assertEqual(len(records), 2)
             self.assertEqual(records[0]["state"]["domain"], first["state"]["domain"])
 
@@ -282,7 +287,9 @@ class ComposeCurated(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            summary = compose_curated.compose_run(root / "run", root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(root / "run", root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 4)
             self.assertEqual(summary["counts"]["blank_lines"], 1)
@@ -321,7 +328,9 @@ class ComposeCurated(unittest.TestCase):
                 compose_curated.source_jsonl_members(source),
                 ("thalamic-trajectory-factory/batch-r01.jsonl",),
             )
-            summary = compose_curated.compose_run(source, root / "curated")
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, root / "curated")
+            )
 
             self.assertEqual(summary["counts"]["source_records"], 1)
             self.assertEqual(summary["counts"]["source_files"], 1)

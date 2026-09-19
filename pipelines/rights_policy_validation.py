@@ -165,7 +165,12 @@ def _require_exact_providers(coverage: _RuleCoverage, where: str) -> None:
 
 
 def _require_hosted_providers(coverage: _RuleCoverage, where: str) -> None:
-    if coverage.hosted_providers != set(HOSTED_FRONTIER_PROVIDERS):
+    # Procedural, simulator, and Nemotron placeholder routes authorize through
+    # dedicated profiles; every other canonical provider must appear on a
+    # hosted-frontier rule (including open-weight cloud vendors blocked there).
+    non_hosted_frontier_providers = frozenset({"procedural", "simulator", "nemotron"})
+    expected_hosted = set(CANONICAL_PROVIDERS) - non_hosted_frontier_providers
+    if coverage.hosted_providers != expected_hosted:
         raise policy_error(where, "hosted rules do not provide canonical provider coverage")
 
 
@@ -203,10 +208,6 @@ def _require_fallback_coverage(coverage: _RuleCoverage, where: str) -> None:
 
 
 _REVIEWED_PROFILE_ROUTES = {
-    HOSTED_FRONTIER_PROFILE_ID: frozenset({
-        ("anthropic", "consumer"), ("meta", "api"),
-        ("openai", "consumer"), ("xai", "consumer"),
-    }),
     _rights_mapping.PROCEDURAL_PROFILE_ID: frozenset({("procedural", "local")}),
     _rights_mapping.SIMULATOR_PROFILE_ID: frozenset({("simulator", "local")}),
     _rights_mapping.DEEPSEEK_PLACEHOLDER_PROFILE_ID: frozenset({("deepseek", "api"), ("deepseek", "local")}),

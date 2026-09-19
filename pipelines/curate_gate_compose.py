@@ -32,6 +32,7 @@ if __package__:
     from . import curate_gate_paths as _paths
     from .check_records import canonical_record_id
     from .exact_json import dumps_exact_json
+    from .curate_identity import classify_kind
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_compose"
@@ -46,6 +47,7 @@ else:
     import curate_gate_paths as _paths
     from check_records import canonical_record_id
     from exact_json import dumps_exact_json
+    from curate_identity import classify_kind
 
 GateError = _contract.GateError
 EXCLUSION_ACTIONS = _contract.EXCLUSION_ACTIONS
@@ -269,21 +271,12 @@ def _output_summary(relative: str, target: Path, records: list[dict[str, Any]]) 
     }
 
 
-def _composed_line(item):
-    record = item["record"]
-    if record.get("family") == "neuromorphic-fault-recovery":
-        payload = item.get("source_bytes")
-        if not isinstance(payload, bytes) or record_sha256(record) != item["source_record_sha256"]:
-            raise GateError("native simulator composition must preserve authenticated source bytes")
-        return payload
-    return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-
-
-def _composed_payload(records):
-    lines = [_composed_line(item) for item in records]
-    if any(not line.endswith(b"\n") for line in lines[:-1]):
-        raise GateError("unterminated native source cannot precede another composed record")
-    return b"".join(lines)
+def _composed_line(item: dict[str, Any]) -> bytes:
+    if classify_kind(item["record"]) == "code_repair":
+        if not _merge._same_json(item["record"], item["source_record"]):
+            raise GateError("procedural evidence must preserve the reviewed source record")
+        return item["source_bytes"]
+    return (dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True) + "\n").encode()
 
 
 def _write_composed_path(
@@ -293,7 +286,7 @@ def _write_composed_path(
     records.sort(key=lambda item: (item["source_path"], item["source_line"]))
     target = destination / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(_composed_payload(records))
+    target.write_bytes(b"".join(_composed_line(item) for item in records))
     bindings = [
         _record_binding(relative, output_line, item) for output_line, item in enumerate(records, 1)
     ]

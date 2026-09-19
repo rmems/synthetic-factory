@@ -29,7 +29,6 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_gate_identity_mapping")
-    from .curate_identity_simulator_process import replay_session
     from . import curate_gate_contract as _contract
     from . import curate_gate_digest as _digest
     from . import curate_gate_identity_gate as _identity_gate
@@ -43,7 +42,6 @@ else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
-    from curate_identity_simulator_process import replay_session
     import curate_gate_contract as _contract
     import curate_gate_digest as _digest
     import curate_gate_identity_gate as _identity_gate
@@ -59,6 +57,11 @@ _MISSING = _merge._MISSING
 _mapping_value = _identity_gate._mapping_value
 _canonical_identity_output_id = _identity_gate._canonical_identity_output_id
 _claimed_identity_source_evidence = _identity_gate._claimed_identity_source_evidence
+
+if __package__:
+    from .curate_gate_rights import replay_gate_identity
+else:
+    from curate_gate_rights import replay_gate_identity
 
 
 @dataclass
@@ -223,25 +226,20 @@ def _tally_provenance_mappings(tally: _MappingTally, context: _MappingEntry) -> 
 # ---------------------------------------------------------------------------
 
 
-def _tally_native(tally, context):
-    if __package__:
-        from .curate_gate_simulator_identity import authenticate, is_native
-    else:
-        from curate_gate_simulator_identity import authenticate, is_native
-    if not is_native(context.entry, context.record):
-        return False
+def _tally_procedural_mapping(tally: _MappingTally, context: _MappingEntry) -> None:
     try:
-        digest = authenticate(context.entry, context.record, context.where)
-        if digest != context.entry.get("source_originals_sha256"):
-            raise GateError("native simulator source attestation differs from replay")
-        tally.checked_ids += 1
-        tally.checked_source_originals += 1
-    except GateError as exc:
+        replay = replay_gate_identity(context.entry)
+        if not _same_json(replay.record, context.record):
+            raise ValueError("procedural output does not preserve reviewed source")
+        if record_sha256(context.entry["identity_detail"]) != context.entry.get("source_originals_sha256"):
+            raise ValueError("procedural source attestation drifted")
+    except ValueError as exc:
         tally.refuse(context.where, str(exc))
-    return True
+        return
+    tally.checked_ids += 1
+    tally.checked_source_originals += 1
 
 
-@replay_session()
 def _identity_mapping_gate(
     identity_entries: Sequence[dict[str, Any]],
     records_by_source: dict[tuple[str, int], Any],
@@ -260,7 +258,8 @@ def _identity_mapping_gate(
         if entry.get("output_id") != canonical_record_id(record):
             tally.refuse(where, "identity output_id mismatches final record")
         context = _MappingEntry(entry, entry_index, record, where)
-        if _tally_native(tally, context):
+        if curate_identity.classify_kind(record) == "code_repair":
+            _tally_procedural_mapping(tally, context)
             continue
         _tally_source_originals(tally, context)
         if _tally_id_mappings(tally, context):

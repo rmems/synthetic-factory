@@ -107,6 +107,13 @@ PROVIDER_ALIASES = MappingProxyType(
         "xAI (SpaceXAI)": "xai",
         "OpenAI": "openai",
         "Meta": "meta",
+        "NVIDIA": "nvidia",
+        "IBM": "ibm",
+        "DeepSeek": "deepseek",
+        "MoonshotAI": "moonshot",
+        "Alibaba": "alibaba",
+        "MiniMax": "minimax",
+        "Microsoft": "microsoft",
     }
 )
 if not HOSTED_FRONTIER_PROVIDERS <= CANONICAL_PROVIDERS:

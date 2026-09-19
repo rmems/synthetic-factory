@@ -26,7 +26,7 @@ reviewers.
 ## Generator lanes and rights
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
-(`factory-registry-v0.2`), keyed by exact `path_id` and `payload_factory`,
+(`factory-registry-v0.3`), keyed by exact `path_id` and `payload_factory`,
 that names its generator, provider/channel assignment, and rights profile
 (the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
@@ -44,22 +44,36 @@ are two lanes:
   evidence is in place): registry-registered procedural generators with fresh
   human-authored or permissively sourced catalogs ([#175], epic [#169]);
   deterministic in-repo simulators admitted as authoritative oracles ([#171],
-  epic [#76]); DeepSeek / Nemotron lanes only after their terms snapshots are
-  pinned ([#170], [#163]).
+  epic [#76]); pinned local open-weight generators on `local_vllm` (Nemotron 3
+  Nano 4B first, then Lightning / Muse Glimmer / Granite specialists) and
+  OpenRouter models only when generation-time `distillable=true` catalog
+  membership plus underlying terms snapshots are pinned ([#186], [#170],
+  [#163]). A rights decision for one channel never unblocks another: local
+  vLLM ≠ local Ollama ≠ OpenRouter ≠ NIM/watsonx/hosted API.
 
-The identity lane (`pipelines/curate_identity.py`) authenticates reviewed
-registry assignments. The training audit also denies eligibility when the
-actual path-derived reviewed row has `project_training_policy: blocked` or
-`training_ready_policy: never`; native fault-recovery evidence remains
-research-only even under another factory directory. These records still
-receive validation and identity accounting, but their presence blocks the
-training export, including in mixed corpora. The sealed code-repair route
-retains its separate source, execution, and completed-publication checks.
-Unknown or unregistered paths retain the audit's pre-existing structural
-behavior: `training_ready` is not a universal registry authorization receipt.
-Full rights admission remains a separate requirement tracked in [#167]. The contract every new generator must
-meet is the "Generator rule" (formerly `AGENTS.md`, retired in [#184];
-preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
+Today identity attaches a bound rights envelope to every retained mapping.
+Compose, the training audit, the curation gate, and Hugging Face export
+enforce that envelope. Research-only records stay available for measurement
+and, where redistribution is cleared, publication; they cannot become
+`training_ready` or enter a training export. `training_ready` for identity-cleaned or composed records, in `COMPOSE.json`,
+or in export `provenance.json` includes both structural and rights checks.
+Raw-run audits remain structural diagnostics and do not grant export authority. Hosted frontier rows stay `research_only` / `blocked`. The procedural
+`python-function-repair-factory` and `oracle-grounded` rows are training-candidate paths
+(`training_candidate` / `allowed`) after sealed source admission, fresh
+replay, and completed-round gates; the reviewed model-channel rows carry
+`allowed` as channel eligibility, not a publish or training-ready claim.
+Project policy and provider training
+status are independent: both must be `allowed`, with reviewed evidence and an
+exact source-byte binding, before a record can enter a training-ready export.
+Retained rights are replayed from the reviewed registry and exact source
+bytes; a declared `allowed` value is insufficient. Existing curated artifacts
+without complete bound rights evidence must be regenerated through identity
+and compose before training export. Procedural curation preserves the
+original record bytes and verifies completion against the original published
+source tree, which must remain available for audit and promotion.
+The contract every new generator must meet is the "Generator rule"
+(formerly `AGENTS.md`, retired in [#184]; preserved
+[at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
 ## Public dataset family
 
@@ -125,13 +139,14 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
-- `schemas/` — Thalamic schema + `provenance.md`
+
+- `schemas/` — Thalamic schema + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
-- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required.
-- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
-- `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
+- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`) and mill-script inventory (`MILL-SCRIPT-INVENTORY.json`). Identity authority is the registry (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py` (defined in `pipelines/curate_identity_registry_rows.py`); both reviews are required. Model-channel rows must also match `schemas/model-channel-source-policy-v1.json` exactly. Classify leftover mill scripts in the mill-script inventory ([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators; `model_channel/` holds the local and OpenRouter generator clients
+- `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current). Leftover mill generator scripts are not stored here on `main`; they remain recoverable on `origin/legacy-mill-lane`.
 
 ## Historical prompt lane
 
@@ -149,6 +164,23 @@ published Hugging Face artifacts above. Do not reintroduce hosted-model prompt
 generation on `main`: new records come from registry-registered generators
 (see [Generator lanes and rights](#generator-lanes-and-rights) and the
 retired "Generator rule", preserved [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
+
+## Historical mill generators
+
+Leftover-round mill scripts (`*_mill.py` under `experiments/` on
+`origin/legacy-mill-lane`) produced mill-mix records in the 2026-08-19 agentic
+run. They are retained historical generators, not production CLIs. Main keeps
+the mill *detectors* (`pipelines/leftover_mill.py`, `pipelines/mill_family.py`,
+`pipelines/compose_mill.py`) and cleaned mill-family packages that AST-extract
+catalogs without vendoring those scripts. Classification, the unclassified-file
+guard, and quality-scope globs live in `config/MILL-SCRIPT-INVENTORY.json`
+([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
+
+```bash
+git fetch origin legacy-mill-lane:refs/remotes/origin/legacy-mill-lane
+git show origin/legacy-mill-lane:experiments/srl_r6110_leftover3_mill.py | head
+python3 pipelines/mill_script_inventory.py --check
+```
 
 ## Pipelines
 
@@ -169,6 +201,28 @@ on a destination-specific field being absent: published mixes defeat both.
 Because prefix and goal ownership are cross-factory properties, a single file
 or one-factory source remains dry-run only; cleaned output fails closed until
 the source provides multi-factory ownership context.
+
+The factory supports agentic and coding datasets for LLMs and neuromorphic
+datasets for SNNs. An explicit [Rust backend](docs/oracle-rust-backend.md) uses
+`axon-encoder 0.4.0` and `neuromod 0.6.0` for crate-native encoder and neuron
+episodes, with fresh execution replay during assembly and local export.
+
+Oracle-grounded families (generator proposes, oracle measures — see
+[`docs/oracle-grounded-datasets.md`](docs/oracle-grounded-datasets.md)):
+
+```bash
+python3 pipelines/oracle_generate.py --count 8 outputs/oracle-grounded/2026-09-01
+python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09-01
+```
+
+Those default runs use deterministic in-repo reference simulators and are
+stamped `implementation: "reference"`. Selecting `--backend rust` runs the
+two crate-native profiles through a prebuilt executable; the remaining three
+families continue to use their reference implementations. Under [#171] an
+accepted reference record whose `oracle.module_digest` matches the current
+sources is publishable as a reproducible simulator measurement; it is never
+publishable as a measurement of the named runtimes, and a digest the current
+sources cannot reproduce keeps `publishable: false`.
 
 ### Curation integration and promotion gate
 
@@ -273,7 +327,6 @@ approved decision, and only training-candidate rows
 [#161]: https://github.com/rmems/synthetic-factory/issues/161
 [#163]: https://github.com/rmems/synthetic-factory/issues/163
 [#165]: https://github.com/rmems/synthetic-factory/issues/165
-[#167]: https://github.com/rmems/synthetic-factory/issues/167
 [#169]: https://github.com/rmems/synthetic-factory/issues/169
 [#170]: https://github.com/rmems/synthetic-factory/issues/170
 [#171]: https://github.com/rmems/synthetic-factory/issues/171

@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from pipelines import compose_curated, export_hf, training_audit, validate_run
+from pipelines.compose_curated_run_context import ComposeRunContext
 from pipelines import curate_identity_simulator_process as process
 from pipelines.oracle_grounded import fault_oracle
 
@@ -29,7 +30,9 @@ class SimulatorAssembly(unittest.TestCase):
             with process.replay_session():
                 self.assertTrue(all(validate_run.check_line(row, "fresh") == ([], "fault_recovery") for row in records))
             with patch.object(process.subprocess, "Popen", wraps=process.subprocess.Popen) as launches:
-                summary = compose_curated.compose_run(source, root / "composed")
+                summary = compose_curated.compose_run(
+                    ComposeRunContext(source, root / "composed")
+                )
             self.assertEqual(summary["counts"]["retained"], 6)
             self.assertEqual(launches.call_count, 2)
             target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
@@ -55,7 +58,9 @@ class SimulatorAssembly(unittest.TestCase):
             source = root / "source" / FACTORY / "fresh.jsonl"
             source.parent.mkdir(parents=True)
             source.write_bytes(payload)
-            summary = compose_curated.compose_run(source.parent.parent, root / "composed")
+            summary = compose_curated.compose_run(
+                ComposeRunContext(source.parent.parent, root / "composed")
+            )
             self.assertEqual(summary["counts"]["retained"], 2)
             target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
             self.assertEqual(target.read_bytes(), payload)

@@ -155,6 +155,56 @@ def route_fault_recovery(obj, where):
     return record_findings(obj, where), "fault_recovery"
 
 
+def _route_oracle(obj, where, _factory_staging):
+    """Bind oracle-grounded envelope checks without re-running any oracle.
+
+    Envelope and status findings are fail-closed here, as are the family
+    findings of an accepted-filed record: a fabricated measurement must not
+    ride a trusted envelope into the accepted partition. Rejected-filed
+    records keep their honestly-reported reasons as evidence and stay owned
+    by oracle_validate, which also checks the filing (accepted- vs rejected-).
+    """
+    if __package__:
+        from .oracle_grounded import record as _oracle_record
+    else:
+        from oracle_grounded import record as _oracle_record
+    try:
+        layers = _oracle_record.classify(obj)
+    except Exception as exc:  # final boundary around one untrusted record
+        return [
+            f"{where}: record validation raised an internal exception: "
+            f"{type(exc).__name__}"
+        ]
+    errors = [f"{where}: {finding}" for finding in layers["envelope"] + layers["status"]]
+    return errors + _oracle_filing_errors(obj, layers, where)
+
+
+def _oracle_filing_errors(obj, layers, where):
+    """Findings that depend on the accepted-/rejected- filing of one record.
+
+    ``accepted-`` files must survive their own family invariants, so the
+    recomputed family findings are staging errors there; ``rejected-`` files
+    keep those reasons as honestly-reported evidence owned by oracle_validate.
+    """
+    filename = where.rsplit(":", 1)[0].rsplit("/", 1)[-1]
+    expected = None
+    if filename.startswith("accepted-"):
+        expected = "accepted"
+    elif filename.startswith("rejected-"):
+        expected = "rejected"
+    validation = obj.get("validation")
+    declared = validation.get("status") if isinstance(validation, dict) else None
+    errors = []
+    if expected and declared != expected:
+        errors.append(
+            f"{where}: record declares verdict {declared!r} but is filed in "
+            f"{filename!r}, which is reserved for {expected!r} records"
+        )
+    if expected == "accepted":
+        errors.extend(f"{where}: {finding}" for finding in layers["family"])
+    return errors
+
+
 def _unknown_shape(obj, where):
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 
@@ -189,6 +239,11 @@ def check_line(obj, where, factory_staging=False, hooks=None):
         return route_code_repair(obj, where)
     if obj.get("family") == "neuromorphic-fault-recovery":
         return route_fault_recovery(obj, where)
+    oracle_shape = obj.get("schema") == "oracle-grounded/v1" or all(
+        key in obj for key in ("oracle", "result", "proposal_hash")
+    )
+    if oracle_shape:
+        return _route_oracle(obj, where, factory_staging), "oracle"
     return _route_known_shape(LineCall(obj, where, factory_staging, hooks))
 
 

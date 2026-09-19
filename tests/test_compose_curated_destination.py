@@ -27,40 +27,49 @@ class ComposeDestinationSafety(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = build_source_run(root / "run")
-            compose_curated.compose_run(source, root / "curated")
+            compose_curated.compose_run(compose_curated.ComposeRunContext(source, root / "curated"))
 
+            context = compose_curated.ComposeRunContext(source, root / "curated")
             with self.assertRaisesRegex(compose_curated.ComposeError, "refusing to overwrite"):
-                compose_curated.compose_run(source, root / "curated")
+                compose_curated.compose_run(context)
+            context = compose_curated.ComposeRunContext(source, source / "nested")
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "cannot be written inside the source run"
             ):
-                compose_curated.compose_run(source, source / "nested")
+                compose_curated.compose_run(context)
+            context = compose_curated.ComposeRunContext(source, source)
             with self.assertRaisesRegex(compose_curated.ComposeError, "refusing to overwrite"):
-                compose_curated.compose_run(source, source)
+                compose_curated.compose_run(context)
+            context = compose_curated.ComposeRunContext(
+                source, root / "missing-parent" / "dest"
+            )
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "destination parent is missing"
             ):
-                compose_curated.compose_run(source, root / "missing-parent" / "dest")
+                compose_curated.compose_run(context)
+            context = compose_curated.ComposeRunContext(root / "absent-run", root / "other")
             with self.assertRaisesRegex(compose_curated.ComposeError, "source run is missing"):
-                compose_curated.compose_run(root / "absent-run", root / "other")
+                compose_curated.compose_run(context)
 
             raw = root / "outputs" / "raw"
             raw.mkdir(parents=True)
             safe = root / "safe"
             safe.mkdir()
             lexical_alias = raw / ".." / ".." / "safe" / "lexical-curated"
+            context = compose_curated.ComposeRunContext(source, lexical_alias)
             with self.assertRaisesRegex(compose_curated.ComposeError, "immutable raw"):
-                compose_curated.compose_run(source, lexical_alias)
+                compose_curated.compose_run(context)
             self.assertFalse((safe / "lexical-curated").exists())
 
             real_parent = root / "real-destination-parent"
             real_parent.mkdir()
             symlink_parent = root / "destination-parent-alias"
             symlink_parent.symlink_to(real_parent, target_is_directory=True)
+            context = compose_curated.ComposeRunContext(source, symlink_parent / "curated")
             with self.assertRaisesRegex(
                 compose_curated.ComposeError, "exact non-symlink directory"
             ):
-                compose_curated.compose_run(source, symlink_parent / "curated")
+                compose_curated.compose_run(context)
             self.assertFalse((real_parent / "curated").exists())
 
     def test_pinned_writer_refuses_a_child_directory_swapped_for_a_symlink(self):
@@ -111,20 +120,18 @@ class ComposeDestinationSafety(unittest.TestCase):
                 return child_descriptor, created
 
             try:
-                with (
-                    mock.patch.object(
-                        compose_destination,
-                        "_open_pinned_child_directory",
-                        side_effect=open_then_move,
-                    ),
-                    self.assertRaisesRegex(
+                with mock.patch.object(
+                    compose_destination,
+                    "_open_pinned_child_directory",
+                    side_effect=open_then_move,
+                ):
+                    with self.assertRaisesRegex(
                         compose_curated.ComposeError,
                         "escaped its pinned destination root",
-                    ),
-                ):
-                    compose_curated._write_new_text(
-                        descriptor, "records/factory/rows.jsonl", "{}\n"
-                    )
+                    ):
+                        compose_curated._write_new_text(
+                            descriptor, "records/factory/rows.jsonl", "{}\n"
+                        )
             finally:
                 os.close(descriptor)
 
@@ -155,11 +162,9 @@ class ComposeDestinationSafety(unittest.TestCase):
             descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 for unsafe in ("", "/absolute.jsonl", "../escape.jsonl", "a/./b.jsonl"):
-                    with (
-                        self.subTest(unsafe=unsafe),
-                        self.assertRaises(compose_curated.ComposeError),
-                    ):
-                        compose_curated._write_new_text(descriptor, unsafe, "{}\n")
+                    with self.subTest(unsafe=unsafe):
+                        with self.assertRaises(compose_curated.ComposeError):
+                            compose_curated._write_new_text(descriptor, unsafe, "{}\n")
             finally:
                 os.close(descriptor)
 
@@ -191,13 +196,12 @@ class ComposeDestinationSafety(unittest.TestCase):
                     raise OSError("simulated manifest write failure")
                 return real_write(root_descriptor, relative, text)
 
-            with (
-                mock.patch.object(
-                    compose_curated, "_write_new_text", side_effect=fail_on_manifest
-                ),
-                self.assertRaises(OSError),
+            context = compose_curated.ComposeRunContext(source, destination)
+            with mock.patch.object(
+                compose_curated, "_write_new_text", side_effect=fail_on_manifest
             ):
-                compose_curated.compose_run(source, destination)
+                with self.assertRaises(OSError):
+                    compose_curated.compose_run(context)
             self.assertFalse(destination.exists())
 
     def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
@@ -229,18 +233,17 @@ class ComposeDestinationSafety(unittest.TestCase):
                     replacement_parent.rename(parent)
                 return real_mkdir(path, mode, dir_fd=dir_fd)
 
-            with (
-                mock.patch.object(
-                    compose_curated.os,
-                    "mkdir",
-                    side_effect=swap_parent_before_create,
-                ),
-                self.assertRaisesRegex(
+            context = compose_curated.ComposeRunContext(source, destination)
+            with mock.patch.object(
+                compose_curated.os,
+                "mkdir",
+                side_effect=swap_parent_before_create,
+            ):
+                with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "destination parent changed while it was pinned",
-                ),
-            ):
-                compose_curated.compose_run(source, destination)
+                ):
+                    compose_curated.compose_run(context)
 
             self.assertTrue(swapped)
             self.assertFalse((moved_parent / destination.name).exists())

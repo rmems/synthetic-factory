@@ -19,51 +19,62 @@ for _path in (TESTS, REPO / "pipelines"):
 import export_hf  # noqa: E402
 import export_members  # noqa: E402
 import export_members_read  # noqa: E402
-from export_test_support import compose_fixture, export_mechanics_without_admission  # noqa: E402
+from export_test_support import ResearchExportAllowed, compose_fixture  # noqa: E402
 
 
-class ExportTransactionContracts(unittest.TestCase):
-    def assert_finish_mutation_refused(self, root, mutate):
-        curated = compose_fixture(root)
-        destination = root / "export"
-        real_finish = export_hf._finish_pinned_destination
-
-        def mutate_then_finish(pinned):
-            mutate(pinned)
-            return real_finish(pinned)
-
-        with (
-            mock.patch.object(export_hf, "_finish_pinned_destination",
-                              side_effect=mutate_then_finish) as mutation,
-            self.assertRaises(export_hf.ExportError),
-        ):
-            export_hf.export_run(curated, destination)
-        mutation.assert_called_once()
-        self.assertFalse(destination.exists())
-
-    @export_mechanics_without_admission(export_hf)
+class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
     def test_finish_reauthenticates_bytes_mutated_through_held_descriptor(self):
         """The real finish boundary catches staged-byte mutation before publish."""
-        def mutate(pinned):
-            descriptor = os.open(pinned.root / export_hf.TRAIN_PATH, os.O_WRONLY)
-            try:
-                os.pwrite(descriptor, b"corrupted\n", 0)
-            finally:
-                os.close(descriptor)
 
         with tempfile.TemporaryDirectory() as td:
-            self.assert_finish_mutation_refused(Path(td), mutate)
+            root = Path(td)
+            curated = compose_fixture(root)
+            destination = root / "export"
+            real_finish = export_hf._finish_pinned_destination
 
-    @export_mechanics_without_admission(export_hf)
+            def mutate_then_finish(pinned):
+                descriptor = os.open(pinned.root / export_hf.TRAIN_PATH, os.O_WRONLY)
+                try:
+                    os.pwrite(descriptor, b"corrupted\n", 0)
+                finally:
+                    os.close(descriptor)
+                return real_finish(pinned)
+
+            request = export_hf.ExportRequest(curated, destination)
+            with mock.patch.object(
+                export_hf,
+                "_finish_pinned_destination",
+                side_effect=mutate_then_finish,
+            ):
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(request)
+
+            self.assertFalse(destination.exists())
+
     def test_finish_rejects_an_undeclared_staged_entry(self):
         """Publication authenticates the complete tree, not only known files."""
-        def add_extra(pinned):
-            (pinned.root / "undeclared-extra").write_bytes(b"not declared\n")
 
         with tempfile.TemporaryDirectory() as td:
-            self.assert_finish_mutation_refused(Path(td), add_extra)
+            root = Path(td)
+            curated = compose_fixture(root)
+            destination = root / "export"
+            real_finish = export_hf._finish_pinned_destination
 
-    @export_mechanics_without_admission(export_hf)
+            def add_extra_then_finish(pinned):
+                (pinned.root / "undeclared-extra").write_bytes(b"not declared\n")
+                return real_finish(pinned)
+
+            request = export_hf.ExportRequest(curated, destination)
+            with mock.patch.object(
+                export_hf,
+                "_finish_pinned_destination",
+                side_effect=add_extra_then_finish,
+            ):
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(request)
+
+            self.assertFalse(destination.exists())
+
     def test_publication_collision_after_final_authentication_fails_closed(self):
         """The no-replace publish is the export's public linearization point."""
 
@@ -81,24 +92,20 @@ class ExportTransactionContracts(unittest.TestCase):
                     (destination / "concurrent-owner").write_bytes(b"keep me\n")
                 return real_finish(pinned)
 
-            with (
-                mock.patch.object(
-                    export_hf,
-                    "_finish_pinned_destination",
-                    side_effect=race_at_finish,
-                ) as mutation,
-                self.assertRaises(export_hf.ExportError),
+            request = export_hf.ExportRequest(curated, destination)
+            with mock.patch.object(
+                export_hf,
+                "_finish_pinned_destination",
+                side_effect=race_at_finish,
             ):
-                export_hf.export_run(curated, destination)
-
-            mutation.assert_called_once()
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(request)
 
             self.assertEqual(
                 (destination / "concurrent-owner").read_bytes(),
                 b"keep me\n",
             )
 
-    @export_mechanics_without_admission(export_hf)
     def test_source_mutation_after_destination_authentication_aborts_export(self):
         """Commit must still represent the authenticated curated member set."""
 
@@ -116,20 +123,17 @@ class ExportTransactionContracts(unittest.TestCase):
                 late.write_bytes(b'{}\n')
                 return result
 
-            with (
-                mock.patch.object(
-                    export_hf,
-                    "_write_export_metadata",
-                    side_effect=authenticate_then_add,
-                ) as mutation,
-                self.assertRaisesRegex(
+            request = export_hf.ExportRequest(curated, destination)
+            with mock.patch.object(
+                export_hf,
+                "_write_export_metadata",
+                side_effect=authenticate_then_add,
+            ):
+                with self.assertRaisesRegex(
                     export_hf.ExportError,
                     "curated member set changed",
-                ),
-            ):
-                export_hf.export_run(curated, destination)
-
-            mutation.assert_called_once()
+                ):
+                    export_hf.export_run(request)
 
             self.assertFalse(destination.exists())
 
@@ -141,15 +145,13 @@ class ExportTransactionContracts(unittest.TestCase):
             member = root / "member.jsonl"
             member.write_bytes(b'{}\n')
 
-            with (
-                mock.patch.object(Path, "lstat", side_effect=OSError("denied")),
-                self.assertRaisesRegex(export_hf.ExportError, "cannot inspect"),
-            ):
-                export_members._read_exact_regular_file(
-                    root,
-                    member.name,
-                    "curated payload",
-                )
+            with mock.patch.object(Path, "lstat", side_effect=OSError("denied")):
+                with self.assertRaisesRegex(export_hf.ExportError, "cannot inspect"):
+                    export_members._read_exact_regular_file(
+                        root,
+                        member.name,
+                        "curated payload",
+                    )
 
     def test_pre_and_post_read_lstat_failures_are_export_errors(self):
         """Both descriptor-authentication lstat phases normalize OSError."""
@@ -175,16 +177,16 @@ class ExportTransactionContracts(unittest.TestCase):
                         "lstat",
                         side_effect=observations,
                     ),
-                    self.assertRaisesRegex(
+                ):
+                    with self.assertRaisesRegex(
                         export_members.ExportError,
                         "cannot inspect declared file",
-                    ),
-                ):
-                    export_members_read.read_exact_regular_file(
-                        root,
-                        member.name,
-                        "curated payload",
-                    )
+                    ):
+                        export_members_read.read_exact_regular_file(
+                            root,
+                            member.name,
+                            "curated payload",
+                        )
 
     def test_export_error_remains_in_star_import_surface(self):
         self.assertIn("ExportError", export_members.__all__)

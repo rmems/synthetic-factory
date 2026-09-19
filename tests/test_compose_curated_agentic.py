@@ -8,8 +8,6 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from training_audit_test_helpers import assert_research_policy
-
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 for _path in (TESTS, REPO / "pipelines"):
@@ -31,6 +29,7 @@ from compose_curated_test_support import (  # noqa: E402
     safety_case,
     thalamic,
     write_jsonl,
+    assert_research_only_audit,
 )
 
 
@@ -65,7 +64,9 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
             source / "safety-calibration-factory" / "batch-r01.jsonl",
             [safety],
         )
-        summary = compose_curated.compose_run(source, root / "curated")
+        summary = compose_curated.compose_run(
+            compose_curated.ComposeRunContext(source, root / "curated")
+        )
         records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
         return summary, records_dir
 
@@ -79,7 +80,7 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
                     ("thought", "hidden refusal reasoning"),
                 ),
             )
-            assert_research_policy(self, summary["audit"])
+            assert_research_only_audit(self, summary["audit"])
             self.assertEqual(
                 summary["transforms"]["coding"]["registered_agentic"],
                 {
@@ -89,7 +90,7 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
                 },
             )
             report = training_audit.audit_run(records_dir)
-            assert_research_policy(self, report)
+            assert_research_only_audit(self, report)
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
             for output in records_dir.rglob("*.jsonl"):
                 for record in read_jsonl(output):
@@ -132,9 +133,9 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
                     ("internal_reasoning_optimizer", "hidden optimizer trace"),
                 ),
             )
-            assert_research_policy(self, summary["audit"])
+            assert_research_only_audit(self, summary["audit"])
             report = training_audit.audit_run(records_dir)
-            assert_research_policy(self, report)
+            assert_research_only_audit(self, report)
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
             for output in records_dir.rglob("*.jsonl"):
                 for record in read_jsonl(output):

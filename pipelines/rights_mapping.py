@@ -35,10 +35,27 @@ MAPPING_PATH = (
 MAX_RIGHTS_JSON_BYTES = 1024 * 1024
 
 HOSTED_FRONTIER_PROVIDERS = frozenset({"anthropic", "meta", "openai", "xai"})
-CANONICAL_PROVIDERS = HOSTED_FRONTIER_PROVIDERS | frozenset(
-    {"procedural", "simulator", "deepseek", "nemotron"}
-)
-CHANNELS = frozenset({"consumer", "api", "enterprise", "local"})
+CANONICAL_PROVIDERS = HOSTED_FRONTIER_PROVIDERS | frozenset({
+    "procedural",
+    "simulator",
+    "deepseek",
+    "nemotron",
+    "nvidia",
+    "ibm",
+    "moonshot",
+    "alibaba",
+    "minimax",
+    "microsoft",
+})
+CHANNELS = frozenset({
+    "consumer",
+    "api",
+    "enterprise",
+    "local",
+    "local_vllm",
+    "local_ollama",
+    "openrouter_api",
+})
 INTENDED_USES = frozenset({"research_only", "training_candidate"})
 PROJECT_TRAINING_POLICIES = frozenset({"blocked", "allowed"})
 EVIDENCE_STATUSES = frozenset({"allowed", "restricted", "unresolved"})
@@ -59,16 +76,18 @@ NEMOTRON_PLACEHOLDER_PROFILE_ID = "nemotron-terms-placeholder-v1"
 PLACEHOLDER_PROFILE_IDS = frozenset(
     {DEEPSEEK_PLACEHOLDER_PROFILE_ID, NEMOTRON_PLACEHOLDER_PROFILE_ID}
 )
-REQUIRED_PROFILE_IDS = frozenset(
-    {
-        HOSTED_FRONTIER_PROFILE_ID,
-        UNKNOWN_PROVENANCE_PROFILE_ID,
-        PROCEDURAL_PROFILE_ID,
-        SIMULATOR_PROFILE_ID,
-        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
-        NEMOTRON_PLACEHOLDER_PROFILE_ID,
-    }
-)
+OPEN_WEIGHT_LOCAL_PROFILE_ID = "open-weight-local-candidate-v1"
+OPENROUTER_DISTILLABLE_PROFILE_ID = "openrouter-distillable-candidate-v1"
+REQUIRED_PROFILE_IDS = frozenset({
+    HOSTED_FRONTIER_PROFILE_ID,
+    UNKNOWN_PROVENANCE_PROFILE_ID,
+    OPEN_WEIGHT_LOCAL_PROFILE_ID,
+    OPENROUTER_DISTILLABLE_PROFILE_ID,
+    PROCEDURAL_PROFILE_ID,
+    SIMULATOR_PROFILE_ID,
+    DEEPSEEK_PLACEHOLDER_PROFILE_ID,
+    NEMOTRON_PLACEHOLDER_PROFILE_ID,
+})
 UNBLOCK_TERMS_SNAPSHOT_FIELD = "unblock_terms_snapshot_sha256"
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")

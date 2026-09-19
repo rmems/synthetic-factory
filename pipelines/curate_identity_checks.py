@@ -282,7 +282,7 @@ def retained_source_lines(results, deps: Dependencies):
             deps.curation_error,
         )
         by_line[source_meta["line"]] = (
-            source_meta["original"] if result.mapping["record_kind"] in {"code_repair", "fault_recovery"}
+            source_meta["original"] if result.mapping["record_kind"] in ("code_repair", "oracle")
             else deps.canonical_json(result.record)
         )
     return retained_by_rel
@@ -301,5 +301,4 @@ def rollback_identity_tree(dest, created_files, created_directories):
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
 

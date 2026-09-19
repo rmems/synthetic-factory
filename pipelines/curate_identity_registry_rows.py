@@ -95,22 +95,24 @@ _REQUIRED_ROW_FIELDS = (
 
 _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
     {
-        ("fable-5", "fable-5"): ("anthropic", "consumer", HOSTED_FRONTIER_PROFILE_ID),
-        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer", HOSTED_FRONTIER_PROFILE_ID),
-        ("grok-4.6", "grok-4.6"): ("xai", "consumer", HOSTED_FRONTIER_PROFILE_ID),
-        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api", HOSTED_FRONTIER_PROFILE_ID),
-        ("procedural-attested", "1"): ("procedural", "local", PROCEDURAL_PROFILE_ID),
-        ("relay-reflex-simulator", "1"): ("simulator", "local", SIMULATOR_PROFILE_ID),
-        ("deepseek-placeholder", "pending-terms"): (
-            "deepseek",
-            "api",
-            DEEPSEEK_PLACEHOLDER_PROFILE_ID,
-        ),
-        ("nemotron-placeholder", "pending-terms"): (
-            "nemotron",
-            "api",
-            NEMOTRON_PLACEHOLDER_PROFILE_ID,
-        ),
+        ('fable-5', 'fable-5'): ('anthropic', 'consumer', 'hosted-frontier-research-only-v1'),
+        ('gpt-5.6-sol', 'gpt-5.6-sol'): ('openai', 'consumer', 'hosted-frontier-research-only-v1'),
+        ('grok-4.6', 'grok-4.6'): ('xai', 'consumer', 'hosted-frontier-research-only-v1'),
+        ('muse-spark-1.2', 'muse-spark-1.2'): ('meta', 'api', 'hosted-frontier-research-only-v1'),
+        ('procedural-attested', '1'): ('procedural', 'local', 'procedural-local-attested-v1'),
+        ('relay-reflex-simulator', '1'): ('simulator', 'local', 'simulator-local-oracle-v1'),
+        ('deepseek-placeholder', 'pending-terms'): ('deepseek', 'api', 'deepseek-terms-placeholder-v1'),
+        ('nemotron-placeholder', 'pending-terms'): ('nemotron', 'api', 'nemotron-terms-placeholder-v1'),
+        ('nvidia-nemotron-3-nano-4b-bf16', 'dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f'): ('nvidia', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('nvidia-nemotron-3.5-lightning-30b', 'a9904d24bcc1d289a1950fa9d2b978c47cf903b9'): ('nvidia', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('muse-glimmer-30b', 'a4e59da52a7bc87ae7251dd5545c0dd437c44b68'): ('meta', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('ibm-granite-4.2-30b', '9e668ce1c538387ef24d3644e9b0606647762636'): ('ibm', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('nvidia-nemotron-3-nano-4b-ollama', 'sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394'): ('nvidia', 'local_ollama', 'open-weight-local-candidate-v1'),
+        ('openrouter-deepseek-v4-pro', 'deepseek/deepseek-v4-pro-0813'): ('deepseek', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-nemotron-3.5-lightning', 'nvidia/nemotron-3.5-lightning'): ('nvidia', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-kimi-k3', 'moonshotai/kimi-k3'): ('moonshot', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-qwen3.8-flash', 'qwen/qwen3.8-flash'): ('alibaba', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-phi-4', 'microsoft/phi-4'): ('microsoft', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
     }
 )
 if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
@@ -146,6 +148,11 @@ class FactoryRow(NamedTuple):
     generator_source_digest: str | None = None
     commit_sha: str | None = None
     module_digest: str | None = None
+    model_id: str | None = None
+    model_revision: str | None = None
+    generation_surface: str | None = None
+    runtime_tag: str | None = None
+    model_channel_policy_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -160,9 +167,10 @@ class FactoryRegistry:
 
 _apply_field_rules = _fields._apply_field_rules
 _PATH_RULES = _fields._PATH_RULES
-_RIGHTS_VOCABULARY_RULES = _fields.RIGHTS_VOCABULARY_RULES
-_SHAPE_RULES = _fields.SHAPE_RULES
-_PREFERENCE_SIDE_RULES = _fields.PREFERENCE_SIDE_RULES
+_RIGHTS_VOCABULARY_RULES = _fields._RIGHTS_VOCABULARY_RULES
+_MODEL_CHANNEL_RIGHTS_RULES = _fields._MODEL_CHANNEL_RIGHTS_RULES
+_SHAPE_RULES = _fields._SHAPE_RULES
+_PREFERENCE_SIDE_RULES = _fields._PREFERENCE_SIDE_RULES
 _require_profile_evidence = _evidence.require_profile_evidence
 
 
@@ -364,10 +372,36 @@ def _source_policy():
     return source_policy
 
 
+def _model_channel_policy():
+    """The model-channel route's separately sealed catalog, bound lazily."""
+
+    if __package__:
+        from .model_channel import source_policy
+    else:
+        from model_channel import source_policy
+    return source_policy
+
+
+def _oracle_source_policy():
+    """The oracle route's separately sealed authority, bound lazily like above."""
+
+    if __package__:
+        from .oracle_grounded import source_policy
+    else:
+        from oracle_grounded import source_policy
+    return source_policy
+
+
 def _is_procedural_row(raw: Any, schema_version: str) -> bool:
     if schema_version != REGISTRY_SCHEMA_VERSION:
         return False
     return isinstance(raw, Mapping) and raw.get("source_type") == "procedural"
+
+
+def _is_model_channel_row(raw: Any, schema_version: str) -> bool:
+    if schema_version != REGISTRY_SCHEMA_VERSION:
+        return False
+    return isinstance(raw, Mapping) and raw.get("source_type") == "model_channel"
 
 
 def _registry_row_for_validation(
@@ -375,13 +409,23 @@ def _registry_row_for_validation(
 ) -> Any:
     if _source_policy().claims_procedural_route(raw):
         raise IdentityCurationError(f"factories[{index}] procedural fields require v0.3 route")
+    if _model_channel_policy().claims_model_channel_route(raw):
+        raise IdentityCurationError(
+            f"factories[{index}] model-channel fields require v0.3 route"
+        )
     if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
         return _legacy_registry_row(raw, index)
     return raw
 
 
 def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
-    policy = _source_policy()
+    try:
+        return _parse_code_repair_procedural_row(raw, index)
+    except IdentityCurationError:
+        return _parse_oracle_procedural_row(raw, index)
+
+
+def _procedural_row(policy: Any, raw: Any, index: int) -> FactoryRow:
     try:
         policy.validate_registry_row(raw)
     except policy.SourcePolicyError as exc:
@@ -401,6 +445,67 @@ def _parse_procedural_row(raw: Any, index: int) -> FactoryRow:
         procedural_policy_sha256=raw["procedural_policy_sha256"], catalog_id=raw["catalog_id"],
         catalog_sha256=raw["catalog_sha256"], programs_sha256=raw["programs_sha256"],
     )
+
+
+def _validated_model_channel_row(raw: Any, index: int) -> Mapping:
+    policy = _model_channel_policy()
+    try:
+        policy.validate_registry_row(raw)
+    except policy.SourcePolicyError as exc:
+        raise IdentityCurationError(f"factories[{index}]: {exc}") from exc
+    if not isinstance(raw, Mapping):
+        raise IdentityCurationError(f"factories[{index}] must be an object")
+    missing = [key for key in _REQUIRED_ROW_FIELDS if key not in raw]
+    if missing:
+        raise IdentityCurationError(f"factories[{index}] missing fields: {missing}")
+    return raw
+
+
+def _parse_model_channel_row(raw: Any, index: int) -> FactoryRow:
+    raw = _validated_model_channel_row(raw, index)
+    _apply_field_rules(raw, _PATH_RULES, index)
+    identity = _generator_identity(raw, index)
+    _apply_field_rules(raw, _MODEL_CHANNEL_RIGHTS_RULES, index)
+    _require_reviewed_rights(raw, identity, index)
+    _apply_field_rules(raw, _SHAPE_RULES, index)
+    kinds = frozenset(raw["record_kinds"])
+    _require_kind_contracts(raw, kinds, index)
+    _require_preference_side_kinds(raw, kinds, index)
+    contracts = raw["provenance_contract_by_kind"]
+    return FactoryRow(
+        path_id=raw["path_id"],
+        payload_factory=raw["payload_factory"],
+        generator=identity[0],
+        generator_version=identity[1],
+        provider=raw["provider"],
+        channel=raw["channel"],
+        rights_profile_id=raw["rights_profile_id"],
+        intended_use=raw["intended_use"],
+        project_training_policy=raw["project_training_policy"],
+        record_kinds=kinds,
+        identity_authoritative=raw["identity_authoritative"],
+        publication_target=raw["publication_target"],
+        training_ready_policy=raw["training_ready_policy"],
+        allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
+        provenance_contract_by_kind={str(key): str(value) for key, value in contracts.items()},
+        source_type="model_channel",
+        generator_ownership=raw["generator_ownership"],
+        generation_method=raw["generation_method"],
+        source_license_evidence=MappingProxyType(dict(raw["source_license_evidence"])),
+        model_id=raw["model_id"],
+        model_revision=raw["model_revision"],
+        generation_surface=raw["generation_surface"],
+        runtime_tag=raw["runtime_tag"],
+        model_channel_policy_sha256=raw["model_channel_policy_sha256"],
+    )
+
+
+def _parse_code_repair_procedural_row(raw: Any, index: int) -> FactoryRow:
+    return _procedural_row(_source_policy(), raw, index)
+
+
+def _parse_oracle_procedural_row(raw: Any, index: int) -> FactoryRow:
+    return _procedural_row(_oracle_source_policy(), raw, index)
 
 
 if __package__:

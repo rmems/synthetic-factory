@@ -20,6 +20,8 @@ else:
 DEEPSEEK_PLACEHOLDER_PROFILE_ID = _rights_mapping.DEEPSEEK_PLACEHOLDER_PROFILE_ID
 HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
 NEMOTRON_PLACEHOLDER_PROFILE_ID = _rights_mapping.NEMOTRON_PLACEHOLDER_PROFILE_ID
+OPEN_WEIGHT_LOCAL_PROFILE_ID = _rights_mapping.OPEN_WEIGHT_LOCAL_PROFILE_ID
+OPENROUTER_DISTILLABLE_PROFILE_ID = _rights_mapping.OPENROUTER_DISTILLABLE_PROFILE_ID
 PROCEDURAL_PROFILE_ID = _rights_mapping.PROCEDURAL_PROFILE_ID
 SIMULATOR_PROFILE_ID = _rights_mapping.SIMULATOR_PROFILE_ID
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
@@ -29,6 +31,8 @@ policy_error = _rights_mapping.policy_error
 _REQUIRED_PROFILE_REASONS = {
     HOSTED_FRONTIER_PROFILE_ID: "HOSTED_FRONTIER_RESEARCH_ONLY",
     UNKNOWN_PROVENANCE_PROFILE_ID: "UNKNOWN_PROVENANCE",
+    OPEN_WEIGHT_LOCAL_PROFILE_ID: "OPEN_WEIGHT_LOCAL_CANDIDATE",
+    OPENROUTER_DISTILLABLE_PROFILE_ID: "OPENROUTER_DISTILLABLE_CANDIDATE",
     PROCEDURAL_PROFILE_ID: "PROCEDURAL_ATTESTED_LOCAL",
     SIMULATOR_PROFILE_ID: "SIMULATOR_ORACLE_PINNED",
     DEEPSEEK_PLACEHOLDER_PROFILE_ID: "DEEPSEEK_TERMS_SNAPSHOT_PENDING",
@@ -36,6 +40,9 @@ _REQUIRED_PROFILE_REASONS = {
 }
 _TRAINING_CANDIDATE_PROFILE_IDS = frozenset(
     {PROCEDURAL_PROFILE_ID, SIMULATOR_PROFILE_ID}
+)
+_OPEN_MODEL_CANDIDATE_PROFILE_IDS = frozenset(
+    {OPEN_WEIGHT_LOCAL_PROFILE_ID, OPENROUTER_DISTILLABLE_PROFILE_ID}
 )
 _HOSTED_FRONTIER_VERDICT = ("research_only", "blocked", {"unresolved"})
 _BLOCKED_DECISION = ("research_only", "blocked")
@@ -98,6 +105,16 @@ def _require_training_candidate_verdicts(profiles: dict[str, dict], where: str) 
             )
 
 
+def _require_open_model_candidate_verdicts(profiles: dict[str, dict], where: str) -> None:
+    for profile_id in _OPEN_MODEL_CANDIDATE_PROFILE_IDS:
+        candidate = profiles[profile_id]
+        if _decision_pair(candidate) != _ALLOWED_DECISION:
+            raise policy_error(
+                where,
+                f"profile {profile_id!r} must be training_candidate/allowed",
+            )
+
+
 def _require_candidate_evidence_statuses(profile: dict, where: str) -> None:
     statuses = tuple(profile["evidence_statuses"][field]
                      for field in _rights_mapping.EVIDENCE_STATUS_FIELDS)
@@ -112,6 +129,7 @@ def validate_required_profile_semantics(profiles: dict[str, dict], where: str) -
     _require_hosted_frontier_verdict(profiles, where)
     _require_unknown_provenance_verdict(profiles, where)
     _require_training_candidate_verdicts(profiles, where)
+    _require_open_model_candidate_verdicts(profiles, where)
 
 
 if __package__:

@@ -1,0 +1,16 @@
+{
+  "schema": "model-license-declaration-v1",
+  "license_id": "apache-2.0",
+  "license_name": "Apache License 2.0",
+  "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+  "model_id": "ibm-granite/granite-4.2-30b",
+  "model_revision": "9e668ce1c538387ef24d3644e9b0606647762636",
+  "huggingface_card_license": "apache-2.0",
+  "license_text_relative_path": "config/model-channel/evidence/apache-2.0.txt",
+  "notes": [
+    "The Hub listing for this checkpoint has no LICENSE file.",
+    "The Hub card declares license apache-2.0; the pinned license body is SPDX Apache-2.0.",
+    "This identity is local/vLLM only and does not authorize watsonx or other hosted Granite channels."
+  ],
+  "retrieved_at": "2026-09-15T05:30:00Z"
+}

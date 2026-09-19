@@ -4,20 +4,29 @@
   "mapping_version": "rights-mapping-v1",
   "vocabularies": {
     "providers": [
+      "alibaba",
       "anthropic",
+      "deepseek",
+      "ibm",
       "meta",
+      "microsoft",
+      "minimax",
+      "moonshot",
+      "nemotron",
+      "nvidia",
       "openai",
-      "xai",
       "procedural",
       "simulator",
-      "deepseek",
-      "nemotron"
+      "xai"
     ],
     "channels": [
-      "consumer",
       "api",
+      "consumer",
       "enterprise",
-      "local"
+      "local",
+      "local_ollama",
+      "local_vllm",
+      "openrouter_api"
     ],
     "intended_use": [
       "research_only",
@@ -44,21 +53,35 @@
     "provider_training_status": "evidence_only"
   },
   "required_profile_ids": [
+    "deepseek-terms-placeholder-v1",
     "hosted-frontier-research-only-v1",
-    "unknown-provenance-fail-closed-v1",
+    "nemotron-terms-placeholder-v1",
+    "open-weight-local-candidate-v1",
+    "openrouter-distillable-candidate-v1",
     "procedural-local-attested-v1",
     "simulator-local-oracle-v1",
-    "deepseek-terms-placeholder-v1",
-    "nemotron-terms-placeholder-v1"
+    "unknown-provenance-fail-closed-v1"
   ],
   "reason_codes": [
+    {
+      "id": "DEEPSEEK_TERMS_SNAPSHOT_PENDING",
+      "description": "DeepSeek outputs stay blocked until the reviewed terms/channel snapshot hash is recorded on this profile."
+    },
     {
       "id": "HOSTED_FRONTIER_RESEARCH_ONLY",
       "description": "Hosted frontier output is retained for research only and blocked from project training."
     },
     {
-      "id": "UNKNOWN_PROVENANCE",
-      "description": "Provenance is insufficient to authorize any less restrictive project decision."
+      "id": "NEMOTRON_TERMS_SNAPSHOT_PENDING",
+      "description": "Nemotron outputs stay blocked until the reviewed terms/channel snapshot hash is recorded on this profile."
+    },
+    {
+      "id": "OPENROUTER_DISTILLABLE_CANDIDATE",
+      "description": "OpenRouter distillable catalog membership is candidate evidence for that API channel only; generation-time snapshots and underlying terms still fail closed."
+    },
+    {
+      "id": "OPEN_WEIGHT_LOCAL_CANDIDATE",
+      "description": "Pinned local open-weight checkpoint on an isolated local runtime channel is a training candidate, not an automatic publish or training-ready claim."
     },
     {
       "id": "PROCEDURAL_ATTESTED_LOCAL",
@@ -69,15 +92,27 @@
       "description": "Deterministic in-repo simulator admitted as an oracle, pinned by commit SHA and normalized-source module digest."
     },
     {
-      "id": "DEEPSEEK_TERMS_SNAPSHOT_PENDING",
-      "description": "DeepSeek outputs stay blocked until the reviewed terms/channel snapshot hash is recorded on this profile."
-    },
-    {
-      "id": "NEMOTRON_TERMS_SNAPSHOT_PENDING",
-      "description": "Nemotron outputs stay blocked until the reviewed terms/channel snapshot hash is recorded on this profile."
+      "id": "UNKNOWN_PROVENANCE",
+      "description": "Provenance is insufficient to authorize any less restrictive project decision."
     }
   ],
   "profiles": [
+    {
+      "id": "deepseek-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "DEEPSEEK_TERMS_SNAPSHOT_PENDING"
+      ],
+      "unblock_terms_snapshot_sha256": null
+    },
     {
       "id": "hosted-frontier-research-only-v1",
       "intended_use": "research_only",
@@ -94,7 +129,7 @@
       ]
     },
     {
-      "id": "unknown-provenance-fail-closed-v1",
+      "id": "nemotron-terms-placeholder-v1",
       "intended_use": "research_only",
       "project_training_policy": "blocked",
       "evidence_statuses": {
@@ -105,7 +140,38 @@
         "weight_publication_status": "unresolved"
       },
       "reason_codes": [
-        "UNKNOWN_PROVENANCE"
+        "NEMOTRON_TERMS_SNAPSHOT_PENDING"
+      ],
+      "unblock_terms_snapshot_sha256": null
+    },
+    {
+      "id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "OPEN_WEIGHT_LOCAL_CANDIDATE"
+      ]
+    },
+    {
+      "id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "evidence_statuses": {
+        "research_retention_status": "unresolved",
+        "research_evaluation_status": "unresolved",
+        "redistribution_status": "unresolved",
+        "provider_training_status": "unresolved",
+        "weight_publication_status": "unresolved"
+      },
+      "reason_codes": [
+        "OPENROUTER_DISTILLABLE_CANDIDATE"
       ]
     },
     {
@@ -139,7 +205,7 @@
       ]
     },
     {
-      "id": "deepseek-terms-placeholder-v1",
+      "id": "unknown-provenance-fail-closed-v1",
       "intended_use": "research_only",
       "project_training_policy": "blocked",
       "evidence_statuses": {
@@ -150,28 +216,27 @@
         "weight_publication_status": "unresolved"
       },
       "reason_codes": [
-        "DEEPSEEK_TERMS_SNAPSHOT_PENDING"
-      ],
-      "unblock_terms_snapshot_sha256": null
-    },
-    {
-      "id": "nemotron-terms-placeholder-v1",
-      "intended_use": "research_only",
-      "project_training_policy": "blocked",
-      "evidence_statuses": {
-        "research_retention_status": "unresolved",
-        "research_evaluation_status": "unresolved",
-        "redistribution_status": "unresolved",
-        "provider_training_status": "unresolved",
-        "weight_publication_status": "unresolved"
-      },
-      "reason_codes": [
-        "NEMOTRON_TERMS_SNAPSHOT_PENDING"
-      ],
-      "unblock_terms_snapshot_sha256": null
+        "UNKNOWN_PROVENANCE"
+      ]
     }
   ],
   "rules": [
+    {
+      "id": "DEEPSEEK_TERMS_PLACEHOLDER",
+      "providers": [
+        "deepseek"
+      ],
+      "channels": [
+        "api",
+        "local"
+      ],
+      "rights_profile_id": "deepseek-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "DEEPSEEK_TERMS_SNAPSHOT_PENDING"
+      ]
+    },
     {
       "id": "HOSTED_ANTHROPIC_CONSUMER",
       "providers": [
@@ -179,6 +244,29 @@
       ],
       "channels": [
         "consumer"
+      ],
+      "rights_profile_id": "hosted-frontier-research-only-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "HOSTED_FRONTIER_RESEARCH_ONLY"
+      ]
+    },
+    {
+      "id": "HOSTED_CLOUD_OPEN_WEIGHT_VENDORS",
+      "providers": [
+        "nvidia",
+        "ibm",
+        "deepseek",
+        "moonshot",
+        "alibaba",
+        "minimax",
+        "microsoft"
+      ],
+      "channels": [
+        "consumer",
+        "api",
+        "enterprise"
       ],
       "rights_profile_id": "hosted-frontier-research-only-v1",
       "intended_use": "research_only",
@@ -233,6 +321,78 @@
       ]
     },
     {
+      "id": "NEMOTRON_TERMS_PLACEHOLDER",
+      "providers": [
+        "nemotron"
+      ],
+      "channels": [
+        "api",
+        "local"
+      ],
+      "rights_profile_id": "nemotron-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "reason_codes": [
+        "NEMOTRON_TERMS_SNAPSHOT_PENDING"
+      ]
+    },
+    {
+      "id": "OPENROUTER_DISTILLABLE_API",
+      "providers": [
+        "nvidia",
+        "ibm",
+        "deepseek",
+        "moonshot",
+        "alibaba",
+        "minimax",
+        "microsoft",
+        "meta"
+      ],
+      "channels": [
+        "openrouter_api"
+      ],
+      "rights_profile_id": "openrouter-distillable-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "reason_codes": [
+        "OPENROUTER_DISTILLABLE_CANDIDATE"
+      ]
+    },
+    {
+      "id": "OPEN_WEIGHT_LOCAL_OLLAMA",
+      "providers": [
+        "nvidia",
+        "meta",
+        "ibm"
+      ],
+      "channels": [
+        "local_ollama"
+      ],
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "reason_codes": [
+        "OPEN_WEIGHT_LOCAL_CANDIDATE"
+      ]
+    },
+    {
+      "id": "OPEN_WEIGHT_LOCAL_VLLM",
+      "providers": [
+        "nvidia",
+        "meta",
+        "ibm"
+      ],
+      "channels": [
+        "local_vllm"
+      ],
+      "rights_profile_id": "open-weight-local-candidate-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "reason_codes": [
+        "OPEN_WEIGHT_LOCAL_CANDIDATE"
+      ]
+    },
+    {
       "id": "PROCEDURAL_LOCAL_ATTESTED",
       "providers": [
         "procedural"
@@ -263,54 +423,31 @@
       ]
     },
     {
-      "id": "DEEPSEEK_TERMS_PLACEHOLDER",
-      "providers": [
-        "deepseek"
-      ],
-      "channels": [
-        "api",
-        "local"
-      ],
-      "rights_profile_id": "deepseek-terms-placeholder-v1",
-      "intended_use": "research_only",
-      "project_training_policy": "blocked",
-      "reason_codes": [
-        "DEEPSEEK_TERMS_SNAPSHOT_PENDING"
-      ]
-    },
-    {
-      "id": "NEMOTRON_TERMS_PLACEHOLDER",
-      "providers": [
-        "nemotron"
-      ],
-      "channels": [
-        "api",
-        "local"
-      ],
-      "rights_profile_id": "nemotron-terms-placeholder-v1",
-      "intended_use": "research_only",
-      "project_training_policy": "blocked",
-      "reason_codes": [
-        "NEMOTRON_TERMS_SNAPSHOT_PENDING"
-      ]
-    },
-    {
       "id": "UNKNOWN_PROVENANCE_FAIL_CLOSED",
       "providers": [
+        "alibaba",
         "anthropic",
+        "deepseek",
+        "ibm",
         "meta",
+        "microsoft",
+        "minimax",
+        "moonshot",
+        "nemotron",
+        "nvidia",
         "openai",
-        "xai",
         "procedural",
         "simulator",
-        "deepseek",
-        "nemotron"
+        "xai"
       ],
       "channels": [
-        "consumer",
         "api",
+        "consumer",
         "enterprise",
-        "local"
+        "local",
+        "local_ollama",
+        "local_vllm",
+        "openrouter_api"
       ],
       "rights_profile_id": "unknown-provenance-fail-closed-v1",
       "intended_use": "research_only",

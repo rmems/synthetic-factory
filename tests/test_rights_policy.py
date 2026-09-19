@@ -178,15 +178,29 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 "meta",
                 "openai",
                 "xai",
+                "nvidia",
+                "ibm",
+                "deepseek",
+                "moonshot",
+                "alibaba",
+                "minimax",
+                "microsoft",
                 "procedural",
                 "simulator",
-                "deepseek",
                 "nemotron",
             },
         )
         self.assertEqual(
             set(document["vocabularies"]["channels"]),
-            {"consumer", "api", "enterprise", "local"},
+            {
+                "consumer",
+                "api",
+                "enterprise",
+                "local",
+                "local_vllm",
+                "local_ollama",
+                "openrouter_api",
+            },
         )
         self.assertEqual(
             document["evidence_status_fields"],
