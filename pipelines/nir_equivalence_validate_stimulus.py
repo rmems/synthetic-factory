@@ -26,9 +26,9 @@ def _positive_integer(value):
 
 
 def _finite_number(value):
-    if type(value) not in (int, float):
+    if type(value) not in (int, float):  # pylint: disable=unidiomatic-typecheck
         return False
-    return type(value) is not float or math.isfinite(value)
+    return type(value) is not float or math.isfinite(value)  # pylint: disable=unidiomatic-typecheck
 
 
 def _check_stimulus_shape(stimulus, where):

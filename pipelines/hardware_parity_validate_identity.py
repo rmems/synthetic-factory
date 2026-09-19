@@ -54,23 +54,48 @@ else:
     from hardware_parity_provenance import _catalog_provenance_stamps  # noqa: E402
     from oracle_grounded.parity_history import reviewed_catalog_stamps
 
+def _fixture_terms(record):
+    """``(stimulus, input_fixture, oracle_input_fixture, identical_flag)``."""
+    scenario = record.get("scenario") or {}
+    oracle = record.get("oracle") or {}
+    return (
+        scenario.get("stimulus"),
+        scenario.get("input_fixture") or {},
+        oracle.get("input_fixture") or {},
+        oracle.get("identical_input_fixture"),
+    )
+
+
 def _check_input_fixture(record, where):
     """Both sides must provably have run the same encoded input."""
-    errors = []
-    scenario = record.get("scenario") or {}
-    stimulus = scenario.get("stimulus")
-    fixture = scenario.get("input_fixture") or {}
-    oracle_fixture = (record.get("oracle") or {}).get("input_fixture") or {}
-    identical = (record.get("oracle") or {}).get("identical_input_fixture")
+    stimulus, fixture, oracle_fixture, identical = _fixture_terms(record)
     if not isinstance(stimulus, dict) or not isinstance(stimulus.get("events"), list):
         return [f"{where}: scenario.stimulus.events missing [INPUT_FIXTURE_MISMATCH]"]
+    recomputed, shape_error = _recomputed_fixture_sha(stimulus, where)
+    if shape_error is not None:
+        return shape_error
+    return _fixture_binding_errors(
+        stimulus, fixture, oracle_fixture, identical, recomputed, where
+    )
+
+
+def _recomputed_fixture_sha(stimulus, where):
+    """``(sha256, None)`` or ``(None, errors)`` when the stimulus is not a
+    complete finite input the fixture digest can be recomputed from."""
     try:
-        recomputed = stimulus_fixture(stimulus)["sha256"]
+        return stimulus_fixture(stimulus)["sha256"], None
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
-        return [
+        return None, [
             f"{where}: scenario.stimulus is not a complete finite input: {exc} "
             "[INPUT_FIXTURE_MISMATCH]"
         ]
+
+
+def _fixture_binding_errors(
+    stimulus, fixture, oracle_fixture, identical, recomputed, where
+):
+    """The four-way fixture binding checks, all keyed by the recomputed digest."""
+    errors = []
     if fixture.get("sha256") != recomputed:
         errors.append(
             f"{where}: scenario.input_fixture.sha256 does not match the complete recorded stimulus "
@@ -115,17 +140,9 @@ def _materialized_catalog_scenario(scenario, where):
             f"scenario {scenario_id!r} can be bound to the catalog "
             "[SCENARIO_LABEL_MISMATCH]"
         ]
-    events = stimulus.get("events") if isinstance(stimulus, dict) else None
-    if not isinstance(events, list) or steps != len(events):
-        # A record-declared `steps` this far out of line with its own event
-        # grid is already invalid; bind it to trusted evidence (the actual
-        # event count) before using it as an allocation bound below, rather
-        # than letting an untrusted huge integer reach build_scenario().
-        return None, [
-            f"{where}: scenario.stimulus.steps disagrees with the event grid before "
-            f"scenario {scenario_id!r} can be bound to the catalog "
-            "[SCENARIO_LABEL_MISMATCH]"
-        ]
+    grid_error = _event_grid_binding_error(scenario_id, stimulus, steps, where)
+    if grid_error is not None:
+        return None, [grid_error]
     try:
         return build_scenario(spec, steps=steps), []
     except (ValueError, TypeError, KeyError, IndexError, OverflowError) as exc:
@@ -133,6 +150,19 @@ def _materialized_catalog_scenario(scenario, where):
             f"{where}: catalog scenario {scenario_id!r} cannot be materialized: {exc} "
             "[SCENARIO_LABEL_MISMATCH]"
         ]
+
+
+def _event_grid_binding_error(scenario_id, stimulus, steps, where):
+    """steps must agree with the recorded event grid before it can size the
+    catalog rebuild (otherwise it is an untrusted allocation bound)."""
+    events = stimulus.get("events") if isinstance(stimulus, dict) else None
+    if not isinstance(events, list) or steps != len(events):
+        return (
+            f"{where}: scenario.stimulus.steps disagrees with the event grid before "
+            f"scenario {scenario_id!r} can be bound to the catalog "
+            "[SCENARIO_LABEL_MISMATCH]"
+        )
+    return None
 
 
 def _catalog_prediction_errors(record, expected, scenario_id, where):

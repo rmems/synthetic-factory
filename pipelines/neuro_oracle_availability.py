@@ -13,7 +13,7 @@ from pathlib import Path
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- subprocess drives the env/PATH-gated adapter binaries
 import sys
 
 if __package__:
@@ -145,6 +145,11 @@ def fpga_diagnostic_matches(reason, detail):
     bounds = _FPGA_DIAGNOSTIC_DETAIL_PREFIXES.get(reason)
     if bounds is None:
         return False
+    return _within_detail_bounds(detail, bounds)
+
+
+def _within_detail_bounds(detail, bounds):
+    """The bounded-prefix diagnostic shape: ``prefix<free text><suffix?>``."""
     prefix, suffix = bounds
     if suffix is None:
         return detail.startswith(prefix) and bool(detail[len(prefix):].strip())
@@ -185,11 +190,34 @@ class FpgaHardwareAdapter(OracleAdapter):
         self.env = os.environ if env is None else env
 
     def availability(self):
+        """The first unmet requirement's diagnostic, else the available status."""
+        for status in (
+            self._device_status(),
+            self._bitstream_status(),
+            self._identity_status(),
+            self._transport_status(),
+        ):
+            if status is not None:
+                return status
+        return {
+            "available": True,
+            "reason_code": None,
+            "detail": (
+                f"device {self.env[FPGA_DEVICE_ENV]} via "
+                f"{FPGA_TRANSPORT_EXECUTABLE!r} "
+                "(silicon-bridge 0.3.0 dense Q8.8 codec)"
+            ),
+        }
+
+    def _device_status(self):
         device = self.env.get(FPGA_DEVICE_ENV)
         if not device:
             return _unavailable_status("FPGA_DEVICE_NOT_DECLARED")
         if not Path(device).exists():
             return _unavailable_status("FPGA_DEVICE_ABSENT", f"declared device {device} does not exist")
+        return None
+
+    def _bitstream_status(self):
         bitstream = self.env.get(FPGA_BITSTREAM_ENV)
         if not bitstream:
             return _unavailable_status("FPGA_BITSTREAM_NOT_DECLARED")
@@ -197,28 +225,27 @@ class FpgaHardwareAdapter(OracleAdapter):
             return _unavailable_status("FPGA_BITSTREAM_HASH_MALFORMED")
         if not self.env.get(FPGA_BITSTREAM_TOOLCHAIN_ENV):
             return _unavailable_status("FPGA_BITSTREAM_TOOLCHAIN_NOT_DECLARED")
+        return None
+
+    def _identity_status(self):
         if not (
             self.env.get(FPGA_BOARD_REVISION_ENV)
             and self.env.get(FPGA_BOARD_SERIAL_ENV)
         ):
             return _unavailable_status("FPGA_BOARD_IDENTITY_NOT_DECLARED")
+        return None
+
+    def _transport_status(self):
+        if _fpga_transport_binary(self.env) is not None:
+            return None
         transport_override = self.env.get(FPGA_TRANSPORT_ENV)
-        if _fpga_transport_binary(self.env) is None:
-            if transport_override:
-                return _unavailable_status(
-                    "FPGA_TRANSPORT_UNAVAILABLE",
-                    f"{FPGA_TRANSPORT_ENV} points at {transport_override}, "
-                    "which is not executable",
-                )
-            return _unavailable_status("FPGA_TRANSPORT_UNAVAILABLE")
-        return {
-            "available": True,
-            "reason_code": None,
-            "detail": (
-                f"device {device} via {FPGA_TRANSPORT_EXECUTABLE!r} "
-                "(silicon-bridge 0.3.0 dense Q8.8 codec)"
-            ),
-        }
+        if transport_override:
+            return _unavailable_status(
+                "FPGA_TRANSPORT_UNAVAILABLE",
+                f"{FPGA_TRANSPORT_ENV} points at {transport_override}, "
+                "which is not executable",
+            )
+        return _unavailable_status("FPGA_TRANSPORT_UNAVAILABLE")
 
     def run(self, model, stimulus, repeats=1):
         status = self.availability()
@@ -230,40 +257,82 @@ class FpgaHardwareAdapter(OracleAdapter):
         measured = self._exchange(model, stimulus, repeats)
         runs = measured["runs"]
         outcomes = [self._outcome(model, stimulus, run) for run in runs]
+        return self._payload(stimulus, measured, runs, outcomes, quantization)
+
+    def _payload(self, stimulus, measured, runs, outcomes, quantization):
+        """The hardware-side payload: capture provenance around the outcome."""
         repeat_digests = [run_digest(outcome) for outcome in outcomes]
         distinct = len(set(repeat_digests))
-        latencies = [run["latency_ms"] for run in runs]
-        latency = {
-            "measured": True,
-            "value_ms": max(latencies),
-            "values_ms": latencies,
-            "reason_code": None,
-            "detail": (
-                "wall-clock ms around the UART stimulus exchange, per run; "
-                "value_ms is the slowest run"
-            ),
-        }
+        latency = self._latency_block(runs)
         # The retained observation is the first repeat, matching the capture
         # adapter's `primary == first repeat` convention; every repeat's
         # outcome and raw RX frame stays inside capture.source.payload.
         primary = outcomes[0]
-        hardware = {
-            "device": self.env[FPGA_DEVICE_ENV],
-            "revision": self.env[FPGA_BOARD_REVISION_ENV],
-            "board_serial": self.env[FPGA_BOARD_SERIAL_ENV],
+        hardware, bitstream = self._hardware_terms()
+        payload = {
+            "adapter": self.name,
+            "execution_target": self.execution_target,
+            "runtime_class": self.runtime_class,
+            "repeats": len(runs),
+            "repeat_digests": repeat_digests,
+            "determinism": {
+                "identical_repeats": distinct == 1,
+                "distinct_digests": distinct,
+                "meaning": CAPTURE_DETERMINISM_MEANING,
+            },
+            "latency": latency,
+            "output_digest": repeat_digests[0],
+            "quantization": quantization,
+            "hardware": hardware,
+            "bitstream": bitstream,
+            "capture": self._capture_document(
+                stimulus, (measured, runs, outcomes), quantization
+            ),
         }
-        bitstream = {
-            "sha256": self.env[FPGA_BITSTREAM_ENV],
-            "toolchain": self.env[FPGA_BITSTREAM_TOOLCHAIN_ENV],
+        payload.update(primary)
+        return payload
+
+    def _hardware_terms(self):
+        """``(hardware, bitstream)`` identity blocks from the declared env."""
+        return (
+            {
+                "device": self.env[FPGA_DEVICE_ENV],
+                "revision": self.env[FPGA_BOARD_REVISION_ENV],
+                "board_serial": self.env[FPGA_BOARD_SERIAL_ENV],
+            },
+            {
+                "sha256": self.env[FPGA_BITSTREAM_ENV],
+                "toolchain": self.env[FPGA_BITSTREAM_TOOLCHAIN_ENV],
+            },
+        )
+
+    def _capture_document(self, stimulus, executions, quantization):
+        """The capture block: manifest, stored source, and its digests."""
+        source, manifest, capture_payload, recorded_at = self._capture_source(
+            stimulus, executions, quantization
+        )
+        return {
+            "attestation": {"status": "unverified", "basis": "self_contained_checksums"},
+            "recorded_at": recorded_at,
+            "source_sha256": digest(source),
+            "manifest_sha256": digest(manifest),
+            "payload_sha256": digest(capture_payload),
+            "source": source,
         }
+
+    def _capture_source(self, stimulus, executions, quantization):
+        """``(source, manifest, capture_payload, recorded_at)`` — the replay
+        evidence stored inside the capture, before the digest layer wraps it."""
+        measured, runs, outcomes = executions
+        hardware, bitstream = self._hardware_terms()
         recorded_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        capture_payload = dict(primary)
+        capture_payload = dict(outcomes[0])
         capture_payload.update(
             {
                 "repeats": len(runs),
-                "repeat_digests": repeat_digests,
+                "repeat_digests": [run_digest(o) for o in outcomes],
                 "repeat_outputs": outcomes,
-                "latency": latency,
+                "latency": self._latency_block(runs),
                 # The wire bytes the decoded outcome derives from: a reader
                 # can re-decode every frame and check the transcript digests
                 # without trusting this adapter's arithmetic.
@@ -291,34 +360,22 @@ class FpgaHardwareAdapter(OracleAdapter):
             "manifest": manifest,
             "payload": capture_payload,
         }
-        capture = {
-            "attestation": {"status": "unverified", "basis": "self_contained_checksums"},
-            "recorded_at": recorded_at,
-            "source_sha256": digest(source),
-            "manifest_sha256": digest(manifest),
-            "payload_sha256": digest(capture_payload),
-            "source": source,
+        return source, manifest, capture_payload, recorded_at
+
+    @staticmethod
+    def _latency_block(runs):
+        """Per-run wall-clock timings, reduced to the slowest run's value."""
+        latencies = [run["latency_ms"] for run in runs]
+        return {
+            "measured": True,
+            "value_ms": max(latencies),
+            "values_ms": latencies,
+            "reason_code": None,
+            "detail": (
+                "wall-clock ms around the UART stimulus exchange, per run; "
+                "value_ms is the slowest run"
+            ),
         }
-        payload = {
-            "adapter": self.name,
-            "execution_target": self.execution_target,
-            "runtime_class": self.runtime_class,
-            "repeats": len(runs),
-            "repeat_digests": repeat_digests,
-            "determinism": {
-                "identical_repeats": distinct == 1,
-                "distinct_digests": distinct,
-                "meaning": CAPTURE_DETERMINISM_MEANING,
-            },
-            "latency": latency,
-            "output_digest": repeat_digests[0],
-            "quantization": quantization,
-            "hardware": hardware,
-            "bitstream": bitstream,
-            "capture": capture,
-        }
-        payload.update(primary)
-        return payload
 
     def _exchange(self, model, stimulus, repeats):
         """One subprocess round-trip against the ``silicon-bridge`` binary."""
@@ -329,8 +386,17 @@ class FpgaHardwareAdapter(OracleAdapter):
             "stimulus": stimulus,
             "repeats": repeats,
         }
+        return self._invoke_transport(binary, request)
+
+    @staticmethod
+    def _launch_transport(binary, request):
+        """Launch the transport binary once; OSError means the board link
+        could not even be attempted."""
         try:
-            proc = subprocess.run(
+            # argv-array launch of the env/PATH-resolved transport binary: the
+            # SPIKENAUT_* environment is the documented trust boundary, and no
+            # shell is involved.
+            return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args  # nosec B603
                 [binary, "execute"],
                 input=json.dumps(request),
                 capture_output=True,
@@ -343,6 +409,12 @@ class FpgaHardwareAdapter(OracleAdapter):
                 "FPGA_TRANSPORT_FAILED",
                 f"transport exchange failed: {binary!r} could not be executed: {exc}",
             ) from exc
+
+    @staticmethod
+    def _invoke_transport(binary, request):
+        """Read the transport envelope: success returns its result, anything
+        else raises the FPGA_TRANSPORT_FAILED diagnostic."""
+        proc = FpgaHardwareAdapter._launch_transport(binary, request)
         try:
             envelope = json.loads(proc.stdout or "")
         except ValueError as exc:

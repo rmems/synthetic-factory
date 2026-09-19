@@ -16,7 +16,6 @@ compares it by identity.
 from __future__ import annotations
 
 import copy
-import io
 import json
 import sys
 from pathlib import Path

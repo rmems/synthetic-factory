@@ -17,7 +17,7 @@ else:
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "schemas/parity-source-policy-v1.json"
 # Reviewed together with the producer closure; update only after combined source freeze.
-POLICY_SHA256 = "a5f4d9b75b6ecdc851e7ac801dceef728268527368ab233e5c6a73d56a504243"
+POLICY_SHA256 = "6e5361188eae87d312489848d4889f30e74766d527bffe72874a703b72656826"
 KINDS = frozenset({"hardware_parity", "nir_equivalence"})
 FACTORIES = frozenset({"hardware-parity-spike-trajectories", "nir-cross-runtime-equivalence"})
 
@@ -60,12 +60,26 @@ def validate_registry_row(raw):
 def claims_parity_route(raw):
     if not isinstance(raw, Mapping):
         return False
-    kinds = raw.get("record_kinds")
-    declared = isinstance(kinds, list) and any(kind in KINDS for kind in kinds if isinstance(kind, str))
+    return (
+        raw.get("source_type") == "frontier_session"
+        or "parity_policy_sha256" in raw
+        or _canonical_parity_path(raw)
+        or _declares_parity_kind(raw)
+    )
+
+
+def _canonical_parity_path(raw):
+    """The row's path_id is one of the sealed factory paths."""
     path = raw.get("path_id")
-    canonical_path = isinstance(path, str) and path in FACTORIES
-    return (raw.get("source_type") == "frontier_session" or "parity_policy_sha256" in raw
-            or canonical_path or declared)
+    return isinstance(path, str) and path in FACTORIES
+
+
+def _declares_parity_kind(raw):
+    """The row names at least one record kind this policy covers."""
+    kinds = raw.get("record_kinds")
+    return isinstance(kinds, list) and any(
+        kind in KINDS for kind in kinds if isinstance(kind, str)
+    )
 
 
 def require_row(row, kind):

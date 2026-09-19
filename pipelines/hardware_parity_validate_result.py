@@ -199,7 +199,34 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
             errors.append(f"{where}: capture result must name its unverified evidence basis [HW_PROVENANCE_MISSING]")
     errors += _check_quantization(record, where)
     errors += _reexecute_reference_sides(record, where)
-    errors += _check_determinism(
+    errors += _paired_determinism_errors(software, deployment, where)
+
+    scenario = record.get("scenario") or {}
+    try:
+        parity, verdict, reason_codes = compute_parity(scenario, software, deployment)
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        AttributeError,
+        OverflowError,
+    ) as exc:
+        return errors + [f"{where}: parity metrics are not recomputable: {exc}"]
+
+    errors += _recorded_parity_errors(result, parity, verdict, reason_codes, where)
+    expected_summary = _expected_summary(record)
+    if result.get("summary") != expected_summary:
+        errors.append(
+            f"{where}: result.summary is not derived from the validated parity evidence "
+            "[PARITY_METRIC_MISMATCH]"
+        )
+    return errors
+
+
+def _paired_determinism_errors(software, deployment, where):
+    """Both sides' determinism claims, each bound to its adapter-owned meaning."""
+    errors = _check_determinism(
         software,
         "software",
         where,
@@ -227,27 +254,6 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
             else CAPTURE_DETERMINISM_MEANING
         ),
     )
-
-    scenario = record.get("scenario") or {}
-    try:
-        parity, verdict, reason_codes = compute_parity(scenario, software, deployment)
-    except (
-        KeyError,
-        TypeError,
-        ValueError,
-        IndexError,
-        AttributeError,
-        OverflowError,
-    ) as exc:
-        return errors + [f"{where}: parity metrics are not recomputable: {exc}"]
-
-    errors += _recorded_parity_errors(result, parity, verdict, reason_codes, where)
-    expected_summary = _expected_summary(record)
-    if result.get("summary") != expected_summary:
-        errors.append(
-            f"{where}: result.summary is not derived from the validated parity evidence "
-            "[PARITY_METRIC_MISMATCH]"
-        )
     return errors
 
 
@@ -279,22 +285,26 @@ def _validate_record(record, where):
     errors += _check_fpga_environment(record, where)
     errors += _check_physical_claim(record, where)
 
+    return errors + _result_binding_errors(record, oracle, where)
+
+
+def _result_binding_errors(record, oracle, where):
+    """Dispatch the result contract on the record's executed oracle legs."""
     result = record.get("result")
     if not isinstance(result, dict):
-        return errors
+        return []
     software = oracle.get("software")
     deployment = oracle.get("deployment")
 
     if deployment is None:
-        return errors + _unpaired_result_errors(record, software, result, where)
+        return _unpaired_result_errors(record, software, result, where)
     if not isinstance(software, dict):
-        errors.append(f"{where}: oracle.software missing [ENVELOPE_MALFORMED]")
-        return errors
+        return [f"{where}: oracle.software missing [ENVELOPE_MALFORMED]"]
     if not isinstance(deployment, dict):
-        return errors + [
+        return [
             f"{where}: oracle.deployment must be an object or absent [ENVELOPE_MALFORMED]"
         ]
-    return errors + _paired_result_errors(
+    return _paired_result_errors(
         record, oracle, software, deployment, result, where
     )
 

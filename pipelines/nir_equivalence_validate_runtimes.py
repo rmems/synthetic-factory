@@ -74,22 +74,37 @@ _REVIEWED_UNAVAILABLE_DIAGNOSTICS = {
 
 
 def _check_runtimes(record, where):
-    errors = []
     runtimes = ((record.get("oracle") or {}).get("runtimes")) or []
+    shape_errors = _runtime_inventory_shape_errors(runtimes, where)
+    if shape_errors:
+        return shape_errors
+    errors = _runtime_inventory_name_errors(runtimes, where)
+    for entry in runtimes:
+        errors += _runtime_entry_errors(entry, where)
+    return errors
+
+
+def _runtime_inventory_shape_errors(runtimes, where):
+    """The inventory must at least be a non-empty list."""
     if not isinstance(runtimes, list) or not runtimes:
-        return [f"{where}: oracle.runtimes must be a non-empty array [ENVELOPE_MALFORMED]"]
+        return [
+            f"{where}: oracle.runtimes must be a non-empty array [ENVELOPE_MALFORMED]"
+        ]
+    return []
+
+
+def _runtime_inventory_name_errors(runtimes, where):
+    """The inventory must name exactly the declared runtimes, in order."""
     names = [
         entry.get("runtime") if isinstance(entry, dict) else None for entry in runtimes
     ]
     if names != list(EXPECTED_RUNTIME_NAMES):
-        errors.append(
+        return [
             f"{where}: oracle.runtimes must contain the complete ordered inventory "
             f"{list(EXPECTED_RUNTIME_NAMES)!r}, got {names!r} "
             "[RUNTIME_STATUS_UNKNOWN]"
-        )
-    for entry in runtimes:
-        errors += _runtime_entry_errors(entry, where)
-    return errors
+        ]
+    return []
 
 
 def _runtime_entry_errors(entry, where):
@@ -117,34 +132,41 @@ _REVIEWED_LEGACY_DECLARATIONS = {
 }
 
 
+def _declaration_matches(declared, expected, entry, index):
+    """One identity field, tolerating the stub-era declaration where reviewed."""
+    if declared == expected:
+        return True
+    legacy = _REVIEWED_LEGACY_DECLARATIONS.get(entry.get("runtime"))
+    return entry.get("status") == STATUS_UNAVAILABLE and (
+        legacy is not None and declared == legacy[index]
+    )
+
+
 def _runtime_identity_errors(entry, expected_runtime, label):
     """The entry's identity fields must be the selected implementation's."""
-    errors = []
-    expected_class = expected_runtime.runtime_class
-    if entry.get("runtime_class") != expected_class:
-        errors.append(
-            f"{label}: runtime_class must be {expected_class!r}, got "
-            f"{entry.get('runtime_class')!r} [RUNTIME_STATUS_UNKNOWN]"
-        )
-    legacy = _REVIEWED_LEGACY_DECLARATIONS.get(entry.get("runtime"))
-    allow_legacy = entry.get("status") == STATUS_UNAVAILABLE and legacy is not None
-    expected_conventions = dict(getattr(expected_runtime, "conventions", {}))
-    if entry.get("conventions") != expected_conventions and not (
-        allow_legacy and entry.get("conventions") == legacy[0]
-    ):
-        errors.append(
-            f"{label}: conventions do not match the selected runtime implementation "
-            "[COMPARISON_MISMATCH]"
-        )
-    expected_supported = list(getattr(expected_runtime, "supported_types", ()))
-    if entry.get("supported_types") != expected_supported and not (
-        allow_legacy and entry.get("supported_types") == legacy[1]
-    ):
-        errors.append(
-            f"{label}: supported_types do not match the selected runtime "
-            "implementation [COMPARISON_MISMATCH]"
-        )
+    errors = _runtime_class_errors(entry, expected_runtime, label)
+    expected_fields = (
+        ("conventions", dict(getattr(expected_runtime, "conventions", {})), 0),
+        ("supported_types", list(getattr(expected_runtime, "supported_types", ())), 1),
+    )
+    for field, expected, index in expected_fields:
+        if not _declaration_matches(entry.get(field), expected, entry, index):
+            errors.append(
+                f"{label}: {field} do not match the selected runtime "
+                "implementation [COMPARISON_MISMATCH]"
+            )
     return errors
+
+
+def _runtime_class_errors(entry, expected_runtime, label):
+    """runtime_class must be the adapter's class name."""
+    expected_class = expected_runtime.runtime_class
+    if entry.get("runtime_class") == expected_class:
+        return []
+    return [
+        f"{label}: runtime_class must be {expected_class!r}, got "
+        f"{entry.get('runtime_class')!r} [RUNTIME_STATUS_UNKNOWN]"
+    ]
 
 
 def _runtime_status_errors(entry, label):

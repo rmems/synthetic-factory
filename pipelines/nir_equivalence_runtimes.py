@@ -14,8 +14,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+from pathlib import Path
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- subprocess drives the env/PATH-gated adapter binaries
 import sys
 
 if __package__:
@@ -27,7 +28,7 @@ if __package__:
         GraphError,
         _roundtrip_with_codec,
     )
-    from .nir_equivalence_interpreter import (  # noqa: E402,F401
+    from .nir_equivalence_interpreter import (  # noqa: E402,F401  # pylint: disable=unused-import
         NirReferenceRuntime,
         RuntimeConventions,
         UnsupportedConstruct,
@@ -50,7 +51,7 @@ else:
         GraphError,
         _roundtrip_with_codec,
     )
-    from nir_equivalence_interpreter import (  # noqa: E402,F401
+    from nir_equivalence_interpreter import (  # noqa: E402,F401  # pylint: disable=unused-import
         NirReferenceRuntime,
         RuntimeConventions,
         UnsupportedConstruct,
@@ -246,7 +247,18 @@ class NirRsRuntime:
         }
 
     def _binary(self):
-        return os.environ.get(self.executable_env) or shutil.which(self.executable)
+        """The ``nir-rs`` adapter binary this run would drive, or None.
+
+        A declared override must resolve to an executable file; one that does
+        not is the same outcome as no binary at all.
+        """
+        override = os.environ.get(self.executable_env)
+        if override:
+            path = Path(override)
+            if path.is_file() and os.access(path, os.X_OK):
+                return override
+            return None
+        return shutil.which(self.executable)
 
     def _request(self, command, payload):
         """One subprocess round-trip against the ``nir-rs`` adapter binary."""
@@ -255,8 +267,16 @@ class NirRsRuntime:
             raise RuntimeUnavailable(
                 self.name, "RUNTIME_NOT_INSTALLED", NIR_RS_NOT_INSTALLED_DETAIL
             )
+        envelope, returncode = self._read_envelope(binary, command, payload)
+        return self._raise_for_envelope(binary, envelope, returncode)
+
+    def _read_envelope(self, binary, command, payload):
+        """The ``(envelope, returncode)`` the adapter answered, or a refusal."""
         try:
-            proc = subprocess.run(
+            # argv-array launch of the env/PATH-resolved adapter binary: the
+            # environment is the documented trust boundary choosing which
+            # ``nir-rs`` to drive, and no shell is involved.
+            proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args  # nosec B603
                 [binary, command],
                 input=None if payload is None else json.dumps(payload),
                 capture_output=True,
@@ -271,26 +291,33 @@ class NirRsRuntime:
                 f"{binary!r} could not be executed: {exc}",
             ) from exc
         try:
-            envelope = json.loads(proc.stdout or "")
+            return json.loads(proc.stdout or ""), proc.returncode
         except ValueError as exc:
             raise RuntimeUnavailable(
                 self.name,
                 "RUNTIME_PROBE_FAILED",
                 f"{binary!r} answered with unparseable output: {exc}",
             ) from exc
-        if proc.returncode == 0 and envelope.get("ok") is True:
+
+    def _raise_for_envelope(self, binary, envelope, returncode):
+        """The ``result`` payload, or the typed failure the envelope names."""
+        if returncode == 0 and isinstance(envelope, dict) and envelope.get("ok") is True:
             return envelope["result"]
         error = envelope.get("error") if isinstance(envelope, dict) else None
         error = error if isinstance(error, dict) else {}
+        raise self._envelope_failure(binary, error)
+
+    def _envelope_failure(self, binary, error):
+        """The typed exception the envelope's error block names."""
         kind = error.get("kind")
         detail = error.get("detail") or f"{binary!r} failed without a diagnostic"
         if kind == "unsupported":
-            raise UnsupportedConstruct(
+            return UnsupportedConstruct(
                 error.get("node"), error.get("node_type"), detail
             )
         if kind == "graph":
-            raise GraphError(detail)
-        raise RuntimeUnavailable(self.name, "RUNTIME_PROBE_FAILED", detail)
+            return GraphError(detail)
+        return RuntimeUnavailable(self.name, "RUNTIME_PROBE_FAILED", detail)
 
 
 REFERENCE_V1 = NirReferenceRuntime(

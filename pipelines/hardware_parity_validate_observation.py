@@ -77,9 +77,9 @@ def _matching_action_labels(labels, neurons):
 
 def _usable_dt_ms(value):
     # Integers need no float conversion: arbitrarily large integral dt is valid.
-    if type(value) is int:
+    if type(value) is int:  # pylint: disable=unidiomatic-typecheck
         return True
-    return type(value) is float and math.isfinite(value)
+    return type(value) is float and math.isfinite(value)  # pylint: disable=unidiomatic-typecheck
 
 
 def _scenario_components(scenario):
@@ -168,7 +168,7 @@ def _observable_membrane_errors(membrane, dimensions, path, where):
 def _observed_membrane_errors(membrane, window, path, where):
     """The membrane trace, and its Q8.8 raw correspondence when retained."""
     neurons, _labels, steps, _dt_ms = window
-    if not isinstance(membrane, dict) or type(membrane.get("observable")) is not bool:
+    if not isinstance(membrane, dict) or type(membrane.get("observable")) is not bool:  # pylint: disable=unidiomatic-typecheck
         return [
             f"{where}: {path}.membrane must declare an exact boolean observable flag "
             "[ENVELOPE_MALFORMED]"

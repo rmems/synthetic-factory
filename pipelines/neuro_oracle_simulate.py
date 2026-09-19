@@ -54,14 +54,7 @@ def _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neuron
         refractory[i] -= 1
         membrane[i] = 0.0
         return 0
-    drive = model["bias"][i]
-    for j in range(model["inputs"]):
-        if row[j]:
-            drive += model["w_in"][i][j]
-    if model["w_rec"] is not None:
-        for k in range(neurons):
-            if previous[k]:
-                drive += model["w_rec"][i][k]
+    drive = _lif_drive(i, row, model, previous, neurons)
     membrane[i] = model["decay"][i] * membrane[i] + drive
     if membrane[i] >= model["threshold"][i]:
         if model["reset"] == "zero":
@@ -71,6 +64,24 @@ def _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neuron
         refractory[i] = model["refractory_steps"]
         return 1
     return 0
+
+
+def _lif_drive(i, row, model, previous, neurons):
+    """One neuron's summed input drive for one timestep.
+
+    The accumulation order (bias, then w_in left-to-right, then w_rec
+    left-to-right) is preserved exactly from the original inline loop so
+    floating-point results are identical.
+    """
+    drive = model["bias"][i]
+    for j in range(model["inputs"]):
+        if row[j]:
+            drive += model["w_in"][i][j]
+    if model["w_rec"] is not None:
+        for k in range(neurons):
+            if previous[k]:
+                drive += model["w_rec"][i][k]
+    return drive
 
 
 def simulate_float(model, stimulus):

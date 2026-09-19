@@ -20,13 +20,19 @@ def _spiking_signals(graph):
     known = set(pending) | {name for name, node in graph["nodes"].items()
                             if node["type"] in {"LIF", "IF", "Threshold"}}
     while pending:
-        analog = {name for name, sources in pending.items() if not sources or not sources <= known}
+        analog = _analog_pending(pending, known)
         if not analog:
             break
         known.difference_update(analog)
         for name in analog:
             del pending[name]
     return known
+
+
+def _analog_pending(pending, known):
+    """Transparent nodes not (yet) established as spike-carrying."""
+    return {name for name, sources in pending.items()
+            if not sources or not sources <= known}
 
 
 def _transparent_inputs(graph):

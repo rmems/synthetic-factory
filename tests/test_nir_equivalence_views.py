@@ -109,6 +109,9 @@ class TrainingViews(unittest.TestCase):
         ]
         self.assertTrue(retained and len(retained) < len(records))
         views, errors = nir.build_training_views(retained, source="filtered")
+        self._assert_catalog_rejected_after_clean_projection(views, retained, errors)
+
+    def _assert_catalog_rejected_after_clean_projection(self, views, retained, errors):
         # The projection itself is clean -- one view per retained record, none
         # of them flagged -- so the catalog check is the only thing that can
         # reject this batch.

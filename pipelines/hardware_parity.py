@@ -42,7 +42,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("hardware_parity")
-    from .hardware_parity_terms import (  # noqa: E402,F401
+    from .hardware_parity_terms import (  # noqa: E402,F401  # pylint: disable=unused-import
         CATALOG_AUTHORSHIP,
         FACTORY_SLUG,
         GENERATOR_BLOCK,
@@ -70,14 +70,14 @@ if __package__:
         spike_bitmap_metrics,
         timing_metrics,
     )
-    from .hardware_parity_provenance import (  # noqa: E402,F401
+    from .hardware_parity_provenance import (  # noqa: E402,F401  # pylint: disable=unused-import
         _FAMILY,
         _catalog_digest,
         _catalog_provenance_stamps,
         _family_sources,
         _module_source_digest,
     )
-    from .hardware_parity_record import (  # noqa: E402,F401
+    from .hardware_parity_record import (  # noqa: E402,F401  # pylint: disable=unused-import
         _capture_evidence_digest,
         _expected_summary,
         _summarize,
@@ -95,7 +95,7 @@ if __package__:
         training_view,
         training_view_errors,
     )
-    from .hardware_parity_cli import (  # noqa: E402,F401
+    from .hardware_parity_cli import (  # noqa: E402,F401  # pylint: disable=unused-import
         availability_report,
         main,
         parse_args,

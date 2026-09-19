@@ -15,7 +15,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("hardware_parity_validate_oracle")
-    from .hardware_parity_validate_determinism import (  # noqa: E402,F401
+    from .hardware_parity_validate_determinism import (  # noqa: E402,F401  # pylint: disable=unused-import
         _check_determinism,
         _determinism_claim_errors,
         _record_oracle_digests,
@@ -133,49 +133,58 @@ def _reexecute_reference_sides(record, where):
         ]
     oracle = record.get("oracle") or {}
 
-    software = oracle.get("software")
-    if isinstance(software, dict):
-        errors += _check_reference_identity(
-            software, SoftwareFloatAdapter, "software", where
-        )
-        try:
-            fresh = SoftwareFloatAdapter().run(model, stimulus, repeats=1)
-        except (
-            ValueError,
-            KeyError,
-            TypeError,
-            IndexError,
-            AttributeError,
-            OverflowError,
-        ) as exc:
-            return errors + [
-                f"{where}: the recorded model and stimulus are not simulable: {exc}"
-            ]
-        errors += _compare_side(software, fresh, "software", where)
+    side_errors, fatal = _reexecute_side(
+        oracle.get("software"),
+        SoftwareFloatAdapter,
+        "software",
+        model,
+        stimulus,
+        "the recorded model and stimulus are not simulable",
+        where,
+    )
+    errors += side_errors
+    if fatal:
+        return errors
 
     deployment = oracle.get("deployment")
     if isinstance(deployment, dict):
         if deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL:
-            errors += _check_reference_identity(
-                deployment, FixedPointReferenceAdapter, "deployment", where
+            side_errors, _ = _reexecute_side(
+                deployment,
+                FixedPointReferenceAdapter,
+                "deployment",
+                model,
+                stimulus,
+                "the recorded model is not quantizable/simulable",
+                where,
             )
-            try:
-                fresh = FixedPointReferenceAdapter().run(
-                    model, stimulus, repeats=1
-                )
-            except (
-                ValueError,
-                KeyError,
-                TypeError,
-                IndexError,
-                AttributeError,
-                OverflowError,
-            ) as exc:
-                return errors + [
-                    f"{where}: the recorded model is not quantizable/simulable: {exc}"
-                ]
-            errors += _compare_side(deployment, fresh, "deployment", where)
+            errors += side_errors
     return errors
+
+
+def _reexecute_side(side, adapter_cls, label, model, stimulus, failure, where):
+    """Re-run one in-repo reference side against the recorded model/stimulus.
+
+    Returns ``(errors, fatal)`` — ``fatal`` means the recorded inputs could
+    not even be simulated, so no further side can be graded.
+    """
+    if not isinstance(side, dict):
+        return [], False
+    errors = _check_reference_identity(side, adapter_cls, label, where)
+    try:
+        fresh = adapter_cls().run(model, stimulus, repeats=1)
+    except (
+        ValueError,
+        KeyError,
+        TypeError,
+        IndexError,
+        AttributeError,
+        OverflowError,
+    ) as exc:
+        errors.append(f"{where}: {failure}: {exc}")
+        return errors, True
+    errors += _compare_side(side, fresh, label, where)
+    return errors, False
 
 
 if __package__:

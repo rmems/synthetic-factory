@@ -44,45 +44,58 @@ def _repeat_projection(observation):
     }
 
 
-def _capture_repeat_errors(payload, scenario, where):
-    """Every retained repeat must be well formed and match its digest."""
+def _repeat_cardinality_errors(payload, where):
+    """repeat_outputs and repeat_digests must be non-empty equal-length lists."""
     repeat_outputs = payload.get("repeat_outputs")
     repeat_digests = payload.get("repeat_digests")
     if not isinstance(repeat_outputs, list) or not repeat_outputs:
-        return [
+        return None, [
             f"{where}: capture payload must retain one repeat_outputs entry per "
             "repeat digest [REPEATABILITY_UNPROVEN]"
         ]
     if not isinstance(repeat_digests, list) or len(repeat_outputs) != len(
         repeat_digests
     ):
-        return [
+        return None, [
             f"{where}: capture repeat_outputs and repeat_digests must have identical "
             "cardinality [REPEATABILITY_UNPROVEN]"
         ]
-    errors = []
-    for index, (repeat_output, repeat_digest) in enumerate(
-        zip(repeat_outputs, repeat_digests)
-    ):
-        errors += _physical_observation_errors(
-            repeat_output,
-            scenario,
-            f"capture.source.payload.repeat_outputs[{index}]",
-            where,
+    return zip(repeat_outputs, repeat_digests), []
+
+
+def _repeat_entry_errors(repeat_output, repeat_digest, index, scenario, where):
+    """One retained repeat: well formed, and its digest derives from it."""
+    errors = _physical_observation_errors(
+        repeat_output,
+        scenario,
+        f"capture.source.payload.repeat_outputs[{index}]",
+        where,
+    )
+    try:
+        expected_digest = run_digest(repeat_output)
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+        return errors + [
+            f"{where}: capture repeat output {index} is malformed: {exc} "
+            "[REPEATABILITY_UNPROVEN]"
+        ]
+    if repeat_digest != expected_digest:
+        errors.append(
+            f"{where}: capture repeat_digests[{index}] is not derived from "
+            f"repeat_outputs[{index}] [REPEATABILITY_UNPROVEN]"
         )
-        try:
-            expected_digest = run_digest(repeat_output)
-        except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
-            errors.append(
-                f"{where}: capture repeat output {index} is malformed: {exc} "
-                "[REPEATABILITY_UNPROVEN]"
-            )
-            continue
-        if repeat_digest != expected_digest:
-            errors.append(
-                f"{where}: capture repeat_digests[{index}] is not derived from "
-                f"repeat_outputs[{index}] [REPEATABILITY_UNPROVEN]"
-            )
+    return errors
+
+
+def _capture_repeat_errors(payload, scenario, where):
+    """Every retained repeat must be well formed and match its digest."""
+    repeats, errors = _repeat_cardinality_errors(payload, where)
+    if repeats is None:
+        return errors
+    for index, (repeat_output, repeat_digest) in enumerate(repeats):
+        errors += _repeat_entry_errors(
+            repeat_output, repeat_digest, index, scenario, where
+        )
+    repeat_outputs = payload["repeat_outputs"]
     primary_projection = _repeat_projection(payload)
     if not contract.strict_json_equal(
         _repeat_projection(repeat_outputs[0]), primary_projection
@@ -233,6 +246,60 @@ def _capture_projection_errors(deployment, payload, where):
     return errors
 
 
+def _capture_source_digest_errors(capture, source, where):
+    """capture.source_sha256 must identify capture.source bytes.
+
+    Returns ``(errors, fatal)`` — a non-canonical source stops the chain
+    outright, while a digest mismatch is recorded and the remaining capture
+    checks still run.
+    """
+    try:
+        source_sha = digest(source)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return [f"{where}: capture source is not canonical JSON: {exc}"], True
+    if capture.get("source_sha256") != source_sha:
+        return [
+            f"{where}: capture.source_sha256 does not identify capture.source "
+            "[HW_PROVENANCE_MISSING]"
+        ], False
+    return [], False
+
+
+def _capture_stored_object_errors(capture, source, where):
+    """Return ``(manifest, payload, errors)``: capture.source's manifest and
+    payload objects, plus the digest-binding errors between them."""
+    manifest = source.get("manifest")
+    payload = source.get("payload")
+    if not isinstance(manifest, dict) or not isinstance(payload, dict):
+        return None, None, [
+            f"{where}: capture.source must contain object-valued manifest and payload "
+            "[HW_PROVENANCE_MISSING]"
+        ]
+    try:
+        manifest_sha = digest(manifest)
+        payload_sha = digest(payload)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return None, None, [
+            f"{where}: capture manifest or payload is not canonical finite JSON: "
+            f"{exc} [ENVELOPE_MALFORMED]"
+        ]
+    errors = []
+    if capture.get("manifest_sha256") != manifest_sha:
+        errors.append(
+            f"{where}: capture.manifest_sha256 does not identify the stored manifest "
+            "[HW_PROVENANCE_MISSING]"
+        )
+    if (
+        capture.get("payload_sha256") != payload_sha
+        or manifest.get("payload_sha256") != payload_sha
+    ):
+        errors.append(
+            f"{where}: capture payload digest is not bound to the stored manifest "
+            "[HW_PROVENANCE_MISSING]"
+        )
+    return manifest, payload, errors
+
+
 def _check_capture_chain(record, deployment, where):
     """Bind a physical claim to the replay source stored by the adapter.
 
@@ -257,44 +324,15 @@ def _check_capture_chain(record, deployment, where):
             f"{where}: oracle.deployment.capture.source is required to re-check the "
             "capture digest chain [HW_PROVENANCE_MISSING]"
         ]
-    try:
-        source_sha = digest(source)
-    except (TypeError, ValueError, OverflowError) as exc:
-        return [f"{where}: capture source is not canonical JSON: {exc}"]
-    if capture.get("source_sha256") != source_sha:
-        errors.append(
-            f"{where}: capture.source_sha256 does not identify capture.source "
-            "[HW_PROVENANCE_MISSING]"
-        )
-
-    manifest = source.get("manifest")
-    payload = source.get("payload")
-    if not isinstance(manifest, dict) or not isinstance(payload, dict):
-        return errors + [
-            f"{where}: capture.source must contain object-valued manifest and payload "
-            "[HW_PROVENANCE_MISSING]"
-        ]
-    try:
-        manifest_sha = digest(manifest)
-        payload_sha = digest(payload)
-    except (TypeError, ValueError, OverflowError) as exc:
-        return errors + [
-            f"{where}: capture manifest or payload is not canonical finite JSON: "
-            f"{exc} [ENVELOPE_MALFORMED]"
-        ]
-    if capture.get("manifest_sha256") != manifest_sha:
-        errors.append(
-            f"{where}: capture.manifest_sha256 does not identify the stored manifest "
-            "[HW_PROVENANCE_MISSING]"
-        )
-    if (
-        capture.get("payload_sha256") != payload_sha
-        or manifest.get("payload_sha256") != payload_sha
-    ):
-        errors.append(
-            f"{where}: capture payload digest is not bound to the stored manifest "
-            "[HW_PROVENANCE_MISSING]"
-        )
+    sha_errors, fatal = _capture_source_digest_errors(capture, source, where)
+    errors += sha_errors
+    if fatal:
+        return errors
+    stored = _capture_stored_object_errors(capture, source, where)
+    if stored[0] is None:
+        return errors + stored[2]
+    manifest, payload = stored[0], stored[1]
+    errors += stored[2]
     errors += _capture_manifest_binding_errors(capture, manifest, record, where)
     scenario = record.get("scenario")
     errors += _physical_observation_errors(

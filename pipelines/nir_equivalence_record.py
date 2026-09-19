@@ -194,27 +194,9 @@ def build_record(scenario, entries, round_number):
             "input_fixture": copy.deepcopy(scenario["input_fixture"]),
             "evidence_scope": _evidence_scope(entries),
         },
-        "result": {
-            "oracle_backed": True,
-            "verdict": verdict,
-            "reason_codes": reason_codes,
-            "derived_from": _evidence_lineage(entries),
-            "comparison": comparison,
-            "summary": _summarize(scenario, comparison, verdict),
-        },
-        "provenance": dict(
-            {
-                "kind": "simulated",
-                "tool": VALIDATOR,
-                "tool_version": SCHEMA_VERSION,
-                "contract_version": contract.CONTRACT_VERSION,
-                "scenario_sha256": digest(
-                    {"graph": scenario["graph"], "stimulus": scenario["stimulus"]}
-                ),
-                "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
-            },
-            **_catalog_provenance_stamps(),
-        ),
+        "result": _record_result(scenario, entries, comparison, verdict,
+                                 reason_codes),
+        "provenance": _record_provenance(scenario),
         "validation": {
             "validator": VALIDATOR,
             "validator_version": SCHEMA_VERSION,
@@ -233,6 +215,35 @@ def build_record(scenario, entries, round_number):
         "meta": {"round": round_number, "factory": FACTORY_SLUG},
     }
     return record
+
+
+def _record_result(scenario, entries, comparison, verdict, reason_codes):
+    """The result block: verdict, lineage, comparison, and its summary."""
+    return {
+        "oracle_backed": True,
+        "verdict": verdict,
+        "reason_codes": reason_codes,
+        "derived_from": _evidence_lineage(entries),
+        "comparison": comparison,
+        "summary": _summarize(scenario, comparison, verdict),
+    }
+
+
+def _record_provenance(scenario):
+    """Provenance pinned to the recorded graph+stimulus bytes."""
+    return dict(
+        {
+            "kind": "simulated",
+            "tool": VALIDATOR,
+            "tool_version": SCHEMA_VERSION,
+            "contract_version": contract.CONTRACT_VERSION,
+            "scenario_sha256": digest(
+                {"graph": scenario["graph"], "stimulus": scenario["stimulus"]}
+            ),
+            "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
+        },
+        **_catalog_provenance_stamps(),
+    )
 
 
 def generate_records(round_number=1, steps=10):

@@ -44,32 +44,36 @@ def training_view(record):
     ]
     deployment = oracle.get("deployment")
     fixture_sha = (scenario.get("input_fixture") or {}).get("sha256")
-    if isinstance(deployment, dict):
-        prompt = (
-            f"A Spikenaut network ({scenario.get('name')}) is exported to Q8.8 and "
-            f"executed on the deployment target under stress {scenario.get('stress')!r}. "
-            f"Identical encoded input fixture {fixture_sha}. Does the behaviour survive "
-            "the export?"
-        )
-    else:
-        requested = (oracle.get("requested_deployment") or {}).get("adapter")
-        prompt = (
-            f"A Spikenaut network ({scenario.get('name')}) executed only on the software "
-            f"reference under stress {scenario.get('stress')!r}, using encoded input "
-            f"fixture {fixture_sha}. Requested deployment adapter {requested!r} did not "
-            "execute. Is paired deployment parity established?"
-        )
-    if isinstance(deployment, dict) and "capture" in deployment:
-        prompt = (
-            f"A recorded trace claims deployment target {deployment.get('execution_target')!r} "
-            f"for scenario {scenario.get('name')!r} and encoded input fixture {fixture_sha}. "
-            "Its physical execution is unverified. What do the retained traces establish?"
-        )
+    prompt = _view_prompt(scenario, oracle, deployment, fixture_sha)
     completion = _expected_summary(record)
     view = contract.build_training_view(record, prompt, completion, targets)
     view["stress"] = scenario.get("stress")
     view["scenario_id"] = scenario.get("id")
     return view
+
+
+def _view_prompt(scenario, oracle, deployment, fixture_sha):
+    """The claim prompt for the record's oracle shape."""
+    if isinstance(deployment, dict) and "capture" in deployment:
+        return (
+            f"A recorded trace claims deployment target {deployment.get('execution_target')!r} "
+            f"for scenario {scenario.get('name')!r} and encoded input fixture {fixture_sha}. "
+            "Its physical execution is unverified. What do the retained traces establish?"
+        )
+    if isinstance(deployment, dict):
+        return (
+            f"A Spikenaut network ({scenario.get('name')}) is exported to Q8.8 and "
+            f"executed on the deployment target under stress {scenario.get('stress')!r}. "
+            f"Identical encoded input fixture {fixture_sha}. Does the behaviour survive "
+            "the export?"
+        )
+    requested = (oracle.get("requested_deployment") or {}).get("adapter")
+    return (
+        f"A Spikenaut network ({scenario.get('name')}) executed only on the software "
+        f"reference under stress {scenario.get('stress')!r}, using encoded input "
+        f"fixture {fixture_sha}. Requested deployment adapter {requested!r} did not "
+        "execute. Is paired deployment parity established?"
+    )
 
 
 def training_view_errors(record, view, where):

@@ -15,7 +15,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("hardware_parity_metrics")
-    from .hardware_parity_metrics_spikes import (  # noqa: E402,F401
+    from .hardware_parity_metrics_spikes import (  # noqa: E402,F401  # pylint: disable=unused-import
         _first_spike_steps,
         _rectangular,
         _spike_cell_tally,
@@ -81,6 +81,11 @@ def membrane_metrics(software_membrane, hardware_membrane):
             "reason": reason,
         }
     diffs = [abs(a - b) for row_a, row_b in zip(soft, hard) for a, b in zip(row_a, row_b)]
+    return _observable_membrane_metrics(diffs)
+
+
+def _observable_membrane_metrics(diffs):
+    """The error aggregates over two already-paired membrane traces."""
     return {
         "observable": True,
         "units": MEMBRANE_UNITS,

@@ -60,7 +60,7 @@ if __package__:
     from .neuro_oracle_quantize import (  # noqa: E402,F401
         quantize_model,
     )
-    from .neuro_oracle_observation import (  # noqa: E402,F401
+    from .neuro_oracle_observation import (  # noqa: E402,F401  # pylint: disable=unused-import
         _decode_action,
         _spike_events,
     )

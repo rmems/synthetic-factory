@@ -16,7 +16,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("nir_equivalence_compare")
-    from .nir_equivalence_compare_pair import (  # noqa: E402,F401
+    from .nir_equivalence_compare_pair import (  # noqa: E402,F401  # pylint: disable=unused-import
         _candidate_causes,
         _compare_pair,
         _incomparable_pair,

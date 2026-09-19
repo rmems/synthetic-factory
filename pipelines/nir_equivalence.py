@@ -72,7 +72,7 @@ if __package__:
         serialize,
         structural_digest,
     )
-    from .nir_equivalence_runtimes import (  # noqa: E402,F401
+    from .nir_equivalence_runtimes import (  # noqa: E402,F401  # pylint: disable=unused-import
         IN_REPO_RUNTIMES,
         REFERENCE_ALT,
         REFERENCE_V1,
@@ -92,25 +92,25 @@ if __package__:
     from .nir_equivalence_execute import (  # noqa: E402,F401
         execute_runtime,
     )
-    from .nir_equivalence_compare import (  # noqa: E402,F401
+    from .nir_equivalence_compare import (  # noqa: E402,F401  # pylint: disable=unused-import
         _compare_pair,
         _summarize,
         compare_runtimes,
         convention_delta,
         verdict_for,
     )
-    from .nir_equivalence_provenance import (  # noqa: E402,F401
+    from .nir_equivalence_provenance import (  # noqa: E402,F401  # pylint: disable=unused-import
         _FAMILY,
         _catalog_provenance_stamps,
         _family_sources,
         _module_source_digest,
     )
-    from .nir_equivalence_record import (  # noqa: E402,F401
+    from .nir_equivalence_record import (  # noqa: E402,F401  # pylint: disable=unused-import
         _evidence_lineage,
         build_record,
         generate_records,
     )
-    from .nir_equivalence_validate_replay import (  # noqa: E402,F401
+    from .nir_equivalence_validate_replay import (  # noqa: E402,F401  # pylint: disable=unused-import
         _reexecute_in_repo_runtimes,
     )
     from .nir_equivalence_validate_result import (  # noqa: E402,F401

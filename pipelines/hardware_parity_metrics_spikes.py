@@ -70,23 +70,31 @@ def _spike_cells(software, hardware):
 
 def _spike_cell_tally(software, hardware):
     """Per-cell agreement counts over two identically shaped spike grids."""
-    matches = 0
-    false_positive = 0
-    false_negative = 0
-    both = 0
-    either = 0
+    tally = {"matches": 0, "false_positive": 0, "false_negative": 0,
+             "both": 0, "either": 0}
     for a, b in _spike_cells(software, hardware):
-        if a == b:
-            matches += 1
-        elif b and not a:
-            false_positive += 1
-        else:
-            false_negative += 1
-        if a or b:
-            either += 1
-        if a and b:
-            both += 1
-    return matches, false_positive, false_negative, both, either
+        _tally_cell(tally, a, b)
+    return (
+        tally["matches"],
+        tally["false_positive"],
+        tally["false_negative"],
+        tally["both"],
+        tally["either"],
+    )
+
+
+def _tally_cell(tally, a, b):
+    """Accumulate one (software, hardware) spike pair into the agreement buckets."""
+    if a == b:
+        tally["matches"] += 1
+    elif b and not a:
+        tally["false_positive"] += 1
+    else:
+        tally["false_negative"] += 1
+    if a or b:
+        tally["either"] += 1
+    if a and b:
+        tally["both"] += 1
 
 
 def spike_bitmap_metrics(software, hardware):
@@ -114,20 +122,12 @@ def spike_bitmap_metrics(software, hardware):
     }
 
 
-def timing_metrics(software, hardware, dt_ms):
-    """First-spike timing error over neurons that fired on both sides."""
-    reason = _spike_grid_shape_reason(software, hardware)
-    if reason is not None:
-        return {"comparable": False, "reason": reason}
-    neurons = len(software[0])
-    soft_first = _first_spike_steps(software, neurons)
-    hard_first = _first_spike_steps(hardware, neurons)
+def _first_spike_deltas(soft_first, hard_first):
+    """Per-neuron first-spike deltas plus the single-sided counts."""
     deltas = []
     only_software = 0
     only_hardware = 0
-    for neuron in range(neurons):
-        a = soft_first[neuron]
-        b = hard_first[neuron]
+    for a, b in zip(soft_first, hard_first):
         if a is None and b is None:
             continue
         if a is None:
@@ -136,6 +136,20 @@ def timing_metrics(software, hardware, dt_ms):
             only_software += 1
         else:
             deltas.append(abs(a - b))
+    return deltas, only_software, only_hardware
+
+
+def timing_metrics(software, hardware, dt_ms):
+    """First-spike timing error over neurons that fired on both sides."""
+    reason = _spike_grid_shape_reason(software, hardware)
+    if reason is not None:
+        return {"comparable": False, "reason": reason}
+    neurons = len(software[0])
+    soft_first = _first_spike_steps(software, neurons)
+    hard_first = _first_spike_steps(hardware, neurons)
+    deltas, only_software, only_hardware = _first_spike_deltas(
+        soft_first, hard_first
+    )
     return {
         "comparable": True,
         "unit": "timesteps",

@@ -64,10 +64,10 @@ DEPLOYMENT_SOURCE_STAMPS = (
 # the workspace `nir-rs` binary, and `spikenaut_fpga` runs through the
 # `silicon-bridge` UART transport. Fixture bytes under the reviewed stamps.
 CRATE_ADAPTER_SOURCE_STAMPS = (
-    ('sha256:4e6f895dc87bd9c29cdcd2880d976c9ffce1862e464f78b91b94edf52ff004aa',
-     '40efb566e75a1ac7a6080b07b5f22b316c7849a5b11f1c73889a425806726d9e'),
-    ('sha256:f7dcb6a01854f5b478986d46c9953ddc1042801a26e69187d6e88b066ef2d916',
-     '93ed389f243d1e2358ec49e5ea971afb1121f464a0b7eeb0d25e51ab58f32525'),
+    ('sha256:df67896d80106fed794146fdf8fe78184c4b6fe9e8782d18bba2aa5cd6aca3c2',
+     '262c8a2dbefd570264a9ad02c9f1358e23fb457d01a0383223b63b0c63c87fbe'),
+    ('sha256:e5ff8917778413606f02143d2b5068a3bed97f85cdf3e6fc8d5dff9317790d8e',
+     'b0c35fe54ba2c08cc9e1b49d12e18a497f3aff478462f20dba4cf7fbcef6285a'),
 )
 
 

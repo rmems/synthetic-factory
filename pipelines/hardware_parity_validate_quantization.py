@@ -44,23 +44,9 @@ def _check_quantization(record, where):
         return []
     recorded = deployment.get("quantization")
     model = (record.get("scenario") or {}).get("model_float")
-    if not recorded:
-        return [
-            f"{where}: deployment side reports no Q8.8 conversion provenance "
-            "[Q88_PROVENANCE_MISSING]"
-        ]
-    if not isinstance(model, dict):
-        return [f"{where}: scenario.model_float missing [Q88_PROVENANCE_MISSING]"]
-    for key in ("format", "fractional_bits", "rounding", "saturation_policy"):
-        if key not in recorded:
-            return [
-                f"{where}: quantization provenance missing {key!r} "
-                "[Q88_PROVENANCE_MISSING]"
-            ]
-    if recorded.get("fractional_bits") != 8 or recorded.get("format") != "Q8.8":
-        return [
-            f"{where}: quantization provenance is not Q8.8 [Q88_PROVENANCE_MISMATCH]"
-        ]
+    shape_errors = _quantization_shape_errors(recorded, model, where)
+    if shape_errors is not None:
+        return shape_errors
     try:
         _, recomputed = quantize_model(model)
     except (
@@ -84,13 +70,35 @@ def _check_quantization(record, where):
     ]
 
 
+def _quantization_shape_errors(recorded, model, where):
+    """The provenance block's own shape before any recomputation happens."""
+    if not recorded:
+        return [
+            f"{where}: deployment side reports no Q8.8 conversion provenance "
+            "[Q88_PROVENANCE_MISSING]"
+        ]
+    if not isinstance(model, dict):
+        return [f"{where}: scenario.model_float missing [Q88_PROVENANCE_MISSING]"]
+    for key in ("format", "fractional_bits", "rounding", "saturation_policy"):
+        if key not in recorded:
+            return [
+                f"{where}: quantization provenance missing {key!r} "
+                "[Q88_PROVENANCE_MISSING]"
+            ]
+    if recorded.get("fractional_bits") != 8 or recorded.get("format") != "Q8.8":
+        return [
+            f"{where}: quantization provenance is not Q8.8 [Q88_PROVENANCE_MISMATCH]"
+        ]
+    return None
+
+
 def _matrix_cell_valid(cell, binary, integer):
     """Exact-typed cell domains: `bool` never impersonates an int."""
     if binary:
-        return type(cell) is int and cell in (0, 1)
+        return type(cell) is int and cell in (0, 1)  # pylint: disable=unidiomatic-typecheck
     if integer:
-        return type(cell) is int
-    return type(cell) in (int, float) and (type(cell) is int or math.isfinite(cell))
+        return type(cell) is int  # pylint: disable=unidiomatic-typecheck
+    return type(cell) in (int, float) and (type(cell) is int or math.isfinite(cell))  # pylint: disable=unidiomatic-typecheck
 
 
 def _matrix_cell_domain(binary, integer):

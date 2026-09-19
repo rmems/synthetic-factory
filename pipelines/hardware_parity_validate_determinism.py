@@ -59,11 +59,11 @@ def _check_determinism(
     return errors
 
 
-def _repeat_digest_evidence_errors(run, label, where, require_rederived_repeats):
-    """The repeat-digest evidence itself: shape, count, and re-derivation.
+def _repeat_digest_shape_errors(run, label, where):
+    """repeat_digests must be a non-empty list of canonical digest strings.
 
-    Returns ``(errors, digests)``; ``digests`` is None when the evidence is
-    too malformed for any determinism claim to be graded against it.
+    Returns ``(errors, digests)``; ``digests`` is None when the list is too
+    malformed for any further evidence grading.
     """
     digests = run.get("repeat_digests")
     if not isinstance(digests, list) or not digests:
@@ -83,7 +83,18 @@ def _repeat_digest_evidence_errors(run, label, where, require_rederived_repeats)
             "[REPEATABILITY_UNPROVEN]"
             for index, value in malformed
         ], None
-    errors = []
+    return [], digests
+
+
+def _repeat_digest_evidence_errors(run, label, where, require_rederived_repeats):
+    """The repeat-digest evidence itself: shape, count, and re-derivation.
+
+    Returns ``(errors, digests)``; ``digests`` is None when the evidence is
+    too malformed for any determinism claim to be graded against it.
+    """
+    errors, digests = _repeat_digest_shape_errors(run, label, where)
+    if digests is None:
+        return errors, None
     repeats = run.get("repeats")
     valid_repeats = (
         isinstance(repeats, int) and not isinstance(repeats, bool) and repeats >= 1
@@ -93,23 +104,33 @@ def _repeat_digest_evidence_errors(run, label, where, require_rederived_repeats)
             f"{where}: oracle.{label}.repeats is {repeats!r} but {len(digests)} repeat "
             "digests were recorded [REPEATABILITY_UNPROVEN]"
         )
+    errors += _repeat_derivation_errors(
+        run, digests, label, where, require_rederived_repeats and valid_repeats
+    )
+    return errors, digests
+
+
+def _repeat_derivation_errors(run, digests, label, where, may_recheck):
+    """output_digest must sit inside repeat_digests and, for deterministic
+    sides, every digest must equal it."""
+    errors = []
     if run.get("output_digest") not in digests:
         errors.append(
             f"{where}: oracle.{label}.output_digest is absent from its own "
             "repeat_digests [REPEATABILITY_UNPROVEN]"
         )
-    if require_rederived_repeats and valid_repeats and repeats == len(digests):
+    if may_recheck and run.get("repeats") == len(digests):
         # The `repeats == len(digests)` guard binds the multiplication bound
         # to the trusted evidence (the actual digest list length) already
         # checked above, rather than an untrusted `repeats` integer that
         # could otherwise reach this allocation on its own when it disagrees.
-        expected = [run.get("output_digest")] * repeats
+        expected = [run.get("output_digest")] * len(digests)
         if digests != expected:
             errors.append(
                 f"{where}: deterministic oracle.{label}.repeat_digests must repeat "
                 "the re-derived output_digest exactly [REPEATABILITY_UNPROVEN]"
             )
-    return errors, digests
+    return errors
 
 
 def _determinism_claim_errors(determinism, digests, label, where, expected_meaning):
@@ -150,21 +171,35 @@ def _record_oracle_digests(oracle):
         for side in (oracle.get("software"), oracle.get("deployment"))
         if isinstance(side, dict) and side.get("output_digest")
     ]
-    if oracle.get("deployment") is None:
-        unavailable = oracle.get("unavailable")
-        if isinstance(unavailable, list) and len(unavailable) == 1:
-            try:
-                digests.append(_unavailable_evidence_digest(unavailable[0]))
-            except (TypeError, ValueError, OverflowError):
-                pass
-    else:
-        try:
-            capture_digest = _capture_evidence_digest(oracle.get("deployment"))
-        except (TypeError, ValueError, OverflowError):
-            capture_digest = None
-        if capture_digest is not None:
-            digests.append(capture_digest)
+    tail = _unavailable_side_digest(oracle)
+    if tail is None:
+        tail = _capture_side_digest(oracle)
+    if tail is not None:
+        digests.append(tail)
     return digests
+
+
+def _unavailable_side_digest(oracle):
+    """The unavailable-diagnostic digest when deployment is absent."""
+    if oracle.get("deployment") is not None:
+        return None
+    unavailable = oracle.get("unavailable")
+    if isinstance(unavailable, list) and len(unavailable) == 1:
+        try:
+            return _unavailable_evidence_digest(unavailable[0])
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return None
+
+
+def _capture_side_digest(oracle):
+    """The capture-chain digest when a deployment claim is present."""
+    if oracle.get("deployment") is None:
+        return None
+    try:
+        return _capture_evidence_digest(oracle.get("deployment"))
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 if __package__:

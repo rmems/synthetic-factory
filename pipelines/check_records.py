@@ -535,11 +535,19 @@ def _family_module(name):
 
     ``pipelines/`` is on ``sys.path`` only under the direct CLI convention;
     as ``pipelines.check_records`` (the form ``round_txn`` imports) the
-    sibling has to be resolved through the package.
+    sibling has to be resolved through the package. Only literal names from
+    ``_PARITY_VALIDATOR_MODULES`` are ever imported -- the record can select
+    the module but never spell it.
     """
-    if __package__:
-        return importlib.import_module(f"{__package__}.{name}")
-    return importlib.import_module(name)
+    if name == "hardware_parity":
+        if __package__:
+            return importlib.import_module(".hardware_parity", __package__)
+        return importlib.import_module("hardware_parity")
+    if name == "nir_equivalence":
+        if __package__:
+            return importlib.import_module(".nir_equivalence", __package__)
+        return importlib.import_module("nir_equivalence")
+    raise ValueError(f"no parity validator module named {name!r}")
 
 
 def _family_record_view(obj):

@@ -16,7 +16,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("hardware_parity_validate_deployment")
-    from .hardware_parity_validate_availability import (  # noqa: E402,F401
+    from .hardware_parity_validate_availability import (  # noqa: E402,F401  # pylint: disable=unused-import
         _check_fpga_environment,
         _check_unavailable_deployment,
         _replayed_adapter_probe,

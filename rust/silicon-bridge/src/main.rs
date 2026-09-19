@@ -42,6 +42,9 @@ const DEFAULT_BAUD_RATE: u32 = 115_200;
 const DEFAULT_IO_TIMEOUT: Duration = Duration::from_millis(100);
 
 fn main() {
+    // The CLI verb is the adapter's documented interface — the Python harness
+    // launches this binary with one of the fixed verbs above.
+    // nosemgrep: rust.lang.security.args.args
     let command = std::env::args().nth(1).unwrap_or_default();
     let outcome = match command.as_str() {
         "availability" => Ok(availability()),
@@ -141,6 +144,26 @@ fn execute(
     stimulus: &Value,
     repeats: u64,
 ) -> Result<Value, AdapterError> {
+    let (inputs, neurons) = model_dims(model)?;
+    let (steps, events) = stimulus_plan(stimulus)?;
+    let link = layout_link(inputs, neurons)?;
+    let mut port = serialport::new(device, DEFAULT_BAUD_RATE)
+        .timeout(DEFAULT_IO_TIMEOUT)
+        .open()
+        .map_err(|err| AdapterError::transport(format!("cannot open {device}: {err}")))?;
+    let mut runs = Vec::with_capacity(repeats as usize);
+    for _ in 0..repeats {
+        runs.push(exchange_once(port.as_mut(), &link, events, steps)?);
+    }
+    Ok(json!({
+        "repeats": repeats,
+        "runs": runs,
+        "frames": {"tx_len": link.tx_len, "rx_len": link.rx_len},
+        "baud_rate": DEFAULT_BAUD_RATE,
+    }))
+}
+
+fn model_dims(model: &Value) -> Result<(usize, usize), AdapterError> {
     let inputs = model
         .get("inputs")
         .and_then(Value::as_u64)
@@ -151,6 +174,10 @@ fn execute(
         .and_then(Value::as_u64)
         .ok_or_else(|| AdapterError::protocol("model.neurons must be a count"))?
         as usize;
+    Ok((inputs, neurons))
+}
+
+fn stimulus_plan(stimulus: &Value) -> Result<(usize, &[Value]), AdapterError> {
     let steps = stimulus
         .get("steps")
         .and_then(Value::as_u64)
@@ -165,6 +192,18 @@ fn execute(
             "stimulus.events must cover every declared step",
         ));
     }
+    Ok((steps, events))
+}
+
+/// The negotiated frame contract: the crate's dense layout plus the exact TX
+/// and RX frame lengths it implies.
+struct Link {
+    layout: DenseQ88Layout,
+    tx_len: usize,
+    rx_len: usize,
+}
+
+fn layout_link(inputs: usize, neurons: usize) -> Result<Link, AdapterError> {
     let layout = DenseQ88Layout::dense(inputs, neurons)
         .map_err(|err| AdapterError::codec(format!("layout refused: {err}")))?;
     let tx_len = layout
@@ -173,81 +212,102 @@ fn execute(
     let rx_len = layout
         .rx_len()
         .map_err(|err| AdapterError::codec(err.to_string()))?;
-    let mut port = serialport::new(device, DEFAULT_BAUD_RATE)
-        .timeout(DEFAULT_IO_TIMEOUT)
-        .open()
-        .map_err(|err| AdapterError::transport(format!("cannot open {device}: {err}")))?;
-    let mut runs = Vec::with_capacity(repeats as usize);
-    for _ in 0..repeats {
-        runs.push(exchange_once(
-            port.as_mut(),
-            &layout,
-            events,
-            steps,
-            tx_len,
-            rx_len,
-        )?);
-    }
-    Ok(json!({
-        "repeats": repeats,
-        "runs": runs,
-        "frames": {"tx_len": tx_len, "rx_len": rx_len},
-        "baud_rate": DEFAULT_BAUD_RATE,
-    }))
+    Ok(Link {
+        layout,
+        tx_len,
+        rx_len,
+    })
 }
 
 /// One complete stimulus exchange: every step encoded, written, and its
 /// response frame decoded, with wall-clock timing around the I/O.
 fn exchange_once(
     port: &mut dyn serialport::SerialPort,
-    layout: &DenseQ88Layout,
+    link: &Link,
     events: &[Value],
     steps: usize,
-    tx_len: usize,
-    rx_len: usize,
 ) -> Result<Value, AdapterError> {
-    let mut spike_grid: Vec<Value> = Vec::with_capacity(steps);
-    let mut potentials: Vec<Value> = Vec::with_capacity(steps);
-    let mut potentials_raw: Vec<Value> = Vec::with_capacity(steps);
-    let mut switches: Vec<Value> = Vec::with_capacity(steps);
-    let mut rx_frames_hex: Vec<String> = Vec::with_capacity(steps);
-    let mut transcript = Sha256::new();
-    let mut saturation_events = 0_u64;
+    let mut capture = Capture::new(steps);
     let start = Instant::now();
     for step in 0..steps {
-        let row = events
-            .get(step)
-            .and_then(Value::as_array)
-            .ok_or_else(|| AdapterError::protocol("stimulus.events rows must be arrays"))?;
-        let stimuli: Result<Vec<f32>, AdapterError> = row
-            .iter()
-            .map(|value| {
-                value
-                    .as_f64()
-                    .map(|v| v as f32)
-                    .ok_or_else(|| AdapterError::protocol("stimulus events must be numeric"))
-            })
-            .collect();
-        let stimuli = stimuli?;
-        saturation_events += stimuli
+        let stimuli = step_stimuli(events, step)?;
+        capture.saturation_events += stimuli
             .iter()
             .filter(|value| !(STIMULUS_Q88_MIN..=STIMULUS_Q88_MAX).contains(*value))
             .count() as u64;
-        let tx = encode_stimuli(layout, &stimuli)
-            .map_err(|err| AdapterError::codec(format!("step {step}: encode failed: {err}")))?;
-        debug_assert_eq!(tx.len(), tx_len);
-        port.write_all(&tx)
-            .map_err(|err| AdapterError::transport(format!("step {step}: write failed: {err}")))?;
-        port.flush()
-            .map_err(|err| AdapterError::transport(format!("step {step}: flush failed: {err}")))?;
-        let mut rx = vec![0_u8; rx_len];
-        port.read_exact(&mut rx)
-            .map_err(|err| AdapterError::transport(format!("step {step}: read failed: {err}")))?;
-        transcript.update(&rx);
-        rx_frames_hex.push(hex_lower(&rx));
-        let response = decode_response(layout, &rx)
+        let rx = transfer_step(port, link, &stimuli, step)?;
+        capture.record(link, step, &rx)?;
+    }
+    Ok(capture.finish(start))
+}
+
+fn step_stimuli(events: &[Value], step: usize) -> Result<Vec<f32>, AdapterError> {
+    let row = events
+        .get(step)
+        .and_then(Value::as_array)
+        .ok_or_else(|| AdapterError::protocol("stimulus.events rows must be arrays"))?;
+    row.iter()
+        .map(|value| {
+            value
+                .as_f64()
+                .map(|v| v as f32)
+                .ok_or_else(|| AdapterError::protocol("stimulus events must be numeric"))
+        })
+        .collect()
+}
+
+/// Encode one stimulus row, push it down the link, and read exactly one
+/// response frame back.
+fn transfer_step(
+    port: &mut dyn serialport::SerialPort,
+    link: &Link,
+    stimuli: &[f32],
+    step: usize,
+) -> Result<Vec<u8>, AdapterError> {
+    let tx = encode_stimuli(&link.layout, stimuli)
+        .map_err(|err| AdapterError::codec(format!("step {step}: encode failed: {err}")))?;
+    debug_assert_eq!(tx.len(), link.tx_len);
+    port.write_all(&tx)
+        .map_err(|err| AdapterError::transport(format!("step {step}: write failed: {err}")))?;
+    port.flush()
+        .map_err(|err| AdapterError::transport(format!("step {step}: flush failed: {err}")))?;
+    let mut rx = vec![0_u8; link.rx_len];
+    port.read_exact(&mut rx)
+        .map_err(|err| AdapterError::transport(format!("step {step}: read failed: {err}")))?;
+    Ok(rx)
+}
+
+/// What one exchange accumulates across steps: the decoded observations plus
+/// the raw-frame transcript a verifier can re-derive the decode from.
+struct Capture {
+    spike_grid: Vec<Value>,
+    potentials: Vec<Value>,
+    potentials_raw: Vec<Value>,
+    switches: Vec<Value>,
+    rx_frames_hex: Vec<String>,
+    transcript: Sha256,
+    saturation_events: u64,
+}
+
+impl Capture {
+    fn new(steps: usize) -> Self {
+        Self {
+            spike_grid: Vec::with_capacity(steps),
+            potentials: Vec::with_capacity(steps),
+            potentials_raw: Vec::with_capacity(steps),
+            switches: Vec::with_capacity(steps),
+            rx_frames_hex: Vec::with_capacity(steps),
+            transcript: Sha256::new(),
+            saturation_events: 0,
+        }
+    }
+
+    fn record(&mut self, link: &Link, step: usize, rx: &[u8]) -> Result<(), AdapterError> {
+        self.transcript.update(rx);
+        self.rx_frames_hex.push(hex_lower(rx));
+        let response = decode_response(&link.layout, rx)
             .map_err(|err| AdapterError::codec(format!("step {step}: decode failed: {err}")))?;
-        spike_grid.push(json!(
+        self.spike_grid.push(json!(
             response
                 .spikes
                 .iter()
@@ -257,28 +317,32 @@ fn exchange_once(
         // The raw signed Q8.8 words, alongside the crate-decoded floats: the
         // wire integers are the observation a verifier can re-derive from the
         // retained RX frames without trusting this binary's decode.
-        let (raw_words, _) = rx[..layout.output_neurons().saturating_mul(2)].as_chunks::<2>();
+        let (raw_words, _) = rx[..link.layout.output_neurons().saturating_mul(2)].as_chunks::<2>();
         let raw_pairs: Vec<i16> = raw_words
             .iter()
             .map(|pair| i16::from_be_bytes(*pair))
             .collect();
-        potentials_raw.push(json!(raw_pairs));
-        potentials.push(json!(response.potentials));
-        switches.push(match response.switches {
+        self.potentials_raw.push(json!(raw_pairs));
+        self.potentials.push(json!(response.potentials));
+        self.switches.push(match response.switches {
             Some(word) => json!(word),
             None => Value::Null,
         });
+        Ok(())
     }
-    Ok(json!({
-        "latency_ms": start.elapsed().as_secs_f64() * 1000.0,
-        "spike_grid": spike_grid,
-        "potentials": potentials,
-        "potentials_raw": potentials_raw,
-        "switches": switches,
-        "rx_frames_hex": rx_frames_hex,
-        "saturation_events": saturation_events,
-        "transcript_sha256": format!("sha256:{}", hex_lower(&transcript.finalize())),
-    }))
+
+    fn finish(self, start: Instant) -> Value {
+        json!({
+            "latency_ms": start.elapsed().as_secs_f64() * 1000.0,
+            "spike_grid": self.spike_grid,
+            "potentials": self.potentials,
+            "potentials_raw": self.potentials_raw,
+            "switches": self.switches,
+            "rx_frames_hex": self.rx_frames_hex,
+            "saturation_events": self.saturation_events,
+            "transcript_sha256": format!("sha256:{}", hex_lower(&self.transcript.finalize())),
+        })
+    }
 }
 
 fn hex_lower(bytes: &[u8]) -> String {

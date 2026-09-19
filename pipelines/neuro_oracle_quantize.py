@@ -53,15 +53,23 @@ def quantize_model(model):
     conversion saturated. Nothing about the conversion is left implicit.
     """
     model = normalize_model(model)
-    entries = []
-    saturated_count = 0
+    tape = _QuantizeTape()
+    q_model = _quantized_fields(model, tape.convert)
+    return q_model, _quantization_provenance(model, tape)
 
-    def _convert(path, value):
-        nonlocal saturated_count
+
+class _QuantizeTape:
+    """Accumulates one provenance entry per converted scalar."""
+
+    def __init__(self):
+        self.entries = []
+        self.saturated_count = 0
+
+    def convert(self, path, value):
         raw, saturated = q88_quantize(value)
         if saturated:
-            saturated_count += 1
-        entries.append(
+            self.saturated_count += 1
+        self.entries.append(
             {
                 "parameter": path,
                 "float": value,
@@ -73,34 +81,48 @@ def quantize_model(model):
         )
         return raw
 
-    q_model = {
+
+def _quantized_fields(model, convert):
+    """Every model field, routed through ``convert`` so each scalar is taped."""
+    return {
         "name": model["name"],
         "neurons": model["neurons"],
         "inputs": model["inputs"],
         "refractory_steps": model["refractory_steps"],
         "reset": model["reset"],
         "dt_ms": model["dt_ms"],
-        "w_in": [
-            [_convert(f"w_in[{i}][{j}]", cell) for j, cell in enumerate(row)]
-            for i, row in enumerate(model["w_in"])
-        ],
+        "w_in": _quantized_matrix("w_in", model["w_in"], convert),
         "w_rec": (
-            [
-                [_convert(f"w_rec[{i}][{j}]", cell) for j, cell in enumerate(row)]
-                for i, row in enumerate(model["w_rec"])
-            ]
+            _quantized_matrix("w_rec", model["w_rec"], convert)
             if model["w_rec"] is not None
             else None
         ),
-        "bias": [_convert(f"bias[{i}]", cell) for i, cell in enumerate(model["bias"])],
-        "threshold": [
-            _convert(f"threshold[{i}]", cell) for i, cell in enumerate(model["threshold"])
-        ],
-        "decay": [_convert(f"decay[{i}]", cell) for i, cell in enumerate(model["decay"])],
+        "bias": _quantized_vector("bias", model["bias"], convert),
+        "threshold": _quantized_vector(
+            "threshold", model["threshold"], convert
+        ),
+        "decay": _quantized_vector("decay", model["decay"], convert),
         "action_labels": list(model["action_labels"]),
     }
-    errors = [entry["abs_error"] for entry in entries]
-    provenance = {
+
+
+def _quantized_matrix(path, rows, convert):
+    """A 2-D weight block with per-cell provenance paths."""
+    return [
+        [convert(f"{path}[{i}][{j}]", cell) for j, cell in enumerate(row)]
+        for i, row in enumerate(rows)
+    ]
+
+
+def _quantized_vector(path, values, convert):
+    """A 1-D parameter block with per-cell provenance paths."""
+    return [convert(f"{path}[{i}]", cell) for i, cell in enumerate(values)]
+
+
+def _quantization_provenance(model, tape):
+    """The per-scalar conversion ledger plus aggregate error statistics."""
+    errors = [entry["abs_error"] for entry in tape.entries]
+    return {
         "format": "Q8.8",
         "signed": True,
         "total_bits": 16,
@@ -110,14 +132,13 @@ def quantize_model(model):
         "rounding": Q88_ROUNDING,
         "saturation_policy": Q88_SATURATION_POLICY,
         "units": {"weights": "dimensionless", "threshold": "mV_model", "decay": "ratio"},
-        "parameters": entries,
-        "parameter_count": len(entries),
-        "saturated_parameter_count": saturated_count,
+        "parameters": tape.entries,
+        "parameter_count": len(tape.entries),
+        "saturated_parameter_count": tape.saturated_count,
         "max_abs_error": max(errors) if errors else 0.0,
         "mean_abs_error": (sum(errors) / len(errors)) if errors else 0.0,
         "source_model_sha256": digest(model),
     }
-    return q_model, provenance
 
 
 if __package__:

@@ -128,86 +128,24 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
     # mutable sub-object: an edit to one would otherwise silently rewrite the
     # other, which is precisely the failure mode these records exist to catch.
     fixture = copy.deepcopy(scenario["input_fixture"])
-    oracle = {
-        "pairing": ORACLE_PAIRING,
-        "input_fixture": fixture,
-        "identical_input_fixture": True,
-        "software": None,
-        "deployment": None,
-        "unavailable": [],
-        "environment": {
-            "fpga_hardware": fpga_status,
-            "note": (
-                "the availability probe is recorded on every record so a reader can "
-                "tell an unexecuted hardware leg from an omitted one"
-            ),
-        },
-    }
-    requested_deployment = None
-    if unavailable:
-        oracle["unavailable"].append(unavailable)
-        requested_deployment = {
-            key: copy.deepcopy(unavailable[key])
-            for key in ("adapter", "execution_target", "adapter_config")
-            if key in unavailable
-        }
-        oracle["requested_deployment"] = requested_deployment
-
-    prediction = {
-        "source": "generator",
-        "authoritative": False,
-        "hypothesis": scenario["hypothesis"],
-        "expected_verdict": (
-            contract.VERDICT_MATCH if scenario["stress"] == "none"
-            else contract.VERDICT_MISMATCH
-        ),
-    }
+    oracle, requested_deployment = _oracle_block(fixture, unavailable, fpga_status)
     # A recorded physical target is a claim inside untrusted capture bytes.
     # The current adapter proves internal integrity only, so it cannot assign HIL.
     deployment_target = (deployment_run or {}).get("execution_target")
-    scenario_evidence = {
-        "model": scenario["model_float"],
-        "stimulus": scenario["stimulus"],
-    }
-    if requested_deployment is not None:
-        scenario_evidence["requested_deployment"] = requested_deployment
-    provenance = {
-        "kind": "unknown" if deployment_target in PHYSICAL_TARGETS else "simulated",
-        "tool": VALIDATOR,
-        "tool_version": SCHEMA_VERSION,
-        "contract_version": contract.CONTRACT_VERSION,
-        "scenario_sha256": digest(scenario_evidence),
-        "units": {
-            "time": "ms",
-            "membrane": "mV_model",
-            "weights": "dimensionless",
-            "latency": "ms",
-        },
-    }
-    provenance.update(_catalog_provenance_stamps())
-
     record = {
         "id": f"{scenario['id']}-r{round_number:02d}",
         "record_kind": RECORD_KIND,
         "dataset": contract.DATASET_FOR_KIND[RECORD_KIND],
         "schema_version": SCHEMA_VERSION,
         "generator": copy.deepcopy(GENERATOR_BLOCK),
-        "scenario": {
-            "id": scenario["id"],
-            "name": scenario["name"],
-            "family": scenario["family"],
-            "stress": scenario["stress"],
-            "description": scenario["description"],
-            "model_float": scenario["model_float"],
-            "model_sha256": scenario["model_sha256"],
-            "stimulus": scenario["stimulus"],
-            "input_fixture": copy.deepcopy(fixture),
-        },
+        "scenario": _record_scenario(scenario, fixture),
         "intervention": copy.deepcopy(scenario["intervention"]),
-        "candidate_prediction": prediction,
+        "candidate_prediction": _prediction_block(scenario),
         "oracle": oracle,
         "result": None,
-        "provenance": provenance,
+        "provenance": _record_provenance(
+            scenario, deployment_target, requested_deployment
+        ),
         "validation": {
             "validator": VALIDATOR,
             "validator_version": SCHEMA_VERSION,
@@ -235,6 +173,89 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
     oracle["deployment"] = _slim_run(deployment_run)
     record["result"] = _paired_result(scenario, software_run, deployment_run)
     return record
+
+
+def _oracle_block(fixture, unavailable, fpga_status):
+    """``(oracle, requested_deployment)`` for the record's oracle block."""
+    oracle = {
+        "pairing": ORACLE_PAIRING,
+        "input_fixture": fixture,
+        "identical_input_fixture": True,
+        "software": None,
+        "deployment": None,
+        "unavailable": [],
+        "environment": {
+            "fpga_hardware": fpga_status,
+            "note": (
+                "the availability probe is recorded on every record so a reader can "
+                "tell an unexecuted hardware leg from an omitted one"
+            ),
+        },
+    }
+    requested_deployment = None
+    if unavailable:
+        oracle["unavailable"].append(unavailable)
+        requested_deployment = {
+            key: copy.deepcopy(unavailable[key])
+            for key in ("adapter", "execution_target", "adapter_config")
+            if key in unavailable
+        }
+        oracle["requested_deployment"] = requested_deployment
+    return oracle, requested_deployment
+
+
+def _prediction_block(scenario):
+    """The generator's expected verdict for the record's stress profile."""
+    return {
+        "source": "generator",
+        "authoritative": False,
+        "hypothesis": scenario["hypothesis"],
+        "expected_verdict": (
+            contract.VERDICT_MATCH if scenario["stress"] == "none"
+            else contract.VERDICT_MISMATCH
+        ),
+    }
+
+
+def _record_scenario(scenario, fixture):
+    """The scenario block embedded in the record (input fixture deep-copied)."""
+    return {
+        "id": scenario["id"],
+        "name": scenario["name"],
+        "family": scenario["family"],
+        "stress": scenario["stress"],
+        "description": scenario["description"],
+        "model_float": scenario["model_float"],
+        "model_sha256": scenario["model_sha256"],
+        "stimulus": scenario["stimulus"],
+        "input_fixture": copy.deepcopy(fixture),
+    }
+
+
+def _record_provenance(scenario, deployment_target, requested_deployment):
+    """Provenance: kind follows the recorded target; scenario digest binds the
+    model, stimulus, and any requested-but-unavailable deployment."""
+    scenario_evidence = {
+        "model": scenario["model_float"],
+        "stimulus": scenario["stimulus"],
+    }
+    if requested_deployment is not None:
+        scenario_evidence["requested_deployment"] = requested_deployment
+    provenance = {
+        "kind": "unknown" if deployment_target in PHYSICAL_TARGETS else "simulated",
+        "tool": VALIDATOR,
+        "tool_version": SCHEMA_VERSION,
+        "contract_version": contract.CONTRACT_VERSION,
+        "scenario_sha256": digest(scenario_evidence),
+        "units": {
+            "time": "ms",
+            "membrane": "mV_model",
+            "weights": "dimensionless",
+            "latency": "ms",
+        },
+    }
+    provenance.update(_catalog_provenance_stamps())
+    return provenance
 
 
 def _unpaired_result(software_run, unavailable):
@@ -344,11 +365,10 @@ def _capture_evidence_digest(deployment_run):
 def _expected_summary(record):
     """Re-derive supervised prose from structured, validated evidence."""
     oracle = record.get("oracle") or {}
-    result = record.get("result") or {}
     deployment = oracle.get("deployment")
     if deployment is None:
-        unavailable = oracle.get("unavailable") or []
-        return _summarize_unpaired(unavailable[0] if unavailable else None)
+        return _summarize_unpaired(_first_unavailable(oracle))
+    result = record.get("result") or {}
     parity = result.get("parity")
     if not isinstance(parity, dict) or not isinstance(deployment, dict):
         return None
@@ -358,6 +378,12 @@ def _expected_summary(record):
         result.get("verdict"),
         deployment,
     )
+
+
+def _first_unavailable(oracle):
+    """The single unavailable diagnostic an unpaired record carries."""
+    unavailable = oracle.get("unavailable") or []
+    return unavailable[0] if unavailable else None
 
 
 def generate_records(round_number=1, steps=12, deployment_adapter=None, repeats=3,
