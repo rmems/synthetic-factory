@@ -1,0 +1,48 @@
+{
+  "retrieved_at": "2026-09-15T05:30:00Z",
+  "source_url": "https://openrouter.ai/api/v1/models?distillable=true",
+  "data": [
+    {
+      "id": "deepseek/deepseek-v4-pro-0813",
+      "canonical_slug": "deepseek/deepseek-v4-pro-20260813",
+      "hugging_face_id": "deepseek-ai/DeepSeek-V4-Pro-0813",
+      "created": 1786549364
+    },
+    {
+      "id": "nvidia/nemotron-3.5-lightning",
+      "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
+      "hugging_face_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+      "created": 1786452751
+    },
+    {
+      "id": "moonshotai/kimi-k3",
+      "canonical_slug": "moonshotai/kimi-k3-20260715",
+      "hugging_face_id": "moonshotai/Kimi-K3",
+      "created": 1784215858
+    },
+    {
+      "id": "qwen/qwen3.8-flash",
+      "canonical_slug": "qwen/qwen3.8-flash-20260826",
+      "hugging_face_id": "Qwen/Qwen3.8-Flash-Next",
+      "created": 1787773060
+    },
+    {
+      "id": "microsoft/phi-4",
+      "canonical_slug": "microsoft/phi-4",
+      "hugging_face_id": "microsoft/phi-4",
+      "created": 1736489872
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "canonical_slug": "meta-llama/llama-3.3-70b-instruct",
+      "hugging_face_id": "meta-llama/Llama-3.3-70B-Instruct",
+      "created": 1734300000
+    },
+    {
+      "id": "~deepseek/deepseek-pro-latest",
+      "canonical_slug": "deepseek/deepseek-v4-pro-20260813",
+      "hugging_face_id": "deepseek-ai/DeepSeek-V4-Pro-0813",
+      "created": 1786549364
+    }
+  ]
+}

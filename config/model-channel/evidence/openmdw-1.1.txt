@@ -1,0 +1,89 @@
+# OpenMDW-1.1
+## Modified Date: November 15, 2025
+
+By exercising the Licensed Rights, You accept and agree to be bound by the terms and conditions of this Open Model License Agreement ("OpenMDW License" or "License"). To the extent this License may be interpreted as a contract, You are granted the Licensed Rights in consideration of Your acceptance of these terms and conditions, and the Licensor grants You such rights in consideration of benefits the Licensor receives from making the Model available under these terms and conditions.
+
+**Section I: Preamble**
+
+This License governs the conditions under which a given Model may be copied, modified, distributed, and/or used, including Use of Output therefrom. Some informational obligations are placed on You.
+
+**Section II: Definitions**
+
+- **"Complementary Material"** means the source code and scripts used to define, run, load, benchmark and/or train the Model, and configure the Model to process data, including Third-Party Components, as well as any automatically generated documentation files (such as REST API doc and the like), configuration files, compiled binaries or asset files, related to the Model, and descriptive text and supporting documentation (including the Model Card) provided alongside the Model.
+
+- **"Contribution"** means any work of authorship, including the original version of the Model and any modifications or additions to that Model or Derivative Models thereof, that is intentionally submitted to Licensor for inclusion in the Model by the copyright owner or by an individual or legal entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, “submitted” means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Model, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as “Not a Contribution.”
+
+- **"Contributor"** means Licensor and any individual or legal entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Model.
+
+- **"Data"** means a collection of information and/or content extracted from the dataset used to train, pretrain, or otherwise develop the Model.
+
+- **"Derivative Model"** means all (a) modifications to the Model, (b) works based on the Model, and (c) any other model in which the Model is combined with, modified, or otherwise adapted, including without limitation, by (i) transfer learning, (ii) fine-tuning, (iii) continued pretraining, (iv) quantization, (v) weight merging, (vi) architectural modifications, or (vii) converting the Model to a different format, in each case such that the Model or a substantial portion thereof is present in the resulting model.
+
+- **"Distribution"** or **"Distribute"** means any transmission, reproduction, publication or other sharing of the Model or Complementary Materials to a third party, including providing the Model as a hosted service (including by making the Model available as an inference endpoint) allowing a third party to interact with the Model, or making the Model available via an API, or making the Model's weights available.
+
+- **"Licensed Rights"** means the rights granted to You subject to the terms and conditions of this License, and includes the rights in trade secrets, patents, copyrights, database rights, and sui generis rights, and other intellectual property rights (including, but not limited to, trademarks, publicity, and data protection rights) in the Model, Complementary Materials, and Output.
+
+- **"Licensor"** means the rights owner (by virtue of creation or transfer or license of rights, or any combination of these) or entity authorized to provide the Licensed Rights and granting rights under this License.
+
+- **"Model"** means machine-learning based assemblies (including checkpoints), consisting of learnt weights, parameters (including optimizer states), and associated configuration information, corresponding to the model architecture as embodied in the Complementary Materials.
+
+- **"Output"** means the results of operating of the Model, in all forms and media, including generated text, images, audio, video, software code, or any other content type.
+
+- **"Third-Party Components"** means dependencies, such as software, data, models, or other intellectual property, that are not owned by the Licensor but are used in the Complementary Materials or Model.
+
+- **"Third-Party Content"** means Output that comprises, is based on, or derived from, in whole or in part, any information or content (including data, media, or knowledge) that is sourced from a third party.
+
+- **"Use"** means any action, process, or method You apply to or with the Model, including but not limited to training, fine-tuning, distilling, deploying, hosting, or otherwise utilizing the Model, or creating Outputs, in any way and by any means.
+
+- **"You"** means the individual or entity exercising the Licensed Rights under this License. Your has a corresponding meaning.
+
+**Section III: License Grant**
+
+**1. Grant of Rights**
+
+This License grants a worldwide, royalty-free, fully paid, non-sublicensable, non-exclusive, irrevocable (except as provided in Section III.4) license to You to exercise the Licensed Rights in the Model, Complementary Materials, and Output, including to Use, reproduce, Distribute, copy, create Derivative Models, and make, use, sell, offer for sale, import, or otherwise exploit the Model, Complementary Materials, and Outputs, in each case, subject to the terms and conditions of this License. You may not sublicense the Licensed Rights, except that You may provide Complementary Materials under a separate license that is compatible with this License. You may not impose any additional or different terms or conditions on, or apply any Effective Technological Measures to, the Model if doing so restricts exercise of the Licensed Rights.
+
+**2. Output**
+
+Licensor waives any rights in Outputs, and this License does not apply to Outputs, except for Third-Party Content. You are solely responsible for the Outputs You generate and their subsequent uses. No use of the Output can be considered a restriction of this License.
+
+**3. Other Rights**
+
+This License does not grant You any trademark, publicity, or privacy rights. Also, in jurisdictions that have recognition of moral rights or other equivalent rights, to the extent allowed by the law of the relevant jurisdiction, Licensor waives and/or agrees not to assert any such rights held by Licensor to the limited extent necessary to allow You to exercise the Licensed Rights, but not otherwise.
+
+**4. Term and Termination**
+
+The License is effective until terminated. The Licensor may terminate this License at any time if You are in breach of this License, including failing to provide attribution as required by Section IV. Termination of this License does not terminate the licenses of users who have received Derivative Models from You, provided that they remain in compliance with this License. Sections I, II, III.3, III.4, V, VI, VII, VIII, and IX shall survive the termination of this License.
+
+**Section IV: Conditions of Distribution**
+
+If You Distribute the Model, Complementary Materials, or Derivative Models, You must:
+
+- Include a copy of this License with every copy of the Model, Complementary Materials, or Derivative Models You Distribute, as applicable.
+- Provide Attribution to the Licensor by including in the relevant "legal", "license", "about", "NOTICE", or similarly designated documentation included with the Model, Complementary Materials, or Derivative Models, as applicable, the name of the Model and a hyperlink (where possible) or URL to the location of the applicable Model.
+- Retain any attribution notices, license files, or other legal documentation from the Complementary Materials, and include such notices, files, or documentation in any Distribution of the Model or Complementary Materials, as applicable.
+- If You Modify the Model or Complementary Materials, You must clearly indicate that changes have been made to the original Model or Complementary Materials, including a description of the modifications, the date of the modifications, and the name of the person or entity that made the modifications.
+- If You make the Model, Complementary Materials, or Derivative Models, as applicable, available as an inference endpoint, via an API, or otherwise as a hosted service, You must include a URL or similarly designated location in the service's interface, documentation, or similarly designated location, that provides the required attribution information specified in this Section IV.
+
+**Section V: Third-Party Components, Third-Party Content, and Other Restrictions**
+
+The Model or Complementary Materials may include Third-Party Components, and/or the Output may include Third-Party Content, in which case, use of the Third-Party Components or Third-Party Content will be governed by their applicable licenses and, to the extent they are incompatible with this License, the terms of those licenses will take precedence. You must comply with the terms and conditions of any applicable licenses for such Third-Party Components or Third-Party Content. You agree that You are solely responsible for ensuring that Your Use of the Model, Complementary Materials, and Output does not infringe any third-party rights.
+
+**Section VI: Disclaimer of Warranty**
+
+UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING, LICENSOR PROVIDES THE MODEL AND COMPLEMENTARY MATERIALS ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OR CONDITIONS OF TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING OR REDISTRIBUTING THE MODEL AND COMPLEMENTARY MATERIALS AND ASSUME ANY RISKS ASSOCIATED WITH YOUR EXERCISE OF THE LICENSED RIGHTS.
+
+**Section VII: Limitation of Liability**
+
+IN NO EVENT AND UNDER NO LEGAL THEORY, WHETHER IN TORT (INCLUDING NEGLIGENCE), CONTRACT, OR OTHERWISE, UNLESS REQUIRED BY APPLICABLE LAW (SUCH AS DELIBERATE AND GROSSLY NEGLIGENT ACTS) OR AGREED TO IN WRITING, SHALL LICENSOR BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY DIRECT, INDIRECT, SPECIAL, CONSEQUENTIAL, INCIDENTAL, OR PUNITIVE DAMAGES OF ANY CHARACTER ARISING AS A RESULT OF THIS LICENSE OR OUT OF THE USE OR INABILITY TO USE THE MODEL AND COMPLEMENTARY MATERIALS (INCLUDING BUT NOT LIMITED TO DAMAGES FOR LOSS OF GOODWILL, WORK STOPPAGE, COMPUTER FAILURE OR MALFUNCTION, OR ANY AND ALL OTHER COMMERCIAL DAMAGES OR LOSSES), EVEN IF LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+**Section VIII: Governing Law and Jurisdiction**
+
+This License shall be governed by and construed in accordance with the laws of the State of Delaware, USA, without regard to its conflict of laws principles. Any legal action or proceeding arising under this License will be brought exclusively in the federal or state courts located in the State of Delaware, and You hereby irrevocably consent to the personal jurisdiction and venue therein.
+
+**Section IX: Miscellaneous**
+
+- If any provision of this License is held to be invalid, illegal, or unenforceable, the remaining provisions shall continue in full force and effect. The invalid or unenforceable provision shall be modified to the minimum extent necessary to make it valid and enforceable, or if modification is not possible, it shall be severed from this License.
+- This License constitutes the entire agreement between You and Licensor with respect to the Licensed Rights granted herein and supersedes all prior or contemporaneous understandings, agreements, or representations, whether written or oral, regarding such Licensed Rights.
+- The Licensor shall not be bound by any additional or different terms or conditions communicated by You unless expressly agreed.
+- Nothing in this License constitutes or may be interpreted as a limitation upon, or waiver of, any privileges and immunities that apply to the Licensor or You, including from the legal processes of any jurisdiction or authority.

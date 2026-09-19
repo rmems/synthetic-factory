@@ -26,7 +26,7 @@ reviewers.
 ## Generator lanes and rights
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
-(`factory-registry-v0.2`), keyed by exact `path_id` and `payload_factory`,
+(`factory-registry-v0.3`), keyed by exact `path_id` and `payload_factory`,
 that names its generator, provider/channel assignment, and rights profile
 (the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
@@ -44,8 +44,12 @@ are two lanes:
   evidence is in place): registry-registered procedural generators with fresh
   human-authored or permissively sourced catalogs ([#175], epic [#169]);
   deterministic in-repo simulators admitted as authoritative oracles ([#171],
-  epic [#76]); DeepSeek / Nemotron lanes only after their terms snapshots are
-  pinned ([#170], [#163]).
+  epic [#76]); pinned local open-weight generators on `local_vllm` (Nemotron 3
+  Nano 4B first, then Lightning / Muse Glimmer / Granite specialists) and
+  OpenRouter models only when generation-time `distillable=true` catalog
+  membership plus underlying terms snapshots are pinned ([#186], [#170],
+  [#163]). A rights decision for one channel never unblocks another: local
+  vLLM ≠ local Ollama ≠ OpenRouter ≠ NIM/watsonx/hosted API.
 
 Today identity attaches a bound rights envelope to every retained mapping.
 Compose, the training audit, the curation gate, and Hugging Face export
@@ -56,7 +60,9 @@ or in export `provenance.json` includes both structural and rights checks.
 Raw-run audits remain structural diagnostics and do not grant export authority. Hosted frontier rows stay `research_only` / `blocked`. The procedural
 `python-function-repair-factory` and `oracle-grounded` rows are training-candidate paths
 (`training_candidate` / `allowed`) after sealed source admission, fresh
-replay, and completed-round gates. Project policy and provider training
+replay, and completed-round gates; the reviewed model-channel rows carry
+`allowed` as channel eligibility, not a publish or training-ready claim.
+Project policy and provider training
 status are independent: both must be `allowed`, with reviewed evidence and an
 exact source-byte binding, before a record can enter a training-ready export.
 Retained rights are replayed from the reviewed registry and exact source
@@ -138,8 +144,8 @@ same unit tests and operator smoke check.
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
-- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`) and mill-script inventory (`MILL-SCRIPT-INVENTORY.json`). Identity authority is the registry (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py`; both reviews are required. Classify leftover mill scripts in the mill-script inventory ([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
-- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators
+- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`) and mill-script inventory (`MILL-SCRIPT-INVENTORY.json`). Identity authority is the registry (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py` (defined in `pipelines/curate_identity_registry_rows.py`); both reviews are required. Model-channel rows must also match `schemas/model-channel-source-policy-v1.json` exactly. Classify leftover mill scripts in the mill-script inventory ([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators; `model_channel/` holds the local and OpenRouter generator clients
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current). Leftover mill generator scripts are not stored here on `main`; they remain recoverable on `origin/legacy-mill-lane`.
 
 ## Historical prompt lane
