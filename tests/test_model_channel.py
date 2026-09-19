@@ -491,14 +491,13 @@ class OllamaLaneTests(unittest.TestCase):
 
     def test_unverified_served_identity_refuses_generation(self):
         content = json.dumps(episode_payload())
+        runtime = self._runtime()
         with _Server(content, OLLAMA_TAG,
                    ollama_models=self._models(name="nemotron-3-nano:30b-cloud")) as server:
+            endpoint = server.endpoint
             with self.assertRaisesRegex(ollama.OllamaSpecError, "not served"):
                 generate.generate_candidate(
-                    NANO_OLLAMA,
-                    TASK,
-                    endpoint=server.endpoint,
-                    runtime=self._runtime(),
+                    NANO_OLLAMA, TASK, endpoint=endpoint, runtime=runtime
                 )
         self.assertEqual(server.httpd.requests, [])
 

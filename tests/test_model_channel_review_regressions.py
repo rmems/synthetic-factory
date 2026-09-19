@@ -201,11 +201,12 @@ class OllamaVocabulary(unittest.TestCase):
                 )
                 self.assertEqual(verdict.intended_use, "training_candidate")
                 self.assertEqual(verdict.project_training_policy, "allowed")
+        route = rights_classifier.RightsRoute(
+            "openai", "local_ollama", rights_policy.OPEN_WEIGHT_LOCAL_PROFILE_ID
+        )
         with self.assertRaises(rights_policy.RightsPolicyError):
             rights_classifier.classify_rights(
-                rights_classifier.RightsRoute(
-                    "openai", "local_ollama", rights_policy.OPEN_WEIGHT_LOCAL_PROFILE_ID
-                ),
+                route,
                 source_sha256="sha256:" + "a" * 64,
                 factory_registry_sha256="sha256:" + "b" * 64,
             )

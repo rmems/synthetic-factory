@@ -8,7 +8,6 @@ Cloud tags (``*-cloud``) and non-loopback endpoints fail closed.
 from __future__ import annotations
 
 import http.client
-import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -22,40 +21,56 @@ DEFAULT_PORT = 11434
 DEFAULT_TIMEOUT_S = 60
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _CLOUD_TAG_SUFFIX = "-cloud"
+_REQUIRED_RUNTIME_FIELDS = ("ollama_version", "device", "ollama_model_digest")
 
 
 class OllamaSpecError(ValueError):
     """A local Ollama launch or provenance claim is incomplete or unsafe."""
 
 
-def _loopback_parts(base_url: str) -> tuple[str, int, str]:
-    parsed = urlparse(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise OllamaSpecError(f"unsupported Ollama URL: {base_url!r}")
-    if parsed.scheme == "https":
-        raise OllamaSpecError("local Ollama lane must not use a remote-tls endpoint")
-    if parsed.hostname.lower() not in _LOOPBACK_HOSTS:
+def _check_url(parsed, base_url: str) -> None:
+    if parsed.scheme != "http":
+        raise OllamaSpecError(
+            f"local_ollama endpoint must be plain http loopback: {base_url!r}"
+        )
+    if not parsed.hostname or parsed.hostname.lower() not in _LOOPBACK_HOSTS:
         raise OllamaSpecError(
             f"local_ollama endpoint must be loopback, got {parsed.hostname!r}"
         )
+
+
+def _loopback_parts(base_url: str) -> tuple[str, int, str]:
+    parsed = urlparse(base_url)
+    _check_url(parsed, base_url)
     path = parsed.path.rstrip("/") or ""
-    port = parsed.port or 80
-    return parsed.hostname, port, path
+    if path and path != "/v1":
+        raise OllamaSpecError(f"unexpected Ollama base path: {path!r}")
+    return parsed.hostname, parsed.port or 80, path
 
 
-def _require_ollama_row(row: Mapping[str, Any], path_id: str) -> None:
-    if row["channel"] != "local_ollama":
-        raise OllamaSpecError(f"{path_id} is not a local ollama factory")
+def _require_tag(row: Mapping[str, Any]) -> str:
     tag = row["runtime_tag"]
-    if not isinstance(tag, str) or not tag.strip() or tag != tag.strip():
+    if not isinstance(tag, str) or tag != tag.strip() or not tag:
         raise OllamaSpecError("ollama runtime_tag must be an exact non-empty tag")
     if tag.endswith(_CLOUD_TAG_SUFFIX):
         raise OllamaSpecError(f"refusing cloud-backed Ollama tag: {tag!r}")
+    return tag
+
+
+def _require_revision(row: Mapping[str, Any]) -> str:
     revision = row["model_revision"]
     if not isinstance(revision, str) or not revision.startswith("sha256:"):
         raise OllamaSpecError(
             "ollama row must pin model_revision to the manifest digest (sha256:...)"
         )
+    return revision
+
+
+def _require_ollama_row(row: Mapping[str, Any], path_id: str) -> None:
+    if row["channel"] != "local_ollama":
+        raise OllamaSpecError(f"{path_id} is not a local ollama factory")
+    _require_tag(row)
+    _require_revision(row)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -65,13 +80,19 @@ class LaunchOptions:
     num_ctx: int | None = None
 
 
+def _check_options(options: LaunchOptions) -> None:
+    if not options.ollama_version.strip() or not options.device.strip():
+        raise OllamaSpecError("ollama_version and device identity are required")
+    if options.num_ctx is not None and options.num_ctx <= 0:
+        raise OllamaSpecError("num_ctx must be positive")
+
+
 def launch_spec(path_id: str, **kwargs) -> dict[str, Any]:
     """Return the verified local launch contract; keyword options follow LaunchOptions."""
     options = LaunchOptions(**kwargs)
     row = policy.reviewed_row(path_id)
     _require_ollama_row(row, path_id)
-    if not options.ollama_version.strip() or not options.device.strip():
-        raise OllamaSpecError("ollama_version and device identity are required")
+    _check_options(options)
     spec = {
         "path_id": path_id,
         "model_id": row["model_id"],
@@ -89,17 +110,8 @@ def launch_spec(path_id: str, **kwargs) -> dict[str, Any]:
         "serve_command": ["ollama", "serve"],
     }
     if options.num_ctx is not None:
-        if options.num_ctx <= 0:
-            raise OllamaSpecError("num_ctx must be positive")
         spec["num_ctx"] = options.num_ctx
     return spec
-
-
-def _api_root(hostname: str, port: int, path: str) -> tuple[str, int]:
-    """Strip the OpenAI-compatible /v1 prefix to reach the native Ollama API."""
-    if path and path != "/v1":
-        raise OllamaSpecError(f"unexpected Ollama base path: {path!r}")
-    return hostname, port
 
 
 def _get_json(hostname: str, port: int, path: str) -> dict[str, Any]:
@@ -126,6 +138,29 @@ def _normalize_digest(value: object) -> str:
     return digest if digest.startswith("sha256:") else f"sha256:{digest}"
 
 
+def _matching_models(models: object, expected_tag: str) -> list[Mapping]:
+    if not isinstance(models, list):
+        raise OllamaSpecError("Ollama /api/tags response must contain a models list")
+    return [
+        item
+        for item in models
+        if isinstance(item, Mapping)
+        and item.get("name") == expected_tag
+        and not str(item.get("name", "")).endswith(_CLOUD_TAG_SUFFIX)
+    ]
+
+
+def _served_entry(listing: Mapping[str, Any], expected_tag: str) -> Mapping:
+    matches = _matching_models(listing.get("models"), expected_tag)
+    if not matches:
+        raise OllamaSpecError(
+            f"{expected_tag!r} is not served by the local Ollama instance"
+        )
+    if len(matches) != 1:
+        raise OllamaSpecError(f"{expected_tag!r} is duplicated in /api/tags")
+    return matches[0]
+
+
 def verify_served_identity(base_url: str, row: Mapping[str, Any]) -> dict[str, Any]:
     """Proof the loopback server actually serves the pinned local artifact.
 
@@ -135,37 +170,28 @@ def verify_served_identity(base_url: str, row: Mapping[str, Any]) -> dict[str, A
     local lane's identity.
     """
     _require_ollama_row(row, row["path_id"])
-    hostname, port, base_path = _loopback_parts(base_url)
-    _api_root(hostname, port, base_path)
-    listing = _get_json(hostname, port, "/api/tags")
-    models = listing.get("models")
-    if not isinstance(models, list):
-        raise OllamaSpecError("Ollama /api/tags response must contain a models list")
+    hostname, port, _ = _loopback_parts(base_url)
     expected_tag = row["runtime_tag"]
-    matches = [
-        item
-        for item in models
-        if isinstance(item, Mapping)
-        and item.get("name") == expected_tag
-        and not str(item.get("name", "")).endswith(_CLOUD_TAG_SUFFIX)
-    ]
-    if not matches:
-        raise OllamaSpecError(
-            f"{expected_tag!r} is not served by the local Ollama instance"
-        )
-    if len(matches) != 1:
-        raise OllamaSpecError(f"{expected_tag!r} is duplicated in /api/tags")
-    served = matches[0]
-    if _normalize_digest(served.get("digest")) != row["model_revision"]:
+    revision = row["model_revision"]
+    served = _served_entry(_get_json(hostname, port, "/api/tags"), expected_tag)
+    if _normalize_digest(served.get("digest")) != revision:
         raise OllamaSpecError(
             f"served digest {served.get('digest')!r} does not match the "
-            f"pinned manifest digest {row['model_revision']!r}"
+            f"pinned manifest digest {revision!r}"
         )
     return {
         "ollama_model_tag": expected_tag,
-        "ollama_model_digest": row["model_revision"],
+        "ollama_model_digest": revision,
         "served_name": served.get("model") or served.get("name"),
     }
+
+
+def _require_runtime_fields(runtime: Mapping[str, Any]) -> None:
+    missing = [key for key in _REQUIRED_RUNTIME_FIELDS if not runtime.get(key)]
+    if missing:
+        raise OllamaSpecError(f"runtime provenance missing: {missing}")
+    if runtime.get("runtime") not in (None, "ollama"):
+        raise OllamaSpecError("runtime provenance must declare runtime 'ollama'")
 
 
 def require_runtime_provenance(row: Mapping[str, Any], runtime: Mapping[str, Any] | None) -> None:
@@ -174,16 +200,11 @@ def require_runtime_provenance(row: Mapping[str, Any], runtime: Mapping[str, Any
         raise OllamaSpecError(
             "local_ollama generation requires a --runtime-json provenance object"
         )
-    required = ("ollama_version", "device", "ollama_model_digest")
-    missing = [key for key in required if not runtime.get(key)]
-    if missing:
-        raise OllamaSpecError(f"runtime provenance missing: {missing}")
+    _require_runtime_fields(runtime)
     if _normalize_digest(runtime["ollama_model_digest"]) != row["model_revision"]:
         raise OllamaSpecError(
             "runtime ollama_model_digest does not match the pinned manifest digest"
         )
-    if runtime.get("runtime") not in (None, "ollama"):
-        raise OllamaSpecError("runtime provenance must declare runtime 'ollama'")
 
 
 bind_import_twin(__name__)
