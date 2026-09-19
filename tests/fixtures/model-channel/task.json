@@ -1,0 +1,3 @@
+{
+  "goal": "repair a deterministic fixture script that fails when the lock file is present"
+}

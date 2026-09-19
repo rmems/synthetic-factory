@@ -148,7 +148,7 @@ _PATH_RULES: tuple[FieldRule, ...] = (
     ),
 )
 
-_RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
+_RIGHTS_VOCABULARY_BASE_RULES: tuple[FieldRule, ...] = (
     FieldRule("provider", _in_vocabulary(PROVIDERS), "factories[{index}] has unknown provider"),
     FieldRule("channel", _in_vocabulary(RIGHTS_CHANNELS), "factories[{index}] has unknown channel"),
     FieldRule(
@@ -166,12 +166,19 @@ _RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
         _in_vocabulary(PROJECT_TRAINING_POLICIES),
         "factories[{index}] has unknown project_training_policy",
     ),
-    FieldRule(
-        "rights_profile_id",
-        HOSTED_FRONTIER_PROFILE_ID.__eq__,
-        f"factories[{{index}}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}",
-    ),
 )
+
+_HOSTED_PROFILE_RULE = FieldRule(
+    "rights_profile_id",
+    HOSTED_FRONTIER_PROFILE_ID.__eq__,
+    f"factories[{{index}}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}",
+)
+
+_RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
+    *_RIGHTS_VOCABULARY_BASE_RULES,
+    _HOSTED_PROFILE_RULE,
+)
+_MODEL_CHANNEL_RIGHTS_RULES = _RIGHTS_VOCABULARY_BASE_RULES
 
 _SHAPE_RULES: tuple[FieldRule, ...] = (
     FieldRule(

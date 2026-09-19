@@ -88,6 +88,8 @@ def claims_procedural_route(raw: Any) -> bool:
     """Identify fields forbidden on hosted rows, including older registry schemas."""
     if not isinstance(raw, Mapping):
         return False
+    if raw.get("source_type") == "model_channel":
+        return False
     if PROCEDURAL_FIELDS.intersection(raw):
         return True
     kinds = raw.get("record_kinds")
