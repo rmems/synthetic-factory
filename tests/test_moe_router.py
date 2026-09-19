@@ -66,7 +66,7 @@ class Featurisation(unittest.TestCase):
         # calls in one interpreter would agree either way, so this really has
         # to cross a process boundary with hash randomisation left on.
         import os
-        import subprocess
+        import subprocess  # nosec B404 - fixed interpreter and inline test script
 
         script = (
             "import sys, json;"
@@ -78,7 +78,7 @@ class Featurisation(unittest.TestCase):
         environment.pop("PYTHONHASHSEED", None)
         outputs = set()
         for _ in range(2):
-            completed = subprocess.run(
+            completed = subprocess.run(  # nosec B603 - no untrusted arguments
                 [sys.executable, "-c", script],
                 capture_output=True,
                 text=True,
@@ -138,7 +138,7 @@ class ReferenceRouter(unittest.TestCase):
         for layer in observation.layers:
             order = sorted(
                 range(len(layer.router_logits)),
-                key=lambda e: (-layer.router_logits[e], e),
+                key=lambda e, layer=layer: (-layer.router_logits[e], e),
             )
             self.assertEqual(list(layer.top_k_experts), order[: len(layer.top_k_experts)])
 
@@ -164,7 +164,7 @@ class ReferenceRouter(unittest.TestCase):
 
 
 class RecordedTeacher(unittest.TestCase):
-    def test_replay_returns_the_recorded_routing(self):
+    def test_replay_returns_the_recorded_routing_case(self):
         text = "replayed context"
         oracle = mr.RecordedTeacherRouter(recording_from_reference([text]))
         self.assertTrue(oracle.available()[0])
@@ -239,6 +239,13 @@ class RealTeacherIsAbsentNotFaked(unittest.TestCase):
         router = mr.TransformersMoERouter("some/moe-model")
         with self.assertRaises(oc.OracleUnavailable):
             router.fingerprint()
+
+    def test_mutable_teacher_revision_fails_before_loading_case(self):
+        router = mr.TransformersMoERouter("some/moe-model", revision="main")
+        with self.assertRaisesRegex(
+            oc.OracleUnavailable, "cannot record an immutable checkpoint"
+        ):
+            router._load()
 
     def test_build_records_refuses_an_unavailable_oracle(self):
         class DeadOracle(mr.RouterOracle):
@@ -350,7 +357,7 @@ class FamilyChecks(unittest.TestCase):
     def setUp(self):
         self.record = mr.build_records(3, 1)[0]
 
-    def test_a_tampered_context_hash_is_rejected(self):
+    def test_a_tampered_context_hash_is_rejected_case(self):
         self.record["scenario"]["context"] = "something else entirely"
         errors = mr.check_family(self.record, "x")
         self.assertTrue(any("context_sha256" in error for error in errors))
@@ -477,6 +484,39 @@ class SealedHubMoEBinding(unittest.TestCase):
 
     MIXTRAL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
+    @staticmethod
+    def _mixtral_layer(template, index, num_experts, top_k, with_logits):
+        layer = json.loads(json.dumps(template))
+        layer["layer"] = index
+        if not with_logits:
+            layer.pop("router_logits", None)
+            layer["top_k_experts"] = list(range(top_k))
+            return layer
+
+        logits = [-5.0] * num_experts
+        top = [min(e, num_experts - 1) for e in layer["top_k_experts"][:top_k]]
+        while len(top) < top_k:
+            candidate = (top[-1] + 1) % num_experts if top else 0
+            if candidate not in top:
+                top.append(candidate)
+            else:
+                top.append((candidate + 1) % num_experts)
+        for rank, expert in enumerate(top):
+            logits[expert] = 10.0 - 0.01 * rank
+        layer["top_k_experts"] = top
+        layer["router_logits"] = logits
+        ordered = sorted(logits, reverse=True)
+        layer["top1_top2_margin"] = round(ordered[0] - ordered[1], 6)
+        exps = [math.exp(value - max(logits)) for value in logits]
+        total = sum(exps)
+        probs = [value / total for value in exps]
+        layer["routing_entropy"] = round(
+            -sum(probability * math.log(probability) for probability in probs
+                 if probability > 0.0),
+            6,
+        )
+        return layer
+
     def _mixtral_authoritative(self, *, num_layers=32, num_experts=8, top_k=2,
                                revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                                config_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -489,39 +529,12 @@ class SealedHubMoEBinding(unittest.TestCase):
         # / revision / logits presence do not need a real Mixtral run).
         base_layers = record["result"]["routing"]["layers"]
         template = json.loads(json.dumps(base_layers[0]))
-        layers = []
-        for index in range(num_layers):
-            layer = json.loads(json.dumps(template))
-            layer["layer"] = index
-            if with_logits:
-                logits = [-5.0] * num_experts
-                # Keep top-k consistent with logits for whatever experts the
-                # template carried, clamped into the declared width.
-                top = [min(e, num_experts - 1) for e in layer["top_k_experts"][:top_k]]
-                while len(top) < top_k:
-                    candidate = (top[-1] + 1) % num_experts if top else 0
-                    if candidate not in top:
-                        top.append(candidate)
-                    else:
-                        top.append((candidate + 1) % num_experts)
-                for rank, expert in enumerate(top):
-                    logits[expert] = 10.0 - 0.01 * rank
-                layer["top_k_experts"] = top
-                layer["router_logits"] = logits
-                ordered = sorted(logits, reverse=True)
-                layer["top1_top2_margin"] = round(ordered[0] - ordered[1], 6)
-                # Entropy recomputed loosely enough for check_family tolerance.
-                import math as _math
-                exps = [_math.exp(v - max(logits)) for v in logits]
-                total = sum(exps)
-                probs = [e / total for e in exps]
-                layer["routing_entropy"] = round(
-                    -sum(p * _math.log(p) for p in probs if p > 0.0), 6
-                )
-            else:
-                layer.pop("router_logits", None)
-                layer["top_k_experts"] = list(range(top_k))
-            layers.append(layer)
+        layers = [
+            self._mixtral_layer(
+                template, index, num_experts, top_k, with_logits
+            )
+            for index in range(num_layers)
+        ]
         tops = [layer["top_k_experts"][0] for layer in layers]
         from collections import Counter
         modal, count = Counter(tops).most_common(1)[0]

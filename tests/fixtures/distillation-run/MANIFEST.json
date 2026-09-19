@@ -2,21 +2,21 @@
   "baseline": {
     "baselines": {
       "logistic_regression": {
-        "accuracy": 0.515152,
+        "accuracy": 0.5,
         "iterations": 120,
         "l2": 0.0001,
         "learning_rate": 0.5,
         "model": "logistic_regression",
-        "train_accuracy": 0.957447
+        "train_accuracy": 0.958333
       },
       "majority_class": {
-        "accuracy": 0.575758,
+        "accuracy": 0.5625,
         "model": "majority_class",
         "predicts": 6,
-        "train_support": 19
+        "train_support": 20
       },
       "mlp": {
-        "accuracy": 0.545455,
+        "accuracy": 0.53125,
         "hidden": 12,
         "iterations": 120,
         "learning_rate": 0.3,
@@ -26,7 +26,7 @@
       }
     },
     "best": {
-      "accuracy": 0.545455,
+      "accuracy": 0.53125,
       "model": "mlp"
     },
     "classes": [
@@ -39,16 +39,16 @@
     ],
     "escalation": {
       "escalate_to_snn": false,
-      "must_beat": 0.575758,
-      "reason": "no conventional baseline beat the majority class by 0.163858 (max of min_lift and two Agresti-Coull standard errors of the test accuracy) \u2014 the target is not learnable from these compact inputs, so an SNN student is not justified",
+      "must_beat": 0.5625,
+      "reason": "no conventional baseline beat the majority class by 0.166409 (max of min_lift and two Agresti-Coull standard errors of the test accuracy) \u2014 the target is not learnable from these compact inputs, so an SNN student is not justified",
       "verdict": "not_learnable_from_compact_inputs"
     },
     "feature_dim": 20,
     "holdout_pct": 30,
-    "lift_over_majority": -0.030303,
+    "lift_over_majority": -0.03125,
     "min_lift": 0.05,
     "min_test_records": 20,
-    "required_lift": 0.163858,
+    "required_lift": 0.166409,
     "samples": 80,
     "scaler": {
       "dim": 20,
@@ -56,9 +56,9 @@
     },
     "stderr_method": "agresti_coull",
     "target": "top1_expert",
-    "test": 33,
-    "test_accuracy_stderr": 0.081929,
-    "train": 47,
+    "test": 32,
+    "test_accuracy_stderr": 0.083205,
+    "train": 48,
     "verdict": "not_learnable_from_compact_inputs"
   },
   "files": {

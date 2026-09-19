@@ -92,7 +92,7 @@ class AllocationTask(unittest.TestCase):
     def test_the_analytic_solver_matches_an_exhaustive_grid(self):
         import random as _random
 
-        rng = _random.Random(1)
+        rng = _random.Random(1)  # nosec B311 - deterministic test data
         for _ in range(60):
             n = 4
             weights = [round(rng.uniform(0.3, 3.0), 3) for _ in range(n)]
@@ -566,7 +566,7 @@ class FamilyChecks(unittest.TestCase):
         errors = ep.check_family(self.record, "x")
         self.assertTrue(any("UNMEASURED_COST" in error for error in errors))
 
-    def test_a_missing_quality_floor_is_rejected(self):
+    def test_a_missing_quality_floor_is_rejected_case(self):
         del self.record["scenario"]["constraints"]["quality_floor"]
         errors = ep.check_family(self.record, "x")
         self.assertTrue(any("quality_floor" in error for error in errors))

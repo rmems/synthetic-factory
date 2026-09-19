@@ -197,7 +197,7 @@ def featurize(text: str, dim: int = FEATURE_DIM) -> list[float]:
         sign = 1.0 if digest[4] % 2 == 0 else -1.0
         buckets[bucket] += sign
     norm = math.sqrt(sum(value * value for value in buckets))
-    if norm == 0.0:
+    if not norm:
         return buckets
     return [round(value / norm, 9) for value in buckets]
 
@@ -364,7 +364,7 @@ class ReferenceMoERouter(RouterOracle):
         self.num_layers = num_layers
         self.top_k = top_k
         self.dim = dim
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 - reproducible reference weights
         self.gates: list[list[list[float]]] = [
             [
                 [rng.gauss(0.0, 1.0) for _ in range(dim)]
@@ -412,7 +412,10 @@ class ReferenceMoERouter(RouterOracle):
                 sum(w * x for w, x in zip(row, features)) + bias
                 for row, bias in zip(self.gates[index], self.biases[index])
             ]
-            order = sorted(range(self.num_experts), key=lambda e: (-logits[e], e))
+            order = sorted(
+                range(self.num_experts),
+                key=lambda e, logits=logits: (-logits[e], e),
+            )
             top = tuple(order[: self.top_k])
             probabilities = softmax(logits)
             layers.append(
@@ -666,17 +669,22 @@ class TransformersMoERouter(RouterOracle):
     def _load(self):  # pragma: no cover - requires a real checkpoint
         if self._model is not None:
             return self._model, self._tokenizer
+        # Resolve before even probing the optional runtime. A mutable branch
+        # can resolve to a commit after download, but that is too late to pin
+        # the bytes fetched.
+        pinned_revision = resolve_checkpoint(self.revision, None)
         ok, detail = self.available()
         if not ok:
             raise oc.OracleUnavailable(self.name, detail)
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        kwargs: dict[str, Any] = {}
-        if self.revision:
-            kwargs["revision"] = self.revision
-        tokenizer = AutoTokenizer.from_pretrained(self.model_id, **kwargs)
-        model = AutoModelForCausalLM.from_pretrained(self.model_id, **kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(  # nosec B615 - validated 40-hex pin
+            self.model_id, revision=pinned_revision
+        )
+        model = AutoModelForCausalLM.from_pretrained(  # nosec B615 - validated 40-hex pin
+            self.model_id, revision=pinned_revision
+        )
         model.eval()
         model.to(self.device)
         config = model.config
@@ -759,7 +767,10 @@ class TransformersMoERouter(RouterOracle):
             # transformers returns (tokens, experts) per layer; read the last
             # position so one context yields one routing decision per layer.
             values = [float(value) for value in layer_logits[-1].tolist()]
-            order = sorted(range(len(values)), key=lambda e: (-values[e], e))
+            order = sorted(
+                range(len(values)),
+                key=lambda e, values=values: (-values[e], e),
+            )
             layers.append(
                 LayerRouting(
                     layer=index,
@@ -828,7 +839,7 @@ def propose_contexts(seed: int, count: int) -> list[dict[str, Any]]:
 
     if count < 1:
         raise oc.ContractError("count must be >= 1")
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311 - reproducible context generation
     proposals: list[dict[str, Any]] = []
     for index in range(count):
         domain, template = CONTEXT_TEMPLATES[index % len(CONTEXT_TEMPLATES)]
@@ -1309,13 +1320,14 @@ def _check_is_llm_teacher(
 
     if not isinstance(result.get("is_llm_teacher"), bool):
         return [f"{where}.result.is_llm_teacher must be a boolean"]
-    if isinstance(fingerprint, dict) and isinstance(
-        fingerprint.get("is_llm_teacher"), bool
+    if (
+        isinstance(fingerprint, dict)
+        and isinstance(fingerprint.get("is_llm_teacher"), bool)
+        and result["is_llm_teacher"] != fingerprint["is_llm_teacher"]
     ):
-        if result["is_llm_teacher"] != fingerprint["is_llm_teacher"]:
-            return [
-                f"{where}.result.is_llm_teacher disagrees with the oracle fingerprint"
-            ]
+        return [
+            f"{where}.result.is_llm_teacher disagrees with the oracle fingerprint"
+        ]
     return []
 
 
@@ -1925,7 +1937,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     return errors
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands return 0
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -281,7 +281,7 @@ def _accumulate_outer(
     """Add ``error * input`` outer-product terms into the gradient rows."""
 
     for c, error in enumerate(errors):
-        if error == 0.0:
+        if not error:
             continue
         row = grad_rows[c]
         for i, value in enumerate(inputs):
@@ -367,7 +367,7 @@ class _Mlp:
     """One tanh hidden layer + softmax output, seeded exactly as before."""
 
     def __init__(self, width: int, hidden: int, classes: int, seed: int) -> None:
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 - reproducible model initialisation
         limit = math.sqrt(6.0 / (width + hidden))
         self.w1 = [
             [rng.uniform(-limit, limit) for _ in range(width)] for _ in range(hidden)

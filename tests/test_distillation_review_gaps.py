@@ -241,7 +241,7 @@ class FaultMeterProvenanceGaps(unittest.TestCase):
             {"bench_replay_clock", "bench_replay_state", "bench_replay_thermal_probe"},
         )
 
-    def test_an_oracle_without_meters_is_refused(self):
+    def test_an_oracle_without_meters_is_refused_case(self):
         oracle = fr.FaultOracle()
         with self.assertRaises(oc.ContractError) as caught:
             fr.build_records(3, 1, oracle=oracle)
@@ -634,7 +634,7 @@ class EnergyPreferenceGaps(unittest.TestCase):
         # The instrument stays the physical meter, not the replay wrapper.
         self.assertEqual(meter.lookup("a").meter, "external_power_meter")
 
-    def test_a_negative_recorded_cost_is_refused(self):
+    def test_a_negative_recorded_cost_is_refused_case(self):
         meter = ep.RecordedEnergyMeter(
             {
                 "meter": "external_power_meter",
@@ -994,7 +994,7 @@ class RecordedRouterGaps(unittest.TestCase):
         with self.assertRaises(oc.OracleUnavailable):
             oracle.route("ctx")
 
-    def test_recorded_expert_ids_are_not_coerced(self):
+    def test_recorded_expert_ids_are_not_coerced_case(self):
         # int() quietly turned `true` into 1 and 3.7 into 3, letting invalid
         # expert identifiers into the replayed observation.
         for bogus in ([True, 1], [3.7, 1], ["2", 1]):
@@ -1713,7 +1713,7 @@ class FourthRoundEnergyGaps(unittest.TestCase):
             f"a flipped success summary passed: {errors}",
         )
 
-    def test_candidate_success_must_be_a_boolean(self):
+    def test_candidate_success_must_be_a_boolean_case(self):
         record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
         next(
             c for c in record["result"]["candidates"] if c["id"] == "analytic_kkt"
@@ -1845,7 +1845,7 @@ class FifthRoundFaultGaps(unittest.TestCase):
     def setUpClass(cls):
         cls.records = fr.build_records(11, 12)
 
-    def test_invalid_system_controls_are_refused(self):
+    def test_invalid_system_controls_are_refused_case(self):
         # corruption_quarantine_ratio: -1 flipped a below-threshold
         # corruption from degrade_gracefully to quarantine with zero
         # findings; a scrambled thermal ladder rewrites the tiers the same
@@ -2616,7 +2616,7 @@ class NinthRoundEnergyGaps(unittest.TestCase):
             any("safety_violations must list" in e for e in errors), errors
         )
 
-    def test_measurement_run_knobs_are_validated(self):
+    def test_measurement_run_knobs_are_validated_case(self):
         # warmup=-5 was silently normalised to zero by the live meters while
         # the oracle configuration still recorded -5; fractional or zero
         # settings failed later inside range() or the grid division.

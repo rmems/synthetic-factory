@@ -743,7 +743,7 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
 
     if count < 1:
         raise oc.ContractError("count must be >= 1")
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311 - reproducible dataset generation
     proposals: list[dict[str, Any]] = []
     for index in range(count):
         proposals.append(
@@ -2504,7 +2504,7 @@ def meters_report() -> dict[str, Any]:
     return report
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands return 0
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 

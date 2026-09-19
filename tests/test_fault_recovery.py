@@ -379,7 +379,7 @@ class RecordsAreContractual(unittest.TestCase):
         seen = {record["result"]["outcome"] for record in self.records}
         self.assertEqual(seen, set(fr.OUTCOMES))
 
-    def test_every_record_has_an_explicit_reason(self):
+    def test_every_record_has_an_explicit_reason_case(self):
         for record in self.records:
             self.assertTrue(record["result"]["reason_codes"])
 

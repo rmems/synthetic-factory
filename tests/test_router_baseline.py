@@ -30,7 +30,7 @@ SEPARABLE_SEED = 5
 def separable_samples(count=120, noise=0.0):
     """A linearly separable toy set: one axis per class, plus optional noise."""
 
-    rng = random.Random(SEPARABLE_SEED)
+    rng = random.Random(SEPARABLE_SEED)  # nosec B311 - deterministic test data
     samples = []
     for index in range(count):
         label = index % SEPARABLE_CLASSES
@@ -45,7 +45,7 @@ def separable_samples(count=120, noise=0.0):
 def random_label_samples(count=120, classes=3, dim=6, seed=9):
     """Features carry no signal about the label: nothing should be learnable."""
 
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311 - deterministic test data
     return [
         rb.Sample(
             f"rand-{index:04d}",
@@ -118,7 +118,7 @@ class Splitting(unittest.TestCase):
         samples = separable_samples()
         first = rb.split(samples)
         shuffled = list(samples)
-        random.Random(3).shuffle(shuffled)
+        random.Random(3).shuffle(shuffled)  # nosec B311 - deterministic ordering
         second = rb.split(shuffled)
         self.assertEqual(
             sorted(s.record_id for s in first[1]),
@@ -129,7 +129,7 @@ class Splitting(unittest.TestCase):
             features=samples[0].features,
             label=samples[0].label,
         )
-        train, test = rb.split(samples + [twin])
+        _, test = rb.split(samples + [twin])
         sides = {
             ("test" if any(s.record_id == rid for s in test) else "train")
             for rid in (samples[0].record_id, "twin-of-first")
