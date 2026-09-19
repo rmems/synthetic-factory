@@ -452,9 +452,16 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
     return summary
 
 
-def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
+def catalog_document(
+    mills: list[dict[str, Any]],
+    *,
+    archive_b: Mapping[str, Any] | None = None,
+    archive_b_more: Mapping[str, Any] | None = None,
+    plants_sha256: str | None = None,
+    plants_b_sha256: str | None = None,
+) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills)
-    return {
+    document: dict[str, Any] = {
         "schema": CATALOG_SCHEMA_ID,
         "source_ref": LEGACY_REF,
         "preserve_commit": PRESERVE_COMMIT,
@@ -465,6 +472,15 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "n_pair_rows": pair_rows,
         "mills": {mill["mill_id"]: mill for mill in mills},
     }
+    if archive_b is not None:
+        document["archive_b"] = dict(archive_b)
+    if archive_b_more is not None:
+        document["archive_b_more"] = dict(archive_b_more)
+    if plants_sha256 is not None:
+        document["plants_sha256"] = plants_sha256
+    if plants_b_sha256 is not None:
+        document["plants_b_sha256"] = plants_b_sha256
+    return document
 
 
 def dumps_catalog(document: Mapping[str, Any]) -> str:

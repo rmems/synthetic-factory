@@ -9,13 +9,21 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from iac.catalog import CATALOG  # noqa: E402
-from iac.plants_extract import extract_archive_b_more_plants, extract_archive_b_plants  # noqa: E402
+from iac.catalog import CATALOG, load_catalog  # noqa: E402
+from iac.plants_extract import (  # noqa: E402
+    archive_b_row,
+    dumps_plants_jsonl,
+    extract_archive_b_more_plants,
+    extract_archive_b_plants,
+    sha256_bytes,
+    write_plants_jsonl,
+)
 from iac.catalog_extract import (  # noqa: E402
     SHAPE_K8S_CLI_SPEC,
     SHAPE_LEFTOVER,
@@ -28,7 +36,7 @@ from iac.catalog_extract import (  # noqa: E402
     extract_mill_catalog,
     mill_summary,
 )
-from iac.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
+from iac.identity import is_vendor_filename, is_vendor_path, refuse_vendor_paths  # noqa: E402
 from iac.sources import MILL_SOURCES, catalog_sources, gen_sources, loop_sources  # noqa: E402
 from iac import vocabulary as cv  # noqa: E402
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
@@ -93,43 +101,20 @@ PAIRS: list[tuple[dict, dict]] = [k8s_pair(*row) for row in K8S] + CLI
 """
 
 
-def _archive_b_available() -> bool:
-    for ref in (
-        "e5206e72fa829931162944648e1e180949baaf0b",
-        cv.ARCHIVE_B_COMMIT,
-    ):
-        try:
-            subprocess.check_output(
-                [
-                    "git",
-                    "show",
-                    f"{ref}:{cv.PLANTS_SOURCE_PATH}",
-                ],
-                cwd=REPO,
-                stderr=subprocess.DEVNULL,
-            )
-            return True
-        except subprocess.CalledProcessError:
-            continue
-    try:
-        subprocess.check_output(
-            ["git", "show", f"{cv.ARCHIVE_B_REF}:{cv.PLANTS_SOURCE_PATH}"],
-            cwd=REPO,
-            stderr=subprocess.DEVNULL,
-        )
-        return True
-    except subprocess.CalledProcessError:
-        return False
+_ARCHIVE_B_REFS = (
+    "e5206e72fa829931162944648e1e180949baaf0b",
+    cv.ARCHIVE_B_COMMIT,
+    cv.ARCHIVE_B_REF,
+)
 
 
-def _archive_b_text() -> str:
-    for spec in (
-        f"e5206e72fa829931162944648e1e180949baaf0b:{cv.PLANTS_SOURCE_PATH}",
-        f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_SOURCE_PATH}",
-        f"{cv.ARCHIVE_B_REF}:{cv.PLANTS_SOURCE_PATH}",
-    ):
+def _archive_b_show(path: str) -> tuple[str, str] | None:
+    """Return ``(spec, text)`` for the first archive ref that resolves ``path``."""
+
+    for ref in _ARCHIVE_B_REFS:
+        spec = f"{ref}:{path}"
         try:
-            return subprocess.check_output(
+            text = subprocess.check_output(
                 ["git", "show", spec],
                 cwd=REPO,
                 text=True,
@@ -137,7 +122,8 @@ def _archive_b_text() -> str:
             )
         except subprocess.CalledProcessError:
             continue
-    raise AssertionError("archive B mill_plants.py is not available via git show")
+        return spec, text
+    return None
 
 
 def _legacy_available() -> bool:
@@ -200,6 +186,12 @@ class IacSkeletonTests(unittest.TestCase):
         self.assertFalse(is_vendor_filename("catalog_extract.py"))
         with self.assertRaises(SystemExit):
             refuse_vendor_paths([Path("experiments/iac-mill-r609.py")])
+        self.assertFalse(is_vendor_filename("helper.py"))
+        self.assertTrue(is_vendor_path("scripts/infra_as_code_mill/helper.py"))
+        self.assertFalse(is_vendor_path("scripts/other_mill/helper.py"))
+        self.assertFalse(is_vendor_path("scripts/infra_as_code_mill/README.md"))
+        with self.assertRaises(SystemExit):
+            refuse_vendor_paths(["scripts/infra_as_code_mill/helper.py"])
 
     def test_extractor_modules_never_exec(self):
         package = REPO / "pipelines" / "iac"
@@ -302,11 +294,12 @@ class IacArchiveBExtractTests(unittest.TestCase):
         self.assertEqual(more_slugs & archive_slugs, set())
 
     def test_committed_plants_match_live_ast_extract(self):
-        if not _archive_b_available():
+        found = _archive_b_show(cv.PLANTS_SOURCE_PATH)
+        if found is None:
             self.skipTest("archive B mill_plants.py is not available via git show")
-        text = _archive_b_text()
+        spec, text = found
         blob = subprocess.check_output(
-            ["git", "rev-parse", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_SOURCE_PATH}"],
+            ["git", "rev-parse", spec],
             cwd=REPO,
             text=True,
             stderr=subprocess.DEVNULL,
@@ -316,16 +309,16 @@ class IacArchiveBExtractTests(unittest.TestCase):
         self.assertEqual(live["n_plants"], 8)
         self.assertEqual(live["sha256"], cv.PLANTS_SOURCE_SHA256)
         self.assertEqual(
-            [(row["success_slug"], row["fail_slug"]) for row in live["plants"]],
-            [(plant.success_slug, plant.fail_slug) for plant in CATALOG.plants],
+            live["plants"], [asdict(plant) for plant in CATALOG.plants]
         )
 
     def test_committed_plants_b_match_live_ast_extract(self):
-        if not _archive_b_more_available():
+        found = _archive_b_show(cv.PLANTS_B_SOURCE_PATH)
+        if found is None:
             self.skipTest("archive B mill_plants_b.py is not available via git show")
-        text = _archive_b_more_text()
+        spec, text = found
         blob = subprocess.check_output(
-            ["git", "rev-parse", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_B_SOURCE_PATH}"],
+            ["git", "rev-parse", spec],
             cwd=REPO,
             text=True,
             stderr=subprocess.DEVNULL,
@@ -335,30 +328,138 @@ class IacArchiveBExtractTests(unittest.TestCase):
         self.assertEqual(live["n_plants"], 8)
         self.assertEqual(live["sha256"], cv.PLANTS_B_SOURCE_SHA256)
         self.assertEqual(
-            [(row["success_slug"], row["fail_slug"]) for row in live["plants"]],
-            [(plant.success_slug, plant.fail_slug) for plant in CATALOG.plants_b],
+            live["plants"], [asdict(plant) for plant in CATALOG.plants_b]
         )
 
 
-def _archive_b_more_available() -> bool:
-    try:
-        subprocess.check_output(
-            ["git", "show", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_B_SOURCE_PATH}"],
-            cwd=REPO,
-            stderr=subprocess.DEVNULL,
-        )
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def _archive_b_more_text() -> str:
-    return subprocess.check_output(
-        ["git", "show", f"{cv.ARCHIVE_B_COMMIT}:{cv.PLANTS_B_SOURCE_PATH}"],
-        cwd=REPO,
-        text=True,
-        stderr=subprocess.DEVNULL,
+_PLANTS_SNIPPET = """
+PAIRS: list = []
+x = 1
+print("noop")
+PAIRS.append(
+    (
+        _ok(slug="ok-a", seed="seed-a", ticket="T-1", test="t-a"),
+        _fail(slug="fail-a", seed="seed-b", handoff=True),
+        "scenario-a",
     )
+)
+PAIRS.append("not-a-triple")
+PAIRS.append((_ok(slug="ok-b"), _fail(slug="fail-b")))
+PAIRS.append((_ok(slug="ok-c"), _fail(slug="fail-c"), 42))
+PAIRS.append((_ok(), _fail(slug="fail-d"), "scenario-d"))
+MORE.append((_ok(slug="ok-e"), _fail(slug="fail-e"), "scenario-e"))
+OTHER.append((_ok(slug="ok-f"), _fail(slug="fail-f"), "scenario-f"))
+PAIRS.extend([(_ok(slug="ok-g"), _fail(slug="fail-g"), "scenario-g")])
+"""
+
+
+class IacPlantsExtractUnitTests(unittest.TestCase):
+    def test_extract_skips_non_matching_statements(self):
+        live = extract_archive_b_plants(_PLANTS_SNIPPET, path="x/mill_plants.py")
+        self.assertEqual(live["n_plants"], 1)
+        self.assertEqual(live["first_slug"], "ok-a")
+        self.assertEqual(live["last_slug"], "ok-a")
+        self.assertEqual(live["shape"], "ok-fail-label")
+        row = live["plants"][0]
+        self.assertEqual(
+            row,
+            {
+                "index": 0,
+                "success_slug": "ok-a",
+                "fail_slug": "fail-a",
+                "success_seed": "seed-a",
+                "fail_seed": "seed-b",
+                "scenario": "scenario-a",
+                "ticket": "T-1",
+                "test": "t-a",
+                "fail_handoff": True,
+            },
+        )
+
+    def test_extract_requires_at_least_one_triple(self):
+        with self.assertRaises(ValueError):
+            extract_archive_b_plants("PAIRS = []\n", path="x/mill_plants.py")
+
+    def test_compact_row_rejects_non_string_fields(self):
+        source = 'PAIRS.append((_ok(slug=True), _fail(slug="f"), "s"))\n'
+        with self.assertRaises(ValueError):
+            extract_archive_b_plants(source, path="x/mill_plants.py")
+        source = 'PAIRS.append((_ok(slug="a", seed=7), _fail(slug="f"), "s"))\n'
+        with self.assertRaises(ValueError):
+            extract_archive_b_plants(source, path="x/mill_plants.py")
+
+    def test_archive_b_row_shapes_the_catalog_block(self):
+        live = extract_archive_b_plants(_PLANTS_SNIPPET, path="x/mill_plants.py")
+        row = archive_b_row(live, ref="origin/ref", commit="abc123", blob_sha="def456")
+        self.assertEqual(row["ref"], "origin/ref")
+        self.assertEqual(row["commit"], "abc123")
+        self.assertEqual(row["blob_sha"], "def456")
+        self.assertEqual(row["path"], "x/mill_plants.py")
+        self.assertEqual(row["sha256"], live["sha256"])
+        self.assertEqual(row["n_plants"], 1)
+        self.assertEqual(row["first_slug"], "ok-a")
+        self.assertEqual(row["last_slug"], "ok-a")
+
+    def test_plants_jsonl_round_trip(self):
+        live = extract_archive_b_plants(_PLANTS_SNIPPET, path="x/mill_plants.py")
+        payload = dumps_plants_jsonl(live["plants"])
+        parsed = [json.loads(line) for line in payload.splitlines()]
+        self.assertEqual(parsed, live["plants"])
+        with tempfile.TemporaryDirectory() as tmp:
+            written = write_plants_jsonl(live["plants"], Path(tmp) / "plants.jsonl")
+            self.assertEqual(written.read_text(encoding="utf-8"), payload)
+
+
+class IacCatalogLoadTests(unittest.TestCase):
+    def _catalog_tree(self, tmp: Path, mutate) -> Path:
+        source = catalog_json_path()
+        document = json.loads(source.read_text(encoding="utf-8"))
+        mutate(document)
+        (tmp / cv.CATALOG_FILENAME).write_text(dumps_catalog(document), encoding="utf-8")
+        for name in (cv.PLANTS_FILENAME, cv.PLANTS_B_FILENAME):
+            (tmp / name).write_bytes((source.parent / name).read_bytes())
+        return tmp / cv.CATALOG_FILENAME
+
+    def test_load_catalog_rejects_document_drift(self):
+        for key in ("schema", "preserve_commit", "slice", "factory", "generator"):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = self._catalog_tree(
+                    Path(tmp), lambda doc, k=key: doc.update({k: "drifted"})
+                )
+                with self.assertRaises(ValueError, msg=key):
+                    load_catalog(path)
+
+    def test_load_catalog_rejects_plants_digest_drift(self):
+        for key in ("plants_sha256", "plants_b_sha256"):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = self._catalog_tree(
+                    Path(tmp), lambda doc, k=key: doc.update({k: "0" * 64})
+                )
+                with self.assertRaises(ValueError, msg=key):
+                    load_catalog(path)
+
+    def test_load_catalog_rejects_archive_pin_drift(self):
+        for key in ("ref", "commit", "path", "blob_sha", "sha256", "n_plants", "first_slug"):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = self._catalog_tree(
+                    Path(tmp),
+                    lambda doc, k=key: doc["archive_b"].update({k: "drifted"}),
+                )
+                with self.assertRaises(ValueError, msg=key):
+                    load_catalog(path)
+
+    def test_load_catalog_rejects_incomplete_plants_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            path = self._catalog_tree(tmp_path, lambda doc: None)
+            (tmp_path / cv.PLANTS_FILENAME).write_text(
+                '{"index": 0}\n', encoding="utf-8"
+            )
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["plants_sha256"] = sha256_bytes(b'{"index": 0}\n')
+            path.write_text(dumps_catalog(document), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_catalog(path)
 
 
 class IacLegacyExtractTests(unittest.TestCase):
@@ -390,10 +491,64 @@ class IacLegacyExtractTests(unittest.TestCase):
                 mill_summary(live, include_pairs=source.mill_id == "iac-mill-r609")
             )
         committed = json.loads(catalog_json_path().read_text(encoding="utf-8"))
-        live_doc = catalog_document(mills)
-        self.assertEqual(live_doc["mills"], committed["mills"])
-        self.assertEqual(live_doc["n_mills"], committed["n_mills"])
-        self.assertEqual(live_doc["n_pair_rows"], committed["n_pair_rows"])
+        live_doc = catalog_document(
+            mills,
+            archive_b=committed["archive_b"],
+            archive_b_more=committed["archive_b_more"],
+            plants_sha256=committed["plants_sha256"],
+            plants_b_sha256=committed["plants_b_sha256"],
+        )
+        self.assertEqual(live_doc, committed)
+
+    def test_regenerated_catalog_round_trips_through_loader(self):
+        committed_path = catalog_json_path()
+        committed = json.loads(committed_path.read_text(encoding="utf-8"))
+        live_doc = catalog_document(
+            [
+                mill_summary(
+                    {
+                        "mill_id": mill.mill_id,
+                        "path": mill.path,
+                        "blob_sha": mill.blob_sha,
+                        "sha256": mill.sha256,
+                        "kind": mill.kind,
+                        "shape": mill.shape,
+                        "catalog_first": mill.catalog_first,
+                        "n_rows": mill.n_rows,
+                        "first_slug": mill.first_slug,
+                        "last_slug": mill.last_slug,
+                        "generator": mill.generator,
+                        "factory": mill.factory,
+                        **(
+                            {
+                                "n_keep": mill.n_keep,
+                                "n_extra": mill.n_extra,
+                                "keep_slugs": mill.keep_slugs,
+                            }
+                            if mill.shape == "pairs-keep-extend"
+                            else {}
+                        ),
+                        "pairs": list(mill.pairs),
+                    },
+                    include_pairs=bool(mill.pairs),
+                )
+                for mill in CATALOG.mills.values()
+            ],
+            archive_b=committed["archive_b"],
+            archive_b_more=committed["archive_b_more"],
+            plants_sha256=committed["plants_sha256"],
+            plants_b_sha256=committed["plants_b_sha256"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            for name in (cv.PLANTS_FILENAME, cv.PLANTS_B_FILENAME):
+                (dest / name).write_bytes((committed_path.parent / name).read_bytes())
+            target = dest / cv.CATALOG_FILENAME
+            target.write_text(dumps_catalog(live_doc), encoding="utf-8")
+            reloaded = load_catalog(target)
+        self.assertEqual(reloaded.n_pair_rows, CATALOG.n_pair_rows)
+        self.assertEqual(reloaded.plants, CATALOG.plants)
+        self.assertEqual(reloaded.plants_b, CATALOG.plants_b)
 
     def test_loop_and_gen_scripts_name_companion_mills(self):
         if not _legacy_available():

@@ -20,6 +20,8 @@ from .vocabulary import PLANTS_COMPACT_KEYS, PLANTS_FILENAME, PLANTS_SOURCE_PATH
 
 SHAPE_OK_FAIL_LABEL = "ok-fail-label"
 
+_PLANT_FIELD_TYPES = {"index": int, "fail_handoff": bool}
+
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
@@ -69,36 +71,80 @@ def extract_ok_fail_label_plants(
     }
 
 
+def archive_b_row(
+    extract: Mapping[str, Any],
+    *,
+    ref: str,
+    commit: str,
+    blob_sha: str,
+) -> dict[str, Any]:
+    """CATALOG.json ``archive_b`` block from a plant extract plus its pin."""
+
+    return {
+        "ref": ref,
+        "commit": commit,
+        "path": extract["path"],
+        "blob_sha": blob_sha,
+        "sha256": extract["sha256"],
+        "shape": extract["shape"],
+        "n_plants": extract["n_plants"],
+        "first_slug": extract["first_slug"],
+        "last_slug": extract["last_slug"],
+    }
+
+
 def _append_triples(tree: ast.AST, list_name: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    index = 0
     for node in getattr(tree, "body", ()):
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        triple = _list_append_arg(node, list_name)
+        if triple is None:
             continue
-        call = node.value
-        if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
-            continue
-        if not isinstance(call.func.value, ast.Name) or call.func.value.id != list_name:
-            continue
-        if len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
-            continue
-        triple = call.args[0]
-        if len(triple.elts) != 3:
-            continue
-        ok_node, fail_node, label_node = triple.elts
-        ok = call_kwargs(ok_node)
-        fail = call_kwargs(fail_node)
-        if ok is None or fail is None or ok.get("slug") is None:
-            continue
-        label = literal_value(label_node)
-        if not isinstance(label, str):
-            continue
-        rows.append(_compact_row(index, ok, fail, label))
-        index += 1
+        row = _triple_row(len(rows), triple)
+        if row is not None:
+            rows.append(row)
     return rows
 
 
-def _compact_row(index: int, ok: Mapping[str, Any], fail: Mapping[str, Any], label: str) -> dict[str, Any]:
+def _is_list_append(call: ast.Call, list_name: str) -> bool:
+    func = call.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "append"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == list_name
+    )
+
+
+def _list_append_arg(node: ast.AST, list_name: str) -> ast.Tuple | None:
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return None
+    call = node.value
+    if not _is_list_append(call, list_name):
+        return None
+    if len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
+        return None
+    triple = call.args[0]
+    return triple if len(triple.elts) == 3 else None
+
+
+def _triple_row(index: int, triple: ast.Tuple) -> dict[str, Any] | None:
+    ok_node, fail_node, label_node = triple.elts
+    ok = call_kwargs(ok_node)
+    fail = call_kwargs(fail_node)
+    if ok is None or fail is None or ok.get("slug") is None:
+        return None
+    label = literal_value(label_node)
+    if not isinstance(label, str):
+        return None
+    return _compact_row(index, ok, fail, label)
+
+
+def _compact_row(
+    index: int,
+    ok: Mapping[str, Any],
+    fail: Mapping[str, Any],
+    label: str,
+) -> dict[str, Any]:
     row = {
         "index": index,
         "success_slug": ok.get("slug"),
@@ -110,20 +156,13 @@ def _compact_row(index: int, ok: Mapping[str, Any], fail: Mapping[str, Any], lab
         "test": ok.get("test", ""),
         "fail_handoff": bool(fail.get("handoff")),
     }
-    missing = [key for key in PLANTS_COMPACT_KEYS if key not in row]
-    if missing:
-        raise ValueError(f"compact plant row missing {missing}")
     invalid = [
         key
-        for key, value in row.items()
-        if key in PLANTS_COMPACT_KEYS
-        and not isinstance(value, (str, bool))
-        and key != "index"
+        for key in PLANTS_COMPACT_KEYS
+        if key not in row or type(row[key]) is not _PLANT_FIELD_TYPES.get(key, str)
     ]
     if invalid:
-        raise ValueError(f"compact plant row has invalid fields {invalid}")
-    if type(row["index"]) is not int:
-        raise ValueError("compact plant index must be int")
+        raise ValueError(f"compact plant row has missing or invalid fields {invalid}")
     return {key: row[key] for key in PLANTS_COMPACT_KEYS}
 
 
