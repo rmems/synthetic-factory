@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -106,6 +109,77 @@ class CatalogLiveExtract(unittest.TestCase):
         self.assertEqual(pinned.source_sha256, result.source_sha256)
         self.assertFalse(pinned.excluded)
         self.assertIn("ep1", pinned.episode_functions)
+
+
+class CatalogRefusals(unittest.TestCase):
+    def _tmp_catalog(self, rows):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        meta = json.loads((ACTF_DIR / "CATALOG.json").read_text(encoding="utf-8"))
+        payload = "\n".join(json.dumps(row) for row in rows).encode("utf-8")
+        meta["lineages_sha256"] = hashlib.sha256(payload).hexdigest()
+        meta["lineages"] = len(rows)
+        (root / "CATALOG.json").write_text(json.dumps(meta), encoding="utf-8")
+        (root / "lineages.jsonl").write_bytes(payload)
+        return root
+
+    def _row(self, **overrides):
+        row = cat.load_catalog().lineages[0].as_mapping()
+        row.update(overrides)
+        return row
+
+    def test_row_missing_a_field_is_refused(self):
+        row = self._row()
+        del row["path_key"]
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.load_catalog(self._tmp_catalog([row]))
+        self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_MISSING)
+
+    def test_non_string_list_episode_functions_is_refused(self):
+        row = self._row(episode_functions="ep1")
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.load_catalog(self._tmp_catalog([row]))
+        self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
+
+    def test_non_string_list_factory_literals_is_refused(self):
+        row = self._row(factory_literals=[1])
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.load_catalog(self._tmp_catalog([row]))
+        self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
+
+    def test_non_int_operation_count_is_refused(self):
+        row = self._row(operation_counts={"calls": "7"})
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.load_catalog(self._tmp_catalog([row]))
+        self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
+
+    def test_string_excluded_is_refused_not_coerced(self):
+        row = self._row(excluded="false")
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.load_catalog(self._tmp_catalog([row]))
+        self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
+
+    def test_drifted_provenance_meta_is_refused(self):
+        row = self._row()
+        root = self._tmp_catalog([row])
+        meta = json.loads((root / "CATALOG.json").read_text(encoding="utf-8"))
+        meta["source_commit"] = "0" * 40
+        meta["project_training_policy"] = "allowed"
+        (root / "CATALOG.json").write_text(json.dumps(meta), encoding="utf-8")
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.load_catalog(root)
+        self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
+
+    def test_recovery_root_under_outputs_raw_is_refused(self):
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.lineages_from_recovery(Path("/tmp/outputs/raw/actf"))
+        self.assertEqual(caught.exception.code, cv.FINDING_RECOVERY_ROOT_UNDER_RAW)
+
+    def test_vendored_mill_recovery_root_is_refused(self):
+        with self.assertRaises(cv.ActfRefusal) as caught:
+            cat.lineages_from_recovery(Path("/tmp/actf-mill-r10"))
+        self.assertEqual(caught.exception.code, cv.FINDING_VENDOR_PATH)
 
 
 class CatalogContract(unittest.TestCase):
