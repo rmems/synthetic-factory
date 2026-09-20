@@ -463,6 +463,10 @@ def _unit_interval(value: Any) -> bool:
     return oc.is_number(value) and 0.0 <= float(value) <= 1.0
 
 
+def _genuine_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _genuine_count_from(floor: int, ceiling: int | None = None):
     """A predicate for a genuine (non-boolean) integer >= ``floor``.
 
@@ -1362,8 +1366,8 @@ def _derived_measurements(result: "FaultResult") -> dict[str, int | float | None
 def _valid_trace_counts(summary: Any) -> bool:
     if not isinstance(summary, dict):
         return False
-    return (type(summary.get("ticks")) is int
-            and type(summary.get("saturated_ticks")) is int
+    return (_genuine_count(summary.get("ticks"))
+            and _genuine_count(summary.get("saturated_ticks"))
             and oc.is_number(summary.get("max_staleness_ms"))
             and oc.is_number(summary.get("max_jitter_ms")))
 

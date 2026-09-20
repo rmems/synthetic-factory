@@ -27,7 +27,10 @@ class IntegerCountProducers(unittest.TestCase):
             if m["quantity"] in oc.INTEGER_QUANTITIES
         }
         self.assertEqual(counts, {"repeats": 2, "context_switches": 3})
-        self.assertTrue(all(type(value) is int for value in counts.values()))
+        self.assertTrue(all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in counts.values()
+        ))
 
     @unittest.skipIf(ep.resource is None, "resource counters unavailable")
     def test_native_switch_counter_does_not_lose_integer_precision(self):
@@ -46,7 +49,10 @@ class IntegerCountProducers(unittest.TestCase):
                 if m["quantity"] in oc.INTEGER_QUANTITIES
             }
             self.assertEqual(set(counts), {"healthy_channel_count", "dropped_event_count"})
-            self.assertTrue(all(type(value) is int for value in counts.values()))
+            self.assertTrue(all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in counts.values()
+        ))
 
 
 if __name__ == "__main__":
