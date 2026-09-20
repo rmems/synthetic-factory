@@ -25,6 +25,12 @@ class OracleSchemaSealTests(unittest.TestCase):
                           "rust/sf-oracle/build.rs"))
         relatives.extend(f"rust/sf-oracle/src/{name}.rs"
                          for name in ("encoder", "identity", "main", "neuron", "protocol"))
+        relatives.extend(("rust/nir-rs/Cargo.toml", "rust/nir-rs/src/main.rs",
+                          "rust/nir-rs/src/meta.rs", "rust/nir-rs/src/codec.rs",
+                          "rust/nir-rs/src/decode.rs", "rust/nir-rs/src/exec.rs",
+                          "rust/nir-rs/src/step.rs",
+                          "rust/silicon-bridge/Cargo.toml",
+                          "rust/silicon-bridge/src/main.rs"))
         for relative in relatives:
             (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_policy.ROOT / relative, self.root / relative)

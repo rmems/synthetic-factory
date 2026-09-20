@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from collections.abc import Mapping, Sequence
 
@@ -32,11 +33,20 @@ def _json_line(value: object) -> int:
     raise ValueError("invalid retained output coordinate")
 
 
-def _file_coordinates(relative: str, lines: Sequence[bytes]):
+def _file_coordinates(relative: str, lines: Sequence[bytes], *, line_digest):
     return {
-        (f"records/{relative}", number): sha256_json(parse_strict_json_bytes(line))
+        (f"records/{relative}", number): line_digest(line)
         for number, line in enumerate(lines, 1) if line.strip()
     }
+
+
+def _record_digest(line: bytes) -> str:
+    return sha256_json(parse_strict_json_bytes(line))
+
+
+def _physical_digest(line: bytes) -> str:
+    """Digest of the exact retained bytes the compose manifest binds."""
+    return hashlib.sha256(line).hexdigest()
 
 
 def _compose_record_lines(relative: str, payload: bytes, source_root):
@@ -48,6 +58,7 @@ def _compose_record_lines(relative: str, payload: bytes, source_root):
 
 def _output_coordinates(
     files: Mapping[str, bytes], *, preserve_gaps: bool = False, source_root=None,
+    line_digest=_record_digest,
 ) -> dict[tuple[str, int], str]:
     coordinates = {}
     for relative, payload in files.items():
@@ -55,7 +66,7 @@ def _output_coordinates(
             lines = payload.split(b"\n")
         else:
             lines = _compose_record_lines(relative, payload, source_root)
-        coordinates.update(_file_coordinates(relative, lines))
+        coordinates.update(_file_coordinates(relative, lines, line_digest=line_digest))
     return coordinates
 
 
@@ -87,7 +98,9 @@ def _require_compose_coverage(
     declared = _unique_outputs(
         entries, _compose_coordinate, duplicate="duplicate retained output coordinate",
     )
-    if declared != _output_coordinates(files, source_root=source_root):
+    if declared != _output_coordinates(
+        files, source_root=source_root, line_digest=_physical_digest
+    ):
         raise ValueError("rights manifest does not cover exact audited records")
 
 

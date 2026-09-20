@@ -27,11 +27,13 @@ from compose_curated_run import authenticated_published_snapshot  # noqa: E402
 from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
-    retained_emitted_record,
+    EmittedRecord,
+    NativeRecordFrame,
+    emitted_record_line,
     retained_json_line,
 )
-from compose_curated_run_lines import jsonl_framed_lines, jsonl_terminator_text  # noqa: E402
 from census import factory_identity_for_path  # noqa: E402
+from curate_identity_simulator_process import replay_session  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import (  # noqa: E402
@@ -117,7 +119,7 @@ class _LineReplay:
     catalog: Any
     mill_finding: Any
     physical_source_path: str | None = None
-    terminator: str = "\n"
+    source_terminator: str = "\n"
 
 
 def _selection_result(function, *args):
@@ -172,12 +174,11 @@ def _record_replayed_retained_context(
     decision: Any,
     entry: dict[str, Any],
     replay: _LineReplay,
-) -> str:
+) -> EmittedRecord:
     """Account one replayed record that compose would have emitted."""
 
     try:
         line = retained_json_line(decision)
-        emitted = retained_emitted_record(decision, replay.terminator)
     except ComposeError as exc:
         raise ExportError(str(exc)) from exc
     _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
@@ -193,7 +194,7 @@ def _record_replayed_retained_context(
     if decision.reward_sidecar is not None:
         entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
         state.expected_sidecars.append(decision.reward_sidecar)
-    return emitted
+    return emitted_record_line(decision, line, replay.source_terminator)
 
 
 def _record_replayed_retained(
@@ -248,7 +249,7 @@ def _replay_one_line_context(
     state: _ReplayState,
     physical_line: bytes,
     replay: _LineReplay,
-) -> str | None:
+) -> EmittedRecord | None:
     """Replay one non-blank source line through the compose lanes."""
 
     state.counts["source_records"] += 1
@@ -316,13 +317,20 @@ def _replay_one_line(
         emitted.append(emitted_line)
 
 
-def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[str]) -> None:
+def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[EmittedRecord]) -> None:
     """Record the output file one replayed source file would have produced."""
 
     output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
-    if any(not line.endswith("\n") for line in emitted[:-1]):
+    if __package__:
+        from .compose_contract import emitted_records_text
+    else:
+        from compose_contract import emitted_records_text
+    if any(
+        isinstance(line, NativeRecordFrame) and line.terminator == ""
+        for line in emitted[:-1]
+    ):
         raise ExportError("unterminated native source cannot precede another composed record")
-    payload = "".join(emitted).encode("utf-8")
+    payload = emitted_records_text(emitted).encode("utf-8")
     state.expected_payloads[output_path] = payload
     state.expected_outputs.append(
         {
@@ -349,13 +357,14 @@ def _replay_source_file_context(
         }
     )
     state.counts["source_files"] += 1
-    emitted: list[str] = []
+    emitted: list[EmittedRecord] = []
+    if __package__:
+        from .compose_contract import source_terminators
+    else:
+        from compose_contract import source_terminators
+    terminators = source_terminators(replay.raw_file)
 
-    framed = jsonl_framed_lines(replay.raw_file)
-    physical = _replay_physical_lines(replay.raw_file)
-    if physical != [payload for payload, _terminator in framed]:
-        framed = [(payload, b"\n") for payload in physical]
-    for line_number, (physical_line, terminator_bytes) in enumerate(framed, 1):
+    for line_number, physical_line in enumerate(_replay_physical_lines(replay.raw_file), 1):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
@@ -369,8 +378,8 @@ def _replay_source_file_context(
                 source_file_sha256=source_file_sha256,
                 catalog=replay.catalog,
                 mill_finding=replay.mill_findings.get((replay.relative, line_number)),
+                source_terminator=terminators[line_number - 1],
                 physical_source_path=replay.physical_source_path,
-                terminator=jsonl_terminator_text(terminator_bytes),
             ),
         )
         if emitted_line is not None:
@@ -554,7 +563,8 @@ def _authenticate_source_replay(
     catalog, calibration_descriptor, _calibration_evidence = calibration_state
 
     selection = _selection_result(compose_oracle_selection.published_mode, summary)
-    snapshot = _replay_source_lines(source_root, catalog, selection)
+    with replay_session():
+        snapshot = _replay_source_lines(source_root, catalog, selection)
     _require_calibration_state_unchanged(
         calibration_state,
         _authenticated_calibration_state(summary, source_root),

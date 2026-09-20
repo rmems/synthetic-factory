@@ -128,6 +128,14 @@ def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     return list(candidates)
 
 
+def _preserved_identity_detail(entry):
+    if entry.get("record_kind") in {"hardware_parity", "nir_equivalence"}:
+        return {"identity_detail": copy.deepcopy(entry)}
+    return {}
+
+
+
+
 def _declared_transform(entry: dict[str, Any]) -> tuple[Any, Any]:
     value = entry.get("transform")
     if isinstance(value, dict):
@@ -176,6 +184,7 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
         "record_kind": entry.get("record_kind") or entry.get("kind"),
         "output_hash": entry.get("output_hash") or entry.get("output_sha256"),
         "manifest_entry_sha256": record_sha256(entry),
+        **_preserved_identity_detail(entry),
         **_entry_source_binding(entry, source),
         **_identity_metadata(entry, source),
     }

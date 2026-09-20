@@ -26,13 +26,13 @@ if __package__:
 
     _assert_direct_sibling("curate_identity_json")
     from .exact_json import ExactJSONFloat, dumps_exact_json
-    from .record_kind import classify_kind
+    from .record_kind import classify_kind, PRESERVED_NATIVE_KINDS
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity_json"
     )
     from exact_json import ExactJSONFloat, dumps_exact_json
-    from record_kind import classify_kind
+    from record_kind import classify_kind, PRESERVED_NATIVE_KINDS
 
 
 class IdentityCurationError(ValueError):
@@ -45,6 +45,11 @@ class CanonicalIdCollision(IdentityCurationError):
 
 class IdentityTreeError(IdentityCurationError):
     """Raised when a cleaned tree is missing or mismatched identity sidecars."""
+
+
+# Preserved native kinds keep exact decimal tokens; fault-recovery simulator
+# output is preserved verbatim under the same rule.
+_EXACT_KINDS = PRESERVED_NATIVE_KINDS | {"fault_recovery"}
 
 
 def _reject_surrogate_text(value: str, path: str) -> None:
@@ -78,7 +83,7 @@ def canonical_json(value: Any) -> str:
 
     try:
         _reject_unpaired_surrogates(value)
-        payload = dumps_exact_json(value) if classify_kind(value) in {"code_repair", "fault_recovery"} else json.dumps(
+        payload = dumps_exact_json(value) if classify_kind(value) in _EXACT_KINDS else json.dumps(
             value,
             ensure_ascii=False,
             allow_nan=False,
@@ -141,7 +146,7 @@ def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
         parse_constant=_reject_json_constant,
         parse_float=ExactJSONFloat if exact else parse_finite_json_float,
     )
-    if not exact and classify_kind(value) in {"code_repair", "fault_recovery"}:
+    if not exact and classify_kind(value) in _EXACT_KINDS:
         return _strict_json_loads(payload, exact=True)
     _reject_unpaired_surrogates(value)
     return value

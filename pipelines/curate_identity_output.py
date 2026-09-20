@@ -18,6 +18,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
 
     _assert_direct_sibling("curate_identity_output")
+    from .record_kind import PRESERVED_NATIVE_KINDS
 else:
     def _ignore_package_sibling(_name):
         return None
@@ -28,6 +29,7 @@ else:
         "_join_package_sibling",
         _ignore_package_sibling,
     )("curate_identity_output")
+    from record_kind import PRESERVED_NATIVE_KINDS
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,7 @@ def _record_preserved_id(expected_mapping, preserved_ids, dependencies):
     """Enforce global identity for retained code-repair and oracle evidence."""
 
     kind = expected_mapping.get("record_kind")
-    if kind not in ("code_repair", "oracle"):
+    if kind not in PRESERVED_NATIVE_KINDS:
         return
     preserved_id = expected_mapping["output_id"]
     if preserved_id in preserved_ids:

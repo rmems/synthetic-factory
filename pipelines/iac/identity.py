@@ -23,13 +23,21 @@ def is_vendor_filename(name: str) -> bool:
     return name.startswith("iac_") and name.endswith("_mill.py")
 
 
+def is_vendor_path(path: Path | str) -> bool:
+    """True when any component of ``path`` belongs to a forbidden mill lane."""
+
+    candidate = Path(path)
+    if is_vendor_filename(candidate.name):
+        return True
+    return candidate.name.endswith(".py") and "infra_as_code_mill" in candidate.parts
+
+
 def refuse_vendor_paths(paths: Iterable[Path | str]) -> None:
     """Fail closed if any path would vendor an ``iac-mill*.py`` script."""
 
     for raw in paths:
-        name = Path(raw).name
-        if is_vendor_filename(name):
-            raise SystemExit(f"refusing to vendor {name}")
+        if is_vendor_path(raw):
+            raise SystemExit(f"refusing to vendor {raw}")
 
 
 def forbidden_globs() -> tuple[str, ...]:
@@ -40,5 +48,6 @@ __all__ = [
     "FAMILY_PREFIX",
     "forbidden_globs",
     "is_vendor_filename",
+    "is_vendor_path",
     "refuse_vendor_paths",
 ]

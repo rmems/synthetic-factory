@@ -239,8 +239,21 @@ class CorpusAudit(AuditAxes):
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
             return
+        if __package__:
+            from .curate_parity import observe_research
+        else:
+            from curate_parity import observe_research
+        if observe_research(self, obj, where, factory):
+            return
         if self._oracle_shaped(obj):
             self._observe_oracle(obj, where, factory, bucket)
+            return
+        if isinstance(obj, dict) and obj.get("family") == "neuromorphic-fault-recovery":
+            # Retained simulator output is sealed research evidence: it is
+            # observed and replayed for integrity, never an eligible record.
+            kind = self._observe_record(obj, where, factory)
+            self.kinds[kind] += 1
+            bucket["by_kind"][kind] += 1
             return
         self.totals["eligible_records"] += 1
         bucket["eligible_records"] += 1

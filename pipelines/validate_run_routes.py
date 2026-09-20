@@ -229,12 +229,40 @@ def _route_known_shape(call):
     return _unknown_shape(call.obj, call.where)
 
 
+def _route_parity(obj, where, _factory_staging):
+    """Bind the shared parity envelope check without re-running any oracle.
+
+    The oracle_grounded parity contract is imported lazily for the same reason
+    as ``route_code_repair``: an eager import would pull the sealed-catalog
+    stack into every CLI invoke that never sees a parity record.
+    """
+    if __package__:
+        from .oracle_grounded import parity_contract
+    else:
+        from oracle_grounded import parity_contract
+    return parity_contract.check_envelope(obj, where)
+
+
+def _parity_record_kinds():
+    if __package__:
+        from .oracle_grounded import parity_contract
+    else:
+        from oracle_grounded import parity_contract
+    return parity_contract.RECORD_KINDS
+
+
 def check_line(obj, where, factory_staging=False, hooks=None):
     """Route an object to the right checker based on its shape."""
     if hooks is None:
         raise TypeError("check_line requires LineHooks from the validate_run facade")
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
+    # Self-declared families route ahead of the shape table, in the same order
+    # as record_kind.classify_kind: a record that names its own family can
+    # never be confused with a trajectory that happens to share a key name.
+    declared_kind = obj.get("record_kind")
+    if isinstance(declared_kind, str) and declared_kind in _parity_record_kinds():
+        return _route_parity(obj, where, factory_staging), declared_kind
     if obj.get("family") == "python-function-repair":
         return route_code_repair(obj, where)
     if obj.get("family") == "neuromorphic-fault-recovery":

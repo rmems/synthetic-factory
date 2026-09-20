@@ -121,7 +121,7 @@ def record_retained_line(
 ) -> None:
     line = _contract.retained_json_line(decision)
     claim_output_id_fn(state, decision.output_id, context.location)
-    context.emitted.append(_contract.retained_emitted_record(decision, context.terminator))
+    context.emitted.append(_contract.emitted_record_line(decision, line, context.source_terminator))
     context.entry.update(
         {
             "output_path": f"{RECORDS_DIRNAME}/{context.relative}",

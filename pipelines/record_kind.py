@@ -20,6 +20,8 @@ THALAMIC_REQUIRED = (
 )
 
 KIND_ORDER = (
+    "hardware_parity",
+    "nir_equivalence",
     "code_repair",
     "fault_recovery",
     "thalamic",
@@ -35,6 +37,16 @@ KIND_ORDER = (
 SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
 
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
+
+# Oracle-grounded parity families declare their kind rather than overlapping
+# thalamic/episode key names. Identity retention additionally requires sealed
+# research-only registry authority; recognizing a kind grants no rights.
+DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
+PRESERVED_NATIVE_KINDS = DECLARED_KINDS | {"code_repair", "oracle"}
+DECLARED_FACTORY_KINDS = {
+    "hardware-parity-spike-trajectories": "hardware_parity",
+    "nir-cross-runtime-equivalence": "nir_equivalence",
+}
 
 _PAYLOAD_KEY_RULES = (
     ("thalamic", frozenset(THALAMIC_REQUIRED)),
@@ -58,23 +70,31 @@ def classify_kind(obj: Any) -> str:
 
     Order (census/agentic, issue #32 comment 5377279101):
 
-    1. code_repair — ``family`` is ``python-function-repair``
-    2. fault_recovery — ``family`` is ``neuromorphic-fault-recovery``
-    3. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    4. preference — ``chosen`` and ``rejected``
-    5. bridge_pair — ``language_view`` and ``spike_events``
-    6. safety_case — ``case_type``
-    7. multi_agent — ``transcript`` and ``agents``
-    8. episode — ``goal`` and ``steps``
-    9. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
+    Self-declared kinds come first, most specific declaration first: they name
+    the family outright instead of being recognised by key presence, so a
+    declarant can never be captured by a shape rule it happens to overlap.
+
+    1. declared parity kinds — ``record_kind`` in ``DECLARED_KINDS``
+    2. code_repair — ``family`` is ``python-function-repair``
+    3. fault_recovery — ``family`` is ``neuromorphic-fault-recovery``
+    4. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    5. preference — ``chosen`` and ``rejected``
+    6. bridge_pair — ``language_view`` and ``spike_events``
+    7. safety_case — ``case_type``
+    8. multi_agent — ``transcript`` and ``agents``
+    9. episode — ``goal`` and ``steps``
+    10. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
        measurement records; accepted and rejected share the envelope)
-    10. unknown
+    11. unknown
     """
 
     kind = "unknown"
     if isinstance(obj, Mapping):
         # A malformed claimant stays in its family and fails that family's validator.
-        if obj.get("family") == "python-function-repair":
+        declared_kind = obj.get("record_kind")
+        if isinstance(declared_kind, str) and declared_kind in DECLARED_KINDS:
+            kind = declared_kind
+        elif obj.get("family") == "python-function-repair":
             kind = "code_repair"
         elif _is_fault_recovery(obj):
             kind = "fault_recovery"

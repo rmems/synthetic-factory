@@ -170,7 +170,7 @@ def _decode_source_line(
 
 
 def _exact_native_record(record, text):
-    if curate_identity.classify_kind(record) == "fault_recovery":
+    if curate_identity.classify_kind(record) in curate_identity.DECLARED_KINDS | {"fault_recovery"}:
         return curate_identity._strict_json_loads(text)
     return record
 

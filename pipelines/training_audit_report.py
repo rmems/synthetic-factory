@@ -193,6 +193,7 @@ def _factory_report(factories):
 
 
 def _identity_report(state, eligible_records):
+    eligible_records += state["totals"].get("observed_parity_records", 0)
     identity_records = eligible_records + sum(
         state[kind].get("evidence_only_records", 0) for kind in ("oracle", "code_repair")
     )
@@ -263,7 +264,7 @@ def _tag_report(tags):
 
 def _report_blockers(state, eligible_records, provenance_total):
     provenance = state["provenance"]
-    return build_blockers(
+    blockers = build_blockers(
         record_errors=state["record_errors"],
         eligible_records=eligible_records,
         quarantined_records=state["totals"]["quarantined"],
@@ -277,6 +278,10 @@ def _report_blockers(state, eligible_records, provenance_total):
         exact_duplicates=state["exact_duplicates"],
         episodes=state["episodes"],
     )
+
+    if state["totals"].get("parity_research_records", 0):
+        blockers.append("frontier-session parity observations are research-only; training policy is never")
+    return blockers
 
 
 def _procedural_report(counts, reasons, keys):
@@ -346,6 +351,8 @@ def build_report(**state):
             "files": totals["files"],
             "records": totals["records"],
             "eligible_records": eligible_records,
+            "parity_research_records": totals["parity_research_records"],
+            "invalid_parity_records": totals["invalid_parity_records"],
             "exact_json_contract_errors": totals["exact_json_contract_errors"],
             "bytes": totals["bytes"],
             "approx_tokens": totals["approx_tokens"],

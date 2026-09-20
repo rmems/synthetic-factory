@@ -174,6 +174,11 @@ def hash_verified_manifest_source(
     hash_basis = _manifest_hash_basis(source_meta, where)
     check = _SnapshotCheck(source_meta, source_sha256, hash_basis, where)
     original_record, digest, original = _manifest_original_snapshot(check, deps)
+    # A canonical-basis snapshot is exactly canonical_json(record): passing it
+    # through as source_json would re-mark the replay as a physical byte
+    # snapshot.  Only the line-sha256 basis carries verified physical bytes.
+    if hash_basis != "source-json-line-sha256":
+        original = None
     return SourceRecord(original_record, source_path, source_line, digest, original)
 
 

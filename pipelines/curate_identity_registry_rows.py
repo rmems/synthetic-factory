@@ -66,11 +66,13 @@ CONTRACT_REQUIRE_STATE = "require_state_claim"
 CONTRACT_SHAPE_DESIGNED = "synthetic_shape_implies_designed"
 ALLOWED_CONTRACTS = frozenset({CONTRACT_REQUIRE_STATE, CONTRACT_SHAPE_DESIGNED, "replay_fault_recovery"})
 
-REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
+REGISTRY_SCHEMA_VERSION = "factory-registry-v0.4"
+PROCEDURAL_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
 HOSTED_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.2"
 LEGACY_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.1"
 SUPPORTED_REGISTRY_SCHEMA_VERSIONS = frozenset(
-    {LEGACY_REGISTRY_SCHEMA_VERSION, HOSTED_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
+    {LEGACY_REGISTRY_SCHEMA_VERSION, HOSTED_REGISTRY_SCHEMA_VERSION,
+     PROCEDURAL_REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION}
 )
 _RIGHTS_ROW_FIELDS = (
     "provider",
@@ -153,6 +155,7 @@ class FactoryRow(NamedTuple):
     generation_surface: str | None = None
     runtime_tag: str | None = None
     model_channel_policy_sha256: str | None = None
+    parity_policy_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -217,6 +220,10 @@ def _require_reviewed_provider_channel(
 ) -> None:
     actual = (raw["provider"], raw["channel"], raw["rights_profile_id"])
     if actual != expected_assignment:
+        if expected_assignment[2] == HOSTED_FRONTIER_PROFILE_ID and actual[:2] == expected_assignment[:2]:
+            raise IdentityCurationError(
+                f"factories[{index}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}"
+            )
         raise IdentityCurationError(
             f"factories[{index}] generator/provider/channel assignment is not reviewed"
         )
@@ -393,7 +400,7 @@ def _oracle_source_policy():
 
 
 def _is_procedural_row(raw: Any, schema_version: str) -> bool:
-    if schema_version != REGISTRY_SCHEMA_VERSION:
+    if schema_version not in {REGISTRY_SCHEMA_VERSION, PROCEDURAL_REGISTRY_SCHEMA_VERSION}:
         return False
     return isinstance(raw, Mapping) and raw.get("source_type") == "procedural"
 
@@ -404,9 +411,31 @@ def _is_model_channel_row(raw: Any, schema_version: str) -> bool:
     return isinstance(raw, Mapping) and raw.get("source_type") == "model_channel"
 
 
+def _parity_policy():
+    if __package__:
+        from . import curate_parity_policy
+    else:
+        import curate_parity_policy
+    return curate_parity_policy
+
+
+def _parse_parity_row(raw, index):
+    policy = _parity_policy()
+    try:
+        policy.validate_registry_row(raw)
+    except policy.ParityPolicyError as exc:
+        raise IdentityCurationError(f"factories[{index}]: {exc}") from exc
+    row = _hosted_factory_row(raw, (raw["generator"], raw["generator_version"]))
+    return row._replace(source_type="frontier_session", parity_policy_sha256=raw["parity_policy_sha256"],
+                        catalog_id=raw["catalog_id"], catalog_sha256=raw["catalog_sha256"])
+
+
+
 def _registry_row_for_validation(
     raw: Any, index: int, schema_version: str
 ) -> Any:
+    if _parity_policy().claims_parity_route(raw):
+        raise IdentityCurationError(f"factories[{index}] parity fields require v0.4 sealed route")
     if _source_policy().claims_procedural_route(raw):
         raise IdentityCurationError(f"factories[{index}] procedural fields require v0.3 route")
     if _model_channel_policy().claims_model_channel_route(raw):

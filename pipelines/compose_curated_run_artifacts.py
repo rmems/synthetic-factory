@@ -43,16 +43,19 @@ SummaryContext = _run_context.SummaryContext
 def write_emitted_records(
     state: ComposeRunState,
     context: SourceFileContext,
-    emitted: list[str],
+    emitted: list[_contract.EmittedRecord],
     services: DestinationServices,
 ) -> None:
     output_path = f"{RECORDS_DIRNAME}/{context.relative}"
-    if any(not line.endswith("\n") for line in emitted[:-1]):
+    if any(
+        isinstance(line, _contract.NativeRecordFrame) and line.terminator == ""
+        for line in emitted[:-1]
+    ):
         raise ComposeError("unterminated native source cannot precede another composed record")
     digest = services.write_new_text(
         context.destination_target,
         output_path,
-        "".join(emitted),
+        _contract.emitted_records_text(emitted),
     )
     state.outputs.append({"path": output_path, "records": len(emitted), "sha256": digest})
     state.counts["output_files"] += 1

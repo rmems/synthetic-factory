@@ -11,6 +11,7 @@ the canonical hashing primitives that two or more siblings need.
 from __future__ import annotations
 
 import sys
+import io
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
@@ -75,12 +76,50 @@ class ComposeError(RuntimeError):
     """Raised when composition input, output, or run integrity is unsafe."""
 
 
+@dataclass(frozen=True)
+class NativeRecordFrame:
+    """An authenticated JSON record plus its captured physical terminator."""
+    text: str
+    terminator: str
+
+
+EmittedRecord = str | NativeRecordFrame
+
+
+def source_terminators(payload: bytes) -> tuple[str, ...]:
+    return tuple(_line_terminator(line) for line in io.BytesIO(payload))
+
+
+def _line_terminator(line: bytes) -> str:
+    if line.endswith(b"\r\n"):
+        return "\r\n"
+    return "\n" if line.endswith(b"\n") else ""
+
+
+def emitted_record_line(decision, text, terminator):
+    if curate_identity.classify_kind(decision.record) in curate_identity.PRESERVED_KINDS:
+        if terminator not in {"", "\n", "\r\n"}:
+            raise ComposeError("invalid captured native source terminator")
+        return NativeRecordFrame(text, terminator)
+    return text
+
+
+def emitted_records_text(lines):
+    return "".join(_record_frame_text(line) for line in lines)
+
+
+def _record_frame_text(line):
+    if isinstance(line, NativeRecordFrame):
+        return line.text + line.terminator
+    return line + "\n"
+
+
 def retained_json_line(decision: ComposeDecision) -> str:
     """Preserved native records reuse authenticated source text; other outputs are canonical.
 
     Identity forbids LF inside ``source.original`` because LF is the JSONL
     record separator. The physical terminator is restored by
-    ``retained_emitted_record`` for fault-recovery simulator output.
+    ``emitted_record_line`` for preserved native output.
     """
     if curate_identity.classify_kind(decision.record) not in curate_identity.PRESERVED_KINDS:
         return canonical_json(decision.record)
@@ -89,21 +128,6 @@ def retained_json_line(decision: ComposeDecision) -> str:
     if source is None:
         raise ComposeError("preserved native output has no identity evidence")
     return _preserved_source_line(decision.record, source)
-
-
-def retained_emitted_record(decision: ComposeDecision, terminator: str = "\n") -> str:
-    """Return the exact bytes compose writes for one retained record.
-
-    Native simulator records restore the source JSONL terminator (LF, CRLF,
-    or empty for an unterminated final record). Other preserved kinds emit
-    canonical JSON plus LF.
-    """
-    payload = retained_json_line(decision)
-    if curate_identity.classify_kind(decision.record) != "fault_recovery":
-        return payload + "\n"
-    if terminator not in ("", "\n", "\r\n"):
-        raise ComposeError("native JSONL terminator must be LF, CRLF, or empty")
-    return payload + terminator
 
 
 def _preserved_source_line(record, source):

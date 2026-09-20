@@ -424,13 +424,14 @@ class ExportMemberFifoSwap(unittest.TestCase):
     def test_same_inode_mutation_during_chunked_read_is_rejected(self):
         """A reader must never return bytes from two source-file states."""
         import export_members
+        import export_members_read
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             member = root / "member.jsonl"
             chunk_size = 1024 * 1024
             member.write_bytes(b"A" * (chunk_size * 2))
-            real_read = export_members.os.read
+            real_read = export_members_read.os.read
             mutated = False
 
             def read_then_mutate(descriptor, size):
@@ -446,7 +447,7 @@ class ExportMemberFifoSwap(unittest.TestCase):
                 return chunk
 
             with mock.patch.object(
-                export_members.os,
+                export_members_read.os,
                 "read",
                 side_effect=read_then_mutate,
             ):

@@ -34,7 +34,7 @@ class SimulatorAssembly(unittest.TestCase):
                     ComposeRunContext(source, root / "composed")
                 )
             self.assertEqual(summary["counts"]["retained"], 6)
-            self.assertEqual(launches.call_count, 2)
+            self.assertEqual(launches.call_count, 1)
             target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
             self.assertEqual(target.read_bytes(), payload)
             files, _rows, _snapshot = export_hf._curated_snapshot(target.parents[1])
@@ -45,7 +45,9 @@ class SimulatorAssembly(unittest.TestCase):
             self.assertTrue(evidence)
             self.assertEqual(replay_launches.call_count, 1)
             with self.assertRaisesRegex(export_hf.ExportError, "research-only"):
-                export_hf.export_run(root / "composed", root / "export")
+                export_hf.export_run(
+                    export_hf.ExportRequest(root / "composed", root / "export")
+                )
             self.assertFalse((root / "export").exists())
 
     def test_crlf_and_unterminated_native_source_bytes_are_preserved(self):
@@ -65,7 +67,9 @@ class SimulatorAssembly(unittest.TestCase):
             target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
             self.assertEqual(target.read_bytes(), payload)
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(root / "composed", root / "export")
+                export_hf.export_run(
+                    export_hf.ExportRequest(root / "composed", root / "export")
+                )
             self.assertFalse((root / "export").exists())
 
     def test_malformed_family_claim_cannot_escape_to_thalamic_shape(self):
@@ -93,5 +97,7 @@ class SimulatorAssembly(unittest.TestCase):
             changed = payload.replace(b'"confidence":0.5', b'"confidence":0.50000000000000000001', 1)
             self.assertNotEqual(changed, payload)
             target.write_bytes(changed)
-            summary = compose_curated.compose_run(source, root / "composed")
+            summary = compose_curated.compose_run(
+                ComposeRunContext(source, root / "composed")
+            )
             self.assertEqual(summary["counts"]["excluded"], 1)

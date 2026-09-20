@@ -226,6 +226,24 @@ def _tally_provenance_mappings(tally: _MappingTally, context: _MappingEntry) -> 
 # ---------------------------------------------------------------------------
 
 
+def _tally_native(tally, context):
+    if __package__:
+        from .curate_parity import authenticate, is_native
+    else:
+        from curate_parity import authenticate, is_native
+    if not is_native(context.entry, context.record):
+        return False
+    try:
+        digest = authenticate(context.entry, context.record, context.where)
+        if digest != context.entry.get("source_originals_sha256"):
+            raise GateError("native parity source attestation differs from replay")
+        tally.checked_ids += 1
+        tally.checked_source_originals += 1
+    except GateError as exc:
+        tally.refuse(context.where, str(exc))
+    return True
+
+
 def _tally_procedural_mapping(tally: _MappingTally, context: _MappingEntry) -> None:
     try:
         replay = replay_gate_identity(context.entry)
@@ -258,6 +276,8 @@ def _identity_mapping_gate(
         if entry.get("output_id") != canonical_record_id(record):
             tally.refuse(where, "identity output_id mismatches final record")
         context = _MappingEntry(entry, entry_index, record, where)
+        if _tally_native(tally, context):
+            continue
         if curate_identity.classify_kind(record) == "code_repair":
             _tally_procedural_mapping(tally, context)
             continue

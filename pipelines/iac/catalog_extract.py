@@ -452,9 +452,14 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
     return summary
 
 
-def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
+def catalog_document(
+    mills: list[dict[str, Any]],
+    *,
+    archives: Mapping[str, Mapping[str, Any]] | None = None,
+    plant_digests: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     pair_rows = sum(mill["n_rows"] for mill in mills)
-    return {
+    document: dict[str, Any] = {
         "schema": CATALOG_SCHEMA_ID,
         "source_ref": LEGACY_REF,
         "preserve_commit": PRESERVE_COMMIT,
@@ -465,6 +470,11 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
         "n_pair_rows": pair_rows,
         "mills": {mill["mill_id"]: mill for mill in mills},
     }
+    for key, block in (archives or {}).items():
+        document[key] = dict(block)
+    for key, digest in (plant_digests or {}).items():
+        document[key] = digest
+    return document
 
 
 def dumps_catalog(document: Mapping[str, Any]) -> str:
