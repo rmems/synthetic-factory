@@ -20,409 +20,70 @@ Usage::
     python3 pipelines/validate_distill.py <path> --stamp-output <new.jsonl>
 
 ``<path>`` may be a single JSONL file or a directory scanned recursively.
+
+
+This module is the stable entry point and compatibility facade. The
+implementation is split into responsibility-named siblings:
+
+* ``distill_manifest.py`` -- MANIFEST.json binding and summary reconciliation.
+* ``distill_records.py`` -- per-record checks, run tallies, ``validate_path``.
+
+Every public name any of them defines is re-exported here, so existing
+``import validate_distill`` call sites resolve unchanged.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
-from collections import Counter
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import energy_preferences  # noqa: E402
-import fault_recovery  # noqa: E402
-import moe_router  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
-VALIDATOR_NAME = "validate_distill"
-VALIDATOR_VERSION = "1.0.0"
-
-FAMILY_CHECKS: dict[str, Callable[[dict[str, Any], str], list[str]]] = {
-    fault_recovery.FAMILY: fault_recovery.check_family,
-    energy_preferences.FAMILY: energy_preferences.check_family,
-    moe_router.FAMILY: moe_router.check_family,
-}
-
-# The families this validator owns. `oc.FAMILIES` is the envelope's whole
-# vocabulary and is deliberately wider: `python-function-repair` also rides
-# the envelope, and its run validator is `pipelines/code_repair/`. A record
-# of an envelope family with no checker here is reported, never passed --
-# see `check_record`.
-DISTILLATION_FAMILIES = frozenset(FAMILY_CHECKS)
-
-
-def check_record(record: Any, where: str) -> list[str]:
-    """Envelope + digest + family checks for one record."""
-
-    errors = oc.check_envelope(record, where)
-    if not isinstance(record, dict):
-        return errors
-    errors += oc.check_digest(record, where)
-    errors += _check_stamp_binding(record, where)
-    family = record.get("family")
-    # A JSON-valid record can carry an unhashable family (an array or an
-    # object); using it as a dict key would raise instead of reporting.
-    checker = FAMILY_CHECKS.get(family) if isinstance(family, str) else None
-    if checker is None:
-        if family not in oc.FAMILIES:
-            # check_envelope already reported the unknown family.
-            return errors
-        errors.append(f"{where}: no family checker registered for {family!r}")
-        return errors
-    return errors + checker(record, where)
-
-
-def _check_stamp_binding(record: dict[str, Any], where: str) -> list[str]:
-    """A stamped verdict must be formed over this exact record.
-
-    The digest check proves the record was not edited; nothing invoked
-    ``stamp_is_bound_to_content``, so a ``validation`` block lifted from
-    another record — or carrying any well-formed 64-hex digest — stayed
-    structurally valid despite the dedicated binding helper detecting it.
-    """
-
-    validation = record.get("validation")
-    validator = validation.get("validator") if isinstance(validation, dict) else None
-    if not isinstance(validator, dict):
-        return []
-    if validator.get("validated_digest") is None:
-        return []
-    if oc.stamp_is_bound_to_content(record):
-        return []
-    return [
-        f"{where}: validation.validator.validated_digest is not the digest "
-        "of this record's content — a stamped verdict must be formed over "
-        "the exact record it rides on"
-    ]
-
-
-def jsonl_paths(root: Path) -> list[Path]:
-    if root.is_file():
-        return [root]
-    return sorted(path for path in root.rglob("*.jsonl") if path.is_file())
-
-
-def _finding(path, error: str) -> dict[str, Any]:
-    return {"file": str(path), "line": 0, "error": error}
-
-
-def _load_manifest_files(manifest_path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    """The manifest's ``files`` map, or the reason it cannot bind anything."""
-
-    try:
-        # manifest_path is root / "MANIFEST.json" inside the run the operator
-        # named; reading that manifest is the validator's purpose.
-        manifest = json.loads(  # NOSONAR
-            manifest_path.read_text(encoding="utf-8")  # NOSONAR
-        )
-    except (OSError, ValueError) as exc:
-        return None, f"MANIFEST.json cannot be read as JSON ({exc})"
-    files = manifest.get("files") if isinstance(manifest, dict) else None
-    if not isinstance(files, dict):
-        return None, "MANIFEST.json does not carry a files object binding the run"
-    return files, None
-
-
-def _manifest_entry_errors(
-    spec: Any, target: Path | None, relative: str, records: int
-) -> list[str]:
-    """One manifest entry against the file it claims to describe."""
-
-    if target is None:
-        return [f"MANIFEST.json lists {relative} but the run does not contain it"]
-    if not isinstance(spec, dict):
-        return [f"MANIFEST.json entry for {relative} must be an object"]
-    errors: list[str] = []
-    digest = hashlib.sha256()
-    with target.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            digest.update(chunk)
-    actual_sha256 = digest.hexdigest()
-    if spec.get("sha256") != actual_sha256:
-        errors.append(
-            f"MANIFEST.json binds {relative} to sha256 {spec.get('sha256')!r} "
-            f"but the file hashes to {actual_sha256!r}"
-        )
-    declared_records = spec.get("records")
-    if not (
-        isinstance(declared_records, int)
-        and not isinstance(declared_records, bool)
-        and declared_records == records
-    ):
-        # `true` and `1.0` both equal 1 under Python equality, so a boolean or
-        # float count would pass — the manifest must bind a genuine integer.
-        errors.append(
-            f"MANIFEST.json binds {relative} to {spec.get('records')!r} "
-            f"records but the file carries {records}"
-        )
-    return errors
-
-
-def _manifest_findings(
-    root: Path,
-    paths: list[Path],
-    records_per_file: dict[Path, int],
-    tally: _RunTally | None = None,
-) -> list[dict[str, Any]]:
-    """Reconcile a run manifest's file bindings and summary with the run.
-
-    A run directory's ``MANIFEST.json`` binds each family batch to its path,
-    record count and SHA-256. Nothing reconciled those bindings, so removing
-    an expected batch — or changing one and rehashing its records — returned
-    ``blocked: false`` while the committed manifest still described different
-    bytes and totals. The ``validation`` summary is reconciled the same way:
-    a manifest claiming different totals than the freshly accumulated tally
-    hands consumers a validation-clean run that its own manifest disproves.
-    """
-
-    manifest_path = root / "MANIFEST.json"
-    if not root.is_dir() or not manifest_path.is_file():
-        return []
-    files, problem = _load_manifest_files(manifest_path)
-    if files is None:
-        return [_finding(manifest_path, problem)]
-    findings: list[dict[str, Any]] = []
-    scanned = {path.relative_to(root).as_posix(): path for path in paths}
-    for relative in sorted(files, key=str):
-        target = scanned.get(relative) if isinstance(relative, str) else None
-        findings += [
-            _finding(manifest_path, error)
-            for error in _manifest_entry_errors(
-                files[relative], target, relative, records_per_file.get(target, 0)
-            )
-        ]
-    for relative in sorted(set(scanned) - set(files)):
-        findings.append(
-            _finding(
-                manifest_path,
-                f"{relative} is present in the run but MANIFEST.json does "
-                "not bind it",
-            )
-        )
-    if tally is not None:
-        findings += _manifest_summary_findings(manifest_path, tally)
-    return findings
-
-
-def _manifest_summary_findings(
-    manifest_path: Path, tally: _RunTally
-) -> list[dict[str, Any]]:
-    """Findings for a manifest validation summary that disagrees with the run."""
-
-    try:
-        # manifest_path is root / "MANIFEST.json" inside the run the operator
-        # named; reading that manifest is the validator's purpose.
-        manifest = json.loads(
-            manifest_path.read_text(encoding="utf-8")  # NOSONAR
-        )
-    except (OSError, ValueError):
-        return []  # an unreadable manifest is already a finding upstream
-    if not isinstance(manifest, dict):
-        return []
-    validation = manifest.get("validation")
-    if not isinstance(validation, dict):
-        return []
-    actual = {
-        "records": tally.records,
-        "valid": tally.valid,
-        "invalid": tally.records - tally.valid,
-        "curation_eligible": tally.eligible,
-        "curation_ineligible_reasons": dict(sorted(tally.ineligible.items())),
-        "families": dict(sorted(tally.families.items())),
-        "fault_outcomes": dict(sorted(tally.outcomes.items())),
-        "preferred_policies": dict(sorted(tally.preferences.items())),
-    }
-    return [
-        _finding(
-            manifest_path,
-            f"MANIFEST.json validation.{field} is {validation[field]!r} but the "
-            f"scanned run tallies {actual[field]!r}",
-        )
-        for field in sorted(actual)
-        # Canonical-JSON comparison: Python's == conflates true with 1.0, so a
-        # manifest could claim a boolean where the tally is a number.
-        if field in validation
-        and oc.canonical_json(validation[field]) != oc.canonical_json(actual[field])
-    ]
-
-
-class _Location:
-    """Where a record came from, in both forms the report needs."""
-
-    __slots__ = ("path", "lineno")
-
-    def __init__(self, path: Path, lineno: int) -> None:
-        self.path = path
-        self.lineno = lineno
-
-    @property
-    def where(self) -> str:
-        return f"{self.path}:{self.lineno}"
-
-
-class _RunTally:
-    """Everything accumulated across a run, in one place."""
-
-    def __init__(self) -> None:
-        self.findings: list[dict[str, Any]] = []
-        self.families: Counter[str] = Counter()
-        self.outcomes: Counter[str] = Counter()
-        self.preferences: Counter[str] = Counter()
-        self.ineligible: Counter[str] = Counter()
-        self.seen_ids: dict[str, str] = {}
-        self.records = 0
-        self.valid = 0
-        self.eligible = 0
-        self.stamped: list[dict[str, Any]] = []
-
-    def add_findings(self, loc: _Location, errors: list[str]) -> None:
-        for error in errors:
-            self.findings.append(
-                {"file": str(loc.path), "line": loc.lineno, "error": error}
-            )
-
-
-def _duplicate_id_errors(obj: dict[str, Any], loc: _Location, tally: _RunTally) -> list[str]:
-    """Record the id, or report it as already claimed by an earlier line."""
-
-    record_id = obj.get("id")
-    if not isinstance(record_id, str) or not record_id:
-        return []
-    if record_id in tally.seen_ids:
-        return [
-            f"{loc.where}: duplicate record id {record_id!r} "
-            f"(first seen at {tally.seen_ids[record_id]})"
-        ]
-    tally.seen_ids[record_id] = loc.where
-    return []
-
-
-def _count_record_labels(obj: dict[str, Any], tally: _RunTally) -> None:
-    """The census counters the report summarises."""
-
-    family = obj.get("family")
-    tally.families[family if isinstance(family, str) else "<unknown>"] += 1
-    result = obj.get("result")
-    if isinstance(result, dict):
-        if isinstance(result.get("outcome"), str):
-            tally.outcomes[result["outcome"]] += 1
-        preference = result.get("preference")
-        if isinstance(preference, dict) and isinstance(
-            preference.get("preferred"), str
-        ):
-            tally.preferences[preference["preferred"]] += 1
-
-
-def _record_eligibility(
-    obj: dict[str, Any], errors: list[str], tally: _RunTally, stamp: bool
-) -> None:
-    """Validity, curation eligibility, and the optional validator stamp."""
-
-    if not errors:
-        tally.valid += 1
-    # Eligibility is decided on the findings this validator just
-    # produced, never on a validation block the record shipped with.
-    ok, reasons = oc.curation_eligible(obj, errors)
-    if ok:
-        tally.eligible += 1
-    elif not errors:
-        for reason in reasons:
-            tally.ineligible[reason] += 1
-    if stamp:
-        tally.stamped.append(
-            oc.stamp_validation(
-                obj,
-                validator=VALIDATOR_NAME,
-                version=VALIDATOR_VERSION,
-                findings=errors,
-            )
-        )
-
-
-def _process_record(obj: Any, loc: _Location, tally: _RunTally, stamp: bool) -> None:
-    """Check one record and fold it into the tally, in emission order."""
-
-    errors = check_record(obj, loc.where)
-    if not isinstance(obj, dict):
-        tally.add_findings(loc, errors)
-        return
-    errors += _duplicate_id_errors(obj, loc, tally)
-    _count_record_labels(obj, tally)
-    tally.add_findings(loc, errors)
-    _record_eligibility(obj, errors, tally, stamp)
-
-
-def _build_report(
-    root: Path, paths: list[Path], tally: _RunTally, strict: bool
-) -> dict[str, Any]:
-    """Assemble the report, including the empty-target failures."""
-
-    # An empty target is a failure, not a clean run. A typo in the path or a
-    # generation step that produced nothing would otherwise be reported as
-    # "0 records, 0 invalid" and exit zero. Appended before the report is
-    # built, so the report's findings list carries them by construction
-    # rather than through a shared-list alias a later copy would sever.
-    if not paths:
-        tally.findings.append(
-            {"file": str(root), "line": 0, "error": "no .jsonl files found"}
-        )
-    elif not tally.records:
-        tally.findings.append(
-            {"file": str(root), "line": 0, "error": "no records found in any file"}
-        )
-
-    return {
-        "path": str(root),
-        "files": len(paths),
-        "records": tally.records,
-        "valid": tally.valid,
-        "invalid": tally.records - tally.valid,
-        "curation_eligible": tally.eligible,
-        "curation_ineligible_reasons": dict(sorted(tally.ineligible.items())),
-        "families": dict(sorted(tally.families.items())),
-        "fault_outcomes": dict(sorted(tally.outcomes.items())),
-        "preferred_policies": dict(sorted(tally.preferences.items())),
-        "findings": tally.findings,
-        "strict": bool(strict),
-        "validator": {"name": VALIDATOR_NAME, "version": VALIDATOR_VERSION},
-        "blocked": bool(tally.findings)
-        or (strict and tally.eligible < tally.valid),
-        "_stamped": tally.stamped,
-    }
-
-
-def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict[str, Any]:
-    """Validate every record under ``root``. Returns a report dict."""
-
-    if not root.exists():
-        raise FileNotFoundError(f"no such path: {root}")
-    paths = jsonl_paths(root)
-    tally = _RunTally()
-    records_per_file: dict[Path, int] = {}
-
-    for path in paths:
-        # Streamed, not buffered: memory stays bounded per record even when
-        # a single batch is far larger than this process.
-        for lineno, obj in oc.iter_jsonl(path):
-            tally.records += 1
-            records_per_file[path] = records_per_file.get(path, 0) + 1
-            loc = _Location(path, lineno)
-            if obj is None:
-                tally.findings.append(
-                    {"file": str(path), "line": lineno, "error": "JSON parse failure"}
-                )
-                continue
-            _process_record(obj, loc, tally, stamp)
-
-    tally.findings += _manifest_findings(root, paths, records_per_file, tally)
-    return _build_report(root, paths, tally, strict)
+if __package__:
+    from .distill_manifest import (
+        _load_manifest_files,
+        _manifest_entry_errors,
+        _manifest_findings,
+        _manifest_summary_findings,
+    )
+    from .distill_records import (
+        DISTILLATION_FAMILIES,
+        FAMILY_CHECKS,
+        VALIDATOR_NAME,
+        VALIDATOR_VERSION,
+        check_record,
+        jsonl_paths,
+        validate_path,
+        _check_stamp_binding,
+        _duplicate_id_errors,
+        _process_record,
+    )
+else:
+    from distill_manifest import (
+        _load_manifest_files,
+        _manifest_entry_errors,
+        _manifest_findings,
+        _manifest_summary_findings,
+    )
+    from distill_records import (
+        DISTILLATION_FAMILIES,
+        FAMILY_CHECKS,
+        VALIDATOR_NAME,
+        VALIDATOR_VERSION,
+        check_record,
+        jsonl_paths,
+        validate_path,
+        _check_stamp_binding,
+        _duplicate_id_errors,
+        _process_record,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
