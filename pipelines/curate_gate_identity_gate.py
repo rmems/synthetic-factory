@@ -346,6 +346,26 @@ class _IdMappingScope(NamedTuple):
     seen_owners: set[Any]
 
 
+def _output_id_matches(owner: Any, output_id: Any) -> bool:
+    return (
+        isinstance(owner, dict)
+        and isinstance(output_id, str)
+        and owner.get("id") == output_id
+    )
+
+
+def _expected_output_id(scope: _IdMappingScope, owner_path: Any, label: str) -> str:
+    """The canonical output id for an authenticated source coordinate."""
+    if not isinstance(scope.source_path, str) or not isinstance(scope.source_line, int):
+        raise GateError(f"{label} is missing an authenticated source coordinate")
+    return _canonical_identity_output_id(
+        scope.source_path,
+        scope.source_line,
+        scope.kind,
+        owner_path,
+    )
+
+
 def _check_id_mapping(scope: _IdMappingScope, mapping: Any, label: str) -> None:
     """Refuse one ``id_mappings`` row that does not authenticate."""
     if not isinstance(mapping, dict):
@@ -355,25 +375,18 @@ def _check_id_mapping(scope: _IdMappingScope, mapping: Any, label: str) -> None:
         raise GateError(f"{label} duplicates owner_path {owner_path!r}")
     scope.seen_owners.add(owner_path)
     owner = _mapping_value(scope.record, owner_path, f"{label}.owner_path")
-    output_id = mapping.get("output_id")
-    if (
-        not isinstance(owner, dict)
-        or not isinstance(output_id, str)
-        or owner.get("id") != output_id
-    ):
+    if not _output_id_matches(owner, mapping.get("output_id")):
         raise GateError(f"{label}.output_id does not match output owner")
-    source_path = scope.source_path
-    source_line = scope.source_line
-    if not isinstance(source_path, str) or not isinstance(source_line, int):
-        raise GateError(f"{label} is missing an authenticated source coordinate")
-    expected_id = _canonical_identity_output_id(
-        source_path,
-        source_line,
-        scope.kind,
-        owner_path,
-    )
+    output_id = mapping.get("output_id")
+    expected_id = _expected_output_id(scope, owner_path, label)
     if output_id is not None and output_id != expected_id:
         raise GateError(f"{label}.output_id is not the deterministic canonical identity")
+
+
+def _carries_provenance(container: Any, canonical: dict[str, Any]) -> bool:
+    return isinstance(container, dict) and _same_json(
+        container.get("provenance", _MISSING), canonical
+    )
 
 
 def _check_provenance_mapping(record: dict[str, Any], mapping: Any, label: str) -> None:
@@ -384,17 +397,17 @@ def _check_provenance_mapping(record: dict[str, Any], mapping: Any, label: str) 
     if not isinstance(canonical, dict):
         raise GateError(f"{label}.canonical must be an object")
     owner = _mapping_value(record, mapping.get("owner_path"), f"{label}.owner_path")
-    if not isinstance(owner, dict) or not _same_json(owner.get("provenance", _MISSING), canonical):
+    if not _carries_provenance(owner, canonical):
         raise GateError(f"{label}.canonical does not match output provenance")
     state_path = mapping.get("state_path")
-    if state_path is not None:
-        state = _mapping_value(record, state_path, f"{label}.state_path")
-        if (
-            not isinstance(state, dict)
-            or not _same_json(state.get("provenance", _MISSING), canonical)
-            or state.get("sim_or_real") != canonical.get("kind")
-        ):
-            raise GateError(f"{label}.canonical does not match output state")
+    if state_path is None:
+        return
+    state = _mapping_value(record, state_path, f"{label}.state_path")
+    if (
+        not _carries_provenance(state, canonical)
+        or state.get("sim_or_real") != canonical.get("kind")
+    ):
+        raise GateError(f"{label}.canonical does not match output state")
 
 
 if __package__:
