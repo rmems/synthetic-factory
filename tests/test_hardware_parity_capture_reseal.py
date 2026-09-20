@@ -5,6 +5,7 @@ fixture, exercised on every field whose type is part of the sealed
 provenance contract.
 """
 
+import copy
 import json
 import tempfile
 import unittest
@@ -22,6 +23,21 @@ import neuro_oracle as oracle  # noqa: E402
 class CaptureStrictness(CaptureCase):
     """Capture-source quantization, latency, repeat digests, and the
     q88-raw cross-checks — every digest resealed after each mutation."""
+
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tmp.cleanup)
+        cls._base_record = CaptureCase._record(cls(), tmp.name)
+
+    def _record(self, tmp, **capture_kwargs):
+        # Every in-memory reseal/strictness check mutates the same default
+        # record, so generate it once per class and hand each test a deep
+        # copy. The file-reload tests call `_capture_adapter` directly and
+        # still build fresh captures.
+        if capture_kwargs:
+            return super()._record(tmp, **capture_kwargs)
+        return copy.deepcopy(type(self)._base_record)
 
     def test_capture_source_quantization_types_are_strict(self):
         # A parsed record shares no sub-objects, so a Boolean smuggled into
