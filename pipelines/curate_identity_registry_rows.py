@@ -24,11 +24,7 @@ if __package__:
     from .rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
-        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
         HOSTED_FRONTIER_PROFILE_ID,
-        NEMOTRON_PLACEHOLDER_PROFILE_ID,
-        PROCEDURAL_PROFILE_ID,
-        SIMULATOR_PROFILE_ID,
     )
     from .rights_policy import (
         PROVIDERS,
@@ -45,11 +41,7 @@ else:
     from rights_mapping import (
         CANONICAL_PROVIDERS,
         CHANNELS,
-        DEEPSEEK_PLACEHOLDER_PROFILE_ID,
         HOSTED_FRONTIER_PROFILE_ID,
-        NEMOTRON_PLACEHOLDER_PROFILE_ID,
-        PROCEDURAL_PROFILE_ID,
-        SIMULATOR_PROFILE_ID,
     )
     from rights_policy import (
         PROVIDERS,

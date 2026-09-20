@@ -233,24 +233,30 @@ class CorpusAudit(AuditAxes):
     def _observe_oracle(self, obj, where, factory, bucket):
         self._observe_admitted(_AdmissionRoute("oracle", obj, where, factory, bucket))
 
-    def _observe_valid_record(self, obj, where, factory):
-        bucket = self.factories[factory]
+    def _observe_specialist_route(self, obj, where, factory, bucket):
+        """Dispatch a valid record to a specialist lane; returns whether it routed."""
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
             self._observe_code_repair(obj, where, factory, bucket)
-            return
+            return True
         if __package__:
             from .curate_parity import observe_research
         else:
             from curate_parity import observe_research
         if observe_research(self, obj, where, factory):
-            return
+            return True
         if self._oracle_shaped(obj):
             self._observe_oracle(obj, where, factory, bucket)
-            return
+            return True
         if self._registered_code_repair_route(factory):
             # A foreign record filed under the procedural path still owes the
             # sealed source-admission check; it fails there, not here.
             self._observe_code_repair(obj, where, factory, bucket)
+            return True
+        return False
+
+    def _observe_valid_record(self, obj, where, factory):
+        bucket = self.factories[factory]
+        if self._observe_specialist_route(obj, where, factory, bucket):
             return
         kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1

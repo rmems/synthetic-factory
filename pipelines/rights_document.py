@@ -116,7 +116,7 @@ PROVIDER_ALIASES = MappingProxyType(
         "Microsoft": "microsoft",
     }
 )
-if not HOSTED_FRONTIER_PROVIDERS <= CANONICAL_PROVIDERS:
+if HOSTED_FRONTIER_PROVIDERS - CANONICAL_PROVIDERS:
     raise RightsPolicyError(
         "hosted-frontier providers must be a subset of the canonical provider vocabulary"
     )

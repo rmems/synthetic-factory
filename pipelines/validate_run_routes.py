@@ -251,6 +251,16 @@ def _parity_record_kinds():
     return parity_contract.RECORD_KINDS
 
 
+def _route_family(obj, where):
+    """Route named procedural families ahead of the shape table."""
+    family = obj.get("family")
+    if family == "python-function-repair":
+        return route_code_repair(obj, where)
+    if family == "neuromorphic-fault-recovery":
+        return route_fault_recovery(obj, where)
+    return None
+
+
 def check_line(obj, where, factory_staging=False, hooks=None):
     """Route an object to the right checker based on its shape."""
     if hooks is None:
@@ -263,10 +273,9 @@ def check_line(obj, where, factory_staging=False, hooks=None):
     declared_kind = obj.get("record_kind")
     if isinstance(declared_kind, str) and declared_kind in _parity_record_kinds():
         return _route_parity(obj, where, factory_staging), declared_kind
-    if obj.get("family") == "python-function-repair":
-        return route_code_repair(obj, where)
-    if obj.get("family") == "neuromorphic-fault-recovery":
-        return route_fault_recovery(obj, where)
+    routed = _route_family(obj, where)
+    if routed is not None:
+        return routed
     oracle_shape = obj.get("schema") == "oracle-grounded/v1" or all(
         key in obj for key in ("oracle", "result", "proposal_hash")
     )
