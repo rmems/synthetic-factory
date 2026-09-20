@@ -151,7 +151,7 @@ class ReferenceMoERouter(RouterOracle):
             ]
             order = sorted(
                 range(self.num_experts),
-                key=lambda e, logits=logits: (-logits[e], e),
+                key=lambda e: (-logits[e], e),
             )
             top = tuple(order[: self.top_k])
             probabilities = softmax(logits)
@@ -317,7 +317,7 @@ class TransformersMoERouter(RouterOracle):
             values = [float(value) for value in layer_logits[-1].tolist()]
             order = sorted(
                 range(len(values)),
-                key=lambda e, values=values: (-values[e], e),
+                key=lambda e: (-values[e], e),
             )
             layers.append(
                 LayerRouting(

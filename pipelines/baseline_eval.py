@@ -170,6 +170,18 @@ class EvaluationKnobs:
 
 
 @dataclass(frozen=True)
+class _ScaledSplit:
+    """The holdout split and the standardizer fitted on its train half."""
+
+    train: list[Sample]
+    test: list[Sample]
+    scaled_train: list[Sample]
+    scaled_test: list[Sample]
+    scaler: dict[str, list[float]]
+    labels: list[Any]
+
+
+@dataclass(frozen=True)
 class _BaselineRuns:
     """The fitted splits and the three baseline results built on them."""
 
@@ -182,7 +194,7 @@ class _BaselineRuns:
     mlp: dict[str, Any]
 
 
-def _run_baselines(samples: list[Sample], knobs: EvaluationKnobs) -> _BaselineRuns:
+def _scaled_splits(samples: list[Sample], knobs: EvaluationKnobs) -> _ScaledSplit:
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
     train, test = split(samples, holdout_pct=knobs.holdout_pct)
@@ -198,22 +210,34 @@ def _run_baselines(samples: list[Sample], knobs: EvaluationKnobs) -> _BaselineRu
     labels = sorted({sample.label for sample in train})
     if len(labels) < 2:
         raise BaselineError("router labels are constant; nothing to distil")
-    return _BaselineRuns(
+    return _ScaledSplit(
         train=train,
         test=test,
-        labels=labels,
+        scaled_train=scaled_train,
+        scaled_test=scaled_test,
         scaler=scaler,
-        majority=majority_baseline(train, test),
+        labels=labels,
+    )
+
+
+def _run_baselines(samples: list[Sample], knobs: EvaluationKnobs) -> _BaselineRuns:
+    splits = _scaled_splits(samples, knobs)
+    return _BaselineRuns(
+        train=splits.train,
+        test=splits.test,
+        labels=splits.labels,
+        scaler=splits.scaler,
+        majority=majority_baseline(splits.train, splits.test),
         logistic=logistic_baseline(
-            scaled_train,
-            scaled_test,
-            labels,
+            splits.scaled_train,
+            splits.scaled_test,
+            splits.labels,
             LogisticHyper(iterations=knobs.logistic_iterations),
         ),
         mlp=mlp_baseline(
-            scaled_train,
-            scaled_test,
-            labels,
+            splits.scaled_train,
+            splits.scaled_test,
+            splits.labels,
             MlpHyper(hidden=knobs.mlp_hidden, iterations=knobs.mlp_iterations),
         ),
     )
@@ -234,7 +258,14 @@ def evaluate_baselines(
             "min_test_records": knobs.min_test_records,
         }
     )
-    runs = _run_baselines(samples, knobs)
+    return _evaluation_report(samples, _run_baselines(samples, knobs), knobs)
+
+
+def _evaluation_report(
+    samples: list[Sample], runs: _BaselineRuns, knobs: EvaluationKnobs
+) -> dict[str, Any]:
+    """The comparable report over one fitted baseline run set."""
+
     trained = [runs.logistic, runs.mlp]
     best = max(trained, key=lambda item: (item["accuracy"], item["model"]))
     lift = round(best["accuracy"] - runs.majority["accuracy"], 6)
@@ -311,7 +342,9 @@ def _recorded_accuracy(entry: Any) -> float | None:
 
 
 def _not_learnable_reason(report: dict[str, Any]) -> str:
-    if (report.get("test") or 0) < (report.get("min_test_records") or 0):
+    test_count = report.get("test") or 0
+    minimum = report.get("min_test_records") or 0
+    if test_count < minimum:
         detail = (
             f"the holdout is {report.get('test')} records, below the "
             f"{report.get('min_test_records')} needed for a baseline "

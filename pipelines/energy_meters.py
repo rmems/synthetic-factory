@@ -238,7 +238,7 @@ def _facade_seam(name: str) -> Callable[..., Any]:
     module = sys.modules.get(
         f"{__package__}.energy_preferences" if __package__ else "energy_preferences"
     )
-    fallback = globals()[name]
+    fallback = getattr(sys.modules[__name__], name)
     if module is None or module is sys.modules[__name__]:
         return fallback
     return getattr(module, name, fallback)

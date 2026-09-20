@@ -268,14 +268,27 @@ def _check_candidate_success(
     record with contradictory candidate labels.
     """
 
-    if not isinstance(candidate, dict):
-        return []
-    success = candidate.get("success")
-    if not isinstance(success, bool):
-        return [f"{spot}.success must be a boolean"]
-    if quality_floor is None:
-        return []
-    if not oc.is_number(candidate.get("task_quality")):
+    errors: list[str] = []
+    if isinstance(candidate, dict):
+        success = candidate.get("success")
+        if not isinstance(success, bool):
+            errors.append(f"{spot}.success must be a boolean")
+        else:
+            errors.extend(
+                _success_mismatch(candidate, spot, success, quality_floor)
+            )
+    return errors
+
+
+def _success_mismatch(
+    candidate: dict[str, Any],
+    spot: str,
+    success: bool,
+    quality_floor: float | None,
+) -> list[str]:
+    """The recorded ``success`` flag against the derivable summary."""
+
+    if quality_floor is None or not oc.is_number(candidate.get("task_quality")):
         # The floor and the quality carry their own findings when malformed;
         # without them the summary cannot be re-derived.
         return []
@@ -283,14 +296,14 @@ def _check_candidate_success(
         candidate.get("safety_ok") is True
         and float(candidate["task_quality"]) >= quality_floor
     )
-    if success is not expected:
-        return [
-            f"{spot}.success is {success} but safety_ok "
-            f"{candidate.get('safety_ok')!r} and task_quality "
-            f"{candidate['task_quality']} against quality_floor "
-            f"{quality_floor} give {expected}"
-        ]
-    return []
+    if success is expected:
+        return []
+    return [
+        f"{spot}.success is {success} but safety_ok "
+        f"{candidate.get('safety_ok')!r} and task_quality "
+        f"{candidate['task_quality']} against quality_floor "
+        f"{quality_floor} give {expected}"
+    ]
 
 def _expected_policy_allocation(
     candidate_id: str, context: _CandidateContext

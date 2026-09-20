@@ -4,8 +4,8 @@
 Split out of ``fault_recovery.py`` verbatim: :class:`RelayReflexSimulator` —
 the oracle that steps a declared disturbance through the reflex system — plus
 the run/decide/latency reasoning that labels each scenario's outcome. The
-family vocabulary and contract shapes live in ``fault_types``, the tick loop's
-stream state in ``fault_stream``, and the preflight validators in
+family vocabulary and contract shapes live in ``fault_types``, the declared-parameter contract in ``fault_parameters``, the
+tick loop's stream state in ``fault_stream``, and the preflight validators in
 ``fault_preflight``. Every name here is re-exported from ``fault_recovery`` so
 existing call sites resolve unchanged.
 """
@@ -23,10 +23,10 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from .fault_parameters import _check_parameters
     from .fault_preflight import (
         _affected,
         _check_onset_within_horizon,
-        _check_parameters,
         _check_sampled_window,
         _declared_channels,
         _detection_latency_ms,
@@ -51,10 +51,10 @@ if __package__:
         _spec_from_parameters,
     )
 else:
+    from fault_parameters import _check_parameters
     from fault_preflight import (
         _affected,
         _check_onset_within_horizon,
-        _check_parameters,
         _check_sampled_window,
         _declared_channels,
         _detection_latency_ms,
@@ -78,6 +78,23 @@ else:
         _oracle_meters,
         _spec_from_parameters,
     )
+
+
+def _merged_system(scenario: dict[str, Any]) -> dict[str, Any]:
+    """The effective system: the declared controls merged over the defaults."""
+
+    supplied_system = dict(scenario.get("system", {}))
+    unknown_controls = sorted(set(supplied_system) - set(DEFAULT_SYSTEM))
+    if unknown_controls:
+        # A misspelled control would sit in the recorded configuration
+        # while the simulator ran on the defaults — the record would
+        # describe a run that never happened.
+        raise oc.ContractError(
+            f"scenario.system declares unknown controls "
+            f"{unknown_controls}; the simulator reads "
+            f"{sorted(DEFAULT_SYSTEM)}"
+        )
+    return {**DEFAULT_SYSTEM, **supplied_system}
 
 
 def _check_burst_capacity(
@@ -145,18 +162,7 @@ class RelayReflexSimulator(FaultOracle):
 
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
-        supplied_system = dict(scenario.get("system", {}))
-        unknown_controls = sorted(set(supplied_system) - set(DEFAULT_SYSTEM))
-        if unknown_controls:
-            # A misspelled control would sit in the recorded configuration
-            # while the simulator ran on the defaults — the record would
-            # describe a run that never happened.
-            raise oc.ContractError(
-                f"scenario.system declares unknown controls "
-                f"{unknown_controls}; the simulator reads "
-                f"{sorted(DEFAULT_SYSTEM)}"
-            )
-        system = {**DEFAULT_SYSTEM, **supplied_system}
+        system = _merged_system(scenario)
         _check_system_controls(system)
         channels: list[str] = list(system["channels"])
         kind = disturbance.get("kind")

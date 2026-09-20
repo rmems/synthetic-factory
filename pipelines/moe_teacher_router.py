@@ -220,10 +220,11 @@ class RecordedTeacherRouter(RouterOracle):
         """The layer index of a well-formed recorded layer."""
         if not isinstance(layer, dict):
             raise oc.OracleUnavailable(self.name, "layer must be an object")
-        if not oc.is_number(layer.get("top1_top2_margin")):
-            raise oc.OracleUnavailable(self.name, "layer missing top1_top2_margin")
-        if not oc.is_number(layer.get("routing_entropy")):
-            raise oc.OracleUnavailable(self.name, "layer missing routing_entropy")
+        for field in ("top1_top2_margin", "routing_entropy"):
+            if not oc.is_number(layer.get(field)):
+                raise oc.OracleUnavailable(
+                    self.name, f"layer missing {field}"
+                )
         layer_index = layer.get("layer")
         if not oc.is_genuine_int(layer_index):
             # int() silently rewrote 0.9 to 0 and True to 1, normalising

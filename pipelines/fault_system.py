@@ -68,25 +68,29 @@ _SYSTEM_CONTROL_DOMAINS = tuple(
     ]
 )
 
+def _strictly_rising(values: list[float]) -> bool:
+    return all(
+        left < right for left, right in zip(values, values[1:])
+    )
+
+
 def _check_thermal_ladder(system: dict[str, Any]) -> None:
-    thresholds = [
-        system["ambient_c"],
-        system["thermal_warn_c"],
-        system["thermal_limit_c"],
-        system["thermal_shutdown_c"],
-    ]
+    keys = (
+        "ambient_c",
+        "thermal_warn_c",
+        "thermal_limit_c",
+        "thermal_shutdown_c",
+    )
+    thresholds = [system[key] for key in keys]
     if not all(oc.is_number(value) for value in thresholds):
         raise oc.ContractError(
             "system thermal thresholds must be finite numbers"
         )
-    ambient, warn, limit, shutdown = (
-        float(value) for value in thresholds
-    )
-    if not ambient < warn < limit < shutdown:
+    if not _strictly_rising([float(value) for value in thresholds]):
         raise oc.ContractError(
             "system thermal ladder must be ordered ambient < warn < "
-            f"limit < shutdown, got {ambient}, {warn}, {limit}, "
-            f"{shutdown}"
+            "limit < shutdown, got "
+            + ", ".join(str(float(value)) for value in thresholds)
         )
 
 def _bounded_channel_list(channels: Any) -> bool:
@@ -158,9 +162,15 @@ def _check_system_controls(system: dict[str, Any]) -> None:
             raise oc.ContractError(
                 f"system {key} must be {expected}, got {value!r}"
             )
-    if system["hard_deadline_ms"] <= system["deadline_ms"]:
-        raise oc.ContractError("system hard_deadline_ms must exceed deadline_ms")
+    _check_system_margins(system)
     _check_thermal_ladder(system)
     _check_system_channels(system)
+
+
+def _check_system_margins(system: dict[str, Any]) -> None:
+    """Cross-control margins the documented precedence depends on."""
+
+    if system["hard_deadline_ms"] <= system["deadline_ms"]:
+        raise oc.ContractError("system hard_deadline_ms must exceed deadline_ms")
     if system["min_healthy_channels"] > len(system["channels"]):
         raise oc.ContractError("system min_healthy_channels exceeds primary channel count")

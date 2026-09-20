@@ -208,22 +208,22 @@ def _over_ceiling(value: Any, ceiling: int | None) -> bool:
 
 
 def _bound_error(
-    value: Any, key: str, floor: int, ceiling: int | None, where: str
+    value: Any, bound: tuple[str, int, int | None], where: str
 ) -> str | None:
-    if not _genuine_int_at_least(value, floor):
-        return _bound_message(value, key, floor, ceiling, where)
-    if _over_ceiling(value, ceiling):
-        return _bound_message(value, key, floor, ceiling, where)
+    _key, floor, ceiling = bound
+    if not _genuine_int_at_least(value, floor) or _over_ceiling(value, ceiling):
+        return _bound_message(value, bound, where)
     return None
 
 
 def _bound_message(
-    value: Any, key: str, floor: int, ceiling: int | None, where: str
+    value: Any, bound: tuple[str, int, int | None], where: str
 ) -> str:
-    bound = f" and <= {ceiling}" if ceiling is not None else ""
+    key, floor, ceiling = bound
+    upper = f" and <= {ceiling}" if ceiling is not None else ""
     return (
         f"{where}.oracle.configuration.{key} must be an integer "
-        f">= {floor}{bound}, got {value!r}"
+        f">= {floor}{upper}, got {value!r}"
     )
 
 
@@ -231,8 +231,8 @@ def _check_configuration_bounds(configuration: dict[str, Any], where: str) -> li
     """Match declared execution bounds to the domains accepted by the builder."""
 
     errors: list[str] = []
-    for key, floor, ceiling in _CONFIGURATION_BOUNDS:
-        problem = _bound_error(configuration.get(key), key, floor, ceiling, where)
+    for bound in _CONFIGURATION_BOUNDS:
+        problem = _bound_error(configuration.get(bound[0]), bound, where)
         if problem is not None:
             errors.append(problem)
     return errors

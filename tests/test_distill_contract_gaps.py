@@ -421,85 +421,100 @@ class NinthRoundContractGaps(unittest.TestCase):
                     errors,
                 )
 
+    def _manifest_run(self, tmp: str, records: list) -> tuple[Path, Path, dict]:
+        """A run tree holding the records, plus the manifest that binds it."""
+        run = Path(tmp) / "run"
+        batch = run / "fault-recovery" / "batch-r01.jsonl"
+        oc.write_jsonl(batch, records)
+        manifest = {
+            "generated_by": "scripts/build_distillation_fixture.py",
+            "files": {
+                "fault-recovery/batch-r01.jsonl": {
+                    "records": len(records),
+                    "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                }
+            },
+        }
+        (run / "MANIFEST.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        return run, batch, manifest
+
+    def _check_missing_listed_batch(self, run: Path, manifest: dict) -> None:
+        with self.subTest(case="listed batch missing"):
+            broken = dict(manifest)
+            broken["files"] = {
+                **manifest["files"],
+                "energy-preferences/batch-r01.jsonl": {
+                    "records": 4,
+                    "sha256": "0" * 64,
+                },
+            }
+            (run / "MANIFEST.json").write_text(
+                json.dumps(broken), encoding="utf-8"
+            )
+            report = vd.validate_path(run)
+            self.assertTrue(report["blocked"])
+            self.assertTrue(
+                any(
+                    "does not contain it" in finding["error"]
+                    for finding in report["findings"]
+                ),
+                report["findings"],
+            )
+
+    def _check_stale_manifest_entry(
+        self, run: Path, batch: Path, manifest: dict, records: list
+    ) -> None:
+        with self.subTest(case="stale digest and count"):
+            (run / "MANIFEST.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            extra = clone(records[0])
+            extra["id"] = "fr-extra-0001"
+            rehash(extra)
+            with batch.open("a", encoding="utf-8") as handle:
+                handle.write(oc.canonical_json(extra) + "\n")
+            report = vd.validate_path(run)
+            self.assertTrue(report["blocked"])
+            self.assertTrue(
+                any(
+                    "hashes to" in finding["error"]
+                    for finding in report["findings"]
+                ),
+                report["findings"],
+            )
+            self.assertTrue(
+                any(
+                    "records but the file carries 3" in finding["error"]
+                    for finding in report["findings"]
+                ),
+                report["findings"],
+            )
+
+    def _check_unlisted_batch(self, run: Path) -> None:
+        with self.subTest(case="unlisted extra batch"):
+            oc.write_jsonl(run / "moe-router" / "batch-r01.jsonl", [])
+            report = vd.validate_path(run)
+            self.assertTrue(
+                any(
+                    "MANIFEST.json does not bind it" in finding["error"]
+                    for finding in report["findings"]
+                ),
+                report["findings"],
+            )
+
     def test_run_files_are_reconciled_with_the_manifest(self):
         # validate_path scanned only the JSONL files: removing a listed
         # batch, changing bytes under a stale digest, or smuggling an extra
         # unlisted batch all returned blocked: false.
         records = fr.build_records(11, 2)
         with tempfile.TemporaryDirectory() as tmp:
-            run = Path(tmp) / "run"
-            batch = run / "fault-recovery" / "batch-r01.jsonl"
-            oc.write_jsonl(batch, records)
-            import hashlib as _hashlib
-
-            good_sha = _hashlib.sha256(batch.read_bytes()).hexdigest()
-            manifest = {
-                "generated_by": "scripts/build_distillation_fixture.py",
-                "files": {
-                    "fault-recovery/batch-r01.jsonl": {
-                        "records": 2,
-                        "sha256": good_sha,
-                    }
-                },
-            }
-            manifest_path = run / "MANIFEST.json"
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            run, batch, manifest = self._manifest_run(tmp, records)
             self.assertFalse(vd.validate_path(run)["blocked"])
-
-            with self.subTest(case="listed batch missing"):
-                broken = dict(manifest)
-                broken["files"] = {
-                    **manifest["files"],
-                    "energy-preferences/batch-r01.jsonl": {
-                        "records": 4,
-                        "sha256": "0" * 64,
-                    },
-                }
-                manifest_path.write_text(json.dumps(broken), encoding="utf-8")
-                report = vd.validate_path(run)
-                self.assertTrue(report["blocked"])
-                self.assertTrue(
-                    any(
-                        "does not contain it" in finding["error"]
-                        for finding in report["findings"]
-                    ),
-                    report["findings"],
-                )
-
-            with self.subTest(case="stale digest and count"):
-                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-                extra = clone(records[0])
-                extra["id"] = "fr-extra-0001"
-                rehash(extra)
-                with batch.open("a", encoding="utf-8") as handle:
-                    handle.write(oc.canonical_json(extra) + "\n")
-                report = vd.validate_path(run)
-                self.assertTrue(report["blocked"])
-                self.assertTrue(
-                    any(
-                        "hashes to" in finding["error"]
-                        for finding in report["findings"]
-                    ),
-                    report["findings"],
-                )
-                self.assertTrue(
-                    any(
-                        "records but the file carries 3" in finding["error"]
-                        for finding in report["findings"]
-                    ),
-                    report["findings"],
-                )
-
-            with self.subTest(case="unlisted extra batch"):
-                oc.write_jsonl(run / "moe-router" / "batch-r01.jsonl", [])
-                report = vd.validate_path(run)
-                self.assertTrue(
-                    any(
-                        "MANIFEST.json does not bind it" in finding["error"]
-                        for finding in report["findings"]
-                    ),
-                    report["findings"],
-                )
+            self._check_missing_listed_batch(run, manifest)
+            self._check_stale_manifest_entry(run, batch, manifest, records)
+            self._check_unlisted_batch(run)
 
     def test_every_escalation_gate_parameter_is_validated(self):
         # mlp_hidden=0 published a bias-only model as an MLP,

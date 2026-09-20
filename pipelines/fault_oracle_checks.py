@@ -34,36 +34,22 @@ else:
     )
 
 
-def _check_oracle_configuration_binding(
-    record: dict[str, Any], where: str
-) -> list[str]:
-    """The oracle block must describe the configuration behind its label.
+def _is_relay_simulator_oracle(oracle: Any) -> bool:
+    """The oracle block this binding governs, or False for foreign oracles."""
 
-    The replay reads only ``scenario.system``, so a rewritten or deleted
-    ``oracle.configuration.system`` stayed validation-clean while the
-    authoritative oracle block no longer described the run that produced its
-    label — breaking reproducibility and provenance audits.
-    """
-
-    oracle = record.get("oracle")
     if not isinstance(oracle, dict) or oracle.get("name") != ORACLE_NAME:
-        return []
-    if oracle.get("implementation") != ORACLE_IMPLEMENTATION and (
-        oracle.get("type") != "deterministic_simulator"
-    ):
-        return []
-    scenario = record.get("scenario")
-    recorded_system = scenario.get("system", {}) if isinstance(scenario, dict) else {}
-    configuration = oracle.get("configuration")
-    if not isinstance(configuration, dict):
-        return [
-            f"{where}.oracle.configuration must record the simulator's "
-            "system and precedence"
-        ]
-    # The recorded system is the *effective* one: the oracle fills every key
-    # the scenario omits from DEFAULT_SYSTEM before running, so the binding
-    # compares against that merged configuration, not the partial input.
-    effective_system = {**DEFAULT_SYSTEM, **recorded_system}
+        return False
+    return (
+        oracle.get("implementation") == ORACLE_IMPLEMENTATION
+        or oracle.get("type") == "deterministic_simulator"
+    )
+
+
+def _configuration_errors(
+    configuration: dict[str, Any], effective_system: dict[str, Any], where: str
+) -> list[str]:
+    """Configuration entries that must match the run that produced the label."""
+
     errors: list[str] = []
     # Strict JSON equality: Python's == conflates true with 1.0, so a record
     # could replace a numeric setting with a boolean, recompute its digest,
@@ -80,6 +66,36 @@ def _check_oracle_configuration_binding(
             f"outcome precedence {list(OUTCOME_PRECEDENCE)}"
         )
     return errors
+
+
+def _check_oracle_configuration_binding(
+    record: dict[str, Any], where: str
+) -> list[str]:
+    """The oracle block must describe the configuration behind its label.
+
+    The replay reads only ``scenario.system``, so a rewritten or deleted
+    ``oracle.configuration.system`` stayed validation-clean while the
+    authoritative oracle block no longer described the run that produced its
+    label — breaking reproducibility and provenance audits.
+    """
+
+    oracle = record.get("oracle")
+    if not _is_relay_simulator_oracle(oracle):
+        return []
+    scenario = record.get("scenario")
+    recorded_system = scenario.get("system", {}) if isinstance(scenario, dict) else {}
+    configuration = oracle.get("configuration")
+    if not isinstance(configuration, dict):
+        return [
+            f"{where}.oracle.configuration must record the simulator's "
+            "system and precedence"
+        ]
+    # The recorded system is the *effective* one: the oracle fills every key
+    # the scenario omits from DEFAULT_SYSTEM before running, so the binding
+    # compares against that merged configuration, not the partial input.
+    return _configuration_errors(
+        configuration, {**DEFAULT_SYSTEM, **recorded_system}, where
+    )
 
 
 
