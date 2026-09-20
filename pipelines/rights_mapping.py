@@ -34,19 +34,27 @@ MAPPING_PATH = (
 )
 MAX_RIGHTS_JSON_BYTES = 1024 * 1024
 
-HOSTED_FRONTIER_PROVIDERS = frozenset({"anthropic", "meta", "openai", "xai"})
-CANONICAL_PROVIDERS = HOSTED_FRONTIER_PROVIDERS | frozenset({
-    "procedural",
-    "simulator",
-    "deepseek",
-    "nemotron",
+CANONICAL_PROVIDERS = frozenset({
+    "anthropic",
+    "meta",
+    "openai",
+    "xai",
     "nvidia",
     "ibm",
+    "deepseek",
     "moonshot",
     "alibaba",
     "minimax",
     "microsoft",
+    "procedural",
+    "simulator",
+    "nemotron",
 })
+# Procedural, simulator, and Nemotron placeholder routes authorize through
+# dedicated profiles; every other canonical provider is governed by the
+# hosted-frontier rules and appears in public rights-document attribution.
+DEDICATED_ROUTE_PROVIDERS = frozenset({"procedural", "simulator", "nemotron"})
+HOSTED_FRONTIER_PROVIDERS = CANONICAL_PROVIDERS - DEDICATED_ROUTE_PROVIDERS
 CHANNELS = frozenset({
     "consumer",
     "api",

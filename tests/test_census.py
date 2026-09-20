@@ -120,13 +120,14 @@ class CensusMiniRun(unittest.TestCase):
 
 class CensusBuckets(unittest.TestCase):
     def setUp(self):
+        self._path_snapshot = list(sys.path)
         sys.path.insert(0, str(REPO / "pipelines"))
-        import census  # noqa: E402
+        import census
 
         self.census = census
 
     def tearDown(self):
-        sys.path[:] = [p for p in sys.path if p != str(REPO / "pipelines")]
+        sys.path[:] = self._path_snapshot
         sys.modules.pop("census", None)
 
     def test_kind_routing(self):
@@ -611,6 +612,7 @@ class CensusMillMix(unittest.TestCase):
 class CensusProceduralPublication(unittest.TestCase):
     def test_completed_code_repair_batch_is_counted_without_changing_round_files(self):
         from tests.code_repair_test_support import generate
+
         from code_repair import publication
 
         with tempfile.TemporaryDirectory() as temporary:

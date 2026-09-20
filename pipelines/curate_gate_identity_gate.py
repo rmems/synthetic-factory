@@ -291,7 +291,12 @@ def _authenticate_identity_source_claims(
         from curate_parity import authenticate, is_native
     if is_native(entry, source_record):
         return authenticate(entry, source_record, label)
-    if curate_identity.classify_kind(source_record) == "code_repair":
+    kind = curate_identity.classify_kind(source_record)
+    if kind == "fault_recovery":
+        # Preserved simulator records authenticate by full mapping replay, the
+        # same contract as native parity — no rewritten identity evidence.
+        return authenticate(entry, source_record, label)
+    if kind == "code_repair":
         return _authenticate_procedural_source(entry, source_record, label)
     return _authenticate_rewritten_identity(entry, source_record, label)
 

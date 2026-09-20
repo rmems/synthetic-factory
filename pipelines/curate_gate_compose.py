@@ -298,6 +298,7 @@ def _reviewed_source_line(item: dict[str, Any], record) -> bytes:
 _LINE_COMPOSERS = {
     "hardware_parity": _native_parity_line,
     "nir_equivalence": _native_parity_line,
+    "fault_recovery": _native_parity_line,
     "code_repair": _reviewed_source_line,
     "oracle": _reviewed_source_line,
 }

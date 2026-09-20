@@ -168,8 +168,7 @@ def _require_hosted_providers(coverage: _RuleCoverage, where: str) -> None:
     # Procedural, simulator, and Nemotron placeholder routes authorize through
     # dedicated profiles; every other canonical provider must appear on a
     # hosted-frontier rule (including open-weight cloud vendors blocked there).
-    non_hosted_frontier_providers = frozenset({"procedural", "simulator", "nemotron"})
-    expected_hosted = set(CANONICAL_PROVIDERS) - non_hosted_frontier_providers
+    expected_hosted = set(HOSTED_FRONTIER_PROVIDERS)
     if coverage.hosted_providers != expected_hosted:
         raise policy_error(where, "hosted rules do not provide canonical provider coverage")
 

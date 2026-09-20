@@ -231,8 +231,12 @@ def _tally_native(tally, context):
         from .curate_parity import authenticate, is_native
     else:
         from curate_parity import authenticate, is_native
-    if not is_native(context.entry, context.record):
+    if not is_native(context.entry, context.record) and (
+        curate_identity.classify_kind(context.record) != "fault_recovery"
+    ):
         return False
+    # Preserved simulator records authenticate by full mapping replay, the same
+    # contract as native parity — no rewritten identity evidence.
     try:
         digest = authenticate(context.entry, context.record, context.where)
         if digest != context.entry.get("source_originals_sha256"):

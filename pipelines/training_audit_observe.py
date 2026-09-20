@@ -62,6 +62,7 @@ class CorpusAudit(AuditAxes):
                 "files": 0,
                 "records": 0,
                 "eligible_records": 0,
+                "research_only_records": 0,
                 "bytes": 0,
                 "approx_tokens": 0,
                 "exact_json_contract_errors": 0,
@@ -183,7 +184,7 @@ class CorpusAudit(AuditAxes):
             return
 
         finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
-        procedural_route = self._registered_code_repair_route(obj, factory)
+        procedural_route = self._registered_code_repair_route(factory)
         if finding is not None and not procedural_route:
             # Foreign evidence is excluded before every training invariant,
             # including the exact-JSON serialization contract.
@@ -199,10 +200,8 @@ class CorpusAudit(AuditAxes):
         self._observe_valid_record(obj, where, factory)
 
     @staticmethod
-    def _registered_code_repair_route(obj, factory):
+    def _registered_code_repair_route(factory):
         """Return whether path-derived registry authority permits procedural validation."""
-        if not isinstance(obj, dict) or obj.get("family") != "python-function-repair":
-            return False
         if __package__:
             from .curate_identity import default_registry
         else:
@@ -248,18 +247,39 @@ class CorpusAudit(AuditAxes):
         if self._oracle_shaped(obj):
             self._observe_oracle(obj, where, factory, bucket)
             return
-        if isinstance(obj, dict) and obj.get("family") == "neuromorphic-fault-recovery":
-            # Retained simulator output is sealed research evidence: it is
-            # observed and replayed for integrity, never an eligible record.
-            kind = self._observe_record(obj, where, factory)
-            self.kinds[kind] += 1
-            bucket["by_kind"][kind] += 1
+        if self._registered_code_repair_route(factory):
+            # A foreign record filed under the procedural path still owes the
+            # sealed source-admission check; it fails there, not here.
+            self._observe_code_repair(obj, where, factory, bucket)
             return
-        self.totals["eligible_records"] += 1
-        bucket["eligible_records"] += 1
         kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1
         bucket["by_kind"][kind] += 1
+        if self._research_only_route(obj, factory):
+            # Records under a blocked/never-ready row are sealed research
+            # evidence: observed for integrity, never counted eligible.
+            self.totals["research_only_records"] += 1
+            bucket["research_only_records"] += 1
+            return
+        self.totals["eligible_records"] += 1
+        bucket["eligible_records"] += 1
+
+    @staticmethod
+    def _research_only_route(obj, factory):
+        """Apply native and reviewed path denials before legacy structural policy."""
+        if isinstance(obj, dict) and obj.get("family") == "neuromorphic-fault-recovery":
+            return True
+        if __package__:
+            from .curate_identity import default_registry
+        else:
+            from curate_identity import default_registry
+        row = default_registry().by_path_id.get(factory)
+        if row is not None:
+            return (
+                row.project_training_policy == "blocked"
+                or row.training_ready_policy == "never"
+            )
+        return False
 
     def _observe_code_repair(self, obj, where, factory, bucket):
         self._observe_admitted(_AdmissionRoute("code_repair", obj, where, factory, bucket))

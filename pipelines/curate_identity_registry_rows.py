@@ -324,7 +324,13 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
     kinds = frozenset(raw["record_kinds"])
     _require_kind_contracts(raw, kinds, index)
     _require_preference_side_kinds(raw, kinds, index)
-    return _hosted_factory_row(raw, identity)
+    row = _hosted_factory_row(raw, identity)
+    source_type = raw.get("source_type", "hosted")
+    if source_type not in {"hosted", "dedicated"}:
+        raise IdentityCurationError(
+            f"factories[{index}] source_type must be hosted or dedicated on a standard row"
+        )
+    return row._replace(source_type=source_type)
 
 
 def _legacy_reviewed_authorization(

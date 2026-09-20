@@ -323,7 +323,7 @@ def verify_bound_envelope(envelope: object, evidence: BoundRights) -> dict[str, 
 
 def _verify_hosted_envelope(envelope: Mapping, evidence: BoundRights) -> dict[str, Any]:
     row = evidence.row
-    if row is None or getattr(row, "source_type", "hosted") != AUTHORITY_HOSTED:
+    if row is None or getattr(row, "source_type", "hosted") not in {AUTHORITY_HOSTED, "dedicated"}:
         raise policy_error(_WHERE, "hosted envelope requires a reviewed hosted row")
     if envelope.get("authority") not in {None, AUTHORITY_HOSTED}:
         raise policy_error(_WHERE, "hosted envelope authority drifted")

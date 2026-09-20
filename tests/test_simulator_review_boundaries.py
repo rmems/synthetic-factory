@@ -67,7 +67,7 @@ class SimulatorReviewBoundaries(unittest.TestCase):
                 self.assertEqual(report['totals']['eligible_records'], 0)
                 self.assertFalse(report['training_ready'])
                 with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(root / 'curated', root / 'export')
+                    export_hf.export_run(export_hf.ExportRequest(root / 'curated', root / 'export'))
                 self.assertFalse((root / 'export').exists())
 
 

@@ -101,7 +101,9 @@ class SimulatorGateReplay(unittest.TestCase):
         record, _entry = self._entry()
         with tempfile.TemporaryDirectory() as temp:
             fixture = GateFixture(Path(temp))
-            self.assertEqual(fixture.integrate(), 0)
+            # Legacy fixture lanes carry no rights envelopes, so integration
+            # composes the corpus but refuses training-ready outright.
+            self.assertEqual(fixture.integrate(), 1)
             payload = (json.dumps(record, separators=(",", ":")) + "\n").encode()
             target = fixture.cleaned / "fault-recovery-simulator-factory" / "records.jsonl"
             target.parent.mkdir()
@@ -121,5 +123,5 @@ class SimulatorGateReplay(unittest.TestCase):
             native.write_bytes(payload)
             destination = Path(temp) / "export-destination"
             with self.assertRaisesRegex(export_hf.ExportError, "research-only"):
-                export_hf.export_run(export_root, destination)
+                export_hf.export_run(export_hf.ExportRequest(export_root, destination))
             self.assertFalse(destination.exists())

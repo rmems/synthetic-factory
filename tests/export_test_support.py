@@ -42,14 +42,23 @@ def strip_rights_blockers(report):
 
 @contextmanager
 def allow_research_only_export():
-    """Strip rights blockers from the live audit used by compose and export."""
+    """Strip rights blockers from the live audit used by compose and export.
+
+    Hosted fixture records are reviewed research-only, so admission itself is
+    also isolated: ``_research_only_route`` is patched off the audit class,
+    which leaves export mechanics exercisable without conferring authority.
+    """
 
     real = training_audit.audit_run
 
     def patched(run_dir, snapshot=None, completion_source=None):
         return strip_rights_blockers(real(run_dir, snapshot=snapshot, completion_source=completion_source))
 
-    with mock.patch.object(training_audit, "audit_run", patched):
+    with ExitStack() as patches:
+        patches.enter_context(mock.patch.object(training_audit, "audit_run", patched))
+        patches.enter_context(
+            mock.patch.object(training_audit._CorpusAudit, "_research_only_route", return_value=False)
+        )
         yield
 
 
