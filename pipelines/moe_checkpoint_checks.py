@@ -86,12 +86,14 @@ def _check_authoritative_checkpoint(
     No Hub network calls — unbound digests fail closed.
     """
 
-    if not isinstance(oracle, dict) or not isinstance(fingerprint, dict):
+    if not isinstance(oracle, dict):
+        return []
+    if not isinstance(fingerprint, dict):
         return []
     if oracle.get("authority") != oc.AUTHORITY_AUTHORITATIVE:
         return []
     revision = fingerprint.get("revision_or_checkpoint")
-    if not (isinstance(revision, str) and COMMIT_SHA_RE.match(revision.strip())):
+    if not isinstance(revision, str) or not COMMIT_SHA_RE.match(revision.strip()):
         return [
             f"{where}.oracle.fingerprint.revision_or_checkpoint must be a "
             f"resolved 40-hex commit for an authoritative router record, got "
@@ -141,25 +143,22 @@ def _check_sealed_hub_cardinality(
     card = _sealed_hub_card(fingerprint)
     if card is None or not isinstance(fingerprint, dict):
         return []
-    errors: list[str] = []
     checks = (
         ("num_layers", card["num_hidden_layers"], "num_hidden_layers"),
         ("num_local_experts", card["num_local_experts"], "num_local_experts"),
         ("num_experts_per_tok", card["num_experts_per_tok"], "num_experts_per_tok"),
     )
     model = str(fingerprint.get("model")).strip()
-    for field, expected, card_field in checks:
-        declared = fingerprint.get(field)
-        if declared != expected:
-            errors.append(
-                f"{where}.oracle.fingerprint: SEALED_HUB_MOE_CARDINALITY — "
-                f"{field} is {declared!r} but sealed Hub card for {model!r} "
-                f"has {card_field}={expected}"
-            )
-    return errors
+    return [
+        f"{where}.oracle.fingerprint: SEALED_HUB_MOE_CARDINALITY — "
+        f"{field} is {fingerprint.get(field)!r} but sealed Hub card for "
+        f"{model!r} has {card_field}={expected}"
+        for field, expected, card_field in checks
+        if fingerprint.get(field) != expected
+    ]
 
 def _check_teacher_router_logits(
-    layers: list[Any], oracle: Any, fingerprint: Any, result: Any, where: str
+    layers: list[Any], record: dict[str, Any], where: str
 ) -> list[str]:
     """Authoritative Transformers / sealed-card teachers must expose logits.
 
@@ -169,20 +168,22 @@ def _check_teacher_router_logits(
     still omit logits.
     """
 
+    oracle = record.get("oracle")
+    result = record.get("result")
     if not _is_authoritative_teacher_grounded(oracle, result):
         return []
+    fingerprint = oracle.get("fingerprint")
     if not _claims_transformers_or_sealed_moe(oracle, fingerprint):
         return []
-    errors: list[str] = []
-    for index, layer in enumerate(layers):
-        spot = f"{where}.result.routing.layers[{index}]"
-        if not isinstance(layer, dict):
-            continue
-        logits = layer.get("router_logits")
-        if logits is None:
-            errors.append(
-                f"{spot}: TEACHER_ROUTER_LOGITS_REQUIRED — authoritative "
-                "TransformersMoERouter / sealed Hub MoE teacher records must "
-                "expose router_logits so top_k can be rebound to a real gate"
-            )
-    return errors
+    return [
+        f"{where}.result.routing.layers[{index}]: "
+        "TEACHER_ROUTER_LOGITS_REQUIRED — authoritative "
+        "TransformersMoERouter / sealed Hub MoE teacher records must "
+        "expose router_logits so top_k can be rebound to a real gate"
+        for index, layer in enumerate(layers)
+        if _layer_missing_logits(layer)
+    ]
+
+
+def _layer_missing_logits(layer: Any) -> bool:
+    return isinstance(layer, dict) and layer.get("router_logits") is None

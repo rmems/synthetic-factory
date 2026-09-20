@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import energy_preferences as ep  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
-from distill_gap_test_support import clone, rehash  # noqa: E402
+from distill_gap_test_support import clone, rehash, set_cost_measurement  # noqa: E402
 
 class EnergyMeterAndDerivationGaps(unittest.TestCase):
     """energy_preferences.py: RAPL zones, replay binding, measured readings."""
@@ -330,12 +330,27 @@ class NinthRoundEnergyGaps(unittest.TestCase):
                 with self.assertRaises(oc.ContractError):
                     ep.build_records(20260823, 1, spec)
 
-    def test_a_swapped_policy_allocation_is_not_reproducible(self):
-        # Replacing coarse_grid's allocation with analytic_kkt's — deriving
-        # quality, safety and membership consistently and rehashing — passed
-        # validation while the retained cost was still attributed to the
-        # coarse-grid workload.
-        record = self._record()
+    def _restated_candidate(self, candidate: dict, evaluation) -> None:
+        """Re-derive a candidate's quality/safety fields from an evaluation."""
+
+        candidate["task_quality"] = evaluation.task_quality
+        candidate["safety_ok"] = evaluation.safety_ok
+        candidate["safety_violations"] = list(evaluation.violations)
+        candidate["success"] = evaluation.success
+
+    def _restated_feasible(self, record: dict) -> None:
+        """Re-derive the preference's feasible list after a candidate swap."""
+
+        preference = record["result"].get("preference")
+        if preference is None:
+            return
+        floor = record["scenario"]["constraints"]["quality_floor"]
+        feasible = ep._feasible_candidates(record["result"]["candidates"], floor)
+        preference["feasible"] = sorted(c["id"] for c in feasible)
+
+    def _swap_for_evaluation(self, record: dict):
+        """Put analytic_kkt's allocation on coarse_grid, scored as stated."""
+
         by_id = {c["id"]: c for c in record["result"]["candidates"]}
         coarse, kkt = by_id["coarse_grid"], by_id["analytic_kkt"]
         state = record["scenario"]["state"]
@@ -347,28 +362,29 @@ class NinthRoundEnergyGaps(unittest.TestCase):
             weights, ep.analytic_allocation(demand, weights, caps)
         )
         coarse["allocation"] = list(kkt["allocation"])
-        evaluation = ep.evaluate_allocation(
+        return ep.evaluate_allocation(
             list(coarse["allocation"]),
             ep.ProblemSpec(
                 demand=demand, weights=weights, caps=caps,
                 optimum=optimum, quality_floor=floor,
             ),
         )
-        coarse["task_quality"] = evaluation.task_quality
-        coarse["safety_ok"] = evaluation.safety_ok
-        coarse["safety_violations"] = list(evaluation.violations)
-        coarse["success"] = evaluation.success
-        for item in record["result"]["measurements"]:
-            detail = item.get("detail") or {}
-            if (
-                detail.get("candidate") == "coarse_grid"
-                and item["quantity"] == "task_quality"
-            ):
-                item["value"] = evaluation.task_quality
-        preference = record["result"].get("preference")
-        if preference is not None:
-            feasible = ep._feasible_candidates(record["result"]["candidates"], floor)
-            preference["feasible"] = sorted(c["id"] for c in feasible)
+
+    def test_a_swapped_policy_allocation_is_not_reproducible(self):
+        # Replacing coarse_grid's allocation with analytic_kkt's — deriving
+        # quality, safety and membership consistently and rehashing — passed
+        # validation while the retained cost was still attributed to the
+        # coarse-grid workload.
+        record = self._record()
+        evaluation = self._swap_for_evaluation(record)
+        coarse = next(
+            c for c in record["result"]["candidates"] if c["id"] == "coarse_grid"
+        )
+        self._restated_candidate(coarse, evaluation)
+        set_cost_measurement(
+            record, "coarse_grid", "task_quality", evaluation.task_quality
+        )
+        self._restated_feasible(record)
         rehash(record)
         errors = ep.check_family(record, "x")
         self.assertTrue(

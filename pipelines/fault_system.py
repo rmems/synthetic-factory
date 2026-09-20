@@ -103,17 +103,10 @@ def _usable_channel_names(channels: Any) -> bool:
     # replayed as an authoritative outcome.
     return len(set(channels)) == len(channels)
 
-def _check_system_channels(system: dict[str, Any]) -> None:
-    channels = system["channels"]
-    if not _usable_channel_names(channels):
-        raise oc.ContractError(
-            "system channels must be a non-empty list of at most 32 "
-            "unique channel names"
-        )
-    fallback = system["fallback_source"]
-    if fallback is not None and not (
-        isinstance(fallback, str) and fallback.strip()
-    ):
+def _check_fallback_source(fallback: Any, channels: list[str]) -> None:
+    if fallback is None:
+        return
+    if not isinstance(fallback, str) or not fallback.strip():
         # Any truthy value used to satisfy the fallback tier, so
         # `fallback_source: 123` produced an authoritative `fallback`
         # with FALLBACK_SOURCE_ENGAGED and no named source.
@@ -121,7 +114,7 @@ def _check_system_channels(system: dict[str, Any]) -> None:
             "system fallback_source must be a non-empty string or null, "
             f"got {fallback!r}"
         )
-    if isinstance(fallback, str) and fallback in channels:
+    if fallback in channels:
         # A fallback names a REDUNDANT source. Naming a primary channel
         # let a surviving primary engage as its own fallback, producing
         # an authoritative `fallback` with no redundant relay behind it.
@@ -129,6 +122,16 @@ def _check_system_channels(system: dict[str, Any]) -> None:
             f"system fallback_source {fallback!r} is one of the primary "
             "channels; a fallback must be a redundant source"
         )
+
+
+def _check_system_channels(system: dict[str, Any]) -> None:
+    channels = system["channels"]
+    if not _usable_channel_names(channels):
+        raise oc.ContractError(
+            "system channels must be a non-empty list of at most 32 "
+            "unique channel names"
+        )
+    _check_fallback_source(system["fallback_source"], channels)
 
 def _check_system_controls(system: dict[str, Any]) -> None:
     """Refuse relay thresholds an authoritative outcome cannot stand on."""

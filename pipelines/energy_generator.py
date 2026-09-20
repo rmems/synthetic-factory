@@ -157,6 +157,18 @@ def _policy_workloads(
     }
 
 
+def _cheaper_rejected(
+    candidate: dict[str, Any], preferred: dict[str, Any]
+) -> bool:
+    """Measured cheaper than the winner but ruled out by the constraints."""
+
+    if candidate["id"] == preferred["id"]:
+        return False
+    if not oc.is_number(candidate.get("cost_value")):
+        return False
+    return candidate["cost_value"] < preferred["cost_value"]
+
+
 def choose_preference(
     candidates: list[dict[str, Any]], quality_floor: float
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -187,9 +199,7 @@ def choose_preference(
     cheaper_but_rejected = sorted(
         candidate["id"]
         for candidate in candidates
-        if candidate["id"] != preferred["id"]
-        and oc.is_number(candidate.get("cost_value"))
-        and candidate["cost_value"] < preferred["cost_value"]
+        if _cheaper_rejected(candidate, preferred)
     )
     return (
         {
@@ -324,27 +334,38 @@ _RUN_KNOB_FLOORS = (
 )
 
 
+_STEP_CEILING_KNOBS = ("fine_steps", "coarse_steps")
+
+
+def _check_knob_floor(protocol: MeterProtocol, name: str, floor: int) -> None:
+    if not _genuine_int_at_least(getattr(protocol, name), floor):
+        raise oc.ContractError(
+            f"{name} must be an integer >= {floor}, got "
+            f"{getattr(protocol, name)!r}; the recorded oracle "
+            "configuration must describe the execution that actually "
+            "happened"
+        )
+
+
+def _check_step_ceiling(protocol: MeterProtocol, name: str) -> None:
+    if getattr(protocol, name) > MAX_REPLAY_STEPS:
+        # The family's own validator declines to replay grids above this
+        # ceiling, so a run built beyond it would measure successfully and
+        # still be rejected on validation — refuse it before executing.
+        raise oc.ContractError(
+            f"{name} must be an integer <= {MAX_REPLAY_STEPS}, got "
+            f"{getattr(protocol, name)!r}; the validator cannot replay a "
+            "grid larger than that"
+        )
+
+
 def _check_run_knobs(protocol: MeterProtocol) -> None:
     """Refuse measurement-run knobs the recorded audit could not describe."""
 
     for name, floor in _RUN_KNOB_FLOORS:
-        if not _genuine_int_at_least(getattr(protocol, name), floor):
-            raise oc.ContractError(
-                f"{name} must be an integer >= {floor}, got "
-                f"{getattr(protocol, name)!r}; the recorded oracle "
-                "configuration must describe the execution that actually "
-                "happened"
-            )
-    for name in ("fine_steps", "coarse_steps"):
-        if getattr(protocol, name) > MAX_REPLAY_STEPS:
-            # The family's own validator declines to replay grids above this
-            # ceiling, so a run built beyond it would measure successfully and
-            # still be rejected on validation — refuse it before executing.
-            raise oc.ContractError(
-                f"{name} must be an integer <= {MAX_REPLAY_STEPS}, got "
-                f"{getattr(protocol, name)!r}; the validator cannot replay a "
-                "grid larger than that"
-            )
+        _check_knob_floor(protocol, name, floor)
+    for name in _STEP_CEILING_KNOBS:
+        _check_step_ceiling(protocol, name)
 
 
 def _resolve_meter(

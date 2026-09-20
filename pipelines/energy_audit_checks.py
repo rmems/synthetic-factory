@@ -77,20 +77,25 @@ def _replay_solver_settings(record: dict[str, Any]) -> tuple[int, int] | None:
     oracle = record.get("oracle")
     if not isinstance(oracle, dict):
         return None
-    implementation = oracle.get("implementation")
-    if not isinstance(implementation, str) or not implementation.startswith(
-        "pipelines/energy_preferences.py:"
-    ):
+    if not _replayable_implementation(oracle.get("implementation")):
         return None
     configuration = oracle.get("configuration")
     if not isinstance(configuration, dict):
         return None
-    fine = configuration.get("fine_steps")
-    coarse = configuration.get("coarse_steps")
-    for steps in (fine, coarse):
-        if not _genuine_int_at_least(steps, 1) or steps > MAX_REPLAY_STEPS:
-            return None
-    return int(fine), int(coarse)
+    steps = (configuration.get("fine_steps"), configuration.get("coarse_steps"))
+    if not all(_bounded_step_count(step) for step in steps):
+        return None
+    return int(steps[0]), int(steps[1])
+
+
+def _replayable_implementation(implementation: Any) -> bool:
+    return isinstance(implementation, str) and implementation.startswith(
+        "pipelines/energy_preferences.py:"
+    )
+
+
+def _bounded_step_count(steps: Any) -> bool:
+    return _genuine_int_at_least(steps, 1) and steps <= MAX_REPLAY_STEPS
 
 def _check_oracle_audit(record: dict[str, Any], where: str) -> list[str]:
     """The audit metadata behind an authoritative measured preference.
@@ -125,38 +130,51 @@ def _check_oracle_audit(record: dict[str, Any], where: str) -> list[str]:
 def _check_meter_probe(configuration: dict[str, Any], result: Any, where: str) -> list[str]:
     """Reconcile the selected meter probe with the declared cost quantity."""
 
-    errors: list[str] = []
     probe = configuration.get("meter_probe")
     if not isinstance(probe, dict):
-        return errors + [
+        return [
             f"{where}.oracle.configuration.meter_probe must document the "
             "probed meters and the selection"
         ]
+    return _check_selected_meter(probe, where) + _check_probe_cost_fields(
+        probe, result, where
+    )
+
+
+def _probed_meter_entries(probe: dict[str, Any]) -> list[dict[str, Any]]:
+    probed = probe.get("probed")
+    if not isinstance(probed, list):
+        return []
+    return [entry for entry in probed if isinstance(entry, dict)]
+
+
+def _check_selected_meter(probe: dict[str, Any], where: str) -> list[str]:
     selected = probe.get("selected")
     if not isinstance(selected, str) or not selected.strip():
-        errors.append(
+        return [
             f"{where}.oracle.configuration.meter_probe.selected must name "
             "the selected meter"
-        )
-    else:
-        probed = probe.get("probed")
-        entries = (
-            [entry for entry in probed if isinstance(entry, dict)]
-            if isinstance(probed, list)
-            else []
-        )
-        if not any(
-            entry.get("meter") == selected and entry.get("available") is True
-            for entry in entries
-        ):
-            errors.append(
-                f"{where}.oracle.configuration.meter_probe.selected is "
-                f"{selected!r} but the probe found no such meter available — "
-                "the audit must name a meter that was actually probed and "
-                "usable"
-            )
+        ]
+    usable = any(
+        entry.get("meter") == selected and entry.get("available") is True
+        for entry in _probed_meter_entries(probe)
+    )
+    if usable:
+        return []
+    return [
+        f"{where}.oracle.configuration.meter_probe.selected is "
+        f"{selected!r} but the probe found no such meter available — "
+        "the audit must name a meter that was actually probed and "
+        "usable"
+    ]
+
+
+def _check_probe_cost_fields(
+    probe: dict[str, Any], result: Any, where: str
+) -> list[str]:
     corpus_quantity = result.get("cost_quantity") if isinstance(result, dict) else None
     cost_is_energy = result.get("cost_is_energy") if isinstance(result, dict) else None
+    errors: list[str] = []
     if probe.get("cost_quantity") != corpus_quantity:
         errors.append(
             f"{where}.oracle.configuration.meter_probe.cost_quantity is "
@@ -199,13 +217,24 @@ def _check_configuration_bounds(configuration: dict[str, Any], where: str) -> li
 def _check_fingerprinted_meter(
     record: dict[str, Any], candidates: list[Any], where: str
 ) -> list[str]:
-    oracle = record.get("oracle")
-    fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None
-    meter = fingerprint.get("meter") if isinstance(fingerprint, dict) else None
-    if not isinstance(meter, str) or not meter.strip():
+    meter = _declared_fingerprint_meter(record)
+    if meter is None:
         return [f"{where}.oracle.fingerprint.meter must name the physical instrument"]
     return [
         f"{where}.result.candidates[{index}].cost_meter must match oracle.fingerprint.meter"
         for index, candidate in enumerate(candidates)
         if isinstance(candidate, dict) and candidate.get("cost_meter") != meter
     ]
+
+
+def _declared_fingerprint_meter(record: dict[str, Any]) -> str | None:
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return None
+    fingerprint = oracle.get("fingerprint")
+    if not isinstance(fingerprint, dict):
+        return None
+    meter = fingerprint.get("meter")
+    if not isinstance(meter, str) or not meter.strip():
+        return None
+    return meter

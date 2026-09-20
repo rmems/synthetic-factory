@@ -113,7 +113,7 @@ _reexport(
     _moe_oracles,
     """
     GateShape RecordedTeacherRouter ReferenceMoERouter RouterOracle
-    TransformersMoERouter oracles_report
+    TeacherLoadOptions TransformersMoERouter oracles_report
     """,
 )
 _reexport(_moe_generator, "build_records propose_contexts")

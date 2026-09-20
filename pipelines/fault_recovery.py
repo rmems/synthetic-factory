@@ -57,8 +57,6 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
-from oracle_grounded import envelope  # noqa: E402,F401
-from oracle_grounded import fault_vocabulary  # noqa: E402,F401
 
 if __package__:
     from . import fault_check as _fault_check

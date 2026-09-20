@@ -64,17 +64,22 @@ def _usable_measurement(item: Any) -> tuple[tuple[str, str], _Reading] | None:
     candidate_id = detail.get("candidate") if isinstance(detail, dict) else None
     quantity = item.get("quantity")
     meter = item.get("meter")
-    if (
-        isinstance(candidate_id, str)
-        and isinstance(quantity, str)
-        and oc.is_number(item.get("value"))
-        and isinstance(meter, str)
-    ):
-        reading = _Reading(
-            value=item["value"], meter=meter, measured=item.get("measured")
-        )
-        return (candidate_id, quantity), reading
-    return None
+    if not isinstance(candidate_id, str) or not isinstance(quantity, str):
+        return None
+    if not oc.is_number(item.get("value")) or not isinstance(meter, str):
+        return None
+    reading = _Reading(
+        value=item["value"], meter=meter, measured=item.get("measured")
+    )
+    return (candidate_id, quantity), reading
+
+def _readings_disagree(previous: "_Reading", reading: "_Reading") -> bool:
+    if abs(float(previous.value) - float(reading.value)) > 1e-12:
+        return True
+    if previous.meter != reading.meter:
+        return True
+    return (previous.measured is True) != (reading.measured is True)
+
 
 def _collect_measured_costs(
     result: dict[str, Any], where: str
@@ -101,11 +106,7 @@ def _collect_measured_costs(
         # Silently keeping the first reading made the preference depend
         # on JSON array order while the record still carried the
         # contradicting one. Two readings that disagree are a finding.
-        if (
-            abs(float(previous.value) - float(reading.value)) > 1e-12
-            or previous.meter != reading.meter
-            or (previous.measured is True) != (reading.measured is True)
-        ):
+        if _readings_disagree(previous, reading):
             candidate_id, quantity = key
             errors.append(
                 f"{where}.result.measurements: CONFLICTING_MEASUREMENT — "
@@ -115,18 +116,21 @@ def _collect_measured_costs(
             )
     return errors, measured_costs
 
+def _usable_caps(caps: Any) -> bool:
+    if not isinstance(caps, list):
+        return False
+    if not 0 < len(caps) <= MAX_ACTUATORS:
+        return False
+    return all(oc.is_number(cap) for cap in caps)
+
+
 def _safety_derivation_inputs(scenario: Any) -> tuple[bool, Any, Any]:
     """The scenario state needed to re-derive a candidate's safety verdict."""
 
     state = scenario.get("state") if isinstance(scenario, dict) else None
     caps = state.get("actuator_caps") if isinstance(state, dict) else None
     demand = state.get("demand") if isinstance(state, dict) else None
-    can_derive_safety = (
-        isinstance(caps, list)
-        and 1 <= len(caps) <= MAX_ACTUATORS
-        and all(oc.is_number(cap) for cap in caps)
-        and oc.is_number(demand)
-    )
+    can_derive_safety = _usable_caps(caps) and oc.is_number(demand)
     return can_derive_safety, caps, demand
 
 
@@ -135,18 +139,30 @@ def _safety_derivation_inputs(scenario: Any) -> tuple[bool, Any, Any]:
 # would reject honest records; a real tamper has to move the quality by
 # orders of magnitude more than this to matter against a 0.98 floor.
 
+def _positive_weight(value: Any) -> bool:
+    return oc.is_number(value) and float(value) > 0.0
+
+
+def _state_weights(scenario: Any) -> Any:
+    if not isinstance(scenario, dict):
+        return None
+    state = scenario.get("state")
+    if not isinstance(state, dict):
+        return None
+    return state.get("actuator_weights")
+
+
 def _usable_weights(scenario: Any, caps: Any) -> list[float] | None:
     """The actuator weights, when they can parameterise the objective."""
 
-    state = scenario.get("state") if isinstance(scenario, dict) else None
-    weights = state.get("actuator_weights") if isinstance(state, dict) else None
-    if (
-        isinstance(weights, list)
-        and len(weights) == len(caps)
-        and all(oc.is_number(w) and float(w) > 0.0 for w in weights)
-    ):
-        return [float(w) for w in weights]
-    return None
+    weights = _state_weights(scenario)
+    if not isinstance(weights, list):
+        return None
+    if len(weights) != len(caps):
+        return None
+    if not all(_positive_weight(w) for w in weights):
+        return None
+    return [float(w) for w in weights]
 
 def _quality_derivation_inputs(
     scenario: Any, *, can_derive_safety: bool, caps: Any, demand: Any

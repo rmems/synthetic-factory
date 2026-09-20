@@ -201,45 +201,61 @@ class _DisturbanceSpec:
     ramp_ms: float
     result_delay_ms: float
 
-    @classmethod
-    def from_parameters(
-        cls,
-        kind: str,
-        params: dict[str, Any],
-        system: dict[str, Any],
-        affected: list[str],
-    ) -> "_DisturbanceSpec":
-        return cls(
-            kind=kind,
-            affected=tuple(affected),
-            onset_ms=float(params.get("onset_ms", 0.0)),
-            duration_ms=float(params.get("duration_ms", 0.0)),
-            jitter_ms=float(params.get("jitter_ms", 0.0)),
-            corrupt_ratio=float(params.get("corrupt_ratio", 0.0)),
-            malformed_count=int(params.get("malformed_count", 0)),
-            malformed_kind=str(params.get("malformed_kind") or ""),
-            peak_c=float(params.get("peak_c", system["ambient_c"])),
-            ramp_ms=max(float(params.get("ramp_ms", 1.0)), 1e-6),
-            result_delay_ms=float(params.get("delay_ms", 0.0)),
-        )
-
     def in_window(self, now_ms: float) -> bool:
         return self.onset_ms <= now_ms < (self.onset_ms + self.duration_ms)
 
 
+def _spec_from_parameters(
+    kind: str,
+    params: dict[str, Any],
+    system: dict[str, Any],
+    affected: list[str],
+) -> _DisturbanceSpec:
+    return _DisturbanceSpec(
+        kind=kind,
+        affected=tuple(affected),
+        onset_ms=float(params.get("onset_ms", 0.0)),
+        duration_ms=float(params.get("duration_ms", 0.0)),
+        jitter_ms=float(params.get("jitter_ms", 0.0)),
+        corrupt_ratio=float(params.get("corrupt_ratio", 0.0)),
+        malformed_count=int(params.get("malformed_count", 0)),
+        malformed_kind=str(params.get("malformed_kind") or ""),
+        peak_c=float(params.get("peak_c", system["ambient_c"])),
+        ramp_ms=max(float(params.get("ramp_ms", 1.0)), 1e-6),
+        result_delay_ms=float(params.get("delay_ms", 0.0)),
+    )
+
+
+def _phase_hit(tick: int, corrupt_ratio: float) -> bool:
+    return ((tick * 7919) % 1000) / 1000.0 < corrupt_ratio
+
+
 def _corruption_ticks(spec: _DisturbanceSpec, system: dict[str, Any]) -> frozenset[int]:
     """Keep the existing phase, with one real event when a positive burst misses it."""
+    eligible = _corruption_window(spec, system)
+    selected = [tick for tick in eligible if _phase_hit(tick, spec.corrupt_ratio)]
+    if selected:
+        return frozenset(selected)
+    return frozenset(eligible[:1])
+
+
+def _corruption_window(spec: _DisturbanceSpec, system: dict[str, Any]) -> list[int]:
+    """The in-window ticks, with fail-closed guards on the burst declaration."""
+
     if spec.kind != "burst_corruption" or spec.corrupt_ratio == 0:
-        return frozenset()
+        return []
     if not spec.affected:
         raise oc.ContractError("positive corruption requires a sampled primary channel")
-    eligible = [tick for tick in range(int(system["ticks"]))
-                if spec.in_window(tick * float(system["tick_ms"]))]
+    eligible = _windowed_ticks(
+        spec, int(system["ticks"]), float(system["tick_ms"])
+    )
     if not eligible:
         raise oc.ContractError("positive corruption window contains no sampled event")
-    selected = [tick for tick in eligible
-                if ((tick * 7919) % 1000) / 1000.0 < spec.corrupt_ratio]
-    return frozenset(selected or eligible[:1])
+    return eligible
+
+
+def _windowed_ticks(spec: _DisturbanceSpec, ticks: int, tick_ms: float) -> list[int]:
+    return [tick for tick in range(ticks) if spec.in_window(tick * tick_ms)]
 
 
 

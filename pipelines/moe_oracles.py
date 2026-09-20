@@ -11,6 +11,7 @@ existing call sites resolve unchanged.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import random
 import sys
 from dataclasses import dataclass
@@ -167,6 +168,15 @@ class ReferenceMoERouter(RouterOracle):
 
 
 
+@dataclass(frozen=True)
+class TeacherLoadOptions:
+    """Optional load-time overrides for the live teacher checkpoint."""
+
+    revision: str | None = None
+    device: str = "cpu"
+    top_k: int | None = None
+
+
 class TransformersMoERouter(RouterOracle):
     """Real Hugging Face MoE teacher. Unavailable in this environment.
 
@@ -187,25 +197,21 @@ class TransformersMoERouter(RouterOracle):
     is_llm_teacher = True
 
     def __init__(
-        self,
-        model_id: str,
-        *,
-        revision: str | None = None,
-        device: str = "cpu",
-        top_k: int | None = None,
+        self, model_id: str, *, options: TeacherLoadOptions | None = None
     ) -> None:
+        options = options or TeacherLoadOptions()
         self.model_id = model_id
-        self.revision = revision
-        self.device = device
-        self.top_k = top_k
+        self.revision = options.revision
+        self.device = options.device
+        self.top_k = options.top_k
         self._model = None
         self._tokenizer = None
         self._fingerprint: dict[str, Any] | None = None
 
     def available(self) -> tuple[bool, str]:
         try:
-            import torch  # noqa: F401
-            import transformers  # noqa: F401
+            importlib.import_module("torch")
+            importlib.import_module("transformers")
         except Exception as exc:  # pragma: no cover - depends on the host
             return False, f"{type(exc).__name__}: {exc}"
         return True, "torch and transformers import"
@@ -221,6 +227,7 @@ class TransformersMoERouter(RouterOracle):
         if not ok:
             raise oc.OracleUnavailable(self.name, detail)
         import torch
+        import transformers
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained(  # nosec B615 - validated 40-hex pin
@@ -257,7 +264,7 @@ class TransformersMoERouter(RouterOracle):
             # emit router_logits only for their MoE layers.
             "num_layers": getattr(config, "num_hidden_layers", None),
             "torch_dtype": str(getattr(model, "dtype", "unknown")),
-            "transformers_version": __import__("transformers").__version__,
+            "transformers_version": transformers.__version__,
             "torch_version": torch.__version__,
             "device": self.device,
         }
@@ -284,12 +291,9 @@ class TransformersMoERouter(RouterOracle):
 
         declared = _declared_top_k(self._fingerprint)
         experts = _declared_expert_count(self._fingerprint)
-        if declared is None or experts is None or declared > experts:
+        if not _valid_routing_width(declared, experts):
             raise oc.OracleUnavailable(self.name, "checkpoint has invalid routing width")
-        if self.top_k is not None and (
-            not isinstance(self.top_k, int) or isinstance(self.top_k, bool)
-            or self.top_k != declared
-        ):
+        if not _valid_top_k_override(self.top_k, declared):
             raise oc.OracleUnavailable(self.name, "top_k override differs from checkpoint routing width")
         return declared
 
@@ -333,6 +337,24 @@ class TransformersMoERouter(RouterOracle):
         # correction lands in the emitted fingerprint.
         self._fingerprint["num_layers"] = len(layers)
         return _summarise(layers)
+
+
+def _valid_routing_width(declared: Any, experts: Any) -> bool:
+    """The checkpoint must declare a top_k inside its expert count."""
+
+    if declared is None or experts is None:
+        return False
+    return declared <= experts
+
+
+def _valid_top_k_override(top_k: Any, declared: int) -> bool:
+    """None means no override; a genuine int must restate the checkpoint."""
+
+    if top_k is None:
+        return True
+    if not oc.is_genuine_int(top_k):
+        return False
+    return top_k == declared
 
 
 def oracles_report() -> dict[str, Any]:

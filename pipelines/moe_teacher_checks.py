@@ -40,25 +40,32 @@ else:
     from moe_oracles import TransformersMoERouter
 
 
+def _recorded(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _check_configuration_digest(fingerprint: dict[str, Any], where: str) -> list[str]:
+    # "not-a-digest" satisfied the non-empty check, so the promised
+    # configuration digest could be absent in everything but name and the
+    # teacher configuration could never be audited.
+    digest = fingerprint.get("configuration_sha256")
+    if not _recorded(digest) or oc.SHA256_RE.match(digest):
+        return []
+    return [
+        f"{where}.oracle.fingerprint.configuration_sha256 must be a "
+        f"64-character sha256 hex digest, got {digest!r}"
+    ]
+
+
 def _check_fingerprint_identity(fingerprint: dict[str, Any], where: str) -> list[str]:
     """Model, checkpoint, configuration digest, and the teacher flag."""
 
-    errors: list[str] = []
-    for field in ("model", "revision_or_checkpoint", "configuration_sha256"):
-        value = fingerprint.get(field)
-        if not isinstance(value, str) or not value.strip():
-            errors.append(f"{where}.oracle.fingerprint.{field} must be recorded")
-    # "not-a-digest" satisfied the non-empty check above, so the promised
-    # configuration digest could be absent in everything but name and the
-    # teacher configuration could never be audited.
-    configuration_digest = fingerprint.get("configuration_sha256")
-    if isinstance(configuration_digest, str) and configuration_digest.strip():
-        if not oc.SHA256_RE.match(configuration_digest):
-            errors.append(
-                f"{where}.oracle.fingerprint.configuration_sha256 must be a "
-                f"64-character sha256 hex digest, got "
-                f"{configuration_digest!r}"
-            )
+    errors = [
+        f"{where}.oracle.fingerprint.{field} must be recorded"
+        for field in ("model", "revision_or_checkpoint", "configuration_sha256")
+        if not _recorded(fingerprint.get(field))
+    ]
+    errors.extend(_check_configuration_digest(fingerprint, where))
     if not isinstance(fingerprint.get("is_llm_teacher"), bool):
         errors.append(
             f"{where}.oracle.fingerprint.is_llm_teacher must be a boolean"
@@ -152,11 +159,11 @@ def _check_is_llm_teacher(
 
     if not isinstance(result.get("is_llm_teacher"), bool):
         return [f"{where}.result.is_llm_teacher must be a boolean"]
-    if (
-        isinstance(fingerprint, dict)
-        and isinstance(fingerprint.get("is_llm_teacher"), bool)
-        and result["is_llm_teacher"] != fingerprint["is_llm_teacher"]
-    ):
+    if not isinstance(fingerprint, dict):
+        return []
+    if not isinstance(fingerprint.get("is_llm_teacher"), bool):
+        return []
+    if result["is_llm_teacher"] != fingerprint["is_llm_teacher"]:
         return [
             f"{where}.result.is_llm_teacher disagrees with the oracle fingerprint"
         ]

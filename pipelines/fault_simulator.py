@@ -46,9 +46,9 @@ if __package__:
         OUTCOME_PRECEDENCE,
         FaultOracle,
         FaultResult,
-        _DisturbanceSpec,
         _corruption_ticks,
         _oracle_meters,
+        _spec_from_parameters,
     )
 else:
     from fault_preflight import (
@@ -74,10 +74,29 @@ else:
         OUTCOME_PRECEDENCE,
         FaultOracle,
         FaultResult,
-        _DisturbanceSpec,
         _corruption_ticks,
         _oracle_meters,
+        _spec_from_parameters,
     )
+
+
+def _check_burst_capacity(
+    kind: str, params: dict[str, Any], system: dict[str, Any], live_affected: set[str]
+) -> None:
+    if kind != "malformed_spike_burst":
+        return
+    # The tick loop emits at most one malformed event per affected
+    # live channel per tick, so a count beyond that capacity is a
+    # recorded severity the simulation can never produce.
+    capacity = int(system["ticks"]) * len(live_affected)
+    if params["malformed_count"] > capacity:
+        raise oc.ContractError(
+            f"malformed_count {params['malformed_count']} exceeds the "
+            f"burst capacity {capacity} ({system['ticks']} ticks x "
+            f"{len(live_affected)} affected live "
+            "channels); the recorded severity would be silently "
+            "truncated"
+        )
 
 
 class RelayReflexSimulator(FaultOracle):
@@ -152,25 +171,13 @@ class RelayReflexSimulator(FaultOracle):
         # disturbance that also hits the fallback source is seen as such.
         affected = _affected(params, channels)
         declared = _declared_channels(kind, params, system, channels)
-        spec = _DisturbanceSpec.from_parameters(kind, params, system, affected)
+        spec = _spec_from_parameters(kind, params, system, affected)
 
         missing = set(affected) if kind == "missing_channel" else set()
         live_channels = [channel for channel in channels if channel not in missing]
-        if kind == "malformed_spike_burst":
-            # The tick loop emits at most one malformed event per affected
-            # live channel per tick, so a count beyond that capacity is a
-            # recorded severity the simulation can never produce.
-            capacity = int(system["ticks"]) * len(
-                set(affected) & set(live_channels)
-            )
-            if params["malformed_count"] > capacity:
-                raise oc.ContractError(
-                    f"malformed_count {params['malformed_count']} exceeds the "
-                    f"burst capacity {capacity} ({system['ticks']} ticks x "
-                    f"{len(set(affected) & set(live_channels))} affected live "
-                    "channels); the recorded severity would be silently "
-                    "truncated"
-                )
+        _check_burst_capacity(
+            kind, params, system, set(affected) & set(live_channels)
+        )
 
         state = _StreamState(system, channels, live_channels)
         state.corruption_ticks = _corruption_ticks(spec, system)
@@ -253,22 +260,31 @@ class RelayReflexSimulator(FaultOracle):
     def _degrade_reasons(
         system: dict[str, Any], state: dict[str, Any], corrupt_ratio: float
     ) -> list[str]:
-        reasons: list[str] = []
-        if state["max_staleness"] > float(system["stale_threshold_ms"]):
-            reasons.append("STALE_BEYOND_THRESHOLD")
-        if state["max_jitter"] > float(system["jitter_tolerance_ms"]):
-            reasons.append("JITTER_BEYOND_TOLERANCE")
-        if state["dropped"] > 0:
-            reasons.append("EVENTS_DROPPED")
-        if corrupt_ratio > 0.0:
-            reasons.append("CORRUPTION_BELOW_QUARANTINE_THRESHOLD")
-        if state["peak_temperature"] >= float(system["thermal_warn_c"]):
-            reasons.append("THERMAL_WARN")
-        if state["result_delay_ms"] > float(system["deadline_ms"]):
-            reasons.append("RESULT_PAST_DEADLINE")
-        if state["worst_healthy"] < len(system["channels"]):
-            reasons.append("REDUCED_CHANNEL_SET")
-        return reasons
+        checks = (
+            (
+                state["max_staleness"] > float(system["stale_threshold_ms"]),
+                "STALE_BEYOND_THRESHOLD",
+            ),
+            (
+                state["max_jitter"] > float(system["jitter_tolerance_ms"]),
+                "JITTER_BEYOND_TOLERANCE",
+            ),
+            (state["dropped"] > 0, "EVENTS_DROPPED"),
+            (corrupt_ratio > 0.0, "CORRUPTION_BELOW_QUARANTINE_THRESHOLD"),
+            (
+                state["peak_temperature"] >= float(system["thermal_warn_c"]),
+                "THERMAL_WARN",
+            ),
+            (
+                state["result_delay_ms"] > float(system["deadline_ms"]),
+                "RESULT_PAST_DEADLINE",
+            ),
+            (
+                state["worst_healthy"] < len(system["channels"]),
+                "REDUCED_CHANNEL_SET",
+            ),
+        )
+        return [reason for hit, reason in checks if hit]
 
     def _decide(self, **state: Any) -> tuple[str, list[str]]:
         """Apply the documented precedence and return ``(outcome, reasons)``.

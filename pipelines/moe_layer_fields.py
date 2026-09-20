@@ -196,13 +196,15 @@ def _exposed_logits(layer: dict[str, Any]) -> list[float] | None:
     """
 
     logits = layer.get("router_logits")
-    if (
-        isinstance(logits, list)
-        and len(logits) >= 2
-        and all(oc.is_number(value) for value in logits)
-    ):
-        return [float(value) for value in logits]
-    return None
+    if not _usable_logit_vector(logits):
+        return None
+    return [float(value) for value in logits]
+
+
+def _usable_logit_vector(logits: Any) -> bool:
+    if not isinstance(logits, list) or len(logits) < 2:
+        return False
+    return all(oc.is_number(value) for value in logits)
 
 
 def _check_layer_margin(
@@ -237,26 +239,40 @@ def _check_layer_entropy(
     """routing_entropy, recomputed from the logits or bounded by ln(support)."""
 
     routing_entropy = layer.get("routing_entropy")
-    if not oc.is_number(routing_entropy) or float(routing_entropy) < 0.0:
+    if not oc.is_number(routing_entropy):
+        return [f"{spot}.routing_entropy must be a non-negative number"]
+    if float(routing_entropy) < 0.0:
         return [f"{spot}.routing_entropy must be a non-negative number"]
     if exposed_logits is not None:
-        recomputed_entropy = entropy_nats(softmax(exposed_logits))
-        if abs(float(routing_entropy) - recomputed_entropy) > RECOMPUTE_TOLERANCE:
-            return [
-                f"{spot}.routing_entropy is {routing_entropy} but the "
-                f"recorded router_logits give {round(recomputed_entropy, 6)}"
-            ]
-        return []
+        return _check_recomputed_entropy(routing_entropy, exposed_logits, spot)
     # No logits to recompute from, so fall back to bounding the entropy
     # by ln(num_experts) using the recorded expert count. Kept separate
     # from `expert_count` above so one layer's logit width does not
     # become the id range every later layer is checked against.
-    logits = layer.get("router_logits")
-    support = len(logits) if isinstance(logits, list) and logits else expert_count
+    support = _entropy_support(layer, expert_count)
     if support and float(routing_entropy) > math.log(support) + 1e-6:
         return [
             f"{spot}.routing_entropy exceeds ln({support}) — not a "
             "distribution over these experts"
+        ]
+    return []
+
+
+def _entropy_support(layer: dict[str, Any], expert_count: int | None) -> int | None:
+    logits = layer.get("router_logits")
+    if isinstance(logits, list) and logits:
+        return len(logits)
+    return expert_count
+
+
+def _check_recomputed_entropy(
+    routing_entropy: Any, exposed_logits: list[float], spot: str
+) -> list[str]:
+    recomputed_entropy = entropy_nats(softmax(exposed_logits))
+    if abs(float(routing_entropy) - recomputed_entropy) > RECOMPUTE_TOLERANCE:
+        return [
+            f"{spot}.routing_entropy is {routing_entropy} but the "
+            f"recorded router_logits give {round(recomputed_entropy, 6)}"
         ]
     return []
 

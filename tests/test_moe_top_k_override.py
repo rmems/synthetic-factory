@@ -19,7 +19,9 @@ class Inputs(dict):
 
 
 def loaded_router(top_k):
-    router = mr.TransformersMoERouter("test/moe", top_k=top_k)
+    router = mr.TransformersMoERouter(
+        "test/moe", options=mr.TeacherLoadOptions(top_k=top_k)
+    )
     router._fingerprint = {"num_experts_per_tok": 2, "num_local_experts": 4}
     router._tokenizer = lambda *args, **kwargs: Inputs()
     router._model = lambda **kwargs: SimpleNamespace(router_logits=[[Logits()]])

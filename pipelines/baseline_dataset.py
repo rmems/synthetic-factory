@@ -197,10 +197,7 @@ def standardize(
     means = [
         sum(sample.features[i] for sample in train) / len(train) for i in range(width)
     ]
-    variances = []
-    for i in range(width):
-        total = sum((sample.features[i] - means[i]) ** 2 for sample in train)
-        variances.append(math.sqrt(total / len(train)) or 1.0)
+    variances = _feature_scales(train, width, means)
 
     def apply(rows: list[Sample]) -> list[Sample]:
         return [
@@ -216,5 +213,17 @@ def standardize(
         ]
 
     return apply(train), apply(test), {"mean": means, "scale": variances}
+
+
+def _feature_scales(
+    train: list[Sample], width: int, means: list[float]
+) -> list[float]:
+    """Per-feature stddev fitted on the training split (1.0 for constants)."""
+
+    scales = []
+    for i in range(width):
+        total = sum((sample.features[i] - means[i]) ** 2 for sample in train)
+        scales.append(math.sqrt(total / len(train)) or 1.0)
+    return scales
 
 

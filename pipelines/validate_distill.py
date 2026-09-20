@@ -105,16 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     # Report first. Writing the stamp output can fail (the destination must not
     # already exist), and losing the findings to that failure would be the
     # worst possible trade.
-    if args.json:
-        print(json.dumps(report, indent=2, sort_keys=True))
-    else:
-        summary = {key: value for key, value in report.items() if key != "findings"}
-        print(json.dumps(summary, indent=2, sort_keys=True))
-    for finding in report["findings"]:
-        print(
-            f"INVALID: {finding['file']}:{finding['line']} — {finding['error']}",
-            file=sys.stderr,
-        )
+    _emit_report(report, args.json)
+    _emit_findings(report)
 
     if args.stamp_output:
         try:
@@ -123,6 +115,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"stamp output not written: {exc}", file=sys.stderr)
             return 2
     return 1 if report["blocked"] else 0
+
+
+def _emit_report(report: dict[str, Any], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+    summary = {key: value for key, value in report.items() if key != "findings"}
+    print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def _emit_findings(report: dict[str, Any]) -> None:
+    for finding in report["findings"]:
+        print(
+            f"INVALID: {finding['file']}:{finding['line']} — {finding['error']}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

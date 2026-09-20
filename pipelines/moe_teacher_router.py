@@ -224,7 +224,7 @@ class RecordedTeacherRouter(RouterOracle):
         if not oc.is_number(layer.get("routing_entropy")):
             raise oc.OracleUnavailable(self.name, "layer missing routing_entropy")
         layer_index = layer.get("layer")
-        if not isinstance(layer_index, int) or isinstance(layer_index, bool):
+        if not oc.is_genuine_int(layer_index):
             # int() silently rewrote 0.9 to 0 and True to 1, normalising
             # malformed recording metadata into a validation-clean trajectory
             # instead of failing closed at the replay boundary.
@@ -232,6 +232,11 @@ class RecordedTeacherRouter(RouterOracle):
                 self.name,
                 f"layer index must be a genuine integer, got {layer_index!r}",
             )
+        return self._routing_from_recorded(layer, layer_index)
+
+    def _routing_from_recorded(
+        self, layer: dict[str, Any], layer_index: int
+    ) -> LayerRouting:
         try:
             return LayerRouting(
                 layer=layer_index,

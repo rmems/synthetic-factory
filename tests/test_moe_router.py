@@ -247,7 +247,9 @@ class RealTeacherIsAbsentNotFaked(unittest.TestCase):
             router.fingerprint()
 
     def test_mutable_teacher_revision_fails_before_loading_case(self):
-        router = mr.TransformersMoERouter("some/moe-model", revision="main")
+        router = mr.TransformersMoERouter(
+            "some/moe-model", options=mr.TeacherLoadOptions(revision="main")
+        )
         with self.assertRaisesRegex(
             oc.OracleUnavailable, "cannot record an immutable checkpoint"
         ):

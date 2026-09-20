@@ -126,8 +126,12 @@ def _check_threshold_knob(name: str, value: Any) -> None:
         )
 
 
+def _is_positive_int(value: Any) -> bool:
+    return oc.is_genuine_int(value) and value >= 1
+
+
 def _check_positive_int_knob(name: str, value: Any, consequence: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+    if not _is_positive_int(value):
         raise BaselineError(
             f"{name} must be a positive integer, got {value!r} — "
             f"{consequence}"
@@ -263,17 +267,26 @@ def _threshold_accuracy(report: dict[str, Any]) -> float | None:
     """
 
     accuracies: list[float] = []
-    best = report.get("best")
-    if isinstance(best, dict) and isinstance(best.get("accuracy"), (int, float)):
-        accuracies.append(float(best["accuracy"]))
+    best = _recorded_accuracy(report.get("best"))
+    if best is not None:
+        accuracies.append(best)
     baselines = report.get("baselines")
     if isinstance(baselines, dict):
-        for entry in baselines.values():
-            if isinstance(entry, dict) and isinstance(
-                entry.get("accuracy"), (int, float)
-            ):
-                accuracies.append(float(entry["accuracy"]))
+        accuracies.extend(
+            accuracy
+            for entry in baselines.values()
+            if (accuracy := _recorded_accuracy(entry)) is not None
+        )
     return max(accuracies) if accuracies else None
+
+
+def _recorded_accuracy(entry: Any) -> float | None:
+    if not isinstance(entry, dict):
+        return None
+    value = entry.get("accuracy")
+    if not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
@@ -358,6 +371,17 @@ def _record_gate_problems(obj: dict[str, Any], where: str) -> list[str]:
     return problems
 
 
+def _check_input_line(obj: Any, where: str) -> list[str]:
+    """Validation problems one input line contributes to the gate."""
+
+    if obj is None:
+        return [f"{where}: JSON parse failure"]
+    problems = validate_distill.check_record(obj, where)
+    if isinstance(obj, dict):
+        problems = problems + _record_gate_problems(obj, where)
+    return problems
+
+
 def _clean_router_records(path: str) -> list[dict[str, Any]]:
     """CLI gate: every input line must be a clean router-family record.
 
@@ -372,15 +396,9 @@ def _clean_router_records(path: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     # Streamed: the raw file is never buffered whole beside the parsed rows.
     for lineno, obj in oc.iter_jsonl(path):
-        where = f"{path}:{lineno}"
-        if obj is None:
-            problems.append(f"{where}: JSON parse failure")
-            continue
-        errors = validate_distill.check_record(obj, where)
+        problems.extend(_check_input_line(obj, f"{path}:{lineno}"))
         if isinstance(obj, dict):
-            problems.extend(_record_gate_problems(obj, where))
             records.append(obj)
-        problems.extend(errors)
     if problems:
         shown = "; ".join(problems[:5])
         more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""

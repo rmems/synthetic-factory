@@ -90,39 +90,54 @@ def _check_scenario_state(scenario: Any, where: str) -> list[str]:
             f"{where}.scenario.state must be an object carrying the "
             "allocation problem the candidates were measured on"
         ]
-    errors: list[str] = []
-    if not (
-        oc.is_number(state.get("demand")) and float(state["demand"]) >= 0.0
-    ):
-        errors.append(
-            f"{where}.scenario.state.demand must be a non-negative number"
-        )
+    return (
+        _check_state_demand(state, where)
+        + _check_state_caps(state, where)
+        + _check_state_weights(state, where)
+    )
+
+
+def _check_state_demand(state: dict[str, Any], where: str) -> list[str]:
+    if not oc.is_number(state.get("demand")) or float(state["demand"]) < 0.0:
+        return [f"{where}.scenario.state.demand must be a non-negative number"]
+    return []
+
+
+def _numeric_caps(caps: Any) -> bool:
+    if not isinstance(caps, list) or not caps:
+        return False
+    return all(oc.is_number(cap) for cap in caps)
+
+
+def _check_state_caps(state: dict[str, Any], where: str) -> list[str]:
     caps = state.get("actuator_caps")
-    if not (
-        isinstance(caps, list)
-        and caps
-        and all(oc.is_number(cap) for cap in caps)
-    ):
-        errors.append(
+    if not _numeric_caps(caps):
+        return [
             f"{where}.scenario.state.actuator_caps must be a non-empty array "
             "of numbers"
-        )
-    if isinstance(caps, list) and len(caps) > MAX_ACTUATORS:
-        errors.append(
+        ]
+    if len(caps) > MAX_ACTUATORS:
+        return [
             f"{where}.scenario.state.actuator_caps must contain at most {MAX_ACTUATORS} "
             "actuators for bounded policy replay"
-        )
+        ]
+    return []
+
+
+def _check_state_weights(state: dict[str, Any], where: str) -> list[str]:
+    caps = state.get("actuator_caps")
     weights = state.get("actuator_weights")
-    if not (
-        isinstance(caps, list)
-        and _positive_weights(weights)
-        and len(weights) == len(caps)
-    ):
-        errors.append(
+    if not isinstance(caps, list):
+        return [
             f"{where}.scenario.state.actuator_weights must be positive "
             "numbers, one per actuator cap"
-        )
-    return errors
+        ]
+    if not _positive_weights(weights) or len(weights) != len(caps):
+        return [
+            f"{where}.scenario.state.actuator_weights must be positive "
+            "numbers, one per actuator cap"
+        ]
+    return []
 
 def _proposed_actions(scenario: Any) -> dict[str, Any] | None:
     """id -> description of the proposed candidate actions, or None if unusable."""
@@ -132,12 +147,16 @@ def _proposed_actions(scenario: Any) -> dict[str, Any] | None:
         return None
     proposed: dict[str, Any] = {}
     for action in actions:
-        if not isinstance(action, dict) or not isinstance(action.get("id"), str):
+        if not _action_entry(action):
             return None
         proposed[action["id"]] = action.get("description")
     if len(proposed) != len(actions):
         return None
     return proposed
+
+
+def _action_entry(action: Any) -> bool:
+    return isinstance(action, dict) and isinstance(action.get("id"), str)
 
 def _check_candidate_binding(
     scenario: Any, candidates: list[Any], where: str
@@ -160,7 +179,7 @@ def _check_candidate_binding(
     measured = {
         candidate["id"]: candidate.get("description")
         for candidate in candidates
-        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+        if _action_entry(candidate)
     }
     if set(proposed) != set(measured):
         return [

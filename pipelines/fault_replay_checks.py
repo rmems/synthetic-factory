@@ -37,46 +37,67 @@ def _valid_trace_counts(summary: Any) -> bool:
             and oc.is_number(summary.get("max_jitter_ms")))
 
 
-def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> list[str]:
-    """The recorded label, reasons and integrity flag against the replay."""
+def _check_outcome_label(result: dict[str, Any], replay: Any, where: str) -> list[str]:
+    if result.get("outcome") == replay.outcome:
+        return []
+    return [
+        f"{where}.result.outcome: OUTCOME_NOT_REPRODUCIBLE — recorded "
+        f"{result.get('outcome')!r} but re-running the simulator over this "
+        f"scenario yields {replay.outcome!r}"
+    ]
 
-    errors: list[str] = []
-    if result.get("outcome") != replay.outcome:
-        errors.append(
-            f"{where}.result.outcome: OUTCOME_NOT_REPRODUCIBLE — recorded "
-            f"{result.get('outcome')!r} but re-running the simulator over this "
-            f"scenario yields {replay.outcome!r}"
-        )
+
+def _check_trace_summary_label(
+    result: dict[str, Any], replay: Any, where: str
+) -> list[str]:
     summary = result.get("trace_summary")
-    expected_summary = _trace_summary(replay)
-    if summary != expected_summary or not _valid_trace_counts(summary):
-        errors.append(f"{where}.result.trace_summary: OUTCOME_NOT_REPRODUCIBLE")
+    if summary != _trace_summary(replay) or not _valid_trace_counts(summary):
+        return [f"{where}.result.trace_summary: OUTCOME_NOT_REPRODUCIBLE"]
+    return []
+
+
+def _check_reason_codes(result: dict[str, Any], replay: Any, where: str) -> list[str]:
     recorded_reasons = result.get("reason_codes")
-    if isinstance(recorded_reasons, list) and sorted(
-        str(reason) for reason in recorded_reasons
-    ) != sorted(replay.reason_codes):
-        errors.append(
-            f"{where}.result.reason_codes: OUTCOME_NOT_REPRODUCIBLE — recorded "
-            f"{sorted(str(r) for r in recorded_reasons)} but the simulator "
-            f"reports {sorted(replay.reason_codes)}"
-        )
+    if not isinstance(recorded_reasons, list):
+        return []
+    if sorted(str(reason) for reason in recorded_reasons) == sorted(replay.reason_codes):
+        return []
+    return [
+        f"{where}.result.reason_codes: OUTCOME_NOT_REPRODUCIBLE — recorded "
+        f"{sorted(str(r) for r in recorded_reasons)} but the simulator "
+        f"reports {sorted(replay.reason_codes)}"
+    ]
+
+
+def _check_integrity_label(result: dict[str, Any], replay: Any, where: str) -> list[str]:
     integrity = result.get("integrity_violation")
     if not isinstance(integrity, bool):
         # The flag is replay-derived, so its absence is a finding, not a
         # reason to skip the comparison: deleting it was all it took for a
         # malformed-spike record to lose its `true` integrity signal and
         # stay curation-eligible.
-        errors.append(
+        return [
             f"{where}.result.integrity_violation must be a boolean — the "
             f"simulator replay reports {replay.integrity_violation}"
-        )
-    elif integrity is not replay.integrity_violation:
-        errors.append(
+        ]
+    if integrity is not replay.integrity_violation:
+        return [
             f"{where}.result.integrity_violation: OUTCOME_NOT_REPRODUCIBLE — "
             f"recorded {integrity} but the simulator "
             f"reports {replay.integrity_violation}"
-        )
-    return errors
+        ]
+    return []
+
+
+def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> list[str]:
+    """The recorded label, reasons and integrity flag against the replay."""
+
+    return (
+        _check_outcome_label(result, replay, where)
+        + _check_trace_summary_label(result, replay, where)
+        + _check_reason_codes(result, replay, where)
+        + _check_integrity_label(result, replay, where)
+    )
 
 
 # The simulator instrument each replay-derived quantity is read from. A
@@ -105,16 +126,8 @@ def _missing_replay_quantities(
     it does not count as carrying the target either.
     """
 
-    recorded_quantities = {
-        item.get("quantity")
-        for item in items
-        if isinstance(item.get("quantity"), str) and oc.is_true(item.get("measured"))
-    }
-    missing = sorted(
-        quantity
-        for quantity, target in expected.items()
-        if target is not None and quantity not in recorded_quantities
-    )
+    recorded_quantities = _measured_quantities(items)
+    missing = _unrecorded_targets(expected, recorded_quantities)
     if missing:
         return [
             f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the replay derives "
@@ -122,6 +135,24 @@ def _missing_replay_quantities(
             "measured readings"
         ]
     return []
+
+
+def _measured_quantities(items: list[dict[str, Any]]) -> set[str]:
+    return {
+        item.get("quantity")
+        for item in items
+        if isinstance(item.get("quantity"), str) and oc.is_true(item.get("measured"))
+    }
+
+
+def _unrecorded_targets(
+    expected: dict[str, float | None], recorded: set[str]
+) -> list[str]:
+    return sorted(
+        quantity
+        for quantity, target in expected.items()
+        if target is not None and quantity not in recorded
+    )
 
 
 def _replay_item_errors(

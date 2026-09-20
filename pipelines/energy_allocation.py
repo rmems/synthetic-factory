@@ -19,14 +19,24 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 
+def _missing_allocation(allocation: Any) -> bool:
+    if allocation is None:
+        return True
+    return isinstance(allocation, list) and not allocation
+
+
+def _numeric_allocation(allocation: Any) -> bool:
+    if not isinstance(allocation, list):
+        return False
+    return all(oc.is_number(value) for value in allocation)
+
+
 def _allocation_rejection(allocation: Any, caps: list[float]) -> str | None:
     """The reason an allocation cannot be evaluated at all, if there is one."""
 
-    if allocation is None or (isinstance(allocation, list) and not allocation):
+    if _missing_allocation(allocation):
         return "NO_FEASIBLE_ALLOCATION_FOUND"
-    if not isinstance(allocation, list) or not all(
-        oc.is_number(value) for value in allocation
-    ):
+    if not _numeric_allocation(allocation):
         return "ALLOCATION_NOT_NUMERIC"
     if len(allocation) != len(caps):
         return "ALLOCATION_WIDTH_MISMATCH"
@@ -45,13 +55,9 @@ def _allocation_shape_error(
     consumers.
     """
 
-    if allocation is None or (isinstance(allocation, list) and not allocation):
+    if _missing_allocation(allocation):
         return []
-    if (
-        not isinstance(allocation, list)
-        or not all(oc.is_number(value) for value in allocation)
-        or len(allocation) != len(caps)
-    ):
+    if not _numeric_allocation(allocation) or len(allocation) != len(caps):
         return [
             f"{spot}.allocation must be null, empty, or a finite numeric "
             "vector with one entry per actuator cap"

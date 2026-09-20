@@ -90,10 +90,7 @@ def _check_preferred_cost_minimality(
     tied_lower_id = [
         candidate["id"]
         for candidate in feasible_rivals
-        if abs(float(candidate["cost_value"]) - preferred_cost) <= 1e-12
-        and isinstance(candidate.get("id"), str)
-        and isinstance(preferred_id, str)
-        and candidate["id"] < preferred_id
+        if _tie_broken_below(candidate, preferred_id, preferred_cost)
     ]
     if tied_lower_id:
         errors.append(
@@ -104,31 +101,67 @@ def _check_preferred_cost_minimality(
         )
     return errors
 
+def _tie_broken_below(
+    candidate: dict[str, Any], preferred_id: Any, preferred_cost: float
+) -> bool:
+    """A rival tied on measured cost that the id tie-break must take first."""
+
+    if abs(float(candidate["cost_value"]) - preferred_cost) > 1e-12:
+        return False
+    if not isinstance(candidate.get("id"), str):
+        return False
+    if not isinstance(preferred_id, str):
+        return False
+    return candidate["id"] < preferred_id
+
 def _derived_membership(
     candidates: list[Any], quality_floor: float, preferred: dict[str, Any]
 ) -> dict[str, list[str]]:
     """The membership lists ``choose_preference`` would derive."""
 
-    rows = [
+    rows = _identified_candidates(candidates)
+    return {
+        "over": _ids_besides(rows, preferred["id"]),
+        "feasible": sorted(
+            row["id"] for row in _feasible_candidates(rows, quality_floor)
+        ),
+        "cheaper_but_constraint_violating": _cheaper_rejected_ids(
+            rows, preferred
+        ),
+    }
+
+
+def _identified_candidates(candidates: list[Any]) -> list[dict[str, Any]]:
+    return [
         candidate
         for candidate in candidates
         if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
     ]
+
+
+def _ids_besides(rows: list[dict[str, Any]], preferred_id: str) -> list[str]:
+    return sorted(row["id"] for row in rows if row["id"] != preferred_id)
+
+
+def _cheaper_rejected_ids(
+    rows: list[dict[str, Any]], preferred: dict[str, Any]
+) -> list[str]:
     preferred_id = preferred["id"]
     preferred_cost = float(preferred["cost_value"])
-    return {
-        "over": sorted(row["id"] for row in rows if row["id"] != preferred_id),
-        "feasible": sorted(
-            row["id"] for row in _feasible_candidates(rows, quality_floor)
-        ),
-        "cheaper_but_constraint_violating": sorted(
-            row["id"]
-            for row in rows
-            if row["id"] != preferred_id
-            and oc.is_number(row.get("cost_value"))
-            and float(row["cost_value"]) < preferred_cost
-        ),
-    }
+    return sorted(
+        row["id"]
+        for row in rows
+        if _cheaper_rejected_row(row, preferred_id, preferred_cost)
+    )
+
+def _cheaper_rejected_row(
+    row: dict[str, Any], preferred_id: Any, preferred_cost: float
+) -> bool:
+    if row["id"] == preferred_id:
+        return False
+    if not oc.is_number(row.get("cost_value")):
+        return False
+    return float(row["cost_value"]) < preferred_cost
 
 def _membership_field_error(
     preference: dict[str, Any], field: str, expected: list[str], where: str
@@ -149,7 +182,6 @@ def _check_preference_membership(
     preference: dict[str, Any],
     candidates: list[Any],
     quality_floor: float,
-    preferred: dict[str, Any],
     where: str,
 ) -> list[str]:
     """``over``, ``feasible`` and the cheaper-but-rejected list are derived.
@@ -161,6 +193,9 @@ def _check_preference_membership(
     consumers would train on that account.
     """
 
+    preferred = _preferred_candidate(preference, candidates)
+    if preferred is None:
+        return []
     errors: list[str] = []
     derived = _derived_membership(candidates, quality_floor, preferred)
     for field, expected in derived.items():
@@ -192,16 +227,27 @@ def _check_preference_restatement(
             f"{preference.get('cost_quantity')!r} but {preferred_id!r} was measured "
             f"in {preferred.get('cost_quantity')!r}"
         )
-    if not oc.is_number(preference.get("cost_value")) or (
-        oc.is_number(preferred.get("cost_value"))
-        and abs(float(preference["cost_value"]) - float(preferred["cost_value"])) > 1e-12
-    ):
+    if _cost_value_drifts(preference, preferred):
         errors.append(
             f"{where}.result.preference.cost_value is "
             f"{preference.get('cost_value')!r} but {preferred_id!r} measured "
             f"{preferred.get('cost_value')!r}"
         )
     return errors
+
+def _cost_value_drifts(
+    preference: dict[str, Any], preferred: dict[str, Any]
+) -> bool:
+    """True when the restated cost is missing or differs from the winner's."""
+
+    if not oc.is_number(preference.get("cost_value")):
+        return True
+    if not oc.is_number(preferred.get("cost_value")):
+        return False
+    return (
+        abs(float(preference["cost_value"]) - float(preferred["cost_value"]))
+        > 1e-12
+    )
 
 def _check_preferred_feasibility(
     preferred: dict[str, Any], quality_floor: float | None, where: str
@@ -260,24 +306,40 @@ def _check_abstention_feasibility(
         # The malformed floor carries its own finding; without it the
         # feasible set cannot be re-derived.
         return []
-    errors: list[str] = []
-    reason = result.get("abstention_reason")
-    if reason != ABSTAIN_NO_FEASIBLE:
-        errors.append(
+    return _check_abstention_reason(
+        result, where
+    ) + _false_abstention_errors(candidates, quality_floor, where)
+
+
+def _check_abstention_reason(result: dict[str, Any], where: str) -> list[str]:
+    if result.get("abstention_reason") != ABSTAIN_NO_FEASIBLE:
+        return [
             f"{where}.result.abstention_reason must be the canonical "
             f"{ABSTAIN_NO_FEASIBLE!r} — it is this family's only abstention"
-        )
+        ]
+    return []
+
+
+def _false_abstention_errors(
+    candidates: list[Any], quality_floor: float, where: str
+) -> list[str]:
     feasible = _feasible_candidates(
         [c for c in candidates if isinstance(c, dict)], quality_floor
     )
-    if feasible:
-        errors.append(
-            f"{where}.result: FALSE_ABSTENTION — "
-            f"{sorted(c['id'] for c in feasible if isinstance(c.get('id'), str))} "
-            "satisfy the quality and safety constraints, so the oracle had a "
-            "preference to record"
-        )
-    return errors
+    if not feasible:
+        return []
+    return [
+        f"{where}.result: FALSE_ABSTENTION — "
+        f"{sorted(c['id'] for c in feasible if isinstance(c.get('id'), str))} "
+        "satisfy the quality and safety constraints, so the oracle had a "
+        "preference to record"
+    ]
+
+def _check_abstained_preference(preference: Any, where: str) -> list[str]:
+    if preference is not None:
+        return [f"{where}.result: an abstained result must not carry a preference"]
+    return []
+
 
 def _check_preference(
     result: dict[str, Any],
@@ -291,10 +353,7 @@ def _check_preference(
     status = result.get("status")
     preference = result.get("preference")
     if status == oc.RESULT_ABSTAINED:
-        if preference is not None:
-            errors.append(
-                f"{where}.result: an abstained result must not carry a preference"
-            )
+        errors += _check_abstained_preference(preference, where)
         return errors + _check_abstention_feasibility(
             result, candidates, quality_floor, where
         )
@@ -320,6 +379,6 @@ def _check_preference(
             preferred, candidates, quality_floor, where
         )
         errors += _check_preference_membership(
-            preference, candidates, quality_floor, preferred, where
+            preference, candidates, quality_floor, where
         )
     return errors

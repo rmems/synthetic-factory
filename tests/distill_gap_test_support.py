@@ -20,3 +20,16 @@ def rehash(record: dict) -> dict:
 
 def clone(record: dict) -> dict:
     return json.loads(json.dumps(record))
+
+
+def set_cost_measurement(record: dict, candidate_id: str, quantity: str, value) -> None:
+    """Restate one candidate's measured value in the record's measurements."""
+
+    for item in record["result"]["measurements"]:
+        detail = item.get("detail")
+        if not isinstance(detail, dict):
+            continue
+        if detail.get("candidate") != candidate_id:
+            continue
+        if item["quantity"] == quantity:
+            item["value"] = value

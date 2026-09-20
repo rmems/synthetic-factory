@@ -61,32 +61,58 @@ def _check_configuration_binding(
     configuration = oracle.get("configuration")
     if not isinstance(configuration, dict) or not isinstance(fingerprint, dict):
         return []
-    errors: list[str] = []
-    for configuration_key, fingerprint_key in _CONFIGURATION_FINGERPRINT_PAIRS:
-        declared = configuration.get(configuration_key)
-        fingerprinted = fingerprint.get(fingerprint_key)
-        if declared is not None and fingerprinted is not None and declared != fingerprinted:
-            errors.append(
-                f"{where}.oracle.configuration.{configuration_key} is "
-                f"{declared!r} but oracle.fingerprint.{fingerprint_key} is "
-                f"{fingerprinted!r}"
-            )
+    return _check_fingerprint_pairs(
+        configuration, fingerprint, where
+    ) + _check_compact_dim_binding(record, configuration, where)
+
+
+def _bound_mismatch(declared: Any, fingerprinted: Any) -> bool:
+    """Both sides declared, and they disagree — one missing side stays silent."""
+
+    if declared is None or fingerprinted is None:
+        return False
+    return declared != fingerprinted
+
+
+def _check_fingerprint_pairs(
+    configuration: dict[str, Any], fingerprint: dict[str, Any], where: str
+) -> list[str]:
+    return [
+        f"{where}.oracle.configuration.{configuration_key} is "
+        f"{configuration.get(configuration_key)!r} but "
+        f"oracle.fingerprint.{fingerprint_key} is "
+        f"{fingerprint.get(fingerprint_key)!r}"
+        for configuration_key, fingerprint_key in _CONFIGURATION_FINGERPRINT_PAIRS
+        if _bound_mismatch(
+            configuration.get(configuration_key), fingerprint.get(fingerprint_key)
+        )
+    ]
+
+
+def _check_compact_dim_binding(
+    record: dict[str, Any], configuration: dict[str, Any], where: str
+) -> list[str]:
     feature_dim = configuration.get("feature_dim")
-    scenario = record.get("scenario")
-    compact = scenario.get("compact_input") if isinstance(scenario, dict) else None
-    declared_dim = compact.get("feature_dim") if isinstance(compact, dict) else None
-    if (
-        isinstance(feature_dim, int)
-        and not isinstance(feature_dim, bool)
-        and declared_dim is not None
-        and declared_dim != feature_dim
-    ):
-        errors.append(
+    if not oc.is_genuine_int(feature_dim):
+        return []
+    declared_dim = _compact_feature_dim(record)
+    if declared_dim is not None and declared_dim != feature_dim:
+        return [
             f"{where}.scenario.compact_input.feature_dim is {declared_dim!r} "
             f"but oracle.configuration.feature_dim is {feature_dim!r} — the "
             "compact input must be a view of the features the router gated on"
-        )
-    return errors
+        ]
+    return []
+
+
+def _compact_feature_dim(record: dict[str, Any]) -> Any:
+    scenario = record.get("scenario")
+    if not isinstance(scenario, dict):
+        return None
+    compact = scenario.get("compact_input")
+    if not isinstance(compact, dict):
+        return None
+    return compact.get("feature_dim")
 
 def _reference_seed(fingerprint: dict[str, Any]) -> int | None:
     revision = fingerprint.get("revision_or_checkpoint")
@@ -98,7 +124,7 @@ def _reference_seed(fingerprint: dict[str, Any]) -> int | None:
         return None
 
 def _check_reference_recompute(
-    record: dict[str, Any], oracle: Any, fingerprint: Any, layers: list[Any], where: str
+    record: dict[str, Any], layers: list[Any], where: str
 ) -> list[str]:
     """Re-run the declared deterministic reference router and compare layers.
 
@@ -110,9 +136,8 @@ def _check_reference_recompute(
     declared dimensions or seed are missing.
     """
 
-    if not isinstance(oracle, dict) or not isinstance(fingerprint, dict):
-        return []
-    if oracle.get("implementation") != ReferenceMoERouter.implementation:
+    oracle, fingerprint = _reference_oracle(record)
+    if oracle is None:
         return []
     scenario = record.get("scenario")
     context = scenario.get("context") if isinstance(scenario, dict) else None
@@ -124,6 +149,35 @@ def _check_reference_recompute(
     if problems:
         return problems
     return _recomputed_routing_errors(engine, context, layers, where)
+
+def _reference_oracle(
+    record: dict[str, Any]
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """The oracle block, only when it claims the recomputable reference router."""
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return None, None
+    fingerprint = oracle.get("fingerprint")
+    if not isinstance(fingerprint, dict):
+        return None, None
+    if oracle.get("implementation") != ReferenceMoERouter.implementation:
+        return None, None
+    return oracle, fingerprint
+
+
+def _declared_dimensions(
+    declared: dict[str, Any], fingerprint: Any
+) -> tuple[int, int, int, int]:
+    """(feature_dim, num_experts, num_layers, top_k) with fingerprint priority."""
+
+    return (
+        _declared_int(declared, "feature_dim", FEATURE_DIM),
+        _declared_expert_count(fingerprint) or _declared_int(declared, "num_experts", 8),
+        _declared_layer_count(fingerprint) or _declared_int(declared, "num_layers", 4),
+        _declared_top_k(fingerprint) or _declared_int(declared, "top_k", 2),
+    )
+
 
 def _declared_int(configuration: dict[str, Any], key: str, default: int) -> int:
     """An integer the oracle configuration declares, or the reference default."""
@@ -143,22 +197,11 @@ def _reference_engine(
     """
 
     declared = configuration if isinstance(configuration, dict) else {}
-    dim = _declared_int(declared, "feature_dim", FEATURE_DIM)
     seed = _reference_seed(fingerprint)
     if seed is None:
         seed = _DEFAULT_REFERENCE_SEED
-    num_experts = _declared_expert_count(fingerprint) or _declared_int(
-        declared, "num_experts", 8
-    )
-    num_layers = _declared_layer_count(fingerprint) or _declared_int(
-        declared, "num_layers", 4
-    )
-    top_k = _declared_top_k(fingerprint) or _declared_int(declared, "top_k", 2)
-    in_bounds = all(
-        0 < dimension <= MAX_RECOMPUTE_DIM
-        for dimension in (dim, num_experts, num_layers)
-    )
-    if not in_bounds or top_k <= 0:
+    dim, num_experts, num_layers, top_k = _declared_dimensions(declared, fingerprint)
+    if not _recomputable_dimensions(dim, num_experts, num_layers, top_k):
         # Recompute would allocate gates at whatever dimensions a forged
         # record declares; outside a bounded domain the routing cannot be
         # reproduced here — refused, not skipped.
@@ -184,6 +227,19 @@ def _reference_engine(
             f"({exc}); the recorded routing cannot be reproduced"
         ]
     return engine, []
+
+
+def _recomputable_dimensions(
+    dim: int, num_experts: int, num_layers: int, top_k: int
+) -> bool:
+    """True when the declared sizes stay inside the bounded recompute domain."""
+
+    if top_k <= 0:
+        return False
+    return all(
+        0 < dimension <= MAX_RECOMPUTE_DIM
+        for dimension in (dim, num_experts, num_layers)
+    )
 
 def _recomputed_routing_errors(
     engine: ReferenceMoERouter, context: str, layers: list[Any], where: str

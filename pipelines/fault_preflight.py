@@ -153,25 +153,44 @@ def _check_parameter_values(
             f"{kind} peak_c must be a finite number, got "
             f"{parameters['peak_c']!r}"
         )
-    if kind == "thermal_excursion" and oc.is_number(parameters.get("peak_c")):
-        ambient = float(system["ambient_c"])
-        if float(parameters["peak_c"]) <= ambient:
-            # _update_thermal keeps the running maximum with ambient, so
-            # a peak at or below it never heats the relay — the declared
-            # excursion replays as an authoritative no-op.
-            raise oc.ContractError(
-                f"{kind} peak_c {parameters['peak_c']} must exceed the "
-                f"ambient temperature {ambient}; the relay can never "
-                "warm to it"
-            )
+    if kind == "thermal_excursion":
+        _check_thermal_peak(parameters, system)
     if kind == "malformed_spike_burst":
         _check_malformed_burst(parameters)
     if kind == "burst_corruption":
         _check_corruption_ratio(parameters)
 
+
+def _check_thermal_peak(parameters: dict[str, Any], system: dict[str, Any]) -> None:
+    if not oc.is_number(parameters.get("peak_c")):
+        return
+    ambient = float(system["ambient_c"])
+    if float(parameters["peak_c"]) <= ambient:
+        # _update_thermal keeps the running maximum with ambient, so
+        # a peak at or below it never heats the relay — the declared
+        # excursion replays as an authoritative no-op.
+        raise oc.ContractError(
+            f"thermal_excursion peak_c {parameters['peak_c']} must exceed the "
+            f"ambient temperature {ambient}; the relay can never "
+            "warm to it"
+        )
+
+
+def _check_touches_primary(kind: str, declared: list[str], channels: list[str]) -> None:
+    if any(name in channels for name in declared):
+        return
+    # The tick loop visits primary channels only, so a required list
+    # naming only the fallback source applies no events at all — the
+    # declared channel fault replays as an authoritative no-op.
+    raise oc.ContractError(
+        f"{kind} channels must name at least one primary relay "
+        "channel; the fallback source alone leaves the declared "
+        "disturbance with nothing to affect"
+    )
+
 def _check_malformed_burst(parameters: dict[str, Any]) -> None:
     count = parameters.get("malformed_count")
-    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+    if not oc.is_genuine_int(count) or count < 1:
         raise oc.ContractError(
             f"malformed_count must be an integer >= 1, got {count!r}; "
             "a burst of zero events is a no-op"
@@ -244,33 +263,33 @@ def _declared_channels(
 
     declared = parameters.get("channels")
     declared = list(declared) if isinstance(declared, list) else []
-    known = set(channels)
-    fallback_source = system.get("fallback_source")
-    if fallback_source:
-        known.add(fallback_source)
-    unknown_names = sorted(
-        str(name)
-        for name in declared
-        if not (isinstance(name, str) and name in known)
-    )
+    known = _known_channel_names(system, channels)
+    unknown_names = _unknown_channel_names(declared, known)
     if unknown_names:
         raise oc.ContractError(
             f"{kind} declares unknown channels {unknown_names}; this relay "
             f"reads {sorted(known)} — an unknown name would run as a no-op"
         )
     required, _ = PARAMETER_SPEC[kind]
-    if "channels" in required and not any(
-        name in channels for name in declared
-    ):
-        # The tick loop visits primary channels only, so a required list
-        # naming only the fallback source applies no events at all — the
-        # declared channel fault replays as an authoritative no-op.
-        raise oc.ContractError(
-            f"{kind} channels must name at least one primary relay "
-            "channel; the fallback source alone leaves the declared "
-            "disturbance with nothing to affect"
-        )
+    if "channels" in required:
+        _check_touches_primary(kind, declared, channels)
     return declared
+
+
+def _known_channel_names(system: dict[str, Any], channels: list[str]) -> set[str]:
+    known = set(channels)
+    fallback_source = system.get("fallback_source")
+    if fallback_source:
+        known.add(fallback_source)
+    return known
+
+
+def _unknown_channel_names(declared: list[Any], known: set[str]) -> list[str]:
+    return sorted(
+        str(name)
+        for name in declared
+        if not isinstance(name, str) or name not in known
+    )
 
 def _detection_latency_ms(
     detection_ms: float | None, spec: "_DisturbanceSpec", system: dict[str, Any]

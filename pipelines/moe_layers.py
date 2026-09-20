@@ -90,7 +90,7 @@ def _declared_positive_int(fingerprint: Any, field: str) -> int | None:
     if not isinstance(fingerprint, dict):
         return None
     declared = fingerprint.get(field)
-    if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
+    if oc.is_genuine_int(declared) and declared > 0:
         return declared
     return None
 

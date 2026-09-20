@@ -21,6 +21,7 @@ if __package__:
     from .energy_allocation import (
         _allocation_shape_error,
         _derive_safety,
+        _numeric_allocation,
     )
     from .energy_check_types import _CandidateContext
     from .energy_contract import SUPPORTED_COST_QUANTITIES
@@ -35,6 +36,7 @@ else:
     from energy_allocation import (
         _allocation_shape_error,
         _derive_safety,
+        _numeric_allocation,
     )
     from energy_check_types import _CandidateContext
     from energy_contract import SUPPORTED_COST_QUANTITIES
@@ -52,52 +54,65 @@ def _check_candidate_safety(
 ) -> list[str]:
     """safety_ok and safety_violations, re-derived from the scenario state."""
 
-    errors: list[str] = []
     if not isinstance(candidate.get("safety_ok"), bool):
-        errors.append(f"{spot}.safety_ok must be a boolean")
-    elif context.can_derive_safety:
-        shape_errors = _allocation_shape_error(
-            candidate.get("allocation"), list(context.caps), spot
+        return [f"{spot}.safety_ok must be a boolean"]
+    if not context.can_derive_safety:
+        return []
+    return _check_derived_safety(candidate, spot, context)
+
+
+def _check_derived_safety(
+    candidate: dict[str, Any], spot: str, context: _CandidateContext
+) -> list[str]:
+    """safety_ok and safety_violations against the re-derived allocation check."""
+
+    shape_errors = _allocation_shape_error(
+        candidate.get("allocation"), list(context.caps), spot
+    )
+    if shape_errors:
+        # Deriving from a corrupt allocation would only restate the
+        # fabricated failure the tamper wrote; report the corruption.
+        return shape_errors
+    # safety_ok summarises the allocation; it is not an independent
+    # fact. Trusting it lets an obviously over-cap allocation be
+    # preferred as the feasible minimum.
+    derived_ok, derived_violations = _derive_safety(
+        candidate.get("allocation"),
+        float(context.demand),
+        [float(c) for c in context.caps],
+    )
+    errors: list[str] = []
+    if candidate["safety_ok"] is not derived_ok:
+        errors.append(
+            f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_ok is "
+            f"{candidate['safety_ok']} but the recorded allocation "
+            f"against the scenario state yields {derived_ok} "
+            f"({sorted(derived_violations)})"
         )
-        if shape_errors:
-            # Deriving from a corrupt allocation would only restate the
-            # fabricated failure the tamper wrote; report the corruption.
-            return errors + shape_errors
-        # safety_ok summarises the allocation; it is not an independent
-        # fact. Trusting it lets an obviously over-cap allocation be
-        # preferred as the feasible minimum.
-        derived_ok, derived_violations = _derive_safety(
-            candidate.get("allocation"),
-            float(context.demand),
-            [float(c) for c in context.caps],
-        )
-        if candidate["safety_ok"] is not derived_ok:
-            errors.append(
-                f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_ok is "
-                f"{candidate['safety_ok']} but the recorded allocation "
-                f"against the scenario state yields {derived_ok} "
-                f"({sorted(derived_violations)})"
-            )
-        recorded_violations = candidate.get("safety_violations")
-        if not isinstance(recorded_violations, list):
-            # The list is derived; absence is a finding, not a pass. Deleting
-            # it from an unsafe candidate and rehashing left pairwise
-            # consumers with a constraint-rejected candidate and no recorded
-            # reason.
-            errors.append(
-                f"{spot}.safety_violations must list the violations the "
-                f"recorded allocation derives ({sorted(derived_violations)}), "
-                f"got {recorded_violations!r}"
-            )
-        elif sorted(
-            str(item) for item in recorded_violations
-        ) != sorted(derived_violations):
-            errors.append(
-                f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_violations are "
-                f"{sorted(str(v) for v in recorded_violations)} but the "
-                f"allocation yields {sorted(derived_violations)}"
-            )
-    return errors
+    return errors + _check_safety_violations(candidate, spot, derived_violations)
+
+
+def _check_safety_violations(
+    candidate: dict[str, Any], spot: str, derived_violations: list[str]
+) -> list[str]:
+    recorded_violations = candidate.get("safety_violations")
+    if not isinstance(recorded_violations, list):
+        # The list is derived; absence is a finding, not a pass. Deleting
+        # it from an unsafe candidate and rehashing left pairwise
+        # consumers with a constraint-rejected candidate and no recorded
+        # reason.
+        return [
+            f"{spot}.safety_violations must list the violations the "
+            f"recorded allocation derives ({sorted(derived_violations)}), "
+            f"got {recorded_violations!r}"
+        ]
+    if sorted(str(item) for item in recorded_violations) != sorted(derived_violations):
+        return [
+            f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_violations are "
+            f"{sorted(str(v) for v in recorded_violations)} but the "
+            f"allocation yields {sorted(derived_violations)}"
+        ]
+    return []
 
 def _check_quality_binding(
     candidate: dict[str, Any],
@@ -199,16 +214,9 @@ def _check_candidate_measurements(
             f"{spot}.cost_quantity is {quantity!r} but the record is "
             f"denominated in {context.corpus_quantity!r} — costs must be comparable"
         )
+    errors += _check_cost_value(candidate, quantity, spot)
     if not oc.is_number(candidate.get("cost_value")):
-        errors.append(f"{spot}.cost_value must be a number")
         return errors
-    if float(candidate["cost_value"]) < 0.0:
-        # Cheapest wins, so a negative cost takes the preference outright.
-        # No meter in this pipeline can produce one.
-        errors.append(
-            f"{spot}: NEGATIVE_COST — {candidate['cost_value']} "
-            f"{quantity} is not a physically possible measurement"
-        )
     candidate_meter = candidate.get("cost_meter")
     if not isinstance(candidate_meter, str) or not candidate_meter:
         errors.append(f"{spot}.cost_meter must be a non-empty string")
@@ -222,6 +230,21 @@ def _check_candidate_measurements(
     errors += _check_quality_binding(candidate, candidate_id, spot, context)
     errors += _check_cost_binding(candidate, candidate_id, spot, context)
     return errors
+
+
+def _check_cost_value(
+    candidate: dict[str, Any], quantity: Any, spot: str
+) -> list[str]:
+    if not oc.is_number(candidate.get("cost_value")):
+        return [f"{spot}.cost_value must be a number"]
+    if float(candidate["cost_value"]) < 0.0:
+        # Cheapest wins, so a negative cost takes the preference outright.
+        # No meter in this pipeline can produce one.
+        return [
+            f"{spot}: NEGATIVE_COST — {candidate['cost_value']} "
+            f"{quantity} is not a physically possible measurement"
+        ]
+    return []
 
 def _check_candidate_success(
     candidate: Any, spot: str, quality_floor: float | None
@@ -294,11 +317,7 @@ def _check_allocation_reproducibility(
     settings, so the advertised output is recomputed rather than trusted.
     """
 
-    if (
-        context.solver is None
-        or not context.can_derive_safety
-        or context.weights is None
-    ):
+    if not _recomputable_context(context):
         return []
     if candidate_id not in POLICY_DESCRIPTIONS:
         return [
@@ -307,11 +326,26 @@ def _check_allocation_reproducibility(
             "its allocation cannot be recomputed"
         ]
     recorded = candidate.get("allocation")
-    if not isinstance(recorded, list) or not all(
-        oc.is_number(value) for value in recorded
-    ):
+    if not _numeric_allocation(recorded):
         # The safety derivation already reports the malformed shape.
         return []
+    return _allocation_mismatch(candidate_id, recorded, context, spot)
+
+
+def _recomputable_context(context: _CandidateContext) -> bool:
+    if context.solver is None:
+        return False
+    if not context.can_derive_safety:
+        return False
+    return context.weights is not None
+
+
+def _allocation_mismatch(
+    candidate_id: str,
+    recorded: list[Any],
+    context: _CandidateContext,
+    spot: str,
+) -> list[str]:
     expected = _expected_policy_allocation(candidate_id, context)
     if len(recorded) != len(expected) or any(
         abs(float(value) - target) > 1e-9

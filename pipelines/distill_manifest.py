@@ -63,22 +63,14 @@ def _manifest_entry_errors(
     if not isinstance(spec, dict):
         return [f"MANIFEST.json entry for {relative} must be an object"]
     errors: list[str] = []
-    digest = hashlib.sha256()
-    with target.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            digest.update(chunk)
-    actual_sha256 = digest.hexdigest()
+    actual_sha256 = _file_sha256(target)
     if spec.get("sha256") != actual_sha256:
         errors.append(
             f"MANIFEST.json binds {relative} to sha256 {spec.get('sha256')!r} "
             f"but the file hashes to {actual_sha256!r}"
         )
     declared_records = spec.get("records")
-    if not (
-        isinstance(declared_records, int)
-        and not isinstance(declared_records, bool)
-        and declared_records == records
-    ):
+    if not _genuine_count(declared_records, records):
         # `true` and `1.0` both equal 1 under Python equality, so a boolean or
         # float count would pass — the manifest must bind a genuine integer.
         errors.append(
@@ -86,6 +78,20 @@ def _manifest_entry_errors(
             f"records but the file carries {records}"
         )
     return errors
+
+
+def _file_sha256(target: Path) -> str:
+    digest = hashlib.sha256()
+    with target.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _genuine_count(declared: Any, records: int) -> bool:
+    if not oc.is_genuine_int(declared):
+        return False
+    return declared == records
 
 
 def _manifest_findings(
@@ -111,8 +117,21 @@ def _manifest_findings(
     files, problem = _load_manifest_files(manifest_path)
     if files is None:
         return [_finding(manifest_path, problem)]
-    findings: list[dict[str, Any]] = []
     scanned = {path.relative_to(root).as_posix(): path for path in paths}
+    findings = _entry_findings(manifest_path, files, scanned, records_per_file)
+    findings += _unbound_findings(manifest_path, files, scanned)
+    if tally is not None:
+        findings += _manifest_summary_findings(manifest_path, tally)
+    return findings
+
+
+def _entry_findings(
+    manifest_path: Path,
+    files: dict[Any, Any],
+    scanned: dict[str, Path],
+    records_per_file: dict[Path, int],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
     for relative in sorted(files, key=str):
         target = scanned.get(relative) if isinstance(relative, str) else None
         findings += [
@@ -121,17 +140,20 @@ def _manifest_findings(
                 files[relative], target, relative, records_per_file.get(target, 0)
             )
         ]
-    for relative in sorted(set(scanned) - set(files)):
-        findings.append(
-            _finding(
-                manifest_path,
-                f"{relative} is present in the run but MANIFEST.json does "
-                "not bind it",
-            )
-        )
-    if tally is not None:
-        findings += _manifest_summary_findings(manifest_path, tally)
     return findings
+
+
+def _unbound_findings(
+    manifest_path: Path, files: dict[Any, Any], scanned: dict[str, Path]
+) -> list[dict[str, Any]]:
+    return [
+        _finding(
+            manifest_path,
+            f"{relative} is present in the run but MANIFEST.json does "
+            "not bind it",
+        )
+        for relative in sorted(set(scanned) - set(files))
+    ]
 
 
 def _manifest_summary_findings(

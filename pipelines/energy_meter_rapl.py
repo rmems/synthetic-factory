@@ -13,7 +13,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -113,26 +113,26 @@ class RaplEnergyMeter(EnergyOracle):
         return ranges
 
     def _unwrapped_delta(
-        self, name: str, start: int, end: int, ranges: dict[str, int]
+        self, sample: _DomainSample, ranges: dict[str, int]
     ) -> int:
-        delta = end - start
+        delta = sample.end - sample.start
         if delta < 0:
             # The counter wrapped. Unwrapping needs the domain's range; if
             # that is missing or unreadable, clamping to zero would report
             # a real workload as free and could reverse the preference. An
             # unmeasurable interval is unmeasured, not zero.
-            wrap_range = ranges.get(name, 0)
+            wrap_range = ranges.get(sample.name, 0)
             if wrap_range <= 0:
                 raise oc.OracleUnavailable(
                     self.name,
-                    f"{name} energy_uj wrapped and max_energy_range_uj is "
+                    f"{sample.name} energy_uj wrapped and max_energy_range_uj is "
                     "missing or unreadable, so the interval cannot be measured",
                 )
             delta += wrap_range
             if delta < 0:
                 raise oc.OracleUnavailable(
                     self.name,
-                    f"{name} energy_uj is still negative after unwrapping "
+                    f"{sample.name} energy_uj is still negative after unwrapping "
                     f"by {wrap_range}",
                 )
         return delta
@@ -163,18 +163,11 @@ class RaplEnergyMeter(EnergyOracle):
         for _ in range(repeats):
             workload()
             after = self._read_uj()
-            if set(after) != set(before):
-                # A vanished domain used to read as a zero delta and
-                # silently underreport the interval; an appeared one would
-                # be silently dropped. Either way the interval cannot be
-                # attributed to a stable meter.
-                raise oc.OracleUnavailable(
-                    self.name,
-                    "the RAPL domain set changed mid-measurement "
-                    f"({sorted(before)} -> {sorted(after)})",
-                )
+            self._check_stable_domains(before, after)
             total_uj += sum(
-                self._unwrapped_delta(name, start, after[name], ranges)
+                self._unwrapped_delta(
+                    _DomainSample(name, start, after[name]), ranges
+                )
                 for name, start in before.items()
             )
             before = after
@@ -190,4 +183,27 @@ class RaplEnergyMeter(EnergyOracle):
             ),
             detail={"domains": sorted(before), "aggregation": "mean_over_repeats"},
         )
+
+    def _check_stable_domains(
+        self, before: dict[str, int], after: dict[str, int]
+    ) -> None:
+        if set(after) == set(before):
+            return
+        # A vanished domain used to read as a zero delta and silently
+        # underreport the interval; an appeared one would be silently
+        # dropped. Either way the interval cannot be attributed to a
+        # stable meter.
+        raise oc.OracleUnavailable(
+            self.name,
+            "the RAPL domain set changed mid-measurement "
+            f"({sorted(before)} -> {sorted(after)})",
+        )
+
+
+class _DomainSample(NamedTuple):
+    """One counter domain's readings bracketing a single workload run."""
+
+    name: str
+    start: int
+    end: int
 

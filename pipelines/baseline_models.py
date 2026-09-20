@@ -187,10 +187,20 @@ def logistic_baseline(
     )
 
 
+@dataclass(frozen=True)
+class _MlpShape:
+    """Layer widths of the MLP baseline: input, hidden, output."""
+
+    width: int
+    hidden: int
+    classes: int
+
+
 class _Mlp:
     """One tanh hidden layer + softmax output, seeded exactly as before."""
 
-    def __init__(self, width: int, hidden: int, classes: int, seed: int) -> None:
+    def __init__(self, shape: _MlpShape, seed: int) -> None:
+        width, hidden, classes = shape.width, shape.hidden, shape.classes
         rng = random.Random(seed)  # nosec B311 - reproducible model initialisation
         limit = math.sqrt(6.0 / (width + hidden))
         self.w1 = [
@@ -278,7 +288,9 @@ def mlp_baseline(
     """One tanh hidden layer, softmax output, deterministic full-batch descent."""
 
     index_of = {label: index for index, label in enumerate(labels)}
-    model = _Mlp(len(train[0].features), hyper.hidden, len(labels), hyper.seed)
+    model = _Mlp(
+        _MlpShape(len(train[0].features), hyper.hidden, len(labels)), hyper.seed
+    )
     step = hyper.learning_rate / len(train)
     for _ in range(hyper.iterations):
         model.train_epoch(train, index_of, step)

@@ -48,17 +48,40 @@ def analytic_allocation(
     free = set(range(n))
     remaining = demand
     while free:
-        inverse_sum = sum(1.0 / weights[i] for i in free)
-        trial = {i: remaining / (weights[i] * inverse_sum) for i in free}
-        violating = [i for i in free if trial[i] > caps[i] + 1e-12]
+        trial = _trial_shares(free, remaining, weights)
+        violating = _over_cap_indices(trial, caps)
         if not violating:
             fixed.update(trial)
             break
-        for index in violating:
-            fixed[index] = caps[index]
-            remaining -= caps[index]
-            free.discard(index)
+        remaining -= _pin_violating(violating, caps, fixed, free)
     return [fixed.get(i, 0.0) for i in range(n)]
+
+
+def _trial_shares(
+    free: set[int], remaining: float, weights: list[float]
+) -> dict[int, float]:
+    inverse_sum = sum(1.0 / weights[i] for i in free)
+    return {i: remaining / (weights[i] * inverse_sum) for i in free}
+
+
+def _over_cap_indices(trial: dict[int, float], caps: list[float]) -> list[int]:
+    return [i for i in trial if trial[i] > caps[i] + 1e-12]
+
+
+def _pin_violating(
+    violating: list[int],
+    caps: list[float],
+    fixed: dict[int, float],
+    free: set[int],
+) -> float:
+    """Pin every violating actuator at its cap; return the freed demand."""
+
+    pinned = 0.0
+    for index in violating:
+        fixed[index] = caps[index]
+        free.discard(index)
+        pinned += caps[index]
+    return pinned
 
 
 def unclipped_allocation(demand: float, weights: list[float]) -> list[float]:
@@ -151,12 +174,7 @@ def evaluate_allocation(
             success=False,
         )
 
-    violations: list[str] = []
-    for index, (value, cap) in enumerate(zip(allocation, problem.caps)):
-        if value > cap + 1e-9:
-            violations.append(f"ACTUATOR_{index}_OVER_CAP")
-        if value < -1e-9:
-            violations.append(f"ACTUATOR_{index}_NEGATIVE")
+    violations = _actuator_violations(allocation, problem.caps)
     total = sum(allocation)
     if abs(total - problem.demand) > 1e-6:
         violations.append("DEMAND_NOT_MET")
@@ -170,3 +188,21 @@ def evaluate_allocation(
         violations=tuple(violations),
         success=bool(safety_ok and quality >= problem.quality_floor),
     )
+
+
+def _actuator_violations(
+    allocation: list[float], caps: tuple[float, ...] | list[float]
+) -> list[str]:
+    violations: list[str] = []
+    for index, (value, cap) in enumerate(zip(allocation, caps)):
+        violations += _slot_violations(index, value, cap)
+    return violations
+
+
+def _slot_violations(index: int, value: float, cap: float) -> list[str]:
+    violations: list[str] = []
+    if value > cap + 1e-9:
+        violations.append(f"ACTUATOR_{index}_OVER_CAP")
+    if value < -1e-9:
+        violations.append(f"ACTUATOR_{index}_NEGATIVE")
+    return violations

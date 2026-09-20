@@ -92,27 +92,29 @@ class AllocationTask(unittest.TestCase):
         self.assertEqual(evaluation.violations, ("NO_FEASIBLE_ALLOCATION_FOUND",))
         self.assertEqual(evaluation.task_quality, 0.0)
 
+    def _check_solver_sample(self, rng, n: int = 4) -> None:
+        weights = [round(rng.uniform(0.3, 3.0), 3) for _ in range(n)]
+        demand = round(rng.uniform(0.5, 2.0), 3)
+        caps = [round(rng.uniform(demand / n * 0.6, demand / n * 2.0), 3)
+                for _ in range(n)]
+        if sum(caps) <= demand:
+            caps = [round(cap + demand / n, 3) for cap in caps]
+        exact = ep.analytic_allocation(demand, weights, caps)
+        self.assertAlmostEqual(sum(exact), demand, places=6)
+        for value, cap in zip(exact, caps):
+            self.assertLessEqual(value, cap + 1e-9)
+        grid = ep.grid_allocation(demand, weights, caps, 12)
+        if grid is not None:
+            self.assertLessEqual(
+                ep.objective(weights, exact), ep.objective(weights, grid) + 1e-9
+            )
+
     def test_the_analytic_solver_matches_an_exhaustive_grid(self):
         import random as _random
 
         rng = _random.Random(1)  # nosec B311 - deterministic test data
         for _ in range(60):
-            n = 4
-            weights = [round(rng.uniform(0.3, 3.0), 3) for _ in range(n)]
-            demand = round(rng.uniform(0.5, 2.0), 3)
-            caps = [round(rng.uniform(demand / n * 0.6, demand / n * 2.0), 3)
-                    for _ in range(n)]
-            if sum(caps) <= demand:
-                caps = [round(cap + demand / n, 3) for cap in caps]
-            exact = ep.analytic_allocation(demand, weights, caps)
-            self.assertAlmostEqual(sum(exact), demand, places=6)
-            for value, cap in zip(exact, caps):
-                self.assertLessEqual(value, cap + 1e-9)
-            grid = ep.grid_allocation(demand, weights, caps, 12)
-            if grid is not None:
-                self.assertLessEqual(
-                    ep.objective(weights, exact), ep.objective(weights, grid) + 1e-9
-                )
+            self._check_solver_sample(rng)
 
     def test_unclipped_allocation_can_break_a_cap(self):
         weights = [0.5, 2.0, 2.0, 2.0]

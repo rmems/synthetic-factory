@@ -51,7 +51,7 @@ def _check_intervention_parameters(
         return [f"{where}.intervention.parameters must be an object"]
     errors: list[str] = []
     required, optional = PARAMETER_SPEC[kind]
-    missing = [key for key in required if key not in parameters]
+    missing = _missing_keys(required, parameters)
     if missing:
         errors.append(
             f"{where}.intervention.parameters: {kind} requires {sorted(missing)}"
@@ -62,6 +62,10 @@ def _check_intervention_parameters(
             f"{where}.intervention.parameters: {kind} does not use {unknown}"
         )
     return errors
+
+
+def _missing_keys(required: tuple | list, parameters: dict[str, Any]) -> list[str]:
+    return [key for key in required if key not in parameters]
 
 
 def _check_disturbance_kind_match(
@@ -120,7 +124,9 @@ def _requested_corruption_problem(
 ) -> str | None:
     """The mismatch of one measurement's requested ratio, if any."""
 
-    if not isinstance(item, dict) or item.get("quantity") != "corrupt_ratio":
+    if not isinstance(item, dict):
+        return None
+    if item.get("quantity") != "corrupt_ratio":
         return None
     detail = item.get("detail")
     requested = detail.get("requested") if isinstance(detail, dict) else None
@@ -137,13 +143,14 @@ def _check_requested_corruption(record: dict[str, Any], where: str) -> list[str]
 
     parameters = record["intervention"].get("parameters")
     result = record.get("result")
-    if not isinstance(parameters, dict) or not isinstance(result, dict):
+    if not isinstance(parameters, dict):
+        return []
+    if not isinstance(result, dict):
         return []
     target = parameters.get("corrupt_ratio")
     if not oc.is_number(target):
         return []
-    measurements = result.get("measurements")
-    items = measurements if isinstance(measurements, list) else []
+    items = _measurement_items(result)
     return [
         problem
         for item in items
@@ -151,24 +158,35 @@ def _check_requested_corruption(record: dict[str, Any], where: str) -> list[str]
     ]
 
 
+def _measurement_items(result: dict[str, Any]) -> list[Any]:
+    measurements = result.get("measurements")
+    return measurements if isinstance(measurements, list) else []
+
+
+def _check_outcome_label_claim(
+    prediction: dict[str, Any], predicted: Any, where: str
+) -> list[str]:
+    if isinstance(predicted, str) and prediction.get("predicted_outcome_label") != OUTCOME_LABELS[predicted]:
+        return [
+            f"{where}.candidate_prediction.predicted_outcome_label must be "
+            f"{OUTCOME_LABELS[predicted]!r}"
+        ]
+    return []
+
+
 def _check_candidate_prediction(record: dict[str, Any], where: str) -> list[str]:
     """The student's proposed outcome, when the record carries one."""
 
-    errors: list[str] = []
     prediction = record.get("candidate_prediction")
-    if isinstance(prediction, dict):
-        predicted = prediction.get("predicted_outcome")
-        if predicted is not None and predicted not in OUTCOMES:
-            errors.append(
-                f"{where}.candidate_prediction.predicted_outcome must be one of "
-                f"{sorted(OUTCOMES)}, got {predicted!r}"
-            )
-        elif isinstance(predicted, str) and prediction.get("predicted_outcome_label") != OUTCOME_LABELS[predicted]:
-            errors.append(
-                f"{where}.candidate_prediction.predicted_outcome_label must be "
-                f"{OUTCOME_LABELS[predicted]!r}"
-            )
-    return errors
+    if not isinstance(prediction, dict):
+        return []
+    predicted = prediction.get("predicted_outcome")
+    if predicted is not None and predicted not in OUTCOMES:
+        return [
+            f"{where}.candidate_prediction.predicted_outcome must be one of "
+            f"{sorted(OUTCOMES)}, got {predicted!r}"
+        ]
+    return _check_outcome_label_claim(prediction, predicted, where)
 
 
 def _check_outcome(result: dict[str, Any], where: str) -> list[str]:
@@ -190,13 +208,17 @@ def _check_outcome(result: dict[str, Any], where: str) -> list[str]:
             f"— the emitted prose label for {outcome!r} — got "
             f"{result.get('outcome_label')!r}"
         )
+    return errors + _check_reason_list(result, where)
+
+
+def _check_reason_list(result: dict[str, Any], where: str) -> list[str]:
     reasons = result.get("reason_codes")
     if not isinstance(reasons, list) or not reasons:
-        errors.append(
+        return [
             f"{where}.result.reason_codes must be a non-empty array — every fault "
             "outcome needs an explicit reason"
-        )
-    return errors
+        ]
+    return []
 
 
 def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]:
@@ -210,6 +232,25 @@ def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]
     result = record.get("result")
     if not isinstance(result, dict):
         return []
+    gate = _check_agreement_gate(result, where)
+    if gate:
+        return gate
+    predicted = _predicted_outcome(record)
+    if not isinstance(predicted, str):
+        # An agreement label without the prediction it grades is arbitrary:
+        # deleting candidate_prediction (or just predicted_outcome) used to
+        # skip the derivation check while the label stayed curation-eligible.
+        return [
+            f"{where}.result.prediction_agreement is recorded but "
+            "candidate_prediction.predicted_outcome is missing — an "
+            "agreement label needs the prediction it grades"
+        ]
+    return _agreement_mismatch(
+        result, result["prediction_agreement"], predicted, where
+    )
+
+
+def _check_agreement_gate(result: dict[str, Any], where: str) -> list[str]:
     if "prediction_agreement" not in result:
         # The field is derived, so its absence is a finding, not a pass:
         # deleting it made the record silently disappear from the
@@ -224,20 +265,14 @@ def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]
             f"{where}.result.prediction_agreement must be 'agree' or "
             f"'disagree', got {agreement!r}"
         ]
+    return []
+
+
+def _predicted_outcome(record: dict[str, Any]) -> Any:
     prediction = record.get("candidate_prediction")
-    predicted = (
-        prediction.get("predicted_outcome") if isinstance(prediction, dict) else None
-    )
-    if not isinstance(predicted, str):
-        # An agreement label without the prediction it grades is arbitrary:
-        # deleting candidate_prediction (or just predicted_outcome) used to
-        # skip the derivation check while the label stayed curation-eligible.
-        return [
-            f"{where}.result.prediction_agreement is recorded but "
-            "candidate_prediction.predicted_outcome is missing — an "
-            "agreement label needs the prediction it grades"
-        ]
-    return _agreement_mismatch(result, agreement, predicted, where)
+    if not isinstance(prediction, dict):
+        return None
+    return prediction.get("predicted_outcome")
 
 
 def _agreement_mismatch(

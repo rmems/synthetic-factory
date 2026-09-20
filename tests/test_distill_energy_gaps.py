@@ -20,7 +20,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import energy_preferences as ep  # noqa: E402
 import validate_distill as vd  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
-from distill_gap_test_support import clone, rehash  # noqa: E402
+from distill_gap_test_support import clone, rehash, set_cost_measurement  # noqa: E402
 
 class EnergyScenarioBindingGaps(unittest.TestCase):
     """energy_preferences.py: the scenario the labels are grounded in."""
@@ -165,38 +165,33 @@ class EnergyPreferenceGaps(unittest.TestCase):
         self._sync_measurements(record, candidate_id, twin)
         return twin
 
-    def _set_cost_measurement(
-        self, record: dict, candidate_id: str, quantity: str, value: float
-    ) -> None:
-        """Restate one candidate's measured cost."""
+    def _clone_cost_pair(self, record: dict) -> tuple[str, str]:
+        """Two feasible clones of the winner tied on measured cost.
 
-        for item in record["result"]["measurements"]:
-            detail = item.get("detail")
-            if (
-                isinstance(detail, dict)
-                and detail.get("candidate") == candidate_id
-                and item["quantity"] == quantity
-            ):
-                item["value"] = value
+        Returns the (low, high) ids of the tied pair. `choose_preference`
+        breaks that tie by id, so naming the larger id must not validate.
+        """
 
-    def test_an_equal_cost_tie_must_break_to_the_lower_id(self):
-        record = self.record()
         candidates = record["result"]["candidates"]
         preference = record["result"]["preference"]
         template = next(c for c in candidates if c["id"] == preference["preferred"])
-        # Two feasible candidates, identical in every respect the decision rule
-        # reads, tied on measured cost. `choose_preference` breaks that tie by
-        # id, so naming the larger id must not validate.
         low_id, high_id = sorted(
             c["id"] for c in candidates if c["id"] != template["id"]
         )[:2]
         for candidate_id in (low_id, high_id):
             self._clone_onto(record, template, candidate_id)
-        # Make the tie the cheapest pair, and name the wrong side of it.
         template["cost_value"] = float(template["cost_value"]) + 1.0
-        self._set_cost_measurement(
+        set_cost_measurement(
             record, template["id"], template["cost_quantity"], template["cost_value"]
         )
+        return low_id, high_id
+
+    def test_an_equal_cost_tie_must_break_to_the_lower_id(self):
+        record = self.record()
+        candidates = record["result"]["candidates"]
+        preference = record["result"]["preference"]
+        _low_id, high_id = self._clone_cost_pair(record)
+        # Make the tie the cheapest pair, and name the wrong side of it.
         winner = next(c for c in candidates if c["id"] == high_id)
         preference["preferred"] = high_id
         preference["cost_value"] = winner["cost_value"]

@@ -111,11 +111,9 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_routing_layers(
         layers, expert_count, _declared_top_k(fingerprint), where
     )
-    errors += _check_teacher_router_logits(
-        layers, oracle, fingerprint, result, where
-    )
+    errors += _check_teacher_router_logits(layers, record, where)
     errors += _check_layer_count(layers, fingerprint, where)
-    errors += _check_reference_recompute(record, oracle, fingerprint, layers, where)
+    errors += _check_reference_recompute(record, layers, where)
     errors += _check_derived_routing_labels(result, routing, layers, where)
     errors += _check_measurement_reconciliation(result, routing, layers, where)
     errors += _check_router_measurement_meters(result, oracle, where)

@@ -104,46 +104,44 @@ class _StreamState:
         """Apply the disturbance to one channel; True when it stays healthy."""
 
         self.total += 1
-        lost = (
-            spec.kind == "sensor_loss"
-            and tick.in_window
-            and channel in spec.affected
-        )
-        stale = (
-            spec.kind == "stale_sensor"
-            and channel in spec.affected
-            and tick.in_window
-        )
-        if lost:
-            self.dropped += 1
-        elif not stale:
-            self.last_fresh_ms[channel] = tick.now_ms
+        lost = self._apply_drop(spec, channel, tick)
 
         self._apply_signal_faults(spec, channel, tick)
         saturating = self._apply_saturation(spec, channel, tick)
 
         staleness = tick.now_ms - self.last_fresh_ms[channel]
         self.max_staleness = max(self.max_staleness, staleness)
-        return (
-            not lost
-            and staleness <= float(self.system["stale_threshold_ms"])
-            and not saturating
-        )
+        if lost or saturating:
+            return False
+        return staleness <= float(self.system["stale_threshold_ms"])
+
+    def _apply_drop(self, spec: _DisturbanceSpec, channel: str, tick: "_Tick") -> bool:
+        """Count the lost reading; update the freshness clock otherwise."""
+
+        hit = tick.in_window and channel in spec.affected
+        lost = spec.kind == "sensor_loss" and hit
+        stale = spec.kind == "stale_sensor" and hit
+        if lost:
+            self.dropped += 1
+        elif not stale:
+            self.last_fresh_ms[channel] = tick.now_ms
+        return lost
 
     def _apply_signal_faults(
         self, spec: _DisturbanceSpec, channel: str, tick: _Tick
     ) -> None:
-        in_window = tick.in_window
-        if spec.kind == "event_jitter" and channel in spec.affected and in_window:
-            self.max_jitter = max(self.max_jitter, abs(spec.jitter_ms))
-
-        if spec.kind == "burst_corruption" and channel in spec.affected and in_window:
-            # Selected actual ticks preserve the phase when it realises a hit.
-            if tick.tick in self.corruption_ticks:
-                self.corrupt += 1
-
-        if spec.kind == "malformed_spike_burst" and channel in spec.affected:
+        if channel not in spec.affected:
+            return
+        if spec.kind == "malformed_spike_burst":
             self._apply_malformed_event(spec)
+            return
+        if not tick.in_window:
+            return
+        if spec.kind == "event_jitter":
+            self.max_jitter = max(self.max_jitter, abs(spec.jitter_ms))
+        # Selected actual ticks preserve the phase when it realises a hit.
+        if spec.kind == "burst_corruption" and tick.tick in self.corruption_ticks:
+            self.corrupt += 1
 
     def _apply_malformed_event(self, spec: _DisturbanceSpec) -> None:
         if self.malformed_emitted >= spec.malformed_count:
