@@ -73,9 +73,12 @@ class Featurisation(unittest.TestCase):
         environment["PYTHONPATH"] = str(REPO / "pipelines")
         outputs = set()
         for _ in range(2):
+            # The argv must be all literals for static scanners: `python3`
+            # resolves on PATH, and the inline script needs only stdlib plus
+            # the PYTHONPATH above, so it runs correctly under any python3.
             completed = subprocess.run(  # nosec B603 - fully static arguments
                 [
-                    sys.executable,
+                    "python3",
                     "-c",
                     "import json, moe_router;"
                     "print(json.dumps(moe_router.featurize('relay gate')))",
