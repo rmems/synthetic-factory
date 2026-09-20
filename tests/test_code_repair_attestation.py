@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from code_repair_test_support import executor as ex, vocabulary as cv  # noqa: E402
 from code_repair import _harness as harness  # noqa: E402
+from code_repair import _sandbox as landlock  # noqa: E402
 
 
 class LimitsAttestation(unittest.TestCase):
@@ -22,7 +23,7 @@ class LimitsAttestation(unittest.TestCase):
 
     def test_parent_and_child_share_the_attestation_constants(self):
         self.assertEqual(ex.LIMITS_ATTESTATION_PREFIX, harness.LIMITS_ATTESTATION_PREFIX)
-        self.assertEqual(ex.LANDLOCK_ATTESTATION_PREFIX, harness.LANDLOCK_ATTESTATION_PREFIX)
+        self.assertEqual(ex.LANDLOCK_ATTESTATION_PREFIX, landlock.LANDLOCK_ATTESTATION_PREFIX)
         self.assertEqual(ex.REPORT_FD_ENV, harness.REPORT_FD_ENV)
         self.assertEqual(cv.HARNESS_PROTOCOL, harness.PROTOCOL)
         self.assertTrue(callable(harness._write_protocol_report))
@@ -74,9 +75,11 @@ class LimitsAttestation(unittest.TestCase):
             f"{harness.LIMITS_ATTESTATION_PREFIX}{str(True).lower()}\n"
             f"{harness.LIMITS_ATTESTATION_PREFIX}{str(False).lower()}\n",
         )
-        harness._write_landlock_attestation(buffer, "landlock-abi4")
+        report = {"load": {"status": "ok"}, "environment": {}}
+        with mock.patch.object(landlock, "apply", return_value="landlock-abi4"):
+            landlock.enforce("workdir", {"require_landlock": True}, report, buffer)
         self.assertTrue(buffer.getvalue().endswith(
-            f"{harness.LANDLOCK_ATTESTATION_PREFIX}landlock-abi4\n"
+            f"{landlock.LANDLOCK_ATTESTATION_PREFIX}landlock-abi4\n"
         ))
 
     def test_run_executes_only_when_limits_were_applied(self):
@@ -124,7 +127,7 @@ class LimitsAttestation(unittest.TestCase):
         self.assertEqual(
             attested,
             f"{harness.LIMITS_ATTESTATION_PREFIX}true\n"
-            f"{harness.LANDLOCK_ATTESTATION_PREFIX}none\n",
+            f"{landlock.LANDLOCK_ATTESTATION_PREFIX}none\n",
         )
         self.assertEqual(body["protocol"], harness.PROTOCOL)
         self.assertEqual(body["load"]["status"], "ok")
@@ -138,7 +141,7 @@ class LimitsAttestation(unittest.TestCase):
         self.assertEqual(
             attested,
             f"{harness.LIMITS_ATTESTATION_PREFIX}false\n"
-            f"{harness.LANDLOCK_ATTESTATION_PREFIX}none\n",
+            f"{landlock.LANDLOCK_ATTESTATION_PREFIX}none\n",
         )
         self.assertEqual(body["load"]["status"], "error")
         self.assertIn("SANDBOX_UNAVAILABLE", body["load"]["error"])
@@ -157,7 +160,7 @@ class LimitsAttestation(unittest.TestCase):
                 self.assertEqual(
                     attested,
                     f"{harness.LIMITS_ATTESTATION_PREFIX}true\n"
-                    f"{harness.LANDLOCK_ATTESTATION_PREFIX}none\n",
+                    f"{landlock.LANDLOCK_ATTESTATION_PREFIX}none\n",
                 )
                 self.assertTrue(body["environment"]["limits_applied"])
                 self.assertEqual(body["load"]["status"], "error")

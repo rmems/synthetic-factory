@@ -283,7 +283,7 @@ class Executor:
         else:
             entry.update(returncode=completed.returncode, stderr_tail=_tail(_bounded(stderr_path)))
             report = _parse_report(
-                job, completed.returncode, stdout, body,
+                job, completed.returncode, (stdout, body),
                 require_landlock=self.isolation.is_os_boundary,
             )
         finally:
@@ -346,16 +346,18 @@ def _write_child(workdir: Path, name: str, payload: bytes) -> None:
 
 
 def _parse_report(
-    job: Job, returncode: int, stdout: bytes, body: bytes = b"", *,
+    job: Job, returncode: int, streams: tuple[bytes, bytes], *,
     require_landlock: bool = False,
 ) -> PhaseReport:
     """The child's report, or a harness error when it is not the protocol's complete object.
 
     Every row the job asked for must be present and well formed: a truncated
     or malformed suite is a harness error, never a suite with no failures.
-    ``stdout`` carries immutable startup attestations; ``body`` is the JSON file.
+    ``streams`` is ``(stdout, body)``: immutable startup attestations, then the
+    JSON file.
     """
 
+    stdout, body = streams
     limits = _limits_attested(stdout)
     if limits is False or (require_landlock and limits is not True):
         return PhaseReport(

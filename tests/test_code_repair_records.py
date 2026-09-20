@@ -32,7 +32,7 @@ from code_repair_test_support import (  # noqa: E402
 # Re-pinned after merging protocol v2 with #212 exception-type diagnostics.
 # Landlock child allowlist on the OS-boundary path changes harness bytes (#339).
 # The replay identity now frames the harness and both Landlock child modules.
-GOLDEN_SHA256 = "fb232bcb80e2a0c59a1bb134aeae589846a6d21b4a867cf97341910a07a9d5dc"
+GOLDEN_SHA256 = "5b8ab1e216ba3d43c8ae7ff5b58e3fea18dd752904d87b15adde5b700e204c9d"
 
 
 def accepting_executor():

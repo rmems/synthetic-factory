@@ -106,19 +106,31 @@ def available() -> bool:
     return abi is not None and abi >= MIN_ABI
 
 
-def enforce(workdir: str, spec: dict, report: dict) -> None:
+LANDLOCK_ATTESTATION_PREFIX = "code-repair-landlock-attestation/1 "
+
+
+def enforce(workdir: str, spec: dict, report: dict, stream=None) -> None:
     """Apply the allowlist when the spec requires it; raise when it cannot hold.
 
     Records the applied token in ``report["environment"]["landlock"]`` so the
-    parent can prove which restriction the child ran under. A missing boundary
-    raises, so the run fails closed as a harness error before ``program.py``
-    is read.
+    parent can prove which restriction the child ran under, and writes the
+    out-of-band attestation line to ``stream`` (real stdout) when given. A
+    missing boundary raises, so the run fails closed as a harness error before
+    ``program.py`` is read.
     """
 
-    if not spec.get("require_landlock"):
+    if report.get("load", {}).get("status", "ok") != "ok" or not spec.get("require_landlock"):
+        if stream is not None:
+            stream.write(f"{LANDLOCK_ATTESTATION_PREFIX}none\n")
+            stream.flush()
         return
     token = apply(workdir)
     report["environment"]["landlock"] = token if applied(token) else ""
+    if stream is not None:
+        stream.write(
+            f"{LANDLOCK_ATTESTATION_PREFIX}{report['environment']['landlock'] or 'none'}\n",
+        )
+        stream.flush()
     if not report["environment"]["landlock"]:
         raise RuntimeError("SANDBOX_UNAVAILABLE: landlock")
 

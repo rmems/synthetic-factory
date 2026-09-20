@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import atexit
+import contextlib
 import doctest
 import hashlib
 import importlib.util
@@ -36,7 +37,6 @@ _OS_EXIT = os._exit
 
 PROTOCOL = "code-repair-harness/2"
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
-LANDLOCK_ATTESTATION_PREFIX = "code-repair-landlock-attestation/1 "
 REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 PROGRAM_FILENAME = "program.py"
 MAX_GOT_CHARS = 2_000
@@ -233,9 +233,10 @@ def _agree(got: str, want: str, spec: dict) -> bool:
         left, right = float(got), float(want)
     except ValueError:
         return False
-    if not math.isfinite(left) or not math.isfinite(right):
-        return False
-    return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
+    return (
+        math.isfinite(left) and math.isfinite(right)
+        and math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
+    )
 
 
 def _case_error(index: int, case: dict, exc: Exception, workdir: str, kind: str) -> dict:
@@ -277,10 +278,9 @@ def _with_isolated_main(action):
     try:
         return action()
     finally:
+        sys.modules.pop("__main__", None)
         if previous is not None:
             sys.modules["__main__"] = previous
-        else:
-            sys.modules.pop("__main__", None)
 
 
 def _isolation_module():
@@ -298,14 +298,6 @@ def _write_limits_attestation(stream, limits_applied: bool) -> None:
     """Out-of-band limits proof on real stdout before ``program.py`` is read."""
 
     stream.write(f"{LIMITS_ATTESTATION_PREFIX}{str(limits_applied).lower()}\n")
-    stream.flush()
-
-
-def _write_landlock_attestation(stream, token: object) -> None:
-    """Out-of-band Landlock proof before ``program.py`` is read."""
-
-    attested = token if isinstance(token, str) and token else "none"
-    stream.write(f"{LANDLOCK_ATTESTATION_PREFIX}{attested}\n")
     stream.flush()
 
 
@@ -336,6 +328,8 @@ def _startup_report(*, limits_applied: bool) -> dict:
 def _run_program(workdir: Path, spec: dict, report: dict) -> dict:
     """Read and execute candidate code after immutable startup proofs are emitted."""
 
+    if report["load"]["status"] != "ok":
+        return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
 
@@ -363,8 +357,6 @@ def _run_program(workdir: Path, spec: dict, report: dict) -> dict:
 
 def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     report = _startup_report(limits_applied=limits_applied)
-    if not limits_applied:
-        return report
     _isolation_module().enforce(str(workdir), spec, report)
     return _run_program(workdir, spec, report)
 
@@ -377,26 +369,21 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
     real_stdout, real_stderr = sys.stdout, sys.stderr
     real_stdout.flush()
     real_stderr.flush()
-    try:
+    spec = {}
+    with contextlib.suppress(OSError, TypeError, ValueError):
         spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
-        spec = {}
     limits_applied = _apply_limits(spec)
     report = _startup_report(limits_applied=limits_applied)
-    startup_error = None
-    if limits_applied:
-        try:
-            _isolation_module().enforce(str(workdir), spec, report)
-        except Exception as exc:
-            startup_error = exc
-            report["load"] = {
-                "status": "error",
-                "error": _scrub_workdir(
-                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir),
-                ),
-            }
     _write_limits_attestation(real_stdout, limits_applied)
-    _write_landlock_attestation(real_stdout, report.get("environment", {}).get("landlock"))
+    try:
+        _isolation_module().enforce(str(workdir), spec, report, real_stdout)
+    except Exception as exc:
+        report["load"] = {
+            "status": "error",
+            "error": _scrub_workdir(
+                f"HarnessError: {type(exc).__name__}: {exc}", str(workdir),
+            ),
+        }
     # Drop the capture fds without keeping a dup. A leftover seekable stdout fd
     # (or a workdir path the candidate can reopen) can rewrite the attestation.
     with open(os.devnull, "w", encoding="utf-8") as sink:
@@ -404,8 +391,7 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            if limits_applied and startup_error is None:
-                report = _run_program(workdir, spec, report)
+            report = _run_program(workdir, spec, report)
         except Exception as exc:
             report["load"] = {"status": "error", "error": _scrub_workdir(
                 f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))}

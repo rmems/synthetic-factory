@@ -119,7 +119,7 @@ class ExecutionEvidence(unittest.TestCase):
                       "environment": {"limits_applied": flag}, "public": [], "hidden": []}
             stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode()
             result = ex._parse_report(ex.Job("limits", "", "f", (), False),
-                                      0, stdout, json.dumps(report).encode())
+                                      0, (stdout, json.dumps(report).encode()))
             self.assertFalse(result.ok)
             self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, result.detail)
 
@@ -128,7 +128,7 @@ class ExecutionEvidence(unittest.TestCase):
                   "environment": {"limits_applied": False}, "public": [], "hidden": []}
         stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode()
         result = ex._parse_report(ex.Job("limits", "", "f", (), False),
-                                  0, stdout, json.dumps(report).encode())
+                                  0, (stdout, json.dumps(report).encode()))
         self.assertTrue(result.environment["limits_applied"])
 
     def test_unavailable_limits_stop_before_loading_program_code(self):
