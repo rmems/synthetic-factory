@@ -491,6 +491,16 @@ class FamilyChecks(unittest.TestCase):
         self.assertTrue(any("expert_agreement" in error for error in errors))
 
 
+def _distinct_top_k(preferred, num_experts, top_k):
+    """Top-``k`` experts: the record's own picks first, then successors."""
+
+    top = [min(e, num_experts - 1) for e in preferred[:top_k]]
+    while len(top) < top_k:
+        candidate = (top[-1] + 1) % num_experts if top else 0
+        top.append(candidate if candidate not in top else (candidate + 1) % num_experts)
+    return top
+
+
 class SealedHubMoEBinding(unittest.TestCase):
     """Fail-closed sealed Hub card / teacher-logits / revision binding."""
 
@@ -505,28 +515,19 @@ class SealedHubMoEBinding(unittest.TestCase):
             layer["top_k_experts"] = list(range(top_k))
             return layer
 
+        top = _distinct_top_k(layer["top_k_experts"], num_experts, top_k)
         logits = [-5.0] * num_experts
-        top = [min(e, num_experts - 1) for e in layer["top_k_experts"][:top_k]]
-        while len(top) < top_k:
-            candidate = (top[-1] + 1) % num_experts if top else 0
-            if candidate not in top:
-                top.append(candidate)
-            else:
-                top.append((candidate + 1) % num_experts)
         for rank, expert in enumerate(top):
             logits[expert] = 10.0 - 0.01 * rank
         layer["top_k_experts"] = top
         layer["router_logits"] = logits
         ordered = sorted(logits, reverse=True)
         layer["top1_top2_margin"] = round(ordered[0] - ordered[1], 6)
-        exps = [math.exp(value - max(logits)) for value in logits]
-        total = sum(exps)
-        probs = [value / total for value in exps]
-        layer["routing_entropy"] = round(
-            -sum(probability * math.log(probability) for probability in probs
-                 if probability > 0.0),
-            6,
-        )
+        layer["routing_entropy"] = round(-sum(
+            probability * math.log(probability)
+            for probability in mr.softmax(logits)
+            if probability > 0.0
+        ), 6)
         return layer
 
     def _mixtral_authoritative(self, *, num_layers=32, num_experts=8, top_k=2,
