@@ -57,6 +57,14 @@ def _check_onset_within_horizon(
             f"{system['tick_ms']} ms); the declared disturbance would "
             "never occur"
         )
+    _check_thermal_onset_margin(kind, onset, last_tick_ms)
+
+
+def _check_thermal_onset_margin(
+    kind: str, onset: Any, last_tick_ms: float
+) -> None:
+    """A thermal excursion needs a sampled tick strictly after its onset."""
+
     if kind != "thermal_excursion":
         return
     if float(onset) >= last_tick_ms:

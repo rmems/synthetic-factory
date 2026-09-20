@@ -194,7 +194,11 @@ class _BaselineRuns:
     mlp: dict[str, Any]
 
 
-def _scaled_splits(samples: list[Sample], knobs: EvaluationKnobs) -> _ScaledSplit:
+def _held_out_split(
+    samples: list[Sample], knobs: EvaluationKnobs
+) -> tuple[list[Sample], list[Sample]]:
+    """The train/test halves, with the degenerate cases refused."""
+
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
     train, test = split(samples, holdout_pct=knobs.holdout_pct)
@@ -203,13 +207,24 @@ def _scaled_splits(samples: list[Sample], knobs: EvaluationKnobs) -> _ScaledSpli
             f"degenerate split: {len(train)} train / {len(test)} test — "
             "adjust holdout_pct or add records"
         )
-    scaled_train, scaled_test, scaler = standardize(train, test)
-    # Class space comes from the training split only: a label that appears
-    # only in held-out rows must be a class the baseline was never told about,
-    # not one it silently can't predict.
+    return train, test
+
+
+def _train_labels(train: list[Sample]) -> list[Any]:
+    """Class space comes from the training split only: a label that appears
+    only in held-out rows must be a class the baseline was never told about,
+    not one it silently can't predict."""
+
     labels = sorted({sample.label for sample in train})
     if len(labels) < 2:
         raise BaselineError("router labels are constant; nothing to distil")
+    return labels
+
+
+def _scaled_splits(samples: list[Sample], knobs: EvaluationKnobs) -> _ScaledSplit:
+    train, test = _held_out_split(samples, knobs)
+    scaled_train, scaled_test, scaler = standardize(train, test)
+    labels = _train_labels(train)
     return _ScaledSplit(
         train=train,
         test=test,

@@ -74,6 +74,23 @@ def _strictly_rising(values: list[float]) -> bool:
     )
 
 
+def _require_finite_thresholds(thresholds: list[Any]) -> None:
+    if not all(oc.is_number(value) for value in thresholds):
+        raise oc.ContractError(
+            "system thermal thresholds must be finite numbers"
+        )
+
+
+def _require_ordered_ladder(thresholds: list[Any]) -> None:
+    if _strictly_rising([float(value) for value in thresholds]):
+        return
+    raise oc.ContractError(
+        "system thermal ladder must be ordered ambient < warn < "
+        "limit < shutdown, got "
+        + ", ".join(str(float(value)) for value in thresholds)
+    )
+
+
 def _check_thermal_ladder(system: dict[str, Any]) -> None:
     keys = (
         "ambient_c",
@@ -82,16 +99,8 @@ def _check_thermal_ladder(system: dict[str, Any]) -> None:
         "thermal_shutdown_c",
     )
     thresholds = [system[key] for key in keys]
-    if not all(oc.is_number(value) for value in thresholds):
-        raise oc.ContractError(
-            "system thermal thresholds must be finite numbers"
-        )
-    if not _strictly_rising([float(value) for value in thresholds]):
-        raise oc.ContractError(
-            "system thermal ladder must be ordered ambient < warn < "
-            "limit < shutdown, got "
-            + ", ".join(str(float(value)) for value in thresholds)
-        )
+    _require_finite_thresholds(thresholds)
+    _require_ordered_ladder(thresholds)
 
 def _bounded_channel_list(channels: Any) -> bool:
     if not isinstance(channels, list):

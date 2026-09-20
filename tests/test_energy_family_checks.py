@@ -74,16 +74,28 @@ class FamilyChecks(unittest.TestCase):
             any("task_quality disagrees" in error for error in errors)
         )
 
-    def test_a_candidate_with_no_quality_measurement_is_rejected(self):
-        candidate = self.record["result"]["candidates"][0]["id"]
+    def _drop_measurements(self, candidate_id: str, quantity: str) -> None:
+        """Remove a candidate's recorded readings of one quantity."""
         self.record["result"]["measurements"] = [
             item
             for item in self.record["result"]["measurements"]
             if not (
-                (item.get("detail") or {}).get("candidate") == candidate
-                and item["quantity"] == "task_quality"
+                (item.get("detail") or {}).get("candidate") == candidate_id
+                and item["quantity"] == quantity
             )
         ]
+
+    def _drop_candidate_measurements(self, candidate_id: str) -> None:
+        """Remove every recorded reading attributed to one candidate."""
+        self.record["result"]["measurements"] = [
+            item
+            for item in self.record["result"]["measurements"]
+            if (item.get("detail") or {}).get("candidate") != candidate_id
+        ]
+
+    def test_a_candidate_with_no_quality_measurement_is_rejected(self):
+        candidate = self.record["result"]["candidates"][0]["id"]
+        self._drop_measurements(candidate, "task_quality")
         errors = ep.check_family(self.record, "x")
         self.assertTrue(any("UNMEASURED_TASK_QUALITY" in error for error in errors))
 
@@ -96,11 +108,7 @@ class FamilyChecks(unittest.TestCase):
 
     def test_a_candidate_with_no_measurement_at_all_is_rejected(self):
         candidate = self.record["result"]["candidates"][0]
-        self.record["result"]["measurements"] = [
-            item
-            for item in self.record["result"]["measurements"]
-            if (item.get("detail") or {}).get("candidate") != candidate["id"]
-        ]
+        self._drop_candidate_measurements(candidate["id"])
         errors = ep.check_family(self.record, "x")
         self.assertTrue(any("UNMEASURED_COST" in error for error in errors))
 

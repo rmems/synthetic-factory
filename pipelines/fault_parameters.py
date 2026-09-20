@@ -187,20 +187,30 @@ def _check_corruption_ratio(parameters: dict[str, Any]) -> None:
             "cannot be applied"
         )
 
+def _floor_violation(
+    kind: str, bound: tuple[str, float, bool], parameters: dict[str, Any]
+) -> str | None:
+    key, floor, exclusive = bound
+    if key not in parameters:
+        return None
+    value = parameters[key]
+    if not _violates_floor(value, floor, exclusive):
+        return None
+    relation = f"> {floor}" if exclusive else f">= {floor}"
+    return (
+        f"{kind} {key} must be a finite number {relation}, got "
+        f"{value!r}; outside that range the declared "
+        "disturbance cannot occur"
+    )
+
+
 def _check_parameter_floors(kind: str, parameters: dict[str, Any]) -> None:
     """Require finite values within each disturbance parameter's domain."""
 
-    for key, floor, exclusive in _PARAMETER_FLOORS:
-        if key not in parameters:
-            continue
-        value = parameters[key]
-        if _violates_floor(value, floor, exclusive):
-            bound = f"> {floor}" if exclusive else f">= {floor}"
-            raise oc.ContractError(
-                f"{kind} {key} must be a finite number {bound}, got "
-                f"{value!r}; outside that range the declared "
-                "disturbance cannot occur"
-            )
+    for bound in _PARAMETER_FLOORS:
+        error = _floor_violation(kind, bound, parameters)
+        if error is not None:
+            raise oc.ContractError(error)
 
 def _violates_floor(value: Any, floor: float, exclusive: bool) -> bool:
     if not oc.is_number(value):
