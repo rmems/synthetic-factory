@@ -50,7 +50,7 @@ _KILL_SYSCALLS = {
     "aarch64": (40, 39, 41, 105, 117, 142, 273, 280),
 }
 _UNAVAILABLE = "bwrap user-namespace sandbox is not available"
-_HIDE_ROOTS = ("home", "root", "workspace")
+_HIDE_ROOTS = ("home", "root", "workspace", "run", "var")
 
 __all__ = [
     "IDENTITY_BWRAP", "IDENTITY_RLIMITS_ONLY", "OS_IDENTITIES", "Confinement", "Isolation",
