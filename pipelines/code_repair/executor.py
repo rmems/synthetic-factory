@@ -359,7 +359,10 @@ def _parse_report(
 
     stdout, body = streams
     limits = _limits_attested(stdout)
-    if limits is False or (require_landlock and limits is not True):
+    limits_unattested = limits is False
+    if require_landlock and limits is not True:
+        limits_unattested = True
+    if limits_unattested:
         return PhaseReport(
             cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
             f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not attested")
