@@ -375,9 +375,16 @@ def _check_id_mapping(scope: _IdMappingScope, mapping: Any, label: str) -> None:
         raise GateError(f"{label} duplicates owner_path {owner_path!r}")
     scope.seen_owners.add(owner_path)
     owner = _mapping_value(scope.record, owner_path, f"{label}.owner_path")
-    if not _output_id_matches(owner, mapping.get("output_id")):
-        raise GateError(f"{label}.output_id does not match output owner")
     output_id = mapping.get("output_id")
+    if not _output_id_matches(owner, output_id):
+        raise GateError(f"{label}.output_id does not match output owner")
+    _check_canonical_output_id(scope, owner_path, output_id, label)
+
+
+def _check_canonical_output_id(
+    scope: _IdMappingScope, owner_path: Any, output_id: Any, label: str
+) -> None:
+    """Refuse a claimed output id that is not the deterministic canonical one."""
     expected_id = _expected_output_id(scope, owner_path, label)
     if output_id is not None and output_id != expected_id:
         raise GateError(f"{label}.output_id is not the deterministic canonical identity")
@@ -402,6 +409,13 @@ def _check_provenance_mapping(record: dict[str, Any], mapping: Any, label: str) 
     state_path = mapping.get("state_path")
     if state_path is None:
         return
+    _check_provenance_state(record, state_path, canonical, label)
+
+
+def _check_provenance_state(
+    record: dict[str, Any], state_path: Any, canonical: dict[str, Any], label: str
+) -> None:
+    """Refuse a state pointer whose provenance or kind drifts from canonical."""
     state = _mapping_value(record, state_path, f"{label}.state_path")
     if (
         not _carries_provenance(state, canonical)
