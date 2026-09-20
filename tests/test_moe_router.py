@@ -75,8 +75,10 @@ class Featurisation(unittest.TestCase):
         for _ in range(2):
             # The argv is `sys.executable` plus literals: the running
             # interpreter's absolute path avoids a PATH lookup, and the inline
-            # script needs only stdlib plus the PYTHONPATH above.
-            completed = subprocess.run(  # nosec B603 - fully static arguments
+            # script needs only stdlib plus the PYTHONPATH above. The
+            # subprocess itself is the point: a fresh interpreter proves the
+            # featurizer is deterministic across processes.
+            completed = subprocess.run(  # nosec B603  # nosemgrep: dangerous-subprocess-use-audit
                 [
                     sys.executable,
                     "-c",
