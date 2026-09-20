@@ -32,14 +32,17 @@ class CorruptionWindow(unittest.TestCase):
         with self.assertRaises(fr.oc.ContractError):
             simulator.run(test_scenario, test_disturbance)
 
-    def test_zero_requested_ratio_stays_uncorrupted(self):
-        result = fr.RelayReflexSimulator().run(
-            scenario(),
-            disturbance(
-                "burst_corruption", channels=["c0"], onset_ms=4.0, duration_ms=10.0, corrupt_ratio=0
-            ),
-        )
-        self.assertEqual(result.corrupt_events, 0)
+    def test_zero_requested_ratio_is_refused(self):
+        # A zero ratio corrupts nothing: the declared disturbance would run as
+        # a no-op and still emit an authoritative `continue` label.
+        with self.assertRaises(fr.oc.ContractError):
+            fr.RelayReflexSimulator().run(
+                scenario(),
+                disturbance(
+                    "burst_corruption", channels=["c0"], onset_ms=4.0,
+                    duration_ms=10.0, corrupt_ratio=0,
+                ),
+            )
 
     def test_existing_realised_corruption_counts_are_preserved(self):
         for ratio, duration, count in ((0.8, 10.0, 8), (0.2, 40.0, 6)):
