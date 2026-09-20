@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -36,9 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.shards < 1 or not 0 <= args.shard < args.shards:
         parser.error("--shard must satisfy 0 <= shard < shards, with shards >= 1")
 
-    chosen = [f"tests.{module}" for module in shard_modules(
-        discover_modules(), args.shard, args.shards
-    )]
+    chosen = shard_modules(discover_modules(), args.shard, args.shards)
     if args.list:
         print("\n".join(chosen))
         return 0
@@ -47,7 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.coverage:
         command.extend(["-m", "coverage", "run", "-p"])
     command.extend(["-m", "unittest", "-b", *chosen])
-    return subprocess.call(command, cwd=ROOT)
+    environment = os.environ.copy()
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = str(ROOT / "tests")
+    if existing_pythonpath:
+        environment["PYTHONPATH"] += os.pathsep + existing_pythonpath
+    return subprocess.call(command, cwd=ROOT, env=environment)
 
 
 if __name__ == "__main__":

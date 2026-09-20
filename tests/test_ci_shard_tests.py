@@ -38,7 +38,7 @@ class CiShardTests(unittest.TestCase):
         self.assertEqual(result, 0)
         listed = output.getvalue().splitlines()
         self.assertTrue(listed)
-        self.assertTrue(all(name.startswith("tests.test_") for name in listed))
+        self.assertTrue(all(name.startswith("test_") for name in listed))
 
 
 if __name__ == "__main__":
