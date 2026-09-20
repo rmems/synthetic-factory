@@ -66,20 +66,20 @@ class Featurisation(unittest.TestCase):
         # calls in one interpreter would agree either way, so this really has
         # to cross a process boundary with hash randomisation left on.
         import os
-        import subprocess  # nosec B404 - fixed interpreter and inline test script
+        import subprocess  # nosec B404 - fixed interpreter and static inline script
 
-        script = (
-            "import sys, json;"
-            f"sys.path.insert(0, {str(REPO / 'pipelines')!r});"
-            "import moe_router;"
-            "print(json.dumps(moe_router.featurize('relay gate')))"
-        )
         environment = dict(os.environ)
         environment.pop("PYTHONHASHSEED", None)
+        environment["PYTHONPATH"] = str(REPO / "pipelines")
         outputs = set()
         for _ in range(2):
-            completed = subprocess.run(  # nosec B603 - no untrusted arguments
-                [sys.executable, "-c", script],
+            completed = subprocess.run(  # nosec B603 - fully static arguments
+                [
+                    sys.executable,
+                    "-c",
+                    "import json, moe_router;"
+                    "print(json.dumps(moe_router.featurize('relay gate')))",
+                ],
                 capture_output=True,
                 text=True,
                 check=True,
