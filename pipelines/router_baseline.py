@@ -585,7 +585,10 @@ def evaluate_baselines(
             "adjust holdout_pct or add records"
         )
     scaled_train, scaled_test, scaler = standardize(train, test)
-    labels = sorted({sample.label for sample in samples})
+    # Class space comes from the training split only: a label that appears
+    # only in held-out rows must be a class the baseline was never told about,
+    # not one it silently can't predict.
+    labels = sorted({sample.label for sample in train})
     if len(labels) < 2:
         raise BaselineError("router labels are constant; nothing to distil")
 
