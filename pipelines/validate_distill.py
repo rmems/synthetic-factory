@@ -162,15 +162,20 @@ def _manifest_entry_errors(
 
 
 def _manifest_findings(
-    root: Path, paths: list[Path], records_per_file: dict[Path, int]
+    root: Path,
+    paths: list[Path],
+    records_per_file: dict[Path, int],
+    tally: _RunTally | None = None,
 ) -> list[dict[str, Any]]:
-    """Reconcile a run manifest's file bindings with the scanned files.
+    """Reconcile a run manifest's file bindings and summary with the run.
 
     A run directory's ``MANIFEST.json`` binds each family batch to its path,
     record count and SHA-256. Nothing reconciled those bindings, so removing
     an expected batch — or changing one and rehashing its records — returned
     ``blocked: false`` while the committed manifest still described different
-    bytes and totals.
+    bytes and totals. The ``validation`` summary is reconciled the same way:
+    a manifest claiming different totals than the freshly accumulated tally
+    hands consumers a validation-clean run that its own manifest disproves.
     """
 
     manifest_path = root / "MANIFEST.json"
@@ -197,7 +202,47 @@ def _manifest_findings(
                 "not bind it",
             )
         )
+    if tally is not None:
+        findings += _manifest_summary_findings(manifest_path, tally)
     return findings
+
+
+def _manifest_summary_findings(
+    manifest_path: Path, tally: _RunTally
+) -> list[dict[str, Any]]:
+    """Findings for a manifest validation summary that disagrees with the run."""
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []  # an unreadable manifest is already a finding upstream
+    if not isinstance(manifest, dict):
+        return []
+    validation = manifest.get("validation")
+    if not isinstance(validation, dict):
+        return []
+    actual = {
+        "records": tally.records,
+        "valid": tally.valid,
+        "invalid": tally.records - tally.valid,
+        "curation_eligible": tally.eligible,
+        "curation_ineligible_reasons": dict(sorted(tally.ineligible.items())),
+        "families": dict(sorted(tally.families.items())),
+        "fault_outcomes": dict(sorted(tally.outcomes.items())),
+        "preferred_policies": dict(sorted(tally.preferences.items())),
+    }
+    return [
+        _finding(
+            manifest_path,
+            f"MANIFEST.json validation.{field} is {validation[field]!r} but the "
+            f"scanned run tallies {actual[field]!r}",
+        )
+        for field in sorted(actual)
+        # Canonical-JSON comparison: Python's == conflates true with 1.0, so a
+        # manifest could claim a boolean where the tally is a number.
+        if field in validation
+        and oc.canonical_json(validation[field]) != oc.canonical_json(actual[field])
+    ]
 
 
 class _Location:
@@ -368,7 +413,7 @@ def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict
                 continue
             _process_record(obj, loc, tally, stamp)
 
-    tally.findings += _manifest_findings(root, paths, records_per_file)
+    tally.findings += _manifest_findings(root, paths, records_per_file, tally)
     return _build_report(root, paths, tally, strict)
 
 

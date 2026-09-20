@@ -47,6 +47,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
+from oracle_grounded import envelope  # noqa: E402
 from oracle_grounded import fault_vocabulary  # noqa: E402
 
 FAMILY = "neuromorphic-fault-recovery"
@@ -1837,7 +1838,10 @@ def _check_oracle_configuration_binding(
     # compares against that merged configuration, not the partial input.
     effective_system = {**DEFAULT_SYSTEM, **recorded_system}
     errors: list[str] = []
-    if configuration.get("system") != effective_system:
+    # Strict JSON equality: Python's == conflates true with 1.0, so a record
+    # could replace a numeric setting with a boolean, recompute its digest,
+    # and still claim the oracle block describes the replayed configuration.
+    if not envelope.strict_json_equal(configuration.get("system"), effective_system):
         errors.append(
             f"{where}.oracle.configuration.system does not match "
             "scenario.system — the oracle block must describe the "

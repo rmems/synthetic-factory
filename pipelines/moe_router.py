@@ -88,6 +88,11 @@ NON_TEACHER_IMPLEMENTATIONS = frozenset(
     {"pipelines/moe_router.py:ReferenceMoERouter"}
 )
 
+# The oracle types that can ground an authoritative routing label: a real
+# model router or a recording of one. An authoritative record claiming any
+# other type has no router behind it at all and fails closed.
+TEACHER_ORACLE_TYPES = frozenset({"real_model_router", "recorded_measurement"})
+
 # Slack allowed when the validator recomputes a summary from the recorded
 # logits. The logits are themselves stored rounded to 6 places, so an exact
 # comparison would reject honest records; anything wider than this would start
@@ -1345,7 +1350,26 @@ def _check_teacher_fingerprint(oracle: Any, fingerprint: Any, where: str) -> lis
         _check_fingerprint_identity(fingerprint, where)
         + _check_laundered_oracle(oracle, fingerprint, where)
         + _check_transformers_identity(oracle, where)
+        + _check_teacher_oracle_type(oracle, where)
     )
+
+
+def _check_teacher_oracle_type(oracle: Any, where: str) -> list[str]:
+    """An authoritative router record must name a teacher-capable oracle type."""
+
+    if not (
+        isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+    ):
+        return []
+    oracle_type = oracle.get("type")
+    if oc.is_enum_value(oracle_type, TEACHER_ORACLE_TYPES):
+        return []
+    return [
+        f"{where}.oracle.type: {oracle_type!r} is not a teacher-capable oracle "
+        f"type {sorted(TEACHER_ORACLE_TYPES)} — an authoritative routing label "
+        "must come from a model router or a recording of one"
+    ]
 
 
 def _check_is_llm_teacher(
