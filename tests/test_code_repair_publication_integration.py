@@ -88,6 +88,18 @@ class PublicationIntegrationTests(unittest.TestCase):
         cls.run_dir = cls.root / "original-run"
         generate.run(generate.RunRequest(REPO / "catalogs/python-repair-v1", cls.run_dir,
                                          20260908, 12, "2026-09-09T00:00:00.000Z"))
+        cls.template_factory = (cls.root / "template/outputs/raw/2099-01-01"
+                                / "python-function-repair-factory")
+        cls.template_factory.mkdir(parents=True)
+        publication.publish_run(
+            publication.PublishRequest(cls.run_dir, cls.template_factory, 1))
+
+    def published_factory(self, root):
+        """Copy the class-sealed round instead of re-running a real publish."""
+        factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
+        factory.parent.mkdir(parents=True)
+        shutil.copytree(self.template_factory, factory)
+        return factory
 
     def test_real_publish_preserves_selected_bytes_and_read_traversal_never_executes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -121,9 +133,7 @@ class PublicationIntegrationTests(unittest.TestCase):
     def test_edited_round_artifact_cannot_be_rebound_by_restamping_marker_hash(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(root)
             artifact_path = factory / publication.input_name(1)
             value = json.loads(artifact_path.read_text())
             run = json.loads(value["run_json"])
@@ -141,9 +151,7 @@ class PublicationIntegrationTests(unittest.TestCase):
     def test_completed_validation_refuses_rebound_identity_evidence_and_membership(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(root)
             batch = factory / "batch-r01.jsonl"
             marker = factory / "ROUND-r01.complete.json"
             original = json.loads(marker.read_text())
@@ -212,9 +220,7 @@ class PublicationIntegrationTests(unittest.TestCase):
 
     def test_snapshot_audit_requires_exact_completed_batch_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
-            factory = Path(directory) / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(Path(directory))
             payload = (factory / "batch-r01.jsonl").read_bytes()
             for name, contents in (("batch-r01.jsonl", b" " + payload),
                                    ("unpublished.jsonl", payload)):
@@ -227,9 +233,7 @@ class PublicationIntegrationTests(unittest.TestCase):
     def test_admitted_export_freshly_executes_even_with_a_valid_completed_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(root)
             sentinel, trap = root / "fresh-execution", root / "failing-interpreter"
             trap.write_text("#!/bin/sh\nprintf executed > " + shlex.quote(str(sentinel)) + "\nexit 1\n")
             trap.chmod(0o700)
@@ -245,9 +249,7 @@ class PublicationIntegrationTests(unittest.TestCase):
     def test_admitted_export_detects_artifact_swap_during_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(root)
             real_capture = rt.capture_regular_file
             swapped = []
 
@@ -294,9 +296,7 @@ class PublicationIntegrationTests(unittest.TestCase):
         for change in ("missing", "replaced", "corrupt"):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-                factory.mkdir(parents=True)
-                publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+                factory = self.published_factory(root)
                 mode = factory / rt.MODE_FILE
                 original_mode = mode.read_bytes()
                 real_gate = publication.fresh_gate
@@ -325,9 +325,7 @@ class PublicationIntegrationTests(unittest.TestCase):
     def test_admitted_export_refuses_missing_fake_foreign_and_partial_membership(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(root)
             marker = factory / "ROUND-r01.complete.json"
             fake = root / "fake.json"
             fake.write_bytes(marker.read_bytes())
@@ -400,9 +398,7 @@ class PublicationIntegrationTests(unittest.TestCase):
     def test_admitted_export_refuses_self_consistent_substituted_catalog_license(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.run_dir, factory, 1))
+            factory = self.published_factory(root)
             catalog = root / "catalog"
             shutil.copytree(REPO / "catalogs/python-repair-v1", catalog)
             changed = b"An arbitrary replacement with the same SPDX label.\n"
