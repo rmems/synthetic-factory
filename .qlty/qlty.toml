@@ -177,9 +177,14 @@ match.rules = [
 match.file_patterns = [
   "pipelines/round_txn.py",
   "pipelines/validate_run.py",
+  "pipelines/validate_run_routes.py",
   "pipelines/check_records.py",
   "pipelines/curate_gate_*.py",
   "pipelines/curate_identity_*.py",
+  "pipelines/export_replay.py",
+  "pipelines/rights_record.py",
+  "pipelines/training_audit_*.py",
+  "tests/gate_fixture.py",
   ".claude/skills/run-synthetic-factory/driver.py",
 ]
 set.ignored = true
