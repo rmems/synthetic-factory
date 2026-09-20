@@ -52,7 +52,8 @@ ROUTER_COUNT = 80
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Called only on files this script just wrote beneath its --out tree.
+    return hashlib.sha256(path.read_bytes()).hexdigest()  # NOSONAR
 
 
 # The identity this script writes into every manifest it produces.

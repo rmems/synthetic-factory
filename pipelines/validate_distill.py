@@ -117,7 +117,11 @@ def _load_manifest_files(manifest_path: Path) -> tuple[dict[str, Any] | None, st
     """The manifest's ``files`` map, or the reason it cannot bind anything."""
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        # manifest_path is root / "MANIFEST.json" inside the run the operator
+        # named; reading that manifest is the validator's purpose.
+        manifest = json.loads(  # NOSONAR
+            manifest_path.read_text(encoding="utf-8")  # NOSONAR
+        )
     except (OSError, ValueError) as exc:
         return None, f"MANIFEST.json cannot be read as JSON ({exc})"
     files = manifest.get("files") if isinstance(manifest, dict) else None

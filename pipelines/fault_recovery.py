@@ -1175,8 +1175,8 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
     for index in range(count):
         kind = DISTURBANCES[index % len(DISTURBANCES)]
         system = dict(DEFAULT_SYSTEM)
-        system["min_healthy_channels"] = rng.choice([2, 3])
-        if rng.random() < 0.2:
+        system["min_healthy_channels"] = rng.choice([2, 3])  # NOSONAR - seeded data generation
+        if rng.random() < 0.2:  # NOSONAR - seeded data generation
             system["fallback_source"] = None
         channels = list(system["channels"])
         disturbance = _disturbance(rng, kind, channels)

@@ -469,7 +469,8 @@ class RecordedTeacherRouter(RouterOracle):
 
     @classmethod
     def from_path(cls, path) -> "RecordedTeacherRouter":
-        return cls(json.loads(Path(path).read_text(encoding="utf-8")))
+        # The operator names the recording; reading it is the method's purpose.
+        return cls(json.loads(Path(path).read_text(encoding="utf-8")))  # NOSONAR
 
     @staticmethod
     def key_for(text: str) -> str:
@@ -857,9 +858,9 @@ def propose_contexts(
     for index in range(count):
         domain, template = CONTEXT_TEMPLATES[index % len(CONTEXT_TEMPLATES)]
         text = template.format(
-            noun=rng.choice(TEMPLATE_NOUNS),
-            adj=rng.choice(TEMPLATE_ADJECTIVES),
-            digit=rng.randrange(10),
+            noun=rng.choice(TEMPLATE_NOUNS),  # NOSONAR - seeded data generation, not security
+            adj=rng.choice(TEMPLATE_ADJECTIVES),  # NOSONAR - seeded data generation
+            digit=rng.randrange(10),  # NOSONAR - seeded data generation
         )
         features = featurize(text, feature_dim)
         compact_dim = min(feature_dim, COMPACT_DIM)
