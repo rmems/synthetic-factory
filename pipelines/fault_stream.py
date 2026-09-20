@@ -53,7 +53,7 @@ class _StreamState:
         self.system = system
         self.channel_count = len(channels)
         self.live_channels = live_channels
-        self.last_fresh_ms = {channel: 0.0 for channel in channels}
+        self.last_fresh_ms = dict.fromkeys(channels, 0.0)
         self.saturated_since: dict[str, int] = {}
         self.saturated_ticks = 0
         self.dropped = 0

@@ -242,15 +242,17 @@ class Baselines(unittest.TestCase):
 
     def test_a_tiny_dataset_is_refused(self):
         samples = separable_samples(count=4)
+        knobs = rb.EvaluationKnobs(**FAST)
         with self.assertRaises(rb.BaselineError):
-            rb.evaluate_baselines(samples, rb.EvaluationKnobs(**FAST))
+            rb.evaluate_baselines(samples, knobs)
 
     def test_a_constant_target_is_refused(self):
         samples = [
             rb.Sample(f"c-{index}", (float(index), 1.0), 0) for index in range(20)
         ]
+        knobs = rb.EvaluationKnobs(**FAST)
         with self.assertRaises(rb.BaselineError):
-            rb.evaluate_baselines(samples, rb.EvaluationKnobs(**FAST))
+            rb.evaluate_baselines(samples, knobs)
 
 
 class EscalationGate(unittest.TestCase):

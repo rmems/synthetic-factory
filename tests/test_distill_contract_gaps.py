@@ -516,8 +516,9 @@ class NinthRoundContractGaps(unittest.TestCase):
             {"nonlinear_margin": math.nan},
         ):
             with self.subTest(knobs=knobs):
+                knob_set = rb.EvaluationKnobs(**knobs)
                 with self.assertRaises(rb.BaselineError):
-                    rb.evaluate_baselines(samples, rb.EvaluationKnobs(**knobs))
+                    rb.evaluate_baselines(samples, knob_set)
 
 
 

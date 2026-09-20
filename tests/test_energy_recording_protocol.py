@@ -20,8 +20,9 @@ class RecordingProtocol(unittest.TestCase):
     def test_changed_repeat_or_warmup_protocol_is_not_replayed(self):
         meter = recorded_meter()
         for protocol in ({"repeats": 6}, {"warmup": 2}):
+            spec = ep.MeterSpec(meter=meter, **protocol)
             with self.subTest(protocol=protocol), self.assertRaises(oc.OracleUnavailable):
-                ep.build_records(21, 1, ep.MeterSpec(meter=meter, **protocol))
+                ep.build_records(21, 1, spec)
 
     def test_matching_nondefault_protocol_replays_and_reports_original_settings(self):
         meter = recorded_meter(repeats=3, warmup=0)

@@ -106,8 +106,9 @@ class FourthRoundBaselineGaps(unittest.TestCase):
             {"logistic_iterations": True},
         ):
             with self.subTest(**kwargs):
+                knobs = rb.EvaluationKnobs(**kwargs)
                 with self.assertRaises(rb.BaselineError) as caught:
-                    rb.evaluate_baselines([], rb.EvaluationKnobs(**kwargs))
+                    rb.evaluate_baselines([], knobs)
                 self.assertIn("positive integer", str(caught.exception))
 
 

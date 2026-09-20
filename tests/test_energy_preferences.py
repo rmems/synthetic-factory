@@ -296,8 +296,9 @@ class MeterBoundary(unittest.TestCase):
                 "observations": {"analytic_kkt": {"cost_value": 8.0}},
             }
         )
+        spec = ep.MeterSpec(meter=meter)
         with self.assertRaises(oc.OracleUnavailable):
-            ep.build_records(21, 1, ep.MeterSpec(meter=meter))
+            ep.build_records(21, 1, spec)
 
     def test_a_workload_key_binds_the_policy_to_the_scenario(self):
         first, second = ep.propose_scenarios(21, 2)
@@ -477,8 +478,9 @@ class DeterministicMeterPaths(unittest.TestCase):
                 return False, "counter not readable"
 
         meter = DeadMeter()
+        spec = ep.MeterSpec(meter=meter)
         with self.assertRaises(oc.OracleUnavailable):
-            ep.build_records(7, 1, ep.MeterSpec(meter=meter))
+            ep.build_records(7, 1, spec)
 
 
 class FamilyChecks(unittest.TestCase):

@@ -163,10 +163,10 @@ class ReferenceRouter(unittest.TestCase):
         self.assertLessEqual(observation.expert_agreement, 1.0)
 
     def test_configuration_is_refused_when_top_k_cannot_define_a_margin(self):
-        with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(shape=mr.GateShape(top_k=1))
-        with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(shape=mr.GateShape(num_experts=2, top_k=2))
+        for kwargs in ({"top_k": 1}, {"num_experts": 2, "top_k": 2}):
+            with self.subTest(**kwargs):
+                with self.assertRaises(oc.ContractError):
+                    mr.GateShape(**kwargs)
 
 
 class RecordedTeacher(unittest.TestCase):

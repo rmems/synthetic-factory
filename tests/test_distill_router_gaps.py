@@ -88,10 +88,10 @@ class RouterGaps(unittest.TestCase):
         )
 
     def test_a_reference_router_needs_at_least_one_layer(self):
-        with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(shape=mr.GateShape(num_layers=0))
-        with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(shape=mr.GateShape(num_layers=-1))
+        for num_layers in (0, -1):
+            with self.subTest(num_layers=num_layers):
+                with self.assertRaises(oc.ContractError):
+                    mr.GateShape(num_layers=num_layers)
 
     def test_a_mutable_teacher_revision_is_refused(self):
         # A branch name is not a checkpoint: the same name can serve different
@@ -503,8 +503,9 @@ class ThirdRoundRouterGaps(unittest.TestCase):
         # learnable verdict no finite threshold would grant.
         for bad in (float("nan"), float("inf"), -0.05):
             with self.subTest(min_lift=bad):
+                knobs = rb.EvaluationKnobs(min_lift=bad)
                 with self.assertRaises(rb.BaselineError) as caught:
-                    rb.evaluate_baselines([], rb.EvaluationKnobs(min_lift=bad))
+                    rb.evaluate_baselines([], knobs)
                 self.assertIn("min_lift", str(caught.exception))
 
 
