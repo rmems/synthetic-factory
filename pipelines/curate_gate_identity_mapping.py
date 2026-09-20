@@ -162,12 +162,16 @@ def _tally_provenance_mappings(tally: _MappingTally, context: _MappingEntry) -> 
 
 def _tally_native(tally, context):
     if __package__:
-        from .curate_parity import authenticate, is_native
+        from . import curate_gate_simulator_identity as _simulator
+        from . import curate_parity as _parity
     else:
-        from curate_parity import authenticate, is_native
-    if not is_native(context.entry, context.record) and (
-        curate_identity.classify_kind(context.record) != "fault_recovery"
-    ):
+        import curate_gate_simulator_identity as _simulator
+        import curate_parity as _parity
+    if _parity.is_native(context.entry, context.record):
+        authenticate = _parity.authenticate
+    elif curate_identity.classify_kind(context.record) == "fault_recovery":
+        authenticate = _simulator.authenticate
+    else:
         return False
     # Preserved simulator records authenticate by full mapping replay, the same
     # contract as native parity — no rewritten identity evidence.
