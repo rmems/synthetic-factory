@@ -61,51 +61,39 @@ from oracle_grounded import envelope  # noqa: E402,F401
 from oracle_grounded import fault_vocabulary  # noqa: E402,F401
 
 if __package__:
-    from .fault_check import check_family
-    from .fault_records import build_records, propose_scenarios
-    from .fault_simulator import (
-        DEFAULT_SYSTEM,
-        DISTURBANCES,
-        FAMILY,
-        GENERATOR_NAME,
-        GENERATOR_VERSION,
-        MALFORMED_INTEGRITY_KINDS,
-        MALFORMED_KINDS,
-        ORACLE_IMPLEMENTATION,
-        ORACLE_NAME,
-        ORACLE_VERSION,
-        OUTCOME_LABELS,
-        OUTCOME_PRECEDENCE,
-        OUTCOMES,
-        PARAMETER_SPEC,
-        FaultOracle,
-        FaultResult,
-        RelayReflexSimulator,
-        describe,
-    )
+    from . import fault_check as _fault_check
+    from . import fault_records as _fault_records
+    from . import fault_simulator as _fault_simulator
+    from . import fault_types as _fault_types
+    from .fault_records import build_records
+    from .fault_types import describe
 else:
-    from fault_check import check_family
-    from fault_records import build_records, propose_scenarios
-    from fault_simulator import (
-        DEFAULT_SYSTEM,
-        DISTURBANCES,
-        FAMILY,
-        GENERATOR_NAME,
-        GENERATOR_VERSION,
-        MALFORMED_INTEGRITY_KINDS,
-        MALFORMED_KINDS,
-        ORACLE_IMPLEMENTATION,
-        ORACLE_NAME,
-        ORACLE_VERSION,
-        OUTCOME_LABELS,
-        OUTCOME_PRECEDENCE,
-        OUTCOMES,
-        PARAMETER_SPEC,
-        FaultOracle,
-        FaultResult,
-        RelayReflexSimulator,
-        describe,
-    )
+    import fault_check as _fault_check
+    import fault_records as _fault_records
+    import fault_simulator as _fault_simulator
+    import fault_types as _fault_types
+    from fault_records import build_records
+    from fault_types import describe
+
+
+def _reexport(module: Any, names: str) -> None:
+    globals().update({name: getattr(module, name) for name in names.split()})
+
+
+_reexport(
+    _fault_types,
+    """
+    DEFAULT_SYSTEM DISTURBANCES FAMILY GENERATOR_NAME GENERATOR_VERSION
+    MALFORMED_INTEGRITY_KINDS MALFORMED_KINDS ORACLE_IMPLEMENTATION ORACLE_NAME
+    ORACLE_VERSION OUTCOME_LABELS OUTCOME_PRECEDENCE OUTCOMES PARAMETER_SPEC
+    FaultOracle FaultResult describe
+    """,
+)
+_reexport(_fault_simulator, "RelayReflexSimulator")
+_reexport(_fault_records, "build_records propose_scenarios")
+_reexport(_fault_check, "check_family")
+
+del _reexport, _fault_check, _fault_records, _fault_simulator, _fault_types
 
 
 def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands return 0

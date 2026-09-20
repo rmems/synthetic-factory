@@ -214,7 +214,11 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
 
     meter, meter_probe = energy_preferences.select_meter(prefer_energy=True)
     energy_records = energy_preferences.build_records(
-        ENERGY_SEED, ENERGY_COUNT, meter=meter, meter_probe=meter_probe, repeats=5
+        ENERGY_SEED,
+        ENERGY_COUNT,
+        energy_preferences.MeterSpec(
+            meter=meter, meter_probe=meter_probe, repeats=5
+        ),
     )
 
     router_probe = moe_router.oracles_report()

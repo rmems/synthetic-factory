@@ -13,13 +13,11 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from oracle_grounded import distill_contract as oc  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -114,6 +112,17 @@ def grid_allocation(
 
 
 @dataclass(frozen=True)
+class ProblemSpec:
+    """The task instance an allocation is solved for and scored against."""
+
+    demand: float
+    weights: list[float]
+    caps: list[float]
+    optimum: float
+    quality_floor: float
+
+
+@dataclass(frozen=True)
 class PolicyEvaluation:
     """Quality and safety of one policy's allocation, both measured."""
 
@@ -125,13 +134,7 @@ class PolicyEvaluation:
 
 
 def evaluate_allocation(
-    allocation: list[float] | None,
-    *,
-    demand: float,
-    weights: list[float],
-    caps: list[float],
-    optimum: float,
-    quality_floor: float,
+    allocation: list[float] | None, problem: ProblemSpec
 ) -> PolicyEvaluation:
     """Score an allocation against the task objective and safety envelope.
 
@@ -149,21 +152,21 @@ def evaluate_allocation(
         )
 
     violations: list[str] = []
-    for index, (value, cap) in enumerate(zip(allocation, caps)):
+    for index, (value, cap) in enumerate(zip(allocation, problem.caps)):
         if value > cap + 1e-9:
             violations.append(f"ACTUATOR_{index}_OVER_CAP")
         if value < -1e-9:
             violations.append(f"ACTUATOR_{index}_NEGATIVE")
     total = sum(allocation)
-    if abs(total - demand) > 1e-6:
+    if abs(total - problem.demand) > 1e-6:
         violations.append("DEMAND_NOT_MET")
-    achieved = objective(weights, allocation)
-    quality = 0.0 if achieved <= 0 else min(1.0, optimum / achieved)
+    achieved = objective(problem.weights, allocation)
+    quality = 0.0 if achieved <= 0 else min(1.0, problem.optimum / achieved)
     safety_ok = not violations
     return PolicyEvaluation(
         allocation=tuple(round(value, 9) for value in allocation),
         task_quality=round(quality, 6),
         safety_ok=safety_ok,
         violations=tuple(violations),
-        success=bool(safety_ok and quality >= quality_floor),
+        success=bool(safety_ok and quality >= problem.quality_floor),
     )

@@ -66,107 +66,69 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
-    from .energy_check import check_family
-    from .energy_contract import (
-        ABSTAIN_NO_FEASIBLE,
-        ABSTAIN_NO_MEASUREMENT,
-        DECISION_RULE,
-        DEFAULT_COARSE_STEPS,
-        DEFAULT_FINE_STEPS,
-        FAMILY,
-        GENERATOR_NAME,
-        GENERATOR_VERSION,
-        MAX_ACTUATORS,
-        MAX_REPLAY_STEPS,
-        ORACLE_LABEL_POLICY,
-        POLICY_SUITE_VERSION,
-        PREFERENCE_OBJECTIVE,
-        QUALITY_TOLERANCE,
-        SAFETY_ENVELOPE,
-        SUPPORTED_COST_QUANTITIES,
-    )
-    from .energy_generator import (
-        POLICY_DESCRIPTIONS,
-        build_records,
-        choose_preference,
-        propose_scenarios,
-        workload_key,
-        _check_run_knobs,
-        _feasible_candidates,
-        _policy_workloads,
-    )
-    from .energy_meters import (
-        EnergyOracle,
-        MeterReading,
-        ProcessResourceMeter,
-        RaplEnergyMeter,
-        RecordedEnergyMeter,
-        meters_report,
-        select_meter,
-        _context_switches,
-        _peak_rss_kb,
-        _reset_peak_rss,
-        resource,
-    )
-    from .energy_task import (
-        PolicyEvaluation,
-        analytic_allocation,
-        evaluate_allocation,
-        grid_allocation,
-        objective,
-        unclipped_allocation,
-    )
+    from . import energy_check as _energy_check
+    from . import energy_contract as _energy_contract
+    from . import energy_generator as _energy_generator
+    from . import energy_meters as _energy_meters
+    from . import energy_task as _energy_task
+    from .energy_generator import MeterSpec, build_records
+    from .energy_meters import meters_report
 else:
-    from energy_check import check_family
-    from energy_contract import (
-        ABSTAIN_NO_FEASIBLE,
-        ABSTAIN_NO_MEASUREMENT,
-        DECISION_RULE,
-        DEFAULT_COARSE_STEPS,
-        DEFAULT_FINE_STEPS,
-        FAMILY,
-        GENERATOR_NAME,
-        GENERATOR_VERSION,
-        MAX_ACTUATORS,
-        MAX_REPLAY_STEPS,
-        ORACLE_LABEL_POLICY,
-        POLICY_SUITE_VERSION,
-        PREFERENCE_OBJECTIVE,
-        QUALITY_TOLERANCE,
-        SAFETY_ENVELOPE,
-        SUPPORTED_COST_QUANTITIES,
-    )
-    from energy_generator import (
-        POLICY_DESCRIPTIONS,
-        build_records,
-        choose_preference,
-        propose_scenarios,
-        workload_key,
-        _check_run_knobs,
-        _feasible_candidates,
-        _policy_workloads,
-    )
-    from energy_meters import (
-        EnergyOracle,
-        MeterReading,
-        ProcessResourceMeter,
-        RaplEnergyMeter,
-        RecordedEnergyMeter,
-        meters_report,
-        select_meter,
-        _context_switches,
-        _peak_rss_kb,
-        _reset_peak_rss,
-        resource,
-    )
-    from energy_task import (
-        PolicyEvaluation,
-        analytic_allocation,
-        evaluate_allocation,
-        grid_allocation,
-        objective,
-        unclipped_allocation,
-    )
+    import energy_check as _energy_check
+    import energy_contract as _energy_contract
+    import energy_generator as _energy_generator
+    import energy_meters as _energy_meters
+    import energy_task as _energy_task
+    from energy_generator import MeterSpec, build_records
+    from energy_meters import meters_report
+
+
+def _reexport(module: Any, names: str) -> None:
+    globals().update({name: getattr(module, name) for name in names.split()})
+
+
+_reexport(
+    _energy_contract,
+    """
+    ABSTAIN_NO_FEASIBLE ABSTAIN_NO_MEASUREMENT DECISION_RULE DEFAULT_COARSE_STEPS
+    DEFAULT_FINE_STEPS FAMILY GENERATOR_NAME GENERATOR_VERSION MAX_ACTUATORS
+    MAX_REPLAY_STEPS ORACLE_LABEL_POLICY POLICY_SUITE_VERSION PREFERENCE_OBJECTIVE
+    QUALITY_TOLERANCE SAFETY_ENVELOPE SUPPORTED_COST_QUANTITIES
+    """,
+)
+_reexport(
+    _energy_meters,
+    """
+    EnergyOracle MeterReading ProcessResourceMeter RaplEnergyMeter
+    RecordedEnergyMeter meters_report select_meter resource
+    _context_switches _peak_rss_kb _reset_peak_rss
+    """,
+)
+_reexport(
+    _energy_task,
+    """
+    PolicyEvaluation ProblemSpec analytic_allocation evaluate_allocation
+    grid_allocation objective unclipped_allocation
+    """,
+)
+_reexport(
+    _energy_generator,
+    """
+    MeterProtocol MeterSpec POLICY_DESCRIPTIONS build_records choose_preference
+    propose_scenarios workload_key
+    _check_run_knobs _feasible_candidates _policy_workloads
+    """,
+)
+_reexport(_energy_check, "check_family")
+
+del (
+    _reexport,
+    _energy_check,
+    _energy_contract,
+    _energy_generator,
+    _energy_meters,
+    _energy_task,
+)
 
 
 def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands return 0
@@ -187,7 +149,9 @@ def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands
         print(json.dumps(meters_report(), indent=2, sort_keys=True))
         return 0
 
-    records = build_records(args.seed, args.count, repeats=args.repeats)
+    records = build_records(
+        args.seed, args.count, MeterSpec(repeats=args.repeats)
+    )
     if args.output:
         written = oc.write_jsonl(args.output, records)
         print(json.dumps({"written": written, "output": args.output}, indent=2))

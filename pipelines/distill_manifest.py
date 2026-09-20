@@ -12,13 +12,19 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
+
+if TYPE_CHECKING:
+    if __package__:
+        from .distill_records import _RunTally
+    else:
+        from distill_records import _RunTally
 
 def jsonl_paths(root: Path) -> list[Path]:
     if root.is_file():

@@ -64,7 +64,7 @@ def propose_contexts(
 
     ``feature_dim`` is the oracle's configured gate width: the compact input
     is a view of the features the router actually gated on, so a non-default
-    ``ReferenceMoERouter(dim=...)`` must produce a compact input over that
+    ``ReferenceMoERouter(shape=GateShape(dim=...))`` must produce a compact input over that
     width rather than the 48-dimensional default.
     """
 

@@ -8,6 +8,7 @@ import math
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -163,9 +164,9 @@ class ReferenceRouter(unittest.TestCase):
 
     def test_configuration_is_refused_when_top_k_cannot_define_a_margin(self):
         with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(top_k=1)
+            mr.ReferenceMoERouter(shape=mr.GateShape(top_k=1))
         with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(num_experts=2, top_k=2)
+            mr.ReferenceMoERouter(shape=mr.GateShape(num_experts=2, top_k=2))
 
 
 class RecordedTeacher(unittest.TestCase):
@@ -505,18 +506,21 @@ class SealedHubMoEBinding(unittest.TestCase):
     """Fail-closed sealed Hub card / teacher-logits / revision binding."""
 
     MIXTRAL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    MIXTRAL_CONFIG_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
     @staticmethod
-    def _mixtral_layer(template, index, num_experts, top_k, with_logits):
+    def _mixtral_layer(template, index, shape, with_logits):
         layer = json.loads(json.dumps(template))
         layer["layer"] = index
         if not with_logits:
             layer.pop("router_logits", None)
-            layer["top_k_experts"] = list(range(top_k))
+            layer["top_k_experts"] = list(range(shape.top_k))
             return layer
 
-        top = _distinct_top_k(layer["top_k_experts"], num_experts, top_k)
-        logits = [-5.0] * num_experts
+        top = _distinct_top_k(
+            layer["top_k_experts"], shape.num_experts, shape.top_k
+        )
+        logits = [-5.0] * shape.num_experts
         for rank, expert in enumerate(top):
             logits[expert] = 10.0 - 0.01 * rank
         layer["top_k_experts"] = top
@@ -530,52 +534,60 @@ class SealedHubMoEBinding(unittest.TestCase):
         ), 6)
         return layer
 
-    def _mixtral_authoritative(self, *, num_layers=32, num_experts=8, top_k=2,
-                               revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                               config_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                               with_logits=True):
-        # Build from a reference record then rewrite the oracle identity so the
-        # scenario / derived labels stay internally consistent where possible.
-        record = json.loads(json.dumps(mr.build_records(3, 1)[0]))
+    def _mixtral_layers(self, record, shape, with_logits):
         # Expand to Mixtral depth when needed by repeating the last honest layer
         # shape with contiguous indices (tests that only care about cardinality
         # / revision / logits presence do not need a real Mixtral run).
         base_layers = record["result"]["routing"]["layers"]
         template = json.loads(json.dumps(base_layers[0]))
-        layers = [
-            self._mixtral_layer(
-                template, index, num_experts, top_k, with_logits
-            )
-            for index in range(num_layers)
+        return [
+            self._mixtral_layer(template, index, shape, with_logits)
+            for index in range(shape.num_layers)
         ]
-        tops = [layer["top_k_experts"][0] for layer in layers]
-        from collections import Counter
-        modal, count = Counter(tops).most_common(1)[0]
-        record["oracle"]["authority"] = oc.AUTHORITY_AUTHORITATIVE
-        record["oracle"]["name"] = "mixtral-8x7b-instruct"
-        record["oracle"]["type"] = "real_model_router"
-        record["oracle"]["implementation"] = mr.TRANSFORMERS_MOE_IMPLEMENTATION
-        record["oracle"]["fingerprint"] = {
+
+    def _write_teacher_identity(self, record, shape, revision):
+        oracle = record["oracle"]
+        oracle["authority"] = oc.AUTHORITY_AUTHORITATIVE
+        oracle["name"] = "mixtral-8x7b-instruct"
+        oracle["type"] = "real_model_router"
+        oracle["implementation"] = mr.TRANSFORMERS_MOE_IMPLEMENTATION
+        oracle["fingerprint"] = {
             "model": self.MIXTRAL,
             "revision_or_checkpoint": revision,
-            "configuration_sha256": config_sha,
+            "configuration_sha256": self.MIXTRAL_CONFIG_SHA,
             "is_llm_teacher": True,
-            "num_local_experts": num_experts,
-            "num_experts_per_tok": top_k,
-            "num_layers": num_layers,
+            "num_local_experts": shape.num_experts,
+            "num_experts_per_tok": shape.top_k,
+            "num_layers": shape.num_layers,
         }
-        record["result"]["is_llm_teacher"] = True
-        record["result"]["teacher_grounded"] = True
-        record["result"]["routing"]["layers"] = layers
-        record["result"]["routing"]["top1_expert"] = modal
-        record["result"]["routing"]["expert_agreement"] = count / len(tops)
-        record["result"]["top1_expert"] = modal
+
+    @staticmethod
+    def _write_teacher_result(record, layers):
+        tops = [layer["top_k_experts"][0] for layer in layers]
+        modal, count = Counter(tops).most_common(1)[0]
+        result = record["result"]
+        result["is_llm_teacher"] = True
+        result["teacher_grounded"] = True
+        result["routing"]["layers"] = layers
+        result["routing"]["top1_expert"] = modal
+        result["routing"]["expert_agreement"] = count / len(tops)
+        result["top1_expert"] = modal
         # Drop measurements that would disagree with rewritten routing.
-        record["result"]["measurements"] = []
+        result["measurements"] = []
+
+    def _mixtral_authoritative(self, *, shape=None, revision=("a" * 40),
+                               with_logits=True):
+        # Build from a reference record then rewrite the oracle identity so the
+        # scenario / derived labels stay internally consistent where possible.
+        gate = shape or mr.GateShape(num_layers=32)
+        record = json.loads(json.dumps(mr.build_records(3, 1)[0]))
+        layers = self._mixtral_layers(record, gate, with_logits)
+        self._write_teacher_identity(record, gate, revision)
+        self._write_teacher_result(record, layers)
         return record
 
     def test_inflated_expert_cardinality_is_rejected(self):
-        record = self._mixtral_authoritative(num_experts=32)
+        record = self._mixtral_authoritative(shape=mr.GateShape(num_layers=32, num_experts=32))
         errors = mr.check_family(record, "x")
         self.assertTrue(
             any("SEALED_HUB_MOE_CARDINALITY" in e and "num_local_experts" in e
@@ -584,7 +596,7 @@ class SealedHubMoEBinding(unittest.TestCase):
         )
 
     def test_deflated_layer_cardinality_is_rejected(self):
-        record = self._mixtral_authoritative(num_layers=2)
+        record = self._mixtral_authoritative(shape=mr.GateShape(num_layers=2))
         errors = mr.check_family(record, "x")
         self.assertTrue(
             any("SEALED_HUB_MOE_CARDINALITY" in e and "num_layers" in e

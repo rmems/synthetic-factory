@@ -20,10 +20,10 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
-from oracle_grounded import envelope  # noqa: E402
 
 if __package__:
-    from .fault_simulator import (
+    from .fault_simulator import RelayReflexSimulator
+    from .fault_types import (
         DEFAULT_SYSTEM,
         DISTURBANCES,
         FAMILY,
@@ -33,11 +33,11 @@ if __package__:
         OUTCOME_LABELS,
         FaultOracle,
         FaultResult,
-        RelayReflexSimulator,
         _oracle_meters,
     )
 else:
-    from fault_simulator import (
+    from fault_simulator import RelayReflexSimulator
+    from fault_types import (
         DEFAULT_SYSTEM,
         DISTURBANCES,
         FAMILY,
@@ -47,7 +47,6 @@ else:
         OUTCOME_LABELS,
         FaultOracle,
         FaultResult,
-        RelayReflexSimulator,
         _oracle_meters,
     )
 

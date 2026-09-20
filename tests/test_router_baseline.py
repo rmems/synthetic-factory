@@ -180,7 +180,7 @@ class Baselines(unittest.TestCase):
         # places the whole class on a single side (identical inputs never
         # straddle) and the old pass was memorisation of duplicated inputs,
         # not generalisation to unseen points.
-        report = rb.evaluate_baselines(separable_samples(noise=0.3), **FAST)
+        report = rb.evaluate_baselines(separable_samples(noise=0.3), rb.EvaluationKnobs(**FAST))
         self.assertGreater(
             report["baselines"]["logistic_regression"]["accuracy"], 0.9
         )
@@ -190,7 +190,8 @@ class Baselines(unittest.TestCase):
         for count in (120, 300):
             with self.subTest(count=count):
                 report = rb.evaluate_baselines(
-                    random_label_samples(count=count), **FAST
+                    random_label_samples(count=count),
+                    rb.EvaluationKnobs(**FAST),
                 )
                 self.assertEqual(report["verdict"], rb.VERDICT_NOT_LEARNABLE)
                 self.assertLess(
@@ -207,7 +208,10 @@ class Baselines(unittest.TestCase):
             for index in range(12)
         ]
         report = rb.evaluate_baselines(
-            samples, logistic_iterations=20, mlp_iterations=20, mlp_hidden=4
+            samples,
+            rb.EvaluationKnobs(
+                logistic_iterations=20, mlp_iterations=20, mlp_hidden=4
+            ),
         )
         self.assertGreater(report["test_accuracy_stderr"], 0.0)
         self.assertEqual(report["stderr_method"], "agresti_coull")
@@ -216,7 +220,7 @@ class Baselines(unittest.TestCase):
 
     def test_a_holdout_below_the_floor_never_escalates(self):
         samples = separable_samples(count=30)
-        report = rb.evaluate_baselines(samples, min_test_records=1000, **FAST)
+        report = rb.evaluate_baselines(samples, rb.EvaluationKnobs(min_test_records=1000, **FAST))
         self.assertEqual(report["verdict"], rb.VERDICT_NOT_LEARNABLE)
         gate = rb.escalation_gate(report)
         self.assertFalse(gate["escalate_to_snn"])
@@ -226,27 +230,27 @@ class Baselines(unittest.TestCase):
         # 120 random-label samples leave a ~34-record holdout, on which noise
         # alone produced a ~0.12 lift. The two-standard-error floor is what
         # keeps that from reading as a learnable target.
-        report = rb.evaluate_baselines(random_label_samples(count=120), **FAST)
+        report = rb.evaluate_baselines(random_label_samples(count=120), rb.EvaluationKnobs(**FAST))
         self.assertGreater(report["required_lift"], report["min_lift"])
         self.assertEqual(report["verdict"], rb.VERDICT_NOT_LEARNABLE)
 
     def test_baselines_are_deterministic(self):
         samples = separable_samples(noise=0.4)
-        first = rb.evaluate_baselines(samples, **FAST)
-        second = rb.evaluate_baselines(list(samples), **FAST)
+        first = rb.evaluate_baselines(samples, rb.EvaluationKnobs(**FAST))
+        second = rb.evaluate_baselines(list(samples), rb.EvaluationKnobs(**FAST))
         self.assertEqual(first["baselines"], second["baselines"])
 
     def test_a_tiny_dataset_is_refused(self):
         samples = separable_samples(count=4)
         with self.assertRaises(rb.BaselineError):
-            rb.evaluate_baselines(samples, **FAST)
+            rb.evaluate_baselines(samples, rb.EvaluationKnobs(**FAST))
 
     def test_a_constant_target_is_refused(self):
         samples = [
             rb.Sample(f"c-{index}", (float(index), 1.0), 0) for index in range(20)
         ]
         with self.assertRaises(rb.BaselineError):
-            rb.evaluate_baselines(samples, **FAST)
+            rb.evaluate_baselines(samples, rb.EvaluationKnobs(**FAST))
 
 
 class EscalationGate(unittest.TestCase):
@@ -284,7 +288,7 @@ class AgainstRealRouterRecords(unittest.TestCase):
     def test_the_reference_router_target_gets_a_real_verdict(self):
         records = mr.build_records(11, 120)
         samples = rb.dataset_from_records(records)
-        report = rb.evaluate_baselines(samples, **FAST)
+        report = rb.evaluate_baselines(samples, rb.EvaluationKnobs(**FAST))
         self.assertIn(
             report["verdict"],
             {rb.VERDICT_NOT_LEARNABLE, rb.VERDICT_LINEAR, rb.VERDICT_NONLINEAR},

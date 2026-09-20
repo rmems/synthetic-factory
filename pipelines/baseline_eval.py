@@ -8,10 +8,9 @@ Runs the three conventional baselines on the extracted dataset, decides the
 
 from __future__ import annotations
 
-import argparse
-import json
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +33,8 @@ if __package__:
         standardize,
     )
     from .baseline_models import (
+        LogisticHyper,
+        MlpHyper,
         logistic_baseline,
         majority_baseline,
         mlp_baseline,
@@ -49,6 +50,8 @@ else:
         standardize,
     )
     from baseline_models import (
+        LogisticHyper,
+        MlpHyper,
         logistic_baseline,
         majority_baseline,
         mlp_baseline,
@@ -75,21 +78,25 @@ def _significance_floor(
     return stderr, round(max(min_lift, 2.0 * stderr), 6)
 
 
-def _verdict(
-    *,
-    lift: float,
-    required_lift: float,
-    test_count: int,
-    min_test_records: int,
-    mlp_accuracy: float,
-    logistic_accuracy: float,
-    nonlinear_margin: float,
-) -> str:
-    if test_count < min_test_records:
+@dataclass(frozen=True)
+class _VerdictInputs:
+    """The numbers the escalation verdict is a function of."""
+
+    lift: float
+    required_lift: float
+    test_count: int
+    min_test_records: int
+    mlp_accuracy: float
+    logistic_accuracy: float
+    nonlinear_margin: float
+
+
+def _verdict(inputs: _VerdictInputs) -> str:
+    if inputs.test_count < inputs.min_test_records:
         return VERDICT_NOT_LEARNABLE
-    if lift < required_lift:
+    if inputs.lift < inputs.required_lift:
         return VERDICT_NOT_LEARNABLE
-    if mlp_accuracy > logistic_accuracy + nonlinear_margin:
+    if inputs.mlp_accuracy > inputs.logistic_accuracy + inputs.nonlinear_margin:
         return VERDICT_NONLINEAR
     return VERDICT_LINEAR
 
@@ -112,6 +119,21 @@ _POSITIVE_INT_KNOBS = (
 _THRESHOLD_KNOBS = ("min_lift", "nonlinear_margin")
 
 
+def _check_threshold_knob(name: str, value: Any) -> None:
+    if not oc.is_number(value) or value < 0.0:
+        raise BaselineError(
+            f"{name} must be a finite non-negative number, got {value!r}"
+        )
+
+
+def _check_positive_int_knob(name: str, value: Any, consequence: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise BaselineError(
+            f"{name} must be a positive integer, got {value!r} — "
+            f"{consequence}"
+        )
+
+
 def _check_evaluation_knobs(knobs: dict[str, Any]) -> None:
     """Refuse evaluation knobs that would fake or defeat the gate.
 
@@ -125,46 +147,42 @@ def _check_evaluation_knobs(knobs: dict[str, Any]) -> None:
     """
 
     for name in _THRESHOLD_KNOBS:
-        value = knobs[name]
-        if not oc.is_number(value) or value < 0.0:
-            raise BaselineError(
-                f"{name} must be a finite non-negative number, got {value!r}"
-            )
+        _check_threshold_knob(name, knobs[name])
     for name, consequence in _POSITIVE_INT_KNOBS:
-        value = knobs[name]
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise BaselineError(
-                f"{name} must be a positive integer, got {value!r} — "
-                f"{consequence}"
-            )
+        _check_positive_int_knob(name, knobs[name], consequence)
+
+
+@dataclass(frozen=True)
+class EvaluationKnobs:
+    """The decision and training knobs an evaluation runs under."""
+
+    holdout_pct: int = 30
+    logistic_iterations: int = 120
+    mlp_iterations: int = 120
+    mlp_hidden: int = 12
+    min_lift: float = 0.05
+    min_test_records: int = 20
+    nonlinear_margin: float = 0.03
 
 
 def evaluate_baselines(
-    samples: list[Sample],
-    *,
-    holdout_pct: int = 30,
-    logistic_iterations: int = 120,
-    mlp_iterations: int = 120,
-    mlp_hidden: int = 12,
-    min_lift: float = 0.05,
-    min_test_records: int = 20,
-    nonlinear_margin: float = 0.03,
+    samples: list[Sample], knobs: EvaluationKnobs = EvaluationKnobs()
 ) -> dict[str, Any]:
     """Run every conventional baseline and return a comparable report."""
 
     _check_evaluation_knobs(
         {
-            "min_lift": min_lift,
-            "nonlinear_margin": nonlinear_margin,
-            "logistic_iterations": logistic_iterations,
-            "mlp_iterations": mlp_iterations,
-            "mlp_hidden": mlp_hidden,
-            "min_test_records": min_test_records,
+            "min_lift": knobs.min_lift,
+            "nonlinear_margin": knobs.nonlinear_margin,
+            "logistic_iterations": knobs.logistic_iterations,
+            "mlp_iterations": knobs.mlp_iterations,
+            "mlp_hidden": knobs.mlp_hidden,
+            "min_test_records": knobs.min_test_records,
         }
     )
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
-    train, test = split(samples, holdout_pct=holdout_pct)
+    train, test = split(samples, holdout_pct=knobs.holdout_pct)
     if not train or not test:
         raise BaselineError(
             f"degenerate split: {len(train)} train / {len(test)} test — "
@@ -180,24 +198,34 @@ def evaluate_baselines(
 
     majority = majority_baseline(train, test)
     logistic = logistic_baseline(
-        scaled_train, scaled_test, labels, iterations=logistic_iterations
+        scaled_train,
+        scaled_test,
+        labels,
+        LogisticHyper(iterations=knobs.logistic_iterations),
     )
     mlp = mlp_baseline(
-        scaled_train, scaled_test, labels, hidden=mlp_hidden, iterations=mlp_iterations
+        scaled_train,
+        scaled_test,
+        labels,
+        MlpHyper(hidden=knobs.mlp_hidden, iterations=knobs.mlp_iterations),
     )
 
     trained = [logistic, mlp]
     best = max(trained, key=lambda item: (item["accuracy"], item["model"]))
     lift = round(best["accuracy"] - majority["accuracy"], 6)
-    stderr, required_lift = _significance_floor(best["accuracy"], len(test), min_lift)
+    stderr, required_lift = _significance_floor(
+        best["accuracy"], len(test), knobs.min_lift
+    )
     verdict = _verdict(
-        lift=lift,
-        required_lift=required_lift,
-        test_count=len(test),
-        min_test_records=min_test_records,
-        mlp_accuracy=mlp["accuracy"],
-        logistic_accuracy=logistic["accuracy"],
-        nonlinear_margin=nonlinear_margin,
+        _VerdictInputs(
+            lift=lift,
+            required_lift=required_lift,
+            test_count=len(test),
+            min_test_records=knobs.min_test_records,
+            mlp_accuracy=mlp["accuracy"],
+            logistic_accuracy=logistic["accuracy"],
+            nonlinear_margin=knobs.nonlinear_margin,
+        )
     )
     return {
         "samples": len(samples),
@@ -205,7 +233,7 @@ def evaluate_baselines(
         "test": len(test),
         "classes": labels,
         "feature_dim": len(samples[0].features),
-        "holdout_pct": holdout_pct,
+        "holdout_pct": knobs.holdout_pct,
         "scaler": {"fitted_on": "train", "dim": len(scaler["mean"])},
         "baselines": {
             "majority_class": majority,
@@ -214,8 +242,8 @@ def evaluate_baselines(
         },
         "best": {"model": best["model"], "accuracy": best["accuracy"]},
         "lift_over_majority": lift,
-        "min_lift": min_lift,
-        "min_test_records": min_test_records,
+        "min_lift": knobs.min_lift,
+        "min_test_records": knobs.min_test_records,
         "test_accuracy_stderr": round(stderr, 6),
         "stderr_method": "agresti_coull",
         "required_lift": required_lift,

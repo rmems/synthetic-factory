@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 
 
-import fault_recovery as fr
+import fault_recovery as fr  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 from distill_gap_test_support import clone, rehash  # noqa: E402
 

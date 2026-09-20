@@ -50,73 +50,69 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 if __package__:
+    from . import baseline_dataset as _baseline_dataset
+    from . import baseline_eval as _baseline_eval
+    from . import baseline_models as _baseline_models
     from .baseline_dataset import (
         TARGETS,
         TARGET_TOP1,
-        TARGET_TOP1_LAST_LAYER,
-        VERDICT_LINEAR,
-        VERDICT_NONLINEAR,
-        VERDICT_NOT_LEARNABLE,
         BaselineError,
-        Sample,
         dataset_from_records,
-        split,
-        standardize,
-        _compact_features,
-        _genuine_int,
-        _last_layer_top1,
-        _record_sample,
-        _target_label,
-    )
-    from .baseline_models import (
-        logistic_baseline,
-        majority_baseline,
-        mlp_baseline,
-        _model_report,
     )
     from .baseline_eval import (
+        EvaluationKnobs,
+        _clean_router_records,
         escalation_gate,
         evaluate_baselines,
-        _check_evaluation_knobs,
-        _clean_router_records,
-        _record_gate_problems,
-        _threshold_accuracy,
-        _verdict,
     )
 else:
+    import baseline_dataset as _baseline_dataset
+    import baseline_eval as _baseline_eval
+    import baseline_models as _baseline_models
     from baseline_dataset import (
         TARGETS,
         TARGET_TOP1,
-        TARGET_TOP1_LAST_LAYER,
-        VERDICT_LINEAR,
-        VERDICT_NONLINEAR,
-        VERDICT_NOT_LEARNABLE,
         BaselineError,
-        Sample,
         dataset_from_records,
-        split,
-        standardize,
-        _compact_features,
-        _genuine_int,
-        _last_layer_top1,
-        _record_sample,
-        _target_label,
-    )
-    from baseline_models import (
-        logistic_baseline,
-        majority_baseline,
-        mlp_baseline,
-        _model_report,
     )
     from baseline_eval import (
+        EvaluationKnobs,
+        _clean_router_records,
         escalation_gate,
         evaluate_baselines,
-        _check_evaluation_knobs,
-        _clean_router_records,
-        _record_gate_problems,
-        _threshold_accuracy,
-        _verdict,
     )
+
+
+def _reexport(module: Any, names: str) -> None:
+    globals().update({name: getattr(module, name) for name in names.split()})
+
+
+_reexport(
+    _baseline_dataset,
+    """
+    TARGETS TARGET_TOP1 TARGET_TOP1_LAST_LAYER VERDICT_LINEAR VERDICT_NONLINEAR
+    VERDICT_NOT_LEARNABLE BaselineError Sample dataset_from_records split
+    standardize _compact_features _genuine_int _last_layer_top1 _record_sample
+    _target_label
+    """,
+)
+_reexport(
+    _baseline_models,
+    """
+    LogisticHyper MlpHyper logistic_baseline majority_baseline mlp_baseline
+    _model_report
+    """,
+)
+_reexport(
+    _baseline_eval,
+    """
+    EvaluationKnobs _VerdictInputs escalation_gate evaluate_baselines
+    _check_evaluation_knobs _clean_router_records _record_gate_problems
+    _threshold_accuracy _verdict
+    """,
+)
+
+del _reexport, _baseline_dataset, _baseline_eval, _baseline_models
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -135,10 +131,12 @@ def main(argv: list[str] | None = None) -> int:
         samples = dataset_from_records(records, target=args.target)
         report = evaluate_baselines(
             samples,
-            holdout_pct=args.holdout_pct,
-            logistic_iterations=args.iterations,
-            mlp_iterations=args.iterations,
-            min_lift=args.min_lift,
+            EvaluationKnobs(
+                holdout_pct=args.holdout_pct,
+                logistic_iterations=args.iterations,
+                mlp_iterations=args.iterations,
+                min_lift=args.min_lift,
+            ),
         )
     except BaselineError as exc:
         print(json.dumps({"error": str(exc)}, indent=2), file=sys.stderr)

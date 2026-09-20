@@ -19,8 +19,6 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
-import validate_distill  # noqa: E402
-
 TARGET_TOP1 = "top1_expert"
 TARGET_TOP1_LAST_LAYER = "top1_expert_last_layer"
 TARGETS = (TARGET_TOP1, TARGET_TOP1_LAST_LAYER)
@@ -59,26 +57,54 @@ def dataset_from_records(
     sampled_ids: set[str] = set()
     for record in records:
         sample = _record_sample(record, target)
-        if sample is None:
-            continue
-        if sample.record_id in sampled_ids:
-            # The id is the record's identity: two rows sharing one cannot
-            # be attributed, weighted, or audited separately.
-            raise BaselineError(
-                f"duplicate record id {sample.record_id!r}; a corpus cannot "
-                "carry the same record twice"
-            )
-        sampled_ids.add(sample.record_id)
-        samples.append(sample)
-    if samples:
-        width = len(samples[0].features)
-        if any(len(sample.features) != width for sample in samples):
-            raise BaselineError("compact inputs have inconsistent width")
+        if sample is not None:
+            _append_new_sample(samples, sampled_ids, sample)
+    _check_consistent_width(samples)
     return samples
+
+
+def _append_new_sample(
+    samples: list[Sample], sampled_ids: set[str], sample: Sample
+) -> None:
+    if sample.record_id in sampled_ids:
+        # The id is the record's identity: two rows sharing one cannot
+        # be attributed, weighted, or audited separately.
+        raise BaselineError(
+            f"duplicate record id {sample.record_id!r}; a corpus cannot "
+            "carry the same record twice"
+        )
+    sampled_ids.add(sample.record_id)
+    samples.append(sample)
+
+
+def _check_consistent_width(samples: list[Sample]) -> None:
+    if not samples:
+        return
+    width = len(samples[0].features)
+    if any(len(sample.features) != width for sample in samples):
+        raise BaselineError("compact inputs have inconsistent width")
 
 
 def _record_sample(record: Any, target: str) -> Sample | None:
     """One record's (id, compact input, label), or None if it has no sample."""
+
+    fields = _record_fields(record)
+    if fields is None:
+        return None
+    record_id, scenario, result = fields
+    if result.get("status") != oc.RESULT_MEASURED:
+        # An abstained result's routing fields are outcomes the oracle
+        # explicitly declined to stand behind; they must never become labels.
+        return None
+    features = _compact_features(scenario)
+    label = _target_label(result, target) if features is not None else None
+    if features is None or label is None:
+        return None
+    return Sample(record_id=record_id, features=features, label=label)
+
+
+def _record_fields(record: Any) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    """The (id, scenario, result) of a record that could carry a sample."""
 
     if not isinstance(record, dict):
         return None
@@ -91,17 +117,7 @@ def _record_sample(record: Any, target: str) -> Sample | None:
     result = record.get("result")
     if not isinstance(scenario, dict) or not isinstance(result, dict):
         return None
-    if result.get("status") != oc.RESULT_MEASURED:
-        # An abstained result's routing fields are outcomes the oracle
-        # explicitly declined to stand behind; they must never become labels.
-        return None
-    features = _compact_features(scenario)
-    if features is None:
-        return None
-    label = _target_label(result, target)
-    if label is None:
-        return None
-    return Sample(record_id=record_id, features=features, label=label)
+    return record_id, scenario, result
 
 
 def _compact_features(scenario: dict[str, Any]) -> tuple[float, ...] | None:

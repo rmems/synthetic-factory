@@ -21,11 +21,11 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 
 
-import energy_preferences as ep
-import fault_recovery as fr
-import moe_router as mr
-import router_baseline as rb
-import validate_distill as vd
+import energy_preferences as ep  # noqa: E402
+import fault_recovery as fr  # noqa: E402
+import moe_router as mr  # noqa: E402
+import router_baseline as rb  # noqa: E402
+import validate_distill as vd  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 from distill_gap_test_support import clone, rehash  # noqa: E402
 
@@ -128,7 +128,7 @@ class FourthRoundContractGaps(unittest.TestCase):
             ("wall_time_s", -5.0, "cannot be negative"),
             ("task_quality", 1.5, "must lie in [0, 1]"),
         ):
-            record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+            record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
             tampered = False
             for item in record["result"]["measurements"]:
                 if item["quantity"] == quantity:
@@ -253,7 +253,7 @@ class SeventhRoundSevereGaps(unittest.TestCase):
         # Deleting oracle.configuration contents and the fingerprint left a
         # record curation-eligible with no meter host, probe result, or
         # solver settings behind its measured preference.
-        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
         record["oracle"]["configuration"] = {}
         record["oracle"]["fingerprint"] = None
         rehash(record)
@@ -266,7 +266,7 @@ class SeventhRoundSevereGaps(unittest.TestCase):
         )
 
     def test_the_meter_probe_must_match_the_corpus_denomination(self):
-        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
         record["oracle"]["configuration"]["meter_probe"]["cost_quantity"] = (
             "energy_j"
         )
@@ -517,7 +517,7 @@ class NinthRoundContractGaps(unittest.TestCase):
         ):
             with self.subTest(knobs=knobs):
                 with self.assertRaises(rb.BaselineError):
-                    rb.evaluate_baselines(samples, **knobs)
+                    rb.evaluate_baselines(samples, rb.EvaluationKnobs(**knobs))
 
 
 

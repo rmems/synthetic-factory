@@ -82,8 +82,11 @@ class AllocationTask(unittest.TestCase):
         caps = [0.2, 0.2, 0.2, 0.2]
         self.assertIsNone(ep.grid_allocation(1.0, weights, caps, 2))
         evaluation = ep.evaluate_allocation(
-            None, demand=1.0, weights=weights, caps=caps,
-            optimum=0.25, quality_floor=0.98,
+            None,
+            ep.ProblemSpec(
+                demand=1.0, weights=weights, caps=caps,
+                optimum=0.25, quality_floor=0.98,
+            ),
         )
         self.assertFalse(evaluation.safety_ok)
         self.assertEqual(evaluation.violations, ("NO_FEASIBLE_ALLOCATION_FOUND",))
@@ -122,14 +125,20 @@ class AllocationTask(unittest.TestCase):
         caps = [0.4, 0.4]
         optimum = ep.objective(weights, [0.4, 0.4])
         over = ep.evaluate_allocation(
-            [0.8, 0.0], demand=0.8, weights=weights, caps=caps,
-            optimum=optimum, quality_floor=0.98,
+            [0.8, 0.0],
+            ep.ProblemSpec(
+                demand=0.8, weights=weights, caps=caps,
+                optimum=optimum, quality_floor=0.98,
+            ),
         )
         self.assertFalse(over.safety_ok)
         self.assertIn("ACTUATOR_0_OVER_CAP", over.violations)
         short = ep.evaluate_allocation(
-            [0.2, 0.2], demand=0.8, weights=weights, caps=caps,
-            optimum=optimum, quality_floor=0.98,
+            [0.2, 0.2],
+            ep.ProblemSpec(
+                demand=0.8, weights=weights, caps=caps,
+                optimum=optimum, quality_floor=0.98,
+            ),
         )
         self.assertIn("DEMAND_NOT_MET", short.violations)
 
@@ -268,7 +277,7 @@ class MeterBoundary(unittest.TestCase):
                 "observations": observations,
             }
         )
-        records = ep.build_records(21, 1, meter=meter)
+        records = ep.build_records(21, 1, ep.MeterSpec(meter=meter))
         record = records[0]
         self.assertEqual(oc.check_envelope(record, "x"), [])
         self.assertEqual(ep.check_family(record, "x"), [])
@@ -288,7 +297,7 @@ class MeterBoundary(unittest.TestCase):
             }
         )
         with self.assertRaises(oc.OracleUnavailable):
-            ep.build_records(21, 1, meter=meter)
+            ep.build_records(21, 1, ep.MeterSpec(meter=meter))
 
     def test_a_workload_key_binds_the_policy_to_the_scenario(self):
         first, second = ep.propose_scenarios(21, 2)
@@ -373,7 +382,7 @@ class PreferenceRule(unittest.TestCase):
 class RecordsAreMeasured(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.records = ep.build_records(20260823, 3, repeats=3)
+        cls.records = ep.build_records(20260823, 3, ep.MeterSpec(repeats=3))
 
     def test_records_pass_the_envelope_and_family_checks(self):
         for record in self.records:
@@ -437,7 +446,7 @@ class DeterministicMeterPaths(unittest.TestCase):
         # and to the unsafe one, so a "cheapest wins" rule would pick either.
         costs = {1: 0.1, 2: 0.05, 3: 1.0, 4: 0.01}
         meter = FakeMeter(costs)
-        records = ep.build_records(7, 1, meter=meter, repeats=2)
+        records = ep.build_records(7, 1, ep.MeterSpec(meter=meter, repeats=2))
         result = records[0]["result"]
         preference = result["preference"]
         self.assertEqual(preference["preferred"], "analytic_kkt")
@@ -455,7 +464,7 @@ class DeterministicMeterPaths(unittest.TestCase):
         self.assertFalse(by_id["unclipped_proportional"]["safety_ok"])
 
     def test_an_energy_meter_produces_an_energy_denominated_record(self):
-        records = ep.build_records(7, 1, meter=FakeEnergyMeter(), repeats=2)
+        records = ep.build_records(7, 1, ep.MeterSpec(meter=FakeEnergyMeter(), repeats=2))
         record = records[0]
         self.assertTrue(record["result"]["cost_is_energy"])
         self.assertEqual(record["result"]["preference"]["cost_quantity"], "energy_j")
@@ -469,12 +478,12 @@ class DeterministicMeterPaths(unittest.TestCase):
 
         meter = DeadMeter()
         with self.assertRaises(oc.OracleUnavailable):
-            ep.build_records(7, 1, meter=meter)
+            ep.build_records(7, 1, ep.MeterSpec(meter=meter))
 
 
 class FamilyChecks(unittest.TestCase):
     def setUp(self):
-        self.record = ep.build_records(7, 1, meter=FakeMeter(), repeats=2)[0]
+        self.record = ep.build_records(7, 1, ep.MeterSpec(meter=FakeMeter(), repeats=2))[0]
 
     def test_an_unsafe_preferred_candidate_is_rejected(self):
         preferred = self.record["result"]["preference"]["preferred"]

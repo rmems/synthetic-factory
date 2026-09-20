@@ -8,7 +8,7 @@ from test_energy_preferences import FakeMeter, ep, oc
 
 class EnergyReplayWidth(unittest.TestCase):
     def test_oversized_actuator_state_is_a_finding_before_grid_replay(self):
-        original = ep.build_records(7, 1, meter=FakeMeter(), repeats=2)[0]
+        original = ep.build_records(7, 1, ep.MeterSpec(meter=FakeMeter(), repeats=2))[0]
         for width in (5, 1100):
             with self.subTest(width=width):
                 record = copy.deepcopy(original)

@@ -8,7 +8,7 @@ from test_energy_preferences import FakeMeter, ep, oc
 
 class PreferenceProvenance(unittest.TestCase):
     def setUp(self):
-        self.record = ep.build_records(7, 1, meter=FakeMeter(), repeats=2)[0]
+        self.record = ep.build_records(7, 1, ep.MeterSpec(meter=FakeMeter(), repeats=2))[0]
 
     def test_rehashed_coherent_cost_meter_substitution_is_refused(self):
         changed = copy.deepcopy(self.record)

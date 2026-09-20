@@ -19,9 +19,9 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 
 
-import moe_router as mr
-import router_baseline as rb
-import validate_distill as vd
+import moe_router as mr  # noqa: E402
+import router_baseline as rb  # noqa: E402
+import validate_distill as vd  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 from distill_gap_test_support import clone, rehash  # noqa: E402
 
@@ -89,9 +89,9 @@ class RouterGaps(unittest.TestCase):
 
     def test_a_reference_router_needs_at_least_one_layer(self):
         with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(num_layers=0)
+            mr.ReferenceMoERouter(shape=mr.GateShape(num_layers=0))
         with self.assertRaises(oc.ContractError):
-            mr.ReferenceMoERouter(num_layers=-1)
+            mr.ReferenceMoERouter(shape=mr.GateShape(num_layers=-1))
 
     def test_a_mutable_teacher_revision_is_refused(self):
         # A branch name is not a checkpoint: the same name can serve different
@@ -504,7 +504,7 @@ class ThirdRoundRouterGaps(unittest.TestCase):
         for bad in (float("nan"), float("inf"), -0.05):
             with self.subTest(min_lift=bad):
                 with self.assertRaises(rb.BaselineError) as caught:
-                    rb.evaluate_baselines([], min_lift=bad)
+                    rb.evaluate_baselines([], rb.EvaluationKnobs(min_lift=bad))
                 self.assertIn("min_lift", str(caught.exception))
 
 
@@ -688,7 +688,7 @@ class RouterConfigurationGaps(unittest.TestCase):
 
     def test_a_non_default_gate_width_produces_a_matching_compact_input(self):
         record = mr.build_records(
-            3, 1, oracle=mr.ReferenceMoERouter(dim=8)
+            3, 1, oracle=mr.ReferenceMoERouter(shape=mr.GateShape(dim=8))
         )[0]
         compact = record["scenario"]["compact_input"]
         self.assertEqual(compact["feature_dim"], 8)

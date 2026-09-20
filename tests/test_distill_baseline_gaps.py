@@ -18,9 +18,9 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 
 
-import fault_recovery as fr
-import moe_router as mr
-import router_baseline as rb
+import fault_recovery as fr  # noqa: E402
+import moe_router as mr  # noqa: E402
+import router_baseline as rb  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 from distill_gap_test_support import clone, rehash  # noqa: E402
 
@@ -107,7 +107,7 @@ class FourthRoundBaselineGaps(unittest.TestCase):
         ):
             with self.subTest(**kwargs):
                 with self.assertRaises(rb.BaselineError) as caught:
-                    rb.evaluate_baselines([], **kwargs)
+                    rb.evaluate_baselines([], rb.EvaluationKnobs(**kwargs))
                 self.assertIn("positive integer", str(caught.exception))
 
 

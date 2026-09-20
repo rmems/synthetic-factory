@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import random
 import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +17,10 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from oracle_grounded import distill_contract as oc  # noqa: E402
-
 if __package__:
-    from .baseline_dataset import BaselineError, Sample, split
+    from .baseline_dataset import BaselineError, Sample
 else:
-    from baseline_dataset import BaselineError, Sample, split
+    from baseline_dataset import BaselineError, Sample
 
 def _accuracy(predictions: list[int], truth: list[int]) -> float:
     if not truth:
@@ -98,10 +97,10 @@ def _prediction_errors(
 def _model_report(
     name: str,
     predict,
-    train: list[Sample],
-    test: list[Sample],
+    splits: tuple[list[Sample], list[Sample]],
     **hyper: Any,
 ) -> dict[str, Any]:
+    train, test = splits
     truth = [sample.label for sample in test]
     return {
         "model": name,
@@ -113,49 +112,78 @@ def _model_report(
     }
 
 
+@dataclass(frozen=True)
+class LogisticHyper:
+    """Full-batch descent knobs for the logistic baseline."""
+
+    iterations: int = 120
+    learning_rate: float = 0.5
+    l2: float = 1e-4
+
+
+def _logistic_epoch(
+    params: tuple[list[list[float]], list[float]],
+    train: list[Sample],
+    index_of: dict[int, int],
+    grads: tuple[list[list[float]], list[float]],
+) -> None:
+    """Accumulate one pass of softmax cross-entropy gradients."""
+
+    weights, bias = params
+    grad_w, grad_b = grads
+    for sample in train:
+        scores = _linear_scores(weights, bias, sample.features)
+        errors = _prediction_errors(scores, index_of[sample.label])
+        _accumulate_outer(errors, sample.features, grad_w, grad_b)
+
+
+def _logistic_descend(
+    params: tuple[list[list[float]], list[float]],
+    grads: tuple[list[list[float]], list[float]],
+    hyper: LogisticHyper,
+    scale: float,
+) -> None:
+    """Apply the averaged gradient plus the l2 weight decay in place."""
+
+    weights, bias = params
+    grad_w, grad_b = grads
+    for row, grad_row in zip(weights, grad_w):
+        for i, gradient in enumerate(grad_row):
+            row[i] -= hyper.learning_rate * (gradient * scale + hyper.l2 * row[i])
+    for c, gradient in enumerate(grad_b):
+        bias[c] -= hyper.learning_rate * gradient * scale
+
+
+def _train_logistic(
+    train: list[Sample], index_of: dict[int, int], hyper: LogisticHyper
+) -> tuple[list[list[float]], list[float]]:
+    classes = len(index_of)
+    width = len(train[0].features)
+    params = ([[0.0] * width for _ in range(classes)], [0.0] * classes)
+    scale = 1.0 / len(train)
+    for _ in range(hyper.iterations):
+        grads = ([[0.0] * width for _ in range(classes)], [0.0] * classes)
+        _logistic_epoch(params, train, index_of, grads)
+        _logistic_descend(params, grads, hyper, scale)
+    return params
+
+
 def logistic_baseline(
     train: list[Sample],
     test: list[Sample],
     labels: list[int],
-    *,
-    iterations: int = 120,
-    learning_rate: float = 0.5,
-    l2: float = 1e-4,
+    hyper: LogisticHyper = LogisticHyper(),
 ) -> dict[str, Any]:
     """Multinomial logistic regression by deterministic full-batch descent."""
 
     index_of = {label: index for index, label in enumerate(labels)}
-    classes = len(labels)
-    width = len(train[0].features)
-    weights = [[0.0] * width for _ in range(classes)]
-    bias = [0.0] * classes
-    scale = 1.0 / len(train)
-
-    for _ in range(iterations):
-        grad_w = [[0.0] * width for _ in range(classes)]
-        grad_b = [0.0] * classes
-        for sample in train:
-            scores = _linear_scores(weights, bias, sample.features)
-            errors = _prediction_errors(scores, index_of[sample.label])
-            _accumulate_outer(errors, sample.features, grad_w, grad_b)
-        for c in range(classes):
-            row = weights[c]
-            grad_row = grad_w[c]
-            for i in range(width):
-                row[i] -= learning_rate * (grad_row[i] * scale + l2 * row[i])
-            bias[c] -= learning_rate * grad_b[c] * scale
+    weights, bias = _train_logistic(train, index_of, hyper)
 
     def predict(example: Sample) -> int:
         return _argmax_label(_linear_scores(weights, bias, example.features), labels)
 
     return _model_report(
-        "logistic_regression",
-        predict,
-        train,
-        test,
-        iterations=iterations,
-        learning_rate=learning_rate,
-        l2=l2,
+        "logistic_regression", predict, (train, test), **asdict(hyper)
     )
 
 
@@ -200,8 +228,7 @@ class _Mlp:
         return errors
 
     def train_epoch(
-        self, train: list[Sample], index_of: dict[int, int],
-        learning_rate: float, scale: float,
+        self, train: list[Sample], index_of: dict[int, int], step: float
     ) -> None:
         gw1 = [[0.0] * self.width for _ in range(self.hidden)]
         gb1 = [0.0] * self.hidden
@@ -214,53 +241,52 @@ class _Mlp:
             _accumulate_outer(
                 self._hidden_errors(delta_out, activated), sample.features, gw1, gb1
             )
-        self._descend(self.w2, self.b2, gw2, gb2, learning_rate, scale)
-        self._descend(self.w1, self.b1, gw1, gb1, learning_rate, scale)
+        self._descend((self.w2, self.b2), (gw2, gb2), step)
+        self._descend((self.w1, self.b1), (gw1, gb1), step)
 
     @staticmethod
     def _descend(
-        weights: list[list[float]], bias: list[float],
-        grad_rows: list[list[float]], grad_bias: list[float],
-        learning_rate: float, scale: float,
+        params: tuple[list[list[float]], list[float]],
+        grads: tuple[list[list[float]], list[float]],
+        step: float,
     ) -> None:
+        weights, bias = params
+        grad_rows, grad_bias = grads
         for row, grad_row in zip(weights, grad_rows):
             for i, gradient in enumerate(grad_row):
-                row[i] -= learning_rate * gradient * scale
+                row[i] -= step * gradient
         for c, gradient in enumerate(grad_bias):
-            bias[c] -= learning_rate * gradient * scale
+            bias[c] -= step * gradient
+
+
+@dataclass(frozen=True)
+class MlpHyper:
+    """Hidden width, descent knobs and seed for the MLP baseline."""
+
+    hidden: int = 12
+    iterations: int = 120
+    learning_rate: float = 0.3
+    seed: int = 17
 
 
 def mlp_baseline(
     train: list[Sample],
     test: list[Sample],
     labels: list[int],
-    *,
-    hidden: int = 12,
-    iterations: int = 120,
-    learning_rate: float = 0.3,
-    seed: int = 17,
+    hyper: MlpHyper = MlpHyper(),
 ) -> dict[str, Any]:
     """One tanh hidden layer, softmax output, deterministic full-batch descent."""
 
     index_of = {label: index for index, label in enumerate(labels)}
-    model = _Mlp(len(train[0].features), hidden, len(labels), seed)
-    scale = 1.0 / len(train)
-    for _ in range(iterations):
-        model.train_epoch(train, index_of, learning_rate, scale)
+    model = _Mlp(len(train[0].features), hyper.hidden, len(labels), hyper.seed)
+    step = hyper.learning_rate / len(train)
+    for _ in range(hyper.iterations):
+        model.train_epoch(train, index_of, step)
 
     def predict(example: Sample) -> int:
         _, scores = model.forward(example.features)
         return _argmax_label(scores, labels)
 
-    return _model_report(
-        "mlp",
-        predict,
-        train,
-        test,
-        hidden=hidden,
-        iterations=iterations,
-        learning_rate=learning_rate,
-        seed=seed,
-    )
+    return _model_report("mlp", predict, (train, test), **asdict(hyper))
 
 

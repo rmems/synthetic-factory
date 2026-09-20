@@ -18,8 +18,8 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 
 
-import energy_preferences as ep
-import validate_distill as vd
+import energy_preferences as ep  # noqa: E402
+import validate_distill as vd  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 from distill_gap_test_support import clone, rehash  # noqa: E402
 
@@ -28,7 +28,7 @@ class EnergyScenarioBindingGaps(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.records = ep.build_records(20260824, 1, repeats=1, warmup=0)
+        cls.records = ep.build_records(20260824, 1, ep.MeterSpec(repeats=1, warmup=0))
 
     def record(self) -> dict:
         return clone(self.records[0])
@@ -109,7 +109,7 @@ class EnergyPreferenceGaps(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.records = ep.build_records(20260823, 2, repeats=1, warmup=0)
+        cls.records = ep.build_records(20260823, 2, ep.MeterSpec(repeats=1, warmup=0))
 
     def record(self) -> dict:
         return clone(self.records[0])
@@ -316,7 +316,7 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.records = ep.build_records(20260823, 1, repeats=1, warmup=0)
+        cls.records = ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))
 
     def record(self) -> dict:
         return clone(self.records[0])
@@ -329,59 +329,52 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
             (domain / "energy_uj").write_text(f"{microjoules}\n")
             (domain / "name").write_text(f"{label}\n")
 
+    def _rapl_cost_joules(
+        self,
+        zones: dict[str, tuple[str, int]],
+        writes: dict[str, int],
+    ) -> float:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._rapl_tree(root, zones)
+            meter = ep.RaplEnergyMeter(root=root)
+
+            def workload():
+                for zone, microjoules in writes.items():
+                    (root / zone / "energy_uj").write_text(f"{microjoules}\n")
+
+            return meter.measure(workload, repeats=1, warmup=0).cost_value
+
     def test_rapl_subzones_are_not_double_counted(self):
         # The package counter already includes its core/uncore children, so
         # summing every flat entry counted selected components twice and
         # could reorder the preference between workloads with different
         # component mixes.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self._rapl_tree(
-                root,
-                {
-                    "intel-rapl:0": ("package-0", 1_000_000),
-                    "intel-rapl:0:0": ("core", 500_000),
-                },
-            )
-            meter = ep.RaplEnergyMeter(root=root)
-
-            def workload():
-                (root / "intel-rapl:0" / "energy_uj").write_text("3000000\n")
-                (root / "intel-rapl:0:0" / "energy_uj").write_text("1500000\n")
-
-            reading = meter.measure(workload, repeats=1, warmup=0)
-            self.assertAlmostEqual(reading.cost_value, 2.0, places=6)
+        cost = self._rapl_cost_joules(
+            {
+                "intel-rapl:0": ("package-0", 1_000_000),
+                "intel-rapl:0:0": ("core", 500_000),
+            },
+            {"intel-rapl:0": 3_000_000, "intel-rapl:0:0": 1_500_000},
+        )
+        self.assertAlmostEqual(cost, 2.0, places=6)
 
     def test_psys_beside_package_zones_is_not_added_on_top(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self._rapl_tree(
-                root,
-                {
-                    "intel-rapl:0": ("package-0", 1_000_000),
-                    "intel-rapl:1": ("psys", 2_000_000),
-                },
-            )
-            meter = ep.RaplEnergyMeter(root=root)
-
-            def workload():
-                (root / "intel-rapl:0" / "energy_uj").write_text("3000000\n")
-                (root / "intel-rapl:1" / "energy_uj").write_text("9000000\n")
-
-            reading = meter.measure(workload, repeats=1, warmup=0)
-            self.assertAlmostEqual(reading.cost_value, 2.0, places=6)
+        cost = self._rapl_cost_joules(
+            {
+                "intel-rapl:0": ("package-0", 1_000_000),
+                "intel-rapl:1": ("psys", 2_000_000),
+            },
+            {"intel-rapl:0": 3_000_000, "intel-rapl:1": 9_000_000},
+        )
+        self.assertAlmostEqual(cost, 2.0, places=6)
 
     def test_a_lone_psys_zone_is_still_a_measurement(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self._rapl_tree(root, {"intel-rapl:0": ("psys", 1_000_000)})
-            meter = ep.RaplEnergyMeter(root=root)
-
-            def workload():
-                (root / "intel-rapl:0" / "energy_uj").write_text("4000000\n")
-
-            reading = meter.measure(workload, repeats=1, warmup=0)
-            self.assertAlmostEqual(reading.cost_value, 3.0, places=6)
+        cost = self._rapl_cost_joules(
+            {"intel-rapl:0": ("psys", 1_000_000)},
+            {"intel-rapl:0": 4_000_000},
+        )
+        self.assertAlmostEqual(cost, 3.0, places=6)
 
     def test_a_replayed_cost_is_bound_to_the_solver_configuration(self):
         # A recording taken at one grid resolution used to replay cleanly
@@ -389,7 +382,7 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
         # old energy reading was attached to it.
         scenario = ep.propose_scenarios(21, 1)[0]["scenario"]
         observations = {
-            ep.workload_key(policy, scenario, fine_steps=12, coarse_steps=4): {
+            ep.workload_key(policy, scenario, ep.MeterProtocol(fine_steps=12, coarse_steps=4)): {
                 "cost_value": cost
             }
             for policy, cost in (
@@ -408,11 +401,11 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
             }
         )
         records = ep.build_records(
-            21, 1, meter=meter, fine_steps=12, coarse_steps=4
+            21, 1, ep.MeterSpec(meter=meter, fine_steps=12, coarse_steps=4)
         )
         self.assertEqual(ep.check_family(records[0], "x"), [])
         with self.assertRaises(oc.OracleUnavailable):
-            ep.build_records(21, 1, meter=meter)
+            ep.build_records(21, 1, ep.MeterSpec(meter=meter))
 
     def _preferred(self, record: dict) -> dict:
         preferred_id = record["result"]["preference"]["preferred"]
@@ -529,7 +522,7 @@ class ThirdRoundEnergyGaps(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.records = ep.build_records(20260823, 1, repeats=1, warmup=0)
+        cls.records = ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))
 
     def record(self) -> dict:
         return clone(self.records[0])
@@ -603,7 +596,7 @@ class ThirdRoundEnergyGaps(unittest.TestCase):
         # this run never performed.
         scenario = ep.propose_scenarios(21, 1)[0]["scenario"]
         observations = {
-            ep.workload_key(policy, scenario, fine_steps=12, coarse_steps=4): {
+            ep.workload_key(policy, scenario, ep.MeterProtocol(fine_steps=12, coarse_steps=4)): {
                 "cost_value": cost
             }
             for policy, cost in (
@@ -621,7 +614,9 @@ class ThirdRoundEnergyGaps(unittest.TestCase):
                 "observations": observations,
             }
         )
-        records = ep.build_records(21, 1, meter=meter, fine_steps=12, coarse_steps=4)
+        records = ep.build_records(
+            21, 1, ep.MeterSpec(meter=meter, fine_steps=12, coarse_steps=4)
+        )
         self.assertEqual(records[0]["oracle"]["type"], "recorded_measurement")
         self.assertEqual(ep.check_family(records[0], "x"), [])
         self.assertEqual(vd.check_record(records[0], "x"), [])
@@ -638,7 +633,7 @@ class FourthRoundEnergyGaps(unittest.TestCase):
         # success = safety_ok and task_quality >= quality_floor is how the
         # builder writes it; nothing re-derived it, so the unsafe candidate
         # could claim success after a rehash.
-        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
         unsafe = next(
             c
             for c in record["result"]["candidates"]
@@ -653,7 +648,7 @@ class FourthRoundEnergyGaps(unittest.TestCase):
         )
 
     def test_candidate_success_must_be_a_boolean_case(self):
-        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
         next(
             c for c in record["result"]["candidates"] if c["id"] == "analytic_kkt"
         )["success"] = 1
@@ -672,7 +667,7 @@ class FifthRoundEnergyGaps(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.records = ep.build_records(20260823, 1, repeats=1, warmup=0)
+        cls.records = ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))
 
     def record(self) -> dict:
         return clone(self.records[0])
@@ -728,7 +723,7 @@ class FifthRoundEnergyGaps(unittest.TestCase):
         # the physical instrument.
         scenario = ep.propose_scenarios(21, 1)[0]["scenario"]
         observations = {
-            ep.workload_key(policy, scenario, fine_steps=12, coarse_steps=4): {
+            ep.workload_key(policy, scenario, ep.MeterProtocol(fine_steps=12, coarse_steps=4)): {
                 "cost_value": cost
             }
             for policy, cost in (
@@ -746,7 +741,9 @@ class FifthRoundEnergyGaps(unittest.TestCase):
                 "observations": observations,
             }
         )
-        record = ep.build_records(21, 1, meter=meter, fine_steps=12, coarse_steps=4)[0]
+        record = ep.build_records(
+            21, 1, ep.MeterSpec(meter=meter, fine_steps=12, coarse_steps=4)
+        )[0]
         self.assertEqual(ep.check_family(record, "x") + vd.check_record(record, "x"), [])
         tampered = clone(record)
         for item in tampered["result"]["measurements"]:
@@ -794,7 +791,7 @@ class SixthRoundEnergyGaps(unittest.TestCase):
         # Relabelling a measured record `abstained` while its own
         # measurements still contained feasible candidates validated cleanly
         # as a false oracle abstention.
-        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
         record["result"]["status"] = "abstained"
         record["result"]["abstention_reason"] = ep.ABSTAIN_NO_FEASIBLE
         del record["result"]["preference"]
@@ -806,7 +803,7 @@ class SixthRoundEnergyGaps(unittest.TestCase):
         )
 
     def test_an_abstention_reason_must_be_canonical(self):
-        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record = clone(ep.build_records(20260823, 1, ep.MeterSpec(repeats=1, warmup=0))[0])
         record["result"]["status"] = "abstained"
         record["result"]["abstention_reason"] = "meter broke mid-run"
         del record["result"]["preference"]
@@ -827,7 +824,9 @@ class NinthRoundEnergyGaps(unittest.TestCase):
         meter, probe = ep.select_meter(prefer_energy=False)
         return clone(
             ep.build_records(
-                20260823, 1, meter=meter, meter_probe=probe, repeats=1, warmup=0
+                20260823,
+                1,
+                ep.MeterSpec(meter=meter, meter_probe=probe, repeats=1, warmup=0),
             )[0]
         )
 
@@ -863,7 +862,7 @@ class NinthRoundEnergyGaps(unittest.TestCase):
         ):
             with self.subTest(knobs=knobs):
                 with self.assertRaises(oc.ContractError):
-                    ep.build_records(20260823, 1, **knobs)
+                    ep.build_records(20260823, 1, ep.MeterSpec(**knobs))
 
     def test_a_swapped_policy_allocation_is_not_reproducible(self):
         # Replacing coarse_grid's allocation with analytic_kkt's — deriving
@@ -884,11 +883,10 @@ class NinthRoundEnergyGaps(unittest.TestCase):
         coarse["allocation"] = list(kkt["allocation"])
         evaluation = ep.evaluate_allocation(
             list(coarse["allocation"]),
-            demand=demand,
-            weights=weights,
-            caps=caps,
-            optimum=optimum,
-            quality_floor=floor,
+            ep.ProblemSpec(
+                demand=demand, weights=weights, caps=caps,
+                optimum=optimum, quality_floor=floor,
+            ),
         )
         coarse["task_quality"] = evaluation.task_quality
         coarse["safety_ok"] = evaluation.safety_ok
@@ -996,13 +994,9 @@ class EnergyOracleContractGaps(unittest.TestCase):
         # The validator replays the grid; a knob beyond MAX_REPLAY_STEPS
         # produces a record the validator cannot check.
         with self.assertRaises(oc.ContractError):
-            ep.build_records(
-                3, 1, fine_steps=ep.MAX_REPLAY_STEPS + 1
-            )
+            ep.build_records(3, 1, ep.MeterSpec(fine_steps=ep.MAX_REPLAY_STEPS + 1))
         with self.assertRaises(oc.ContractError):
-            ep.build_records(
-                3, 1, coarse_steps=ep.MAX_REPLAY_STEPS + 1
-            )
+            ep.build_records(3, 1, ep.MeterSpec(coarse_steps=ep.MAX_REPLAY_STEPS + 1))
 
     def test_an_oracle_type_that_disagrees_with_its_implementation_is_a_finding(
         self,

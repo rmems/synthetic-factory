@@ -62,91 +62,72 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
-    from .moe_check import check_family
-    from .moe_layers import _check_layer_logits
-    from .moe_featurizer import (
-        COMMIT_SHA_RE,
-        COMPACT_DIM,
-        COMPACT_SUMMARY_STATS,
-        CONTEXT_TEMPLATES,
-        FEATURE_DIM,
-        FEATURIZER_ID,
-        FAMILY,
-        GENERATOR_NAME,
-        GENERATOR_VERSION,
-        MAX_RECOMPUTE_DIM,
-        NON_TEACHER_IMPLEMENTATIONS,
-        NON_TEACHER_ORACLE_NAMES,
-        NON_TEACHER_ORACLE_TYPES,
-        ORACLE_LABEL_POLICY,
-        RECOMPUTE_TOLERANCE,
-        SEALED_HUB_MOE_CARDS,
-        SEALED_HUB_MOE_REVISIONS,
-        TEACHER_ORACLE_TYPES,
-        TEMPLATE_ADJECTIVES,
-        TEMPLATE_NOUNS,
-        TRANSFORMERS_MOE_IMPLEMENTATION,
-        compact_view,
-        entropy_nats,
-        featurize,
-        resolve_checkpoint,
-        softmax,
-    )
-    from .moe_generator import build_records, propose_contexts
-    from .moe_layers import (
-        LayerRouting,
-        RouterObservation,
-    )
+    from . import moe_check as _moe_check
+    from . import moe_featurizer as _moe_featurizer
+    from . import moe_generator as _moe_generator
+    from . import moe_layer_fields as _moe_layer_fields
+    from . import moe_layers as _moe_layers
+    from . import moe_oracles as _moe_oracles
+    from .moe_generator import build_records
     from .moe_oracles import (
         RecordedTeacherRouter,
         ReferenceMoERouter,
         RouterOracle,
-        TransformersMoERouter,
         oracles_report,
     )
 else:
-    from moe_check import check_family
-    from moe_layers import _check_layer_logits
-    from moe_featurizer import (
-        COMMIT_SHA_RE,
-        COMPACT_DIM,
-        COMPACT_SUMMARY_STATS,
-        CONTEXT_TEMPLATES,
-        FEATURE_DIM,
-        FEATURIZER_ID,
-        FAMILY,
-        GENERATOR_NAME,
-        GENERATOR_VERSION,
-        MAX_RECOMPUTE_DIM,
-        NON_TEACHER_IMPLEMENTATIONS,
-        NON_TEACHER_ORACLE_NAMES,
-        NON_TEACHER_ORACLE_TYPES,
-        ORACLE_LABEL_POLICY,
-        RECOMPUTE_TOLERANCE,
-        SEALED_HUB_MOE_CARDS,
-        SEALED_HUB_MOE_REVISIONS,
-        TEACHER_ORACLE_TYPES,
-        TEMPLATE_ADJECTIVES,
-        TEMPLATE_NOUNS,
-        TRANSFORMERS_MOE_IMPLEMENTATION,
-        compact_view,
-        entropy_nats,
-        featurize,
-        resolve_checkpoint,
-        softmax,
-    )
-    from moe_generator import build_records, propose_contexts
-    from moe_layers import (
-        LayerRouting,
-        RouterObservation,
-    )
+    import moe_check as _moe_check
+    import moe_featurizer as _moe_featurizer
+    import moe_generator as _moe_generator
+    import moe_layer_fields as _moe_layer_fields
+    import moe_layers as _moe_layers
+    import moe_oracles as _moe_oracles
+    from moe_generator import build_records
     from moe_oracles import (
         RecordedTeacherRouter,
         ReferenceMoERouter,
         RouterOracle,
-        TransformersMoERouter,
         oracles_report,
     )
+
+
+def _reexport(module: Any, names: str) -> None:
+    globals().update({name: getattr(module, name) for name in names.split()})
+
+
+_reexport(
+    _moe_featurizer,
+    """
+    COMMIT_SHA_RE COMPACT_DIM COMPACT_SUMMARY_STATS CONTEXT_TEMPLATES FEATURE_DIM
+    FEATURIZER_ID FAMILY GENERATOR_NAME GENERATOR_VERSION MAX_RECOMPUTE_DIM
+    NON_TEACHER_IMPLEMENTATIONS NON_TEACHER_ORACLE_NAMES NON_TEACHER_ORACLE_TYPES
+    ORACLE_LABEL_POLICY RECOMPUTE_TOLERANCE SEALED_HUB_MOE_CARDS
+    SEALED_HUB_MOE_REVISIONS TEACHER_ORACLE_TYPES TEMPLATE_ADJECTIVES
+    TEMPLATE_NOUNS TRANSFORMERS_MOE_IMPLEMENTATION compact_view entropy_nats
+    featurize resolve_checkpoint softmax
+    """,
+)
+_reexport(_moe_layers, "LayerRouting RouterObservation")
+_reexport(_moe_layer_fields, "_check_layer_logits")
+_reexport(
+    _moe_oracles,
+    """
+    GateShape RecordedTeacherRouter ReferenceMoERouter RouterOracle
+    TransformersMoERouter oracles_report
+    """,
+)
+_reexport(_moe_generator, "build_records propose_contexts")
+_reexport(_moe_check, "check_family")
+
+del (
+    _reexport,
+    _moe_check,
+    _moe_featurizer,
+    _moe_generator,
+    _moe_layer_fields,
+    _moe_layers,
+    _moe_oracles,
+)
 
 
 def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands return 0

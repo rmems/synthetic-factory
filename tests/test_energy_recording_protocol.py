@@ -10,7 +10,7 @@ def recorded_meter(**protocol):
     return ep.RecordedEnergyMeter({
         "meter": "external_power_meter", "cost_quantity": "energy_j",
         "observations": {
-            ep.workload_key(policy, scenario, **protocol): {"cost_value": 1.0}
+            ep.workload_key(policy, scenario, ep.MeterProtocol(**protocol)): {"cost_value": 1.0}
             for policy in ep.POLICY_DESCRIPTIONS
         },
     })
@@ -21,11 +21,11 @@ class RecordingProtocol(unittest.TestCase):
         meter = recorded_meter()
         for protocol in ({"repeats": 6}, {"warmup": 2}):
             with self.subTest(protocol=protocol), self.assertRaises(oc.OracleUnavailable):
-                ep.build_records(21, 1, meter=meter, **protocol)
+                ep.build_records(21, 1, ep.MeterSpec(meter=meter, **protocol))
 
     def test_matching_nondefault_protocol_replays_and_reports_original_settings(self):
         meter = recorded_meter(repeats=3, warmup=0)
-        record = ep.build_records(21, 1, meter=meter, repeats=3, warmup=0)[0]
+        record = ep.build_records(21, 1, ep.MeterSpec(meter=meter, repeats=3, warmup=0))[0]
         self.assertEqual(record["oracle"]["configuration"]["repeats"], 3)
         self.assertEqual(record["oracle"]["configuration"]["warmup"], 0)
         self.assertEqual(ep.check_family(record, "test"), [])

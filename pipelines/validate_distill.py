@@ -47,43 +47,36 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
-    from .distill_manifest import (
-        _load_manifest_files,
-        _manifest_entry_errors,
-        _manifest_findings,
-        _manifest_summary_findings,
-    )
-    from .distill_records import (
-        DISTILLATION_FAMILIES,
-        FAMILY_CHECKS,
-        VALIDATOR_NAME,
-        VALIDATOR_VERSION,
-        check_record,
-        jsonl_paths,
-        validate_path,
-        _check_stamp_binding,
-        _duplicate_id_errors,
-        _process_record,
-    )
+    from . import distill_manifest as _distill_manifest
+    from . import distill_records as _distill_records
+    from .distill_records import validate_path
 else:
-    from distill_manifest import (
-        _load_manifest_files,
-        _manifest_entry_errors,
-        _manifest_findings,
-        _manifest_summary_findings,
-    )
-    from distill_records import (
-        DISTILLATION_FAMILIES,
-        FAMILY_CHECKS,
-        VALIDATOR_NAME,
-        VALIDATOR_VERSION,
-        check_record,
-        jsonl_paths,
-        validate_path,
-        _check_stamp_binding,
-        _duplicate_id_errors,
-        _process_record,
-    )
+    import distill_manifest as _distill_manifest
+    import distill_records as _distill_records
+    from distill_records import validate_path
+
+
+def _reexport(module: Any, names: str) -> None:
+    globals().update({name: getattr(module, name) for name in names.split()})
+
+
+_reexport(
+    _distill_manifest,
+    """
+    _load_manifest_files _manifest_entry_errors _manifest_findings
+    _manifest_summary_findings
+    """,
+)
+_reexport(
+    _distill_records,
+    """
+    DISTILLATION_FAMILIES FAMILY_CHECKS VALIDATOR_NAME VALIDATOR_VERSION
+    check_record jsonl_paths validate_path
+    _check_stamp_binding _duplicate_id_errors _process_record
+    """,
+)
+
+del _reexport, _distill_manifest, _distill_records
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """Cost meters for ``snn-energy-routing-preferences``.
 
-Split out of ``energy_preferences.py`` verbatim: the ``EnergyOracle`` boundary
-and the three meters that implement it — ``ProcessResourceMeter``,
-``RaplEnergyMeter``, ``RecordedEnergyMeter`` — plus ``select_meter`` and the
-``meters`` report. Every name here is re-exported from ``energy_preferences``
-so existing call sites resolve unchanged.
+Split out of ``energy_preferences.py`` verbatim: the meters
+``ProcessResourceMeter`` and ``RecordedEnergyMeter`` (the contract types and
+the RAPL meter live in ``energy_meter_types`` / ``energy_meter_rapl``) plus
+``select_meter`` and the ``meters`` report. Every name here is re-exported
+from ``energy_preferences`` so existing call sites resolve unchanged.
 """
 
 from __future__ import annotations
 
 import json
-import platform
-import re
 import statistics
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -33,65 +30,18 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
     from .energy_contract import FAMILY
+    from .energy_meter_rapl import RaplEnergyMeter
+    from .energy_meter_types import EnergyOracle, MeterReading
 else:
     from energy_contract import FAMILY
-
-
-
-RAPL_ROOT = Path("/sys/class/powercap")
+    from energy_meter_rapl import RaplEnergyMeter
+    from energy_meter_types import EnergyOracle, MeterReading
 
 
 # --------------------------------------------------------------------------
 # Meters
 # --------------------------------------------------------------------------
 
-
-@dataclass(frozen=True)
-class MeterReading:
-    """One meter's view of one executed workload."""
-
-    meter: str
-    cost_quantity: str
-    cost_value: float
-    extra: tuple[dict[str, Any], ...] = ()
-    detail: dict[str, Any] | None = None
-
-
-class EnergyOracle:
-    """Boundary every cost meter implements.
-
-    ``measure`` must actually execute ``workload`` ``repeats`` times and read a
-    counter. Returning a modelled number from this method is a contract
-    violation, not an implementation shortcut.
-    """
-
-    name = "abstract"
-    version = "0"
-    cost_quantity = "cpu_time_s"
-    measures_energy = False
-    # The code path the record claims produced it. An injected meter must
-    # declare its own implementation: stamping this module's path on a class
-    # defined elsewhere would be false provenance the family validator
-    # trusts because it honours that prefix (and cannot replay a foreign
-    # oracle's policies anyway).
-    implementation = "pipelines/energy_preferences.py:EnergyOracle"
-
-    def available(self) -> tuple[bool, str]:
-        raise NotImplementedError
-
-    def measure(
-        self, workload: Callable[[], Any], *, repeats: int, warmup: int
-    ) -> MeterReading:
-        raise NotImplementedError
-
-    def fingerprint(self) -> dict[str, Any]:
-        return {
-            "meter": self.name,
-            "version": self.version,
-            "platform": platform.platform(),
-            "machine": platform.machine(),
-            "python": platform.python_version(),
-        }
 
 
 class ProcessResourceMeter(EnergyOracle):
@@ -182,167 +132,7 @@ class ProcessResourceMeter(EnergyOracle):
         )
 
 
-class RaplEnergyMeter(EnergyOracle):
-    """Reads Intel RAPL powercap counters around an executed workload.
 
-    Produces genuine joules. Unavailable whenever the ``energy_uj`` files are
-    not readable by the current user, which is the common non-root case.
-    """
-
-    name = "intel_rapl_powercap"
-    version = "1.0.0"
-    cost_quantity = "energy_j"
-    measures_energy = True
-    implementation = "pipelines/energy_preferences.py:RaplEnergyMeter"
-
-    # A root RAPL zone: `intel-rapl:0`, never a subzone like `intel-rapl:0:0`.
-    _ROOT_ZONE_RE = re.compile(r"^intel-rapl:\d+$")
-
-    def __init__(self, root: Path | None = None) -> None:
-        self.root = Path(root) if root is not None else RAPL_ROOT
-
-    @staticmethod
-    def _zone_label(domain: Path) -> str:
-        try:
-            return (domain / "name").read_text(encoding="utf-8").strip()
-        except OSError:
-            return ""
-
-    def _domains(self) -> list[Path]:
-        """The non-overlapping RAPL zones whose counters may be summed.
-
-        ``/sys/class/powercap`` lists every zone flat: ``intel-rapl:0`` (the
-        package) sits beside its own subzones ``intel-rapl:0:0`` (core) and
-        ``intel-rapl:0:1`` (uncore), and a parent's counter already includes
-        its children. Summing everything double-counts whichever components a
-        workload exercises, and workloads with different component mixes can
-        then receive a different preference ordering — so only root zones are
-        read. ``psys``, when it appears beside package zones, is itself a
-        superset of them and is dropped for the same reason; when it is the
-        only root zone, it is the measurement.
-        """
-
-        roots = self._root_zones()
-        psys = [domain for domain in roots if self._zone_label(domain) == "psys"]
-        if psys and len(psys) < len(roots):
-            roots = [domain for domain in roots if self._zone_label(domain) != "psys"]
-        return roots
-
-    def _root_zones(self) -> list[Path]:
-        if not self.root.is_dir():
-            return []
-        return sorted(
-            child
-            for child in self.root.iterdir()
-            if self._ROOT_ZONE_RE.match(child.name)
-            and (child / "energy_uj").exists()
-        )
-
-    def available(self) -> tuple[bool, str]:
-        domains = self._domains()
-        if not domains:
-            return False, f"no intel-rapl domains under {self.root}"
-        for domain in domains:
-            try:
-                (domain / "energy_uj").read_text()
-            except OSError as exc:
-                return False, f"{domain / 'energy_uj'} not readable: {exc.strerror}"
-        return True, f"{len(domains)} readable rapl domain(s)"
-
-    def _read_uj(self) -> dict[str, int]:
-        return {
-            domain.name: int((domain / "energy_uj").read_text().strip())
-            for domain in self._domains()
-        }
-
-    def _range_uj(self) -> dict[str, int]:
-        ranges: dict[str, int] = {}
-        for domain in self._domains():
-            path = domain / "max_energy_range_uj"
-            try:
-                ranges[domain.name] = int(path.read_text().strip())
-            except OSError:
-                continue
-        return ranges
-
-    def _unwrapped_delta(
-        self, name: str, start: int, end: int, ranges: dict[str, int]
-    ) -> int:
-        delta = end - start
-        if delta < 0:
-            # The counter wrapped. Unwrapping needs the domain's range; if
-            # that is missing or unreadable, clamping to zero would report
-            # a real workload as free and could reverse the preference. An
-            # unmeasurable interval is unmeasured, not zero.
-            wrap_range = ranges.get(name, 0)
-            if wrap_range <= 0:
-                raise oc.OracleUnavailable(
-                    self.name,
-                    f"{name} energy_uj wrapped and max_energy_range_uj is "
-                    "missing or unreadable, so the interval cannot be measured",
-                )
-            delta += wrap_range
-            if delta < 0:
-                raise oc.OracleUnavailable(
-                    self.name,
-                    f"{name} energy_uj is still negative after unwrapping "
-                    f"by {wrap_range}",
-                )
-        return delta
-
-    def measure(
-        self, workload: Callable[[], Any], *, repeats: int, warmup: int
-    ) -> MeterReading:
-        if repeats < 1:
-            raise oc.ContractError("repeats must be >= 1")
-        ok, detail = self.available()
-        if not ok:
-            raise oc.OracleUnavailable(self.name, detail)
-        for _ in range(max(0, warmup)):
-            workload()
-        ranges = self._range_uj()
-        # One counter sample per executed repeat, never one around the whole
-        # batch: a long batch (the CLI allows up to 1000 repeats) can wrap a
-        # domain counter more than once, and unwrapping can only ever add a
-        # single range — endpoint sampling would silently report energy
-        # modulo the counter range, and an even number of wraps would add
-        # nothing at all. Per-repeat intervals observe every wrap the meter
-        # can observe; a single workload execution outrunning the entire
-        # counter range is outside what endpoint arithmetic can ever
-        # disambiguate and outside this meter's measurable domain.
-        total_uj = 0
-        before = self._read_uj()
-        wall_start = time.perf_counter_ns()
-        for _ in range(repeats):
-            workload()
-            after = self._read_uj()
-            if set(after) != set(before):
-                # A vanished domain used to read as a zero delta and
-                # silently underreport the interval; an appeared one would
-                # be silently dropped. Either way the interval cannot be
-                # attributed to a stable meter.
-                raise oc.OracleUnavailable(
-                    self.name,
-                    "the RAPL domain set changed mid-measurement "
-                    f"({sorted(before)} -> {sorted(after)})",
-                )
-            total_uj += sum(
-                self._unwrapped_delta(name, start, after[name], ranges)
-                for name, start in before.items()
-            )
-            before = after
-        wall_s = (time.perf_counter_ns() - wall_start) / 1e9
-        joules = total_uj / 1e6 / repeats
-        return MeterReading(
-            meter=self.name,
-            cost_quantity=self.cost_quantity,
-            cost_value=joules,
-            extra=(
-                oc.new_measurement("wall_time_s", wall_s / repeats, self.name),
-                oc.new_measurement("repeats", repeats, self.name),
-            ),
-            detail={"domains": sorted(before), "aggregation": "mean_over_repeats"},
-        )
 
 
 class RecordedEnergyMeter(EnergyOracle):
@@ -377,7 +167,7 @@ class RecordedEnergyMeter(EnergyOracle):
 
     @classmethod
     def from_path(cls, path) -> "RecordedEnergyMeter":
-        return cls(json.loads(Path(path).read_text(encoding="utf-8")))
+        return cls(json.loads(Path(path).read_text(encoding="utf-8")))  # NOSONAR
 
     def available(self) -> tuple[bool, str]:
         if not self.source_meter.strip():

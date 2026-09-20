@@ -11,7 +11,6 @@ candidate policy and assembles the record. Every name here is re-exported from
 from __future__ import annotations
 
 import hashlib
-import json
 import platform
 import random
 import sys
@@ -28,7 +27,6 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
     from .energy_contract import (
         ABSTAIN_NO_FEASIBLE,
-        ABSTAIN_NO_MEASUREMENT,
         DECISION_RULE,
         DEFAULT_COARSE_STEPS,
         DEFAULT_FINE_STEPS,
@@ -40,12 +38,12 @@ if __package__:
         POLICY_SUITE_VERSION,
         PREFERENCE_OBJECTIVE,
         SAFETY_ENVELOPE,
-        SUPPORTED_COST_QUANTITIES,
         _genuine_int_at_least,
     )
     from .energy_meters import EnergyOracle, MeterReading, select_meter
     from .energy_task import (
         PolicyEvaluation,
+        ProblemSpec,
         analytic_allocation,
         evaluate_allocation,
         grid_allocation,
@@ -55,7 +53,6 @@ if __package__:
 else:
     from energy_contract import (
         ABSTAIN_NO_FEASIBLE,
-        ABSTAIN_NO_MEASUREMENT,
         DECISION_RULE,
         DEFAULT_COARSE_STEPS,
         DEFAULT_FINE_STEPS,
@@ -67,12 +64,12 @@ else:
         POLICY_SUITE_VERSION,
         PREFERENCE_OBJECTIVE,
         SAFETY_ENVELOPE,
-        SUPPORTED_COST_QUANTITIES,
         _genuine_int_at_least,
     )
     from energy_meters import EnergyOracle, MeterReading, select_meter
     from energy_task import (
         PolicyEvaluation,
+        ProblemSpec,
         analytic_allocation,
         evaluate_allocation,
         grid_allocation,
@@ -145,13 +142,17 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
 
 
 def _policy_workloads(
-    demand: float, weights: list[float], caps: list[float], *, fine_steps: int,
-    coarse_steps: int,
+    problem: ProblemSpec, protocol: MeterProtocol
 ) -> dict[str, Callable[[], list[float]]]:
+    demand, weights, caps = problem.demand, problem.weights, problem.caps
     return {
-        "exhaustive_grid": lambda: grid_allocation(demand, weights, caps, fine_steps),
+        "exhaustive_grid": lambda: grid_allocation(
+            demand, weights, caps, protocol.fine_steps
+        ),
         "analytic_kkt": lambda: analytic_allocation(demand, weights, caps),
-        "coarse_grid": lambda: grid_allocation(demand, weights, caps, coarse_steps),
+        "coarse_grid": lambda: grid_allocation(
+            demand, weights, caps, protocol.coarse_steps
+        ),
         "unclipped_proportional": lambda: unclipped_allocation(demand, weights),
     }
 
@@ -224,14 +225,29 @@ def _feasible_candidates(
     ]
 
 
+@dataclass(frozen=True)
+class MeterProtocol:
+    """The repeat/warmup protocol and solver grids a measurement binds to."""
+
+    repeats: int = 5
+    warmup: int = 1
+    fine_steps: int = DEFAULT_FINE_STEPS
+    coarse_steps: int = DEFAULT_COARSE_STEPS
+
+
+@dataclass(frozen=True)
+class MeterSpec(MeterProtocol):
+    """The meter choice, probe, protocol and record id prefix of a batch."""
+
+    meter: EnergyOracle | None = None
+    meter_probe: dict[str, Any] | None = None
+    id_prefix: str = "ep"
+
+
 def workload_key(
     policy_id: str,
     scenario: dict[str, Any],
-    *,
-    repeats: int = 5,
-    warmup: int = 1,
-    fine_steps: int = DEFAULT_FINE_STEPS,
-    coarse_steps: int = DEFAULT_COARSE_STEPS,
+    protocol: MeterProtocol = MeterProtocol(),
 ) -> str:
     """Stable key identifying one policy running one workload configuration.
 
@@ -243,18 +259,18 @@ def workload_key(
     reading is attached to it, which can silently change the preference.
     """
 
-    _check_run_knobs({
-        "repeats": repeats, "warmup": warmup,
-        "fine_steps": fine_steps, "coarse_steps": coarse_steps,
-    })
+    _check_run_knobs(protocol)
     state = scenario.get("state") if isinstance(scenario, dict) else None
     payload = {
         "state": state,
         "policy_suite": POLICY_SUITE_VERSION,
-        "measurement_protocol": {"repeats": repeats, "warmup": warmup},
+        "measurement_protocol": {
+            "repeats": protocol.repeats,
+            "warmup": protocol.warmup,
+        },
         "solver": {
-            "fine_steps": int(fine_steps),
-            "coarse_steps": int(coarse_steps),
+            "fine_steps": int(protocol.fine_steps),
+            "coarse_steps": int(protocol.coarse_steps),
         },
     }
     digest = hashlib.sha256(oc.canonical_json(payload).encode("utf-8")).hexdigest()
@@ -262,15 +278,10 @@ def workload_key(
 
 
 def _read_cost(
-    meter: EnergyOracle,
+    run: _MeterRun,
     workload: Callable[[], Any],
-    *,
     policy_id: str,
     scenario: dict[str, Any],
-    repeats: int,
-    warmup: int,
-    fine_steps: int,
-    coarse_steps: int,
 ) -> MeterReading:
     """Take a live measurement, or replay one a real metered run recorded.
 
@@ -281,31 +292,21 @@ def _read_cost(
     attached to the hardware.
     """
 
-    lookup = getattr(meter, "lookup", None)
+    lookup = getattr(run.meter, "lookup", None)
     if callable(lookup):
-        return lookup(
-            workload_key(
-                policy_id,
-                scenario,
-                repeats=repeats,
-                warmup=warmup,
-                fine_steps=fine_steps,
-                coarse_steps=coarse_steps,
-            )
-        )
-    return meter.measure(workload, repeats=repeats, warmup=warmup)
+        return lookup(workload_key(policy_id, scenario, run.protocol))
+    return run.meter.measure(
+        workload, repeats=run.protocol.repeats, warmup=run.protocol.warmup
+    )
 
 
 @dataclass(frozen=True)
 class _MeterRun:
-    """The meter and knobs one measured batch runs with."""
+    """The meter, probe and protocol one measured batch runs with."""
 
     meter: EnergyOracle
     probe: dict[str, Any]
-    repeats: int
-    warmup: int
-    fine_steps: int
-    coarse_steps: int
+    protocol: MeterProtocol
 
 
 
@@ -323,25 +324,26 @@ _RUN_KNOB_FLOORS = (
 )
 
 
-def _check_run_knobs(knobs: dict[str, Any]) -> None:
+def _check_run_knobs(protocol: MeterProtocol) -> None:
     """Refuse measurement-run knobs the recorded audit could not describe."""
 
     for name, floor in _RUN_KNOB_FLOORS:
-        if not _genuine_int_at_least(knobs[name], floor):
+        if not _genuine_int_at_least(getattr(protocol, name), floor):
             raise oc.ContractError(
-                f"{name} must be an integer >= {floor}, got {knobs[name]!r}; "
-                "the recorded oracle configuration must describe the "
-                "execution that actually happened"
+                f"{name} must be an integer >= {floor}, got "
+                f"{getattr(protocol, name)!r}; the recorded oracle "
+                "configuration must describe the execution that actually "
+                "happened"
             )
     for name in ("fine_steps", "coarse_steps"):
-        if knobs[name] > MAX_REPLAY_STEPS:
+        if getattr(protocol, name) > MAX_REPLAY_STEPS:
             # The family's own validator declines to replay grids above this
             # ceiling, so a run built beyond it would measure successfully and
             # still be rejected on validation — refuse it before executing.
             raise oc.ContractError(
                 f"{name} must be an integer <= {MAX_REPLAY_STEPS}, got "
-                f"{knobs[name]!r}; the validator cannot replay a grid larger "
-                "than that"
+                f"{getattr(protocol, name)!r}; the validator cannot replay a "
+                "grid larger than that"
             )
 
 
@@ -392,10 +394,10 @@ def _oracle_block(run: _MeterRun) -> dict[str, Any]:
         ),
         oc.OracleRun(
             configuration={
-                "repeats": run.repeats,
-                "warmup": run.warmup,
-                "fine_steps": run.fine_steps,
-                "coarse_steps": run.coarse_steps,
+                "repeats": run.protocol.repeats,
+                "warmup": run.protocol.warmup,
+                "fine_steps": run.protocol.fine_steps,
+                "coarse_steps": run.protocol.coarse_steps,
                 "meter_probe": run.probe,
             },
             fingerprint=meter.fingerprint(),
@@ -435,23 +437,18 @@ def _reading_measurements(
 
 def _measure_candidate(
     run: _MeterRun,
-    policy_id: str,
-    workload: Callable[[], Any],
     scenario: dict[str, Any],
-    evaluation: PolicyEvaluation,
+    problem: ProblemSpec,
+    task: tuple[str, Callable[[], Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """One executed policy's measurements and its candidate summary."""
 
-    reading = _read_cost(
-        run.meter,
-        workload,
-        policy_id=policy_id,
-        scenario=scenario,
-        repeats=run.repeats,
-        warmup=run.warmup,
-        fine_steps=run.fine_steps,
-        coarse_steps=run.coarse_steps,
+    policy_id, workload = task
+    allocation = workload()
+    evaluation = evaluate_allocation(
+        None if allocation is None else list(allocation), problem
     )
+    reading = _read_cost(run, workload, policy_id, scenario)
     measurements = _reading_measurements(reading, policy_id, evaluation)
     candidate = {
         "id": policy_id,
@@ -477,29 +474,20 @@ def _scenario_result(run: _MeterRun, scenario: dict[str, Any]) -> dict[str, Any]
     caps = [float(value) for value in state["actuator_caps"]]
     quality_floor = float(scenario["constraints"]["quality_floor"])
     optimum = objective(weights, analytic_allocation(demand, weights, caps))
-
-    workloads = _policy_workloads(
-        demand,
-        weights,
-        caps,
-        fine_steps=run.fine_steps,
-        coarse_steps=run.coarse_steps,
+    problem = ProblemSpec(
+        demand=demand,
+        weights=weights,
+        caps=caps,
+        optimum=optimum,
+        quality_floor=quality_floor,
     )
+
+    workloads = _policy_workloads(problem, run.protocol)
     measurements: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
-    for policy_id in sorted(workloads):
-        workload = workloads[policy_id]
-        allocation = workload()
-        evaluation = evaluate_allocation(
-            None if allocation is None else list(allocation),
-            demand=demand,
-            weights=weights,
-            caps=caps,
-            optimum=optimum,
-            quality_floor=quality_floor,
-        )
+    for policy_id, workload in sorted(workloads.items()):
         policy_measurements, candidate = _measure_candidate(
-            run, policy_id, workload, scenario, evaluation
+            run, scenario, problem, (policy_id, workload)
         )
         measurements += policy_measurements
         candidates.append(candidate)
@@ -525,36 +513,13 @@ def _scenario_result(run: _MeterRun, scenario: dict[str, Any]) -> dict[str, Any]
 
 
 def build_records(
-    seed: int,
-    count: int,
-    *,
-    meter: EnergyOracle | None = None,
-    meter_probe: dict[str, Any] | None = None,
-    repeats: int = 5,
-    warmup: int = 1,
-    fine_steps: int = DEFAULT_FINE_STEPS,
-    coarse_steps: int = DEFAULT_COARSE_STEPS,
-    id_prefix: str = "ep",
+    seed: int, count: int, spec: MeterSpec = MeterSpec()
 ) -> list[dict[str, Any]]:
     """Execute every candidate policy, meter it, and build measured records."""
 
-    _check_run_knobs(
-        {
-            "repeats": repeats,
-            "warmup": warmup,
-            "fine_steps": fine_steps,
-            "coarse_steps": coarse_steps,
-        }
-    )
-    meter, probe = _resolve_meter(meter, meter_probe)
-    run = _MeterRun(
-        meter=meter,
-        probe=probe,
-        repeats=repeats,
-        warmup=warmup,
-        fine_steps=fine_steps,
-        coarse_steps=coarse_steps,
-    )
+    _check_run_knobs(spec)
+    meter, probe = _resolve_meter(spec.meter, spec.meter_probe)
+    run = _MeterRun(meter=meter, probe=probe, protocol=spec)
     generator = oc.new_generator(
         oc.GeneratorIdentity(GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic"),
         seed=seed,
@@ -566,7 +531,7 @@ def build_records(
         records.append(
             oc.build_record(
                 identity=oc.RecordIdentity(
-                    f"{id_prefix}-{seed}-{proposal['index']:04d}", FAMILY
+                    f"{spec.id_prefix}-{seed}-{proposal['index']:04d}", FAMILY
                 ),
                 proposal=oc.Proposal(generator=generator, scenario=scenario),
                 verdict=oc.Verdict(oracle=oracle, result=_scenario_result(run, scenario)),
