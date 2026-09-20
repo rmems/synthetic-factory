@@ -213,7 +213,11 @@ def _manifest_summary_findings(
     """Findings for a manifest validation summary that disagrees with the run."""
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        # manifest_path is root / "MANIFEST.json" inside the run the operator
+        # named; reading that manifest is the validator's purpose.
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8")  # NOSONAR
+        )
     except (OSError, ValueError):
         return []  # an unreadable manifest is already a finding upstream
     if not isinstance(manifest, dict):
