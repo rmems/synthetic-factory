@@ -9,6 +9,7 @@ the digest catches is not a finding — the digest only proves the file has not
 been edited since it was written, not that what was written was true.
 """
 
+import hashlib
 import json
 import math
 import sys
@@ -2747,6 +2748,269 @@ class NinthRoundEnergyGaps(unittest.TestCase):
             lean_by_quantity["max_rss_kb"],
             "a later lean workload must not inherit the hungry peak — the "
             "counter is reset per workload, not process-lifetime",
+        )
+
+
+class FaultRunTimeContractGaps(unittest.TestCase):
+    """fault_recovery.py: declarations that would run as silent no-ops."""
+
+    def setUp(self):
+        self.sim = fr.RelayReflexSimulator()
+        self.scenario = {"system": dict(fr.DEFAULT_SYSTEM)}
+
+    def _run(self, kind, **parameters):
+        return self.sim.run(self.scenario, {"kind": kind, "parameters": parameters})
+
+    def test_an_unknown_system_control_is_refused(self):
+        # A typo'd key would be silently ignored while the record claims the
+        # caller's system was simulated.
+        scenario = {"system": {**fr.DEFAULT_SYSTEM, "ambint_c": 50.0}}
+        with self.assertRaises(oc.ContractError):
+            self.sim.run(
+                scenario,
+                {"kind": "delayed_result",
+                 "parameters": {"channels": ["c0"], "delay_ms": 4.0}},
+            )
+
+    def test_a_flat_thermal_ladder_is_refused(self):
+        # Equal rungs made the ladder a no-op: the relay can never warn before
+        # it is already past the limit.
+        scenario = {"system": {**fr.DEFAULT_SYSTEM, "thermal_warn_c": 38.0}}
+        with self.assertRaises(oc.ContractError):
+            self.sim.run(
+                scenario,
+                {"kind": "thermal_excursion",
+                 "parameters": {"onset_ms": 4.0, "ramp_ms": 8.0, "peak_c": 90.0}},
+            )
+
+    def test_a_peak_at_or_below_ambient_is_refused(self):
+        ambient = fr.DEFAULT_SYSTEM["ambient_c"]
+        for peak in (ambient - 1.0, ambient):
+            with self.subTest(peak=peak):
+                with self.assertRaises(oc.ContractError):
+                    self._run(
+                        "thermal_excursion",
+                        onset_ms=4.0, ramp_ms=8.0, peak_c=peak,
+                    )
+
+    def test_a_thermal_onset_on_the_last_tick_is_refused(self):
+        # The excursion ramps by fraction of ramp_ms; starting on the last
+        # tick leaves no tick where the ramp fraction is nonzero.
+        last_tick_ms = (
+            fr.DEFAULT_SYSTEM["ticks"] - 1
+        ) * fr.DEFAULT_SYSTEM["tick_ms"]
+        for onset in (last_tick_ms, last_tick_ms + 1.0):
+            with self.subTest(onset=onset):
+                with self.assertRaises(oc.ContractError):
+                    self._run(
+                        "thermal_excursion",
+                        onset_ms=onset, ramp_ms=8.0, peak_c=90.0,
+                    )
+
+    def test_a_fallback_only_channel_list_is_refused(self):
+        # "redundant_relay_b" is a known name (the fallback source) but the
+        # tick loop visits primary channels only — the declared fault would
+        # affect nothing.
+        with self.assertRaises(oc.ContractError):
+            self._run(
+                "sensor_loss",
+                channels=["redundant_relay_b"],
+                onset_ms=4.0,
+                duration_ms=8.0,
+            )
+
+    def test_a_malformed_count_beyond_burst_capacity_is_refused(self):
+        # One malformed event per affected live channel per tick: 1 channel
+        # over 24 ticks can emit at most 24.
+        with self.assertRaises(oc.ContractError):
+            self._run(
+                "malformed_spike_burst",
+                channels=["c0"],
+                malformed_count=fr.DEFAULT_SYSTEM["ticks"] + 1,
+                malformed_kind="negative_amplitude",
+            )
+
+
+class FaultOracleConfigurationGaps(unittest.TestCase):
+    """fault_recovery.py: the oracle block binds the simulated controls."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = fr.build_records(3, 6)
+
+    def test_a_tampered_declared_system_is_a_finding(self):
+        # The oracle records the merged effective system, so a validator
+        # replaying the scenario against the declared system must catch the
+        # swap even when the scenario itself was left alone.
+        record = clone(self.records[0])
+        record["oracle"]["configuration"]["system"]["ambient_c"] = 10.0
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("configuration" in error for error in errors),
+            f"a swapped declared system passed: {errors}",
+        )
+
+    def test_a_relabelled_meter_is_a_finding(self):
+        # Quantities are replayed through the meter the oracle declares for
+        # them; renaming the meter keeps the value right while the provenance
+        # lies.
+        record = clone(self.records[0])
+        for item in record["result"]["measurements"]:
+            if item["quantity"] == "detection_latency_ms":
+                item["meter"] = "simulator_state"
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("reads it from" in error for error in errors),
+            f"a relabelled meter passed: {errors}",
+        )
+
+
+class EnergyOracleContractGaps(unittest.TestCase):
+    """energy_preferences.py: oracle identity and probe must agree."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = ep.build_records(3, 2)
+
+    def test_run_knobs_beyond_the_replayable_grid_are_refused(self):
+        # The validator replays the grid; a knob beyond MAX_REPLAY_STEPS
+        # produces a record the validator cannot check.
+        with self.assertRaises(oc.ContractError):
+            ep.build_records(
+                3, 1, fine_steps=ep.MAX_REPLAY_STEPS + 1
+            )
+        with self.assertRaises(oc.ContractError):
+            ep.build_records(
+                3, 1, coarse_steps=ep.MAX_REPLAY_STEPS + 1
+            )
+
+    def test_an_oracle_type_that_disagrees_with_its_implementation_is_a_finding(
+        self,
+    ):
+        record = clone(self.records[0])
+        record["oracle"]["type"] = "recorded_measurement"
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("ORACLE_TYPE_MISMATCH" in error for error in errors),
+            f"a mismatched oracle type/implementation pair passed: {errors}",
+        )
+
+    def test_a_negative_demand_is_a_finding(self):
+        record = clone(self.records[0])
+        record["scenario"]["state"]["demand"] = -1.0
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("demand" in error for error in errors),
+            f"a negative demand passed: {errors}",
+        )
+
+    def test_a_selected_meter_that_was_never_available_is_a_finding(self):
+        # The probe may select only a meter it actually probed as available.
+        record = clone(self.records[0])
+        record["oracle"]["configuration"]["meter_probe"]["selected"] = (
+            "intel_rapl_powercap"
+        )
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("selected" in error for error in errors),
+            f"an unavailable selected meter passed: {errors}",
+        )
+
+
+class RouterConfigurationGaps(unittest.TestCase):
+    """moe_router.py: configuration, fingerprint and compact input agree."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.record = mr.build_records(3, 1)[0]
+
+    def test_a_configuration_disagreeing_with_the_fingerprint_is_a_finding(
+        self,
+    ):
+        for key in ("num_experts", "num_layers", "top_k"):
+            with self.subTest(key=key):
+                record = clone(self.record)
+                record["oracle"]["configuration"][key] += 1
+                rehash(record)
+                errors = mr.check_family(record, "x")
+                self.assertTrue(
+                    any(f"configuration.{key}" in error for error in errors),
+                    f"a {key} drift passed: {errors}",
+                )
+
+    def test_a_compact_input_at_the_wrong_width_is_a_finding(self):
+        record = clone(self.record)
+        record["scenario"]["compact_input"]["feature_dim"] = 8
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("feature_dim" in error for error in errors),
+            f"a wrong compact width passed: {errors}",
+        )
+
+    def test_a_measurement_attributed_to_the_wrong_layer_is_a_finding(self):
+        # top1_top2_margin and routing_entropy summarise the last layer; an
+        # honest value attributed to the wrong layer still lies about where
+        # in the trajectory it was read.
+        record = clone(self.record)
+        for item in record["result"]["measurements"]:
+            if item["quantity"] == "top1_top2_margin":
+                item["detail"]["layer"] = 0
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("attributed to layer" in error for error in errors),
+            f"a misattributed last-layer measurement passed: {errors}",
+        )
+
+    def test_a_non_default_gate_width_produces_a_matching_compact_input(self):
+        record = mr.build_records(
+            3, 1, oracle=mr.ReferenceMoERouter(dim=8)
+        )[0]
+        compact = record["scenario"]["compact_input"]
+        self.assertEqual(compact["feature_dim"], 8)
+        self.assertEqual(mr.check_family(record, "x"), [])
+
+
+class ManifestBindingGaps(unittest.TestCase):
+    """validate_distill.py: the manifest binds a genuine integer count."""
+
+    def _report(self, records_value):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "run"
+            path = root / "batch.jsonl"
+            oc.write_jsonl(path, fr.build_records(3, 1))
+            sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            manifest = {"files": {"batch.jsonl": {
+                "sha256": sha, "records": records_value}}}
+            (root / "MANIFEST.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            return vd.validate_path(root)
+
+    def test_a_boolean_or_float_record_count_does_not_bind(self):
+        for value in (True, 1.0):
+            with self.subTest(records=value):
+                report = self._report(value)
+                self.assertTrue(
+                    any(
+                        "records" in f["error"]
+                        for f in report["findings"]
+                    ),
+                    f"a {type(value).__name__} count bound the file: "
+                    f"{report['findings']}",
+                )
+
+    def test_an_integer_count_still_binds(self):
+        report = self._report(1)
+        self.assertFalse(
+            any("MANIFEST" in f["error"] for f in report["findings"]),
+            report["findings"],
         )
 
 

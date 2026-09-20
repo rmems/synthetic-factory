@@ -499,6 +499,11 @@ class RelayReflexSimulator(FaultOracle):
     meter_thermal = "simulator_thermal_model"
 
     def oracle_block(self, scenario: dict[str, Any]) -> dict[str, Any]:
+        # The recorded configuration must describe the run that happened:
+        # the effective system (defaults merged over the scenario's) and the
+        # meter identities this oracle read its measurements from. Recording
+        # only the caller's partial overrides made a default-driven outcome
+        # irreproducible the moment a default changed.
         return oc.new_oracle(
             oc.OracleIdentity(
                 self.name,
@@ -509,8 +514,9 @@ class RelayReflexSimulator(FaultOracle):
             ),
             oc.OracleRun(
                 configuration={
-                    "system": dict(scenario.get("system", {})),
+                    "system": {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))},
                     "precedence": list(OUTCOME_PRECEDENCE),
+                    "meters": _oracle_meters(self),
                 }
             ),
         )
@@ -518,7 +524,9 @@ class RelayReflexSimulator(FaultOracle):
     # -- stream construction -------------------------------------------------
 
     @staticmethod
-    def _check_parameters(kind: str, parameters: dict[str, Any]) -> None:
+    def _check_parameters(
+        kind: str, parameters: dict[str, Any], system: dict[str, Any]
+    ) -> None:
         """Refuse a disturbance this simulator would silently ignore.
 
         Missing parameters used to default to zero, so a plausible-looking
@@ -541,7 +549,7 @@ class RelayReflexSimulator(FaultOracle):
                 f"{kind} does not use parameters {unknown}; it reads "
                 f"{sorted(required + optional)}"
             )
-        RelayReflexSimulator._check_parameter_values(kind, parameters)
+        RelayReflexSimulator._check_parameter_values(kind, parameters, system)
 
     # Numeric parameter floors. A value outside these cannot produce the
     # declared disturbance — a negative duration never opens the active
@@ -578,6 +586,15 @@ class RelayReflexSimulator(FaultOracle):
                 f"at {last_tick_ms} ms ({system['ticks']} ticks x "
                 f"{system['tick_ms']} ms); the declared disturbance would "
                 "never occur"
+            )
+        if kind == "thermal_excursion" and float(onset) >= last_tick_ms:
+            # The ramp is evaluated at fraction zero on the onset tick
+            # itself, so an onset on the last tick never raises the
+            # temperature; the excursion replays as an authoritative no-op.
+            raise oc.ContractError(
+                f"{kind} onset_ms {onset} leaves no sampled tick after the "
+                f"onset (last tick at {last_tick_ms} ms); the ramp never "
+                "rises and the declared excursion would run as a no-op"
             )
 
     @staticmethod
@@ -619,7 +636,9 @@ class RelayReflexSimulator(FaultOracle):
             )
 
     @staticmethod
-    def _check_parameter_values(kind: str, parameters: dict[str, Any]) -> None:
+    def _check_parameter_values(
+        kind: str, parameters: dict[str, Any], system: dict[str, Any]
+    ) -> None:
         """Value ranges whose violation would also run as a silent no-op."""
 
         RelayReflexSimulator._check_declared_channel_list(kind, parameters)
@@ -629,6 +648,17 @@ class RelayReflexSimulator(FaultOracle):
                 f"{kind} peak_c must be a finite number, got "
                 f"{parameters['peak_c']!r}"
             )
+        if kind == "thermal_excursion" and oc.is_number(parameters.get("peak_c")):
+            ambient = float(system["ambient_c"])
+            if float(parameters["peak_c"]) <= ambient:
+                # _update_thermal keeps the running maximum with ambient, so
+                # a peak at or below it never heats the relay — the declared
+                # excursion replays as an authoritative no-op.
+                raise oc.ContractError(
+                    f"{kind} peak_c {parameters['peak_c']} must exceed the "
+                    f"ambient temperature {ambient}; the relay can never "
+                    "warm to it"
+                )
         if kind == "malformed_spike_burst":
             RelayReflexSimulator._check_malformed_burst(parameters)
         if kind == "burst_corruption":
@@ -725,6 +755,18 @@ class RelayReflexSimulator(FaultOracle):
                 f"{kind} declares unknown channels {unknown_names}; this relay "
                 f"reads {sorted(known)} — an unknown name would run as a no-op"
             )
+        required, _ = PARAMETER_SPEC[kind]
+        if "channels" in required and not any(
+            name in channels for name in declared
+        ):
+            # The tick loop visits primary channels only, so a required list
+            # naming only the fallback source applies no events at all — the
+            # declared channel fault replays as an authoritative no-op.
+            raise oc.ContractError(
+                f"{kind} channels must name at least one primary relay "
+                "channel; the fallback source alone leaves the declared "
+                "disturbance with nothing to affect"
+            )
         return declared
 
     @staticmethod
@@ -787,11 +829,14 @@ class RelayReflexSimulator(FaultOracle):
             raise oc.ContractError(
                 "system thermal thresholds must be finite numbers"
             )
-        warn, limit, shutdown = (float(value) for value in thresholds[1:])
-        if not warn < limit < shutdown:
+        ambient, warn, limit, shutdown = (
+            float(value) for value in thresholds
+        )
+        if not ambient < warn < limit < shutdown:
             raise oc.ContractError(
-                "system thermal ladder must be ordered warn < limit < "
-                f"shutdown, got {warn}, {limit}, {shutdown}"
+                "system thermal ladder must be ordered ambient < warn < "
+                f"limit < shutdown, got {ambient}, {warn}, {limit}, "
+                f"{shutdown}"
             )
 
     @staticmethod
@@ -852,14 +897,25 @@ class RelayReflexSimulator(FaultOracle):
             raise oc.ContractError("system min_healthy_channels exceeds primary channel count")
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
-        system = {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))}
+        supplied_system = dict(scenario.get("system", {}))
+        unknown_controls = sorted(set(supplied_system) - set(DEFAULT_SYSTEM))
+        if unknown_controls:
+            # A misspelled control would sit in the recorded configuration
+            # while the simulator ran on the defaults — the record would
+            # describe a run that never happened.
+            raise oc.ContractError(
+                f"scenario.system declares unknown controls "
+                f"{unknown_controls}; the simulator reads "
+                f"{sorted(DEFAULT_SYSTEM)}"
+            )
+        system = {**DEFAULT_SYSTEM, **supplied_system}
         self._check_system_controls(system)
         channels: list[str] = list(system["channels"])
         kind = disturbance.get("kind")
         if kind not in DISTURBANCES:
             raise oc.ContractError(f"unknown disturbance kind: {kind!r}")
         params = dict(disturbance.get("parameters", {}))
-        self._check_parameters(kind, params)
+        self._check_parameters(kind, params, system)
         self._check_onset_within_horizon(kind, params, system)
         self._check_sampled_window(kind, params, system)
         # ``affected`` is narrowed to the relay's own channels for the tick
@@ -871,6 +927,21 @@ class RelayReflexSimulator(FaultOracle):
 
         missing = set(affected) if kind == "missing_channel" else set()
         live_channels = [channel for channel in channels if channel not in missing]
+        if kind == "malformed_spike_burst":
+            # The tick loop emits at most one malformed event per affected
+            # live channel per tick, so a count beyond that capacity is a
+            # recorded severity the simulation can never produce.
+            capacity = int(system["ticks"]) * len(
+                set(affected) & set(live_channels)
+            )
+            if params["malformed_count"] > capacity:
+                raise oc.ContractError(
+                    f"malformed_count {params['malformed_count']} exceeds the "
+                    f"burst capacity {capacity} ({system['ticks']} ticks x "
+                    f"{len(set(affected) & set(live_channels))} affected live "
+                    "channels); the recorded severity would be silently "
+                    "truncated"
+                )
 
         state = _StreamState(system, channels, live_channels)
         state.corruption_ticks = _corruption_ticks(spec, system)
@@ -1380,7 +1451,10 @@ def _missing_replay_quantities(
 
 
 def _replay_item_errors(
-    item: dict[str, Any], expected: dict[str, float | None], where: str
+    item: dict[str, Any],
+    expected: dict[str, float | None],
+    record_meters: dict[str, str],
+    where: str,
 ) -> list[str]:
     """One recorded reading against the value and meter the replay derives."""
 
@@ -1405,11 +1479,11 @@ def _replay_item_errors(
             "replay-derived fault target must be a reading the simulator "
             "actually took"
         )
-    if item.get("meter") != _REPLAY_METERS[quantity]:
+    if item.get("meter") != record_meters[quantity]:
         errors.append(
             f"{where}.result: MEASUREMENT_PROVENANCE_NOT_REPRODUCIBLE — "
             f"{quantity} is attributed to meter {item.get('meter')!r} but "
-            f"this simulator reads it from {_REPLAY_METERS[quantity]!r}"
+            f"the producing oracle reads it from {record_meters[quantity]!r}"
         )
     if oc.is_number(item.get("value")) and (
         abs(float(item["value"]) - float(target)) > 1e-6
@@ -1422,8 +1496,40 @@ def _replay_item_errors(
     return errors
 
 
+# Quantity -> the meter role an oracle reads it from. ``_REPLAY_METERS``
+# supplies the simulator's own instruments; an oracle that stamps a
+# ``configuration.meters`` role map (as ``oracle_block`` now does) names its
+# own meters instead, so an injected oracle's readings are validated against
+# the meters it declared rather than the simulator defaults.
+_QUANTITY_METER_ROLE = {
+    "detection_latency_ms": "clock",
+    "recovery_latency_ms": "clock",
+    "healthy_channel_count": "state",
+    "dropped_event_count": "state",
+    "residual_error": "state",
+    "corrupt_ratio": "state",
+    "peak_temperature_c": "thermal",
+}
+
+
+def _record_meters(record: dict[str, Any]) -> dict[str, str]:
+    """Replay-derived expected meters: the record's declared roles, else the
+    simulator's own."""
+
+    expected = dict(_REPLAY_METERS)
+    oracle = record.get("oracle")
+    configuration = oracle.get("configuration") if isinstance(oracle, dict) else None
+    declared = configuration.get("meters") if isinstance(configuration, dict) else None
+    if isinstance(declared, dict):
+        for quantity, role in _QUANTITY_METER_ROLE.items():
+            meter = declared.get(role)
+            if isinstance(meter, str) and meter.strip():
+                expected[quantity] = meter
+    return expected
+
+
 def _check_replay_measurements(
-    result: dict[str, Any], replay: Any, where: str
+    result: dict[str, Any], replay: Any, record_meters: dict[str, str], where: str
 ) -> list[str]:
     """The recorded measurements against the ones the replay derives."""
 
@@ -1436,7 +1542,7 @@ def _check_replay_measurements(
     ]
     errors = _missing_replay_quantities(expected, items, where)
     for item in items:
-        errors += _replay_item_errors(item, expected, where)
+        errors += _replay_item_errors(item, expected, record_meters, where)
     return errors
 
 
@@ -1495,7 +1601,7 @@ def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[s
             f"and intervention do not run on {ORACLE_NAME}: {exc}"
         ]
     return _check_replay_labels(result, replay, where) + _check_replay_measurements(
-        result, replay, where
+        result, replay, _record_meters(record), where
     )
 
 
@@ -1722,8 +1828,12 @@ def _check_oracle_configuration_binding(
             f"{where}.oracle.configuration must record the simulator's "
             "system and precedence"
         ]
+    # The recorded system is the *effective* one: the oracle fills every key
+    # the scenario omits from DEFAULT_SYSTEM before running, so the binding
+    # compares against that merged configuration, not the partial input.
+    effective_system = {**DEFAULT_SYSTEM, **recorded_system}
     errors: list[str] = []
-    if configuration.get("system") != recorded_system:
+    if configuration.get("system") != effective_system:
         errors.append(
             f"{where}.oracle.configuration.system does not match "
             "scenario.system — the oracle block must describe the "

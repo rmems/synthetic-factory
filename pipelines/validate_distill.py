@@ -146,7 +146,10 @@ def _manifest_entry_errors(
             f"MANIFEST.json binds {relative} to sha256 {spec.get('sha256')!r} "
             f"but the file hashes to {actual_sha256!r}"
         )
-    if spec.get("records") != records:
+    declared_records = spec.get("records")
+    if type(declared_records) is not int or declared_records != records:
+        # `true` and `1.0` both equal 1 under Python equality, so a boolean or
+        # float count would pass — the manifest must bind a genuine integer.
         errors.append(
             f"MANIFEST.json binds {relative} to {spec.get('records')!r} "
             f"records but the file carries {records}"

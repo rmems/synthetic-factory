@@ -834,8 +834,16 @@ def oracles_report() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def propose_contexts(seed: int, count: int) -> list[dict[str, Any]]:
-    """Generator side: diverse contexts and their compact student inputs."""
+def propose_contexts(
+    seed: int, count: int, *, feature_dim: int = FEATURE_DIM
+) -> list[dict[str, Any]]:
+    """Generator side: diverse contexts and their compact student inputs.
+
+    ``feature_dim`` is the oracle's configured gate width: the compact input
+    is a view of the features the router actually gated on, so a non-default
+    ``ReferenceMoERouter(dim=...)`` must produce a compact input over that
+    width rather than the 48-dimensional default.
+    """
 
     if count < 1:
         raise oc.ContractError("count must be >= 1")
@@ -848,7 +856,8 @@ def propose_contexts(seed: int, count: int) -> list[dict[str, Any]]:
             adj=rng.choice(TEMPLATE_ADJECTIVES),
             digit=rng.randrange(10),
         )
-        features = featurize(text)
+        features = featurize(text, feature_dim)
+        compact_dim = min(feature_dim, COMPACT_DIM)
         proposals.append(
             {
                 "index": index,
@@ -860,10 +869,10 @@ def propose_contexts(seed: int, count: int) -> list[dict[str, Any]]:
                     ).hexdigest(),
                     "compact_input": {
                         "featurizer": FEATURIZER_ID,
-                        "feature_dim": FEATURE_DIM,
-                        "compact_dim": COMPACT_DIM,
+                        "feature_dim": feature_dim,
+                        "compact_dim": compact_dim,
                         "view": "leading components + tail mean/energy/max/min",
-                        "features": compact_view(features),
+                        "features": compact_view(features, compact_dim),
                     },
                 },
             }
@@ -924,8 +933,11 @@ def build_records(
     # fingerprint (checkpoint hash, dtype, expert counts) only exists once the
     # model has actually loaded, and an unloaded fingerprint must not be faked.
     oracle_block: dict[str, Any] | None = None
+    # The compact student input is a view of the features the router gated
+    # on, so it is derived at the oracle's configured width.
+    feature_dim = engine.dim if isinstance(engine, ReferenceMoERouter) else FEATURE_DIM
     records: list[dict[str, Any]] = []
-    for proposal in propose_contexts(seed, count):
+    for proposal in propose_contexts(seed, count, feature_dim=feature_dim):
         scenario = proposal["scenario"]
         observation = engine.route(scenario["context"])
         if oracle_block is None:
@@ -1748,6 +1760,23 @@ def _check_measurement_reconciliation(
                 f"{where}.result: measured {quantity} is {item['value']} but the "
                 f"recorded routing says {expected}"
             )
+        detail = item.get("detail")
+        detail = detail if isinstance(detail, dict) else {}
+        if quantity in ("top1_top2_margin", "routing_entropy"):
+            # These targets summarise the last layer; claiming another layer
+            # keeps the value right while the trajectory attribution lies.
+            if detail.get("layer") != last.get("layer"):
+                errors.append(
+                    f"{where}.result: {quantity} is attributed to layer "
+                    f"{detail.get('layer')!r} but the routing's last layer is "
+                    f"{last.get('layer')!r}"
+                )
+        elif quantity == "expert_agreement" and detail.get("across_layers") != len(layers):
+            errors.append(
+                f"{where}.result: expert_agreement claims to cover "
+                f"{detail.get('across_layers')!r} layers but the routing "
+                f"records {len(layers)}"
+            )
     return errors + _missing_promised_measurements(
         expected_measurements, reconciled, where
     )
@@ -1898,6 +1927,54 @@ def _check_layer_count(
     return []
 
 
+# ``oracle.configuration`` fields the fingerprint independently pins. A
+# record may not keep one gate's routing while claiming a differently
+# configured gate produced it.
+_CONFIGURATION_FINGERPRINT_PAIRS = (
+    ("num_experts", "num_local_experts"),
+    ("num_layers", "num_layers"),
+    ("top_k", "num_experts_per_tok"),
+)
+
+
+def _check_configuration_binding(
+    record: dict[str, Any], oracle: Any, fingerprint: Any, where: str
+) -> list[str]:
+    """The declared gate configuration must agree with its fingerprint."""
+
+    if not isinstance(oracle, dict):
+        return []
+    configuration = oracle.get("configuration")
+    if not isinstance(configuration, dict) or not isinstance(fingerprint, dict):
+        return []
+    errors: list[str] = []
+    for configuration_key, fingerprint_key in _CONFIGURATION_FINGERPRINT_PAIRS:
+        declared = configuration.get(configuration_key)
+        fingerprinted = fingerprint.get(fingerprint_key)
+        if declared is not None and fingerprinted is not None and declared != fingerprinted:
+            errors.append(
+                f"{where}.oracle.configuration.{configuration_key} is "
+                f"{declared!r} but oracle.fingerprint.{fingerprint_key} is "
+                f"{fingerprinted!r}"
+            )
+    feature_dim = configuration.get("feature_dim")
+    scenario = record.get("scenario")
+    compact = scenario.get("compact_input") if isinstance(scenario, dict) else None
+    declared_dim = compact.get("feature_dim") if isinstance(compact, dict) else None
+    if (
+        isinstance(feature_dim, int)
+        and not isinstance(feature_dim, bool)
+        and declared_dim is not None
+        and declared_dim != feature_dim
+    ):
+        errors.append(
+            f"{where}.scenario.compact_input.feature_dim is {declared_dim!r} "
+            f"but oracle.configuration.feature_dim is {feature_dim!r} — the "
+            "compact input must be a view of the features the router gated on"
+        )
+    return errors
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: real routing, recorded teacher identity, sane targets."""
 
@@ -1906,6 +1983,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     oracle = record.get("oracle")
     fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None
     errors += _check_teacher_fingerprint(oracle, fingerprint, where)
+    errors += _check_configuration_binding(record, oracle, fingerprint, where)
 
     result = record.get("result")
     if not isinstance(result, dict):

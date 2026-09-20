@@ -125,6 +125,12 @@ class EnergyOracle:
     version = "0"
     cost_quantity = "cpu_time_s"
     measures_energy = False
+    # The code path the record claims produced it. An injected meter must
+    # declare its own implementation: stamping this module's path on a class
+    # defined elsewhere would be false provenance the family validator
+    # trusts because it honours that prefix (and cannot replay a foreign
+    # oracle's policies anyway).
+    implementation = "pipelines/energy_preferences.py:EnergyOracle"
 
     def available(self) -> tuple[bool, str]:
         raise NotImplementedError
@@ -155,6 +161,7 @@ class ProcessResourceMeter(EnergyOracle):
     version = "1.0.0"
     cost_quantity = "cpu_time_s"
     measures_energy = False
+    implementation = "pipelines/energy_preferences.py:ProcessResourceMeter"
 
     def available(self) -> tuple[bool, str]:
         return True, "process clocks are always readable"
@@ -242,6 +249,7 @@ class RaplEnergyMeter(EnergyOracle):
     version = "1.0.0"
     cost_quantity = "energy_j"
     measures_energy = True
+    implementation = "pipelines/energy_preferences.py:RaplEnergyMeter"
 
     # A root RAPL zone: `intel-rapl:0`, never a subzone like `intel-rapl:0:0`.
     _ROOT_ZONE_RE = re.compile(r"^intel-rapl:\d+$")
@@ -407,6 +415,7 @@ class RecordedEnergyMeter(EnergyOracle):
     version = "1.0.0"
     cost_quantity = "energy_j"
     measures_energy = True
+    implementation = "pipelines/energy_preferences.py:RecordedEnergyMeter"
 
     def __init__(self, recording: dict[str, Any]) -> None:
         self.recording = recording
@@ -958,6 +967,16 @@ def _check_run_knobs(knobs: dict[str, Any]) -> None:
                 "the recorded oracle configuration must describe the "
                 "execution that actually happened"
             )
+    for name in ("fine_steps", "coarse_steps"):
+        if knobs[name] > MAX_REPLAY_STEPS:
+            # The family's own validator declines to replay grids above this
+            # ceiling, so a run built beyond it would measure successfully and
+            # still be rejected on validation — refuse it before executing.
+            raise oc.ContractError(
+                f"{name} must be an integer <= {MAX_REPLAY_STEPS}, got "
+                f"{knobs[name]!r}; the validator cannot replay a grid larger "
+                "than that"
+            )
 
 
 def _resolve_meter(
@@ -1001,7 +1020,7 @@ def _oracle_block(run: _MeterRun) -> dict[str, Any]:
         oc.OracleIdentity(
             meter.name,
             oracle_type="recorded_measurement" if replayed else "measured_execution",
-            implementation=f"pipelines/energy_preferences.py:{type(meter).__name__}",
+            implementation=meter.implementation,
             version=meter.version,
             authority=oc.AUTHORITY_AUTHORITATIVE,
         ),
@@ -1302,6 +1321,16 @@ MAX_REPLAY_STEPS = 128
 MAX_ACTUATORS = 4
 
 
+# The oracle type each of this module's meter implementations produces. A
+# live meter measures during the run; a replay meter hands back a cost that
+# was recorded elsewhere — stamping the wrong type erases that distinction.
+_ORACLE_TYPE_BY_IMPLEMENTATION = {
+    "pipelines/energy_preferences.py:ProcessResourceMeter": "measured_execution",
+    "pipelines/energy_preferences.py:RaplEnergyMeter": "measured_execution",
+    "pipelines/energy_preferences.py:RecordedEnergyMeter": "recorded_measurement",
+}
+
+
 
 def _check_oracle_implementation_replayable(
     record: dict[str, Any], where: str
@@ -1320,6 +1349,16 @@ def _check_oracle_implementation_replayable(
     if isinstance(implementation, str) and implementation.startswith(
         "pipelines/energy_preferences.py:"
     ):
+        expected_type = _ORACLE_TYPE_BY_IMPLEMENTATION.get(implementation)
+        if expected_type is not None and oracle.get("type") != expected_type:
+            # A live meter stamped `recorded_measurement` (or a replay meter
+            # stamped `measured_execution`) erases the distinction between a
+            # cost measured on this run and one replayed from another run.
+            return [
+                f"{where}.oracle.type: ORACLE_TYPE_MISMATCH — "
+                f"{implementation} must declare type {expected_type!r}, got "
+                f"{oracle.get('type')!r}"
+            ]
         return []
     return [
         f"{where}.oracle.implementation: ORACLE_IMPLEMENTATION_NOT_REPLAYABLE — "
@@ -1414,8 +1453,12 @@ def _check_scenario_state(scenario: Any, where: str) -> list[str]:
             "allocation problem the candidates were measured on"
         ]
     errors: list[str] = []
-    if not oc.is_number(state.get("demand")):
-        errors.append(f"{where}.scenario.state.demand must be a number")
+    if not (
+        oc.is_number(state.get("demand")) and float(state["demand"]) >= 0.0
+    ):
+        errors.append(
+            f"{where}.scenario.state.demand must be a non-negative number"
+        )
     caps = state.get("actuator_caps")
     if not (
         isinstance(caps, list)
@@ -2372,6 +2415,23 @@ def _check_meter_probe(configuration: dict[str, Any], result: Any, where: str) -
             f"{where}.oracle.configuration.meter_probe.selected must name "
             "the selected meter"
         )
+    else:
+        probed = probe.get("probed")
+        entries = (
+            [entry for entry in probed if isinstance(entry, dict)]
+            if isinstance(probed, list)
+            else []
+        )
+        if not any(
+            entry.get("meter") == selected and entry.get("available") is True
+            for entry in entries
+        ):
+            errors.append(
+                f"{where}.oracle.configuration.meter_probe.selected is "
+                f"{selected!r} but the probe found no such meter available — "
+                "the audit must name a meter that was actually probed and "
+                "usable"
+            )
     corpus_quantity = result.get("cost_quantity") if isinstance(result, dict) else None
     cost_is_energy = result.get("cost_is_energy") if isinstance(result, dict) else None
     if probe.get("cost_quantity") != corpus_quantity:

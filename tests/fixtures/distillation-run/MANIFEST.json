@@ -64,15 +64,15 @@
   "files": {
     "energy-preferences/batch-r01.jsonl": {
       "records": 4,
-      "sha256": "d20971cde89bd4d8400993651378a4aae9e70294bdfff3367e6e227c6270096f"
+      "sha256": "b3f1682bdaf0e9f0843f92b6171bef8b035b63fbc39d95fa461fd26caa2298e8"
     },
     "fault-recovery/batch-r01.jsonl": {
       "records": 18,
-      "sha256": "727fccc346cff2b103bb34f97019ddd8fc19efb30d970e961ef074bbceeb3a56"
+      "sha256": "65076789cfeceb2aed2727f520dec8d75cb01770d01063b31d4f4e8966f80423"
     },
     "moe-router/batch-r01.jsonl": {
       "records": 80,
-      "sha256": "3e0933dc337c659909c9f082eb267799817648f14e1a689f3933da87ff1a2ef6"
+      "sha256": "c6413c2fa3e8128c766cdbc12fbec7b06ebf527808b4ab0979a36e76397b97dd"
     }
   },
   "generated_by": "scripts/build_distillation_fixture.py",
@@ -87,7 +87,7 @@
           {
             "authority": "authoritative",
             "available": false,
-            "detail": "ModuleNotFoundError: No module named 'regex'",
+            "detail": "ModuleNotFoundError: No module named 'torch'",
             "is_llm_teacher": true,
             "name": "transformers_moe_router",
             "note": "still needs an MoE checkpoint even when the import works",
@@ -113,7 +113,7 @@
       },
       "ran": "reference_moe_router",
       "unavailable": [
-        "transformers_moe_router (ModuleNotFoundError: No module named 'regex')",
+        "transformers_moe_router (ModuleNotFoundError: No module named 'torch')",
         "recorded_teacher_router (supply a recording from a real teacher run)"
       ]
     },
@@ -134,7 +134,7 @@
         "probed": [
           {
             "available": false,
-            "detail": "/sys/class/powercap/intel-rapl:0/energy_uj not readable: Permission denied",
+            "detail": "no intel-rapl domains under /sys/class/powercap",
             "measures_energy": true,
             "meter": "intel_rapl_powercap"
           },
