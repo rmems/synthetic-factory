@@ -46,19 +46,32 @@ def _check_parameters(
     """
 
     required, optional = PARAMETER_SPEC[kind]
+    _require_declared_parameters(kind, parameters, required)
+    _refuse_unknown_parameters(kind, parameters, required, optional)
+    _check_parameter_values(kind, parameters, system)
+
+def _require_declared_parameters(
+    kind: str, parameters: dict[str, Any], required: list[str]
+) -> None:
     missing = [key for key in required if key not in parameters]
     if missing:
         raise oc.ContractError(
             f"{kind} needs parameters {sorted(missing)}; a missing parameter "
             "would run as a no-op"
         )
+
+def _refuse_unknown_parameters(
+    kind: str,
+    parameters: dict[str, Any],
+    required: list[str],
+    optional: list[str],
+) -> None:
     unknown = sorted(set(parameters) - set(required) - set(optional))
     if unknown:
         raise oc.ContractError(
             f"{kind} does not use parameters {unknown}; it reads "
             f"{sorted(required + optional)}"
         )
-    _check_parameter_values(kind, parameters, system)
 
 # Numeric parameter floors. A value outside these cannot produce the
 # declared disturbance — a negative duration never opens the active
@@ -95,7 +108,9 @@ def _check_onset_within_horizon(
             f"{system['tick_ms']} ms); the declared disturbance would "
             "never occur"
         )
-    if kind == "thermal_excursion" and float(onset) >= last_tick_ms:
+    if kind != "thermal_excursion":
+        return
+    if float(onset) >= last_tick_ms:
         # The ramp is evaluated at fraction zero on the onset tick
         # itself, so an onset on the last tick never raises the
         # temperature; the excursion replays as an authoritative no-op.
@@ -130,16 +145,27 @@ def _check_declared_channel_list(kind: str, parameters: dict[str, Any]) -> None:
     if "channels" not in parameters:
         return
     channels = parameters["channels"]
+    _require_channel_list(kind, channels)
+    _require_named_channels(kind, required, channels)
+
+def _require_channel_list(kind: str, channels: Any) -> None:
     if not isinstance(channels, list):
         raise oc.ContractError(
             f"{kind} channels must be a list of channel names, got "
             f"{channels!r}; anything else would run as a no-op"
         )
-    if "channels" in required and not channels:
-        raise oc.ContractError(
-            f"{kind} channels must name at least one channel; an empty "
-            "list would run the declared disturbance as a no-op"
-        )
+
+def _require_named_channels(
+    kind: str, required: list[str], channels: list[Any]
+) -> None:
+    if "channels" not in required:
+        return
+    if channels:
+        return
+    raise oc.ContractError(
+        f"{kind} channels must name at least one channel; an empty "
+        "list would run the declared disturbance as a no-op"
+    )
 
 def _check_parameter_values(
     kind: str, parameters: dict[str, Any], system: dict[str, Any]
@@ -148,17 +174,20 @@ def _check_parameter_values(
 
     _check_declared_channel_list(kind, parameters)
     _check_parameter_floors(kind, parameters)
-    if "peak_c" in parameters and not oc.is_number(parameters["peak_c"]):
-        raise oc.ContractError(
-            f"{kind} peak_c must be a finite number, got "
-            f"{parameters['peak_c']!r}"
-        )
-    if kind == "thermal_excursion":
-        _check_thermal_peak(parameters, system)
-    if kind == "malformed_spike_burst":
-        _check_malformed_burst(parameters)
-    if kind == "burst_corruption":
-        _check_corruption_ratio(parameters)
+    _check_peak_value(kind, parameters)
+    for target, check in _KIND_VALUE_CHECKS:
+        if kind == target:
+            check(parameters, system)
+
+def _check_peak_value(kind: str, parameters: dict[str, Any]) -> None:
+    if "peak_c" not in parameters:
+        return
+    if oc.is_number(parameters["peak_c"]):
+        return
+    raise oc.ContractError(
+        f"{kind} peak_c must be a finite number, got "
+        f"{parameters['peak_c']!r}"
+    )
 
 
 def _check_thermal_peak(parameters: dict[str, Any], system: dict[str, Any]) -> None:
@@ -188,9 +217,14 @@ def _check_touches_primary(kind: str, declared: list[str], channels: list[str]) 
         "disturbance with nothing to affect"
     )
 
-def _check_malformed_burst(parameters: dict[str, Any]) -> None:
+def _check_malformed_burst(parameters: dict[str, Any], system: dict[str, Any]) -> None:
     count = parameters.get("malformed_count")
-    if not oc.is_genuine_int(count) or count < 1:
+    if not oc.is_genuine_int(count):
+        raise oc.ContractError(
+            f"malformed_count must be an integer >= 1, got {count!r}; "
+            "a burst of zero events is a no-op"
+        )
+    if count < 1:
         raise oc.ContractError(
             f"malformed_count must be an integer >= 1, got {count!r}; "
             "a burst of zero events is a no-op"
@@ -206,7 +240,7 @@ def _check_malformed_burst(parameters: dict[str, Any]) -> None:
             f"got {variant!r}"
         )
 
-def _check_corruption_ratio(parameters: dict[str, Any]) -> None:
+def _check_corruption_ratio(parameters: dict[str, Any], system: dict[str, Any]) -> None:
     # The tick comparison can never mark an event corrupt for a ratio
     # below 0, so a negative (or NaN) ratio runs the declared
     # disturbance as a no-op and the simulator emits an authoritative
@@ -215,12 +249,26 @@ def _check_corruption_ratio(parameters: dict[str, Any]) -> None:
     # The bound is strict at zero: the tick comparison marks no event
     # corrupt for a ratio of 0, so a zero ratio also runs the declared
     # disturbance as a no-op and earns an authoritative `continue`.
-    if not oc.is_number(ratio) or not 0.0 < float(ratio) <= 1.0:
+    if not oc.is_number(ratio):
         raise oc.ContractError(
             f"corrupt_ratio must be a finite number in (0, 1], got "
             f"{ratio!r}; outside that range the declared corruption "
             "cannot be applied"
         )
+    if not 0.0 < float(ratio) <= 1.0:
+        raise oc.ContractError(
+            f"corrupt_ratio must be a finite number in (0, 1], got "
+            f"{ratio!r}; outside that range the declared corruption "
+            "cannot be applied"
+        )
+
+# Per-kind value checks beyond the shared floors: each named kind gets one
+# check run against its parameters and the declared system shape.
+_KIND_VALUE_CHECKS = (
+    ("thermal_excursion", _check_thermal_peak),
+    ("malformed_spike_burst", _check_malformed_burst),
+    ("burst_corruption", _check_corruption_ratio),
+)
 
 def _check_parameter_floors(kind: str, parameters: dict[str, Any]) -> None:
     """Require finite values within each disturbance parameter's domain."""
@@ -229,20 +277,34 @@ def _check_parameter_floors(kind: str, parameters: dict[str, Any]) -> None:
         if key not in parameters:
             continue
         value = parameters[key]
-        if not oc.is_number(value) or (
-            value <= floor if exclusive else value < floor
-        ):
+        if _violates_floor(value, floor, exclusive):
             raise oc.ContractError(
-                f"{kind} {key} must be a finite number "
-                f"{'>' if exclusive else '>='} {floor}, got {value!r}; "
-                "outside that range the declared disturbance cannot occur"
+                _floor_message(kind, key, value, floor, exclusive)
             )
+
+def _violates_floor(value: Any, floor: float, exclusive: bool) -> bool:
+    if not oc.is_number(value):
+        return True
+    if exclusive:
+        return value <= floor
+    return value < floor
+
+def _floor_message(
+    kind: str, key: str, value: Any, floor: float, exclusive: bool
+) -> str:
+    return (
+        f"{kind} {key} must be a finite number "
+        f"{'>' if exclusive else '>='} {floor}, got {value!r}; "
+        "outside that range the declared disturbance cannot occur"
+    )
 
 def _affected(parameters: dict[str, Any], channels: list[str]) -> list[str]:
     """Narrow the disturbance's declared channels to the relay's own."""
 
     affected = parameters.get("channels")
-    if not isinstance(affected, list) or not affected:
+    if not isinstance(affected, list):
+        return []
+    if not affected:
         return []
     return [channel for channel in affected if channel in channels]
 
@@ -294,9 +356,10 @@ def _unknown_channel_names(declared: list[Any], known: set[str]) -> list[str]:
 def _detection_latency_ms(
     detection_ms: float | None, spec: "_DisturbanceSpec", system: dict[str, Any]
 ) -> float | None:
-    if detection_ms is None and spec.result_delay_ms > float(system["deadline_ms"]):
-        # A late result is only observable once its deadline passes.
-        detection_ms = float(system["deadline_ms"])
+    if detection_ms is None:
+        if spec.result_delay_ms > float(system["deadline_ms"]):
+            # A late result is only observable once its deadline passes.
+            detection_ms = float(system["deadline_ms"])
 
     # Latency is measured from the disturbance, not from the start of the
     # run. Otherwise two identical faults beginning at 4 ms and 12 ms get

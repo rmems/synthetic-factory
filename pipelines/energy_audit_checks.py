@@ -189,29 +189,52 @@ def _check_probe_cost_fields(
         )
     return errors
 
+# The same domains the builder refuses to run outside of. "Any number"
+# let a record declare a fractional warmup or a billion-step grid — an
+# audit no execution matches, and (for the grid) a replay bound nothing
+# could afford to honour.
+_CONFIGURATION_BOUNDS = (
+    ("repeats", 1, None),
+    ("warmup", 0, None),
+    ("fine_steps", 1, MAX_REPLAY_STEPS),
+    ("coarse_steps", 1, MAX_REPLAY_STEPS),
+)
+
+
+def _over_ceiling(value: Any, ceiling: int | None) -> bool:
+    if ceiling is None:
+        return False
+    return value > ceiling
+
+
+def _bound_error(
+    value: Any, key: str, floor: int, ceiling: int | None, where: str
+) -> str | None:
+    if not _genuine_int_at_least(value, floor):
+        return _bound_message(value, key, floor, ceiling, where)
+    if _over_ceiling(value, ceiling):
+        return _bound_message(value, key, floor, ceiling, where)
+    return None
+
+
+def _bound_message(
+    value: Any, key: str, floor: int, ceiling: int | None, where: str
+) -> str:
+    bound = f" and <= {ceiling}" if ceiling is not None else ""
+    return (
+        f"{where}.oracle.configuration.{key} must be an integer "
+        f">= {floor}{bound}, got {value!r}"
+    )
+
+
 def _check_configuration_bounds(configuration: dict[str, Any], where: str) -> list[str]:
     """Match declared execution bounds to the domains accepted by the builder."""
 
     errors: list[str] = []
-    # The same domains the builder refuses to run outside of. "Any number"
-    # let a record declare a fractional warmup or a billion-step grid — an
-    # audit no execution matches, and (for the grid) a replay bound nothing
-    # could afford to honour.
-    for key, floor, ceiling in (
-        ("repeats", 1, None),
-        ("warmup", 0, None),
-        ("fine_steps", 1, MAX_REPLAY_STEPS),
-        ("coarse_steps", 1, MAX_REPLAY_STEPS),
-    ):
-        value = configuration.get(key)
-        if not _genuine_int_at_least(value, floor) or (
-            ceiling is not None and value > ceiling
-        ):
-            bound = f" and <= {ceiling}" if ceiling is not None else ""
-            errors.append(
-                f"{where}.oracle.configuration.{key} must be an integer "
-                f">= {floor}{bound}, got {value!r}"
-            )
+    for key, floor, ceiling in _CONFIGURATION_BOUNDS:
+        problem = _bound_error(configuration.get(key), key, floor, ceiling, where)
+        if problem is not None:
+            errors.append(problem)
     return errors
 
 def _check_fingerprinted_meter(

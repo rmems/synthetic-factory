@@ -17,7 +17,12 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import energy_preferences as ep  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
-from distill_gap_test_support import clone, rehash, set_cost_measurement  # noqa: E402
+from distill_gap_test_support import (  # noqa: E402
+    clone,
+    measurements_for,
+    rehash,
+    set_cost_measurement,
+)
 
 class EnergyMeterAndDerivationGaps(unittest.TestCase):
     """energy_preferences.py: RAPL zones, replay binding, measured readings."""
@@ -123,14 +128,7 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
         )
 
     def _readings_for(self, record: dict, candidate_id: str, quantity: str):
-        for item in record["result"]["measurements"]:
-            detail = item.get("detail")
-            if (
-                isinstance(detail, dict)
-                and detail.get("candidate") == candidate_id
-                and item.get("quantity") == quantity
-            ):
-                yield item
+        yield from measurements_for(record, candidate_id, quantity)
 
     def test_a_cost_reading_marked_unmeasured_is_a_finding(self):
         # Every reading backing the preference marked `measured: false` used

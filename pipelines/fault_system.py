@@ -89,19 +89,35 @@ def _check_thermal_ladder(system: dict[str, Any]) -> None:
             f"{shutdown}"
         )
 
-def _usable_channel_names(channels: Any) -> bool:
-    """A non-empty bounded list of distinct, non-empty channel names."""
-    if not isinstance(channels, list) or not channels or len(channels) > 32:
-        # Bounded for the same reason ticks is: the replay walks every
-        # channel every tick. The default relay has 4.
+def _bounded_channel_list(channels: Any) -> bool:
+    if not isinstance(channels, list):
         return False
-    if not all(isinstance(name, str) and name for name in channels):
+    if not channels:
+        return False
+    # Bounded for the same reason ticks is: the replay walks every
+    # channel every tick. The default relay has 4.
+    return len(channels) <= 32
+
+
+def _non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _distinct_channel_names(channels: list[Any]) -> bool:
+    if not all(_non_empty_string(name) for name in channels):
         return False
     # Unique: the healthy-channel budget counts list entries while
     # the per-channel state collapses duplicates, so ['c0'] * 4
     # reported four healthy channels from one distinct sensor and
     # replayed as an authoritative outcome.
     return len(set(channels)) == len(channels)
+
+
+def _usable_channel_names(channels: Any) -> bool:
+    """A non-empty bounded list of distinct, non-empty channel names."""
+    if not _bounded_channel_list(channels):
+        return False
+    return _distinct_channel_names(channels)
 
 def _check_fallback_source(fallback: Any, channels: list[str]) -> None:
     if fallback is None:

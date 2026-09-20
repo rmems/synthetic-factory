@@ -289,14 +289,9 @@ class EnergyPreferenceGaps(unittest.TestCase):
         record = self.record()
         candidate = record["result"]["candidates"][0]
         candidate["cost_value"] = -1.0
-        for item in record["result"]["measurements"]:
-            detail = item.get("detail")
-            if (
-                isinstance(detail, dict)
-                and detail.get("candidate") == candidate["id"]
-                and item.get("quantity") == candidate["cost_quantity"]
-            ):
-                item["value"] = -1.0
+        set_cost_measurement(
+            record, candidate["id"], candidate["cost_quantity"], -1.0
+        )
         rehash(record)
         errors = ep.check_family(record, "x")
         self.assertTrue(

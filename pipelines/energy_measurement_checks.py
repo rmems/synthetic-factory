@@ -60,18 +60,35 @@ def _usable_measurement(item: Any) -> tuple[tuple[str, str], _Reading] | None:
 
     if not isinstance(item, dict):
         return None
+    key = _measurement_key(item)
+    if key is None:
+        return None
+    return _usable_reading(item, key)
+
+
+def _measurement_key(item: dict[str, Any]) -> tuple[str, str] | None:
     detail = item.get("detail")
     candidate_id = detail.get("candidate") if isinstance(detail, dict) else None
-    quantity = item.get("quantity")
-    meter = item.get("meter")
-    if not isinstance(candidate_id, str) or not isinstance(quantity, str):
+    if not isinstance(candidate_id, str):
         return None
-    if not oc.is_number(item.get("value")) or not isinstance(meter, str):
+    quantity = item.get("quantity")
+    if not isinstance(quantity, str):
+        return None
+    return candidate_id, quantity
+
+
+def _usable_reading(
+    item: dict[str, Any], key: tuple[str, str]
+) -> tuple[tuple[str, str], _Reading] | None:
+    if not oc.is_number(item.get("value")):
+        return None
+    meter = item.get("meter")
+    if not isinstance(meter, str):
         return None
     reading = _Reading(
         value=item["value"], meter=meter, measured=item.get("measured")
     )
-    return (candidate_id, quantity), reading
+    return key, reading
 
 def _readings_disagree(previous: "_Reading", reading: "_Reading") -> bool:
     if abs(float(previous.value) - float(reading.value)) > 1e-12:
@@ -98,23 +115,36 @@ def _collect_measured_costs(
         usable = _usable_measurement(item)
         if usable is None:
             continue
-        key, reading = usable
-        previous = measured_costs.get(key)
-        if previous is None:
-            measured_costs[key] = reading
-            continue
-        # Silently keeping the first reading made the preference depend
-        # on JSON array order while the record still carried the
-        # contradicting one. Two readings that disagree are a finding.
-        if _readings_disagree(previous, reading):
-            candidate_id, quantity = key
-            errors.append(
-                f"{where}.result.measurements: CONFLICTING_MEASUREMENT — "
-                f"{quantity} for candidate {candidate_id!r} is recorded "
-                f"both as {previous.value!r} ({previous.meter}) and "
-                f"{reading.value!r} ({reading.meter})"
-            )
+        error = _conflict_error(measured_costs, usable[0], usable[1], where)
+        if error is not None:
+            errors.append(error)
     return errors, measured_costs
+
+
+def _conflict_error(
+    measured_costs: dict[tuple[str, str], _Reading],
+    key: tuple[str, str],
+    reading: _Reading,
+    where: str,
+) -> str | None:
+    """Record a first reading; flag a later one that contradicts it."""
+
+    previous = measured_costs.get(key)
+    if previous is None:
+        measured_costs[key] = reading
+        return None
+    # Silently keeping the first reading made the preference depend
+    # on JSON array order while the record still carried the
+    # contradicting one. Two readings that disagree are a finding.
+    if not _readings_disagree(previous, reading):
+        return None
+    candidate_id, quantity = key
+    return (
+        f"{where}.result.measurements: CONFLICTING_MEASUREMENT — "
+        f"{quantity} for candidate {candidate_id!r} is recorded "
+        f"both as {previous.value!r} ({previous.meter}) and "
+        f"{reading.value!r} ({reading.meter})"
+    )
 
 def _usable_caps(caps: Any) -> bool:
     if not isinstance(caps, list):
@@ -155,10 +185,13 @@ def _state_weights(scenario: Any) -> Any:
 def _usable_weights(scenario: Any, caps: Any) -> list[float] | None:
     """The actuator weights, when they can parameterise the objective."""
 
-    weights = _state_weights(scenario)
+    return _positive_weight_list(_state_weights(scenario), len(caps))
+
+
+def _positive_weight_list(weights: Any, count: int) -> list[float] | None:
     if not isinstance(weights, list):
         return None
-    if len(weights) != len(caps):
+    if len(weights) != count:
         return None
     if not all(_positive_weight(w) for w in weights):
         return None
@@ -199,9 +232,17 @@ def _derived_quality(allocation: Any, context: _CandidateContext) -> float | Non
         return evaluate_allocation(
             [float(value) for value in allocation], problem
         ).task_quality
-    if allocation is None or (isinstance(allocation, list) and not allocation):
+    if _no_allocation(allocation):
         return 0.0
     return None
+
+
+def _no_allocation(allocation: Any) -> bool:
+    if allocation is None:
+        return True
+    if not isinstance(allocation, list):
+        return False
+    return not allocation
 
 def _check_quality_derivation(
     candidate: dict[str, Any], spot: str, context: _CandidateContext
@@ -216,19 +257,29 @@ def _check_quality_derivation(
     values to the arithmetic the scenario defines.
     """
 
-    if context.optimum is None or context.weights is None:
+    if context.optimum is None:
+        return []
+    if context.weights is None:
         return []
     derived = _derived_quality(candidate.get("allocation"), context)
     if derived is None:
         return []
-    recorded = candidate.get("task_quality")
-    if oc.is_number(recorded) and abs(float(recorded) - derived) > QUALITY_TOLERANCE:
-        return [
-            f"{spot}: QUALITY_NOT_REPRODUCIBLE — task_quality is {recorded} "
-            f"but re-evaluating the recorded allocation against the scenario "
-            f"state yields {derived}"
-        ]
-    return []
+    drift = _quality_drift_error(candidate.get("task_quality"), derived, spot)
+    if drift is None:
+        return []
+    return [drift]
+
+
+def _quality_drift_error(recorded: Any, derived: float, spot: str) -> str | None:
+    if not oc.is_number(recorded):
+        return None
+    if abs(float(recorded) - derived) <= QUALITY_TOLERANCE:
+        return None
+    return (
+        f"{spot}: QUALITY_NOT_REPRODUCIBLE — task_quality is {recorded} "
+        f"but re-evaluating the recorded allocation against the scenario "
+        f"state yields {derived}"
+    )
 
 def _check_reference_objective(
     result: dict[str, Any], context: _CandidateContext, where: str

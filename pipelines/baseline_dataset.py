@@ -92,44 +92,85 @@ def _record_sample(record: Any, target: str) -> Sample | None:
     if fields is None:
         return None
     record_id, scenario, result = fields
+    inputs = _sample_inputs(scenario, result, target)
+    if inputs is None:
+        return None
+    features, label = inputs
+    return Sample(record_id=record_id, features=features, label=label)
+
+
+def _sample_inputs(
+    scenario: dict[str, Any], result: dict[str, Any], target: str
+) -> tuple[tuple[float, ...], int] | None:
     if result.get("status") != oc.RESULT_MEASURED:
         # An abstained result's routing fields are outcomes the oracle
         # explicitly declined to stand behind; they must never become labels.
         return None
     features = _compact_features(scenario)
-    label = _target_label(result, target) if features is not None else None
-    if features is None or label is None:
+    if features is None:
         return None
-    return Sample(record_id=record_id, features=features, label=label)
+    label = _target_label(result, target)
+    if label is None:
+        return None
+    return features, label
 
 
 def _record_fields(record: Any) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
     """The (id, scenario, result) of a record that could carry a sample."""
 
+    record_id = _record_identity(record)
+    if record_id is None:
+        return None
+    sections = _record_sections(record)
+    if sections is None:
+        return None
+    scenario, result = sections
+    return record_id, scenario, result
+
+
+def _record_identity(record: Any) -> str | None:
     if not isinstance(record, dict):
         return None
     record_id = record.get("id")
-    if not isinstance(record_id, str) or not record_id:
+    if not isinstance(record_id, str):
         # The id is the sample's identity for duplicate refusal and
         # attribution; a record without one has no usable sample.
         return None
-    scenario = record.get("scenario")
-    result = record.get("result")
-    if not isinstance(scenario, dict) or not isinstance(result, dict):
+    if not record_id:
         return None
-    return record_id, scenario, result
+    return record_id
+
+
+def _record_sections(
+    record: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    scenario = record.get("scenario")
+    if not isinstance(scenario, dict):
+        return None
+    result = record.get("result")
+    if not isinstance(result, dict):
+        return None
+    return scenario, result
 
 
 def _compact_features(scenario: dict[str, Any]) -> tuple[float, ...] | None:
     compact = scenario.get("compact_input")
     if not isinstance(compact, dict):
         return None
-    features = compact.get("features")
-    if not isinstance(features, list) or not features:
+    features = _finite_features(compact.get("features"))
+    if features is None:
+        return None
+    return tuple(float(value) for value in features)
+
+
+def _finite_features(features: Any) -> list[Any] | None:
+    if not isinstance(features, list):
+        return None
+    if not features:
         return None
     if not all(oc.is_number(value) for value in features):
         return None
-    return tuple(float(value) for value in features)
+    return features
 
 
 def _genuine_int(value: Any) -> int | None:
@@ -137,17 +178,32 @@ def _genuine_int(value: Any) -> int | None:
 
 
 def _last_layer_top1(result: dict[str, Any]) -> int | None:
+    layers = _routing_layers(result)
+    if layers is None:
+        return None
+    return _last_layer_expert(layers)
+
+
+def _routing_layers(result: dict[str, Any]) -> list[Any] | None:
     routing = result.get("routing")
     if not isinstance(routing, dict):
         return None
     layers = routing.get("layers")
-    if not isinstance(layers, list) or not layers:
+    if not isinstance(layers, list):
         return None
+    if not layers:
+        return None
+    return layers
+
+
+def _last_layer_expert(layers: list[Any]) -> int | None:
     last = layers[-1]
     if not isinstance(last, dict):
         return None
     experts = last.get("top_k_experts")
-    if not isinstance(experts, list) or not experts:
+    if not isinstance(experts, list):
+        return None
+    if not experts:
         return None
     return _genuine_int(experts[0])
 
@@ -178,12 +234,17 @@ def split(
     train: list[Sample] = []
     test: list[Sample] = []
     for sample in samples:
-        # Signed zeros are the same model input and must share a split key.
-        key = ",".join(repr(value if value else 0.0) for value in sample.features)
-        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
-        bucket = int.from_bytes(digest[:4], "big") % 100
-        (test if bucket < holdout_pct else train).append(sample)
+        (test if _sample_bucket(sample) < holdout_pct else train).append(sample)
     return train, test
+
+
+def _sample_bucket(sample: Sample) -> int:
+    """The deterministic split bucket one compact input hashes to."""
+
+    # Signed zeros are the same model input and must share a split key.
+    key = ",".join(repr(value if value else 0.0) for value in sample.features)
+    digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest[:4], "big") % 100
 
 
 def standardize(

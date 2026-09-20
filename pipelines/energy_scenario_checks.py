@@ -49,21 +49,8 @@ def _check_scenario_constraints(
     if not isinstance(constraints, dict):
         errors.append(f"{where}.scenario.constraints must be an object")
         return errors, None
-    quality_floor: float | None = None
-    floor = constraints.get("quality_floor")
-    if not oc.is_number(floor):
-        errors.append(
-            f"{where}.scenario.constraints.quality_floor must be a number"
-        )
-    elif not 0.0 <= float(floor) <= 1.0:
-        # task_quality is a ratio in [0, 1]; a floor of -1 admits every safe
-        # candidate regardless of quality, and a floor above 1 admits none.
-        errors.append(
-            f"{where}.scenario.constraints.quality_floor must lie in [0, 1], "
-            f"got {floor!r}"
-        )
-    else:
-        quality_floor = float(floor)
+    floor_errors, quality_floor = _quality_floor_of(constraints, where)
+    errors += floor_errors
     if constraints.get("safety_envelope") != SAFETY_ENVELOPE:
         errors.append(
             f"{where}.scenario.constraints.safety_envelope must state the "
@@ -72,6 +59,28 @@ def _check_scenario_constraints(
             "student sees has to be the rule the labels were derived under"
         )
     return errors, quality_floor
+
+
+def _quality_floor_of(
+    constraints: dict[str, Any], where: str
+) -> tuple[list[str], float | None]:
+    floor = constraints.get("quality_floor")
+    if not oc.is_number(floor):
+        return (
+            [f"{where}.scenario.constraints.quality_floor must be a number"],
+            None,
+        )
+    if not 0.0 <= float(floor) <= 1.0:
+        # task_quality is a ratio in [0, 1]; a floor of -1 admits every safe
+        # candidate regardless of quality, and a floor above 1 admits none.
+        return (
+            [
+                f"{where}.scenario.constraints.quality_floor must lie in "
+                f"[0, 1], got {floor!r}"
+            ],
+            None,
+        )
+    return [], float(floor)
 
 def _check_scenario_state(scenario: Any, where: str) -> list[str]:
     """The allocation state every label is grounded in must be re-derivable.
@@ -98,13 +107,18 @@ def _check_scenario_state(scenario: Any, where: str) -> list[str]:
 
 
 def _check_state_demand(state: dict[str, Any], where: str) -> list[str]:
-    if not oc.is_number(state.get("demand")) or float(state["demand"]) < 0.0:
+    demand = state.get("demand")
+    if not oc.is_number(demand):
+        return [f"{where}.scenario.state.demand must be a non-negative number"]
+    if float(demand) < 0.0:
         return [f"{where}.scenario.state.demand must be a non-negative number"]
     return []
 
 
 def _numeric_caps(caps: Any) -> bool:
-    if not isinstance(caps, list) or not caps:
+    if not isinstance(caps, list):
+        return False
+    if not caps:
         return False
     return all(oc.is_number(cap) for cap in caps)
 
@@ -132,7 +146,12 @@ def _check_state_weights(state: dict[str, Any], where: str) -> list[str]:
             f"{where}.scenario.state.actuator_weights must be positive "
             "numbers, one per actuator cap"
         ]
-    if not _positive_weights(weights) or len(weights) != len(caps):
+    if not _positive_weights(weights):
+        return [
+            f"{where}.scenario.state.actuator_weights must be positive "
+            "numbers, one per actuator cap"
+        ]
+    if len(weights) != len(caps):
         return [
             f"{where}.scenario.state.actuator_weights must be positive "
             "numbers, one per actuator cap"
@@ -142,8 +161,15 @@ def _check_state_weights(state: dict[str, Any], where: str) -> list[str]:
 def _proposed_actions(scenario: Any) -> dict[str, Any] | None:
     """id -> description of the proposed candidate actions, or None if unusable."""
 
-    actions = scenario.get("candidate_actions") if isinstance(scenario, dict) else None
-    if not isinstance(actions, list) or not actions:
+    if not isinstance(scenario, dict):
+        return None
+    return _proposed_map(scenario.get("candidate_actions"))
+
+
+def _proposed_map(actions: Any) -> dict[str, Any] | None:
+    if not isinstance(actions, list):
+        return None
+    if not actions:
         return None
     proposed: dict[str, Any] = {}
     for action in actions:
@@ -187,6 +213,12 @@ def _check_candidate_binding(
             f"proposes {sorted(proposed)} but result.candidates measured "
             f"{sorted(measured)}"
         ]
+    return _description_mismatches(proposed, measured, where)
+
+
+def _description_mismatches(
+    proposed: dict[str, Any], measured: dict[str, Any], where: str
+) -> list[str]:
     return [
         f"{where}: candidate {candidate_id!r} is described as "
         f"{measured[candidate_id]!r} but was proposed as "
@@ -215,7 +247,8 @@ def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
         )
     if not isinstance(cost_is_energy, bool):
         errors.append(f"{where}.result.cost_is_energy must be a boolean")
-    elif cost_is_energy != oc.is_enum_value(corpus_quantity, oc.ENERGY_QUANTITIES):
+        return errors
+    if cost_is_energy != oc.is_enum_value(corpus_quantity, oc.ENERGY_QUANTITIES):
         errors.append(
             f"{where}.result.cost_is_energy is {cost_is_energy} but cost_quantity "
             f"is {corpus_quantity!r} — the flag must follow the quantity"

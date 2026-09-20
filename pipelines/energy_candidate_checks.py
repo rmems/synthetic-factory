@@ -143,14 +143,19 @@ def _check_quality_binding(
             f"candidate {candidate_id!r} is marked measured: "
             f"{reading.measured!r}, so nothing measured backs the quality gate"
         )
-    if oc.is_number(candidate.get("task_quality")) and (
-        abs(reading.value - float(candidate["task_quality"])) > 1e-9
-    ):
+    if _quality_reading_drift(candidate, reading):
         errors.append(
             f"{spot}.task_quality disagrees with the oracle measurement "
             f"({candidate['task_quality']} vs {reading.value})"
         )
     return errors
+
+
+def _quality_reading_drift(candidate: dict[str, Any], reading: Any) -> bool:
+    quality = candidate.get("task_quality")
+    if not oc.is_number(quality):
+        return False
+    return abs(reading.value - float(quality)) > 1e-9
 
 def _check_cost_binding(
     candidate: dict[str, Any],
@@ -206,10 +211,7 @@ def _check_candidate_measurements(
             f"{sorted(SUPPORTED_COST_QUANTITIES)}, got {quantity!r}"
         )
         return errors
-    if (
-        oc.is_enum_value(context.corpus_quantity, oc.QUANTITY_UNITS)
-        and quantity != context.corpus_quantity
-    ):
+    if _denomination_mismatch(quantity, context.corpus_quantity):
         errors.append(
             f"{spot}.cost_quantity is {quantity!r} but the record is "
             f"denominated in {context.corpus_quantity!r} — costs must be comparable"
@@ -218,7 +220,10 @@ def _check_candidate_measurements(
     if not oc.is_number(candidate.get("cost_value")):
         return errors
     candidate_meter = candidate.get("cost_meter")
-    if not isinstance(candidate_meter, str) or not candidate_meter:
+    if not isinstance(candidate_meter, str):
+        errors.append(f"{spot}.cost_meter must be a non-empty string")
+        return errors
+    if not candidate_meter:
         errors.append(f"{spot}.cost_meter must be a non-empty string")
         return errors
     # cost_meter names the *instrument*, not the oracle. On the replay path
@@ -230,6 +235,12 @@ def _check_candidate_measurements(
     errors += _check_quality_binding(candidate, candidate_id, spot, context)
     errors += _check_cost_binding(candidate, candidate_id, spot, context)
     return errors
+
+
+def _denomination_mismatch(quantity: Any, corpus_quantity: Any) -> bool:
+    if not oc.is_enum_value(corpus_quantity, oc.QUANTITY_UNITS):
+        return False
+    return quantity != corpus_quantity
 
 
 def _check_cost_value(
@@ -262,7 +273,9 @@ def _check_candidate_success(
     success = candidate.get("success")
     if not isinstance(success, bool):
         return [f"{spot}.success must be a boolean"]
-    if quality_floor is None or not oc.is_number(candidate.get("task_quality")):
+    if quality_floor is None:
+        return []
+    if not oc.is_number(candidate.get("task_quality")):
         # The floor and the quality carry their own findings when malformed;
         # without them the summary cannot be re-derived.
         return []
@@ -347,16 +360,26 @@ def _allocation_mismatch(
     spot: str,
 ) -> list[str]:
     expected = _expected_policy_allocation(candidate_id, context)
-    if len(recorded) != len(expected) or any(
+    if len(recorded) != len(expected):
+        return [_reproduction_error(candidate_id, expected, spot)]
+    if _allocation_drift(recorded, expected):
+        return [_reproduction_error(candidate_id, expected, spot)]
+    return []
+
+
+def _allocation_drift(recorded: list[Any], expected: list[float]) -> bool:
+    return any(
         abs(float(value) - target) > 1e-9
         for value, target in zip(recorded, expected)
-    ):
-        return [
-            f"{spot}: ALLOCATION_NOT_REPRODUCIBLE — the recorded allocation "
-            f"is not what policy {candidate_id!r} computes on this scenario "
-            f"state with the recorded solver settings ({expected})"
-        ]
-    return []
+    )
+
+
+def _reproduction_error(candidate_id: str, expected: list[float], spot: str) -> str:
+    return (
+        f"{spot}: ALLOCATION_NOT_REPRODUCIBLE — the recorded allocation "
+        f"is not what policy {candidate_id!r} computes on this scenario "
+        f"state with the recorded solver settings ({expected})"
+    )
 
 def _check_candidate(
     candidate: Any,
@@ -369,7 +392,9 @@ def _check_candidate(
     if not isinstance(candidate, dict):
         return [f"{spot} must be an object"]
     candidate_id = candidate.get("id")
-    if not isinstance(candidate_id, str) or not candidate_id:
+    if not isinstance(candidate_id, str):
+        return [f"{spot}.id must be a non-empty string"]
+    if not candidate_id:
         return [f"{spot}.id must be a non-empty string"]
     if candidate_id in seen_candidate_ids:
         # The preference names a candidate by id. Two candidates sharing one
@@ -381,9 +406,16 @@ def _check_candidate(
         ]
     seen_candidate_ids.add(candidate_id)
     errors = _check_candidate_safety(candidate, spot, context)
-    if not oc.is_number(candidate.get("task_quality")):
-        errors.append(f"{spot}.task_quality must be a number")
-    errors += _check_quality_derivation(candidate, spot, context)
+    errors += _check_candidate_quality_field(candidate, spot, context)
     errors += _check_allocation_reproducibility(candidate, candidate_id, spot, context)
     errors += _check_candidate_measurements(candidate, candidate_id, spot, context)
     return errors
+
+
+def _check_candidate_quality_field(
+    candidate: dict[str, Any], spot: str, context: _CandidateContext
+) -> list[str]:
+    errors: list[str] = []
+    if not oc.is_number(candidate.get("task_quality")):
+        errors.append(f"{spot}.task_quality must be a number")
+    return errors + _check_quality_derivation(candidate, spot, context)

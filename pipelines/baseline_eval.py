@@ -169,21 +169,20 @@ class EvaluationKnobs:
     nonlinear_margin: float = 0.03
 
 
-def evaluate_baselines(
-    samples: list[Sample], knobs: EvaluationKnobs = EvaluationKnobs()
-) -> dict[str, Any]:
-    """Run every conventional baseline and return a comparable report."""
+@dataclass(frozen=True)
+class _BaselineRuns:
+    """The fitted splits and the three baseline results built on them."""
 
-    _check_evaluation_knobs(
-        {
-            "min_lift": knobs.min_lift,
-            "nonlinear_margin": knobs.nonlinear_margin,
-            "logistic_iterations": knobs.logistic_iterations,
-            "mlp_iterations": knobs.mlp_iterations,
-            "mlp_hidden": knobs.mlp_hidden,
-            "min_test_records": knobs.min_test_records,
-        }
-    )
+    train: list[Sample]
+    test: list[Sample]
+    labels: list[Any]
+    scaler: dict[str, list[float]]
+    majority: dict[str, Any]
+    logistic: dict[str, Any]
+    mlp: dict[str, Any]
+
+
+def _run_baselines(samples: list[Sample], knobs: EvaluationKnobs) -> _BaselineRuns:
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
     train, test = split(samples, holdout_pct=knobs.holdout_pct)
@@ -199,50 +198,72 @@ def evaluate_baselines(
     labels = sorted({sample.label for sample in train})
     if len(labels) < 2:
         raise BaselineError("router labels are constant; nothing to distil")
-
-    majority = majority_baseline(train, test)
-    logistic = logistic_baseline(
-        scaled_train,
-        scaled_test,
-        labels,
-        LogisticHyper(iterations=knobs.logistic_iterations),
+    return _BaselineRuns(
+        train=train,
+        test=test,
+        labels=labels,
+        scaler=scaler,
+        majority=majority_baseline(train, test),
+        logistic=logistic_baseline(
+            scaled_train,
+            scaled_test,
+            labels,
+            LogisticHyper(iterations=knobs.logistic_iterations),
+        ),
+        mlp=mlp_baseline(
+            scaled_train,
+            scaled_test,
+            labels,
+            MlpHyper(hidden=knobs.mlp_hidden, iterations=knobs.mlp_iterations),
+        ),
     )
-    mlp = mlp_baseline(
-        scaled_train,
-        scaled_test,
-        labels,
-        MlpHyper(hidden=knobs.mlp_hidden, iterations=knobs.mlp_iterations),
-    )
 
-    trained = [logistic, mlp]
+
+def evaluate_baselines(
+    samples: list[Sample], knobs: EvaluationKnobs = EvaluationKnobs()
+) -> dict[str, Any]:
+    """Run every conventional baseline and return a comparable report."""
+
+    _check_evaluation_knobs(
+        {
+            "min_lift": knobs.min_lift,
+            "nonlinear_margin": knobs.nonlinear_margin,
+            "logistic_iterations": knobs.logistic_iterations,
+            "mlp_iterations": knobs.mlp_iterations,
+            "mlp_hidden": knobs.mlp_hidden,
+            "min_test_records": knobs.min_test_records,
+        }
+    )
+    runs = _run_baselines(samples, knobs)
+    trained = [runs.logistic, runs.mlp]
     best = max(trained, key=lambda item: (item["accuracy"], item["model"]))
-    lift = round(best["accuracy"] - majority["accuracy"], 6)
+    lift = round(best["accuracy"] - runs.majority["accuracy"], 6)
     stderr, required_lift = _significance_floor(
-        best["accuracy"], len(test), knobs.min_lift
+        best["accuracy"], len(runs.test), knobs.min_lift
     )
     verdict = _verdict(
         _VerdictInputs(
             lift=lift,
             required_lift=required_lift,
-            test_count=len(test),
+            test_count=len(runs.test),
             min_test_records=knobs.min_test_records,
-            mlp_accuracy=mlp["accuracy"],
-            logistic_accuracy=logistic["accuracy"],
+            mlp_accuracy=runs.mlp["accuracy"],
+            logistic_accuracy=runs.logistic["accuracy"],
             nonlinear_margin=knobs.nonlinear_margin,
         )
     )
     return {
         "samples": len(samples),
-        "train": len(train),
-        "test": len(test),
-        "classes": labels,
+        "train": len(runs.train),
+        "test": len(runs.test),
+        "classes": runs.labels,
         "feature_dim": len(samples[0].features),
         "holdout_pct": knobs.holdout_pct,
-        "scaler": {"fitted_on": "train", "dim": len(scaler["mean"])},
+        "scaler": {"fitted_on": "train", "dim": len(runs.scaler["mean"])},
         "baselines": {
-            "majority_class": majority,
-            "logistic_regression": logistic,
-            "mlp": mlp,
+            "majority_class": runs.majority,
+            "logistic_regression": runs.logistic,
+            "mlp": runs.mlp,
         },
         "best": {"model": best["model"], "accuracy": best["accuracy"]},
         "lift_over_majority": lift,
@@ -289,62 +310,63 @@ def _recorded_accuracy(entry: Any) -> float | None:
     return float(value)
 
 
+def _not_learnable_reason(report: dict[str, Any]) -> str:
+    if (report.get("test") or 0) < (report.get("min_test_records") or 0):
+        detail = (
+            f"the holdout is {report.get('test')} records, below the "
+            f"{report.get('min_test_records')} needed for a baseline "
+            "number to mean anything"
+        )
+    else:
+        detail = (
+            "no conventional baseline beat the majority class by "
+            f"{report.get('required_lift', report.get('min_lift'))} "
+            "(max of min_lift and two Agresti-Coull standard errors of "
+            "the test accuracy)"
+        )
+    return (
+        detail
+        + " — the target is not learnable from these compact inputs, so an "
+        "SNN student is not justified"
+    )
+
+
+def _escalation_decision(verdict: Any, report: dict[str, Any]) -> tuple[bool, str]:
+    if verdict == VERDICT_NOT_LEARNABLE:
+        return False, _not_learnable_reason(report)
+    if verdict == VERDICT_LINEAR:
+        # `learnable_linear` only means the MLP did not clear
+        # `nonlinear_margin`, not that it lost. Reporting the logistic
+        # accuracy here would let an SNN satisfy the published threshold
+        # while losing to a baseline that had already been run — which is
+        # the whole point of running baselines first.
+        return True, (
+            "a linear model already predicts the router; an SNN student is "
+            "only justified if it beats the best conventional baseline"
+        )
+    if verdict == VERDICT_NONLINEAR:
+        return True, (
+            "the MLP is meaningfully ahead of the linear model, so there is "
+            "non-linear structure a richer student could exploit"
+        )
+    return False, "unknown verdict; refusing to escalate"
+
+
+def _known_verdict(verdict: Any) -> bool:
+    return verdict in (VERDICT_NOT_LEARNABLE, VERDICT_LINEAR, VERDICT_NONLINEAR)
+
+
 def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
     """Decide whether an SNN router student is justified by the baselines."""
 
     verdict = report.get("verdict")
-    if verdict == VERDICT_NOT_LEARNABLE:
-        return {
-            "escalate_to_snn": False,
-            "verdict": verdict,
-            "reason": (
-                (
-                    f"the holdout is {report.get('test')} records, below the "
-                    f"{report.get('min_test_records')} needed for a baseline "
-                    "number to mean anything"
-                )
-                if (report.get("test") or 0) < (report.get("min_test_records") or 0)
-                else (
-                    "no conventional baseline beat the majority class by "
-                    f"{report.get('required_lift', report.get('min_lift'))} "
-                    "(max of min_lift and two Agresti-Coull standard errors of "
-                    "the test accuracy)"
-                )
-            )
-            + " — the target is not learnable from these compact inputs, so an "
-            "SNN student is not justified",
-            "must_beat": _threshold_accuracy(report),
-        }
-    if verdict == VERDICT_LINEAR:
-        return {
-            "escalate_to_snn": True,
-            "verdict": verdict,
-            "reason": (
-                "a linear model already predicts the router; an SNN student is "
-                "only justified if it beats the best conventional baseline"
-            ),
-            # `learnable_linear` only means the MLP did not clear
-            # `nonlinear_margin`, not that it lost. Reporting the logistic
-            # accuracy here would let an SNN satisfy the published threshold
-            # while losing to a baseline that had already been run — which is
-            # the whole point of running baselines first.
-            "must_beat": _threshold_accuracy(report),
-        }
-    if verdict == VERDICT_NONLINEAR:
-        return {
-            "escalate_to_snn": True,
-            "verdict": verdict,
-            "reason": (
-                "the MLP is meaningfully ahead of the linear model, so there is "
-                "non-linear structure a richer student could exploit"
-            ),
-            "must_beat": _threshold_accuracy(report),
-        }
+    escalate, reason = _escalation_decision(verdict, report)
+    must_beat = _threshold_accuracy(report) if _known_verdict(verdict) else None
     return {
-        "escalate_to_snn": False,
+        "escalate_to_snn": escalate,
         "verdict": verdict,
-        "reason": "unknown verdict; refusing to escalate",
-        "must_beat": None,
+        "reason": reason,
+        "must_beat": must_beat,
     }
 
 
@@ -392,6 +414,13 @@ def _clean_router_records(path: str) -> list[dict[str, Any]]:
     than computed over unvalidated rows.
     """
 
+    problems, records = _checked_records(path)
+    if problems:
+        raise BaselineError(_corpus_problem_summary(problems))
+    return records
+
+
+def _checked_records(path: str) -> tuple[list[str], list[dict[str, Any]]]:
     problems: list[str] = []
     records: list[dict[str, Any]] = []
     # Streamed: the raw file is never buffered whole beside the parsed rows.
@@ -399,12 +428,12 @@ def _clean_router_records(path: str) -> list[dict[str, Any]]:
         problems.extend(_check_input_line(obj, f"{path}:{lineno}"))
         if isinstance(obj, dict):
             records.append(obj)
-    if problems:
-        shown = "; ".join(problems[:5])
-        more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
-        raise BaselineError(
-            f"input is not a clean router-family corpus: {shown}{more}"
-        )
-    return records
+    return problems, records
+
+
+def _corpus_problem_summary(problems: list[str]) -> str:
+    shown = "; ".join(problems[:5])
+    more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
+    return f"input is not a clean router-family corpus: {shown}{more}"
 
 

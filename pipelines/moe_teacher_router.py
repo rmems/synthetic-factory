@@ -216,7 +216,8 @@ class RecordedTeacherRouter(RouterOracle):
             )
         return tuple(float(value) for value in logits)
 
-    def _recorded_layer(self, layer: Any) -> LayerRouting:
+    def _require_recorded_layer_fields(self, layer: Any) -> int:
+        """The layer index of a well-formed recorded layer."""
         if not isinstance(layer, dict):
             raise oc.OracleUnavailable(self.name, "layer must be an object")
         if not oc.is_number(layer.get("top1_top2_margin")):
@@ -232,7 +233,12 @@ class RecordedTeacherRouter(RouterOracle):
                 self.name,
                 f"layer index must be a genuine integer, got {layer_index!r}",
             )
-        return self._routing_from_recorded(layer, layer_index)
+        return layer_index
+
+    def _recorded_layer(self, layer: Any) -> LayerRouting:
+        return self._routing_from_recorded(
+            layer, self._require_recorded_layer_fields(layer)
+        )
 
     def _routing_from_recorded(
         self, layer: dict[str, Any], layer_index: int

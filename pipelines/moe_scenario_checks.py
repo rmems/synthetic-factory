@@ -66,30 +66,51 @@ def _check_compact_features(compact: dict[str, Any], where: str) -> list[str]:
     """Shape, finiteness, and declared width of the recorded feature vector."""
 
     features = compact.get("features")
-    if not isinstance(features, list) or not features:
-        return [
+    shape_error = _features_shape_error(features, where)
+    if shape_error is not None:
+        return [shape_error]
+    width_error = _declared_width_error(compact, features, where)
+    if width_error is not None:
+        return [width_error]
+    return []
+
+
+def _features_shape_error(features: Any, where: str) -> str | None:
+    if not isinstance(features, list):
+        return (
             f"{where}.scenario.compact_input.features must carry the "
             "student input the baseline is evaluated on"
-        ]
+        )
+    if not features:
+        return (
+            f"{where}.scenario.compact_input.features must carry the "
+            "student input the baseline is evaluated on"
+        )
     if not all(oc.is_number(value) for value in features):
         # router_baseline silently skips a record whose features are not
         # finite numbers, so without this a curated corpus could contain
         # no usable student input at all.
-        return [
+        return (
             f"{where}.scenario.compact_input.features must be finite "
             "numbers — the baseline extractor drops anything else"
-        ]
+        )
+    return None
+
+
+def _declared_width_error(
+    compact: dict[str, Any], features: list[Any], where: str
+) -> str | None:
     declared = compact.get("compact_dim")
     if not oc.is_genuine_int(declared):
-        return []
+        return None
     expected = declared + COMPACT_SUMMARY_STATS
-    if len(features) != expected:
-        return [
-            f"{where}.scenario.compact_input.features has "
-            f"{len(features)} values but compact_dim {declared} "
-            f"declares {expected}"
-        ]
-    return []
+    if len(features) == expected:
+        return None
+    return (
+        f"{where}.scenario.compact_input.features has "
+        f"{len(features)} values but compact_dim {declared} "
+        f"declares {expected}"
+    )
 
 def _positive_dim(value: Any, floor: int) -> int | None:
     if not oc.is_genuine_int(value):
@@ -123,14 +144,14 @@ def _check_compact_recompute(
         ]
     feature_dim = _positive_dim(compact.get("feature_dim"), 4)
     compact_dim = _positive_dim(compact.get("compact_dim"), 1)
-    if feature_dim is None or compact_dim is None:
+    if None in (feature_dim, compact_dim):
         return [
             f"{where}.scenario.compact_input must declare integer "
             f"feature_dim (4..{MAX_RECOMPUTE_DIM}) and compact_dim "
             f"(1..{MAX_RECOMPUTE_DIM}) so the student input can be recomputed"
         ]
-    context = scenario.get("context")
-    if not isinstance(context, str) or not context.strip():
+    context = _recomputable_context(scenario)
+    if context is None:
         # Reported by the context-digest check; nothing to recompute from.
         return []
     expected = compact_view(featurize(context, feature_dim), compact_dim)
@@ -141,6 +162,15 @@ def _check_compact_recompute(
             "recompute from the context with the declared featurizer"
         ]
     return []
+
+
+def _recomputable_context(scenario: dict[str, Any]) -> str | None:
+    context = scenario.get("context")
+    if not isinstance(context, str):
+        return None
+    if not context.strip():
+        return None
+    return context
 
 
 def _features_drift(features: list[Any], expected: list[float]) -> bool:
