@@ -3,12 +3,18 @@
 
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 from compose_curated_test_support import preference_pair, write_jsonl  # noqa: E402
-from export_test_support import ONE_CALIBRATION, compose_fixture, ResearchExportAllowed  # noqa: E402
+from export_test_support import (  # noqa: E402
+    ONE_CALIBRATION,
+    ResearchExportAllowed,
+    allow_research_only_export,
+    compose_fixture,
+)
 import compose_curated  # noqa: E402
 import export_compose_auth  # noqa: E402
 import export_contract  # noqa: E402
@@ -16,6 +22,33 @@ import export_hf  # noqa: E402
 
 
 class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._scratch = tempfile.TemporaryDirectory(prefix="export-replay-template-")
+        cls.addClassCleanup(cls._scratch.cleanup)
+        # setUpClass runs outside run()'s audit patch, so compose under the
+        # same patch to keep the stored audit consistent with export's live one.
+        with allow_research_only_export():
+            cls._curated_template = compose_fixture(Path(cls._scratch.name))
+
+    def _copy_curated_template(self, root):
+        """Copy the shared immutable template and rebind its destination path.
+
+        The copied summary keeps ``source_run`` on the shared read-only source;
+        ``destination`` must name this copy's resolved root to authenticate.
+        """
+        curated = root / "curated"
+        shutil.copytree(self._curated_template, curated)
+        summary_path = curated / compose_curated.SUMMARY_FILENAME
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["destination"] = str(curated.resolve())
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return curated, summary_path, summary
+
     def test_direct_factory_root_replays_the_published_factory_coordinate(self):
         """Physical root members replay under the coordinate compose published."""
 
@@ -170,9 +203,7 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
-                curated = compose_fixture(root)
-                summary_path = curated / compose_curated.SUMMARY_FILENAME
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                curated, summary_path, summary = self._copy_curated_template(root)
                 ctx = {
                     "curated": curated,
                     "summary_path": summary_path,
@@ -297,9 +328,7 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
-                curated = compose_fixture(root)
-                summary_path = curated / compose_curated.SUMMARY_FILENAME
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                curated, summary_path, summary = self._copy_curated_template(root)
                 manifest_path = curated / summary["manifest"]["path"]
                 documents = self._documents_of(manifest_path)
 
