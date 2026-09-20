@@ -179,9 +179,11 @@ class FaultChannelAndParameterGaps(unittest.TestCase):
         self.assertIn(result.outcome, fr.OUTCOMES)
 
     def test_an_out_of_range_corrupt_ratio_is_refused(self):
-        # A negative (or NaN) ratio can never mark an event corrupt, so the
-        # declared disturbance ran as a no-op labelled `continue`.
-        for ratio in (-0.5, 1.5, float("nan"), float("inf"), "0.4", None, True):
+        # A non-positive (or NaN) ratio can never mark an event corrupt, so
+        # the declared disturbance ran as a no-op labelled `continue`.
+        for ratio in (
+            -0.5, 0.0, 1.5, float("nan"), float("inf"), "0.4", None, True
+        ):
             with self.subTest(ratio=ratio):
                 with self.assertRaises(oc.ContractError):
                     self.sim.run(
@@ -198,7 +200,8 @@ class FaultChannelAndParameterGaps(unittest.TestCase):
                     )
 
     def test_the_ratio_boundaries_are_still_legal(self):
-        for ratio in (0.0, 1.0):
+        # Zero is not a boundary here: it applies no corruption at all.
+        for ratio in (0.5, 1.0):
             with self.subTest(ratio=ratio):
                 result = self.sim.run(
                     self.scenario,
@@ -1042,6 +1045,55 @@ class RecordedRouterGaps(unittest.TestCase):
             error
             for error in mr.check_family(record, "x")
             if "num_local_experts" in error
+        ]
+        self.assertEqual(errors, [])
+
+
+class RouterRecomputeGaps(unittest.TestCase):
+    """moe_router.py: reference-routed records are verified by recomputation."""
+
+    def test_a_result_copied_from_another_context_is_rejected(self):
+        # check_record used to verify only internal consistency, so a whole
+        # result block copied across rows (with a fresh provenance digest)
+        # passed while labelling a context it was never routed for.
+        record = clone(mr.build_records(11, 1)[0])
+        other = mr.build_records(7, 1)[0]
+        record["result"] = other["result"]
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("REFERENCE_RECOMPUTE_MISMATCH" in error for error in errors),
+            errors,
+        )
+
+    def test_unmodified_reference_records_recompute_cleanly(self):
+        for record in mr.build_records(11, 2):
+            self.assertEqual(mr.check_family(clone(record), "x"), [])
+
+    def test_unbounded_declared_dimensions_are_refused_not_computed(self):
+        record = clone(mr.build_records(11, 1)[0])
+        record["oracle"]["configuration"]["feature_dim"] = 10**9
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("recomputable" in error for error in errors),
+            errors,
+        )
+
+    def test_recorded_teacher_records_are_not_recomputed(self):
+        # The deterministic recompute is scoped to the reference
+        # implementation; a recorded teacher's routing is intentionally not
+        # reproducible here.
+        texts = [
+            proposal["scenario"]["context"]
+            for proposal in mr.propose_contexts(11, 1)
+        ]
+        oracle = mr.RecordedTeacherRouter(_teacher_recording(texts))
+        record = clone(mr.build_records(11, 1, oracle=oracle)[0])
+        errors = [
+            error
+            for error in mr.check_family(record, "x")
+            if "REFERENCE_RECOMPUTE_MISMATCH" in error
         ]
         self.assertEqual(errors, [])
 

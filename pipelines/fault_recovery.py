@@ -690,9 +690,12 @@ class RelayReflexSimulator(FaultOracle):
         # disturbance as a no-op and the simulator emits an authoritative
         # `continue` for a corruption that was requested but never applied.
         ratio = parameters.get("corrupt_ratio")
-        if not oc.is_number(ratio) or not 0.0 <= float(ratio) <= 1.0:
+        # The bound is strict at zero: the tick comparison marks no event
+        # corrupt for a ratio of 0, so a zero ratio also runs the declared
+        # disturbance as a no-op and earns an authoritative `continue`.
+        if not oc.is_number(ratio) or not 0.0 < float(ratio) <= 1.0:
             raise oc.ContractError(
-                f"corrupt_ratio must be a finite number in [0, 1], got "
+                f"corrupt_ratio must be a finite number in (0, 1], got "
                 f"{ratio!r}; outside that range the declared corruption "
                 "cannot be applied"
             )

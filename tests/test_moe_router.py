@@ -455,11 +455,18 @@ class FamilyChecks(unittest.TestCase):
         errors = mr.check_family(self.record, "x")
         self.assertTrue(any("exceeds ln(" in error for error in errors))
 
-    def test_a_plausible_entropy_without_logits_is_accepted(self):
+    def test_a_plausible_entropy_without_logits_is_rejected_by_recompute(self):
+        # 1.0 sits inside the ln(num_experts) bound, so the range check alone
+        # accepts it — but the record declares the deterministic reference
+        # oracle, whose routing recomputes and does not produce 1.0.
         layer = self.record["result"]["routing"]["layers"][0]
         layer["router_logits"] = None
         layer["routing_entropy"] = 1.0
-        self.assertEqual(mr.check_family(self.record, "x"), [])
+        errors = mr.check_family(self.record, "x")
+        self.assertTrue(
+            any("REFERENCE_RECOMPUTE_MISMATCH" in error for error in errors),
+            errors,
+        )
 
     def test_negative_margin_is_rejected(self):
         layer = self.record["result"]["routing"]["layers"][0]
@@ -605,9 +612,8 @@ class SealedHubMoEBinding(unittest.TestCase):
 
     def test_reference_records_still_may_omit_logits(self):
         record = mr.build_records(3, 1)[0]
-        layer = record["result"]["routing"]["layers"][0]
-        layer["router_logits"] = None
-        layer["routing_entropy"] = 1.0
+        for layer in record["result"]["routing"]["layers"]:
+            layer["router_logits"] = None
         self.assertEqual(mr.check_family(record, "x"), [])
 
 

@@ -73,6 +73,11 @@ FEATURIZER_ID = "blake2b-char-trigram-hashing/1.0.0"
 # recomputation allocate that many buckets before anything could object.
 MAX_RECOMPUTE_DIM = 4096
 
+# The generator builds its reference router with no arguments, so a record that
+# omits a dimension still recomputes against the same gate when the declared
+# values do not override it.
+_DEFAULT_REFERENCE_SEED = 7
+
 # Oracles that compute real routing but are not language-model teachers. A
 # recording may never name one of these as the teacher it replays. The name,
 # type and implementation are all checked: a laundered record can rename the
@@ -1975,6 +1980,128 @@ def _check_configuration_binding(
     return errors
 
 
+def _reference_seed(fingerprint: dict[str, Any]) -> int | None:
+    revision = fingerprint.get("revision_or_checkpoint")
+    if not (isinstance(revision, str) and revision.startswith("seed:")):
+        return None
+    try:
+        return int(revision[5:])
+    except ValueError:
+        return None
+
+
+def _recomputed_layer_mismatches(
+    layer: dict[str, Any], actual: LayerRouting, spot: str
+) -> list[str]:
+    errors: list[str] = []
+    if layer.get("top_k_experts") != list(actual.top_k_experts):
+        errors.append(
+            f"{spot}.top_k_experts is {layer.get('top_k_experts')!r} but "
+            f"the reference router computes {list(actual.top_k_experts)!r}"
+        )
+        return errors
+    for field, value in (
+        ("top1_top2_margin", actual.top1_top2_margin),
+        ("routing_entropy", actual.routing_entropy),
+    ):
+        recorded = layer.get(field)
+        if not oc.is_number(recorded) or abs(float(recorded) - value) > RECOMPUTE_TOLERANCE:
+            errors.append(
+                f"{spot}.{field} is {recorded!r} but the reference router "
+                f"computes {value!r}"
+            )
+            break
+    return errors
+
+
+def _check_reference_recompute(
+    record: dict[str, Any], oracle: Any, fingerprint: Any, layers: list[Any], where: str
+) -> list[str]:
+    """Re-run the declared deterministic reference router and compare layers.
+
+    Internal consistency checks cannot catch a record whose whole ``result``
+    was copied from another row: only re-running the oracle over the recorded
+    context pins the routing to this scenario. That is only possible for the
+    known deterministic implementation — a teacher recording is intentionally
+    not recomputable — so the check is scoped to it and fails closed when the
+    declared dimensions or seed are missing.
+    """
+
+    if not (
+        isinstance(oracle, dict)
+        and oracle.get("implementation") == ReferenceMoERouter.implementation
+        and isinstance(fingerprint, dict)
+    ):
+        return []
+    scenario = record.get("scenario")
+    context = scenario.get("context") if isinstance(scenario, dict) else None
+    if not isinstance(context, str):
+        return []  # reported by the scenario context check; nothing to recompute
+    configuration = oracle.get("configuration")
+    configuration = configuration if isinstance(configuration, dict) else {}
+    # Dimensions the record does not declare fall back to the reference
+    # defaults — not as a trust decision but because recompute is itself the
+    # check: a record whose gate really ran at other dimensions mismatches
+    # layer-for-layer, and one that ran at the defaults reproduces cleanly.
+    def _declared(key: str, default: int) -> int:
+        value = configuration.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+    dim = _declared("feature_dim", FEATURE_DIM)
+    seed = _reference_seed(fingerprint)
+    if seed is None:
+        seed = _DEFAULT_REFERENCE_SEED
+    num_experts = _declared_expert_count(fingerprint) or _declared("num_experts", 8)
+    num_layers = _declared_layer_count(fingerprint) or _declared("num_layers", 4)
+    top_k = _declared_top_k(fingerprint) or _declared("top_k", 2)
+    if not (
+        0 < dim <= MAX_RECOMPUTE_DIM
+        and 0 < num_experts <= MAX_RECOMPUTE_DIM
+        and 0 < num_layers <= MAX_RECOMPUTE_DIM
+        and top_k > 0
+    ):
+        # Recompute would allocate gates at whatever dimensions a forged
+        # record declares; outside a bounded domain the routing cannot be
+        # reproduced here — refused, not skipped.
+        return [
+            f"{where}.oracle: declared reference dimensions (feature_dim "
+            f"{dim!r}, num_experts {num_experts!r}, num_layers "
+            f"{num_layers!r}, top_k {top_k!r}) are outside the recomputable "
+            f"domain [1, {MAX_RECOMPUTE_DIM}]; the routing cannot be verified"
+        ]
+    try:
+        engine = ReferenceMoERouter(
+            seed=seed,
+            num_experts=num_experts,
+            num_layers=num_layers,
+            top_k=top_k,
+            dim=dim,
+        )
+    except oc.ContractError as exc:
+        return [
+            f"{where}.oracle: declared reference configuration cannot run "
+            f"({exc}); the recorded routing cannot be reproduced"
+        ]
+    observed = engine.route(context)
+    if len(layers) != len(observed.layers):
+        return [
+            f"{where}.result.routing.layers has {len(layers)} layers but the "
+            f"reference router computes {len(observed.layers)} for this context"
+        ]
+    errors: list[str] = []
+    for index, (layer, actual) in enumerate(zip(layers, observed.layers)):
+        spot = f"{where}.result.routing.layers[{index}]"
+        if isinstance(layer, dict):
+            errors += _recomputed_layer_mismatches(layer, actual, spot)
+    if errors:
+        errors.append(
+            f"{where}.result: REFERENCE_RECOMPUTE_MISMATCH — the recorded "
+            "routing does not match a recomputed run of the declared "
+            "reference router"
+        )
+    return errors
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: real routing, recorded teacher identity, sane targets."""
 
@@ -2009,6 +2136,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         layers, oracle, fingerprint, result, where
     )
     errors += _check_layer_count(layers, fingerprint, where)
+    errors += _check_reference_recompute(record, oracle, fingerprint, layers, where)
     errors += _check_derived_routing_labels(result, routing, layers, where)
     errors += _check_measurement_reconciliation(result, routing, layers, where)
     errors += _check_router_measurement_meters(result, oracle, where)
