@@ -120,6 +120,23 @@ TRANSFORMERS_MOE_IMPLEMENTATION = (
     "pipelines/moe_router.py:TransformersMoERouter"
 )
 
+# Oracle-label policy (D2): the routing keys only this family's oracle may
+# write. Any of them inside a generator-owned section is a label leak.
+ORACLE_LABEL_POLICY = oc.declare_oracle_labels(
+    FAMILY,
+    {
+        "routing",
+        "top1_expert",
+        "teacher_grounded",
+        "is_llm_teacher",
+        "top_k_experts",
+        "router_logits",
+        "top1_top2_margin",
+        "routing_entropy",
+        "expert_agreement",
+    },
+)
+
 
 def resolve_checkpoint(revision: Any, config_commit: Any) -> str:
     """Return the immutable commit these teacher weights came from.
@@ -2107,6 +2124,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: real routing, recorded teacher identity, sane targets."""
 
     errors = _check_scenario_context(record.get("scenario"), where)
+    errors += oc.check_oracle_label_leak(record, where)
 
     oracle = record.get("oracle")
     fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None

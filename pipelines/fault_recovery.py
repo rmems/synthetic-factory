@@ -47,6 +47,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
+from oracle_grounded import fault_vocabulary  # noqa: E402
 
 FAMILY = "neuromorphic-fault-recovery"
 GENERATOR_NAME = "fault-scenario-generator"
@@ -1951,7 +1952,12 @@ def _check_simulator_type_binding(record: dict[str, Any], where: str) -> list[st
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks layered on top of the shared envelope."""
 
-    errors = _check_intervention(record, where)
+    # The family's declared label policy is code (fault_vocabulary), not record
+    # data; refuse any of its keys inside the generator-owned sections.
+    errors = oc.check_oracle_label_leak(
+        record, where, policy=fault_vocabulary.ORACLE_LABEL_POLICY
+    )
+    errors += _check_intervention(record, where)
     errors += _check_candidate_prediction(record, where)
     result = record.get("result")
     if not isinstance(result, dict):

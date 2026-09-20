@@ -96,6 +96,26 @@ SAFETY_ENVELOPE = "0 <= x_i <= cap_i and sum(x_i) == demand"
 # temperature) is a different optimisation wearing this family's name.
 SUPPORTED_COST_QUANTITIES = frozenset({"energy_j", "cpu_time_s"})
 
+# Oracle-label policy (D2): the preference keys only this family's oracle may
+# write. Any of them inside a generator-owned section is a label leak.
+ORACLE_LABEL_POLICY = oc.declare_oracle_labels(
+    FAMILY,
+    {
+        "preference",
+        "preferred",
+        "over",
+        "feasible",
+        "cheaper_but_constraint_violating",
+        "decision_rule",
+        "cost_value",
+        "cost_quantity",
+        "cost_is_energy",
+        "meter_probe",
+        "reference_objective",
+        "abstain_reason",
+    },
+)
+
 
 # --------------------------------------------------------------------------
 # Meters
@@ -2496,6 +2516,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     scenario = record.get("scenario")
     errors, quality_floor = _check_scenario_constraints(scenario, where)
     errors += _check_scenario_state(scenario, where)
+    errors += oc.check_oracle_label_leak(record, where)
     errors += _check_oracle_audit(record, where)
 
     result = record.get("result")
