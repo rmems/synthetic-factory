@@ -245,7 +245,7 @@ def _allow_roots(active: _ActiveRuleset, workdir: str) -> bool:
 
 
 def _allow_devices(active: _ActiveRuleset) -> bool:
-    access = FS_READ_FILE | active.ioctl
+    access = (FS_READ_FILE | FS_WRITE_FILE | FS_TRUNCATE | active.ioctl) & active.handled_fs
     for node in DEV_NODES:
         if os.path.exists(node) and not _add_path(active, node, access, set(DEV_NODES)):
             return False
