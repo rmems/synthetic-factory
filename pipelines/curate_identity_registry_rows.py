@@ -54,9 +54,9 @@ INTENDED_USES = _fields.INTENDED_USES
 PROJECT_TRAINING_POLICIES = _fields.PROJECT_TRAINING_POLICIES
 RIGHTS_PROFILE_IDS = _fields.RIGHTS_PROFILE_IDS
 
-CONTRACT_REQUIRE_STATE = "require_state_claim"
-CONTRACT_SHAPE_DESIGNED = "synthetic_shape_implies_designed"
-ALLOWED_CONTRACTS = frozenset({CONTRACT_REQUIRE_STATE, CONTRACT_SHAPE_DESIGNED, "replay_fault_recovery"})
+CONTRACT_REQUIRE_STATE = _fields.CONTRACT_REQUIRE_STATE
+CONTRACT_SHAPE_DESIGNED = _fields.CONTRACT_SHAPE_DESIGNED
+ALLOWED_CONTRACTS = _fields.ALLOWED_CONTRACTS
 
 REGISTRY_SCHEMA_VERSION = "factory-registry-v0.4"
 PROCEDURAL_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
@@ -249,31 +249,8 @@ def _require_reviewed_rights(
     _require_profile_evidence(raw, index)
 
 
-def _require_kind_contracts(raw: Mapping[str, Any], kinds: frozenset[str], index: int) -> None:
-    contracts = raw["provenance_contract_by_kind"]
-    for kind in kinds:
-        contract = contracts.get(kind)
-        if contract not in ALLOWED_CONTRACTS:
-            raise IdentityCurationError(
-                f"factories[{index}] missing allowed provenance_contract for {kind}"
-            )
-        if contract == CONTRACT_SHAPE_DESIGNED and not raw["identity_authoritative"]:
-            raise IdentityCurationError(
-                f"factories[{index}] synthetic_shape_implies_designed requires "
-                "identity_authoritative"
-            )
-
-
-def _require_preference_side_kinds(
-    raw: Mapping[str, Any], kinds: frozenset[str], index: int
-) -> None:
-    if "preference" in kinds:
-        _apply_field_rules({"preference_side_kinds": raw.get("preference_side_kinds")},
-                           _PREFERENCE_SIDE_RULES, index)
-    elif raw.get("preference_side_kinds") is not None:
-        raise IdentityCurationError(
-            f"factories[{index}].preference_side_kinds requires preference authority"
-        )
+_require_kind_contracts = _fields._require_kind_contracts
+_require_preference_side_kinds = _fields._require_preference_side_kinds
 
 
 def _hosted_factory_row(raw: Mapping[str, Any], identity: tuple[str, str]) -> FactoryRow:

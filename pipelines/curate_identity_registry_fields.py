@@ -258,5 +258,44 @@ RIGHTS_VOCABULARY_RULES = _RIGHTS_VOCABULARY_RULES
 SHAPE_RULES = _SHAPE_RULES
 PREFERENCE_SIDE_RULES = _PREFERENCE_SIDE_RULES
 
+CONTRACT_REQUIRE_STATE = "require_state_claim"
+CONTRACT_SHAPE_DESIGNED = "synthetic_shape_implies_designed"
+ALLOWED_CONTRACTS = frozenset(
+    {CONTRACT_REQUIRE_STATE, CONTRACT_SHAPE_DESIGNED, "replay_fault_recovery"}
+)
+
+
+def _require_kind_contracts(
+    raw: Mapping[str, Any], kinds: frozenset[str], index: int
+) -> None:
+    contracts = raw["provenance_contract_by_kind"]
+    for kind in kinds:
+        contract = contracts.get(kind)
+        if contract not in ALLOWED_CONTRACTS:
+            raise IdentityCurationError(
+                f"factories[{index}] missing allowed provenance_contract for {kind}"
+            )
+        if contract == CONTRACT_SHAPE_DESIGNED and not raw["identity_authoritative"]:
+            raise IdentityCurationError(
+                f"factories[{index}] synthetic_shape_implies_designed requires "
+                "identity_authoritative"
+            )
+
+
+def _require_preference_side_kinds(
+    raw: Mapping[str, Any], kinds: frozenset[str], index: int
+) -> None:
+    if "preference" in kinds:
+        _apply_field_rules(
+            {"preference_side_kinds": raw.get("preference_side_kinds")},
+            _PREFERENCE_SIDE_RULES,
+            index,
+        )
+    elif raw.get("preference_side_kinds") is not None:
+        raise IdentityCurationError(
+            f"factories[{index}].preference_side_kinds requires preference authority"
+        )
+
+
 if __package__:
     _expose_package_sibling(__name__)
