@@ -149,10 +149,11 @@ class ReferenceMoERouter(RouterOracle):
                 sum(w * x for w, x in zip(row, features)) + bias
                 for row, bias in zip(self.gates[index], self.biases[index])
             ]
-            order = sorted(
-                range(self.num_experts),
-                key=lambda e: (-logits[e], e),
-            )
+            order = [
+                e for _, e in sorted(
+                    (-logits[e], e) for e in range(self.num_experts)
+                )
+            ]
             top = tuple(order[: self.top_k])
             probabilities = softmax(logits)
             layers.append(
@@ -315,10 +316,11 @@ class TransformersMoERouter(RouterOracle):
             # transformers returns (tokens, experts) per layer; read the last
             # position so one context yields one routing decision per layer.
             values = [float(value) for value in layer_logits[-1].tolist()]
-            order = sorted(
-                range(len(values)),
-                key=lambda e: (-values[e], e),
-            )
+            order = [
+                e for _, e in sorted(
+                    (-values[e], e) for e in range(len(values))
+                )
+            ]
             layers.append(
                 LayerRouting(
                     layer=index,
