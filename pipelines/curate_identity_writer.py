@@ -199,11 +199,16 @@ def write_run(
         deps.write_exclusive(dest / IDENTITY_MANIFEST_SIDECAR, manifest_bytes)
         created.files.append(dest / IDENTITY_MANIFEST_SIDECAR)
         _write_identity_outputs(dest, results, deps, created)
-        deps.validate_identity_tree(
-            dest,
-            expected_registry_digest=registry.sha256,
-            expected_manifest_digest=manifest_digest,
-        )
+        if __package__:
+            from .curate_identity_simulator_process import replay_session
+        else:
+            from curate_identity_simulator_process import replay_session
+        with replay_session():
+            deps.validate_identity_tree(
+                dest,
+                expected_registry_digest=registry.sha256,
+                expected_manifest_digest=manifest_digest,
+            )
     except BaseException:
         if destination_created:
             _identity_checks.rollback_identity_tree(

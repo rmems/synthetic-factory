@@ -106,3 +106,21 @@ def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_
     if pair_goal is not None:
         record["goal"] = pair_goal
     return record
+
+
+def assert_research_policy(case, audit, *, quarantined=False):
+    """Only reviewed policy prevents admission of otherwise valid research evidence."""
+    case.assertFalse(audit["training_ready"])
+    empty = ("0 eligible training records remain after foreign-mill quarantine"
+             if quarantined else "corpus contains 0 eligible training records")
+    case.assertEqual(audit["blockers"], [
+        empty,
+        "research-only records have blocked project policy or training_ready_policy never",
+    ])
+
+
+def assert_research_only(case, report):
+    """Valid hosted evidence retains validation success without training authority."""
+    case.assertEqual(report["totals"]["eligible_records"], 0)
+    case.assertEqual(report["record_invariants"]["errors"], 0)
+    assert_research_policy(case, report, quarantined=bool(report["mill_mix"]["records"]))

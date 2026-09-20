@@ -28,10 +28,12 @@ from compose_curated_run_lines import add_physical_source_evidence  # noqa: E402
 from compose_contract import (  # noqa: E402
     ComposeError,
     EmittedRecord,
+    NativeRecordFrame,
     emitted_record_line,
     retained_json_line,
 )
 from census import factory_identity_for_path  # noqa: E402
+from curate_identity_simulator_process import replay_session  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import (  # noqa: E402
@@ -323,6 +325,11 @@ def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: li
         from .compose_contract import emitted_records_text
     else:
         from compose_contract import emitted_records_text
+    if any(
+        isinstance(line, NativeRecordFrame) and line.terminator == ""
+        for line in emitted[:-1]
+    ):
+        raise ExportError("unterminated native source cannot precede another composed record")
     payload = emitted_records_text(emitted).encode("utf-8")
     state.expected_payloads[output_path] = payload
     state.expected_outputs.append(
@@ -556,7 +563,8 @@ def _authenticate_source_replay(
     catalog, calibration_descriptor, _calibration_evidence = calibration_state
 
     selection = _selection_result(compose_oracle_selection.published_mode, summary)
-    snapshot = _replay_source_lines(source_root, catalog, selection)
+    with replay_session():
+        snapshot = _replay_source_lines(source_root, catalog, selection)
     _require_calibration_state_unchanged(
         calibration_state,
         _authenticated_calibration_state(summary, source_root),

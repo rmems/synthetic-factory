@@ -169,6 +169,12 @@ def _decode_source_line(
         return _source_exclusion(context, REASON_INVALID_UTF8, {"error": str(exc)})
 
 
+def _exact_native_record(record, text):
+    if curate_identity.classify_kind(record) in curate_identity.DECLARED_KINDS | {"fault_recovery"}:
+        return curate_identity._strict_json_loads(text)
+    return record
+
+
 def _parse_source_record(
     text: str, context: SourceLineContext
 ) -> tuple[Any, str] | ComposeDecision:
@@ -180,8 +186,7 @@ def _parse_source_record(
             object_pairs_hook=context.duplicate_key_rejector,
             parse_constant=context.constant_rejector,
         )
-        if curate_identity.classify_kind(record) in curate_identity.DECLARED_KINDS:
-            record = curate_identity._strict_json_loads(text)
+        record = _exact_native_record(record, text)
         return record, context.canonical_sha256(record)
     except (ValueError, RecursionError) as exc:
         return _source_exclusion(context, REASON_INVALID_JSON, {"error": str(exc)})

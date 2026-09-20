@@ -46,7 +46,15 @@ CANONICAL_PROVIDERS = frozenset({
     "alibaba",
     "minimax",
     "microsoft",
+    "procedural",
+    "simulator",
+    "nemotron",
 })
+# Procedural, simulator, and Nemotron placeholder routes authorize through
+# dedicated profiles; every other canonical provider is governed by the
+# hosted-frontier rules and appears in public rights-document attribution.
+DEDICATED_ROUTE_PROVIDERS = frozenset({"procedural", "simulator", "nemotron"})
+HOSTED_FRONTIER_PROVIDERS = CANONICAL_PROVIDERS - DEDICATED_ROUTE_PROVIDERS
 CHANNELS = frozenset({
     "consumer",
     "api",
@@ -69,16 +77,26 @@ EVIDENCE_STATUS_FIELDS = (
 
 HOSTED_FRONTIER_PROFILE_ID = "hosted-frontier-research-only-v1"
 UNKNOWN_PROVENANCE_PROFILE_ID = "unknown-provenance-fail-closed-v1"
+PROCEDURAL_PROFILE_ID = "procedural-local-attested-v1"
+SIMULATOR_PROFILE_ID = "simulator-local-oracle-v1"
+DEEPSEEK_PLACEHOLDER_PROFILE_ID = "deepseek-terms-placeholder-v1"
+NEMOTRON_PLACEHOLDER_PROFILE_ID = "nemotron-terms-placeholder-v1"
+PLACEHOLDER_PROFILE_IDS = frozenset(
+    {DEEPSEEK_PLACEHOLDER_PROFILE_ID, NEMOTRON_PLACEHOLDER_PROFILE_ID}
+)
 OPEN_WEIGHT_LOCAL_PROFILE_ID = "open-weight-local-candidate-v1"
 OPENROUTER_DISTILLABLE_PROFILE_ID = "openrouter-distillable-candidate-v1"
-REQUIRED_PROFILE_IDS = frozenset(
-    {
-        HOSTED_FRONTIER_PROFILE_ID,
-        UNKNOWN_PROVENANCE_PROFILE_ID,
-        OPEN_WEIGHT_LOCAL_PROFILE_ID,
-        OPENROUTER_DISTILLABLE_PROFILE_ID,
-    }
-)
+REQUIRED_PROFILE_IDS = frozenset({
+    HOSTED_FRONTIER_PROFILE_ID,
+    UNKNOWN_PROVENANCE_PROFILE_ID,
+    OPEN_WEIGHT_LOCAL_PROFILE_ID,
+    OPENROUTER_DISTILLABLE_PROFILE_ID,
+    PROCEDURAL_PROFILE_ID,
+    SIMULATOR_PROFILE_ID,
+    DEEPSEEK_PLACEHOLDER_PROFILE_ID,
+    NEMOTRON_PLACEHOLDER_PROFILE_ID,
+})
+UNBLOCK_TERMS_SNAPSHOT_FIELD = "unblock_terms_snapshot_sha256"
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _STATE_PROTECTION_ERROR = "state protection requires a frozen slotted dataclass"

@@ -115,7 +115,12 @@ def _record_frame_text(line):
 
 
 def retained_json_line(decision: ComposeDecision) -> str:
-    """Preserved native records reuse authenticated source text; other outputs are canonical."""
+    """Preserved native records reuse authenticated source text; other outputs are canonical.
+
+    Identity forbids LF inside ``source.original`` because LF is the JSONL
+    record separator. The physical terminator is restored by
+    ``emitted_record_line`` for preserved native output.
+    """
     if curate_identity.classify_kind(decision.record) not in curate_identity.PRESERVED_KINDS:
         return canonical_json(decision.record)
     source = next((stage["detail"]["source"] for stage in decision.stages

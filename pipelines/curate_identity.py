@@ -40,6 +40,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_identity")
+    from .curate_identity_simulator_process import replay_session
     from . import curate_identity_checks as _identity_checks
     from . import curate_identity_evidence as _evidence
     from . import curate_identity_json as _identity_json
@@ -62,6 +63,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity"
     )
+    from curate_identity_simulator_process import replay_session
     import curate_identity_checks as _identity_checks
     import curate_identity_evidence as _evidence
     import curate_identity_json as _identity_json
@@ -203,6 +205,7 @@ _exclude = _materialize.exclude
 _curated_resolve_owners = _materialize.curated_resolve_owners
 
 _curate_code_repair = _procedural.curate_code_repair
+_curate_fault_recovery = _procedural.curate_fault_recovery
 _curate_oracle = _procedural.curate_oracle
 _curate_known_kind = _procedural.curate_known_kind
 _attach_retained_rights = _procedural.attach_retained_rights
@@ -494,6 +497,7 @@ def _register_retained_ids(
         seen[output_id] = (source, owner_path)
 
 
+@replay_session()
 def curate_records(
     records: Iterable[SourceRecord],
     registry: FactoryRegistry | None = None,

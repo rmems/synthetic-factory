@@ -19,6 +19,7 @@ if __package__:
 
     _assert_direct_sibling("curate_identity_registry_rows")
     from . import curate_identity_json as _identity_json
+    from . import curate_identity_registry_evidence as _evidence
     from . import curate_identity_registry_fields as _fields
     from .rights_mapping import (
         CANONICAL_PROVIDERS,
@@ -35,6 +36,7 @@ else:
         "curate_identity_registry_rows"
     )
     import curate_identity_json as _identity_json
+    import curate_identity_registry_evidence as _evidence
     import curate_identity_registry_fields as _fields
     from rights_mapping import (
         CANONICAL_PROVIDERS,
@@ -52,9 +54,9 @@ INTENDED_USES = _fields.INTENDED_USES
 PROJECT_TRAINING_POLICIES = _fields.PROJECT_TRAINING_POLICIES
 RIGHTS_PROFILE_IDS = _fields.RIGHTS_PROFILE_IDS
 
-CONTRACT_REQUIRE_STATE = "require_state_claim"
-CONTRACT_SHAPE_DESIGNED = "synthetic_shape_implies_designed"
-ALLOWED_CONTRACTS = frozenset({CONTRACT_REQUIRE_STATE, CONTRACT_SHAPE_DESIGNED})
+CONTRACT_REQUIRE_STATE = _fields.CONTRACT_REQUIRE_STATE
+CONTRACT_SHAPE_DESIGNED = _fields.CONTRACT_SHAPE_DESIGNED
+ALLOWED_CONTRACTS = _fields.ALLOWED_CONTRACTS
 
 REGISTRY_SCHEMA_VERSION = "factory-registry-v0.4"
 PROCEDURAL_REGISTRY_SCHEMA_VERSION = "factory-registry-v0.3"
@@ -87,41 +89,24 @@ _REQUIRED_ROW_FIELDS = (
 
 _REVIEWED_GENERATOR_RIGHTS = MappingProxyType(
     {
-        ("fable-5", "fable-5"): ("anthropic", "consumer"),
-        ("gpt-5.6-sol", "gpt-5.6-sol"): ("openai", "consumer"),
-        ("grok-4.6", "grok-4.6"): ("xai", "consumer"),
-        ("muse-spark-1.2", "muse-spark-1.2"): ("meta", "api"),
-        (
-            "nvidia-nemotron-3-nano-4b-bf16",
-            "dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f",
-        ): ("nvidia", "local_vllm"),
-        (
-            "nvidia-nemotron-3.5-lightning-30b",
-            "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
-        ): ("nvidia", "local_vllm"),
-        (
-            "muse-glimmer-30b",
-            "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
-        ): ("meta", "local_vllm"),
-        (
-            "ibm-granite-4.2-30b",
-            "9e668ce1c538387ef24d3644e9b0606647762636",
-        ): ("ibm", "local_vllm"),
-        (
-            "nvidia-nemotron-3-nano-4b-ollama",
-            "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394",
-        ): ("nvidia", "local_ollama"),
-        (
-            "openrouter-deepseek-v4-pro",
-            "deepseek/deepseek-v4-pro-0813",
-        ): ("deepseek", "openrouter_api"),
-        (
-            "openrouter-nemotron-3.5-lightning",
-            "nvidia/nemotron-3.5-lightning",
-        ): ("nvidia", "openrouter_api"),
-        ("openrouter-kimi-k3", "moonshotai/kimi-k3"): ("moonshot", "openrouter_api"),
-        ("openrouter-qwen3.8-flash", "qwen/qwen3.8-flash"): ("alibaba", "openrouter_api"),
-        ("openrouter-phi-4", "microsoft/phi-4"): ("microsoft", "openrouter_api"),
+        ('fable-5', 'fable-5'): ('anthropic', 'consumer', 'hosted-frontier-research-only-v1'),
+        ('gpt-5.6-sol', 'gpt-5.6-sol'): ('openai', 'consumer', 'hosted-frontier-research-only-v1'),
+        ('grok-4.6', 'grok-4.6'): ('xai', 'consumer', 'hosted-frontier-research-only-v1'),
+        ('muse-spark-1.2', 'muse-spark-1.2'): ('meta', 'api', 'hosted-frontier-research-only-v1'),
+        ('procedural-attested', '1'): ('procedural', 'local', 'procedural-local-attested-v1'),
+        ('relay-reflex-simulator', '1'): ('simulator', 'local', 'simulator-local-oracle-v1'),
+        ('deepseek-placeholder', 'pending-terms'): ('deepseek', 'api', 'deepseek-terms-placeholder-v1'),
+        ('nemotron-placeholder', 'pending-terms'): ('nemotron', 'api', 'nemotron-terms-placeholder-v1'),
+        ('nvidia-nemotron-3-nano-4b-bf16', 'dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f'): ('nvidia', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('nvidia-nemotron-3.5-lightning-30b', 'a9904d24bcc1d289a1950fa9d2b978c47cf903b9'): ('nvidia', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('muse-glimmer-30b', 'a4e59da52a7bc87ae7251dd5545c0dd437c44b68'): ('meta', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('ibm-granite-4.2-30b', '9e668ce1c538387ef24d3644e9b0606647762636'): ('ibm', 'local_vllm', 'open-weight-local-candidate-v1'),
+        ('nvidia-nemotron-3-nano-4b-ollama', 'sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a42822394'): ('nvidia', 'local_ollama', 'open-weight-local-candidate-v1'),
+        ('openrouter-deepseek-v4-pro', 'deepseek/deepseek-v4-pro-0813'): ('deepseek', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-nemotron-3.5-lightning', 'nvidia/nemotron-3.5-lightning'): ('nvidia', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-kimi-k3', 'moonshotai/kimi-k3'): ('moonshot', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-qwen3.8-flash', 'qwen/qwen3.8-flash'): ('alibaba', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
+        ('openrouter-phi-4', 'microsoft/phi-4'): ('microsoft', 'openrouter_api', 'openrouter-distillable-candidate-v1'),
     }
 )
 if PROVIDERS != CANONICAL_PROVIDERS or RIGHTS_CHANNELS != CHANNELS:
@@ -153,6 +138,10 @@ class FactoryRow(NamedTuple):
     catalog_id: str | None = None
     catalog_sha256: str | None = None
     programs_sha256: str | None = None
+    catalog_authorship: str | None = None
+    generator_source_digest: str | None = None
+    commit_sha: str | None = None
+    module_digest: str | None = None
     model_id: str | None = None
     model_revision: str | None = None
     generation_surface: str | None = None
@@ -177,6 +166,7 @@ _RIGHTS_VOCABULARY_RULES = _fields._RIGHTS_VOCABULARY_RULES
 _MODEL_CHANNEL_RIGHTS_RULES = _fields._MODEL_CHANNEL_RIGHTS_RULES
 _SHAPE_RULES = _fields._SHAPE_RULES
 _PREFERENCE_SIDE_RULES = _fields._PREFERENCE_SIDE_RULES
+_require_profile_evidence = _evidence.require_profile_evidence
 
 
 def _is_normalized_token(value: Any) -> bool:
@@ -208,7 +198,7 @@ def _legacy_generator_identity(
     return _generator_identity(raw, index)
 
 
-def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str]:
+def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, str, str]:
     expected_assignment = _REVIEWED_GENERATOR_RIGHTS.get(identity)
     if expected_assignment is None:
         raise IdentityCurationError(
@@ -218,18 +208,23 @@ def _reviewed_assignment(identity: tuple[str, str], index: int) -> tuple[str, st
 
 
 def _require_reviewed_provider_channel(
-    raw: Mapping[str, Any], expected_assignment: tuple[str, str], index: int
+    raw: Mapping[str, Any], expected_assignment: tuple[str, str, str], index: int
 ) -> None:
-    if (raw["provider"], raw["channel"]) != expected_assignment:
+    actual = (raw["provider"], raw["channel"], raw["rights_profile_id"])
+    if actual != expected_assignment:
+        if expected_assignment[2] == HOSTED_FRONTIER_PROFILE_ID and actual[:2] == expected_assignment[:2]:
+            raise IdentityCurationError(
+                f"factories[{index}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}"
+            )
         raise IdentityCurationError(
             f"factories[{index}] generator/provider/channel assignment is not reviewed"
         )
 
 
 def _require_reviewed_authorization(
-    raw: Mapping[str, Any], expected_assignment: tuple[str, str], index: int
+    raw: Mapping[str, Any], expected_assignment: tuple[str, str, str], index: int
 ) -> None:
-    authorization = RIGHTS_AUTHORIZATIONS.get((*expected_assignment, raw["rights_profile_id"]))
+    authorization = RIGHTS_AUTHORIZATIONS.get(expected_assignment)
     if authorization is None:
         raise IdentityCurationError(
             f"factories[{index}] rights fields are not authorized by loaded policy"
@@ -251,33 +246,11 @@ def _require_reviewed_rights(
     expected_assignment = _reviewed_assignment(identity, index)
     _require_reviewed_provider_channel(raw, expected_assignment, index)
     _require_reviewed_authorization(raw, expected_assignment, index)
+    _require_profile_evidence(raw, index)
 
 
-def _require_kind_contracts(raw: Mapping[str, Any], kinds: frozenset[str], index: int) -> None:
-    contracts = raw["provenance_contract_by_kind"]
-    for kind in kinds:
-        contract = contracts.get(kind)
-        if contract not in ALLOWED_CONTRACTS:
-            raise IdentityCurationError(
-                f"factories[{index}] missing allowed provenance_contract for {kind}"
-            )
-        if contract == CONTRACT_SHAPE_DESIGNED and not raw["identity_authoritative"]:
-            raise IdentityCurationError(
-                f"factories[{index}] synthetic_shape_implies_designed requires "
-                "identity_authoritative"
-            )
-
-
-def _require_preference_side_kinds(
-    raw: Mapping[str, Any], kinds: frozenset[str], index: int
-) -> None:
-    if "preference" in kinds:
-        _apply_field_rules({"preference_side_kinds": raw.get("preference_side_kinds")},
-                           _PREFERENCE_SIDE_RULES, index)
-    elif raw.get("preference_side_kinds") is not None:
-        raise IdentityCurationError(
-            f"factories[{index}].preference_side_kinds requires preference authority"
-        )
+_require_kind_contracts = _fields._require_kind_contracts
+_require_preference_side_kinds = _fields._require_preference_side_kinds
 
 
 def _hosted_factory_row(raw: Mapping[str, Any], identity: tuple[str, str]) -> FactoryRow:
@@ -299,6 +272,10 @@ def _hosted_factory_row(raw: Mapping[str, Any], identity: tuple[str, str]) -> Fa
         allowed_curation_lanes=tuple(raw["allowed_curation_lanes"]),
         provenance_contract_by_kind={str(key): str(value) for key, value in contracts.items()},
         preference_side_kinds=frozenset(raw.get("preference_side_kinds") or ()),
+        catalog_authorship=raw.get("catalog_authorship"),
+        generator_source_digest=raw.get("generator_source_digest"),
+        commit_sha=raw.get("commit_sha"),
+        module_digest=raw.get("module_digest"),
     )
 
 
@@ -310,27 +287,38 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         raise IdentityCurationError(f"factories[{index}] missing fields: {missing}")
     _apply_field_rules(raw, _PATH_RULES, index)
     identity = _generator_identity(raw, index)
-    _apply_field_rules(raw, _RIGHTS_VOCABULARY_RULES, index)
+    _apply_field_rules(raw, _MODEL_CHANNEL_RIGHTS_RULES, index)
     _require_reviewed_rights(raw, identity, index)
     _apply_field_rules(raw, _SHAPE_RULES, index)
     kinds = frozenset(raw["record_kinds"])
     _require_kind_contracts(raw, kinds, index)
     _require_preference_side_kinds(raw, kinds, index)
-    return _hosted_factory_row(raw, identity)
+    row = _hosted_factory_row(raw, identity)
+    source_type = raw.get("source_type", "hosted")
+    if source_type not in {"hosted", "dedicated"}:
+        raise IdentityCurationError(
+            f"factories[{index}] source_type must be hosted or dedicated on a standard row"
+        )
+    return row._replace(source_type=source_type)
 
 
 def _legacy_reviewed_authorization(
     generator: str, generator_version: str, index: int
 ):
     expected_assignment = _reviewed_assignment((generator, generator_version), index)
+    provider, channel, profile_id = expected_assignment
+    if profile_id != HOSTED_FRONTIER_PROFILE_ID:
+        raise IdentityCurationError(
+            f"factories[{index}] v0.1 rows cannot carry non-hosted rights profiles"
+        )
     authorization = RIGHTS_AUTHORIZATIONS.get(
-        (*expected_assignment, HOSTED_FRONTIER_PROFILE_ID)
+        (provider, channel, HOSTED_FRONTIER_PROFILE_ID)
     )
     if authorization is None:
         raise IdentityCurationError(
             f"factories[{index}] reviewed rights assignment is not authorized by policy"
         )
-    return expected_assignment, authorization
+    return (provider, channel), authorization
 
 
 def _legacy_registry_row(raw: Any, index: int) -> Mapping[str, Any]:

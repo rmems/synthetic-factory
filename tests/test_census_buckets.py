@@ -15,7 +15,7 @@ class CensusBuckets(unittest.TestCase):
         self._inserted_pipeline_path = pipeline_path not in sys.path
         if self._inserted_pipeline_path:
             sys.path.insert(0, pipeline_path)
-        import census  # noqa: E402
+        import census
 
         self.census = census
 
@@ -50,6 +50,24 @@ class CensusBuckets(unittest.TestCase):
         self.assertEqual(
             self.census.classify_kind({"goal": "x", "steps": []}),
             "episode",
+        )
+        self.assertEqual(
+            self.census.classify_kind({"family": "neuromorphic-fault-recovery"}),
+            "fault_recovery",
+        )
+        self.assertEqual(
+            self.census.classify_kind(
+                {
+                    "family": "neuromorphic-fault-recovery",
+                    "state": {},
+                    "proposed_action": {},
+                    "safety_decision": {},
+                    "executed_action": {},
+                    "future_outcome": {},
+                    "reward_components": {},
+                }
+            ),
+            "fault_recovery",
         )
         self.assertEqual(self.census.classify_kind({"meta": {}}), "unknown")
 

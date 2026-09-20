@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from export_test_support import (  # noqa: E402
+    export_mechanics_without_admission,
     compose_fixture,
     ResearchExportAllowed,
 )
@@ -118,6 +119,7 @@ class ExportPayloadAndProvenance(ResearchExportAllowed, unittest.TestCase):
         )
         self.assertEqual(stored, provenance)
 
+    @export_mechanics_without_admission(export_hf)
     def test_exports_payload_viewer_splits_and_provenance(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -160,6 +162,7 @@ class ExportSemanticDuplicateReplay(ResearchExportAllowed, unittest.TestCase):
         self.assertEqual(len(split_rows), 7)
         self.assertEqual(len(set(split_rows)), 7)
 
+    @export_mechanics_without_admission(export_hf)
     def test_export_replays_foreign_mill_quarantine(self):
         """Codex #97 P1: the replay applies the same corpus-level mill pass.
 
@@ -195,6 +198,7 @@ class ExportSemanticDuplicateReplay(ResearchExportAllowed, unittest.TestCase):
             )
             self.assertNotIn(DEST_STAMPED_MILL["goal"], exported)
 
+    @export_mechanics_without_admission(export_hf)
     def test_export_replays_pre_identity_semantic_duplicate_exclusions(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -217,6 +221,7 @@ class ExportSemanticDuplicateReplay(ResearchExportAllowed, unittest.TestCase):
                 compose_curated.REASON_DUPLICATE_SOURCE_RECORD,
             )
 
+    @export_mechanics_without_admission(export_hf)
     def test_export_replays_post_curation_semantic_duplicate_exclusions(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

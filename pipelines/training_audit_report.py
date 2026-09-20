@@ -193,7 +193,10 @@ def _factory_report(factories):
 
 
 def _identity_report(state, eligible_records):
-    eligible_records += state["totals"].get("observed_parity_records", 0)
+    eligible_records += (
+        state["totals"].get("observed_parity_records", 0)
+        + state["totals"].get("research_only_records", 0)
+    )
     identity_records = eligible_records + sum(
         state[kind].get("evidence_only_records", 0) for kind in ("oracle", "code_repair")
     )
@@ -281,6 +284,8 @@ def _report_blockers(state, eligible_records, provenance_total):
 
     if state["totals"].get("parity_research_records", 0):
         blockers.append("frontier-session parity observations are research-only; training policy is never")
+    if state["totals"].get("research_only_records", 0):
+        blockers.append("research-only records have blocked project policy or training_ready_policy never")
     return blockers
 
 
@@ -352,6 +357,7 @@ def build_report(**state):
             "records": totals["records"],
             "eligible_records": eligible_records,
             "parity_research_records": totals["parity_research_records"],
+            "research_only_records": totals["research_only_records"],
             "invalid_parity_records": totals["invalid_parity_records"],
             "exact_json_contract_errors": totals["exact_json_contract_errors"],
             "bytes": totals["bytes"],

@@ -23,6 +23,7 @@ KIND_ORDER = (
     "hardware_parity",
     "nir_equivalence",
     "code_repair",
+    "fault_recovery",
     "thalamic",
     "preference",
     "bridge_pair",
@@ -58,6 +59,12 @@ _PAYLOAD_KEY_RULES = (
 )
 
 
+def _is_fault_recovery(record: Mapping[str, Any]) -> bool:
+    # Family is sticky: a malformed claimant stays in fault_recovery and fails
+    # that family's validator instead of falling through to thalamic keys.
+    return record.get("family") == "neuromorphic-fault-recovery"
+
+
 def classify_kind(obj: Any) -> str:
     """Name a record from payload keys, never from a directory slug.
 
@@ -69,15 +76,16 @@ def classify_kind(obj: Any) -> str:
 
     1. declared parity kinds — ``record_kind`` in ``DECLARED_KINDS``
     2. code_repair — ``family`` is ``python-function-repair``
-    3. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
-    4. preference — ``chosen`` and ``rejected``
-    5. bridge_pair — ``language_view`` and ``spike_events``
-    6. safety_case — ``case_type``
-    7. multi_agent — ``transcript`` and ``agents``
-    8. episode — ``goal`` and ``steps``
-    9. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
+    3. fault_recovery — ``family`` is ``neuromorphic-fault-recovery``
+    4. thalamic — all six ``THALAMIC_REQUIRED`` keys at top level
+    5. preference — ``chosen`` and ``rejected``
+    6. bridge_pair — ``language_view`` and ``spike_events``
+    7. safety_case — ``case_type``
+    8. multi_agent — ``transcript`` and ``agents``
+    9. episode — ``goal`` and ``steps``
+    10. oracle — ``oracle``, ``result`` and ``proposal_hash`` (oracle-grounded
        measurement records; accepted and rejected share the envelope)
-    10. unknown
+    11. unknown
     """
 
     kind = "unknown"
@@ -88,6 +96,8 @@ def classify_kind(obj: Any) -> str:
             kind = declared_kind
         elif obj.get("family") == "python-function-repair":
             kind = "code_repair"
+        elif _is_fault_recovery(obj):
+            kind = "fault_recovery"
         else:
             keys = obj.keys()
             kind = next(

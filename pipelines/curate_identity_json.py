@@ -47,6 +47,11 @@ class IdentityTreeError(IdentityCurationError):
     """Raised when a cleaned tree is missing or mismatched identity sidecars."""
 
 
+# Preserved native kinds keep exact decimal tokens; fault-recovery simulator
+# output is preserved verbatim under the same rule.
+_EXACT_KINDS = PRESERVED_NATIVE_KINDS | {"fault_recovery"}
+
+
 def _reject_surrogate_text(value: str, path: str) -> None:
     if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
         raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
@@ -78,7 +83,7 @@ def canonical_json(value: Any) -> str:
 
     try:
         _reject_unpaired_surrogates(value)
-        payload = dumps_exact_json(value) if classify_kind(value) in PRESERVED_NATIVE_KINDS else json.dumps(
+        payload = dumps_exact_json(value) if classify_kind(value) in _EXACT_KINDS else json.dumps(
             value,
             ensure_ascii=False,
             allow_nan=False,
@@ -141,7 +146,7 @@ def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
         parse_constant=_reject_json_constant,
         parse_float=ExactJSONFloat if exact else parse_finite_json_float,
     )
-    if not exact and classify_kind(value) in PRESERVED_NATIVE_KINDS:
+    if not exact and classify_kind(value) in _EXACT_KINDS:
         return _strict_json_loads(payload, exact=True)
     _reject_unpaired_surrogates(value)
     return value

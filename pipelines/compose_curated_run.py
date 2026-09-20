@@ -19,6 +19,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run")
+    from .curate_identity_simulator_process import replay_session
     from . import compose_oracle_selection as _selection
     from . import compose_contract as _contract
     from . import compose_curated_run_artifacts as _artifacts
@@ -30,6 +31,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run"
     )
+    from curate_identity_simulator_process import replay_session
     import compose_oracle_selection as _selection
     import compose_contract as _contract
     import compose_curated_run_artifacts as _artifacts
@@ -66,7 +68,9 @@ _account_lane_actions = _lines.account_lane_actions
 _line_decision = _lines.line_decision
 _without_terminal_cr = _lines.without_terminal_cr
 claim_output_id = _lines.claim_output_id
+jsonl_framed_lines = _lines.jsonl_framed_lines
 jsonl_physical_lines = _lines.jsonl_physical_lines
+jsonl_terminator_text = _lines.jsonl_terminator_text
 mill_quarantined_decision = _lines.mill_quarantined_decision
 new_manifest_entry = _lines.new_manifest_entry
 record_excluded_line = _lines.record_excluded_line
@@ -317,6 +321,7 @@ def _write_transaction(
     return summary
 
 
+@replay_session()
 def compose_run(
     context: ComposeRunContext,
     services: ComposeRunServices,

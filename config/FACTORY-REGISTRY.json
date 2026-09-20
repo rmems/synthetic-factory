@@ -1658,8 +1658,8 @@
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "oracle-grounded-v1",
-      "catalog_sha256": "011ebff00f2e72d502adfe2bb7ed8ce29a11111ab422dd3bf9868dd0d589eb27",
-      "programs_sha256": "61c92017f978f0b9df99ba24dd571e00da6233190e38d8b604a3f63e254694c6",
+      "catalog_sha256": "472218b18ba31b3537bdf89ff9c6ab939c55d85f306ee698d453f04b5b4e98bb",
+      "programs_sha256": "e00d4dbc6027404e82726372d49adcbe549a2407ec8645410452778c523e03c2",
       "intended_use": "training_candidate",
       "project_training_policy": "allowed",
       "publication_target": null,
@@ -1671,7 +1671,7 @@
         "license": "Apache-2.0",
         "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
       },
-      "procedural_policy_sha256": "4e8dcad6a268d8cab2b32e22a1ff9bd07e098b20cb7b5175864b7a6725bc3a26",
+      "procedural_policy_sha256": "760b9519b5ea2826f9a8089b76225e197593c37d38efbd54764f9f5a1a1d8df4",
       "record_kinds": [
         "oracle"
       ],
@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:c3d82abf99eaa9a808a320b4446d77e9e91e7cbdd0f10201a8636e46d7e6743c",
+      "generator_version": "sha256:0c1df7ca83a2759b81efb1878fbd6600e9a89ca54011675fdab5017294bb2c14",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,14 +1709,14 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "31271e7119b189569c05a21fb876bab02883a7774b1f12bd3a983e5d7ae7723a"
+      "parity_policy_sha256": "31c9cb770a8cd4262b78593488fc57391ff201aa1d6661c664a5da4b60d626d7"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:8d84d55ceadd54db186134e475cae59bfafa14b5216567332bea36584d11108d",
+      "generator_version": "sha256:140cbcddedaea1da8469f4001041580720d87bb32dc4fb8bb96b5b933a052f0a",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1736,7 +1736,81 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "31271e7119b189569c05a21fb876bab02883a7774b1f12bd3a983e5d7ae7723a"
+      "parity_policy_sha256": "31c9cb770a8cd4262b78593488fc57391ff201aa1d6661c664a5da4b60d626d7"
+    }
+    ,{
+      "path_id": "fault-recovery-simulator-factory",
+      "source_type": "dedicated",
+      "payload_factory": "fault-recovery-simulator-factory",
+      "generator": "relay-reflex-simulator",
+      "generator_version": "1",
+      "provider": "simulator",
+      "channel": "local",
+      "rights_profile_id": "simulator-local-oracle-v1",
+      "intended_use": "training_candidate",
+      "project_training_policy": "allowed",
+      "commit_sha": "6ca641465bbf8ce8339de1dce6ce77f77186e34a",
+      "module_digest": "sha256:be267e0720662cf1f8c79b24384bd335df9ec127fce8184459e2e64e31c8d3e4",
+      "record_kinds": [
+        "fault_recovery"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "fault_recovery": "replay_fault_recovery"
+      }
+    }
+    ,{
+      "path_id": "deepseek-placeholder-factory",
+      "source_type": "dedicated",
+      "payload_factory": "deepseek-placeholder-factory",
+      "generator": "deepseek-placeholder",
+      "generator_version": "pending-terms",
+      "provider": "deepseek",
+      "channel": "api",
+      "rights_profile_id": "deepseek-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    }
+    ,{
+      "path_id": "nemotron-placeholder-factory",
+      "source_type": "dedicated",
+      "payload_factory": "nemotron-placeholder-factory",
+      "generator": "nemotron-placeholder",
+      "generator_version": "pending-terms",
+      "provider": "nemotron",
+      "channel": "api",
+      "rights_profile_id": "nemotron-terms-placeholder-v1",
+      "intended_use": "research_only",
+      "project_training_policy": "blocked",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
     }
   ]
 }

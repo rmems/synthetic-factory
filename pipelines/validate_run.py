@@ -28,6 +28,7 @@ if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("validate_run")
+    from .curate_identity_simulator_process import replay_session
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
     from . import validate_run_rewards as _validate_run_rewards
@@ -42,6 +43,7 @@ if __package__:
     from .oracle_grounded import parity_contract
     from .validate_run_input import reject_json_constant as _reject_json_constant
 else:
+    from curate_identity_simulator_process import replay_session
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
     import validate_run_rewards as _validate_run_rewards
@@ -384,6 +386,7 @@ def check_line(obj, where, factory_staging=False):
 parse_args = _validate_run_cli.parse_args
 
 
+@replay_session()
 def main(argv=None):
     return _validate_run_cli.main(
         argv,

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from export_test_support import (  # noqa: E402
+    export_mechanics_without_admission,
     ONE_CALIBRATION,
     ResearchExportAllowed,
     calibration_document,
@@ -237,6 +238,7 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
                 "calibrated record count does not authenticate",
             )
 
+    @export_mechanics_without_admission(export_hf)
     def test_calibration_rewritten_during_source_replay_is_refused(self):
         """Replay may not combine source bytes with stale calibration evidence."""
 

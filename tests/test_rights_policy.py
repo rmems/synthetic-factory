@@ -185,6 +185,9 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 "alibaba",
                 "minimax",
                 "microsoft",
+                "procedural",
+                "simulator",
+                "nemotron",
             },
         )
         self.assertEqual(
