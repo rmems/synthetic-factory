@@ -105,7 +105,7 @@ def _run_tool(main: Callable[[list[str]], object], argv: list[str]) -> tuple[int
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
             main(list(argv))
-    except SystemExit as exc:
+    except SystemExit as exc:  # NOSONAR S5754 - a CLI's exit request is the gate's exit code here
         if exc.code is None:
             code = 0
         elif isinstance(exc.code, int):
