@@ -9,7 +9,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-CENSUS = PIPELINES / "census.py"
 MINI_RUN = TESTS / "fixtures" / "mini-run"
 
 for _path in (TESTS, PIPELINES):
@@ -100,7 +99,7 @@ def _snapshot(root: Path):
 
 def _invoke(*args):
     """Run ``census.main`` in-process, mirroring a subprocess result."""
-    return main_in_process(census.main, args, str(CENSUS))
+    return main_in_process(census.main, args)
 
 
 class CensusMiniRun(unittest.TestCase):

@@ -10,7 +10,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-PROMOTER = PIPELINES / "promote.py"
 
 for _path in (TESTS, PIPELINES):
     if str(_path) not in sys.path:
@@ -52,7 +51,7 @@ def _snapshot(root):
 
 def _cli(args):
     """Run ``promote.main`` in-process, mirroring a subprocess result."""
-    return main_in_process(promote.main, args, str(PROMOTER))
+    return main_in_process(promote.main, args)
 
 
 def _units_migration():

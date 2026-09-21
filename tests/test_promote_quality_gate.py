@@ -14,7 +14,6 @@ REPO = Path(__file__).resolve().parents[1]
 TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
 FIXTURES = TESTS / "fixtures"
-PROMOTER = PIPELINES / "promote.py"
 for _path in (TESTS, PIPELINES):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
@@ -43,7 +42,7 @@ def _write_jsonl(path, records):
 
 def _cli(args):
     """Run ``promote.main`` in-process, mirroring a subprocess result."""
-    return main_in_process(promote.main, args, str(PROMOTER))
+    return main_in_process(promote.main, args)
 
 
 class TestPromoteQualityGatePreflight(unittest.TestCase):

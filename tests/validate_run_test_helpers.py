@@ -80,7 +80,7 @@ def _invoke_inprocess(*args):
     fresh interpreter; the process-boundary coverage stays with the
     subprocess ``_invoke``/``_invoke_module`` helpers.
     """
-    return main_in_process(validate_run.main, args, str(VALIDATE))
+    return main_in_process(validate_run.main, args)
 
 
 def _run_with_record(record):

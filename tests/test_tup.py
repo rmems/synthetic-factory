@@ -46,7 +46,7 @@ from tup._contract import (  # noqa: E402
 
 
 def invoke(argv: list[str]) -> tuple[int, str, str]:
-    result = main_in_process(cli.run, argv, "tup.cli")
+    result = main_in_process(cli.run, argv)
     return result.returncode, result.stdout, result.stderr
 
 

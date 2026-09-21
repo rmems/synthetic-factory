@@ -27,9 +27,7 @@ from cli_test_support import main_in_process  # noqa: E402
 
 def _run_cli(*arguments):
     """Run ``curate_agentic.main`` in-process, mirroring a subprocess result."""
-    return main_in_process(
-        curate_agentic.main, arguments, str(PIPELINES / "curate_agentic.py")
-    )
+    return main_in_process(curate_agentic.main, arguments)
 
 
 def _write_factory_batch(factory, records):

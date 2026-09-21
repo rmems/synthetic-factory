@@ -51,7 +51,7 @@ _CLI_MAINS = {
 
 def _run(script, *args):
     """Run a pipeline ``main()`` in-process, mirroring the subprocess result."""
-    return main_in_process(_CLI_MAINS[script], args, str(PIPELINES / script))
+    return main_in_process(_CLI_MAINS[script], args)
 
 
 class FixtureRun(unittest.TestCase):
