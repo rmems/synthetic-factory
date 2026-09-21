@@ -7,8 +7,6 @@ test_validate_run_spikes.py, and test_validate_run_contracts.py. This module
 holds only what two or more of those files need in common.
 """
 
-import contextlib
-import io
 import json
 import subprocess
 import sys
@@ -16,13 +14,16 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
 VALIDATE = PIPELINES / "validate_run.py"
 
-if str(PIPELINES) not in sys.path:
-    sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import validate_run  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 # Minimal record that passes the thalamic shape check (required keys + decision).
 # Includes strict fields: meta.round and valid provenance/state.
@@ -79,21 +80,7 @@ def _invoke_inprocess(*args):
     fresh interpreter; the process-boundary coverage stays with the
     subprocess ``_invoke``/``_invoke_module`` helpers.
     """
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        try:
-            code = validate_run.main(list(args))
-        except SystemExit as raised:
-            code = raised.code
-        if code is None:
-            code = 0
-        elif not isinstance(code, int):
-            # A non-integer SystemExit code prints to stderr and exits 1.
-            print(code, file=sys.stderr)
-            code = 1
-    return subprocess.CompletedProcess(
-        [str(VALIDATE), *args], code, stdout.getvalue(), stderr.getvalue()
-    )
+    return main_in_process(validate_run.main, args, str(VALIDATE))
 
 
 def _run_with_record(record):

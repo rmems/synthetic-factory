@@ -5,9 +5,7 @@ These tests pin the three integration points: census classification, the shape
 layer in validate_run, and the deep layer in check_records.
 """
 
-import contextlib
 import copy
-import io
 import json
 # Required only for the fixed-argv interpreter subprocess below.
 import subprocess  # nosec B404
@@ -17,13 +15,16 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-FIXTURE_RUN = REPO / "tests" / "fixtures" / "parity-run"
+FIXTURE_RUN = TESTS / "fixtures" / "parity-run"
 HARDWARE_BATCH = (
     FIXTURE_RUN / "hardware-parity-spike-trajectories" / "batch-r01.jsonl"
 )
 NIR_BATCH = FIXTURE_RUN / "nir-cross-runtime-equivalence" / "batch-r01.jsonl"
-sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import census  # noqa: E402
 import check_records  # noqa: E402
@@ -31,6 +32,7 @@ import parity_validators  # noqa: E402
 import exact_json  # noqa: E402
 from oracle_grounded import parity_contract as contract  # noqa: E402
 import validate_run  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 
 def _records(path):
@@ -49,21 +51,7 @@ _CLI_MAINS = {
 
 def _run(script, *args):
     """Run a pipeline ``main()`` in-process, mirroring the subprocess result."""
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        try:
-            code = _CLI_MAINS[script](list(args))
-        except SystemExit as raised:
-            code = raised.code
-        if code is None:
-            code = 0
-        elif not isinstance(code, int):
-            # A non-integer SystemExit code prints to stderr and exits 1.
-            print(code, file=sys.stderr)
-            code = 1
-    return subprocess.CompletedProcess(
-        [str(PIPELINES / script), *args], code, stdout.getvalue(), stderr.getvalue()
-    )
+    return main_in_process(_CLI_MAINS[script], args, str(PIPELINES / script))
 
 
 class FixtureRun(unittest.TestCase):

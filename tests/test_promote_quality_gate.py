@@ -4,7 +4,6 @@
 import contextlib
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,13 +11,17 @@ from pathlib import Path
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURES = TESTS / "fixtures"
 PROMOTER = PIPELINES / "promote.py"
-sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import promote  # noqa: E402
 import quality_gate  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 
 def _record():
@@ -40,21 +43,7 @@ def _write_jsonl(path, records):
 
 def _cli(args):
     """Run ``promote.main`` in-process, mirroring a subprocess result."""
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        try:
-            code = promote.main(list(args))
-        except SystemExit as raised:
-            code = raised.code
-        if code is None:
-            code = 0
-        elif not isinstance(code, int):
-            # A non-integer SystemExit code prints to stderr and exits 1.
-            print(code, file=sys.stderr)
-            code = 1
-    return subprocess.CompletedProcess(
-        [str(PROMOTER), *args], code, stdout.getvalue(), stderr.getvalue()
-    )
+    return main_in_process(promote.main, args, str(PROMOTER))
 
 
 class TestPromoteQualityGatePreflight(unittest.TestCase):

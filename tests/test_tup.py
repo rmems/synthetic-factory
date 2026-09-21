@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import ast
-import contextlib
 import hashlib
-import io
 import json
 import shutil
 import sys
@@ -15,12 +13,15 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
 COMMITTED = REPO / "config" / "tup"
 
 sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(REPO))
 
+from cli_test_support import main_in_process  # noqa: E402
 from mill_family import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from mill_signals import mill_prefix  # noqa: E402
 from record_kind import classify_kind, preference_side_kinds  # noqa: E402
@@ -45,10 +46,8 @@ from tup._contract import (  # noqa: E402
 
 
 def invoke(argv: list[str]) -> tuple[int, str, str]:
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = cli.run(argv)
-    return code, out.getvalue(), err.getvalue()
+    result = main_in_process(cli.run, argv, "tup.cli")
+    return result.returncode, result.stdout, result.stderr
 
 
 class CatalogPins(unittest.TestCase):

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """census.py prints a read-only JSON census of a run directory."""
 
-import contextlib
-import io
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
 CENSUS = PIPELINES / "census.py"
-MINI_RUN = REPO / "tests" / "fixtures" / "mini-run"
+MINI_RUN = TESTS / "fixtures" / "mini-run"
 
-if str(PIPELINES) not in sys.path:
-    sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import census  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 EXPECTED = {
     "files": 2,
@@ -100,21 +100,7 @@ def _snapshot(root: Path):
 
 def _invoke(*args):
     """Run ``census.main`` in-process, mirroring a subprocess result."""
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        try:
-            code = census.main(list(args))
-        except SystemExit as raised:
-            code = raised.code
-        if code is None:
-            code = 0
-        elif not isinstance(code, int):
-            # A non-integer SystemExit code prints to stderr and exits 1.
-            print(code, file=sys.stderr)
-            code = 1
-    return subprocess.CompletedProcess(
-        [str(CENSUS), *args], code, stdout.getvalue(), stderr.getvalue()
-    )
+    return main_in_process(census.main, args, str(CENSUS))
 
 
 class CensusMiniRun(unittest.TestCase):
