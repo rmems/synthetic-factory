@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -30,6 +30,15 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+async def _run_command(command: list[str], environment: dict[str, str]) -> int:
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=ROOT,
+        env=environment,
+    )
+    return await process.wait()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run or list the selected unittest shard."""
     parser = _parser()
@@ -51,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     environment["PYTHONPATH"] = str(ROOT / "tests")
     if existing_pythonpath:
         environment["PYTHONPATH"] += os.pathsep + existing_pythonpath
-    return subprocess.run(command, cwd=ROOT, env=environment, check=False).returncode
+    return asyncio.run(_run_command(command, environment))
 
 
 if __name__ == "__main__":
