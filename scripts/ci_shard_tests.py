@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
+import multiprocessing
 import os
 import sys
+import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,13 +31,30 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run_command(command: list[str], environment: dict[str, str]) -> int:
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        cwd=ROOT,
-        env=environment,
-    )
-    return await process.wait()
+def _run_shard(
+    chosen: list[str], coverage_enabled: bool, environment: dict[str, str]
+) -> None:
+    """Run one shard in a clean Python process."""
+    os.chdir(ROOT)
+    os.environ.clear()
+    os.environ.update(environment)
+    sys.path[:0] = [str(ROOT / "tests"), str(ROOT)]
+
+    coverage = None
+    if coverage_enabled:
+        from coverage import Coverage
+
+        coverage = Coverage(data_suffix=True)
+        coverage.start()
+    try:
+        suite = unittest.defaultTestLoader.loadTestsFromNames(chosen)
+        result = unittest.TextTestRunner(buffer=True).run(suite)
+        exit_code = 0 if result.wasSuccessful() else 1
+    finally:
+        if coverage is not None:
+            coverage.stop()
+            coverage.save()
+    raise SystemExit(exit_code)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -51,16 +69,19 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(chosen))
         return 0
 
-    command = [str(Path(sys.executable).resolve())]
-    if args.coverage:
-        command.extend(["-m", "coverage", "run", "-p"])
-    command.extend(["-m", "unittest", "-b", *chosen])
     environment = os.environ.copy()
     existing_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = str(ROOT / "tests")
     if existing_pythonpath:
         environment["PYTHONPATH"] += os.pathsep + existing_pythonpath
-    return asyncio.run(_run_command(command, environment))
+    context = multiprocessing.get_context("spawn")
+    process = context.Process(
+        target=_run_shard,
+        args=(chosen, args.coverage, environment),
+    )
+    process.start()
+    process.join()
+    return process.exitcode if process.exitcode is not None else 1
 
 
 if __name__ == "__main__":
