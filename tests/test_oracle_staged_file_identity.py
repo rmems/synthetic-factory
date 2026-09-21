@@ -52,6 +52,8 @@ class StagedFileIdentity(unittest.TestCase):
             path = root / relative
             body = b'{"sample":1}\n'
             path.write_bytes(body)
+            aged = os.stat(path).st_mtime_ns - 10**9
+            os.utime(path, ns=(aged, aged))
             root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
             self.addCleanup(os.close, root_fd)
             digest = generation_output._bounded_digest
