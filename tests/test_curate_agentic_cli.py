@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """CLI and cleaned-tree writing rules for agentic curation."""
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -26,12 +28,24 @@ import training_audit  # noqa: E402
 
 
 def _run_cli(*arguments):
-    """Run the agentic curation CLI over ``arguments`` and return the result."""
-    return subprocess.run(
-        [sys.executable, str(PIPELINES / "curate_agentic.py"), *arguments],
-        capture_output=True,
-        text=True,
-        check=False,
+    """Run ``curate_agentic.main`` in-process, mirroring a subprocess result."""
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = curate_agentic.main(list(arguments))
+        except SystemExit as raised:
+            code = raised.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):
+            # A non-integer SystemExit code prints to stderr and exits 1.
+            print(code, file=sys.stderr)
+            code = 1
+    return subprocess.CompletedProcess(
+        [str(PIPELINES / "curate_agentic.py"), *arguments],
+        code,
+        stdout.getvalue(),
+        stderr.getvalue(),
     )
 
 

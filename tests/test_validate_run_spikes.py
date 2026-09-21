@@ -25,7 +25,7 @@ if str(_TESTS) not in sys.path:
 from validate_run_test_helpers import (  # noqa: E402
     REPO,
     TINY_THALAMIC,
-    _invoke,
+    _invoke_inprocess,
     _run_with_record,
 )
 
@@ -69,7 +69,7 @@ class ValidateSpikeOrderIdempotent(unittest.TestCase):
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
-            result = _invoke(str(run_dir))
+            result = _invoke_inprocess(str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_spike_order_idempotent(self):
@@ -85,8 +85,8 @@ class ValidateSpikeOrderIdempotent(unittest.TestCase):
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
-            r1 = _invoke(str(run_dir))
-            r2 = _invoke(str(run_dir))
+            r1 = _invoke_inprocess(str(run_dir))
+            r2 = _invoke_inprocess(str(run_dir))
             self.assertEqual(r1.returncode, 1)
             self.assertEqual(r2.returncode, 1)
             self.assertEqual(r1.stderr, r2.stderr)
@@ -288,7 +288,7 @@ class ThalamicSpikeStream(unittest.TestCase):
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
-            return _invoke(str(run_dir))
+            return _invoke_inprocess(str(run_dir))
 
     @staticmethod
     def _bridge(events):
@@ -359,7 +359,7 @@ class ThalamicSpikeStream(unittest.TestCase):
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / "case.jsonl").write_text(dumps_exact_json(record) + "\n")
-            result = _invoke(str(run_dir))
+            result = _invoke_inprocess(str(run_dir))
 
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(validate_run.SPIKE_CLOCK_DOMAIN_MISMATCH, result.stderr)

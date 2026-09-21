@@ -7,6 +7,8 @@ test_validate_run_spikes.py, and test_validate_run_contracts.py. This module
 holds only what two or more of those files need in common.
 """
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -19,6 +21,8 @@ VALIDATE = PIPELINES / "validate_run.py"
 
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
+
+import validate_run  # noqa: E402
 
 # Minimal record that passes the thalamic shape check (required keys + decision).
 # Includes strict fields: meta.round and valid provenance/state.
@@ -68,11 +72,35 @@ def _invoke_module(*args):
     )
 
 
+def _invoke_inprocess(*args):
+    """Run ``validate_run.main`` in-process, mirroring ``_invoke``'s result.
+
+    Tests that only assert the exit code and stdout/stderr text do not need a
+    fresh interpreter; the process-boundary coverage stays with the
+    subprocess ``_invoke``/``_invoke_module`` helpers.
+    """
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = validate_run.main(list(args))
+        except SystemExit as raised:
+            code = raised.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):
+            # A non-integer SystemExit code prints to stderr and exits 1.
+            print(code, file=sys.stderr)
+            code = 1
+    return subprocess.CompletedProcess(
+        [str(VALIDATE), *args], code, stdout.getvalue(), stderr.getvalue()
+    )
+
+
 def _run_with_record(record):
     """Helper: write single record to temp dir and invoke validator."""
     with tempfile.TemporaryDirectory() as raw:
         run_dir = Path(raw) / "run"
         run_dir.mkdir()
         (run_dir / "case.jsonl").write_text(json.dumps(record) + "\n")
-        result = _invoke(str(run_dir))
+        result = _invoke_inprocess(str(run_dir))
         return result

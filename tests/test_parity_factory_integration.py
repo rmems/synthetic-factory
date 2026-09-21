@@ -5,9 +5,11 @@ These tests pin the three integration points: census classification, the shape
 layer in validate_run, and the deep layer in check_records.
 """
 
+import contextlib
 import copy
+import io
 import json
-# Required only for the fixed-argv interpreter subprocesses below.
+# Required only for the fixed-argv interpreter subprocess below.
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -39,14 +41,28 @@ def _records(path):
     ]
 
 
+_CLI_MAINS = {
+    "validate_run.py": validate_run.main,
+    "check_records.py": check_records.main,
+}
+
+
 def _run(script, *args):
-    # argv is this interpreter and a pipeline module under `PIPELINES`; the
-    # module name and `args` are the literals the calling test wrote, never
-    # input from outside the test, and no shell is enabled.
-    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-        [sys.executable, str(PIPELINES / script), *args],
-        capture_output=True,
-        text=True,
+    """Run a pipeline ``main()`` in-process, mirroring the subprocess result."""
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = _CLI_MAINS[script](list(args))
+        except SystemExit as raised:
+            code = raised.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):
+            # A non-integer SystemExit code prints to stderr and exits 1.
+            print(code, file=sys.stderr)
+            code = 1
+    return subprocess.CompletedProcess(
+        [str(PIPELINES / script), *args], code, stdout.getvalue(), stderr.getvalue()
     )
 
 

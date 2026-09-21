@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
+import io
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -44,14 +45,10 @@ from tup._contract import (  # noqa: E402
 
 
 def invoke(argv: list[str]) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        [sys.executable, "-m", "tup.cli", *argv],
-        cwd=str(PIPELINES),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli.run(argv)
+    return code, out.getvalue(), err.getvalue()
 
 
 class CatalogPins(unittest.TestCase):

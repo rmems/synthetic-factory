@@ -39,11 +39,21 @@ def _write_jsonl(path, records):
 
 
 def _cli(args):
-    return subprocess.run(
-        [sys.executable, str(PROMOTER), *args],
-        cwd=str(REPO),
-        capture_output=True,
-        text=True,
+    """Run ``promote.main`` in-process, mirroring a subprocess result."""
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = promote.main(list(args))
+        except SystemExit as raised:
+            code = raised.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):
+            # A non-integer SystemExit code prints to stderr and exits 1.
+            print(code, file=sys.stderr)
+            code = 1
+    return subprocess.CompletedProcess(
+        [str(PROMOTER), *args], code, stdout.getvalue(), stderr.getvalue()
     )
 
 
