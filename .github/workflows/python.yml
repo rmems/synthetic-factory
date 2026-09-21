@@ -77,7 +77,7 @@ jobs:
         run: python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 
       - name: Install coverage.py
-        run: python -m pip install coverage==7.15.4
+        run: python -m pip install --only-binary :all: coverage==7.15.4
 
       - name: Run unittest shard with branch coverage
         run: python scripts/ci_shard_tests.py --shard ${{ matrix.shard }} --shards 4 --coverage
@@ -108,7 +108,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install coverage.py
-        run: python -m pip install coverage==7.15.4
+        run: python -m pip install --only-binary :all: coverage==7.15.4
 
       - name: Download coverage shards
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
