@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(chosen))
         return 0
 
-    command = [sys.executable]
+    command = [str(Path(sys.executable).resolve())]
     if args.coverage:
         command.extend(["-m", "coverage", "run", "-p"])
     command.extend(["-m", "unittest", "-b", *chosen])
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     environment["PYTHONPATH"] = str(ROOT / "tests")
     if existing_pythonpath:
         environment["PYTHONPATH"] += os.pathsep + existing_pythonpath
-    return subprocess.call(command, cwd=ROOT, env=environment)
+    return subprocess.run(command, cwd=ROOT, env=environment, check=False).returncode
 
 
 if __name__ == "__main__":
