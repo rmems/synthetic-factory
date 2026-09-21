@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import contextlib
 import io
-import subprocess
+# Imported for the CompletedProcess result type; no process is spawned here.
+import subprocess  # nosec B404
 import sys
 from collections.abc import Callable, Sequence
 
