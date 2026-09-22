@@ -256,13 +256,18 @@ def _tables(corpus: _Corpus) -> dict[str, Any]:
     reasons = Counter(code for r in corpus.records for code in r["result"]["reason_codes"])
     families = Counter(r["scenario"]["source"]["family"] for r in corpus.positives)
     operators = Counter(r["intervention"]["operator"] for r in corpus.positives)
+    dispositions = dict(sorted(corpus.dispositions.items()))
+    # Keep the exported count explicit even when projection was withheld.  This
+    # makes the manifest's consumer-row accounting unambiguous and avoids
+    # requiring readers to infer zero from a missing disposition.
+    dispositions.setdefault("exported", 0)
     return {
         "records": len(corpus.records), "outcomes": dict(sorted(outcomes.items())),
         "oracle_statuses": dict(sorted(statuses.items())),
         "reasons": dict(sorted(reasons.items())),
         "positives": len(corpus.positives),
-        "dispositions": dict(sorted(corpus.dispositions.items())),
-        "per_split": {s: len(rows) for s, rows in sorted(corpus.rows.items())},
+        "dispositions": dispositions,
+        "per_split": {split: len(corpus.rows.get(split, [])) for split in lineage.SPLITS},
         "per_family_positives": dict(sorted(families.items())),
         "per_operator_positives": dict(sorted(operators.items())),
         "per_lineage_exported": dict(sorted(corpus.per_lineage.items())),
@@ -385,7 +390,11 @@ def run(request: ExportRequest) -> dict[str, Any]:
     _check_integrity(corpus)
     corpus.positives = [r for r in corpus.records if views.is_positive(r)]
     _split_proof(corpus)
-    _project(corpus)
+    # An ordinary export is diagnostic evidence until an external replay has
+    # passed.  Admitted exports are the exception: authorization below performs
+    # its own fresh replay and needs the projected membership to bind that gate.
+    if request.admit or corpus.replay_status == "passed":
+        _project(corpus)
     if request.admit:
         corpus.completion = publication_export.authorize_export(
             request, run_bytes=run_bytes, candidates=candidate_bytes,

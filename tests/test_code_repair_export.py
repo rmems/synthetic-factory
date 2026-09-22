@@ -100,25 +100,21 @@ class Artifacts(unittest.TestCase):
         manifest, out, records, positives = self._exported()
         self.assertEqual(manifest["tables"]["positives"], len(positives))
         self.assertEqual(manifest["tables"]["records"], len(records))
-        self.assertEqual(manifest["tables"]["dispositions"]["exported"], len(positives))
+        self.assertEqual(manifest["tables"]["dispositions"]["exported"], 0)
         evidence = [r for _n, r in oc.read_jsonl(out / export.EVIDENCE_PATH)]
         self.assertEqual(evidence, records)
 
-    def test_split_rows_cover_exactly_the_positives_with_prompt_and_completion(self):
-        _manifest, out, _records, positives = self._exported()
+    def test_no_replay_writes_no_positive_consumer_rows(self):
+        manifest, out, _records, positives = self._exported()
+        self.assertTrue(positives, "fixture must reproduce the positive-row leak")
         rows = {s: [r for _n, r in oc.read_jsonl(out / f"sft/{s}.jsonl")] for s in lineage.SPLITS}
-        self.assertEqual(sum(len(v) for v in rows.values()), len(positives))
-        keys = {frozenset(r) for v in rows.values() for r in v}
-        self.assertEqual(keys, {frozenset({"prompt", "completion"})})
-
-    def test_consumer_rows_and_the_freeze_name_the_held_out_positives(self):
-        _manifest, out, _records, positives = self._exported()
+        self.assertEqual(rows, {split: [] for split in lineage.SPLITS})
         agoge = [r for _n, r in oc.read_jsonl(out / export.AGOGE_PATH)]
-        self.assertEqual(len(agoge), len(positives))
-        self.assertEqual(set(agoge[0]), {"canonical_id", "lineage_id", "group_id", "split", "text", "completion_start_char"})
+        self.assertEqual(agoge, [])
         freeze = json.loads((out / export.FREEZE_PATH).read_text())
-        held_out = [r["canonical_id"] for r in agoge if r["split"] == "held_out"]
-        self.assertEqual(freeze["canonical_ids"], held_out)
+        self.assertEqual(freeze["canonical_ids"], [])
+        self.assertEqual(manifest["tables"]["per_split"],
+                         {split: 0 for split in lineage.SPLITS})
 
     def test_the_manifest_pins_every_file_and_reports_a_blocked_complete_pipeline(self):
         manifest, out, _records, _positives = self._exported()
@@ -145,6 +141,8 @@ class Artifacts(unittest.TestCase):
         )
         self.assertEqual(first["replay"], "passed")
         self.assertNotIn(cv.BLOCKER_REPLAY_NOT_RUN, first["admission"]["blockers"])
+        self.assertEqual(first["tables"]["dispositions"]["exported"],
+                         first["tables"]["positives"])
 
     def test_manifest_write_preserves_exact_decimal_metadata(self):
         precise_timeout = "2.0000000000000000000001"
@@ -229,9 +227,7 @@ class Integrity(unittest.TestCase):
         manifest, _out = export_of(run_dir, self.root / "plain")
         self.assertGreater(manifest["tables"]["outcomes"]["rejected"], 0)
         self.assertGreater(manifest["tables"]["oracle_statuses"]["provisional"], 0)
-        self.assertEqual(
-            manifest["tables"]["dispositions"]["exported"], manifest["tables"]["positives"]
-        )
+        self.assertEqual(manifest["tables"]["dispositions"]["exported"], 0)
 
     def test_a_lineage_in_two_splits_or_a_moved_split_refuses(self):
         def move(record):
