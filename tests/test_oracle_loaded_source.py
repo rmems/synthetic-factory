@@ -35,8 +35,11 @@ def _source_fingerprint(root):
             if _skip_source_path(path):
                 continue
             relative = path.relative_to(root)
-            digest.update(relative.as_posix().encode() + b"\0")
-            digest.update(path.read_bytes())
+            relative_bytes = relative.as_posix().encode()
+            content_digest = hashlib.sha256(path.read_bytes()).digest()
+            digest.update(len(relative_bytes).to_bytes(4, "big"))
+            digest.update(relative_bytes)
+            digest.update(content_digest)
     return digest.digest()
 
 
