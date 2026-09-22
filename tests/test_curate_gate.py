@@ -1277,6 +1277,10 @@ class RunToolTests(unittest.TestCase):
         code, err = curate_gate_gates._run_tool(lambda argv: None, ["x"])
         self.assertEqual((code, err), (0, ""))
 
+    def test_a_returned_nonzero_code_is_the_gate_exit_code(self):
+        code, err = curate_gate_gates._run_tool(lambda argv: 2, ["x"])
+        self.assertEqual((code, err), (2, ""))
+
     def test_system_exit_code_is_the_gate_exit_code(self):
         def main(argv):
             raise SystemExit(2)
