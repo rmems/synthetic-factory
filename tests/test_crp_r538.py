@@ -147,6 +147,7 @@ class AstExtract(unittest.TestCase):
                 "r729.py",
                 "r817.py",
                 "r995.py",
+                "wave_catalog.py",
             ),
         )
 

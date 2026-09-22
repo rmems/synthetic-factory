@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -22,7 +23,7 @@ PACKAGE = PIPELINES / "crp"
 sys.path.insert(0, str(PIPELINES))
 
 from crp import catalog as leftover3  # noqa: E402
-from crp import cli, generate, r432  # noqa: E402
+from crp import cli, generate, r432, r538  # noqa: E402
 from crp._contract import (  # noqa: E402
     FINDING_AST_NOT_A_PLANT,
     FINDING_DESTINATION_EXISTS,
@@ -43,6 +44,17 @@ def invoke(argv):
 
 
 class CatalogPins(unittest.TestCase):
+    def test_patched_default_directory_is_live_and_isolated_per_wave(self):
+        root = Path(tempfile.mkdtemp(prefix="crp-r432-default-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        shutil.copytree(COMMITTED, root / "catalog")
+        r538_default = r538.default_catalog_dir()
+
+        with mock.patch.object(r432, "DEFAULT_CATALOG_DIR", root / "catalog"):
+            self.assertEqual(len(r432.load_catalog().plants), r432.EXPECTED_PLANTS)
+            self.assertEqual(r538.default_catalog_dir(), r538_default)
+            self.assertNotEqual(r432.default_catalog_dir(), r538.default_catalog_dir())
+
     def test_committed_jsonl_is_compact_and_pinned(self):
         payload = (COMMITTED / "plants.jsonl").read_bytes()
         text = payload.decode("utf-8")
@@ -146,6 +158,7 @@ class AstExtract(unittest.TestCase):
                 "r729.py",
                 "r817.py",
                 "r995.py",
+                "wave_catalog.py",
             ),
         )
 
