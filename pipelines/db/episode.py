@@ -6,6 +6,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+if __name__.startswith("pipelines."):
+    from ..curate_coding import contains_hidden_reasoning_key
+    from ..db_episode_scaffold import assemble_episode, bash as _bash, step as _step, write as _write
+else:
+    from curate_coding import contains_hidden_reasoning_key
+    from db_episode_scaffold import assemble_episode, bash as _bash, step as _step, write as _write
+
 from . import config as cfg
 from . import sql as db_sql
 from .import_twins import bind_import_twin
@@ -16,18 +23,6 @@ __all__ = [
     "assert_clean", "build_episode", "coverage_for", "dumps_episode",
     "pair_for", "residual", "short_name",
 ]
-
-
-def _step(n: int, decision_basis: str, tool_call: dict, observation: str) -> dict:
-    return {"n": n, "decision_basis": decision_basis, "tool_call": tool_call, "observation": observation}
-
-
-def _bash(command: str) -> dict:
-    return {"name": "bash", "args": {"command": command}}
-
-
-def _write(path: str, contents: str) -> dict:
-    return {"name": "write", "args": {"path": path, "contents": contents}}
 
 
 def dumps_episode(ep: dict) -> str:
@@ -49,6 +44,14 @@ def assert_clean(obj: Any, path: str = "") -> None:
     elif isinstance(obj, list):
         for i, item in enumerate(obj):
             assert_clean(item, f"{path}[{i}]")
+    if not path and contains_hidden_reasoning_key(obj):
+        raise ValueError("hidden-reasoning key in episode")
+
+
+def _goal_ok(goal: str) -> str:
+    if "[variant" in goal.lower():
+        raise ValueError(f"variant stamp in goal: {goal!r}")
+    return goal
 
 
 def pair_for(round_n: int) -> tuple[Plant, Plant]:
@@ -94,8 +97,8 @@ def build_episode(round_n: int, p: Plant, ep_idx: int) -> dict:
     eid = f"dbm-r{round_n}-{slug}"
     if cfg.RECYCLE_SUFFIX.search(eid):
         raise ValueError(f"recycle suffix in id: {eid}")
-    goal = (f"{p['plant']}: {p['engine']} {seed_cmd} on {table}.{col} failed "
-            f"({p['fail'][:120]}). Expand {col_v2}, backfill, residual {res}.")
+    goal = _goal_ok(f"{p['plant']}: {p['engine']} {seed_cmd} on {table}.{col} failed "
+                    f"({p['fail'][:120]}). Expand {col_v2}, backfill, residual {res}.")
     plan = f"Abort in-place rewrite; expand-contract via {expand}; keep {col}; dual leftover objects."
     steps = [
         _step(1, f"Plan: inspect {p['engine']} catalog for {table} before apply {ver} ({slug}).", _bash(inspect_cmd), inspect_obs),
@@ -126,16 +129,15 @@ def build_episode(round_n: int, p: Plant, ep_idx: int) -> dict:
         _step(15, f"Plan: confirm no active locks/mutations on {sname}.", _bash(inspect_cmd), "0 blockers; dual objects still present"),
         _step(16, f"Plan: stamp schema version {ver}.", _bash(f"echo {ver}"), str(ver)),
     ]
-    ep = {
-        "id": eid, "goal": goal, "plan": plan, "steps": steps,
-        "outcome": (f"Naive catalog apply failed. Plan change: expand {col_v2} + backfill. Tests 4/4. Residual: {res}."),
-        "reward": {"success": True, "apply_fails": 2, "plan_changes": 1, "lock_timeouts": 1, "tests_passed": 4, "cost_steps": 16},
-        "meta": {"factory": cfg.FACTORY_SLUG, "round": round_n, "generator": cfg.GENERATOR,
-                 "kind": "episode", "plant": p["plant"], "sim_or_real": "designed", "surface": p["surface"]},
-    }
-    assert_clean(ep)
     if len(steps) != 16:
         raise ValueError(f"{eid} expected 16 steps")
+    ep = assemble_episode(
+        episode_id=eid, goal=goal, plan=plan, steps=steps,
+        outcome=f"Naive catalog apply failed. Plan change: expand {col_v2} + backfill. Tests 4/4. Residual: {res}.",
+        meta={"factory": cfg.FACTORY_SLUG, "round": round_n, "generator": cfg.GENERATOR,
+              "kind": "episode", "plant": p["plant"], "sim_or_real": "designed", "surface": p["surface"]},
+    )
+    assert_clean(ep)
     return ep
 
 
