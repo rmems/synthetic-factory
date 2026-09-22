@@ -18,11 +18,21 @@ from process_test_support import ProcessTimeout, spawned_process_exit_code
 REPO = Path(__file__).resolve().parents[1]
 
 
+def _skip_source_path(path):
+    if path.is_dir():
+        return True
+    if "__pycache__" in path.parts:
+        return True
+    if path.suffix == ".pyc":
+        return True
+    return False
+
+
 def _source_fingerprint(root):
     digest = hashlib.sha256()
     for tree in SOURCE_TREES:
         for path in sorted((root / tree).rglob("*")):
-            if path.is_dir() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            if _skip_source_path(path):
                 continue
             relative = path.relative_to(root)
             digest.update(relative.as_posix().encode() + b"\0")
