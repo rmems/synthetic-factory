@@ -47,14 +47,3 @@ exclude:
     paths:
       - pipelines/card_schema_validate.py
       - pipelines/card_schema_yaml.py
-      # curate_gate_gates._run_tool prints a validator's SystemExit.code to
-      # stderr exactly as a child interpreter's sys.exit(obj) does -- str(obj)
-      # -- so the captured stderr stays byte-identical with the subprocess
-      # contract the in-process call replaced.
-      - pipelines/curate_gate_gates.py
-  # The in-process validator gate must fail closed on ANY validator crash:
-  # an unexpected exception maps to exit 1 with its traceback captured as
-  # findings, matching a dying child interpreter's exit code.
-  - name: PyBroadExceptionInspection
-    paths:
-      - pipelines/curate_gate_gates.py
