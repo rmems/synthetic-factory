@@ -383,13 +383,13 @@ class DedupAndAdmission(unittest.TestCase):
     def test_admission_blockers_never_include_an_evaluation_limitation(self):
         cleared = export.Gates(True, True, True, True)
         self.assertEqual(
-            export.admission_blockers(cleared, replay_passed=True, exported_rows=3), []
+            export.admission_blockers(cleared, replay_passed=True, selected_rows=3), []
         )
         self.assertEqual(
-            export.admission_blockers(cleared, replay_passed=True, exported_rows=0),
+            export.admission_blockers(cleared, replay_passed=True, selected_rows=0),
             [cv.BLOCKER_NO_VALIDATED_ACCEPTED_ROWS],
         )
-        everything = export.admission_blockers(export.Gates(), replay_passed=False, exported_rows=0)
+        everything = export.admission_blockers(export.Gates(), replay_passed=False, selected_rows=0)
         self.assertEqual(set(everything), cv.BLOCKER_CODE_SET)
         self.assertFalse(set(everything) & cv.LIMITATION_CODE_SET)
         _summary, _records, run_dir = smoke_run()

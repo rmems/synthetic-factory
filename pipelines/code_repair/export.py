@@ -205,13 +205,23 @@ def _rederive_split(corpus: _Corpus, record: dict[str, Any], block: dict[str, An
     )
 
 
-def _project(corpus: _Corpus) -> None:
-    """Positive rows per split after dedup; every view is leak-checked before it is kept."""
+def _apply_selection(corpus: _Corpus) -> list[dict[str, Any]]:
+    """Record selection dispositions and selected membership; do not materialize rows."""
 
+    selected: list[dict[str, Any]] = []
     for record, code in selection.selection_decisions(corpus.positives, lineage_cap=corpus.cap):
         if code is not None:
             corpus.dispositions[code] += 1
             continue
+        corpus.per_lineage[_lineage_of(record)["lineage_id"]] += 1
+        selected.append(record)
+    return selected
+
+
+def _materialize_rows(corpus: _Corpus, selected: list[dict[str, Any]]) -> None:
+    """Leak-check and write consumer rows for already-selected membership."""
+
+    for record in selected:
         row = views.sft_row(record)
         leaks = views.view_findings(record, row)
         cv.refuse_when(
@@ -221,15 +231,24 @@ def _project(corpus: _Corpus) -> None:
         split = _lineage_of(record)["split"]
         corpus.rows.setdefault(split, []).append(row)
         corpus.agoge_rows.setdefault(split, []).append(views.agoge_row(record))
-        corpus.per_lineage[_lineage_of(record)["lineage_id"]] += 1
         corpus.dispositions["exported"] += 1
+
+
+def _project(corpus: _Corpus) -> None:
+    """Positive rows per split after dedup; every view is leak-checked before it is kept."""
+
+    _materialize_rows(corpus, _apply_selection(corpus))
 
 
 # --- admission -----------------------------------------------------------------------------
 
 
-def admission_blockers(gates: Gates, *, replay_passed: bool, exported_rows: int) -> list[str]:
-    """Dataset-admission blockers only; evaluation limitations are never among them."""
+def admission_blockers(gates: Gates, *, replay_passed: bool, selected_rows: int) -> list[str]:
+    """Dataset-admission blockers only; evaluation limitations are never among them.
+
+    ``selected_rows`` is eligible/selected membership after selection decisions,
+    not the deliberately withheld consumer-row ``exported`` count.
+    """
 
     blockers = []
     if not gates.registry_row_present:
@@ -240,7 +259,7 @@ def admission_blockers(gates: Gates, *, replay_passed: bool, exported_rows: int)
         blockers.append(cv.BLOCKER_RECORD_KIND_UNSUPPORTED)
     if not replay_passed:
         blockers.append(cv.BLOCKER_REPLAY_NOT_RUN)
-    if exported_rows == 0:
+    if selected_rows == 0:
         blockers.append(cv.BLOCKER_NO_VALIDATED_ACCEPTED_ROWS)
     if not gates.round_published:
         blockers.append(cv.BLOCKER_ROUND_NOT_PUBLISHED)
@@ -327,11 +346,11 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
     run_summary = corpus.run
     replay_status = corpus.replay_status
     tables = _tables(corpus)
-    exported = tables["dispositions"].get("exported", 0)
+    selected_rows = sum(corpus.per_lineage.values())
     admitted = corpus.completion is not None
     blockers = admission_blockers(
         Gates(admitted, admitted, admitted, admitted),
-        replay_passed=replay_status == "passed", exported_rows=exported
+        replay_passed=replay_status == "passed", selected_rows=selected_rows
     )
     return {
         "format": EXPORT_FORMAT, "family": cv.FAMILY, "pipeline_status": "complete",
@@ -357,10 +376,20 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
     }
 
 
-def run(request: ExportRequest) -> dict[str, Any]:
-    """Export a run into a brand-new tree; returns the manifest."""
+def _validate_loaded_records(
+    loaded: list[dict[str, Any]], pinned: catalog.Catalog, digest: str, run_meta: dict[str, Any],
+) -> None:
+    for record in loaded:
+        findings = validation.validate_record(record, catalog=pinned)
+        cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY,
+                       'record fails integrity: ' + ', '.join(findings))
+    findings = validation.validate_run(run_meta, loaded, catalog=pinned, candidates_sha256=digest)
+    cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY, ", ".join(findings))
 
-    _check_request(request)
+
+def _assemble_corpus(request: ExportRequest) -> tuple[bytes, bytes, _Corpus]:
+    """Load run bytes, candidates, and a validated corpus ready for selection."""
+
     run_dir = Path(request.run_dir)
     run_bytes = (run_dir / generate.RUN_FILENAME).read_bytes()
     run_meta = _load_run(run_bytes)
@@ -370,13 +399,8 @@ def run(request: ExportRequest) -> dict[str, Any]:
     policy = integrity.bind_catalog(run_meta, pinned)
     candidate_bytes = (run_dir / generate.CANDIDATES_FILENAME).read_bytes()
     loaded = _load_records(candidate_bytes)
-    for record in loaded:
-        findings = validation.validate_record(record, catalog=pinned)
-        cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY,
-                       'record fails integrity: ' + ', '.join(findings))
     digest = hashlib.sha256(candidate_bytes).hexdigest()
-    findings = validation.validate_run(run_meta, loaded, catalog=pinned, candidates_sha256=digest)
-    cv.refuse_when(bool(findings), cv.FINDING_EXPORT_INTEGRITY, ", ".join(findings))
+    _validate_loaded_records(loaded, pinned, digest, run_meta)
     report = integrity.load_replay(
         request.replay_dir,
         integrity.ReplayInputs(run_meta, loaded, pinned, digest),
@@ -387,14 +411,27 @@ def run(request: ExportRequest) -> dict[str, Any]:
         license=pinned.meta["upstream"]["license"],
         candidate_bytes=candidate_bytes,
     )
+    return run_bytes, candidate_bytes, corpus
+
+
+def _project_if_authorized(request: ExportRequest, corpus: _Corpus, selected: list[dict[str, Any]]) -> None:
+    # Ordinary exports keep diagnostic selection accounting but withhold consumer
+    # rows until an external replay has passed.  Admitted exports materialize so
+    # authorization can bind the projected membership.
+    if request.admit or corpus.replay_status == "passed":
+        _materialize_rows(corpus, selected)
+
+
+def run(request: ExportRequest) -> dict[str, Any]:
+    """Export a run into a brand-new tree; returns the manifest."""
+
+    _check_request(request)
+    run_bytes, candidate_bytes, corpus = _assemble_corpus(request)
     _check_integrity(corpus)
     corpus.positives = [r for r in corpus.records if views.is_positive(r)]
     _split_proof(corpus)
-    # An ordinary export is diagnostic evidence until an external replay has
-    # passed.  Admitted exports are the exception: authorization below performs
-    # its own fresh replay and needs the projected membership to bind that gate.
-    if request.admit or corpus.replay_status == "passed":
-        _project(corpus)
+    selected = _apply_selection(corpus)
+    _project_if_authorized(request, corpus, selected)
     if request.admit:
         corpus.completion = publication_export.authorize_export(
             request, run_bytes=run_bytes, candidates=candidate_bytes,
