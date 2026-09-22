@@ -1272,6 +1272,5 @@ class RightsGateTests(unittest.TestCase):
         self.assertTrue(log.blockers)
 
 
-
 if __name__ == '__main__':
     unittest.main()

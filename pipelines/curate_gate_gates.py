@@ -8,10 +8,12 @@ responsibility; every name is re-exported from ``curate_gate`` so existing
 ``run_gates`` is the single place that decides whether one cleaned destination
 is ``training_ready``. It runs, in this order and never short-circuiting:
 final-output evidence authentication, the identity/provenance mapping gate,
-``validate_run.py`` and ``check_records.py --strict`` as subprocesses, the
-training audit with its duplicate and canonical-id findings, and the two
-reward gates. Every failure becomes a blocker string, and the corpus is ready
-only when the blocker list is empty.
+``validate_run.py`` and ``check_records.py --strict`` in-process (both modules
+are already imported for the audit gates, so their ``main`` entry points run
+under redirected streams rather than in a fresh interpreter), the training
+audit with its duplicate and canonical-id findings, and the two reward gates.
+Every failure becomes a blocker string, and the corpus is ready only when the
+blocker list is empty.
 
 ``build_manifest`` renders the integration manifest -- the immutable evidence
 record a promotion is later replayed against -- and
@@ -19,16 +21,19 @@ record a promotion is later replayed against -- and
 the three fields (``review``, ``blockers``, ``promotion``) that a promotion is
 entitled to rewrite.
 
-The repository-rooted paths stay in ``curate_gate``: ``run_gates`` takes the
-two validator script paths as a ``GateTools`` parameter so that redirecting
-the gate at a temporary repository stays visible at the facade call site.
+The repository-rooted paths stay in ``curate_gate``: the siblings take the
+roots they need as explicit parameters so that redirecting the gate at a
+temporary repository stays visible at the facade call site.
 """
 
 from __future__ import annotations
 
+import contextlib
 import copy
-import subprocess
+import io
 import sys
+import traceback
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple, Sequence
 
@@ -36,6 +41,7 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("curate_gate_gates")
+    from . import check_records as _check_records
     from . import curate_gate_bindings as _bindings
     from . import curate_gate_contract as _contract
     from . import curate_gate_digest as _digest
@@ -43,6 +49,7 @@ if __package__:
     from . import curate_gate_reward as _reward
     from . import curate_gate_reward_sidecars as _reward_sidecars
     from . import training_audit
+    from . import validate_run as _validate_run
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_gate_gates"
@@ -50,6 +57,7 @@ else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    import check_records as _check_records
     import curate_gate_bindings as _bindings
     import curate_gate_contract as _contract
     import curate_gate_digest as _digest
@@ -57,6 +65,7 @@ else:
     import curate_gate_reward as _reward
     import curate_gate_reward_sidecars as _reward_sidecars
     import training_audit
+    import validate_run as _validate_run
 
 GateError = _contract.GateError
 TOOL_NAME = _contract.TOOL_NAME
@@ -77,18 +86,41 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# subprocess gates
+# validator gates
 # ---------------------------------------------------------------------------
 
 
-def _run_tool(script: Path, run_dir: Path, *options: str) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        [sys.executable, str(script), *options, str(run_dir)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+def _exit_code(value: object, stderr: io.StringIO) -> int:
+    """Translate a CLI return value or ``SystemExit.code`` to a process code."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return int(value)
+    print(value, file=stderr)
+    return 1
+
+
+def _run_tool(main: Callable[[list[str]], object], argv: list[str]) -> tuple[int, str]:
+    """Run one validator CLI's ``main`` in-process; return ``(exit, stderr)``.
+
+    The gates once spawned ``sys.executable <script>`` children purely for an
+    exit code and the stderr lines; both validators are already imported here,
+    so their entry points run under redirected streams instead. ``SystemExit``
+    maps back to the exit code a child interpreter would have returned, and
+    any other exception maps to exit 1 with its traceback captured, keeping
+    the fail-closed blocker behaviour unchanged.
+    """
+    stderr = io.StringIO()
+    code = 0
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+            code = _exit_code(main(list(argv)), stderr)
+    except SystemExit as exc:  # NOSONAR S5754 - a CLI's exit request is the gate's exit code here
+        code = _exit_code(exc.code, stderr)
+    except Exception:  # a validator crash must still fail closed
+        code = 1
+        traceback.print_exc(file=stderr)
+    return code, stderr.getvalue()
 
 
 def _findings(stderr: str, limit: int = 10) -> list[str]:
@@ -106,13 +138,6 @@ class GateInputs(NamedTuple):
     record_bindings: Any
     prepared_lanes: Sequence[dict[str, Any]]
     lane_manifests: dict[str, Any]
-
-
-class GateTools(NamedTuple):
-    """The two validator scripts, passed in so the facade owns the paths."""
-
-    validator: Path
-    checker: Path
 
 
 class _GateLog(NamedTuple):
@@ -153,8 +178,8 @@ def _completion_source(inputs: GateInputs) -> Path | None:
     return None
 
 
-def _tool_gates(cleaned: Path, tools: GateTools, log: _GateLog, completion_source: Path | None) -> dict[str, Any]:
-    code, _out, err = _run_tool(tools.validator, cleaned)
+def _tool_gates(cleaned: Path, log: _GateLog, completion_source: Path | None) -> dict[str, Any]:
+    code, err = _run_tool(_validate_run.main, [str(cleaned)])
     log.gates["structural_validator"] = {
         "tool": "validate_run.py",
         "exit": code,
@@ -164,7 +189,7 @@ def _tool_gates(cleaned: Path, tools: GateTools, log: _GateLog, completion_sourc
     if code:
         log.blockers.append(f"STRUCTURAL_VALIDATOR_FAILED:exit {code}")
 
-    code, _out, err = _run_tool(tools.checker, cleaned, "--strict")
+    code, err = _run_tool(_check_records.main, ["--strict", str(cleaned)])
     log.gates["record_invariants"] = {
         "tool": "check_records.py --strict",
         "exit": code,
@@ -247,7 +272,7 @@ def _reward_gates(
         )
 
 
-def run_gates(cleaned: Path, *, inputs: GateInputs, tools: GateTools) -> dict[str, Any]:
+def run_gates(cleaned: Path, *, inputs: GateInputs) -> dict[str, Any]:
     """Structural, deep-invariant, and strict corpus gates on one destination."""
     cleaned = Path(cleaned).resolve()
     if not cleaned.is_dir():
@@ -257,7 +282,7 @@ def run_gates(cleaned: Path, *, inputs: GateInputs, tools: GateTools) -> dict[st
 
     log = _GateLog({}, [])
     normalized_bindings = _evidence_gates(cleaned, inputs, log)
-    report = _tool_gates(cleaned, tools, log, _completion_source(inputs))
+    report = _tool_gates(cleaned, log, _completion_source(inputs))
     _audit_gates(report, log)
     _rights_gate(inputs.lane_manifests.get("identity_mappings") or [], log, inputs.prepared_lanes)
     _reward_gates(cleaned, normalized_bindings, inputs.prepared_lanes, log)
