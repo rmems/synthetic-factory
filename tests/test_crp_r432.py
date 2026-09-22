@@ -21,6 +21,7 @@ PIPELINES = REPO / "pipelines"
 COMMITTED = REPO / "config" / "crp"
 PACKAGE = PIPELINES / "crp"
 sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from crp import catalog as leftover3  # noqa: E402
 from crp import cli, generate, r432, r538  # noqa: E402
@@ -34,6 +35,7 @@ from crp._contract import (  # noqa: E402
 )
 from mill_family import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from record_kind import classify_kind  # noqa: E402
+from crp_test_support import PACKAGE_PY, package_py_names, vendored_mill_script_hits  # noqa: E402
 
 
 def invoke(argv):
@@ -137,30 +139,8 @@ class AstExtract(unittest.TestCase):
         self.assertFalse(r432_slugs & {plant.slug for plant in prior})
 
     def test_package_tree_has_no_vendored_mill_scripts(self):
-        hits = list(PACKAGE.rglob("crp-mill*.py"))
-        hits.extend(PACKAGE.rglob("crp-loop*.py"))
-        hits.extend(PACKAGE.rglob("_gen_crp*.py"))
-        hits.extend(COMMITTED.rglob("*mill*.py"))
-        hits.extend(COMMITTED.rglob("*loop*.py"))
-        self.assertEqual(hits, [])
-        names = tuple(sorted(path.name for path in PACKAGE.glob("*.py")))
-        self.assertEqual(
-            names,
-            (
-                "__init__.py",
-                "_contract.py",
-                "catalog.py",
-                "cli.py",
-                "generate.py",
-                "leftover3_prior.py",
-                "r432.py",
-                "r538.py",
-                "r729.py",
-                "r817.py",
-                "r995.py",
-                "wave_catalog.py",
-            ),
-        )
+        self.assertEqual(vendored_mill_script_hits(), [])
+        self.assertEqual(package_py_names(), PACKAGE_PY)
 
     def test_package_has_no_exec_eval_compile(self):
         for path in PACKAGE.glob("*.py"):

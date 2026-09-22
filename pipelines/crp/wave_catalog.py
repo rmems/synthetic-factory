@@ -343,6 +343,44 @@ def spec_from_module(ns: dict[str, Any]) -> WaveSpec:
     )
 
 
+def _bind_wave(fn: Any, ns: dict[str, Any]) -> Any:
+    """Bind ``ns`` as the first argument while keeping ``fn``'s name and docstring."""
+
+    def bound(*args: Any, **kwargs: Any) -> Any:
+        return fn(ns, *args, **kwargs)
+
+    bound.__name__ = str(getattr(fn, "__name__", "bound")).removeprefix("_wave_")
+    bound.__doc__ = fn.__doc__
+    return bound
+
+
+def _wave_default_catalog_dir(ns: dict[str, Any]) -> Path:
+    return ns["DEFAULT_CATALOG_DIR"]
+
+
+def _wave_git_show_source(ns: dict[str, Any], path: str | None = None) -> str:
+    """Return mill source via ``git show``. Never import or execute the mill."""
+    spec = spec_from_module(ns)
+    return git_show_source(spec, spec.source_path if path is None else path)
+
+
+def _wave_load_catalog(ns: dict[str, Any], directory: Path | None = None) -> cat.Catalog:
+    return load_catalog(spec_from_module(ns), directory)
+
+
+def _wave_catalog_check(ns: dict[str, Any], directory: Path | None = None) -> dict[str, Any]:
+    """Fail closed unless every row has noun, unique identity, and a 3-stride."""
+    return catalog_check(spec_from_module(ns), directory)
+
+
+def _wave_plants_for_round(
+    ns: dict[str, Any],
+    round_n: int,
+    plants_arg: tuple[cat.Plant, ...] | None = None,
+) -> tuple[cat.Plant, ...]:
+    return plants_for_round(spec_from_module(ns), round_n, plants_arg)
+
+
 def install_wave(ns: dict[str, Any]) -> None:
     """Materialize pins and shared loader callables onto a wave module."""
 
@@ -360,42 +398,13 @@ def install_wave(ns: dict[str, Any]) -> None:
     ns["DEFAULT_CATALOG_DIR"] = Path(ns["__file__"]).resolve().parents[2] / "config" / "crp"
     ns["CATALOG_META_KEYS"] = CATALOG_META_KEYS
 
-    show = git_show_source
-    load = load_catalog
-    check = catalog_check
-    for_round = plants_for_round
-
-    def _spec() -> WaveSpec:
-        return spec_from_module(ns)
-
-    def default_catalog_dir() -> Path:
-        return ns["DEFAULT_CATALOG_DIR"]
-
-    def git_show_source_fn(path: str | None = None) -> str:
-        """Return mill source via ``git show``. Never import or execute the mill."""
-        spec = _spec()
-        return show(spec, spec.source_path if path is None else path)
-
-    def load_catalog_fn(directory: Path | None = None) -> cat.Catalog:
-        return load(_spec(), directory)
-
-    def catalog_check_fn(directory: Path | None = None) -> dict[str, Any]:
-        """Fail closed unless every row has noun, unique identity, and a 3-stride."""
-        return check(_spec(), directory)
-
-    def plants_for_round_fn(
-        round_n: int,
-        plants_arg: tuple[cat.Plant, ...] | None = None,
-    ) -> tuple[cat.Plant, ...]:
-        return for_round(_spec(), round_n, plants_arg)
-
     ns["__all__"] = list(_WAVE_EXPORTS)
-    ns["default_catalog_dir"] = default_catalog_dir
-    ns["git_show_source"] = git_show_source_fn
-    ns["load_catalog"] = load_catalog_fn
-    ns["catalog_check"] = catalog_check_fn
-    ns["plants_for_round"] = plants_for_round_fn
-    ns["_CATALOG"] = load_catalog_fn()
+    ns["default_catalog_dir"] = _bind_wave(_wave_default_catalog_dir, ns)
+    ns["git_show_source"] = _bind_wave(_wave_git_show_source, ns)
+    ns["load_catalog"] = _bind_wave(_wave_load_catalog, ns)
+    ns["catalog_check"] = _bind_wave(_wave_catalog_check, ns)
+    ns["plants_for_round"] = _bind_wave(_wave_plants_for_round, ns)
+    ns["_CATALOG"] = ns["load_catalog"]()
 
 
 bind_import_twin(__name__)
