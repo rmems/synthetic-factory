@@ -51,6 +51,34 @@ SOURCE_NAMES = (
     "sim_mesh.py",
     "sim_neuron.py",
 )
+SOURCE_TREES = ("pipelines", "schemas", "config")
+COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
+
+
+def build_source_template(repo, template):
+    """Copy the source fixture once for all fresh-interpreter probes."""
+    for name in SOURCE_TREES:
+        shutil.copytree(repo / name, template / name, ignore=COPY_IGNORE)
+
+
+def _link_or_copy(source, destination):
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+
+
+def clone_probe_root(template, root):
+    """Clone cheap read-only scaffolding and privately copy mutable package files."""
+    for name in SOURCE_TREES:
+        shutil.copytree(template / name, root / name, copy_function=_link_or_copy)
+
+    # Probes edit, compile, replace, remove, and symlink files in this package.
+    # Replace its linked copy before setup appends the marker, so neither the
+    # template nor another probe can ever observe those mutations.
+    linked_package = root / "pipelines/oracle_grounded"
+    shutil.rmtree(linked_package)
+    shutil.copytree(template / "pipelines/oracle_grounded", linked_package)
 
 
 def _digest(package):
@@ -315,13 +343,10 @@ PROBES = {
 }
 
 
-def run_probe(repo_text, mode, package_first):
+def run_probe(template_text, mode, package_first):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        shutil.copytree(Path(repo_text) / "pipelines", root / "pipelines",
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        shutil.copytree(Path(repo_text) / "schemas", root / "schemas")
-        shutil.copytree(Path(repo_text) / "config", root / "config")
+        clone_probe_root(Path(template_text), root)
         package = root / "pipelines/oracle_grounded"
         path = package / SIM_SOURCE
         path.write_bytes(path.read_bytes() + b'\nMARKER = "before"\n')
