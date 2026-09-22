@@ -28,6 +28,7 @@ from record_kind import classify_kind, preference_side_kinds  # noqa: E402
 from tup import catalog, catalog_extract, cli, generate  # noqa: E402
 from tup._contract import (  # noqa: E402
     FACTORY,
+    FINDING_CATALOG_FIELD_INVALID,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_DESTINATION_VENDOR,
@@ -85,6 +86,53 @@ class CatalogPins(unittest.TestCase):
         with self.assertRaises(TupRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertEqual(caught.exception.code, FINDING_PLANTS_SHA_MISMATCH)
+
+    def test_metadata_member_cannot_escape_the_catalog(self):
+        with self.assertRaises(TupRefusal) as caught:
+            catalog._catalog_member(COMMITTED, "../outside.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(TupRefusal) as caught:
+            catalog._catalog_member(COMMITTED, "/etc/passwd")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(TupRefusal) as caught:
+            catalog._catalog_member(COMMITTED, 123)  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(TupRefusal) as caught:
+            catalog._catalog_member(COMMITTED, "")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(TupRefusal) as caught:
+            catalog._catalog_member(COMMITTED, "null\0byte.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+    def test_metadata_member_symlink_is_refused(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "target.jsonl"
+            target.write_text('{"slug": "test"}\n', encoding="utf-8")
+            symlink = root / "symlink.jsonl"
+            symlink.symlink_to(target)
+            with self.assertRaises(TupRefusal) as caught:
+                catalog._catalog_member(root, "symlink.jsonl")
+            self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+            with self.assertRaises(TupRefusal) as caught:
+                catalog._load_jsonl_bytes(symlink)
+            self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+    def test_load_catalog_refuses_non_string_mill_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "catalog"
+            shutil.copytree(COMMITTED, dest)
+            meta_path = dest / catalog.CATALOG_FILENAME
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["mills"] = [{"shape": "families", "file": 12345}]
+            meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            with self.assertRaises(TupRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
 
     def test_unknown_plant_is_a_coded_refusal(self):
         loaded = catalog.load_catalog(COMMITTED)

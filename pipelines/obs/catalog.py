@@ -725,23 +725,21 @@ def _leftover_spec_index(rows: tuple[Any, ...]) -> Mapping[str, Any] | None:
         return rows[0]
     return None
 
-def _read_jsonl(path: Path) -> tuple[Any, ...]:
+def _read_jsonl(payload: bytes, filename: str) -> tuple[Any, ...]:
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{path} is unreadable: {exc}") from exc
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{filename} is not valid UTF-8") from exc
     if not text.endswith("\n") or "\r" in text:
-        raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{path.name} must be LF-framed jsonl")
+        raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{filename} must be LF-framed jsonl")
     rows = []
     for index, line in enumerate(text.splitlines(), start=1):
         if not line:
-            raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{path.name}:{index} is empty")
+            raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{filename}:{index} is empty")
         try:
             rows.append(load_strict_json(line))
         except ValueError as exc:
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID, f"{path.name}:{index} is not strict JSON"
-            ) from exc
+            raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{filename}:{index} is not strict JSON") from exc
     return tuple(rows)
 
 def _registry_factory_ids() -> set[str]:
@@ -790,7 +788,7 @@ def _load_member_rows(
                 FINDING_CATALOG_SHA256_MISMATCH,
                 f"{filename} digest {digest} != catalog pin {pinned}",
             )
-        member_rows = _read_jsonl(path)
+        member_rows = _read_jsonl(payload, filename)
         if filename == LEFTOVER_SPECS_FILENAME:
             spec_index = _leftover_spec_index(member_rows)
             if spec_index is not None:

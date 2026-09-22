@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import os
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ from ._contract import (
     SOURCE_PATH,
     SOURCE_REF,
     SOURCE_SHA256,
+    TupRefusal,
     bind_import_twin,
     load_strict_json,
     refuse,
@@ -317,7 +319,33 @@ def _family_from_row(row: Mapping[str, Any], lineno: int) -> Family:
 
 def _load_jsonl_bytes(path: Path) -> bytes:
     refuse_when(not path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {path}")
-    return path.read_bytes()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise TupRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"cannot safely open {path.name!r}"
+        ) from exc
+    with open(fd, "rb", closefd=True) as stream:
+        return stream.read()
+
+
+def _catalog_member(catalog_dir: Path, filename: str) -> Path:
+    """Resolve one metadata-named member and refuse traversal or symlink escape."""
+
+    refuse_when(
+        not isinstance(filename, str) or not filename or "\0" in filename or Path(filename).name != filename,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"catalog member must be a local filename: {filename!r}",
+    )
+    root = catalog_dir.resolve()
+    member = root / filename
+    refuse_when(
+        member.is_symlink() or not member.is_relative_to(root),
+        FINDING_CATALOG_FIELD_INVALID,
+        f"catalog member must be a local filename: {filename!r}",
+    )
+    return member
 
 
 def _plant_from_row(row: Mapping[str, Any], lineno: int) -> Plant:
@@ -391,6 +419,37 @@ def _load_meta(directory: Path) -> tuple[dict[str, Any], bytes, str]:
     return meta, families_bytes, digest
 
 
+def _load_mill_family_plants(
+    catalog_dir: Path,
+    row: dict[str, Any],
+    index: int,
+    bans: tuple[tuple[str, ...], tuple[str, ...]],
+) -> list[Plant]:
+    file_name = row.get("file")
+    if file_name in (None, FAMILIES_FILENAME):
+        return []
+    refuse_when(
+        not isinstance(file_name, str),
+        FINDING_CATALOG_FIELD_INVALID,
+        f"mills[{index}].file must be a string",
+    )
+    banned_slugs, banned_prefix = bans
+    wave_path = _catalog_member(catalog_dir, file_name)
+    wave_bytes = _load_jsonl_bytes(wave_path)
+    wave_rows = [
+        load_strict_json(line)
+        for line in wave_bytes.decode("utf-8").splitlines()
+        if line
+    ]
+    expanded = extract.expand_family_rows(
+        wave_rows,
+        mill_id=str(row.get("mill_id")),
+        banned_slugs=banned_slugs,
+        banned_prefix=banned_prefix,
+    )
+    return [_plant_from_row(item, 0) for item in expanded]
+
+
 def load_catalog(directory: Path | None = None) -> Catalog:
     catalog_dir = Path(directory) if directory is not None else DEFAULT_CATALOG_DIR
     meta, families_bytes, digest = _load_meta(catalog_dir)
@@ -406,6 +465,7 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     )
     banned_slugs = _as_str_tuple(meta["banned_slugs"], "banned_slugs")
     banned_prefix = _as_str_tuple(meta["banned_prefix"], "banned_prefix")
+    bans = (banned_slugs, banned_prefix)
     plants: list[Plant] = list(
         expand_families(
             families,
@@ -423,27 +483,15 @@ def load_catalog(directory: Path | None = None) -> Catalog:
                 f"mills[{index}] is not an object",
             )
             shape = row.get("shape")
-            mill_id = row.get("mill_id")
-            if shape == "families" and row.get("file") not in (None, FAMILIES_FILENAME):
-                wave_path = catalog_dir / str(row["file"])
-                wave_bytes = _load_jsonl_bytes(wave_path)
-                wave_rows = [
-                    load_strict_json(line)
-                    for line in wave_bytes.decode("utf-8").splitlines()
-                    if line
-                ]
-                expanded = extract.expand_family_rows(
-                    wave_rows,
-                    mill_id=str(mill_id),
-                    banned_slugs=banned_slugs,
-                    banned_prefix=banned_prefix,
+            if shape == "families":
+                plants.extend(
+                    _load_mill_family_plants(catalog_dir, row, index, bans)
                 )
-                plants.extend(_plant_from_row(item, 0) for item in expanded)
             elif shape == "plants":
                 continue
     extra_name = meta.get("plants_extra_filename")
     if isinstance(extra_name, str) and extra_name:
-        extra_path = catalog_dir / extra_name
+        extra_path = _catalog_member(catalog_dir, extra_name)
         extra_bytes = _load_jsonl_bytes(extra_path)
         digest_extra = _sha256_bytes(extra_bytes)
         refuse_when(
