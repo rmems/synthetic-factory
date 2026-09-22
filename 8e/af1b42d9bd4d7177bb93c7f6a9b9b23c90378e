@@ -1,0 +1,21 @@
+pipelines/curate_gate_gates.py
+  s_5660553172852b::t_e09af50e502e86 107-114
+tests/test_curate_gate.py
+  s_5660553172852b::t_f24146eb9207f2 1280-1283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8eaf1b42d9bd4d7177bb93c7f6a9b9b23c90378e",
+  "prompts": {},
+  "sessions": {
+    "s_5660553172852b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b345-c31a-7fd1-8cb1-2e72d718ae77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
