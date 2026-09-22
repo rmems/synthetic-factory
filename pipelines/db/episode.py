@@ -8,10 +8,22 @@ from typing import Any
 
 if __name__.startswith("pipelines."):
     from ..curate_coding import contains_hidden_reasoning_key
-    from ..db_episode_scaffold import assemble_episode, bash as _bash, step as _step, write as _write
+    from ..db_episode_scaffold import (
+        EpisodeAssembly,
+        assemble_episode,
+        bash as _bash,
+        step as _step,
+        write as _write,
+    )
 else:
     from curate_coding import contains_hidden_reasoning_key
-    from db_episode_scaffold import assemble_episode, bash as _bash, step as _step, write as _write
+    from db_episode_scaffold import (
+        EpisodeAssembly,
+        assemble_episode,
+        bash as _bash,
+        step as _step,
+        write as _write,
+    )
 
 from . import config as cfg
 from . import sql as db_sql
@@ -30,22 +42,38 @@ def dumps_episode(ep: dict) -> str:
     return json.dumps(ep, ensure_ascii=True, separators=(",", ":"))
 
 
+def _reject_dict_entry(key: str, val: Any, path: str) -> None:
+    if key in cfg.BANNED_KEYS:
+        raise ValueError(f"banned key {key} at {path}")
+    if key == "sim_or_real" and val == "real":
+        raise ValueError(f"sim_or_real real at {path}")
+    if key == "spike_events":
+        raise ValueError(f"spike_events at {path}")
+
+
+def _assert_clean_mapping(obj: dict, path: str) -> None:
+    for key, val in obj.items():
+        _reject_dict_entry(key, val, path)
+        assert_clean(val, f"{path}.{key}")
+
+
+def _assert_clean_sequence(obj: list, path: str) -> None:
+    for i, item in enumerate(obj):
+        assert_clean(item, f"{path}[{i}]")
+
+
+def _reject_hidden_reasoning_at_root(obj: Any, path: str) -> None:
+    if not path and contains_hidden_reasoning_key(obj):
+        raise ValueError("hidden-reasoning key in episode")
+
+
 def assert_clean(obj: Any, path: str = "") -> None:
     """Reject banned reasoning keys, real-sim claims, and spike events."""
     if isinstance(obj, dict):
-        for key, val in obj.items():
-            if key in cfg.BANNED_KEYS:
-                raise ValueError(f"banned key {key} at {path}")
-            if key == "sim_or_real" and val == "real":
-                raise ValueError(f"sim_or_real real at {path}")
-            if key == "spike_events":
-                raise ValueError(f"spike_events at {path}")
-            assert_clean(val, f"{path}.{key}")
+        _assert_clean_mapping(obj, path)
     elif isinstance(obj, list):
-        for i, item in enumerate(obj):
-            assert_clean(item, f"{path}[{i}]")
-    if not path and contains_hidden_reasoning_key(obj):
-        raise ValueError("hidden-reasoning key in episode")
+        _assert_clean_sequence(obj, path)
+    _reject_hidden_reasoning_at_root(obj, path)
 
 
 def _goal_ok(goal: str) -> str:
@@ -131,12 +159,12 @@ def build_episode(round_n: int, p: Plant, ep_idx: int) -> dict:
     ]
     if len(steps) != 16:
         raise ValueError(f"{eid} expected 16 steps")
-    ep = assemble_episode(
+    ep = assemble_episode(EpisodeAssembly(
         episode_id=eid, goal=goal, plan=plan, steps=steps,
         outcome=f"Naive catalog apply failed. Plan change: expand {col_v2} + backfill. Tests 4/4. Residual: {res}.",
         meta={"factory": cfg.FACTORY_SLUG, "round": round_n, "generator": cfg.GENERATOR,
               "kind": "episode", "plant": p["plant"], "sim_or_real": "designed", "surface": p["surface"]},
-    )
+    ))
     assert_clean(ep)
     return ep
 

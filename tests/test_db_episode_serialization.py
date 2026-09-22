@@ -16,6 +16,13 @@ from pipelines.db import config as db_config  # noqa: E402
 from pipelines.db.episode import build_episode as build_db_episode  # noqa: E402
 from pipelines.db.episode import dumps_episode as dumps_db_episode  # noqa: E402
 from pipelines.db.plants import PLANTS  # noqa: E402
+from pipelines.db_episode_scaffold import (  # noqa: E402
+    EpisodeAssembly,
+    assemble_episode,
+    bash,
+    step,
+    write,
+)
 from pipelines.dbm.catalog import catalog_check  # noqa: E402
 from pipelines.dbm import episode as dbm_episode  # noqa: E402
 from pipelines.dbm._contract import (  # noqa: E402
@@ -64,6 +71,78 @@ class EpisodeSerializationCompatibility(unittest.TestCase):
         with self.assertRaises(DbmRefusal) as variant:
             dbm_episode.build_episode(catalog.start_round, malformed, 0)
         self.assertEqual(variant.exception.code, FINDING_GENERATE_GOAL)
+
+
+class ScaffoldPrimitives(unittest.TestCase):
+    def test_bash_write_step_and_assemble_episode_shapes(self):
+        tool = bash("echo ok")
+        self.assertEqual(tool, {"name": "bash", "args": {"command": "echo ok"}})
+        written = write("docs/a.md", "body")
+        self.assertEqual(
+            written,
+            {"name": "write", "args": {"path": "docs/a.md", "contents": "body"}},
+        )
+        one = step(1, "basis", tool, "obs")
+        self.assertEqual(
+            one,
+            {"n": 1, "decision_basis": "basis", "tool_call": tool, "observation": "obs"},
+        )
+        episode = assemble_episode(
+            EpisodeAssembly(
+                episode_id="dbm-r845-fixture",
+                goal="goal",
+                plan="plan",
+                steps=[one],
+                outcome="outcome",
+                meta={"factory": "db-migration-repair-factory", "kind": "episode"},
+            )
+        )
+        self.assertEqual(episode["id"], "dbm-r845-fixture")
+        self.assertEqual(episode["steps"], [one])
+        self.assertEqual(
+            episode["reward"],
+            {
+                "success": True,
+                "apply_fails": 2,
+                "plan_changes": 1,
+                "lock_timeouts": 1,
+                "tests_passed": 4,
+                "cost_steps": 1,
+            },
+        )
+        self.assertEqual(episode["meta"]["kind"], "episode")
+
+
+class FlatImportPaths(unittest.TestCase):
+    def test_db_and_dbm_episode_flat_imports_resolve_scaffold(self):
+        """Exercise the non-pipelines import branch on both episode modules."""
+        import sys
+
+        pipelines_dir = str(REPO / "pipelines")
+        if pipelines_dir not in sys.path:
+            sys.path.insert(0, pipelines_dir)
+        for key in (
+            "db.episode",
+            "pipelines.db.episode",
+            "dbm.episode",
+            "pipelines.dbm.episode",
+        ):
+            sys.modules.pop(key, None)
+
+        import db.episode as db_flat  # noqa: E402
+        import dbm.episode as dbm_flat  # noqa: E402
+
+        self.assertEqual(db_flat.__name__, "db.episode")
+        self.assertEqual(dbm_flat.__name__, "dbm.episode")
+        self.assertEqual(
+            db_flat._bash("true"),
+            {"name": "bash", "args": {"command": "true"}},
+        )
+        self.assertEqual(
+            dbm_flat._write("x.sql", "--"),
+            {"name": "write", "args": {"path": "x.sql", "contents": "--"}},
+        )
+        db_flat.assert_clean({"meta": {"sim_or_real": "designed"}})
 
 
 if __name__ == "__main__":

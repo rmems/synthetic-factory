@@ -13,6 +13,7 @@ from typing import Any
 
 if __name__.startswith("pipelines."):
     from ..db_episode_scaffold import (
+        EpisodeAssembly,
         assemble_episode,
         bash as _bash,
         step as _shared_step,
@@ -20,6 +21,7 @@ if __name__.startswith("pipelines."):
     )
 else:
     from db_episode_scaffold import (
+        EpisodeAssembly,
         assemble_episode,
         bash as _bash,
         step as _shared_step,
@@ -289,7 +291,7 @@ def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str
         FINDING_GENERATE_SHAPE,
         f"{eid} expected {SUCCESS_STEPS} steps",
     )
-    episode = assemble_episode(
+    episode = assemble_episode(EpisodeAssembly(
         episode_id=eid,
         goal=goal,
         plan=plan,
@@ -307,7 +309,7 @@ def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str
             "sim_or_real": "designed",
             "surface": plant["surface"],
         },
-    )
+    ))
     _assert_clean(episode)
     refuse_when(
         contains_hidden_reasoning_key(episode),

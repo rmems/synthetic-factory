@@ -8,6 +8,7 @@ envelope shared by both generators.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -33,29 +34,33 @@ def step(
     }
 
 
-def assemble_episode(
-    *,
-    episode_id: str,
-    goal: str,
-    plan: str,
-    steps: list[dict[str, Any]],
-    outcome: str,
-    meta: dict[str, Any],
-) -> dict[str, Any]:
+@dataclass(frozen=True)
+class EpisodeAssembly:
+    """Keyword bundle for :func:`assemble_episode` (keeps the helper arity low)."""
+
+    episode_id: str
+    goal: str
+    plan: str
+    steps: list[dict[str, Any]]
+    outcome: str
+    meta: dict[str, Any]
+
+
+def assemble_episode(parts: EpisodeAssembly) -> dict[str, Any]:
     """Assemble the common envelope without changing lane-owned content."""
     return {
-        "id": episode_id,
-        "goal": goal,
-        "plan": plan,
-        "steps": steps,
-        "outcome": outcome,
+        "id": parts.episode_id,
+        "goal": parts.goal,
+        "plan": parts.plan,
+        "steps": parts.steps,
+        "outcome": parts.outcome,
         "reward": {
             "success": True,
             "apply_fails": 2,
             "plan_changes": 1,
             "lock_timeouts": 1,
             "tests_passed": 4,
-            "cost_steps": len(steps),
+            "cost_steps": len(parts.steps),
         },
-        "meta": meta,
+        "meta": parts.meta,
     }
