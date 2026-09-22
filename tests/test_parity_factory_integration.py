@@ -7,7 +7,7 @@ layer in validate_run, and the deep layer in check_records.
 
 import copy
 import json
-# Required only for the fixed-argv interpreter subprocesses below.
+# Required only for the fixed-argv interpreter subprocess below.
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -15,13 +15,16 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-FIXTURE_RUN = REPO / "tests" / "fixtures" / "parity-run"
+FIXTURE_RUN = TESTS / "fixtures" / "parity-run"
 HARDWARE_BATCH = (
     FIXTURE_RUN / "hardware-parity-spike-trajectories" / "batch-r01.jsonl"
 )
 NIR_BATCH = FIXTURE_RUN / "nir-cross-runtime-equivalence" / "batch-r01.jsonl"
-sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import census  # noqa: E402
 import check_records  # noqa: E402
@@ -29,6 +32,7 @@ import parity_validators  # noqa: E402
 import exact_json  # noqa: E402
 from oracle_grounded import parity_contract as contract  # noqa: E402
 import validate_run  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 
 def _records(path):
@@ -39,15 +43,15 @@ def _records(path):
     ]
 
 
+_CLI_MAINS = {
+    "validate_run.py": validate_run.main,
+    "check_records.py": check_records.main,
+}
+
+
 def _run(script, *args):
-    # argv is this interpreter and a pipeline module under `PIPELINES`; the
-    # module name and `args` are the literals the calling test wrote, never
-    # input from outside the test, and no shell is enabled.
-    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-        [sys.executable, str(PIPELINES / script), *args],
-        capture_output=True,
-        text=True,
-    )
+    """Run a pipeline ``main()`` in-process, mirroring the subprocess result."""
+    return main_in_process(_CLI_MAINS[script], args)
 
 
 class FixtureRun(unittest.TestCase):

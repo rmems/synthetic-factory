@@ -2,14 +2,21 @@
 """census.py prints a read-only JSON census of a run directory."""
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-CENSUS = REPO / "pipelines" / "census.py"
-MINI_RUN = REPO / "tests" / "fixtures" / "mini-run"
+TESTS = REPO / "tests"
+PIPELINES = REPO / "pipelines"
+MINI_RUN = TESTS / "fixtures" / "mini-run"
+
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+import census  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 EXPECTED = {
     "files": 2,
@@ -91,12 +98,8 @@ def _snapshot(root: Path):
 
 
 def _invoke(*args):
-    return subprocess.run(
-        [sys.executable, str(CENSUS), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    """Run ``census.main`` in-process, mirroring a subprocess result."""
+    return main_in_process(census.main, args)
 
 
 class CensusMiniRun(unittest.TestCase):

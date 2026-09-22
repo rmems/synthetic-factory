@@ -24,7 +24,7 @@ if str(REPO_PIPELINES) not in sys.path:
     sys.path.insert(0, str(REPO_PIPELINES))
 
 from round_txn_test_helpers import distillation_sidecars  # noqa: E402
-from validate_run_test_helpers import TINY_THALAMIC, _invoke  # noqa: E402
+from validate_run_test_helpers import TINY_THALAMIC, _invoke_inprocess  # noqa: E402
 
 import check_records  # noqa: E402
 import round_txn  # noqa: E402
@@ -50,7 +50,7 @@ class StrictContractFixtures(unittest.TestCase):
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / name).write_text((STRICT_FIXTURES / name).read_text())
-            return _invoke(str(run_dir))
+            return _invoke_inprocess(str(run_dir))
 
     def _assert_invalid_line_continues(
         self, filename, invalid_line, valid_record, marker_groups
@@ -61,7 +61,7 @@ class StrictContractFixtures(unittest.TestCase):
             (run_dir / filename).write_text(
                 invalid_line + "\n" + json.dumps(valid_record, ensure_ascii=False) + "\n"
             )
-            result = _invoke(str(run_dir))
+            result = _invoke_inprocess(str(run_dir))
 
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)
@@ -89,7 +89,7 @@ class StrictContractFixtures(unittest.TestCase):
             (run_dir / "accept-baseline.jsonl").write_text(
                 (STRICT_FIXTURES / "accept-baseline.jsonl").read_text()
             )
-            shape = _invoke(str(run_dir))
+            shape = _invoke_inprocess(str(run_dir))
             deep = check_records.check_run(run_dir, strict=True)
         self.assertEqual(shape.returncode, 0, shape.stderr)
         self.assertEqual(deep["exit_code"], 0, deep)
@@ -156,7 +156,7 @@ class StrictContractFixtures(unittest.TestCase):
                     run_dir = Path(raw) / "run"
                     run_dir.mkdir()
                     (run_dir / name).write_text((fixtures / name).read_text())
-                    shape = _invoke(str(run_dir))
+                    shape = _invoke_inprocess(str(run_dir))
                     deep = check_records.check_run(run_dir)
                 self.assertEqual(shape.returncode, 1, shape.stderr)
                 self.assertIn(marker, shape.stderr)
@@ -187,7 +187,7 @@ class StrictContractFixtures(unittest.TestCase):
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / "surrogate.jsonl").write_text(surrogate + "\n")
-            surrogate_result = _invoke(str(run_dir))
+            surrogate_result = _invoke_inprocess(str(run_dir))
 
         self.assertEqual(surrogate_result.returncode, 1, surrogate_result.stderr)
         self.assertNotIn("Traceback", surrogate_result.stderr)
@@ -262,7 +262,7 @@ class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
 
-            shape = _invoke(str(factory))
+            shape = _invoke_inprocess(str(factory))
             deep = check_records.check_run(factory, strict=True)
 
         self.assertEqual(shape.returncode, 0, shape.stderr)

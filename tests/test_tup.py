@@ -7,19 +7,21 @@ import ast
 import hashlib
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
 COMMITTED = REPO / "config" / "tup"
 
 sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(REPO))
 
+from cli_test_support import main_in_process  # noqa: E402
 from mill_family import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from mill_signals import mill_prefix  # noqa: E402
 from record_kind import classify_kind, preference_side_kinds  # noqa: E402
@@ -44,14 +46,8 @@ from tup._contract import (  # noqa: E402
 
 
 def invoke(argv: list[str]) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        [sys.executable, "-m", "tup.cli", *argv],
-        cwd=str(PIPELINES),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+    result = main_in_process(cli.run, argv)
+    return result.returncode, result.stdout, result.stderr
 
 
 class CatalogPins(unittest.TestCase):
