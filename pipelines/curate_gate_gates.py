@@ -90,6 +90,16 @@ else:
 # ---------------------------------------------------------------------------
 
 
+def _exit_code(value: object, stderr: io.StringIO) -> int:
+    """Translate a CLI return value or ``SystemExit.code`` to a process code."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return int(value)
+    print(value, file=stderr)
+    return 1
+
+
 def _run_tool(main: Callable[[list[str]], object], argv: list[str]) -> tuple[int, str]:
     """Run one validator CLI's ``main`` in-process; return ``(exit, stderr)``.
 
@@ -104,22 +114,9 @@ def _run_tool(main: Callable[[list[str]], object], argv: list[str]) -> tuple[int
     code = 0
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
-            returned = main(list(argv))
-            if returned is None:
-                code = 0
-            elif isinstance(returned, int):
-                code = int(returned)
-            else:
-                code = 1
-                print(returned, file=sys.stderr)
+            code = _exit_code(main(list(argv)), stderr)
     except SystemExit as exc:  # NOSONAR S5754 - a CLI's exit request is the gate's exit code here
-        if exc.code is None:
-            code = 0
-        elif isinstance(exc.code, int):
-            code = int(exc.code)
-        else:
-            code = 1
-            print(exc.code, file=stderr)
+        code = _exit_code(exc.code, stderr)
     except Exception:  # a validator crash must still fail closed
         code = 1
         traceback.print_exc(file=stderr)
