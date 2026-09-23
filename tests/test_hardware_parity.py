@@ -161,6 +161,20 @@ class ParityMetrics(unittest.TestCase):
 
 
 class Generation(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Deterministic corpus and unpaired record; tests mutate deep copies.
+        cls.records = hp.generate_records(round_number=1, steps=4, repeats=2)
+        scenario = hp.build_scenarios(steps=4)[0]
+        adapter = oracle.FpgaHardwareAdapter(env={})
+        cls.unpaired_runs = hp.run_pair(scenario, adapter, repeats=2)
+        cls.unpaired_record = hp.build_record(
+            scenario,
+            cls.unpaired_runs,
+            1,
+            oracle.availability_report(env={})["spikenaut_fpga"],
+        )
+
     def test_generated_records_validate(self):
         records = hp.generate_records(round_number=1, steps=6, repeats=2)
         self.assertEqual(hp.validate_records(records), [])
@@ -181,24 +195,20 @@ class Generation(unittest.TestCase):
         self.assertIn(contract.VERDICT_MISMATCH, verdicts)
 
     def test_every_record_declares_the_fpga_probe(self):
-        for record in hp.generate_records(round_number=1, steps=4, repeats=2):
+        for record in self.records:
             probe = record["oracle"]["environment"]["fpga_hardware"]
             self.assertFalse(probe["available"])
             self.assertTrue(probe["reason_code"])
 
     def test_paired_reference_record_keeps_recorded_fpga_probe(self):
-        record = copy.deepcopy(
-            hp.generate_records(round_number=1, steps=4, repeats=2)[0]
-        )
+        record = copy.deepcopy(self.records[0])
         probe = record["oracle"]["environment"]["fpga_hardware"]
         probe["detail"] = "stale availability assertion"
         probe["reason_code"] = "FPGA_DEVICE_ABSENT"
         self.assertEqual(hp.validate_record(record, WHERE), [])
 
     def test_malformed_fpga_environment_is_rejected(self):
-        record = copy.deepcopy(
-            hp.generate_records(round_number=1, steps=4, repeats=2)[0]
-        )
+        record = copy.deepcopy(self.records[0])
         record["oracle"]["environment"]["fpga_hardware"] = []
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(
@@ -207,9 +217,7 @@ class Generation(unittest.TestCase):
         )
 
     def test_live_fpga_deployment_requires_current_probe_available(self):
-        record = copy.deepcopy(
-            hp.generate_records(round_number=1, steps=4, repeats=2)[0]
-        )
+        record = copy.deepcopy(self.records[0])
         record["oracle"]["deployment"]["adapter"] = oracle.FpgaHardwareAdapter.name
         record["oracle"]["deployment"]["runtime_class"] = (
             oracle.FpgaHardwareAdapter.runtime_class
@@ -222,32 +230,17 @@ class Generation(unittest.TestCase):
         )
 
     def test_unavailable_deployment_oracle_yields_inconclusive(self):
-        scenario = hp.build_scenarios(steps=4)[0]
-        adapter = oracle.FpgaHardwareAdapter(env={})
-        software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
+        _software, deployment, unavailable = self.unpaired_runs
         self.assertIsNone(deployment)
         self.assertEqual(unavailable["reason_code"], "FPGA_DEVICE_NOT_DECLARED")
-        record = hp.build_record(
-            scenario, (software, deployment, unavailable), 1,
-            oracle.availability_report(env={})["spikenaut_fpga"],
-        )
+        record = copy.deepcopy(self.unpaired_record)
         self.assertEqual(record["result"]["verdict"], contract.VERDICT_INCONCLUSIVE)
         self.assertIsNone(record["result"]["parity"])
         self.assertIn("ORACLE_UNAVAILABLE", record["result"]["reason_codes"])
         self.assertEqual(hp.validate_record(record, WHERE), [])
 
     def test_unavailable_diagnostic_is_a_required_lineage_item(self):
-        scenario = hp.build_scenarios(steps=4)[0]
-        adapter = oracle.FpgaHardwareAdapter(env={})
-        software, deployment, unavailable = hp.run_pair(
-            scenario, adapter, repeats=2
-        )
-        record = hp.build_record(
-            scenario,
-            (software, deployment, unavailable),
-            1,
-            oracle.availability_report(env={})["spikenaut_fpga"],
-        )
+        record = copy.deepcopy(self.unpaired_record)
         expected = hp._unavailable_evidence_digest(
             record["oracle"]["unavailable"][0]
         )
@@ -267,17 +260,7 @@ class Generation(unittest.TestCase):
         )
 
     def test_unavailable_diagnostic_cannot_be_forged_and_resealed(self):
-        scenario = hp.build_scenarios(steps=4)[0]
-        adapter = oracle.FpgaHardwareAdapter(env={})
-        software, deployment, unavailable = hp.run_pair(
-            scenario, adapter, repeats=2
-        )
-        record = hp.build_record(
-            scenario,
-            (software, deployment, unavailable),
-            1,
-            oracle.availability_report(env={})["spikenaut_fpga"],
-        )
+        record = copy.deepcopy(self.unpaired_record)
         diagnostic = record["oracle"]["unavailable"][0]
         diagnostic["detail"] = "fabricated unavailability evidence"
         record["result"]["derived_from"][1] = hp._unavailable_evidence_digest(
@@ -296,29 +279,13 @@ class Generation(unittest.TestCase):
         )
 
     def test_unpaired_record_still_reexecutes_the_software_leg(self):
-        scenario = hp.build_scenarios(steps=4)[0]
-        adapter = oracle.FpgaHardwareAdapter(env={})
-        software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
-        record = hp.build_record(
-            scenario,
-            (software, deployment, unavailable),
-            1,
-            oracle.availability_report(env={})["spikenaut_fpga"],
-        )
+        record = copy.deepcopy(self.unpaired_record)
         record["oracle"]["software"]["spikes"][0][0] ^= 1
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("re-simulation" in error for error in errors), errors)
 
     def test_unavailable_deployment_diagnostic_matches_the_selected_adapter(self):
-        scenario = hp.build_scenarios(steps=4)[0]
-        adapter = oracle.FpgaHardwareAdapter(env={})
-        software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
-        record = hp.build_record(
-            scenario,
-            (software, deployment, unavailable),
-            1,
-            oracle.availability_report(env={})["spikenaut_fpga"],
-        )
+        record = copy.deepcopy(self.unpaired_record)
         with tempfile.TemporaryDirectory() as tmp:
             missing_capture = Path(tmp) / "fabricated-capture.json"
             capture_adapter = oracle.RecordedCaptureAdapter(missing_capture)
