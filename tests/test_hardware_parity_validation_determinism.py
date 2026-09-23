@@ -20,8 +20,10 @@ import neuro_oracle as oracle  # noqa: E402
 class DeterminismEvidence(unittest.TestCase):
     """`determinism` is a claim; `repeat_digests` is the evidence for it."""
 
-    def setUp(self):
-        self.record = hp.generate_records(round_number=1, steps=4, repeats=3)[0]
+    @classmethod
+    def setUpClass(cls):
+        # Deterministic corpus; every test mutates a deep copy of the record.
+        cls.record = hp.generate_records(round_number=1, steps=4, repeats=3)[0]
 
     def test_generated_record_is_internally_consistent(self):
         self.assertEqual(hp.validate_record(copy.deepcopy(self.record), WHERE), [])
@@ -152,8 +154,10 @@ class DeterminismEvidence(unittest.TestCase):
 class MalformedRecordsDoNotCrash(unittest.TestCase):
     """A bad record must be reported, not raise and abort the whole scan."""
 
-    def setUp(self):
-        self.record = hp.generate_records(round_number=1, steps=4, repeats=2)[0]
+    @classmethod
+    def setUpClass(cls):
+        # Deterministic corpus; every test mutates a deep copy of the record.
+        cls.record = hp.generate_records(round_number=1, steps=4, repeats=2)[0]
 
     def _assert_reports(self, mutate):
         record = copy.deepcopy(self.record)

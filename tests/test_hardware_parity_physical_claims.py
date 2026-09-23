@@ -19,9 +19,14 @@ import hardware_parity as hp  # noqa: E402
 import neuro_oracle as oracle  # noqa: E402
 
 class PhysicalTargetClaims(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Deterministic corpus; tests mutate deep copies of its records.
+        cls.records = hp.generate_records(round_number=1, steps=4, repeats=2)
+
     def _promoted(self, hil=True, **deployment_overrides):
         """A reference-model record relabelled as if it came from a board."""
-        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record = copy.deepcopy(self.records[0])
         deployment = record["oracle"]["deployment"]
         deployment["execution_target"] = oracle.TARGET_FPGA_HARDWARE
         deployment.update(copy.deepcopy(deployment_overrides))
@@ -117,7 +122,7 @@ class PhysicalTargetClaims(unittest.TestCase):
         self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
 
     def test_non_boolean_fpga_available_is_rejected(self):
-        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record = copy.deepcopy(self.records[0])
         record["oracle"]["environment"]["fpga_hardware"]["available"] = "false"
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(
@@ -128,7 +133,7 @@ class PhysicalTargetClaims(unittest.TestCase):
         )
 
     def test_unavailable_fpga_probe_needs_a_nonblank_reason_code(self):
-        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record = copy.deepcopy(self.records[0])
         record["oracle"]["environment"]["fpga_hardware"]["reason_code"] = "   "
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(
@@ -140,7 +145,7 @@ class PhysicalTargetClaims(unittest.TestCase):
         # `available: true` probe; a fixed-point record claiming one must
         # still be rejected even though it does not claim a live FPGA
         # deployment.
-        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record = copy.deepcopy(self.records[0])
         record["oracle"]["environment"]["fpga_hardware"] = {
             "available": True,
             "reason_code": None,
@@ -153,17 +158,16 @@ class PhysicalTargetClaims(unittest.TestCase):
 
     def test_deleting_the_execution_target_is_not_a_way_out(self):
         # Removing an inconvenient label must not be quieter than declaring it.
-        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record = copy.deepcopy(self.records[0])
         del record["oracle"]["deployment"]["execution_target"]
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
 
     def test_reference_model_target_needs_no_board_metadata(self):
-        records = hp.generate_records(round_number=1, steps=4, repeats=2)
-        self.assertEqual(hp.validate_records(records), [])
+        self.assertEqual(hp.validate_records(self.records), [])
 
     def test_reference_model_cannot_claim_measured_latency(self):
-        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record = copy.deepcopy(self.records[0])
         record["oracle"]["deployment"]["latency"] = {
             "measured": True,
             "value_ms": 0.001,

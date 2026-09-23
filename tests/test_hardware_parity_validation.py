@@ -21,13 +21,17 @@ import neuro_oracle as oracle  # noqa: E402
 from oracle_grounded import parity_contract as contract  # noqa: E402
 
 class Validation(unittest.TestCase):
-    def setUp(self):
-        self.records = hp.generate_records(round_number=1, steps=6, repeats=2)
-        self.mismatch = next(
-            (record for record in self.records
+    @classmethod
+    def setUpClass(cls):
+        # Deterministic corpus; every test mutates a deep copy of a record.
+        cls.records = hp.generate_records(round_number=1, steps=6, repeats=2)
+        cls.mismatch = next(
+            (record for record in cls.records
              if record["result"]["verdict"] == contract.VERDICT_MISMATCH),
             None,
         )
+
+    def setUp(self):
         self.assertIsNotNone(self.mismatch, "generated parity fixtures must include a mismatch")
 
     def test_fixture_validates(self):
@@ -323,13 +327,17 @@ class ReSimulationGate(unittest.TestCase):
     record asserting a match that never happened.
     """
 
-    def setUp(self):
-        self.records = hp.generate_records(round_number=1, steps=6, repeats=2)
-        self.mismatch = next(
-            (record for record in self.records
+    @classmethod
+    def setUpClass(cls):
+        # Deterministic corpus; every test mutates a deep copy of a record.
+        cls.records = hp.generate_records(round_number=1, steps=6, repeats=2)
+        cls.mismatch = next(
+            (record for record in cls.records
              if record["result"]["verdict"] == contract.VERDICT_MISMATCH),
             None,
         )
+
+    def setUp(self):
         self.assertIsNotNone(self.mismatch, "generated parity fixtures must include a mismatch")
 
     def _forge_match(self):
