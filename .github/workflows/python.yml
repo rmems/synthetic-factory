@@ -107,8 +107,19 @@ jobs:
   test:
     name: unittest (Python 3.14)
     needs: [shard, oracle]
+    # A failed or cancelled prerequisite would otherwise skip this job, and a
+    # skipped required check reads as passing to branch protection.
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Require every shard and the oracle job to have succeeded
+        env:
+          SHARD_RESULT: ${{ needs.shard.result }}
+          ORACLE_RESULT: ${{ needs.oracle.result }}
+        run: |
+          echo "shard=$SHARD_RESULT oracle=$ORACLE_RESULT"
+          test "$SHARD_RESULT" = success && test "$ORACLE_RESULT" = success
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
