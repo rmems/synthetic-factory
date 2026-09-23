@@ -210,32 +210,46 @@ def _tool_gates(cleaned: Path, log: _GateLog, completion_source: Path | None) ->
     return report
 
 
+def _audit_examples_and_count(raw: Any) -> tuple[int, list[Any]]:
+    if not raw:
+        return 0, []
+    if isinstance(raw, (set, frozenset)):
+        try:
+            items = sorted(raw)
+        except TypeError:
+            items = list(raw)
+        return len(items), items[:5]
+    items = list(raw) if not isinstance(raw, list) else raw
+    return len(items), items[:5]
+
+
 def _audit_gates(report: dict[str, Any], log: _GateLog) -> None:
-    exact_duplicates = report.get("exact_duplicates") or []
+    count_exact, exact_examples = _audit_examples_and_count(report.get("exact_duplicates"))
     log.gates["exact_duplicates"] = {
-        "passed": not exact_duplicates,
-        "count": len(exact_duplicates),
-        "examples": exact_duplicates[:5],
+        "passed": not count_exact,
+        "count": count_exact,
+        "examples": exact_examples,
     }
-    if exact_duplicates:
-        log.blockers.append(f"EXACT_DUPLICATES:{len(exact_duplicates)}")
+    if count_exact:
+        log.blockers.append(f"EXACT_DUPLICATES:{count_exact}")
 
     identity = report.get("identity") or {}
-    collisions = identity.get("duplicates") or []
+    count_collisions, collision_examples = _audit_examples_and_count(identity.get("duplicates"))
     log.gates["canonical_id_collisions"] = {
-        "passed": not collisions,
-        "count": len(collisions),
-        "examples": collisions[:5],
+        "passed": not count_collisions,
+        "count": count_collisions,
+        "examples": collision_examples,
     }
-    if collisions:
-        log.blockers.append(f"CANONICAL_ID_COLLISIONS:{len(collisions)}")
+    if count_collisions:
+        log.blockers.append(f"CANONICAL_ID_COLLISIONS:{count_collisions}")
 
     missing_ids = identity.get("missing_top_level", 0)
+    _, missing_examples = _audit_examples_and_count(identity.get("missing_examples"))
     log.gates["canonical_id_coverage"] = {
         "passed": not missing_ids,
         "coverage_pct": identity.get("coverage_pct", 0),
         "missing_top_level": missing_ids,
-        "examples": (identity.get("missing_examples") or [])[:5],
+        "examples": missing_examples,
     }
     if missing_ids:
         log.blockers.append(f"CANONICAL_ID_COVERAGE:{missing_ids} records lack a top-level id")

@@ -13,6 +13,25 @@ import curate_gate_gates  # noqa: E402
 
 
 class RunToolTests(unittest.TestCase):
+    def test_audit_examples_accept_non_sliceable_iterables(self):
+        report = {
+            "exact_duplicates": {"duplicate-a", "duplicate-b"},
+            "identity": {
+                "duplicates": iter(("id-a", "id-b")),
+                "missing_top_level": 1,
+                "missing_examples": iter(("missing-a",)),
+            },
+        }
+        log = curate_gate_gates._GateLog({}, [])
+
+        curate_gate_gates._audit_gates(report, log)
+
+        self.assertEqual(
+            log.gates["exact_duplicates"]["examples"], ["duplicate-a", "duplicate-b"]
+        )
+        self.assertEqual(log.gates["canonical_id_collisions"]["examples"], ["id-a", "id-b"])
+        self.assertEqual(log.gates["canonical_id_coverage"]["examples"], ["missing-a"])
+
     def test_a_returning_main_reports_exit_zero(self):
         code, err = curate_gate_gates._run_tool(lambda argv: None, ["x"])
         self.assertEqual((code, err), (0, ""))
