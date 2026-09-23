@@ -6,6 +6,7 @@ import hashlib
 import os
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -20,13 +21,29 @@ from oracle_grounded import oracles, record as oracle_record
 from export_contract import ExportError
 
 
+def _generate_oracle_source(source, dirty=False):
+    commit = oracles.resolve_commit()[0]
+    # Explicit test-only provenance fixture; CLI checkout checks have separate tests.
+    with mock.patch.object(oracle_generate, '_resolve_stamp', return_value=(commit, dirty, None)):
+        with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()):
+            status = oracle_generate.main(['--count', '7', '--seed', '20260918', str(source)])
+    if status != 0:
+        raise RuntimeError(f'oracle_generate exited {status}')
+
+
 class OracleTrainingSelection(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        scratch = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(scratch.cleanup)
+        cls.source_template = Path(scratch.name) / 'source'
+        _generate_oracle_source(cls.source_template)
+
     def _generate(self, source, dirty=False):
-        commit = oracles.resolve_commit()[0]
-        # Explicit test-only provenance fixture; CLI checkout checks have separate tests.
-        with mock.patch.object(oracle_generate, '_resolve_stamp', return_value=(commit, dirty, None)):
-            with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(oracle_generate.main(['--count', '7', '--seed', '20260918', str(source)]), 0)
+        if dirty is False:
+            shutil.copytree(self.source_template, source)
+        else:
+            _generate_oracle_source(source, dirty=dirty)
 
     def _compose(self, root):
         self._generate(root / 'source')

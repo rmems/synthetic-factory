@@ -19,16 +19,29 @@ for _path in (TESTS, REPO / "pipelines"):
 import export_hf  # noqa: E402
 import export_members  # noqa: E402
 import export_members_read  # noqa: E402
-from export_test_support import ResearchExportAllowed, compose_fixture  # noqa: E402
+from export_test_support import (  # noqa: E402
+    ResearchExportAllowed,
+    allow_research_only_export,
+    compose_fixture,
+)
 
 
 class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._scratch = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._scratch.cleanup)
+        # Compose inside the same admission patch the tests run under so the
+        # stored COMPOSE.json audit matches the live audit export replays.
+        with allow_research_only_export():
+            cls.curated = compose_fixture(Path(cls._scratch.name))
+
     def test_finish_reauthenticates_bytes_mutated_through_held_descriptor(self):
         """The real finish boundary catches staged-byte mutation before publish."""
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            curated = compose_fixture(root)
+            curated = self.curated
             destination = root / "export"
             real_finish = export_hf._finish_pinned_destination
 
@@ -56,7 +69,7 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            curated = compose_fixture(root)
+            curated = self.curated
             destination = root / "export"
             real_finish = export_hf._finish_pinned_destination
 
@@ -80,7 +93,7 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            curated = compose_fixture(root)
+            curated = self.curated
             destination = root / "export"
             real_finish = export_hf._finish_pinned_destination
 

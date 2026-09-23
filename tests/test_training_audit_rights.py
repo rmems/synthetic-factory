@@ -1,6 +1,7 @@
 """Rights manifests must cover retained records and cannot erase refusals."""
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,13 +71,20 @@ class RightsManifestRefusal(unittest.TestCase):
 
 
 class RightsAuditSnapshot(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        scratch = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(scratch.cleanup)
+        cls.composed_template = Path(scratch.name) / "curated"
+        source = build_source_run(Path(scratch.name) / "source")
+        compose_curated.compose_run(compose_curated.ComposeRunContext(source, cls.composed_template))
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
-        source = build_source_run(root / "source")
         self.dest = root / "curated"
-        compose_curated.compose_run(compose_curated.ComposeRunContext(source, self.dest))
+        shutil.copytree(self.composed_template, self.dest)
         self.manifest = self.dest / "manifest/compose-manifest.jsonl"
         self.entries = [json.loads(line) for line in self.manifest.read_text().split("\n") if line]
 
