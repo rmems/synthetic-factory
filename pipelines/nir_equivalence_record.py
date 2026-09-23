@@ -166,7 +166,7 @@ def _recorded_scenario(scenario):
     }
 
 
-def build_record(scenario, entries, round_number):
+def build_record(scenario, entries, round_number, stamps=None):
     comparison = compare_runtimes(scenario, entries)
     verdict, reason_codes = verdict_for(comparison)
     prediction = {
@@ -195,7 +195,7 @@ def build_record(scenario, entries, round_number):
             "evidence_scope": _evidence_scope(entries),
         },
         "result": _record_result(scenario, entries, (comparison, verdict, reason_codes)),
-        "provenance": _record_provenance(scenario),
+        "provenance": _record_provenance(scenario, stamps),
         "validation": {
             "validator": VALIDATOR,
             "validator_version": SCHEMA_VERSION,
@@ -233,8 +233,15 @@ def _record_result(scenario, entries, outcome):
     }
 
 
-def _record_provenance(scenario):
-    """Provenance pinned to the recorded graph+stimulus bytes."""
+def _record_provenance(scenario, stamps=None):
+    """Provenance pinned to the recorded graph+stimulus bytes.
+
+    ``stamps`` is the round's ``_catalog_provenance_stamps()`` result; it is
+    deep-copied into each record for the same reason every other mutable
+    record field is. ``None`` recomputes it for callers building one record.
+    """
+    if stamps is None:
+        stamps = _catalog_provenance_stamps()
     return dict(
         {
             "kind": "simulated",
@@ -246,16 +253,20 @@ def _record_provenance(scenario):
             ),
             "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
         },
-        **_catalog_provenance_stamps(),
+        **copy.deepcopy(stamps),
     )
 
 
 def generate_records(round_number=1, steps=10):
     records = []
     runtimes = (*IN_REPO_RUNTIMES, *UPSTREAM_RUNTIMES)
+    # The stamps are record-independent -- the source digest re-reads and
+    # re-hashes the whole family and the catalog digest rebuilds every
+    # scenario -- so one computation serves the whole round.
+    stamps = _catalog_provenance_stamps()
     for scenario in build_scenarios(steps=steps):
         entries = [execute_runtime(runtime, scenario) for runtime in runtimes]
-        records.append(build_record(scenario, entries, round_number))
+        records.append(build_record(scenario, entries, round_number, stamps))
     return records
 
 

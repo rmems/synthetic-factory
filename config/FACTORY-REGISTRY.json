@@ -1658,7 +1658,7 @@
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "oracle-grounded-v1",
-      "catalog_sha256": "472218b18ba31b3537bdf89ff9c6ab939c55d85f306ee698d453f04b5b4e98bb",
+      "catalog_sha256": "88a92f994eab1a845a59b60d0ef45e50fe4fb7dec071026eb212adafb8a43cd0",
       "programs_sha256": "e00d4dbc6027404e82726372d49adcbe549a2407ec8645410452778c523e03c2",
       "intended_use": "training_candidate",
       "project_training_policy": "allowed",
@@ -1671,7 +1671,7 @@
         "license": "Apache-2.0",
         "license_sha256": "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
       },
-      "procedural_policy_sha256": "760b9519b5ea2826f9a8089b76225e197593c37d38efbd54764f9f5a1a1d8df4",
+      "procedural_policy_sha256": "defd6e5ed812a84d881c9020cb4bd750ff7493e2671b6ed74dcfb810914a8361",
       "record_kinds": [
         "oracle"
       ],
@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:0c1df7ca83a2759b81efb1878fbd6600e9a89ca54011675fdab5017294bb2c14",
+      "generator_version": "sha256:9518cbbdb83399bed758f451631fa8f5e2c90dd3c536b8b1e150ddb8c992d5a8",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,14 +1709,14 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "31c9cb770a8cd4262b78593488fc57391ff201aa1d6661c664a5da4b60d626d7"
+      "parity_policy_sha256": "536a5a7a51c6ee9ac333f0d506b8e5733d0ca062ed1ac9a27293ae3caa613bdc"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:140cbcddedaea1da8469f4001041580720d87bb32dc4fb8bb96b5b933a052f0a",
+      "generator_version": "sha256:3e555573498c2ffc375154d7f776f92b347f2677f76845ae16f41995cf81367c",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1736,7 +1736,7 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "31c9cb770a8cd4262b78593488fc57391ff201aa1d6661c664a5da4b60d626d7"
+      "parity_policy_sha256": "536a5a7a51c6ee9ac333f0d506b8e5733d0ca062ed1ac9a27293ae3caa613bdc"
     }
     ,{
       "path_id": "fault-recovery-simulator-factory",
