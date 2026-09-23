@@ -1,5 +1,6 @@
 """Fresh native parity observations retain their research-only source identity."""
 
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -7,10 +8,14 @@ import unittest
 
 from pipelines import check_records, curate_identity, hardware_parity, nir_equivalence, training_audit
 
+_FRESH_PARITY_RECORDS = tuple(
+    record for producer in (hardware_parity, nir_equivalence)
+    for record in producer.generate_records(round_number=37, steps=16)
+)
+
 
 def fresh_parity_records():
-    return tuple(record for producer in (hardware_parity, nir_equivalence)
-                 for record in producer.generate_records(round_number=37, steps=16))
+    return copy.deepcopy(_FRESH_PARITY_RECORDS)
 
 
 def write_parity_records(root, records):

@@ -94,4 +94,5 @@ def prepare_gate_template(test_case):
     _, generated, _, _ = build_generated_admission_evidence(test_case)
     scratch = tempfile.TemporaryDirectory(prefix="procedural-gate-template-")
     test_case.addClassCleanup(scratch.cleanup)
+    test_case.generated = generated
     test_case.template = ProceduralGateFixture(scratch.name, generated)

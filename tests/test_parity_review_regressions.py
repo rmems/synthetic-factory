@@ -15,17 +15,23 @@ import census
 import check_records
 import round_txn
 
+_NIR_RECORDS = nir.generate_records()
+
+
+def _fresh_nir_records():
+    return copy.deepcopy(_NIR_RECORDS)
+
 
 class HistoricalAvailability(unittest.TestCase):
     def test_installing_unimplemented_packages_preserves_recorded_diagnostics(self):
-        record = nir.generate_records()[0]
+        record = _fresh_nir_records()[0]
         before = copy.deepcopy(record)
         with mock.patch.object(runtimes.importlib.util, "find_spec", return_value=object()):
             self.assertEqual(nir.validate_record(record, WHERE), [])
         self.assertEqual(record, before)
 
     def test_a_now_available_runtime_still_refuses_an_unavailable_claim(self):
-        record = nir.generate_records()[0]
+        record = _fresh_nir_records()[0]
         runtime = runtimes.UPSTREAM_RUNTIMES[0]
         with mock.patch.object(runtime, "availability", return_value={"available": True}):
             errors = nir.validate_record(record, WHERE)
@@ -62,7 +68,7 @@ class FactoryBinding(unittest.TestCase):
             factory = root / "hardware-parity-spike-trajectories"
             factory.mkdir()
             batch = factory / "batch-r01.jsonl"
-            nir.write_jsonl(batch, nir.generate_records())
+            nir.write_jsonl(batch, _fresh_nir_records())
             self.assertTrue(check_records.check_jsonl(batch, batch.name)[0])
             self.assertTrue(census.census_dir(root)["mill_mix"]["quarantined_records"])
 
@@ -70,7 +76,7 @@ class FactoryBinding(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             batch = root / "candidate.jsonl"
-            records = nir.generate_records()
+            records = _fresh_nir_records()
             nir.write_jsonl(batch, records)
             with mock.patch.object(round_txn, "committed_ids", side_effect=lambda _path: {}):
                 with self.assertRaises(round_txn.TransactionError):

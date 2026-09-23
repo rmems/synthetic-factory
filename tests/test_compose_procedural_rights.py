@@ -1,11 +1,11 @@
 """Reviewed, completed procedural sources must survive composition and export."""
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.code_repair_admission_test_support import build_generated_admission_evidence
 from tests.compose_curated_test_support import build_source_run
 from code_repair import publication
 from code_repair.publication_export import physical_completed_batch
@@ -44,15 +44,25 @@ def _transplant_procedural_proof(hosted, procedural):
 class CompletedProceduralRights(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        _, cls.generated, _, _ = build_generated_admission_evidence(cls)
+        from tests.procedural_gate_support import prepare_gate_template
+        prepare_gate_template(cls)
+        published = tempfile.TemporaryDirectory(prefix="procedural-published-")
+        cls.addClassCleanup(published.cleanup)
+        cls.published_run = Path(published.name) / "outputs/raw/2099-01-01"
+        factory = cls.published_run / "python-function-repair-factory"
+        factory.mkdir(parents=True)
+        publication.publish_run(publication.PublishRequest(cls.generated, factory, 1))
+
+    def _published_source(self, root):
+        source = root / "outputs/raw/2099-01-01"
+        source.parent.mkdir(parents=True)
+        shutil.copytree(self.published_run, source)
+        return source
 
     def test_completed_source_remains_training_ready_after_compose_and_export(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = root / "outputs/raw/2099-01-01"
-            factory = source / "python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
+            source = self._published_source(root)
             before = training_audit.audit_run(source)
             self.assertTrue(before["training_ready"], before["blockers"])
             curated = root / "curated"
@@ -68,7 +78,7 @@ class CompletedProceduralRights(unittest.TestCase):
         from tests.procedural_gate_support import ProceduralGateFixture
         from tests.gate_fixture import _captured_main
         with tempfile.TemporaryDirectory() as temp:
-            fixture = ProceduralGateFixture(temp, self.generated)
+            fixture = ProceduralGateFixture.copy_template(self.template, Path(temp))
             code, report, errors = _captured_main([
                 "integrate", "--plan", str(fixture.plan_path),
                 "--cleaned-out", str(fixture.cleaned),
@@ -87,7 +97,7 @@ class CompletedProceduralRights(unittest.TestCase):
         from tests.procedural_gate_support import ProceduralGateFixture
         import round_txn
         with tempfile.TemporaryDirectory() as temp:
-            fixture = ProceduralGateFixture(temp, self.generated)
+            fixture = ProceduralGateFixture.copy_template(self.template, Path(temp))
             self.assertEqual(fixture.integrate(), 0)
             markers = round_txn.marker_paths(
                 fixture.source_run / "python-function-repair-factory", 1,
@@ -103,7 +113,7 @@ class CompletedProceduralRights(unittest.TestCase):
     def _assert_gate_refuses_identity_change(self, section, field, value):
         from tests.procedural_gate_support import ProceduralGateFixture
         with tempfile.TemporaryDirectory() as temp:
-            fixture = ProceduralGateFixture(temp, self.generated)
+            fixture = ProceduralGateFixture.copy_template(self.template, Path(temp))
             manifest = fixture.manifest_paths[1]
             entries = json.loads(manifest.read_bytes())
             entry = next(item for item in entries if item["action"] == "retained")
@@ -114,10 +124,7 @@ class CompletedProceduralRights(unittest.TestCase):
     def test_outer_rights_verdict_rejects_integer_in_place_of_boolean(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = root / "outputs/raw/2099-01-01"
-            factory = source / "python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
+            source = self._published_source(root)
             curated = root / "curated"
             compose_curated.compose_run(compose_curated.ComposeRunContext(source, curated))
             manifest = curated / COMPOSE_MANIFEST
@@ -131,9 +138,7 @@ class CompletedProceduralRights(unittest.TestCase):
     def test_factory_root_compose_keeps_completed_procedural_records(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
+            factory = self._published_source(root) / "python-function-repair-factory"
             curated = root / "curated"
             summary = compose_curated.compose_run(
                 compose_curated.ComposeRunContext(factory, curated)
@@ -156,12 +161,10 @@ class CompletedProceduralRights(unittest.TestCase):
             compose_curated.compose_run(
                 compose_curated.ComposeRunContext(build_source_run(root / "hosted-source"), hosted)
             )
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            publication.publish_run(publication.PublishRequest(self.generated, factory, 1))
+            published = self._published_source(root)
             procedural = root / "procedural"
             compose_curated.compose_run(
-                compose_curated.ComposeRunContext(factory.parent, procedural)
+                compose_curated.ComposeRunContext(published, procedural)
             )
             _transplant_procedural_proof(hosted, procedural)
             blockers = training_audit_rights.collect_rights_blockers(hosted / "records")
