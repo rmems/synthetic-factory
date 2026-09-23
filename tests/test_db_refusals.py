@@ -13,7 +13,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from pipelines.db.cli import main  # noqa: E402
-from pipelines.db.episode import assert_clean, pair_for  # noqa: E402
+from pipelines.db.episode import assert_clean, build_episode, pair_for  # noqa: E402
 from pipelines.db.notes import emit_stage  # noqa: E402
 from pipelines.db.plant import make_plant  # noqa: E402
 from pipelines.db.sql import engine_cmd  # noqa: E402
@@ -55,6 +55,12 @@ class CodedRefusals(unittest.TestCase):
             assert_clean({"sim_or_real": "real"})
         with self.assertRaisesRegex(ValueError, "spike_events"):
             assert_clean({"spike_events": []})
+        with self.assertRaisesRegex(ValueError, "hidden-reasoning key"):
+            assert_clean({"Internal Reasoning Notes": "nope"})
+
+    def test_variant_stamped_goal_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "variant stamp in goal"):
+            build_episode(845, _plant(plant="fixture [Variant 2]"), 0)
 
     def test_pair_before_start_and_unknown_sql_engine_are_refused(self):
         with self.assertRaisesRegex(KeyError, "no plant pair for round 844"):

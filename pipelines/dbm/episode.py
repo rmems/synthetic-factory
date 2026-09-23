@@ -11,6 +11,23 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+if __name__.startswith("pipelines."):
+    from ..db_episode_scaffold import (
+        EpisodeAssembly,
+        assemble_episode,
+        bash as _bash,
+        step as _shared_step,
+        write as _write,
+    )
+else:
+    from db_episode_scaffold import (
+        EpisodeAssembly,
+        assemble_episode,
+        bash as _bash,
+        step as _shared_step,
+        write as _write,
+    )
+
 from ._contract import (
     BANNED_KEYS,
     COVERAGE_FLOOR,
@@ -78,18 +95,10 @@ def dumps_episode(episode: dict[str, Any]) -> str:
     return dumps_exact_json(episode, ensure_ascii=False, sort_keys=True)
 
 
-def _bash(command: str) -> dict[str, Any]:
-    return {"name": "bash", "args": {"command": command}}
-
-
-def _write(path: str, contents: str) -> dict[str, Any]:
-    return {"name": "write", "args": {"path": path, "contents": contents}}
-
-
 def _step(n: int, basis: str, tool: dict[str, Any], observation: str) -> dict[str, Any]:
     refuse_when(not basis.strip(), FINDING_GENERATE_SHAPE, f"step {n} empty decision_basis")
     refuse_when(not observation.strip(), FINDING_GENERATE_SHAPE, f"step {n} empty observation")
-    return {"n": n, "decision_basis": basis, "tool_call": tool, "observation": observation}
+    return _shared_step(n, basis, tool, observation)
 
 
 def _assert_clean(obj: Any, path: str = "") -> None:
@@ -282,26 +291,16 @@ def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str
         FINDING_GENERATE_SHAPE,
         f"{eid} expected {SUCCESS_STEPS} steps",
     )
-    episode = {
-        "id": eid,
-        "goal": goal,
-        "plan": plan,
-        "steps": steps,
-        "outcome": (
-            (
-                "Naive leftover leftover leftover apply failed. Plan change: "
-                f"expand {col_v2} + backfill. Tests 4/4. Residual: {res}."
-            )
+    episode = assemble_episode(EpisodeAssembly(
+        episode_id=eid,
+        goal=goal,
+        plan=plan,
+        steps=steps,
+        outcome=(
+            "Naive leftover leftover leftover apply failed. Plan change: "
+            f"expand {col_v2} + backfill. Tests 4/4. Residual: {res}."
         ),
-        "reward": {
-            "success": True,
-            "apply_fails": 2,
-            "plan_changes": 1,
-            "lock_timeouts": 1,
-            "tests_passed": 4,
-            "cost_steps": SUCCESS_STEPS,
-        },
-        "meta": {
+        meta={
             "factory": FACTORY,
             "round": round_n,
             "generator": GENERATOR,
@@ -310,7 +309,7 @@ def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str
             "sim_or_real": "designed",
             "surface": plant["surface"],
         },
-    }
+    ))
     _assert_clean(episode)
     refuse_when(
         contains_hidden_reasoning_key(episode),
