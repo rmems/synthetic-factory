@@ -116,7 +116,8 @@ class ExportOutput(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(
             out,
-            f"exported 5 rows from 5 positives ({{'held_out': 1, 'train': 4}}) "
+            f"exported 0 rows from 5 positives "
+            f"({{'train': 0, 'validation': 0, 'held_out': 0}}) "
             f"into {destination}; training export blocked: REGISTRY_ROW_MISSING, "
             "RIGHTS_PROFILE_MISSING, RECORD_KIND_UNSUPPORTED, REPLAY_NOT_RUN, "
             "ROUND_NOT_PUBLISHED\n",

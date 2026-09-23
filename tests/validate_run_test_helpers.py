@@ -14,11 +14,16 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
 VALIDATE = PIPELINES / "validate_run.py"
 
-if str(PIPELINES) not in sys.path:
-    sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+import validate_run  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 # Minimal record that passes the thalamic shape check (required keys + decision).
 # Includes strict fields: meta.round and valid provenance/state.
@@ -68,11 +73,21 @@ def _invoke_module(*args):
     )
 
 
+def _invoke_inprocess(*args):
+    """Run ``validate_run.main`` in-process, mirroring ``_invoke``'s result.
+
+    Tests that only assert the exit code and stdout/stderr text do not need a
+    fresh interpreter; the process-boundary coverage stays with the
+    subprocess ``_invoke``/``_invoke_module`` helpers.
+    """
+    return main_in_process(validate_run.main, args)
+
+
 def _run_with_record(record):
     """Helper: write single record to temp dir and invoke validator."""
     with tempfile.TemporaryDirectory() as raw:
         run_dir = Path(raw) / "run"
         run_dir.mkdir()
         (run_dir / "case.jsonl").write_text(json.dumps(record) + "\n")
-        result = _invoke(str(run_dir))
+        result = _invoke_inprocess(str(run_dir))
         return result

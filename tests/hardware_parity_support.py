@@ -6,10 +6,11 @@ responsibility (generation, validation gates, captured-evidence provenance)
 and share the committed parity-run fixture and the CLI shim from here.
 """
 
+import collections
+import contextlib
 import copy
+import io
 import json
-# Required only for the fixed-argv CLI subprocess in `cli` below.
-import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,8 @@ sys.path.insert(0, str(PIPELINES))
 
 WHERE = "unit:1"
 
+CliResult = collections.namedtuple("CliResult", ("returncode", "stdout", "stderr"))
+
 
 def fixture_records():
     return [
@@ -40,18 +43,20 @@ def fixture_records():
     ]
 
 
-def cli(args):
-    # argv is this interpreter and the repo's own CLI path; `args` are the
-    # literal flags the calling test wrote, never input from outside the
-    # test, and no shell is enabled.
-    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-        [sys.executable, str(PIPELINES / "hardware_parity.py"), *args],
-        capture_output=True,
-        text=True,
-    )
-
 import hardware_parity as hp  # noqa: E402
+import hardware_parity_cli  # noqa: E402
 import neuro_oracle as oracle  # noqa: E402
+
+
+def cli(args):
+    """Drive the hardware-parity CLI in-process; return its code and streams."""
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            code = hardware_parity_cli.main(list(args))
+        except SystemExit as exc:  # argparse reports usage errors via sys.exit
+            code = exc.code if isinstance(exc.code, int) else 2
+    return CliResult(code, stdout.getvalue(), stderr.getvalue())
 
 CAPTURE_MUTATIONS = (
     "bitstream_sha256",

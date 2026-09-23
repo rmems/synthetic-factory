@@ -14,15 +14,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 COMMITTED = REPO / "config" / "crp"
 PACKAGE = PIPELINES / "crp"
 sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from crp import catalog as leftover3  # noqa: E402
-from crp import cli, generate, r432  # noqa: E402
+from crp import cli, generate, r432, r538  # noqa: E402
 from crp._contract import (  # noqa: E402
     FINDING_AST_NOT_A_PLANT,
     FINDING_DESTINATION_EXISTS,
@@ -33,6 +35,7 @@ from crp._contract import (  # noqa: E402
 )
 from mill_family import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 from record_kind import classify_kind  # noqa: E402
+from crp_test_support import PACKAGE_PY, package_py_names, vendored_mill_script_hits  # noqa: E402
 
 
 def invoke(argv):
@@ -43,6 +46,17 @@ def invoke(argv):
 
 
 class CatalogPins(unittest.TestCase):
+    def test_patched_default_directory_is_live_and_isolated_per_wave(self):
+        root = Path(tempfile.mkdtemp(prefix="crp-r432-default-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        shutil.copytree(COMMITTED, root / "catalog")
+        r538_default = r538.default_catalog_dir()
+
+        with mock.patch.object(r432, "DEFAULT_CATALOG_DIR", root / "catalog"):
+            self.assertEqual(len(r432.load_catalog().plants), r432.EXPECTED_PLANTS)
+            self.assertEqual(r538.default_catalog_dir(), r538_default)
+            self.assertNotEqual(r432.default_catalog_dir(), r538.default_catalog_dir())
+
     def test_committed_jsonl_is_compact_and_pinned(self):
         payload = (COMMITTED / "plants.jsonl").read_bytes()
         text = payload.decode("utf-8")
@@ -125,29 +139,8 @@ class AstExtract(unittest.TestCase):
         self.assertFalse(r432_slugs & {plant.slug for plant in prior})
 
     def test_package_tree_has_no_vendored_mill_scripts(self):
-        hits = list(PACKAGE.rglob("crp-mill*.py"))
-        hits.extend(PACKAGE.rglob("crp-loop*.py"))
-        hits.extend(PACKAGE.rglob("_gen_crp*.py"))
-        hits.extend(COMMITTED.rglob("*mill*.py"))
-        hits.extend(COMMITTED.rglob("*loop*.py"))
-        self.assertEqual(hits, [])
-        names = tuple(sorted(path.name for path in PACKAGE.glob("*.py")))
-        self.assertEqual(
-            names,
-            (
-                "__init__.py",
-                "_contract.py",
-                "catalog.py",
-                "cli.py",
-                "generate.py",
-                "leftover3_prior.py",
-                "r432.py",
-                "r538.py",
-                "r729.py",
-                "r817.py",
-                "r995.py",
-            ),
-        )
+        self.assertEqual(vendored_mill_script_hits(), [])
+        self.assertEqual(package_py_names(), PACKAGE_PY)
 
     def test_package_has_no_exec_eval_compile(self):
         for path in PACKAGE.glob("*.py"):

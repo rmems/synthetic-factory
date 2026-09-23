@@ -63,20 +63,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
 
 
 def _catalog_check(args: argparse.Namespace) -> int:
-    if args.wave == "r432":
-        report = r432_cat.catalog_check()
-    elif args.wave == "r538":
-        report = r538_cat.catalog_check()
-    elif args.wave == "r729":
-        report = r729_cat.catalog_check()
-    elif args.wave == "leftover3-prior":
-        report = leftover3_prior_cat.catalog_check()
-    elif args.wave == "r817":
-        report = r817_cat.catalog_check()
-    elif args.wave == "r995":
-        report = r995_cat.catalog_check()
-    else:
-        report = cat.catalog_check()
+    report = _CATALOG_CHECKS[args.wave]()
     text = (
         f"catalog-check ok: {report['plants']} plants "
         f"({report['triples']} triples, {report['nouns']} nouns) "
@@ -97,6 +84,16 @@ def _generate(args: argparse.Namespace) -> int:
 
 
 _COMMANDS = {"catalog-check": _catalog_check, "generate": _generate}
+
+_CATALOG_CHECKS = {
+    "leftover3": cat.catalog_check,
+    "leftover3-prior": leftover3_prior_cat.catalog_check,
+    "r432": r432_cat.catalog_check,
+    "r538": r538_cat.catalog_check,
+    "r729": r729_cat.catalog_check,
+    "r817": r817_cat.catalog_check,
+    "r995": r995_cat.catalog_check,
+}
 
 
 def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:

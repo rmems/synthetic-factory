@@ -1,0 +1,140 @@
+# Mergify configuration for rmems/synthetic-factory
+#
+# Landing policy (AGENTS.md): "Squash-merge only when CI is green and every
+# review comment has been dealt with."
+#
+# Why this file exists. Until now the repository had no Mergify config, so the
+# queue ran on defaults. On #298 that produced:
+#   * a two-parent merge commit instead of a squash, and
+#   * `action.queue.checks_end=pending` immediately followed by
+#     `action.queue.leave=merged` -- it merged while the checks were still
+#     pending, and main went red on SonarCloud afterwards.
+#
+# Three deliberate choices:
+#
+#   1. merge_method: squash -- one commit per PR on main, never a merge commit.
+#
+#   2. merge_conditions on the real gates -- a pending check no longer satisfies
+#      the queue. Nothing merges until unit tests, operator smoke and patch
+#      coverage have actually reported success.
+#
+#   3. Merging is opt-in, never automatic. `rmems` is the only account with push
+#      access and GitHub forbids approving your own pull request, so every
+#      APPROVED state in this repository comes from a bot (codescene-access
+#      auto-approves; coderabbitai approves). An `#approved-reviews-by>=1`
+#      condition would therefore either deadlock every merge or rubber-stamp it,
+#      so approvals are not used as a gate. Instead a pull request enters the
+#      queue only when the owner asks for it, by applying the `queue` label or
+#      commenting `@mergify queue`. Either way the merge_conditions below still
+#      have to pass.
+#
+# Gate policy: every configured CI and quality gate must pass on the head
+# being merged. Neutral/skipped informational reviewers are not success gates.
+# Owner opt-in and resolved reviews are required in addition to green CI.
+
+queue_rules:
+  - name: default
+    # Entry is cheap, merging is not: keep entry permissive and gate the merge.
+    queue_conditions:
+      - base=main
+      - -draft
+      - -conflict
+      # A mill-labelled pull request must take the mill queue even if someone
+      # also left the general queue label on it.
+      - -label=queue-mill
+    merge_conditions:
+      # Explicit success conditions also wait for asynchronously posted checks.
+      - check-success=@github-actions/unittest (Python 3.14)
+      - check-success=@github-actions/operator smoke + fixture census
+      - check-success=codecov/patch
+      # The action summary may be neutral; the workflow job is the CI gate.
+      - check-success=@github-actions/qodana
+      - check-success=Codacy Static Code Analysis
+      - check-success=CodeScene Code Health Review (main)
+      - check-success=qlty check
+      - check-success=qlty fmt
+      - check-success=CodeRabbit
+      - check-success=@sonarqubecloud/SonarCloud Code Analysis
+      # The raw-release workflow is path-filtered, so require its check only
+      # when this pull request changes one of its watched paths.
+      - or:
+          - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
+          - check-success=@github-actions/verify five public datasets
+      # Nothing outstanding from a reviewer, including inline threads.
+      - "#review-requested=0"
+      - "#changes-requested-reviews-by=0"
+      - "#review-threads-unresolved=0"
+    merge_method: squash
+    # Update the branch to main before the queue evaluates it, so the checks
+    # that gate the merge ran against what main is about to become. `merge`
+    # rather than `rebase`: AGENTS.md forbids rewriting published commits on the
+    # large stacks.
+    update_method: merge
+
+  # Keep the existing mill routing label; both queues enforce all quality gates.
+  - name: mill
+    queue_conditions:
+      - base=main
+      - -draft
+      - -conflict
+      - label=queue-mill
+    merge_conditions:
+      - check-success=@github-actions/unittest (Python 3.14)
+      - check-success=@github-actions/operator smoke + fixture census
+      - check-success=codecov/patch
+      # The action summary may be neutral; the workflow job is the CI gate.
+      - check-success=@github-actions/qodana
+      - check-success=Codacy Static Code Analysis
+      - check-success=CodeScene Code Health Review (main)
+      - check-success=qlty check
+      - check-success=qlty fmt
+      - check-success=CodeRabbit
+      - check-success=@sonarqubecloud/SonarCloud Code Analysis
+      - or:
+          - -files~=(^\.github/workflows/hf-release-verify\.yml$|^pipelines/verify_hf_release\.py$|^tests/test_verify_hf_release\.py$|^docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design\.md$)
+          - check-success=@github-actions/verify five public datasets
+      - "#review-requested=0"
+      - "#changes-requested-reviews-by=0"
+      - "#review-threads-unresolved=0"
+    merge_method: squash
+    update_method: merge
+
+pull_request_rules:
+  - name: queue when the owner applies the queue label
+    conditions:
+      - base=main
+      - -draft
+      - -closed
+      - -conflict
+      - label=queue
+      - -label=queue-mill
+    actions:
+      queue:
+        name: default
+
+  - name: queue mill pull requests with the duplication gate
+    conditions:
+      - base=main
+      - -draft
+      - -closed
+      - -conflict
+      - label=queue-mill
+    actions:
+      queue:
+        name: mill
+
+  - name: explain why a labelled pull request cannot be queued
+    conditions:
+      - base=main
+      - -closed
+      - conflict
+      - or:
+          - label=queue
+          - label=queue-mill
+    actions:
+      comment:
+        message: |
+          This pull request conflicts with `main`, so it cannot enter the merge
+          queue. Merge `main` into the branch and push — do not rebase if this
+          branch is part of a stack. The queue picks it up once the conflict is
+          gone and the hard gates report success.
