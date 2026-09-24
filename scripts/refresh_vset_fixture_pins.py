@@ -123,6 +123,7 @@ def _refreshed() -> dict[Path, str]:
         for path in sorted(directory.glob("*.json")):
             record = _read(path)
             _pin_record(record, digest)
+            _pin_release(record.get("release"), pin)
             wanted[path] = _serialize(record)
     manifest = _read(MANIFEST)
     _pin_manifest(manifest, digest, pin)
