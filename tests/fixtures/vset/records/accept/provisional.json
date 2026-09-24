@@ -41,7 +41,7 @@
     "repo_pack_id": "vset-counter-v1"
   },
   "release": {
-    "factory_contract_version": "factory-registry-v0.3",
+    "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:6a5b7a01801c44547fdc7ee765302ddb47bf3de69ae7e6e3fa44e2e0f1d1838c"
   },

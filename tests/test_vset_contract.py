@@ -125,7 +125,7 @@ class ActorProvenanceContractTests(unittest.TestCase):
 
     def test_registry_version_is_the_reviewed_factory_table(self):
         pin = vset.registry_pin()
-        self.assertEqual(pin["schema_version"], "factory-registry-v0.3")
+        self.assertEqual(pin["schema_version"], "factory-registry-v0.4")
         record = _load(ACCEPT / "issue-patch-validated.json")
         self.assertEqual(
             record["release"]["factory_contract_version"], pin["schema_version"]
