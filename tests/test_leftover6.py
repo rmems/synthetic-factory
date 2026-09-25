@@ -69,7 +69,7 @@ def _legacy_available() -> bool:
         return False
     try:
         for commit in {mill.preserve_commit for mill in CATALOG.catalogs}:
-            subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
+            subprocess.check_output(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
                 [str(GIT), "cat-file", "-e", f"{commit}^{{commit}}"],
                 cwd=ROOT,
                 stderr=subprocess.DEVNULL,
@@ -80,7 +80,7 @@ def _legacy_available() -> bool:
 
 
 def _git_show(commit: str, path: str) -> str:
-    return subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
+    return subprocess.check_output(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
         [str(GIT), "show", f"{commit}:{path}"], text=True, cwd=ROOT
     )
 

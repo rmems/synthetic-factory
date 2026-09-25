@@ -40,7 +40,7 @@ def module_constants(source: str, *, path: str) -> dict[str, Any]:
 
 def source_payload(source: str, *, path: str) -> bytes:
     """Bind parsing and hashing to text whose encoding cannot be overridden."""
-    if type(source) is not str or type(path) is not str:
+    if type(source) is not str or type(path) is not str:  # pylint: disable=unidiomatic-typecheck
         raise ValueError("catalog source and path must be plain strings")
     return source.encode("utf-8")
 

@@ -83,9 +83,10 @@ def extract_source(source: str, *, path: str, blob_sha: str = "") -> dict[str, A
 
 def _require_blob_identity(payload: bytes, blob_sha: str) -> None:
     # Git scalar identity must not delegate equality to caller-defined objects.
-    if type(blob_sha) is not str:
+    if type(blob_sha) is not str:  # pylint: disable=unidiomatic-typecheck
         raise ValueError("supplied blob SHA must be a plain string")
     framed = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- Git blob object identity, not a security digest.
     expected = hashlib.sha1(framed, usedforsecurity=False).hexdigest()
     if blob_sha not in ("", expected):
         raise ValueError("supplied blob SHA does not identify the exact source bytes")

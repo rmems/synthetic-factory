@@ -122,8 +122,10 @@ class LiteralCatalogExtract(unittest.TestCase):
     def test_supplied_blob_identity_must_match_exact_utf8_source(self):
         source = SSL_SOURCE + '\n# caf\u00e9\n'
         payload = source.encode('utf-8')
-        blob = hashlib.sha1(b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
-                            usedforsecurity=False).hexdigest()
+        blob = hashlib.sha1(  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- mirrors Git blob object identity in the fixture.
+            b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
+            usedforsecurity=False,
+        ).hexdigest()
         self.assertEqual(extract_source(source, path=SSL_PATH, blob_sha=blob)['blob_sha'], blob)
         self.assertEqual(extract_source(source, path=SSL_PATH)['blob_sha'], '')
         self.assertEqual(extract_source(source, path=SSL_PATH, blob_sha='')['blob_sha'], '')
