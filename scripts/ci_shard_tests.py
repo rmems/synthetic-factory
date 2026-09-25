@@ -59,7 +59,7 @@ def run_selected_modules(
             if coverage:
                 import coverage as coverage_mod
 
-                cov = coverage_mod.Coverage(parallel=True)
+                cov = coverage_mod.Coverage(data_suffix=True)
                 cov.start()
             try:
                 loader = unittest.TestLoader()

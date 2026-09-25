@@ -6,6 +6,7 @@ import contextlib
 import os
 import runpy
 import sys
+import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -84,10 +85,42 @@ class CiShardTests(unittest.TestCase):
             )
 
         self.assertEqual(result, 0)
-        coverage_mod.Coverage.assert_called_once_with(parallel=True)
+        coverage_mod.Coverage.assert_called_once_with(data_suffix=True)
         coverage_mod.Coverage.return_value.start.assert_called_once()
         coverage_mod.Coverage.return_value.stop.assert_called_once()
         coverage_mod.Coverage.return_value.save.assert_called_once()
+
+    def test_run_selected_modules_with_coverage_writes_parallel_data_files(self):
+        coverage = __import__("coverage")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tests_dir = root / "tests"
+            tests_dir.mkdir()
+            (tests_dir / "test_tiny.py").write_text(
+                "import unittest\n\n"
+                "class Tiny(unittest.TestCase):\n"
+                "    def test_ok(self):\n"
+                "        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            (root / ".coveragerc").write_text(
+                "[run]\nbranch = True\nsource = tests\n",
+                encoding="utf-8",
+            )
+
+            result = ci_shard_tests.run_selected_modules(
+                ["test_tiny"], coverage=True, root=root
+            )
+
+            self.assertEqual(result, 0)
+            data_files = sorted(root.glob(".coverage*"))
+            self.assertTrue(data_files)
+            self.assertTrue(
+                any(path.name != ".coverage" for path in data_files),
+                msg=f"expected suffixed parallel data files, got {data_files}",
+            )
+            configured = coverage.Coverage(config_file=str(root / ".coveragerc"))
+            self.assertTrue(configured.get_option("run:branch"))
 
     def test_run_selected_modules_invokes_buffered_unittest(self):
         fake_result = mock.Mock(wasSuccessful=mock.Mock(return_value=True))
