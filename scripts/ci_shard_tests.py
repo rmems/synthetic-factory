@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
-import subprocess
 import sys
+import unittest
 from pathlib import Path
+from typing import Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,6 +21,58 @@ def discover_modules(root: Path = ROOT) -> list[str]:
 def shard_modules(modules: list[str], shard: int, shards: int) -> list[str]:
     """Select one deterministic round-robin shard from ``modules``."""
     return [module for index, module in enumerate(modules) if index % shards == shard]
+
+
+@contextlib.contextmanager
+def _tests_import_path(root: Path = ROOT) -> Iterator[None]:
+    """Prepend ``tests/`` to ``sys.path`` and ``PYTHONPATH`` for the shard run."""
+    tests_entry = str(root / "tests")
+    prior_path = sys.path.copy()
+    prior_pythonpath = os.environ.get("PYTHONPATH")
+    sys.path.insert(0, tests_entry)
+    if prior_pythonpath:
+        os.environ["PYTHONPATH"] = tests_entry + os.pathsep + prior_pythonpath
+    else:
+        os.environ["PYTHONPATH"] = tests_entry
+    try:
+        yield
+    finally:
+        sys.path[:] = prior_path
+        if prior_pythonpath is None:
+            os.environ.pop("PYTHONPATH", None)
+        else:
+            os.environ["PYTHONPATH"] = prior_pythonpath
+
+
+def run_selected_modules(
+    modules: list[str],
+    *,
+    coverage: bool,
+    root: Path = ROOT,
+) -> int:
+    """Run ``modules`` like ``python -m unittest -b`` with ``tests/`` on the path."""
+    prior_cwd = Path.cwd()
+    os.chdir(root)
+    try:
+        with _tests_import_path(root):
+            cov = None
+            if coverage:
+                import coverage as coverage_mod
+
+                cov = coverage_mod.Coverage(parallel=True)
+                cov.start()
+            try:
+                loader = unittest.TestLoader()
+                suite = loader.loadTestsFromNames(modules)
+                runner = unittest.TextTestRunner(buffer=True)
+                result = runner.run(suite)
+                return 0 if result.wasSuccessful() else 1
+            finally:
+                if cov is not None:
+                    cov.stop()
+                    cov.save()
+    finally:
+        os.chdir(prior_cwd)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -42,16 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(chosen))
         return 0
 
-    environment = os.environ.copy()
-    existing_pythonpath = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = str(ROOT / "tests")
-    if existing_pythonpath:
-        environment["PYTHONPATH"] += os.pathsep + existing_pythonpath
-    command = [str(Path(sys.executable).resolve())]
-    if args.coverage:
-        command.extend(["-m", "coverage", "run", "-p"])
-    command.extend(["-m", "unittest", "-b", *chosen])
-    return subprocess.run(command, cwd=ROOT, env=environment, check=False).returncode
+    return run_selected_modules(chosen, coverage=args.coverage)
 
 
 if __name__ == "__main__":

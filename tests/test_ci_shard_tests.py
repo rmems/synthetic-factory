@@ -44,29 +44,39 @@ class CiShardTests(unittest.TestCase):
         self.assertTrue(all(name.startswith("test_") for name in listed))
 
     def test_run_uses_discover_environment(self):
-        completed = mock.Mock(returncode=7)
+        captured: dict[str, object] = {}
+        fake_result = mock.Mock(wasSuccessful=mock.Mock(return_value=False))
+
+        def capture_run(_self, _suite):
+            captured["pythonpath"] = os.environ.get("PYTHONPATH")
+            captured["cwd"] = Path.cwd()
+            return fake_result
+
         with (
-            mock.patch.object(ci_shard_tests.subprocess, "run", return_value=completed) as run,
+            mock.patch.object(unittest.TextTestRunner, "run", capture_run),
+            mock.patch.object(
+                unittest.TestLoader, "loadTestsFromNames", return_value=mock.Mock()
+            ),
             mock.patch.dict(os.environ, {"PYTHONPATH": "existing"}, clear=True),
         ):
             result = ci_shard_tests.main(["--shard", "0", "--shards", "4"])
 
-        self.assertEqual(result, 7)
-        command = run.call_args.args[0]
-        self.assertEqual(command[0], str(Path(sys.executable).resolve()))
-        self.assertEqual(command[1:4], ["-m", "unittest", "-b"])
-        self.assertEqual(run.call_args.kwargs["cwd"], ci_shard_tests.ROOT)
+        self.assertEqual(result, 1)
         self.assertEqual(
-            run.call_args.kwargs["env"]["PYTHONPATH"],
+            captured["pythonpath"],
             f"{REPO / 'tests'}{os.pathsep}existing",
         )
+        self.assertEqual(captured["cwd"], REPO)
 
     def test_run_can_enable_parallel_coverage(self):
-        completed = mock.Mock(returncode=0)
+        fake_result = mock.Mock(wasSuccessful=mock.Mock(return_value=True))
+        coverage_mod = mock.MagicMock()
         with (
+            mock.patch.dict(sys.modules, {"coverage": coverage_mod}),
+            mock.patch.object(unittest.TextTestRunner, "run", return_value=fake_result),
             mock.patch.object(
-                ci_shard_tests.subprocess, "run", return_value=completed
-            ) as run,
+                unittest.TestLoader, "loadTestsFromNames", return_value=mock.Mock()
+            ),
             mock.patch.dict(os.environ, {}, clear=True),
         ):
             result = ci_shard_tests.main(
@@ -74,9 +84,26 @@ class CiShardTests(unittest.TestCase):
             )
 
         self.assertEqual(result, 0)
-        command = run.call_args.args[0]
-        self.assertEqual(command[1:7], ["-m", "coverage", "run", "-p", "-m", "unittest"])
-        self.assertEqual(run.call_args.kwargs["env"]["PYTHONPATH"], str(REPO / "tests"))
+        coverage_mod.Coverage.assert_called_once_with(parallel=True)
+        coverage_mod.Coverage.return_value.start.assert_called_once()
+        coverage_mod.Coverage.return_value.stop.assert_called_once()
+        coverage_mod.Coverage.return_value.save.assert_called_once()
+
+    def test_run_selected_modules_invokes_buffered_unittest(self):
+        fake_result = mock.Mock(wasSuccessful=mock.Mock(return_value=True))
+        with (
+            mock.patch.object(unittest, "TextTestRunner") as runner_cls,
+            mock.patch.object(unittest.TestLoader, "loadTestsFromNames", return_value=mock.Mock()),
+            mock.patch.dict(os.environ, {}, clear=True),
+        ):
+            runner_cls.return_value.run.return_value = fake_result
+            result = ci_shard_tests.run_selected_modules(
+                ["test_ci_shard_tests"], coverage=False
+            )
+
+        self.assertEqual(result, 0)
+        runner_cls.assert_called_once_with(buffer=True)
+        runner_cls.return_value.run.assert_called_once()
 
     def test_invalid_shard_arguments_are_rejected(self):
         with self.assertRaises(SystemExit) as raised:
