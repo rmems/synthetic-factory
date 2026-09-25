@@ -29,8 +29,7 @@ record iteration (``curate_gate_records``), the final-output bindings
 manifest (``curate_gate_gates``) live in siblings. Every name they own is
 re-exported here, so an existing ``curate_gate.X`` call site resolves
 unchanged. What stays here is the command line: the ``integrate`` and
-``promote`` subcommands, the repository roots they redirect, and the two
-validator script paths they hand to ``run_gates``.
+``promote`` subcommands and the repository roots they redirect.
 
 Composition order and evidence
 ------------------------------
@@ -219,8 +218,6 @@ GateError = _contract.GateError
 # The one label every cleaned-destination refusal and publication shares.
 _CLEANED_LABEL = "cleaned destination"
 
-VALIDATOR = _PIPELINES / "validate_run.py"
-CHECKER = _PIPELINES / "check_records.py"
 RAW_OUTPUT_ROOT = (_REPO / "outputs" / "raw").resolve()
 
 
@@ -378,7 +375,6 @@ _run_tool = _gates._run_tool
 _findings = _gates._findings
 _corpus_counts = _gates._corpus_counts
 GateInputs = _gates.GateInputs
-GateTools = _gates.GateTools
 ManifestInputs = _gates.ManifestInputs
 ManifestEvidence = _gates.ManifestEvidence
 build_manifest = _gates.build_manifest
@@ -396,7 +392,6 @@ def run_gates(
     return _gates.run_gates(
         cleaned,
         inputs=GateInputs(record_bindings, prepared_lanes, lane_manifests),
-        tools=GateTools(VALIDATOR, CHECKER),
     )
 
 

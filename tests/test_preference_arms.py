@@ -4,6 +4,7 @@
 import copy
 import tempfile
 import unittest
+from training_audit_test_helpers import assert_research_only
 from pathlib import Path
 
 from preference_arms_support import (  # noqa: E402
@@ -178,7 +179,7 @@ class TwoSessionRoundClearsTheGate(unittest.TestCase):
         self.assertEqual(report["preferences"]["pairs"], 3)
         self.assertEqual(report["preferences"]["same_context"], 3)
         self.assertEqual(report["preferences"]["context_purity_pct"], 100.0)
-        self.assertEqual(report["blockers"], [])
+        assert_research_only(self, report)
 
     def test_tighter_floor_is_honored(self):
         # The committed round scores 0.93-0.95 now that each observable path

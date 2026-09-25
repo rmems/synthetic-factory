@@ -193,11 +193,18 @@ def _factory_report(factories):
 
 
 def _identity_report(state, eligible_records):
+    eligible_records += (
+        state["totals"].get("observed_parity_records", 0)
+        + state["totals"].get("research_only_records", 0)
+    )
+    identity_records = eligible_records + sum(
+        state[kind].get("evidence_only_records", 0) for kind in ("oracle", "code_repair")
+    )
     return {
         "top_level_id_records": state["root_id_records"],
         "unique_top_level_ids": len(state["root_ids"]),
         "coverage_pct": (
-            round(100 * state["root_id_records"] / eligible_records, 1) if eligible_records else 0
+            round(100 * state["root_id_records"] / identity_records, 1) if identity_records else 0
         ),
         "legacy_meta_fallback_records": (state["canonical_id_records"] - state["root_id_records"]),
         "missing_top_level": len(state["missing_root_ids"]),
@@ -260,7 +267,7 @@ def _tag_report(tags):
 
 def _report_blockers(state, eligible_records, provenance_total):
     provenance = state["provenance"]
-    return build_blockers(
+    blockers = build_blockers(
         record_errors=state["record_errors"],
         eligible_records=eligible_records,
         quarantined_records=state["totals"]["quarantined"],
@@ -274,6 +281,58 @@ def _report_blockers(state, eligible_records, provenance_total):
         exact_duplicates=state["exact_duplicates"],
         episodes=state["episodes"],
     )
+
+    if state["totals"].get("parity_research_records", 0):
+        blockers.append("frontier-session parity observations are research-only; training policy is never")
+    if state["totals"].get("research_only_records", 0):
+        blockers.append("research-only records have blocked project policy or training_ready_policy never")
+    return blockers
+
+
+def _procedural_report(counts, reasons, keys):
+    return {
+        **{key: counts[key] for key in keys},
+        "ineligibility_reasons": dict(sorted(reasons.items())),
+    }
+
+
+def _add_code_repair_report(report, state):
+    counts = state.get("code_repair")
+    if not counts:
+        return
+    report["code_repair"] = {
+        **_procedural_report(counts, state["code_repair_reasons"], (
+            "records", "eligible_records", "evidence_only_records", "invalid_records",
+            "completed_records",
+        )),
+        "validation_scope": "pure_inspection",
+        "fresh_publication_gate_required": True,
+    }
+    if counts["completed_records"] != counts["records"]:
+        report["blockers"].append("code_repair requires fresh replay and round completion gate")
+        report["training_ready"] = False
+
+
+def _add_oracle_report(report, state):
+    counts = state.get("oracle")
+    if not counts:
+        return
+    report["oracle"] = {
+        **_procedural_report(counts, state["oracle_reasons"], (
+            "records", "eligible_records", "evidence_only_records", "invalid_records",
+        )),
+        "validation_scope": "reference_replay_runtime_receipt_required",
+    }
+    messages = (
+        ("invalid_records", "oracle records failed validation and are not admissible"),
+        # Export copies every curated row without filtering, so retained
+        # evidence-only measurements must block publication.
+        ("evidence_only_records", "oracle records are ineligible and must not be exported"),
+    )
+    for key, message in messages:
+        if counts[key]:
+            report["blockers"].append(message)
+            report["training_ready"] = False
 
 
 def build_report(**state):
@@ -291,12 +350,15 @@ def build_report(**state):
         provenance_report["expected_states"],
     )
     gates, gate_errors = _gate_report(state)
-    return {
+    report = {
         "run_dir": str(state["run_dir"]),
         "totals": {
             "files": totals["files"],
             "records": totals["records"],
             "eligible_records": eligible_records,
+            "parity_research_records": totals["parity_research_records"],
+            "research_only_records": totals["research_only_records"],
+            "invalid_parity_records": totals["invalid_parity_records"],
             "exact_json_contract_errors": totals["exact_json_contract_errors"],
             "bytes": totals["bytes"],
             "approx_tokens": totals["approx_tokens"],
@@ -327,6 +389,10 @@ def build_report(**state):
         "blockers": blockers,
         "training_ready": not blockers,
     }
+
+    _add_code_repair_report(report, state)
+    _add_oracle_report(report, state)
+    return report
 
 
 def _corpus_observation_lines(report):

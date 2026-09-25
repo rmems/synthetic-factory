@@ -22,6 +22,7 @@ else:
 CANONICAL_PROVIDERS = _rights_mapping.CANONICAL_PROVIDERS
 CHANNELS = _rights_mapping.CHANNELS
 HOSTED_FRONTIER_PROFILE_ID = _rights_mapping.HOSTED_FRONTIER_PROFILE_ID
+HOSTED_FRONTIER_PROVIDERS = _rights_mapping.HOSTED_FRONTIER_PROVIDERS
 REQUIRED_PROFILE_IDS = _rights_mapping.REQUIRED_PROFILE_IDS
 UNKNOWN_PROVENANCE_PROFILE_ID = _rights_mapping.UNKNOWN_PROVENANCE_PROFILE_ID
 is_exact_string = _rights_mapping.is_exact_string
@@ -164,7 +165,11 @@ def _require_exact_providers(coverage: _RuleCoverage, where: str) -> None:
 
 
 def _require_hosted_providers(coverage: _RuleCoverage, where: str) -> None:
-    if coverage.hosted_providers != set(CANONICAL_PROVIDERS):
+    # Procedural, simulator, and Nemotron placeholder routes authorize through
+    # dedicated profiles; every other canonical provider must appear on a
+    # hosted-frontier rule (including open-weight cloud vendors blocked there).
+    expected_hosted = set(HOSTED_FRONTIER_PROVIDERS)
+    if coverage.hosted_providers != expected_hosted:
         raise policy_error(where, "hosted rules do not provide canonical provider coverage")
 
 
@@ -201,6 +206,24 @@ def _require_fallback_coverage(coverage: _RuleCoverage, where: str) -> None:
         )
 
 
+_REVIEWED_PROFILE_ROUTES = {
+    _rights_mapping.PROCEDURAL_PROFILE_ID: frozenset({("procedural", "local")}),
+    _rights_mapping.SIMULATOR_PROFILE_ID: frozenset({("simulator", "local")}),
+    _rights_mapping.DEEPSEEK_PLACEHOLDER_PROFILE_ID: frozenset({("deepseek", "api"), ("deepseek", "local")}),
+    _rights_mapping.NEMOTRON_PLACEHOLDER_PROFILE_ID: frozenset({("nemotron", "api"), ("nemotron", "local")}),
+}
+
+
+def _profile_routes(coverage: _RuleCoverage, profile_id: str) -> set[tuple[str, str]]:
+    return {(provider, channel) for provider, channel, profile in coverage.combinations if profile == profile_id}
+
+
+def _require_reviewed_profile_routes(coverage: _RuleCoverage, where: str) -> None:
+    for profile_id, expected in _REVIEWED_PROFILE_ROUTES.items():
+        if _profile_routes(coverage, profile_id) != expected:
+            raise policy_error(where, f"profile {profile_id!r} must keep exact reviewed provider/channel routes")
+
+
 def _require_rule_coverage(
     coverage: _RuleCoverage,
     reason_ids: frozenset[str],
@@ -211,6 +234,7 @@ def _require_rule_coverage(
     _require_profile_paths(coverage, where)
     _require_reason_coverage(coverage, reason_ids, where)
     _require_fallback_coverage(coverage, where)
+    _require_reviewed_profile_routes(coverage, where)
 
 
 def _validate_rules(

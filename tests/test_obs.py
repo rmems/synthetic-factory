@@ -27,6 +27,7 @@ from mill_family import REVIEWED_MILL_PREFIX_HOMES, mill_prefix  # noqa: E402
 from obs import catalog, cli, generate  # noqa: E402
 from obs._contract import (  # noqa: E402
     FACTORY,
+    FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
@@ -106,6 +107,29 @@ class CatalogPins(unittest.TestCase):
         with self.assertRaises(ObsRefusal) as caught:
             loaded.plant("obs_r0002:missing")
         self.assertEqual(caught.exception.code, FINDING_PLANT_NOT_FOUND)
+
+    def test_read_jsonl_invalid_utf8_is_coded_refusal(self):
+        with self.assertRaises(ObsRefusal) as caught:
+            catalog._read_jsonl(b"\xff\xfe\xfd", "test.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+        self.assertIn("is not valid UTF-8", str(caught.exception))
+
+    def test_read_jsonl_framing_and_validation_refusals(self):
+        with self.assertRaises(ObsRefusal) as caught:
+            catalog._read_jsonl(b'{"key": 1}\r\n', "test.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(ObsRefusal) as caught:
+            catalog._read_jsonl(b'{"key": 1}', "test.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(ObsRefusal) as caught:
+            catalog._read_jsonl(b'{"key": 1}\n\n', "test.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+
+        with self.assertRaises(ObsRefusal) as caught:
+            catalog._read_jsonl(b"not json\n", "test.jsonl")
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
 
 
 class AstExtract(unittest.TestCase):

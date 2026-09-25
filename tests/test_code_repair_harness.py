@@ -297,7 +297,7 @@ class Failures(unittest.TestCase):
             head + '"public": [{"id": "public:0", "status": "pass"}, '
             '{"id": "public:1", "status": "pass"}], "hidden": [{"id": "hidden:0", "status": "pass"}]}'
         )
-        self.assertTrue(ex._parse_report(job, 0, attest, full.encode()).ok)
+        self.assertTrue(ex._parse_report(job, 0, (attest, full.encode())).ok)
         bad = (
             (1, b"", b"{}"),
             (0, b"not json", b""),
@@ -322,7 +322,7 @@ class Failures(unittest.TestCase):
         )
         for returncode, stdout, body in bad:
             with self.subTest(stdout=stdout[:60], body=body[:60]):
-                report = ex._parse_report(job, returncode, stdout, body)
+                report = ex._parse_report(job, returncode, (stdout, body))
                 self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
                 self.assertFalse(report.ok)
 

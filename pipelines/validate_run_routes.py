@@ -141,6 +141,70 @@ def route_code_repair(obj, where):
     return sealed_record_findings(obj, where), "code_repair"
 
 
+def route_fault_recovery(obj, where):
+    """Bind native simulator checks to the sealed producer without execution.
+
+    Admission is imported here, not at module import: the simulator stack
+    materializes a replay snapshot. An eager import would pull that stack
+    into every CLI invoke that never sees a fault-recovery record.
+    """
+    if __package__:
+        from .curate_identity_simulator import record_findings
+    else:
+        from curate_identity_simulator import record_findings
+    return record_findings(obj, where), "fault_recovery"
+
+
+def _route_oracle(obj, where, _factory_staging):
+    """Bind oracle-grounded envelope checks without re-running any oracle.
+
+    Envelope and status findings are fail-closed here, as are the family
+    findings of an accepted-filed record: a fabricated measurement must not
+    ride a trusted envelope into the accepted partition. Rejected-filed
+    records keep their honestly-reported reasons as evidence and stay owned
+    by oracle_validate, which also checks the filing (accepted- vs rejected-).
+    """
+    if __package__:
+        from .oracle_grounded import record as _oracle_record
+    else:
+        from oracle_grounded import record as _oracle_record
+    try:
+        layers = _oracle_record.classify(obj)
+    except Exception as exc:  # final boundary around one untrusted record
+        return [
+            f"{where}: record validation raised an internal exception: "
+            f"{type(exc).__name__}"
+        ]
+    errors = [f"{where}: {finding}" for finding in layers["envelope"] + layers["status"]]
+    return errors + _oracle_filing_errors(obj, layers, where)
+
+
+def _oracle_filing_errors(obj, layers, where):
+    """Findings that depend on the accepted-/rejected- filing of one record.
+
+    ``accepted-`` files must survive their own family invariants, so the
+    recomputed family findings are staging errors there; ``rejected-`` files
+    keep those reasons as honestly-reported evidence owned by oracle_validate.
+    """
+    filename = where.rsplit(":", 1)[0].rsplit("/", 1)[-1]
+    expected = None
+    if filename.startswith("accepted-"):
+        expected = "accepted"
+    elif filename.startswith("rejected-"):
+        expected = "rejected"
+    validation = obj.get("validation")
+    declared = validation.get("status") if isinstance(validation, dict) else None
+    errors = []
+    if expected and declared != expected:
+        errors.append(
+            f"{where}: record declares verdict {declared!r} but is filed in "
+            f"{filename!r}, which is reserved for {expected!r} records"
+        )
+    if expected == "accepted":
+        errors.extend(f"{where}: {finding}" for finding in layers["family"])
+    return errors
+
+
 def _unknown_shape(obj, where):
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 
@@ -165,14 +229,58 @@ def _route_known_shape(call):
     return _unknown_shape(call.obj, call.where)
 
 
+def _route_parity(obj, where, _factory_staging):
+    """Bind the shared parity envelope check without re-running any oracle.
+
+    The oracle_grounded parity contract is imported lazily for the same reason
+    as ``route_code_repair``: an eager import would pull the sealed-catalog
+    stack into every CLI invoke that never sees a parity record.
+    """
+    if __package__:
+        from .oracle_grounded import parity_contract
+    else:
+        from oracle_grounded import parity_contract
+    return parity_contract.check_envelope(obj, where)
+
+
+def _parity_record_kinds():
+    if __package__:
+        from .oracle_grounded import parity_contract
+    else:
+        from oracle_grounded import parity_contract
+    return parity_contract.RECORD_KINDS
+
+
+def _route_family(obj, where):
+    """Route named procedural families ahead of the shape table."""
+    family = obj.get("family")
+    if family == "python-function-repair":
+        return route_code_repair(obj, where)
+    if family == "neuromorphic-fault-recovery":
+        return route_fault_recovery(obj, where)
+    return None
+
+
 def check_line(obj, where, factory_staging=False, hooks=None):
     """Route an object to the right checker based on its shape."""
     if hooks is None:
         raise TypeError("check_line requires LineHooks from the validate_run facade")
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-    if obj.get("family") == "python-function-repair":
-        return route_code_repair(obj, where)
+    # Self-declared families route ahead of the shape table, in the same order
+    # as record_kind.classify_kind: a record that names its own family can
+    # never be confused with a trajectory that happens to share a key name.
+    declared_kind = obj.get("record_kind")
+    if isinstance(declared_kind, str) and declared_kind in _parity_record_kinds():
+        return _route_parity(obj, where, factory_staging), declared_kind
+    routed = _route_family(obj, where)
+    if routed is not None:
+        return routed
+    oracle_shape = obj.get("schema") == "oracle-grounded/v1" or all(
+        key in obj for key in ("oracle", "result", "proposal_hash")
+    )
+    if oracle_shape:
+        return _route_oracle(obj, where, factory_staging), "oracle"
     return _route_known_shape(LineCall(obj, where, factory_staging, hooks))
 
 

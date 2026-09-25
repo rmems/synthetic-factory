@@ -30,6 +30,7 @@ class SourceCoordinates:
     line: int
     sha256: str
     file_sha256: str | None = None
+    source_json: str | None = None
 
 
 @dataclass(frozen=True)

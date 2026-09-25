@@ -38,20 +38,51 @@ SourceLineContext = _run_context.SourceLineContext
 SourceServices = _run_context.SourceServices
 
 
-def jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
+def jsonl_framed_lines(raw_file: bytes) -> list[tuple[bytes, bytes]]:
+    """Split JSONL into (payload, terminator) pairs.
+
+    Payload bytes never include the record separator. Terminator is ``b"\\n"``,
+    ``b"\\r\\n"``, or ``b""`` for an unterminated final record. A CR that is not
+    the single CR in a CRLF terminator stays in the payload.
+    """
+
     physical_lines = raw_file.split(b"\n")
     terminated_lines = len(physical_lines) - 1
     if physical_lines and physical_lines[-1] == b"":
         physical_lines.pop()
     framed = min(terminated_lines, len(physical_lines))
-    physical_lines[:framed] = map(without_terminal_cr, physical_lines[:framed])
-    return physical_lines
+    lines = []
+    for index, physical_line in enumerate(physical_lines):
+        if index < framed:
+            payload, had_cr = _split_crlf_payload(physical_line)
+            lines.append((payload, b"\r\n" if had_cr else b"\n"))
+        else:
+            lines.append((physical_line, b""))
+    return lines
+
+
+def jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
+    return [payload for payload, _terminator in jsonl_framed_lines(raw_file)]
+
+
+def jsonl_terminator_text(terminator: bytes) -> str:
+    """Decode a physical JSONL terminator, or refuse an unknown separator."""
+
+    if terminator not in (b"", b"\n", b"\r\n"):
+        raise ComposeError("JSONL terminator must be LF, CRLF, or empty")
+    return terminator.decode("ascii")
+
+
+def _split_crlf_payload(physical_line: bytes) -> tuple[bytes, bool]:
+    if physical_line.endswith(b"\r"):
+        return physical_line[:-1], True
+    return physical_line, False
 
 
 def without_terminal_cr(physical_line: bytes) -> bytes:
     """Remove JSONL framing's CR only when the line ended in CRLF."""
 
-    return physical_line[:-1] if physical_line.endswith(b"\r") else physical_line
+    return _split_crlf_payload(physical_line)[0]
 
 
 def new_manifest_entry(context: SourceLineContext, source_sha256: str) -> dict[str, Any]:
@@ -64,6 +95,13 @@ def new_manifest_entry(context: SourceLineContext, source_sha256: str) -> dict[s
         "source_sha256": source_sha256,
         "source_file_sha256": context.source_file_sha256,
     }
+
+
+def add_physical_source_evidence(entry, physical_source_path, physical_line):
+    """Keep literal source evidence alongside the published registry coordinate."""
+    if physical_source_path is not None:
+        entry["physical_source_path"] = physical_source_path
+        entry["source_original"] = physical_line.decode("utf-8")
 
 
 def claim_output_id(state: ComposeRunState, output_id: Any, location: str) -> None:
@@ -81,9 +119,9 @@ def record_retained_line(
     context: RetainedLineContext,
     claim_output_id_fn: Callable[..., None] = claim_output_id,
 ) -> None:
-    line = canonical_json(decision.record)
+    line = _contract.retained_json_line(decision)
     claim_output_id_fn(state, decision.output_id, context.location)
-    context.emitted.append(line)
+    context.emitted.append(_contract.emitted_record_line(decision, line, context.source_terminator))
     context.entry.update(
         {
             "output_path": f"{RECORDS_DIRNAME}/{context.relative}",

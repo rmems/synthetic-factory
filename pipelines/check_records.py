@@ -19,6 +19,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 if __package__:
+    from .curate_identity_simulator_process import replay_session
+    from .record_kind import DECLARED_FACTORY_KINDS
+    from . import parity_validators
+    from .tag_jsonutil import reject_duplicate_object_keys
     from .exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -37,9 +41,13 @@ if __package__:
         reject_json_constant,
     )
 else:
+    from curate_identity_simulator_process import replay_session
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
+    from record_kind import DECLARED_FACTORY_KINDS
+    import parity_validators
+    from tag_jsonutil import reject_duplicate_object_keys
     from exact_json import (
         dumps_exact_json,
         exact_fraction,
@@ -261,6 +269,18 @@ def reward_tolerance(rc):
     return min(MAX_DECLARED_TOL, max(TOL, requested))
 
 
+def _weighted_lookup(containers, key):
+    """The declared value for one weight key across the containers, or None."""
+    for container in containers:
+        for candidate in WEIGHT_ALIASES.get(key, (key,)):
+            if candidate not in container:
+                continue
+            value = component_value(container[candidate])
+            if value is not None:
+                return value
+    return None
+
+
 def weighted_components(rc, weights):
     """Resolve every declared weight from direct or known nested maps."""
     containers = [rc]
@@ -270,17 +290,7 @@ def weighted_components(rc, weights):
     for key, weight in weights.items():
         if key in WEIGHTED_SKIP_KEYS or not is_number(weight):
             continue
-        value = None
-        aliases = WEIGHT_ALIASES.get(key, (key,))
-        for container in containers:
-            for candidate in aliases:
-                if candidate not in container:
-                    continue
-                value = component_value(container[candidate])
-                if value is not None:
-                    break
-            if value is not None:
-                break
+        value = _weighted_lookup(containers, key)
         if value is None:
             missing.append(key)
         else:
@@ -355,24 +365,32 @@ def check_reward(rc, where):
     return errors, warnings
 
 
+def _preference_states(obj):
+    for side in ("chosen", "rejected"):
+        sub = obj.get(side)
+        if not isinstance(sub, dict):
+            continue
+        # Episode-sided DPO pairs have no Thalamic state object.
+        if episode_like(sub):
+            continue
+        yield f"{side}.state", sub.get("state")
+
+
+def _bridge_pair_states(obj):
+    lv = obj.get("language_view")
+    if isinstance(lv, dict):
+        traj = lv.get("trajectory")
+        if isinstance(traj, dict):
+            yield "language_view.trajectory.state", traj.get("state")
+
+
 def expected_states(obj, kind):
     if kind == "thalamic":
         yield "state", obj.get("state")
     elif kind == "preference":
-        for side in ("chosen", "rejected"):
-            sub = obj.get(side)
-            if not isinstance(sub, dict):
-                continue
-            # Episode-sided DPO pairs have no Thalamic state object.
-            if episode_like(sub):
-                continue
-            yield f"{side}.state", sub.get("state")
+        yield from _preference_states(obj)
     elif kind == "bridge_pair":
-        lv = obj.get("language_view")
-        if isinstance(lv, dict):
-            traj = lv.get("trajectory")
-            if isinstance(traj, dict):
-                yield "language_view.trajectory.state", traj.get("state")
+        yield from _bridge_pair_states(obj)
 
 
 # The shape layer also recomputes reward sums, with a simpler weighted model
@@ -435,7 +453,7 @@ def shape_check(obj, where, factory_staging=False):
         errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
-    if kind == "code_repair":
+    if kind in {"code_repair", "fault_recovery"}:
         return errs, kind
     return _shape_only_errors(errs, where), kind
 
@@ -479,6 +497,32 @@ def root_record_id(obj):
     return None
 
 
+def _provenance_publish_claims(k, v, cur, sink):
+    """Report one node's 'real' provenance claims; `sink` is `(errs, where)`."""
+    errs, where = sink
+    if k == "sim_or_real" and claims_real(v):
+        # Other invalid values are surfaced as non-training
+        # provenance warnings by check_record; this gate is only
+        # for real-world claims.
+        errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
+    if k == "provenance" and isinstance(v, dict):
+        kind = v.get("kind")
+        if claims_real(kind):
+            errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
+
+
+def _provenance_publish_walk(node, path, sink):
+    """Collect 'real' provenance claims under `node`; `sink` is `(errs, where)`."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            cur = f"{path}.{k}" if path else k
+            _provenance_publish_claims(k, v, cur, sink)
+            _provenance_publish_walk(v, cur, sink)
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            _provenance_publish_walk(item, f"{path}[{i}]", sink)
+
+
 def check_provenance_publish(obj, where):
     """Publish-time provenance gate — any 'real' sim_or_real/provenance.kind is an error.
 
@@ -486,34 +530,8 @@ def check_provenance_publish(obj, where):
     cannot publish with real-world provenance claims.
     """
     errs = []
-
-    def walk(node, path):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                cur = f"{path}.{k}" if path else k
-                if k == "sim_or_real" and claims_real(v):
-                    # Other invalid values are surfaced as non-training
-                    # provenance warnings by check_record; this gate is only
-                    # for real-world claims.
-                    errs.append(f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}")
-                if k == "provenance" and isinstance(v, dict):
-                    kind = v.get("kind")
-                    if claims_real(kind):
-                        errs.append(f"{where}: {cur}.kind must not be 'real' — got {kind!r}")
-                walk(v, cur)
-        elif isinstance(node, list):
-            for i, item in enumerate(node):
-                walk(item, f"{path}[{i}]")
-
-    walk(obj, "")
-    # Deduplicate
-    seen = set()
-    out = []
-    for e in errs:
-        if e not in seen:
-            seen.add(e)
-            out.append(e)
-    return out
+    _provenance_publish_walk(obj, "", (errs, where))
+    return list(dict.fromkeys(errs))
 
 
 def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
@@ -537,11 +555,23 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     )
 
 
-def _record_spike_errors(obj, where, kind, reward_component_entries):
-    """Validate each real spike stream against its enclosing clock."""
+def _record_spike_errors(obj, where, kind, exemptions):
+    """Validate each real spike stream against its enclosing clock.
+
+    ``exemptions`` packs ``(reward_component_entries, family_owned)``: the
+    reward-component locations whose ``spike_events`` member is a documented
+    narrative string, and the stream objects (compared by identity, like the
+    reward-narrative owner guard) whose validity a family validator already
+    owns. Both are skipped so one malformed canonical stream is not reported
+    twice with different wording, and so family evidence shapes are not
+    misjudged against the generic event contract.
+    """
+    reward_component_entries, family_owned = exemptions
 
     errors = []
     for path, events, owner in _walk_key_owners(obj, "spike_events"):
+        if any(events is owned for owned in family_owned):
+            continue
         if _is_reward_narrative_spike_events(owner, events, reward_component_entries):
             continue
         bridge_root = kind == "bridge_pair" and path == "spike_events"
@@ -596,16 +626,71 @@ def _legacy_episode_warnings(obj, kind, where):
     return warnings
 
 
+def _record_stream_and_reward_findings(obj, where, kind, family_owned=()):
+    """Deep pass over every spike stream and reward component in ``obj``."""
+
+    reward_component_entries = list(walk_key(obj, "reward_components"))
+    errors = _record_spike_errors(
+        obj, where, kind, (reward_component_entries, family_owned)
+    )
+    reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
+    errors.extend(reward_errors)
+    return errors, warnings
+
+
 def _record_mapping_findings(obj, where, kind):
     """Validate nested streams, rewards, provenance, and legacy evidence."""
 
-    reward_component_entries = list(walk_key(obj, "reward_components"))
-    errors = _record_spike_errors(obj, where, kind, reward_component_entries)
-    reward_errors, warnings = _record_reward_findings(reward_component_entries, where)
-    errors.extend(reward_errors)
+    errors, warnings = _record_stream_and_reward_findings(obj, where, kind)
     warnings.extend(_record_provenance_warnings(obj, kind, where))
     errors.extend(check_provenance_publish(obj, where))
     warnings.extend(_legacy_episode_warnings(obj, kind, where))
+    return errors, warnings
+
+
+def _parity_wide_findings(obj, kind, where, errors):
+    """The repository-wide stream/reward pass with family-owned streams exempt."""
+    if not isinstance(obj, dict):
+        return [], []
+    stream_errors, stream_warnings = _record_stream_and_reward_findings(
+        obj,
+        where,
+        kind,
+        family_owned=parity_validators.family_owned_streams(obj, kind),
+    )
+    return [error for error in stream_errors if error not in errors], stream_warnings
+
+
+def _parity_kind_findings(obj, kind, where, seeded):
+    """The deep family check plus repository-wide passes for parity kinds.
+    ``seeded`` is ``(shape_errs, errors)`` — the findings already gathered."""
+    shape_errs, errors = seeded
+    # The family validator is the deep check for these kinds. Record id
+    # still flows through so cross-file duplicate detection covers them.
+    # The family validators assume the shared envelope members have the
+    # shapes enforced above.  Running them after a shape failure both adds
+    # noise and lets one truthy malformed member raise deep in a helper,
+    # aborting diagnostics for the rest of the JSONL file.
+    if not shape_errs:
+        deep = parity_validators.check_parity_record(obj, kind, where)
+        errors.extend(error for error in deep if error not in errors)
+    # The repository-wide deep passes still run: both schemas allow
+    # additional properties, and the family validators inspect only their
+    # canonical evidence locations. Without this pass a parity record
+    # would be the one place in the factory where a buried malformed
+    # spike stream or reward component survives the deep publish check.
+    # Canonical family streams are exempt by identity -- their validity
+    # (and their family-specific event shapes) belong to the validator
+    # above, so nothing is reported twice.
+    stream_errors, warnings = _parity_wide_findings(obj, kind, where, errors)
+    errors.extend(stream_errors)
+    # The publish-time provenance scan is repository-wide and owns every
+    # nested 'real' claim. Skipping it for these kinds would make a parity
+    # record the one place in the factory where a buried real-world claim
+    # is allowed through.
+    errors.extend(
+        error for error in check_provenance_publish(obj, where) if error not in errors
+    )
     return errors, warnings
 
 
@@ -613,9 +698,15 @@ def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
-    if kind == "code_repair":
+    if kind in {"code_repair", "fault_recovery"}:
         # The shared pure validator owns this envelope, including its deep hashes.
         return errors, warnings, kind, canonical_record_id(obj)
+    if kind in ("hardware_parity", "nir_equivalence"):
+        errors, warnings = _parity_kind_findings(obj, kind, where, (shape_errs, errors))
+        record_id = canonical_record_id(obj)
+        if record_id is None:
+            warnings.append(f"{where}: missing canonical record id")
+        return errors, warnings, kind, record_id
 
     if isinstance(obj, dict):
         mapping_errors, mapping_warnings = _record_mapping_findings(obj, where, kind)
@@ -688,10 +779,23 @@ def _claim_record_id(record_id, where, seen_ids):
     return []
 
 
+def _declared_path_kind(path):
+    """Bind explicit parity factory directories independently of record claims."""
+    return next((DECLARED_FACTORY_KINDS[parent.name] for parent in Path(path).parents
+                 if parent.name in DECLARED_FACTORY_KINDS), None)
+
+
+def _factory_kind_errors(expected_kind, kind, where):
+    if expected_kind is not None and kind != expected_kind:
+        return [f"{where}: factory directory requires {expected_kind!r}, got {kind!r}"]
+    return []
+
+
 def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     errors, warnings = [], []
     kinds = {}
     records = 0
+    expected_kind = _declared_path_kind(path)
     if seen_ids is None:
         seen_ids = {}
     try:
@@ -707,6 +811,7 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
         try:
             obj = json.loads(
                 line,
+                object_pairs_hook=reject_duplicate_object_keys,
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
@@ -723,12 +828,14 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
         )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
+        errors.extend(_factory_kind_errors(expected_kind, kind, where))
         errors.extend(rec_errs)
         warnings.extend(rec_warns)
         errors.extend(_claim_record_id(record_id, where, seen_ids))
     return errors, warnings, kinds, records
 
 
+@replay_session()
 def check_run(run_dir, strict=False):
     run_dir = Path(run_dir).resolve()
     errors, warnings = [], []

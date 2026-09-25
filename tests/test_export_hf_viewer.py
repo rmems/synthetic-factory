@@ -8,7 +8,9 @@ from unittest import mock
 
 from export_test_support import (  # noqa: E402
     HAS_PYARROW,
+    allow_research_only_export,
     compose_fixture,
+    ResearchExportAllowed,
 )
 import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
@@ -16,7 +18,7 @@ import export_split  # noqa: E402
 import verify_hf_release  # noqa: E402
 
 
-class ViewerParquet(unittest.TestCase):
+class ViewerParquet(ResearchExportAllowed, unittest.TestCase):
     def test_round_trips_rows_through_the_stdlib_writer_and_reader(self):
         rows = [
             export_hf.ViewerRow("data/curated/f/a.jsonl", 1, '{"id":"one"}'),
@@ -76,13 +78,22 @@ class ViewerParquet(unittest.TestCase):
         )
 
 
-class ExportSplitDeterminism(unittest.TestCase):
+class ExportSplitDeterminism(ResearchExportAllowed, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        scratch = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(scratch.cleanup)
+        # Compose inside the same admission patch the tests run under so the
+        # stored COMPOSE.json audit matches the live audit export replays.
+        with allow_research_only_export():
+            cls.curated = compose_fixture(Path(scratch.name))
+
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            curated = compose_fixture(root)
-            first = export_hf.export_run(curated, root / "export-a")
-            second = export_hf.export_run(curated, root / "export-b")
+            curated = self.curated
+            first = export_hf.export_run(export_hf.ExportRequest(curated, root / "export-a"))
+            second = export_hf.export_run(export_hf.ExportRequest(curated, root / "export-b"))
             self.assertEqual(first["splits"]["train"], second["splits"]["train"])
             self.assertEqual(first["splits"]["eval"], second["splits"]["eval"])
 
@@ -97,25 +108,22 @@ class ExportSplitDeterminism(unittest.TestCase):
                 export_hf.split_rows(rows[:1], eval_fraction=0.1, salt="s")
 
     def test_every_multi_record_factory_appears_in_both_splits(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            curated = compose_fixture(root)
-            rows = export_hf.collect_rows(curated / compose_curated.RECORDS_DIRNAME)
-            train, evaluate = export_hf.split_rows(
-                rows, eval_fraction=export_hf.DEFAULT_EVAL_FRACTION, salt="fixture-salt"
-            )
+        rows = export_hf.collect_rows(self.curated / compose_curated.RECORDS_DIRNAME)
+        train, evaluate = export_hf.split_rows(
+            rows, eval_fraction=export_hf.DEFAULT_EVAL_FRACTION, salt="fixture-salt"
+        )
 
-            def factories(subset):
-                return {row.source_file.split("/")[2] for row in subset}
+        def factories(subset):
+            return {row.source_file.split("/")[2] for row in subset}
 
-            multi = {
-                path
-                for path in factories(rows)
-                if sum(row.source_file.split("/")[2] == path for row in rows) >= 2
-            }
-            self.assertTrue(multi)
-            self.assertTrue(multi.issubset(factories(train)))
-            self.assertTrue(multi.issubset(factories(evaluate)))
+        multi = {
+            path
+            for path in factories(rows)
+            if sum(row.source_file.split("/")[2] == path for row in rows) >= 2
+        }
+        self.assertTrue(multi)
+        self.assertTrue(multi.issubset(factories(train)))
+        self.assertTrue(multi.issubset(factories(evaluate)))
 
     def test_singleton_per_factory_snapshots_use_a_deterministic_global_fallback(self):
         rows = [

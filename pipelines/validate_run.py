@@ -28,6 +28,7 @@ if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
     from . import _assert_direct_sibling, _expose_package_sibling  # pylint: disable=cyclic-import
     _assert_direct_sibling("validate_run")
+    from .curate_identity_simulator_process import replay_session
     from . import validate_run_spikes as _validate_run_spikes
     from . import validate_run_provenance as _validate_run_provenance
     from . import validate_run_rewards as _validate_run_rewards
@@ -39,8 +40,10 @@ if __package__:
     from . import validate_run_routes as _validate_run_routes
     from . import validate_run_cli as _validate_run_cli
     from .validate_run_input import parse_exact_json_record as _parse_exact_json_record
+    from .oracle_grounded import parity_contract
     from .validate_run_input import reject_json_constant as _reject_json_constant
 else:
+    from curate_identity_simulator_process import replay_session
     import validate_run_spikes as _validate_run_spikes
     import validate_run_provenance as _validate_run_provenance
     import validate_run_rewards as _validate_run_rewards
@@ -52,6 +55,7 @@ else:
     import validate_run_routes as _validate_run_routes
     import validate_run_cli as _validate_run_cli
     from validate_run_input import parse_exact_json_record as _parse_exact_json_record
+    from oracle_grounded import parity_contract
     from validate_run_input import reject_json_constant as _reject_json_constant
 
 # Historical public compatibility surface. Explicit binding keeps these names
@@ -74,6 +78,10 @@ _event_time = _validate_run_spikes.event_time
 _is_number = _validate_run_spikes.is_number
 _typed_enum_errors = _validate_run_provenance.typed_enum_errors
 check_provenance_publish = _validate_run_provenance.check_provenance_publish
+
+# Preserve the oracle staging surface after extracting shape routing.
+_route_oracle = _validate_run_routes._route_oracle
+_oracle_filing_errors = _validate_run_routes._oracle_filing_errors
 
 # The spike-train surface lived here before it split into validate_run_spikes;
 # ``__all__`` declares the names this module still re-exports so existing
@@ -113,6 +121,7 @@ __all__ = [
     "check_line",
     "check_meta_round",
     "check_multi_agent",
+    "check_parity_envelope",
     "check_provenance",
     "check_provenance_publish",
     "check_reward_total",
@@ -334,6 +343,17 @@ def check_safety_case(obj, where, factory_staging=False):
     return errs
 
 
+def check_parity_envelope(obj, where):
+    """Shape layer for the oracle-grounded parity families.
+
+    Only the shared envelope is enforced here, the same way this layer only
+    type-checks a thalamic record. Re-deriving parity metrics and re-executing
+    NIR runtimes is the deep layer's job (pipelines/check_records.py), because
+    it is far too expensive to do once per line of a whole run directory.
+    """
+    return parity_contract.check_envelope(obj, where)
+
+
 def _staging_hidden_thought_errors(obj, where):
     return _validate_run_episode.staging_hidden_thought_errors(
         obj, where, keys=HIDDEN_THOUGHT_KEYS
@@ -366,6 +386,7 @@ def check_line(obj, where, factory_staging=False):
 parse_args = _validate_run_cli.parse_args
 
 
+@replay_session()
 def main(argv=None):
     return _validate_run_cli.main(
         argv,

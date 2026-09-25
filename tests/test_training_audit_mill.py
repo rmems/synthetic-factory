@@ -12,7 +12,7 @@ TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
-from training_audit_test_helpers import REPO, thalamic, write  # noqa: E402
+from training_audit_test_helpers import assert_research_only, REPO, thalamic, write  # noqa: E402
 
 import training_audit  # noqa: E402
 import training_audit_mill  # noqa: E402
@@ -59,9 +59,9 @@ class LeftoverMillDenominator(unittest.TestCase):
             report = training_audit.audit_run(root)
 
         self.assertEqual(report["totals"]["records"], 2)
-        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
         self.assertEqual(
-            report["factories"]["rag-retrieval-debug-factory"]["eligible_records"], 1
+            report["factories"]["rag-retrieval-debug-factory"]["eligible_records"], 0
         )
         mill = report["mill_mix"]
         self.assertEqual(mill["records"], 1)
@@ -137,10 +137,10 @@ class LeftoverMillDenominator(unittest.TestCase):
             report = training_audit.audit_run(root)
 
         self.assertEqual(report["mill_mix"]["records"], 1)
-        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
         self.assertEqual(report["totals"]["exact_json_contract_errors"], 0)
         self.assertEqual(report["record_invariants"]["errors"], 0)
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
 
     def test_all_foreign_registered_destination_keeps_verified_identity(self):
         with tempfile.TemporaryDirectory() as td:
@@ -236,7 +236,7 @@ class LeftoverMillDenominator(unittest.TestCase):
             )
             report = training_audit.audit_run(root)
 
-        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
         self.assertEqual(report["mill_mix"]["records"], 0)
         self.assertEqual(report["mill_mix"]["quarantined_records"], [])
         markdown = training_audit.render_markdown(report)

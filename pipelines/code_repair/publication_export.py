@@ -67,6 +67,16 @@ def _completed_marker(marker: Path) -> dict:
     return manifest
 
 
+def physical_completed_batch(source_root: Path, relative) -> Path:
+    """Map a published factory-qualified member onto the physical source root."""
+
+    source_root = Path(source_root)
+    rel = Path(relative)
+    if len(rel.parts) > 1 and source_root.name == rel.parts[0]:
+        return source_root / Path(*rel.parts[1:])
+    return source_root / rel
+
+
 def completed_batch_matches(batch: Path, payload: bytes) -> bool:
     """Pure audit gate: exact snapshot bytes must be owned by a valid completed round."""
     transaction = publication.transaction_module()
@@ -80,6 +90,12 @@ def completed_batch_matches(batch: Path, payload: bytes) -> bool:
         return summary["procedural"]["batch_sha256"] == _sha(payload)
     except (OSError, ValueError, transaction.TransactionError):
         return False
+
+
+def completed_published_batch_matches(source_root: Path, relative, payload: bytes) -> bool:
+    """Match exact payload bytes against the physical completed member for ``relative``."""
+
+    return completed_batch_matches(physical_completed_batch(source_root, relative), payload)
 
 
 def _capture_completion(marker: Path, destination: Path) -> tuple[dict, bytes, bytes]:

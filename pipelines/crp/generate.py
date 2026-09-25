@@ -33,6 +33,11 @@ from ._contract import (
     refuse_when,
 )
 
+if __package__ and __package__.startswith("pipelines."):
+    from .. import code_review_preference_tail as crp_tail
+else:
+    import code_review_preference_tail as crp_tail
+
 BATCH_PREFIX = "batch-r"
 NOTES_PREFIX = "NOTES-r"
 MANIFEST_FILENAME = "MANIFEST.json"
@@ -276,124 +281,11 @@ def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
 
 
 def _chosen_tail(plant: cat.Plant, pr: int, rid: int) -> list[dict[str, Any]]:
-    repo, core, line = plant.repo, plant.core, plant.line
-    return [
-        _step(
-            8,
-            (
-                "Observation: the defect is load-bearing and untested. "
-                "Post issue (blocking) REQUEST_CHANGES."
-            ),
-            _bash(
-                f"gh api repos/{repo}/pulls/{pr}/reviews -f event=REQUEST_CHANGES -f body=\""
-                f"issue (blocking): {plant.defect}. {plant.fix}. "
-                f"Add a test that {plant.missing}. Do not merge.\""
-            ),
-            f"designed: HTTP 200 review {rid} event=REQUEST_CHANGES.",
-            "Blocking review names the defect, the missing test, and the fix shape.",
-        ),
-        _step(
-            9,
-            "Observation: review posted. Pin an inline on the exact line.",
-            _bash(
-                f"gh api repos/{repo}/pulls/{pr}/comments -f path={core} -F line={line} "
-                f"-f side=RIGHT -f body=\"issue: this {plant.defect}\""
-            ),
-            f"designed: HTTP 201 comment c-{pr}-{line} on {core}:{line}.",
-            "Inline is on the defect, not on naming.",
-        ),
-        _step(
-            10,
-            "Observation: attach a falsifiable test sketch so the block is not taste.",
-            {
-                "name": "write_file",
-                "args": {
-                    "path": f"/tmp/pr{pr}-blocking-repro.txt",
-                    "content": (
-                        f"issue (blocking): {plant.defect}. {plant.fix}. "
-                        f"Add a test that {plant.missing}. Do not merge.\n"
-                    ),
-                },
-            },
-            f"designed write: /tmp/pr{pr}-blocking-repro.txt. not committed; linked from the review.",
-            "The block cites a failing case, not a formatter.",
-        ),
-        _step(
-            11,
-            "Observation: confirm CHANGES_REQUESTED and the inline path:line.",
-            _bash(
-                f"gh pr view {pr} --repo {repo} --json reviewDecision && "
-                f"gh api repos/{repo}/pulls/{pr}/comments --jq '.[].path'"
-            ),
-            f"designed: reviewDecision=CHANGES_REQUESTED; inline on {core}.",
-            "Merge is blocked on the defect.",
-        ),
-        _step(
-            12,
-            "Observation: confirm no accidental APPROVE was also posted.",
-            _bash(f"gh api repos/{repo}/pulls/{pr}/reviews --jq '.[] | {{state,event:.event}}'"),
-            "designed: one review REQUEST_CHANGES, zero APPROVE.",
-            "Verdict is a single blocking review.",
-        ),
-        _step(
-            13,
-            "Observation: final state check — mergeable is blocked.",
-            _bash(f"gh pr view {pr} --repo {repo} --json mergeable,reviewDecision"),
-            "designed: mergeable=CONFLICTING_OR_BLOCKED reviewDecision=CHANGES_REQUESTED.",
-            "Done. Defect named, merge blocked.",
-        ),
-    ]
+    return crp_tail.chosen_tail(plant, pr, rid)
 
 
 def _rejected_tail(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
-    repo, core, test, line, nit = plant.repo, plant.core, plant.test, plant.line, plant.nit
-    return [
-        _step(
-            8,
-            "Plan: the change reads cleanly. Leave a nit and approve.",
-            _bash(
-                f"gh api repos/{repo}/pulls/{pr}/comments -f path={core} -F line={line} "
-                f"-f side=RIGHT -f body=\"nit: {nit} could be named {nit}Ident.\""
-            ),
-            f"designed: HTTP 201 nit c-{pr}-nit on {core}. no mention of the defect.",
-            "Comment is a nit. The defect is untouched.",
-        ),
-        _step(
-            9,
-            "Observation: add a second nit so the author has polish work.",
-            _bash(
-                f"gh api repos/{repo}/pulls/{pr}/comments -f path={test} -F line=1 "
-                f"-f side=RIGHT -f body='nit: add a blank line between tests; "
-                f"also consider a more descriptive test name.'"
-            ),
-            f"designed: HTTP 201 nit c-{pr}-teststyle on {test}. still no defect mention.",
-            "Second nit is formatting. Race/authz still unmentioned.",
-        ),
-        _step(
-            10,
-            "Observation: nits posted. Approve because the serial suite is green.",
-            _bash(
-                f"gh api repos/{repo}/pulls/{pr}/reviews -f event=APPROVE "
-                f"-f body=\"LGTM. serial tests pass. nits only.\""
-            ),
-            "designed: HTTP 200 event=APPROVE. reviewDecision=APPROVED.",
-            "Approved past the defect.",
-        ),
-        _step(
-            11,
-            "Observation: approved. Do not add a failing test for the defect.",
-            _bash(f"gh pr checks {pr} --repo {repo}"),
-            "designed: serial tests passed. mergeable=MERGEABLE.",
-            "Green serial tests treated as proof.",
-        ),
-        _step(
-            12,
-            "Observation: confirm mergeable and do not request changes.",
-            _bash(f"gh pr view {pr} --repo {repo} --json mergeable,reviewDecision"),
-            "designed: mergeable=MERGEABLE reviewDecision=APPROVED. zero REQUEST_CHANGES.",
-            "Rejected policy: nits + LGTM.",
-        ),
-    ]
+    return crp_tail.rejected_tail(plant, pr)
 
 
 def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:

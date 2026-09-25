@@ -65,49 +65,49 @@ SOURCE_CATALOGS = (
         "gen_ttf_r02.py",
         "tmp-root--c8ae2b925cad/versions/v0001/gen_ttf_r02.py",
         "abf5e140da613b77899983fd07e684395a8a9e0e97a756097e0a4d619cfd070e",
-        "/tmp/gen_ttf_r02.py",
+        "/tmp/gen_ttf_r02.py",  # NOSONAR
     ),
     (
         "r02c",
         "ttf_r02c_gen.py",
         "tmp-root--215e7a505f5c/versions/v0008/ttf_r02c_gen.py",
         "8930294b4643f01b346d0a285f76068e7cf379fd0dac6c944e39a7e08c431fdc",
-        "/tmp/ttf_r02c_gen.py",
+        "/tmp/ttf_r02c_gen.py",  # NOSONAR
     ),
     (
         "r03",
         "gen_ttf_r03_tail.py",
         "tmp-root--95746ac5c89e/versions/v0001/gen_ttf_r03_tail.py",
         "5f8e0d3254495f1e30fbcfb8bc32ef9ffd71f9a8999c5be1d2c58a301b848376",
-        "/tmp/gen_ttf_r03_tail.py",
+        "/tmp/gen_ttf_r03_tail.py",  # NOSONAR
     ),
     (
         "r04",
         "builders_r04.py",
         "ttf-r04--24386877af80/versions/v0001/builders_r04.py",
         "07044fe2a253697ac0b61fb2441fcb41685e5e511f08c95aeb723bdf61fa5bcb",
-        "/tmp/builders_r04.py",
+        "/tmp/builders_r04.py",  # NOSONAR
     ),
     (
         "r12",
         "ttf_r12_gen.py",
         "tmp-root--b4b9fdb4a3dc/versions/v0004/ttf_r12_gen.py",
         "422440684f042945fd93431e496824294ec05fb3ec7b750df60640a3ad90e7dc",
-        "/tmp/ttf_r12_gen.py",
+        "/tmp/ttf_r12_gen.py",  # NOSONAR
     ),
     (
         "r24",
         "tail_r24.py",
         "ttf-r24-live--1b54e5bfc24d/versions/v0001/tail_r24.py",
         "6b449f3ea0c09158b98efe8bae2f9c2cd45d7d65d7b7ab9f223a57a81abc2fa9",
-        "/tmp/tail_r24.py",
+        "/tmp/tail_r24.py",  # NOSONAR
     ),
     (
         "r72",
         "gen_r72.py",
         "ttf-r72-live--d95f8fb37739/versions/v0001/gen_r72.py",
         "36cf5ca30686624bc445067f891042a7686537748a98518f749819050592642a",
-        "/tmp/gen_r72.py",
+        "/tmp/gen_r72.py",  # NOSONAR
     ),
 )
 SLICE_IDS = tuple(item[0] for item in SOURCE_CATALOGS)

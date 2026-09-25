@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .catalog_extract import catalog_json_path
@@ -98,32 +99,47 @@ class IacCatalog:
         return sum(mill.n_rows for mill in self.mills.values())
 
 
+@dataclass(frozen=True)
+class ArchivePin:
+    path: str
+    blob_sha: str
+    source_sha256: str
+
+
+_ARCHIVE_BINDS = (
+    (
+        "archive_b",
+        "plants",
+        ArchivePin(PLANTS_SOURCE_PATH, PLANTS_BLOB_SHA, PLANTS_SOURCE_SHA256),
+    ),
+    (
+        "archive_b_more",
+        "plants_b",
+        ArchivePin(PLANTS_B_SOURCE_PATH, PLANTS_B_BLOB_SHA, PLANTS_B_SOURCE_SHA256),
+    ),
+)
+
+_PINNED_DOCUMENT_KEYS = (
+    ("schema", CATALOG_SCHEMA_ID),
+    ("preserve_commit", PRESERVE_COMMIT),
+    ("slice", SLICE_ID),
+)
+
+
 def load_catalog(path=None) -> IacCatalog:
     catalog_path = path if path is not None else catalog_json_path()
     document = json.loads(catalog_path.read_text(encoding="utf-8"))
-    if document.get("schema") != CATALOG_SCHEMA_ID:
-        raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
-    if document.get("preserve_commit") != PRESERVE_COMMIT:
-        raise ValueError(f"{catalog_path} preserve_commit drifted from vocabulary")
+    for key, expected in _PINNED_DOCUMENT_KEYS:
+        if document.get(key) != expected:
+            raise ValueError(f"{catalog_path} {key} drifted from vocabulary")
     if document.get("factory") != FACTORY or document.get("generator") != GENERATOR:
         raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
-    if document.get("slice") != SLICE_ID:
-        raise ValueError(f"{catalog_path} slice drifted from vocabulary")
-    mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
-    archive_b = _archive_b_from_row(document["archive_b"])
-    archive_b_more = _archive_b_from_row(document["archive_b_more"])
-    plants_path = catalog_path.parent / PLANTS_FILENAME
-    plants_payload = plants_path.read_bytes()
-    plants_sha256 = sha256_bytes(plants_payload)
-    if document.get("plants_sha256") != plants_sha256:
-        raise ValueError(f"{plants_path} digest drifted from CATALOG.json")
-    plants = _plants_from_jsonl(plants_path.read_text(encoding="utf-8"))
-    plants_b_path = catalog_path.parent / PLANTS_B_FILENAME
-    plants_b_payload = plants_b_path.read_bytes()
-    plants_b_sha256 = sha256_bytes(plants_b_payload)
-    if document.get("plants_b_sha256") != plants_b_sha256:
-        raise ValueError(f"{plants_b_path} digest drifted from CATALOG.json")
-    plants_b = _plants_from_jsonl(plants_b_path.read_text(encoding="utf-8"))
+    plants_sha256, plants = _load_plants_sidecar(
+        catalog_path, document, PLANTS_FILENAME, "plants_sha256"
+    )
+    plants_b_sha256, plants_b = _load_plants_sidecar(
+        catalog_path, document, PLANTS_B_FILENAME, "plants_b_sha256"
+    )
     catalog = IacCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -131,25 +147,35 @@ def load_catalog(path=None) -> IacCatalog:
         factory=document["factory"],
         generator=document["generator"],
         slice=document["slice"],
-        mills=mills,
-        archive_b=archive_b,
-        archive_b_more=archive_b_more,
+        mills={mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()},
+        archive_b=_archive_b_from_row(document["archive_b"]),
+        archive_b_more=_archive_b_from_row(document["archive_b_more"]),
         plants_sha256=plants_sha256,
         plants_b_sha256=plants_b_sha256,
         plants=plants,
         plants_b=plants_b,
     )
     _bind_sources(catalog)
-    _bind_archive_b(catalog, archive_b=archive_b, plants=catalog.plants)
-    _bind_archive_b(
-        catalog,
-        archive_b=archive_b_more,
-        plants=catalog.plants_b,
-        path=PLANTS_B_SOURCE_PATH,
-        blob_sha=PLANTS_B_BLOB_SHA,
-        source_sha256=PLANTS_B_SOURCE_SHA256,
-    )
+    for attr, plants_attr, pin in _ARCHIVE_BINDS:
+        _bind_archive_b(
+            getattr(catalog, attr),
+            plants=getattr(catalog, plants_attr),
+            pin=pin,
+        )
     return catalog
+
+
+def _load_plants_sidecar(
+    catalog_path: Path,
+    document: Mapping[str, Any],
+    filename: str,
+    digest_key: str,
+) -> tuple[str, tuple[ArchiveBPlant, ...]]:
+    sidecar = catalog_path.parent / filename
+    digest = sha256_bytes(sidecar.read_bytes())
+    if document.get(digest_key) != digest:
+        raise ValueError(f"{sidecar} digest drifted from CATALOG.json")
+    return digest, _plants_from_jsonl(sidecar.read_text(encoding="utf-8"))
 
 
 def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
@@ -214,28 +240,31 @@ def _plants_from_jsonl(text: str) -> tuple[ArchiveBPlant, ...]:
 
 
 def _bind_archive_b(
-    catalog: IacCatalog,
-    *,
     archive_b: ArchiveBSource,
+    *,
     plants: tuple[ArchiveBPlant, ...],
-    path: str = PLANTS_SOURCE_PATH,
-    blob_sha: str = PLANTS_BLOB_SHA,
-    source_sha256: str = PLANTS_SOURCE_SHA256,
+    pin: ArchivePin,
 ) -> None:
-    del catalog
-    if archive_b.ref != ARCHIVE_B_REF or archive_b.commit != ARCHIVE_B_COMMIT:
-        raise ValueError(f"{path} archive ref/commit drifted from vocabulary")
-    if archive_b.path != path:
-        raise ValueError(f"{path} archive path drifted from vocabulary")
-    if archive_b.blob_sha != blob_sha or archive_b.sha256 != source_sha256:
-        raise ValueError(f"{path} archive source pin drifted from vocabulary")
-    if archive_b.n_plants != len(plants):
-        raise ValueError(f"{path} n_plants does not match committed JSONL")
-    if plants and (
-        plants[0].success_slug != archive_b.first_slug
-        or plants[-1].success_slug != archive_b.last_slug
-    ):
-        raise ValueError(f"{path} first/last slug drifted from committed JSONL")
+    boundary_slugs_match = not plants or (
+        plants[0].success_slug == archive_b.first_slug
+        and plants[-1].success_slug == archive_b.last_slug
+    )
+    checks = (
+        (
+            archive_b.ref == ARCHIVE_B_REF and archive_b.commit == ARCHIVE_B_COMMIT,
+            "archive ref/commit drifted from vocabulary",
+        ),
+        (archive_b.path == pin.path, "archive path drifted from vocabulary"),
+        (
+            archive_b.blob_sha == pin.blob_sha and archive_b.sha256 == pin.source_sha256,
+            "archive source pin drifted from vocabulary",
+        ),
+        (archive_b.n_plants == len(plants), "n_plants does not match committed JSONL"),
+        (boundary_slugs_match, "first/last slug drifted from committed JSONL"),
+    )
+    for ok, message in checks:
+        if not ok:
+            raise ValueError(f"{pin.path} {message}")
 
 
 def _bind_sources(catalog: IacCatalog) -> None:

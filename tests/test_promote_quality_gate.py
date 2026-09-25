@@ -4,7 +4,6 @@
 import contextlib
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,13 +11,16 @@ from pathlib import Path
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
-PROMOTER = PIPELINES / "promote.py"
-sys.path.insert(0, str(PIPELINES))
+FIXTURES = TESTS / "fixtures"
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import promote  # noqa: E402
 import quality_gate  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 
 def _record():
@@ -39,12 +41,8 @@ def _write_jsonl(path, records):
 
 
 def _cli(args):
-    return subprocess.run(
-        [sys.executable, str(PROMOTER), *args],
-        cwd=str(REPO),
-        capture_output=True,
-        text=True,
-    )
+    """Run ``promote.main`` in-process, mirroring a subprocess result."""
+    return main_in_process(promote.main, args)
 
 
 class TestPromoteQualityGatePreflight(unittest.TestCase):

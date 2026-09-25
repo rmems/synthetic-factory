@@ -6,8 +6,9 @@ Runs under ``python -P -s -S -B -X utf8`` in a fresh working directory holding
 module through ``importlib``; runs the target function's doctest examples once
 in order (they may carry state) through a ``DocTestRunner`` whose report hooks
 record one row per example; evaluates the pinned hidden cases; writes an
-out-of-band limits attestation line on real stdout before ``program.py`` is
-read; then writes one JSON object to an inherited unlinked report fd. It exits 0
+out-of-band limits and Landlock startup attestations on real stdout before
+``program.py`` is read; then writes one JSON object to an inherited unlinked
+report fd. It exits 0
 whatever the program did: failures are rows, never exit codes, and any
 internal error is reported in ``load``.
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import atexit
+import contextlib
 import doctest
 import hashlib
 import importlib.util
@@ -231,9 +233,10 @@ def _agree(got: str, want: str, spec: dict) -> bool:
         left, right = float(got), float(want)
     except ValueError:
         return False
-    if not math.isfinite(left) or not math.isfinite(right):
-        return False
-    return math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
+    return (
+        math.isfinite(left) and math.isfinite(right)
+        and math.isclose(left, right, rel_tol=spec["float_rel_tol"], abs_tol=spec["float_abs_tol"])
+    )
 
 
 def _case_error(index: int, case: dict, exc: Exception, workdir: str, kind: str) -> dict:
@@ -275,10 +278,20 @@ def _with_isolated_main(action):
     try:
         return action()
     finally:
+        sys.modules.pop("__main__", None)
         if previous is not None:
             sys.modules["__main__"] = previous
-        else:
-            sys.modules.pop("__main__", None)
+
+
+def _isolation_module():
+    """The copied Landlock helper; a load failure surfaces as a harness error."""
+
+    location = importlib.util.spec_from_file_location(
+        "_sandbox", Path(__file__).with_name("_sandbox.py"),
+    )
+    module = importlib.util.module_from_spec(location)
+    location.loader.exec_module(module)
+    return module
 
 
 def _write_limits_attestation(stream, limits_applied: bool) -> None:
@@ -299,7 +312,7 @@ def _write_protocol_report(report: dict, dumps) -> None:
     os.ftruncate(fd, len(data))
 
 
-def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
+def _startup_report(*, limits_applied: bool) -> dict:
     report: dict = {"protocol": PROTOCOL, "load": {"status": "ok", "error": None}}
     report["environment"] = {
         "python": platform.python_version(),
@@ -309,6 +322,13 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     }
     if not limits_applied:
         report["load"] = {"status": "error", "error": "SANDBOX_UNAVAILABLE: resource limits"}
+    return report
+
+
+def _run_program(workdir: Path, spec: dict, report: dict) -> dict:
+    """Read and execute candidate code after immutable startup proofs are emitted."""
+
+    if report["load"]["status"] != "ok":
         return report
     text = (workdir / PROGRAM_FILENAME).read_text(encoding="utf-8")
     root = str(workdir)
@@ -335,6 +355,12 @@ def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
     return report
 
 
+def _run(workdir: Path, spec: dict, *, limits_applied: bool) -> dict:
+    report = _startup_report(limits_applied=limits_applied)
+    _isolation_module().enforce(str(workdir), spec, report)
+    return _run_program(workdir, spec, report)
+
+
 def main(argv: list[str], *, _dumps=json.dumps) -> int:
     if len(argv) != 2:
         sys.stderr.write("usage: _harness.py <workdir>\n")
@@ -343,12 +369,21 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
     real_stdout, real_stderr = sys.stdout, sys.stderr
     real_stdout.flush()
     real_stderr.flush()
-    try:
+    spec = {}
+    with contextlib.suppress(OSError, TypeError, ValueError):
         spec = json.loads((workdir / "spec.json").read_text(encoding="utf-8"))
-    except (OSError, TypeError, UnicodeError, ValueError):
-        spec = {}
     limits_applied = _apply_limits(spec)
+    report = _startup_report(limits_applied=limits_applied)
     _write_limits_attestation(real_stdout, limits_applied)
+    try:
+        _isolation_module().enforce(str(workdir), spec, report, real_stdout)
+    except Exception as exc:
+        report["load"] = {
+            "status": "error",
+            "error": _scrub_workdir(
+                f"HarnessError: {type(exc).__name__}: {exc}", str(workdir),
+            ),
+        }
     # Drop the capture fds without keeping a dup. A leftover seekable stdout fd
     # (or a workdir path the candidate can reopen) can rewrite the attestation.
     with open(os.devnull, "w", encoding="utf-8") as sink:
@@ -356,13 +391,10 @@ def main(argv: list[str], *, _dumps=json.dumps) -> int:
         os.dup2(sink.fileno(), 2)
         sys.stdout, sys.stderr = sink, sink
         try:
-            report = _run(workdir, spec, limits_applied=limits_applied)
+            report = _run_program(workdir, spec, report)
         except Exception as exc:
-            report = {
-                "protocol": PROTOCOL,
-                "load": {"status": "error", "error": _scrub_workdir(
-                    f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))},
-            }
+            report["load"] = {"status": "error", "error": _scrub_workdir(
+                f"HarnessError: {type(exc).__name__}: {exc}", str(workdir))}
         _write_protocol_report(report, _dumps)
     sys.stdout, sys.stderr = real_stdout, real_stderr
     return 0

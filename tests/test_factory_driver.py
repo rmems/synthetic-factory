@@ -20,6 +20,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(factory_driver)
 
 from round_txn import TransactionError  # noqa: E402
+import snapshot_ops  # noqa: E402 - driver puts the skill dir on sys.path
 
 
 FIXTURES = REPO / "tests" / "fixtures"
@@ -144,7 +145,7 @@ class FactoryDriverBytes(unittest.TestCase):
                 raise TransactionError("source entry disappeared")
 
             with mock.patch.object(
-                factory_driver,
+                snapshot_ops,
                 "copy_snapshot_tree",
                 side_effect=fail_after_partial_copy,
             ), self.assertRaisesRegex(TransactionError, "source entry disappeared"):
@@ -239,7 +240,7 @@ class FactoryDriverBytes(unittest.TestCase):
                 entry.symlink_to(outside)
 
             with mock.patch.object(
-                factory_driver,
+                snapshot_ops,
                 "reject_snapshot_symlinks",
                 side_effect=replace_after_preflight,
             ), self.assertRaisesRegex(TransactionError, "cannot snapshot path safely"):
@@ -317,11 +318,11 @@ class FactoryDriverValidation(unittest.TestCase):
                 return real_snapshot(src, prefix)
 
             with mock.patch.object(
-                factory_driver,
+                snapshot_ops,
                 "marker_visible_jsonl_paths",
                 side_effect=observe_visible,
             ), mock.patch.object(
-                factory_driver, "snapshot_to_temp", side_effect=observe_snapshot
+                snapshot_ops, "snapshot_to_temp", side_effect=observe_snapshot
             ):
                 temp, _snapshot, visible = factory_driver.marker_visible_snapshot(
                     run, "factory-lock-test-"
@@ -353,7 +354,7 @@ class FactoryDriverValidation(unittest.TestCase):
                 return real_snapshot(src, prefix)
 
             with mock.patch.object(
-                factory_driver, "snapshot_to_temp", side_effect=transient_cleanup
+                snapshot_ops, "snapshot_to_temp", side_effect=transient_cleanup
             ):
                 temp, snapshot, visible = factory_driver.marker_visible_snapshot(
                     run, "factory-cleanup-retry-"
@@ -532,6 +533,39 @@ class FactoryDriverAudit(unittest.TestCase):
                 factory_driver, "run_tool", return_value=(0, "", "")
             ), redirect_stdout(StringIO()):
                 self.assertEqual(factory_driver.cmd_audit(run), 0)
+
+
+class FactoryDriverParitySmoke(unittest.TestCase):
+    def test_available_external_runtime_is_not_itself_a_smoke_failure(self):
+        import hardware_parity
+        import neuro_oracle
+        import nir_equivalence
+
+        fpga_report = neuro_oracle.availability_report()
+        fpga_report["spikenaut_fpga"] = {
+            "available": True,
+            "reason_code": None,
+            "detail": "test board transport",
+            "execution_target": "fpga_hardware",
+            "runtime_class": "physical_hardware",
+        }
+        nir_report = nir_equivalence.availability_report()
+        nir_report["nir_rs"] = {
+            "available": True,
+            "reason_code": None,
+            "detail": "test upstream runtime",
+            "runtime_class": "upstream_nir",
+        }
+        with mock.patch.object(
+            neuro_oracle, "availability_report", return_value=fpga_report
+        ), mock.patch.object(
+            hardware_parity, "availability_report", return_value=fpga_report
+        ), mock.patch.object(
+            nir_equivalence, "availability_report", return_value=nir_report
+        ):
+            failures = factory_driver.smoke_parity_families()
+
+        self.assertEqual(failures, [])
 
 
 if __name__ == "__main__":

@@ -218,7 +218,12 @@ def classify_rights(
     factory_registry_sha256: object = None,
     **route_fields: object,
 ) -> RightsDecision:
-    """Return the one static verdict authorized for a bound source and registry."""
+    """Look up policy for a route already authenticated by the caller.
+
+    Digests identify evidence; this pure lookup does not load a registry or
+    authenticate a source. Curation must validate the registry assignment and
+    replay its source before using a training-candidate route.
+    """
     where = _CLASSIFICATION_WHERE
     checked_route = _classification_route(route, route_fields)
     source_digest = require_hash(source_sha256, "source_sha256", where=where)
@@ -393,7 +398,11 @@ def verify_rights_envelope(
     factory_registry_bytes: bytes,
     verification: RightsVerification,
 ) -> RightsDecision:
-    """Recompute digests and require the trusted route's exact static verdict."""
+    """Recompute digests and require the trusted route's exact static verdict.
+
+    The caller must derive expected_route from independently authenticated
+    registry/source evidence, never from the envelope being verified.
+    """
     if not isinstance(verification, RightsVerification):
         raise policy_error(_ENVELOPE_WHERE, "verification must be trusted")
     payload = _payload_object(envelope)

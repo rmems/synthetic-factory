@@ -21,11 +21,16 @@ if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from training_audit_test_helpers import (  # noqa: E402
+    assert_research_only,
     REPO,
     commit_marker_batch,
     thalamic,
     write,
 )
+
+if str(REPO / "pipelines") not in sys.path:
+    sys.path.insert(0, str(REPO / "pipelines"))
+
 
 import training_audit  # noqa: E402
 
@@ -38,15 +43,13 @@ class TrainingAuditReadinessReport(unittest.TestCase):
     def assert_facade_seam_reached(self, seam, action):
         """Require one facade patch to be resolved by the supplied action."""
         message = f"{seam} reached"
-        with (
-            mock.patch.object(
-                training_audit,
-                seam,
-                side_effect=FacadeSeamReached(message),
-            ),
-            self.assertRaisesRegex(FacadeSeamReached, message),
+        with mock.patch.object(
+            training_audit,
+            seam,
+            side_effect=FacadeSeamReached(message),
         ):
-            action()
+            with self.assertRaisesRegex(FacadeSeamReached, message):
+                action()
 
     def test_pinned_reader_resolves_facade_opener_at_call_time(self):
         with tempfile.TemporaryDirectory() as td:
@@ -174,7 +177,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
 
         self.assertEqual(report["totals"]["records"], 2)
         self.assertEqual(report["record_invariants"]["errors"], 0)
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
 
     def test_non_regular_jsonl_members_fail_the_audit_closed(self):
         """Codex #97 P2: a member that cannot be captured must not be skipped.
@@ -190,7 +193,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                 root = Path(td)
                 factory = root / "thalamic-trajectory-factory"
                 write(factory / "batch-r01.jsonl", [thalamic("clean-1")])
-                self.assertTrue(training_audit.audit_run(root)["training_ready"])
+                assert_research_only(self, training_audit.audit_run(root))
 
                 intruder = factory / "ignored.jsonl"
                 if member == "broken_symlink":
@@ -221,15 +224,13 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                     write(factory / "late.jsonl", [thalamic("late")])
                 return payload
 
-            with (
-                mock.patch.object(
-                    training_audit,
-                    "_read_pinned_member",
-                    side_effect=read_then_add,
-                ),
-                self.assertRaisesRegex(ValueError, "member set changed"),
+            with mock.patch.object(
+                training_audit,
+                "_read_pinned_member",
+                side_effect=read_then_add,
             ):
-                training_audit.audit_run(root)
+                with self.assertRaisesRegex(ValueError, "member set changed"):
+                    training_audit.audit_run(root)
 
     def test_pinned_member_read_refuses_an_aliased_parent_directory(self):
         """Every parent component is descriptor-pinned with no symlink following."""
@@ -240,11 +241,9 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             outside_file.write_bytes(b'{}\n')
             (root / "alias").symlink_to(outside, target_is_directory=True)
 
+            member = Path("alias/batch-r01.jsonl")
             with self.assertRaisesRegex(ValueError, "cannot be captured"):
-                training_audit._read_pinned_member(
-                    root,
-                    Path("alias/batch-r01.jsonl"),
-                )
+                training_audit._read_pinned_member(root, member)
 
     def test_authenticated_snapshot_rejects_unsafe_paths_and_non_bytes(self):
         """Exporter snapshots keep strict relative-path and byte-payload types."""
@@ -253,8 +252,9 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             root = Path(td)
             unsafe_paths = ("", "/absolute.jsonl", "../escape.jsonl", "a/../b.jsonl")
             for path in unsafe_paths:
-                with self.subTest(path=path), self.assertRaises(ValueError):
-                    training_audit.audit_run(root, snapshot={path: b'{}\n'})
+                with self.subTest(path=path):
+                    with self.assertRaises(ValueError):
+                        training_audit.audit_run(root, snapshot={path: b'{}\n'})
 
             with self.assertRaisesRegex(TypeError, "must be bytes"):
                 training_audit.audit_run(
@@ -300,7 +300,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             root = Path(td)
             factory = root / "thalamic-trajectory-factory"
             write(factory / "batch-r01.jsonl", [thalamic("clean-1")])
-            self.assertTrue(training_audit.audit_run(root)["training_ready"])
+            assert_research_only(self, training_audit.audit_run(root))
 
             alias_target = Path(outside)
             (alias_target / "invalid.jsonl").write_text(
@@ -321,33 +321,32 @@ class TrainingAuditReadinessReport(unittest.TestCase):
         the round committed, so a member swapped for another regular file
         under a committed coordinate can never be certified.
         """
-        import training_audit as audit_module
-
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             factory = root / "thalamic-trajectory-factory"
             batch = factory / "batch-r01.jsonl"
             write(batch, [thalamic("committed-1")])
             commit_marker_batch(factory, batch)
-            self.assertTrue(training_audit.audit_run(root)["training_ready"])
+            assert_research_only(self, training_audit.audit_run(root))
 
             # The capture-time binding itself: bytes that disagree with the
             # committed digest are refused even after visibility resolved.
             digest_cache = {}
+            member = Path("batch-r01.jsonl")
             with self.assertRaisesRegex(ValueError, "committed round digest"):
-                audit_module._require_committed_digest(
+                training_audit._require_committed_digest(
                     b"not the committed bytes\n",
-                    Path("batch-r01.jsonl"),
+                    member,
                     factory,
                     digest_cache,
                 )
-            audit_module._require_committed_digest(
+            training_audit._require_committed_digest(
                 batch.read_bytes(), Path("batch-r01.jsonl"), factory, digest_cache
             )
 
             write(batch, [thalamic("swapped-1")])
             with self.assertRaises(
-                (ValueError, audit_module.TransactionError)
+                (ValueError, training_audit.TransactionError)
             ):
                 training_audit.audit_run(root)
 
@@ -357,7 +356,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [thalamic("clean-1")])
             report = training_audit.audit_run(root)
 
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         self.assertEqual(report["totals"]["records"], 1)
         self.assertEqual(report["identity"]["coverage_pct"], 100.0)
         self.assertEqual(report["provenance"]["canonical_pct"], 100.0)
@@ -579,7 +578,6 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             ),
             report["record_invariants"],
         )
-
 
 if __name__ == "__main__":
     unittest.main()

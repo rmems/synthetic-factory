@@ -132,7 +132,12 @@ replay and completed-round gate. Hosted-frontier rows remain blocked.
   provider/channel or an entry in `_REVIEWED_GENERATOR_RIGHTS`. The registry
   notes' two-entry onboarding requirement describes the hosted route.
 - **Record kind comes from the payload, not the directory.**
-  `record_kind.classify_kind` is the single classifier (order: code_repair, thalamic,
+  `record_kind.classify_kind` is the single classifier. A self-declared
+  `record_kind` in `DECLARED_KINDS` (`hardware_parity`, `nir_equivalence`) is
+  read first when present — a family that names itself is never captured by a
+  shape rule it happens to overlap, except when a record omits `record_kind` or
+  carries a value outside `DECLARED_KINDS`; those fall back to the key-presence
+  order (code_repair, thalamic,
   preference, bridge_pair, safety_case, multi_agent, episode). "Mill mix" — a
   record whose `meta.factory`, id prefix, or goal family belongs to another
   lane — is resolved by `mill_family.py`, reported by census, and quarantined by
@@ -201,3 +206,18 @@ Issues are tracked in GitHub issues (Beads tracking was retired in #184);
 do not add markdown TODO lists.
 Cursor Cloud agents build from `.cursor/environment.json` + `.cursor/Dockerfile`;
 do not COPY the repo into the image and do not treat `outputs/raw/` as scratch.
+
+## Parity oracles
+
+The `hardware-parity-spike-trajectories` and `nir-cross-runtime-equivalence`
+families depend on oracles that mostly do **not** exist in this environment.
+No FPGA is attached and no upstream NIR runtime is installed. Do not add a
+fallback that produces a plausible result in their place. See
+[`docs/parity-oracles.md`](docs/parity-oracles.md) and
+`tests/fixtures/parity-run/`.
+
+```bash
+python3 pipelines/neuro_oracle.py
+python3 pipelines/nir_equivalence.py availability
+```
+

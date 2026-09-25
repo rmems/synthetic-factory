@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Pattern
+from re import Pattern
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -269,6 +271,10 @@ def read_identity_manifest(manifest_path: Path, expected_manifest_digest: str | 
 
 
 def retained_source_lines(results, deps: Dependencies):
+    if __package__:
+        from .curate_identity_sources import PRESERVED_KINDS
+    else:
+        from curate_identity_sources import PRESERVED_KINDS
     retained_by_rel: dict[str, dict[int, str]] = {}
     for result in results:
         if result.action != "retained" or result.record is None:
@@ -282,7 +288,7 @@ def retained_source_lines(results, deps: Dependencies):
             deps.curation_error,
         )
         by_line[source_meta["line"]] = (
-            source_meta["original"] if result.mapping["record_kind"] == "code_repair"
+            source_meta["original"] if result.mapping["record_kind"] in PRESERVED_KINDS
             else deps.canonical_json(result.record)
         )
     return retained_by_rel
@@ -301,5 +307,4 @@ def rollback_identity_tree(dest, created_files, created_directories):
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
 

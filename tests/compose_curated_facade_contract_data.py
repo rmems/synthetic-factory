@@ -122,7 +122,7 @@ HISTORICAL_SIGNATURES = dict(
     line.strip().split("\t", 1)
     for line in """
     _append_coding_lane_stage\t(stages: 'list[dict[str, Any]]', module: 'Any', curated: 'Any', manifest: 'Mapping[str, Any]') -> "'ComposeDecision | Any'"
-    _audit_records\t(records_dir: 'Path', record_count: 'int') -> 'dict[str, Any]'
+    _audit_records\t(records_dir: 'Path', record_count: 'int', *, completion_source: 'Path | None' = None) -> 'dict[str, Any]'
     _authenticate_composed_artifacts\t(pinned_destination: 'PinnedDestination', expected_digests: 'Mapping[str, str]') -> 'None'
     _bridge_order_repaired_copy\t(record: 'Mapping[str, Any]', *, source_path: 'str', source_line: 'int', source_sha256: 'str') -> 'dict[str, Any] | None'
     _bridge_view_trajectory\t(record: 'Mapping[str, Any]') -> 'dict[str, Any] | None'
@@ -183,7 +183,7 @@ HISTORICAL_SIGNATURES = dict(
     calibration_for\t(record: 'Mapping[str, Any]', catalog: 'Mapping[str, Any] | None') -> 'Any'
     compact_audit_report\t(report: 'Mapping[str, Any] | None', record_count: 'int') -> 'dict[str, Any]'
     compose_record\t(record: 'Any', context: 'RecordContext') -> 'ComposeDecision'
-    compose_run\t(source_run: 'str | Path', destination: 'str | Path', *, units_migration: 'str | Path | None' = None) -> 'dict[str, Any]'
+    compose_run\t(context: 'ComposeRunContext') -> 'dict[str, Any]'
     compose_source_line\t(physical_line: 'bytes', coordinate: 'SourceLineCoordinate', *, calibration_catalog: 'Mapping[str, Any] | None' = None, semantics: 'SemanticRegistry | None' = None) -> 'ComposeDecision'
     jsonl_physical_lines\t(raw_file: 'bytes') -> 'list[bytes]'
     main\t(argv: 'list[str] | None' = None) -> 'int'
