@@ -86,7 +86,7 @@ def _git_show(commit: str, path: str) -> str:
 
 
 def _git_blob(commit: str, path: str) -> str:
-    return subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
+    return subprocess.check_output(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
         [str(GIT), "rev-parse", f"{commit}:{path}"], text=True, cwd=ROOT
     ).strip()
 
