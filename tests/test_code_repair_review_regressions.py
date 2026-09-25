@@ -99,7 +99,19 @@ class ExecutionEvidence(unittest.TestCase):
                 result = runner.run(ex.Job("snapshot", "def f():\n    return 1\n", "f",
                                            ({"args": "()", "want": "1"},), False))
             self.assertTrue(result.ok, result.detail)
-            self.assertEqual(runner.harness_sha256, hashlib.sha256(original).hexdigest())
+            expected = ex._execution_bundle_sha256(
+                original, ex.SANDBOX_PATH.read_bytes(), ex.SANDBOX_PATHS_PATH.read_bytes(),
+            )
+            self.assertEqual(runner.harness_sha256, expected)
+
+    def test_execution_bundle_digest_covers_each_framed_child_module(self):
+        payloads = (b"harness", b"sandbox", b"paths")
+        original = ex._execution_bundle_sha256(*payloads)
+        for index in range(len(payloads)):
+            changed = list(payloads)
+            changed[index] += b"-changed"
+            with self.subTest(index=index):
+                self.assertNotEqual(ex._execution_bundle_sha256(*changed), original)
 
     def test_reports_without_applied_limits_are_rejected(self):
         for flag in (None, False, 1):
@@ -107,7 +119,7 @@ class ExecutionEvidence(unittest.TestCase):
                       "environment": {"limits_applied": flag}, "public": [], "hidden": []}
             stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode()
             result = ex._parse_report(ex.Job("limits", "", "f", (), False),
-                                      0, stdout, json.dumps(report).encode())
+                                      0, (stdout, json.dumps(report).encode()))
             self.assertFalse(result.ok)
             self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, result.detail)
 
@@ -116,7 +128,7 @@ class ExecutionEvidence(unittest.TestCase):
                   "environment": {"limits_applied": False}, "public": [], "hidden": []}
         stdout = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode()
         result = ex._parse_report(ex.Job("limits", "", "f", (), False),
-                                  0, stdout, json.dumps(report).encode())
+                                  0, (stdout, json.dumps(report).encode()))
         self.assertTrue(result.environment["limits_applied"])
 
     def test_unavailable_limits_stop_before_loading_program_code(self):

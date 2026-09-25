@@ -258,6 +258,16 @@ def _package_compose_curated_run_context() -> ModuleType:
     return module
 
 
+def _direct_compose_oracle_selection() -> ModuleType:
+    import compose_oracle_selection as module
+    return module
+
+
+def _package_compose_oracle_selection() -> ModuleType:
+    import pipelines.compose_oracle_selection as module
+    return module
+
+
 def _direct_compose_curated_run_lines() -> ModuleType:
     import compose_curated_run_lines as module
 
@@ -599,6 +609,7 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_compose_curated_run_context,
         _package_compose_curated_run_context,
     ),
+    "compose_oracle_selection": (_direct_compose_oracle_selection, _package_compose_oracle_selection),
     "compose_curated_run_lines": (
         _direct_compose_curated_run_lines,
         _package_compose_curated_run_lines,

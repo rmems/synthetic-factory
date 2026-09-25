@@ -50,15 +50,13 @@ def line_coordinate(path, line, file_sha256):
 
 class ComposeCuratedFacadeContract(unittest.TestCase):
     def _assert_facade_seam(self, binding, message, invocation):
-        with (
-            mock.patch.object(
-                compose_curated,
-                binding,
-                side_effect=FacadeSentinel(message),
-            ),
-            self.assertRaisesRegex(FacadeSentinel, message),
+        with mock.patch.object(
+            compose_curated,
+            binding,
+            side_effect=FacadeSentinel(message),
         ):
-            invocation()
+            with self.assertRaisesRegex(FacadeSentinel, message):
+                invocation()
 
     def test_the_complete_historical_module_surface_is_restored(self):
         missing = sorted(HISTORICAL_BINDINGS - set(vars(compose_curated)))
@@ -72,18 +70,26 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
     def test_every_historical_callable_signature_is_restored(self):
         for name, expected in HISTORICAL_SIGNATURES.items():
             with self.subTest(name=name):
+                signature = inspect.signature(getattr(compose_curated, name))
                 self.assertEqual(
-                    str(inspect.signature(getattr(compose_curated, name))),
+                    str(signature),
                     expected,
                 )
 
+        context = compose_curated.ComposeRunContext("source", "destination")
+        self.assertIsNone(context.units_migration)
+        self.assertEqual(context.oracle_selection, "all")
+        self.assertIsNone(context.oracle_rust_bin)
+
+        export_signature = inspect.signature(export_hf.export_run)
         self.assertEqual(
-            str(inspect.signature(export_hf.export_run)),
-            "(curated_root: 'str | Path', destination: 'str | Path', *, "
-            "split: 'SplitOptions' = SplitOptions(eval_fraction=0.1, "
-            "salt='spikenaut.synthetic-factory.split-v1'), "
-            "dataset_name: 'str | None' = None) -> 'dict[str, Any]'",
+            str(export_signature),
+            "(request: 'ExportRequest') -> 'dict[str, Any]'",
         )
+        request = export_hf.ExportRequest("source", "destination")
+        self.assertEqual(request.split, export_hf.DEFAULT_SPLIT)
+        self.assertIsNone(request.dataset_name)
+        self.assertIsNone(request.oracle_rust_bin)
 
     def test_public_calls_use_python_native_binding_diagnostics(self):
         cases = (
@@ -109,7 +115,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 export_hf.export_run,
                 ("source", "destination", None),
                 {},
-                "export_run() takes 2 positional arguments but 3 were given",
+                "export_run() takes 1 positional argument but 3 were given",
             ),
         )
         for function, positional, named, expected in cases:
@@ -195,26 +201,22 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
 
         coding_binding = mock.Mock()
         coding_binding.steps_path.side_effect = FacadeSentinel("coding binding")
-        with (
-            mock.patch.object(compose_curated, "curate_coding", coding_binding),
-            self.assertRaisesRegex(FacadeSentinel, "coding binding"),
-        ):
-            bridge_hidden()
+        with mock.patch.object(compose_curated, "curate_coding", coding_binding):
+            with self.assertRaisesRegex(FacadeSentinel, "coding binding"):
+                bridge_hidden()
 
     def test_side_curation_evidence_rejects_duplicate_keyword_overrides(self):
         reason = compose_curated.REASON_TRAJECTORY_SIDE_INVALID
+        curation = compose_curated.SideCuration(None, {}, ("side_invalid",), False)
+        failure = compose_curated.SideFailure(
+            ("episode", "episode"),
+            "side_failure",
+            extra={"reason_codes": ["overwritten"]},
+        )
         with self.assertRaisesRegex(
             TypeError, "multiple values for keyword argument 'reason_codes'"
         ):
-            compose_curated._side_curation_failed_decision(
-                [],
-                compose_curated.SideCuration(None, {}, ("side_invalid",), False),
-                compose_curated.SideFailure(
-                    ("episode", "episode"),
-                    "side_failure",
-                    extra={"reason_codes": ["overwritten"]},
-                ),
-            )
+            compose_curated._side_curation_failed_decision([], curation, failure)
         decision = compose_curated._side_curation_failed_decision(
             [],
             compose_curated.SideCuration(
@@ -260,7 +262,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 (
                     "_capture_source_snapshot",
                     "snapshot capture",
-                    lambda: compose_curated.compose_run(root, root / "destination"),
+                    lambda: compose_curated.compose_run(
+                        compose_curated.ComposeRunContext(root, root / "destination")
+                    ),
                 ),
             )
             for binding, message, invocation in cases:
@@ -294,6 +298,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
         def passthrough(current, *_args, **_kwargs):
             return current
 
+        context = record_context("batch.jsonl", 1, "e" * 64)
         with (
             mock.patch.object(
                 compose_curated,
@@ -315,9 +320,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_coding_lane_curator",
                 side_effect=FacadeSentinel("coding curator"),
             ),
-            self.assertRaisesRegex(FacadeSentinel, "coding curator"),
         ):
-            compose_curated.compose_record({}, record_context("batch.jsonl", 1, "e" * 64))
+            with self.assertRaisesRegex(FacadeSentinel, "coding curator"):
+                compose_curated.compose_record({}, context)
 
     def test_dedup_identity_helpers_resolve_through_the_facade(self):
         decision = compose_curated.ComposeDecision(
@@ -328,20 +333,18 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             None,
             "record",
         )
-        with (
-            mock.patch.object(
-                compose_curated,
-                "_identity_stage_detail_of",
-                side_effect=FacadeSentinel("identity detail"),
-            ),
-            self.assertRaisesRegex(FacadeSentinel, "identity detail"),
+        with mock.patch.object(
+            compose_curated,
+            "_identity_stage_detail_of",
+            side_effect=FacadeSentinel("identity detail"),
         ):
-            compose_curated._deduplicate_curated_record(
-                decision,
-                source_path="batch.jsonl",
-                source_line=1,
-                seen_curated_semantics={},
-            )
+            with self.assertRaisesRegex(FacadeSentinel, "identity detail"):
+                compose_curated._deduplicate_curated_record(
+                    decision,
+                    source_path="batch.jsonl",
+                    source_line=1,
+                    seen_curated_semantics={},
+                )
 
     @staticmethod
     def _restored_helper_graph_cases(retained):
@@ -396,6 +399,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 self._assert_facade_seam(binding, message, invocation)
 
     def test_preference_dispatch_uses_the_live_facade_branch(self):
+        context = record_context("batch.jsonl", 1, "0" * 64)
         with (
             mock.patch.object(compose_curated, "is_preference_record", return_value=True),
             mock.patch.object(
@@ -409,13 +413,12 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_compose_same_state_preference",
                 side_effect=FacadeSentinel("same-state branch"),
             ),
-            self.assertRaisesRegex(FacadeSentinel, "same-state branch"),
         ):
-            compose_curated._compose_preferences_stage(
-                {}, [], record_context("batch.jsonl", 1, "0" * 64)
-            )
+            with self.assertRaisesRegex(FacadeSentinel, "same-state branch"):
+                compose_curated._compose_preferences_stage({}, [], context)
 
     def test_bridge_coding_dispatch_uses_the_live_facade_helper(self):
+        context = record_context("batch.jsonl", 1, "0" * 64)
         with (
             mock.patch.object(compose_curated, "_coding_lane_curator", return_value=None),
             mock.patch.object(compose_curated, "is_bridge_record", return_value=True),
@@ -424,11 +427,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_bridge_view_trajectory",
                 side_effect=FacadeSentinel("bridge trajectory"),
             ),
-            self.assertRaisesRegex(FacadeSentinel, "bridge trajectory"),
         ):
-            compose_curated._compose_coding_stage(
-                {}, None, [], record_context("batch.jsonl", 1, "0" * 64)
-            )
+            with self.assertRaisesRegex(FacadeSentinel, "bridge trajectory"):
+                compose_curated._compose_coding_stage({}, None, [], context)
 
     def test_run_helpers_use_the_live_facade_graph(self):
         class Finding:

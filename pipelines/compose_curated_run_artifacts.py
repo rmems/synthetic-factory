@@ -13,12 +13,14 @@ if __package__:
     _assert_direct_sibling("compose_curated_run_artifacts")
     from . import compose_contract as _contract
     from . import compose_curated_run_context as _run_context
+    from . import compose_curated_rights as _rights
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run_artifacts"
     )
     import compose_contract as _contract
     import compose_curated_run_context as _run_context
+    import compose_curated_rights as _rights
 
 COMPOSE_NAME = _contract.COMPOSE_NAME
 COMPOSE_VERSION = _contract.COMPOSE_VERSION
@@ -41,14 +43,19 @@ SummaryContext = _run_context.SummaryContext
 def write_emitted_records(
     state: ComposeRunState,
     context: SourceFileContext,
-    emitted: list[str],
+    emitted: list[_contract.EmittedRecord],
     services: DestinationServices,
 ) -> None:
     output_path = f"{RECORDS_DIRNAME}/{context.relative}"
+    if any(
+        isinstance(line, _contract.NativeRecordFrame) and line.terminator == ""
+        for line in emitted[:-1]
+    ):
+        raise ComposeError("unterminated native source cannot precede another composed record")
     digest = services.write_new_text(
         context.destination_target,
         output_path,
-        "".join(line + "\n" for line in emitted),
+        _contract.emitted_records_text(emitted),
     )
     state.outputs.append({"path": output_path, "records": len(emitted), "sha256": digest})
     state.counts["output_files"] += 1
@@ -120,6 +127,7 @@ def compose_run_summary(
         },
         "exclusions": dict(sorted(state.exclusions.items())),
         "outputs": state.outputs,
+        "rights": _rights.rights_summary(state),
         "manifest": {
             "path": f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
             "entries": len(state.manifest_lines),
@@ -130,7 +138,9 @@ def compose_run_summary(
             "entries": len(state.sidecar_lines),
             "sha256": context.sidecar_sha256,
         },
-        "audit": services.audit_records(context.records_dir, state.counts["retained"]),
+        "audit": services.audit_records(
+            context.records_dir, state.counts["retained"], completion_source=context.resolved_source,
+        ),
     }
 
 

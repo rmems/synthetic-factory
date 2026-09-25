@@ -2,18 +2,21 @@
 """Tests for pipelines/promote.py."""
 
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+TESTS = REPO / "tests"
 PIPELINES = REPO / "pipelines"
-PROMOTER = PIPELINES / "promote.py"
 
-sys.path.insert(0, str(PIPELINES))
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
 import promote  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 
 CLAIMED_LIVE = "real (production \u2026 actions live)"
@@ -46,13 +49,9 @@ def _snapshot(root):
     return out
 
 
-def _cli(args, cwd=None):
-    return subprocess.run(
-        [sys.executable, str(PROMOTER), *args],
-        cwd=str(cwd or REPO),
-        capture_output=True,
-        text=True,
-    )
+def _cli(args):
+    """Run ``promote.main`` in-process, mirroring a subprocess result."""
+    return main_in_process(promote.main, args)
 
 
 def _units_migration():

@@ -1,0 +1,14 @@
+[package]
+name = "sf-oracle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axon-encoder = "=0.4.0"
+neuromod = "=0.6.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
+sha2 = "0.10"
+
+[build-dependencies]
+sha2 = "0.10"

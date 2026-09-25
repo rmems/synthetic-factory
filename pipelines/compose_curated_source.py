@@ -169,6 +169,12 @@ def _decode_source_line(
         return _source_exclusion(context, REASON_INVALID_UTF8, {"error": str(exc)})
 
 
+def _exact_native_record(record, text):
+    if curate_identity.classify_kind(record) in curate_identity.DECLARED_KINDS | {"fault_recovery"}:
+        return curate_identity._strict_json_loads(text)
+    return record
+
+
 def _parse_source_record(
     text: str, context: SourceLineContext
 ) -> tuple[Any, str] | ComposeDecision:
@@ -180,6 +186,7 @@ def _parse_source_record(
             object_pairs_hook=context.duplicate_key_rejector,
             parse_constant=context.constant_rejector,
         )
+        record = _exact_native_record(record, text)
         return record, context.canonical_sha256(record)
     except (ValueError, RecursionError) as exc:
         return _source_exclusion(context, REASON_INVALID_JSON, {"error": str(exc)})
@@ -227,6 +234,7 @@ def _curate_source_record(
     record: Any,
     source_sha256: str,
     context: SourceLineContext,
+    source_json: str | None = None,
 ) -> ComposeDecision:
     """Apply record lanes and post-transform dedup to parsed source JSON."""
 
@@ -235,6 +243,7 @@ def _curate_source_record(
         context.source_line,
         source_sha256,
         context.source_file_sha256,
+        source_json,
     )
     record_context = RecordContext(
         source,
@@ -279,7 +288,7 @@ def compose_source_line(
     record, semantic_sha256 = parsed
     if duplicate := _duplicate_source_decision(semantic_sha256, context):
         return duplicate
-    decision = _curate_source_record(record, sha256_hex(physical_line), context)
+    decision = _curate_source_record(record, sha256_hex(physical_line), context, decoded)
     _remember_source_semantics(semantic_sha256, decision, context)
     return decision
 

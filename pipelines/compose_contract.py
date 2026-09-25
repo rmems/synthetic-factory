@@ -11,6 +11,7 @@ the canonical hashing primitives that two or more siblings need.
 from __future__ import annotations
 
 import sys
+import io
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
@@ -73,6 +74,77 @@ TRAJECTORY_GOAL_LOCATIONS = (("goal",), ("chosen", "goal"), ("rejected", "goal")
 
 class ComposeError(RuntimeError):
     """Raised when composition input, output, or run integrity is unsafe."""
+
+
+@dataclass(frozen=True)
+class NativeRecordFrame:
+    """An authenticated JSON record plus its captured physical terminator."""
+    text: str
+    terminator: str
+
+
+EmittedRecord = str | NativeRecordFrame
+
+
+def source_terminators(payload: bytes) -> tuple[str, ...]:
+    return tuple(_line_terminator(line) for line in io.BytesIO(payload))
+
+
+def _line_terminator(line: bytes) -> str:
+    if line.endswith(b"\r\n"):
+        return "\r\n"
+    return "\n" if line.endswith(b"\n") else ""
+
+
+def emitted_record_line(decision, text, terminator):
+    if curate_identity.classify_kind(decision.record) in curate_identity.PRESERVED_KINDS:
+        if terminator not in {"", "\n", "\r\n"}:
+            raise ComposeError("invalid captured native source terminator")
+        return NativeRecordFrame(text, terminator)
+    return text
+
+
+def emitted_records_text(lines):
+    return "".join(_record_frame_text(line) for line in lines)
+
+
+def _record_frame_text(line):
+    if isinstance(line, NativeRecordFrame):
+        return line.text + line.terminator
+    return line + "\n"
+
+
+def retained_json_line(decision: ComposeDecision) -> str:
+    """Preserved native records reuse authenticated source text; other outputs are canonical.
+
+    Identity forbids LF inside ``source.original`` because LF is the JSONL
+    record separator. The physical terminator is restored by
+    ``emitted_record_line`` for preserved native output.
+    """
+    if curate_identity.classify_kind(decision.record) not in curate_identity.PRESERVED_KINDS:
+        return canonical_json(decision.record)
+    source = next((stage["detail"]["source"] for stage in decision.stages
+                   if stage["lane"] == "identity"), None)
+    if source is None:
+        raise ComposeError("preserved native output has no identity evidence")
+    return _preserved_source_line(decision.record, source)
+
+
+def _preserved_source_line(record, source):
+    original = source.get("original")
+    if not isinstance(original, str):
+        raise ComposeError("preserved native output has no exact source text")
+    if sha256_hex(original.encode("utf-8")) != source.get("sha256"):
+        raise ComposeError("preserved native source text does not match its line digest")
+    supplied = curate_identity.SourceRecord(
+        record, source["path"], source["line"], source["sha256"], source_json=original,
+    )
+    try:
+        # Reuse identity's strict JSON, semantic equality, physical-line and hash checks.
+        curate_identity._source_identity(supplied)
+    except curate_identity.IdentityCurationError as exc:
+        raise ComposeError(f"preserved native source text is unauthenticated: {exc}") from exc
+    return original
 
 
 def default_units_migration_path(source_root: Path) -> Path:

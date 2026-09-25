@@ -1,0 +1,14 @@
+# Codacy analysis configuration.
+#
+# The parity oracle adapters launch env/PATH-resolved binaries with a fixed
+# argv array (`[sys.executable, <resolved adapter>, ...]`, `shell=False`):
+# the SPIKENAUT_* / NIR_RS_* environment is the documented trust boundary that
+# chooses which oracle binary to drive, and opengrep's subprocess rules flag
+# that dynamic argv on every such launch. Keep opengrep active everywhere
+# else; pylint and the other engines still cover these files.
+---
+engines:
+  opengrep:
+    exclude_paths:
+      - pipelines/neuro_oracle_availability.py
+      - pipelines/nir_equivalence_runtimes.py

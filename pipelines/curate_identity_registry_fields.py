@@ -148,7 +148,7 @@ _PATH_RULES: tuple[FieldRule, ...] = (
     ),
 )
 
-_RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
+_RIGHTS_VOCABULARY_BASE_RULES: tuple[FieldRule, ...] = (
     FieldRule("provider", _in_vocabulary(PROVIDERS), "factories[{index}] has unknown provider"),
     FieldRule("channel", _in_vocabulary(RIGHTS_CHANNELS), "factories[{index}] has unknown channel"),
     FieldRule(
@@ -166,12 +166,19 @@ _RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
         _in_vocabulary(PROJECT_TRAINING_POLICIES),
         "factories[{index}] has unknown project_training_policy",
     ),
-    FieldRule(
-        "rights_profile_id",
-        HOSTED_FRONTIER_PROFILE_ID.__eq__,
-        f"factories[{{index}}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}",
-    ),
 )
+
+_HOSTED_PROFILE_RULE = FieldRule(
+    "rights_profile_id",
+    HOSTED_FRONTIER_PROFILE_ID.__eq__,
+    f"factories[{{index}}].rights_profile_id must be {HOSTED_FRONTIER_PROFILE_ID}",
+)
+
+_RIGHTS_VOCABULARY_RULES: tuple[FieldRule, ...] = (
+    *_RIGHTS_VOCABULARY_BASE_RULES,
+    _HOSTED_PROFILE_RULE,
+)
+_MODEL_CHANNEL_RIGHTS_RULES = _RIGHTS_VOCABULARY_BASE_RULES
 
 _SHAPE_RULES: tuple[FieldRule, ...] = (
     FieldRule(
@@ -245,6 +252,49 @@ _PREFERENCE_SIDE_RULES: tuple[FieldRule, ...] = (
         _unsupported(PREFERENCE_SIDE_KINDS),
     ),
 )
+
+
+RIGHTS_VOCABULARY_RULES = _RIGHTS_VOCABULARY_RULES
+SHAPE_RULES = _SHAPE_RULES
+PREFERENCE_SIDE_RULES = _PREFERENCE_SIDE_RULES
+
+CONTRACT_REQUIRE_STATE = "require_state_claim"
+CONTRACT_SHAPE_DESIGNED = "synthetic_shape_implies_designed"
+ALLOWED_CONTRACTS = frozenset(
+    {CONTRACT_REQUIRE_STATE, CONTRACT_SHAPE_DESIGNED, "replay_fault_recovery"}
+)
+
+
+def _require_kind_contracts(
+    raw: Mapping[str, Any], kinds: frozenset[str], index: int
+) -> None:
+    contracts = raw["provenance_contract_by_kind"]
+    for kind in kinds:
+        contract = contracts.get(kind)
+        if contract not in ALLOWED_CONTRACTS:
+            raise IdentityCurationError(
+                f"factories[{index}] missing allowed provenance_contract for {kind}"
+            )
+        if contract == CONTRACT_SHAPE_DESIGNED and not raw["identity_authoritative"]:
+            raise IdentityCurationError(
+                f"factories[{index}] synthetic_shape_implies_designed requires "
+                "identity_authoritative"
+            )
+
+
+def _require_preference_side_kinds(
+    raw: Mapping[str, Any], kinds: frozenset[str], index: int
+) -> None:
+    if "preference" in kinds:
+        _apply_field_rules(
+            {"preference_side_kinds": raw.get("preference_side_kinds")},
+            _PREFERENCE_SIDE_RULES,
+            index,
+        )
+    elif raw.get("preference_side_kinds") is not None:
+        raise IdentityCurationError(
+            f"factories[{index}].preference_side_kinds requires preference authority"
+        )
 
 
 if __package__:

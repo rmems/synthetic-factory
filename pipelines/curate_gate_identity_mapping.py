@@ -53,10 +53,15 @@ GateError = _contract.GateError
 record_sha256 = _digest.record_sha256
 _normalized_sha256 = _digest._normalized_sha256
 _same_json = _merge._same_json
-_MISSING = _merge._MISSING
-_mapping_value = _identity_gate._mapping_value
-_canonical_identity_output_id = _identity_gate._canonical_identity_output_id
 _claimed_identity_source_evidence = _identity_gate._claimed_identity_source_evidence
+_IdMappingScope = _identity_gate._IdMappingScope
+_check_id_mapping = _identity_gate._check_id_mapping
+_check_provenance_mapping = _identity_gate._check_provenance_mapping
+
+if __package__:
+    from .curate_gate_rights import replay_gate_identity
+else:
+    from curate_gate_rights import replay_gate_identity
 
 
 @dataclass
@@ -79,72 +84,6 @@ class _MappingEntry(NamedTuple):
     entry_index: int
     record: dict[str, Any]
     where: str
-
-
-class _IdMappingScope(NamedTuple):
-    """Everything a single ``id_mappings`` row is checked against."""
-
-    record: dict[str, Any]
-    kind: str
-    source_path: Any
-    source_line: Any
-    seen_owners: set[Any]
-
-
-# ---------------------------------------------------------------------------
-# per-row checks: each refuses by raising, so the caller records one finding
-# ---------------------------------------------------------------------------
-
-
-def _check_id_mapping(scope: _IdMappingScope, mapping: Any, label: str) -> None:
-    """Refuse one ``id_mappings`` row that does not authenticate."""
-    if not isinstance(mapping, dict):
-        raise GateError(f"{label} must be an object")
-    owner_path = mapping.get("owner_path")
-    if owner_path in scope.seen_owners:
-        raise GateError(f"{label} duplicates owner_path {owner_path!r}")
-    scope.seen_owners.add(owner_path)
-    owner = _mapping_value(scope.record, owner_path, f"{label}.owner_path")
-    output_id = mapping.get("output_id")
-    if (
-        not isinstance(owner, dict)
-        or not isinstance(output_id, str)
-        or owner.get("id") != output_id
-    ):
-        raise GateError(f"{label}.output_id does not match output owner")
-    source_path = scope.source_path
-    source_line = scope.source_line
-    if not isinstance(source_path, str) or not isinstance(source_line, int):
-        raise GateError(f"{label} is missing an authenticated source coordinate")
-    expected_id = _canonical_identity_output_id(
-        source_path,
-        source_line,
-        scope.kind,
-        owner_path,
-    )
-    if output_id is not None and output_id != expected_id:
-        raise GateError(f"{label}.output_id is not the deterministic canonical identity")
-
-
-def _check_provenance_mapping(record: dict[str, Any], mapping: Any, label: str) -> None:
-    """Refuse one ``provenance_mappings`` row that does not authenticate."""
-    if not isinstance(mapping, dict):
-        raise GateError(f"{label} must be an object")
-    canonical = mapping.get("canonical")
-    if not isinstance(canonical, dict):
-        raise GateError(f"{label}.canonical must be an object")
-    owner = _mapping_value(record, mapping.get("owner_path"), f"{label}.owner_path")
-    if not isinstance(owner, dict) or not _same_json(owner.get("provenance", _MISSING), canonical):
-        raise GateError(f"{label}.canonical does not match output provenance")
-    state_path = mapping.get("state_path")
-    if state_path is not None:
-        state = _mapping_value(record, state_path, f"{label}.state_path")
-        if (
-            not isinstance(state, dict)
-            or not _same_json(state.get("provenance", _MISSING), canonical)
-            or state.get("sim_or_real") != canonical.get("kind")
-        ):
-            raise GateError(f"{label}.canonical does not match output state")
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +160,46 @@ def _tally_provenance_mappings(tally: _MappingTally, context: _MappingEntry) -> 
 # ---------------------------------------------------------------------------
 
 
+def _tally_native(tally, context):
+    if __package__:
+        from . import curate_gate_simulator_identity as _simulator
+        from . import curate_parity as _parity
+    else:
+        import curate_gate_simulator_identity as _simulator
+        import curate_parity as _parity
+    if _parity.is_native(context.entry, context.record):
+        authenticate = _parity.authenticate
+    elif curate_identity.classify_kind(context.record) == "fault_recovery":
+        authenticate = _simulator.authenticate
+    else:
+        return False
+    # Preserved simulator records authenticate by full mapping replay, the same
+    # contract as native parity — no rewritten identity evidence.
+    try:
+        digest = authenticate(context.entry, context.record, context.where)
+        if digest != context.entry.get("source_originals_sha256"):
+            raise GateError("native parity source attestation differs from replay")
+        tally.checked_ids += 1
+        tally.checked_source_originals += 1
+    except GateError as exc:
+        tally.refuse(context.where, str(exc))
+    return True
+
+
+def _tally_procedural_mapping(tally: _MappingTally, context: _MappingEntry) -> None:
+    try:
+        replay = replay_gate_identity(context.entry)
+        if not _same_json(replay.record, context.record):
+            raise ValueError("procedural output does not preserve reviewed source")
+        if record_sha256(context.entry["identity_detail"]) != context.entry.get("source_originals_sha256"):
+            raise ValueError("procedural source attestation drifted")
+    except ValueError as exc:
+        tally.refuse(context.where, str(exc))
+        return
+    tally.checked_ids += 1
+    tally.checked_source_originals += 1
+
+
 def _identity_mapping_gate(
     identity_entries: Sequence[dict[str, Any]],
     records_by_source: dict[tuple[str, int], Any],
@@ -239,6 +218,11 @@ def _identity_mapping_gate(
         if entry.get("output_id") != canonical_record_id(record):
             tally.refuse(where, "identity output_id mismatches final record")
         context = _MappingEntry(entry, entry_index, record, where)
+        if _tally_native(tally, context):
+            continue
+        if curate_identity.classify_kind(record) == "code_repair":
+            _tally_procedural_mapping(tally, context)
+            continue
         _tally_source_originals(tally, context)
         if _tally_id_mappings(tally, context):
             continue

@@ -68,6 +68,7 @@ class PackageShape(unittest.TestCase):
                 "r729.py",
                 "r817.py",
                 "r995.py",
+                "wave_catalog.py",
             },
         )
         self.assertEqual(list(PACKAGE.glob("crp-mill*.py")), [])

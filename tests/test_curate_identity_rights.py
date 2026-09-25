@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_curate_identity import (
+from tests.test_curate_identity import (
     FABLE_ACT,
     _load_temp_registry,
     _manifest_bytes,
@@ -18,7 +18,27 @@ from test_curate_identity import (
     _valid_row,
     episode,
     identity,
+    source,
+    thalamic,
 )
+from pipelines import training_audit
+
+
+def _legacy_row_payload(row):
+    rights_fields = {"provider", "channel", "rights_profile_id", "intended_use", "project_training_policy"}
+    return {key: value for key, value in row.items() if key not in rights_fields}
+
+
+def _bind_registry_digest(mapping, digest):
+    mapping["registry"]["sha256"] = digest
+    envelope = mapping.get("rights")
+    if isinstance(envelope, dict):
+        envelope["factory_registry_sha256"] = f"sha256:{digest}"
+
+
+def _bind_legacy_registry(mapping, digest):
+    mapping["registry"] = {"schema_version": "factory-registry-v0.1", "sha256": digest}
+    _bind_registry_digest(mapping, digest)
 
 
 def _legacy_row(**overrides):
@@ -50,18 +70,12 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
             registry = json.loads(registry_path.read_text(encoding="utf-8"))
             registry["schema_version"] = "factory-registry-v0.1"
-            registry["factories"] = [row for row in registry["factories"]
-                                     if row.get("source_type") != "procedural"]
-            rights_fields = (
-                "provider",
-                "channel",
-                "rights_profile_id",
-                "intended_use",
-                "project_training_policy",
-            )
-            for row in registry["factories"]:
-                for field in rights_fields:
-                    row.pop(field)
+            registry["factories"] = [
+                row
+                for row in registry["factories"]
+                if row.get("rights_profile_id") == "hosted-frontier-research-only-v1"
+            ]
+            registry["factories"] = [_legacy_row_payload(row) for row in registry["factories"]]
             legacy_bytes = _manifest_bytes(registry)
             registry_path.write_bytes(legacy_bytes)
 
@@ -69,10 +83,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             legacy_digest = hashlib.sha256(legacy_bytes).hexdigest()
             for mapping in manifest:
-                mapping["registry"] = {
-                    "schema_version": "factory-registry-v0.1",
-                    "sha256": legacy_digest,
-                }
+                _bind_legacy_registry(mapping, legacy_digest)
             manifest_path.write_bytes(_manifest_bytes(manifest))
 
             loaded = identity.validate_identity_tree(dest)
@@ -276,3 +287,264 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         Path(tmp) / str(index),
                         _registry_payload([_valid_row(**{field: value})]),
                     )
+
+
+class IdentityRightsEnvelopeTests(unittest.TestCase):
+    def test_retained_hosted_mapping_carries_a_research_envelope(self):
+        result = identity.curate_record(source(thalamic("designed")))
+        self.assertEqual(result.action, "retained")
+        envelope = result.mapping["rights"]
+        self.assertEqual(result.mapping["rights_lane"], "research")
+        self.assertEqual(envelope["intended_use"], "research_only")
+        self.assertEqual(envelope["project_training_policy"], "blocked")
+        self.assertEqual(envelope["authority"], "hosted")
+        self.assertNotIn("rights", result.record)
+
+    def test_retained_episode_mapping_carries_a_research_envelope(self):
+        result = identity.curate_record(
+            source(episode(FABLE_ACT), path=f"{FABLE_ACT}/episodes.jsonl")
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["rights_lane"], "research")
+        self.assertEqual(result.mapping["rights"]["intended_use"], "research_only")
+        self.assertNotIn("rights", result.record)
+
+    def test_identity_tree_replay_fails_closed_on_a_tampered_envelope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest[0]["rights_lane"], "research")
+            manifest[0]["rights"]["source_sha256"] = "sha256:" + ("0" * 64)
+            manifest_path.write_bytes(_manifest_bytes(manifest))
+            with self.assertRaises(identity.IdentityTreeError):
+                identity.validate_identity_tree(dest)
+
+    def test_expected_registry_digest_distinguishes_pin_from_self_consistency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            (factory / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            sidecar = dest / identity.FACTORY_REGISTRY_SIDECAR
+            reviewed_digest = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+            replacement = json.loads(sidecar.read_text(encoding="utf-8"))
+            replacement["notes"] += " Replacement fixture."
+            replacement_bytes = (json.dumps(replacement, indent=2) + "\n").encode()
+            replacement_digest = hashlib.sha256(replacement_bytes).hexdigest()
+            sidecar.write_bytes(replacement_bytes)
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for mapping in manifest:
+                _bind_registry_digest(mapping, replacement_digest)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+            identity.validate_identity_tree(dest)
+            with self.assertRaisesRegex(identity.IdentityTreeError, "digest mismatch"):
+                identity.validate_identity_tree(dest, expected_registry_digest=reviewed_digest)
+
+    def test_identity_cleaned_hosted_tree_cannot_be_training_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            report = training_audit.audit_run(dest)
+            self.assertFalse(report["training_ready"], report.get("blockers"))
+            self.assertTrue(
+                any(str(item).startswith("rights:") for item in report.get("blockers") or []),
+                report.get("blockers"),
+            )
+
+
+def _attested_digest():
+    return "sha256:" + "a" * 64
+
+
+def _candidate_row(path_id, **fields):
+    return _valid_row(
+        path_id=path_id,
+        payload_factory=path_id,
+        generator_version="1",
+        channel="local",
+        intended_use="training_candidate",
+        project_training_policy="allowed",
+        **fields,
+    )
+
+
+def _attested_procedural_row(**overrides):
+    row = _candidate_row(
+        "procedural-attested-factory",
+        generator="procedural-attested",
+        provider="procedural",
+        rights_profile_id="procedural-local-attested-v1",
+        catalog_authorship="human-authored",
+        generator_source_digest=_attested_digest(),
+    )
+    row.update(overrides)
+    return row
+
+
+def _simulator_row(**overrides):
+    row = _candidate_row(
+        "fault-recovery-simulator-factory",
+        generator="relay-reflex-simulator",
+        provider="simulator",
+        rights_profile_id="simulator-local-oracle-v1",
+        commit_sha="6ca641465bbf8ce8339de1dce6ce77f77186e34a",
+        module_digest="sha256:be267e0720662cf1f8c79b24384bd335df9ec127fce8184459e2e64e31c8d3e4",
+    )
+    row.update(overrides)
+    return row
+
+
+def _placeholder_row(provider, **overrides):
+    row = _valid_row(
+        path_id=f"{provider}-placeholder-factory",
+        payload_factory=f"{provider}-placeholder-factory",
+        generator=f"{provider}-placeholder",
+        generator_version="pending-terms",
+        provider=provider,
+        channel="api",
+        rights_profile_id=f"{provider}-terms-placeholder-v1",
+        intended_use="research_only",
+        project_training_policy="blocked",
+    )
+    row.update(overrides)
+    return row
+
+
+class TestNewProviderRightsProfiles(unittest.TestCase):
+    def test_sealed_procedural_row_is_training_candidate_without_hosted_provider(self):
+        row = identity.default_registry().by_path_id["python-function-repair-factory"]
+        self.assertIsNone(row.provider)
+        self.assertIsNone(row.channel)
+        self.assertEqual(row.source_type, "procedural")
+        self.assertEqual(row.intended_use, "training_candidate")
+        self.assertEqual(row.project_training_policy, "allowed")
+        self.assertEqual(row.source_license_evidence["license"], "MIT")
+
+    def test_procedural_row_without_attestation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hosted = _attested_procedural_row()
+            hosted.pop("catalog_authorship")
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                "procedural rows require catalog_authorship",
+            ):
+                _load_temp_registry(Path(tmp) / "hosted", _registry_payload([hosted]))
+
+        payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
+        procedural = {row["path_id"]: row for row in payload["factories"]}[
+            "python-function-repair-factory"
+        ]
+        procedural.pop("source_license_evidence")
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(identity.IdentityCurationError, "drifts from independently sealed policy"),
+        ):
+            _load_temp_registry(tmp, payload)
+
+    def test_generic_procedural_attestation_requires_a_reviewed_source_assignment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(identity.IdentityCurationError, "no independently reviewed source"):
+                _load_temp_registry(tmp, _registry_payload([_attested_procedural_row()]))
+
+    def test_simulator_pin_substitution_is_refused_for_copied_registries(self):
+        document = json.loads(identity.FACTORY_REGISTRY_PATH.read_text())
+        original = {row["path_id"]: row for row in document["factories"]}["fault-recovery-simulator-factory"]
+        for field, replacement in (("commit_sha", "a" * 40), ("module_digest", "sha256:" + "a" * 64)):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                altered = dict(original, **{field: replacement})
+                with self.assertRaises(identity.IdentityCurationError):
+                    _load_temp_registry(tmp, _registry_payload([altered]))
+
+    def test_simulator_row_without_pins_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_digest = _simulator_row()
+            missing_digest.pop("module_digest")
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                r"module_digest must be lowercase sha256:<64 hex>",
+            ):
+                _load_temp_registry(Path(tmp) / "digest", _registry_payload([missing_digest]))
+            missing_commit = _simulator_row()
+            missing_commit.pop("commit_sha")
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                "commit_sha must be a 40-character lowercase git SHA",
+            ):
+                _load_temp_registry(Path(tmp) / "commit", _registry_payload([missing_commit]))
+
+    def test_default_simulator_and_placeholder_rows_match_policy(self):
+        registry = identity.default_registry()
+        simulator = registry.by_path_id["fault-recovery-simulator-factory"]
+        self.assertEqual(simulator.provider, "simulator")
+        self.assertEqual(simulator.channel, "local")
+        self.assertEqual(simulator.intended_use, "training_candidate")
+        self.assertEqual(simulator.project_training_policy, "allowed")
+        self.assertEqual(simulator.rights_profile_id, "simulator-local-oracle-v1")
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "pipelines"
+            / "oracle_grounded"
+            / "fault_simulator.py"
+        )
+        normalized = source.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+        self.assertEqual(
+            simulator.module_digest,
+            "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+        )
+
+        deepseek = registry.by_path_id["deepseek-placeholder-factory"]
+        nemotron = registry.by_path_id["nemotron-placeholder-factory"]
+        self.assertEqual(deepseek.project_training_policy, "blocked")
+        self.assertEqual(nemotron.project_training_policy, "blocked")
+        self.assertEqual(deepseek.rights_profile_id, "deepseek-terms-placeholder-v1")
+        self.assertEqual(nemotron.rights_profile_id, "nemotron-terms-placeholder-v1")
+
+    def test_placeholder_rows_cannot_self_promote_to_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for provider in ("deepseek", "nemotron"):
+                with self.subTest(provider=provider):
+                    row = _placeholder_row(
+                        provider,
+                        intended_use="training_candidate",
+                        project_training_policy="allowed",
+                    )
+                    with self.assertRaisesRegex(
+                        identity.IdentityCurationError,
+                        "rights fields drift from loaded policy",
+                    ):
+                        _load_temp_registry(
+                            Path(tmp) / provider,
+                            _registry_payload([row]),
+                        )
+
+    def test_existing_frontier_rows_keep_research_only_blocked(self):
+        hosted = [
+            row
+            for row in identity.default_registry().by_path_id.values()
+            if row.rights_profile_id == "hosted-frontier-research-only-v1"
+        ]
+        self.assertEqual(len(hosted), 51)
+        for row in hosted:
+            self.assertEqual(row.intended_use, "research_only")
+            self.assertEqual(row.project_training_policy, "blocked")

@@ -1,0 +1,11 @@
+{
+  "schema": "openrouter-terms-declaration-v1",
+  "terms_url": "https://openrouter.ai/terms",
+  "distillable_catalog_url": "https://openrouter.ai/api/v1/models?distillable=true",
+  "notes": [
+    "The public OpenRouter terms URL is a JavaScript application shell, so this declaration pins the first-party URL and retrieval time rather than a rendered HTML body.",
+    "Generation-time distillable evidence is membership in GET /api/v1/models?distillable=true, snapshotted at generation, not a hard-coded model allow-list.",
+    "distillable catalog membership is candidate evidence only; underlying model terms still fail closed when missing or conflicting."
+  ],
+  "retrieved_at": "2026-09-15T05:30:00Z"
+}

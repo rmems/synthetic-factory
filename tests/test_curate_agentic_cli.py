@@ -2,7 +2,6 @@
 """CLI and cleaned-tree writing rules for agentic curation."""
 
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,16 +22,12 @@ from curate_agentic import (  # noqa: E402
 )
 from curate_agentic_fixtures import episode_fixture, step  # noqa: E402
 import training_audit  # noqa: E402
+from cli_test_support import main_in_process  # noqa: E402
 
 
 def _run_cli(*arguments):
-    """Run the agentic curation CLI over ``arguments`` and return the result."""
-    return subprocess.run(
-        [sys.executable, str(PIPELINES / "curate_agentic.py"), *arguments],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    """Run ``curate_agentic.main`` in-process, mirroring a subprocess result."""
+    return main_in_process(curate_agentic.main, arguments)
 
 
 def _write_factory_batch(factory, records):

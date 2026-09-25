@@ -26,13 +26,13 @@ if __package__:
 
     _assert_direct_sibling("curate_identity_json")
     from .exact_json import ExactJSONFloat, dumps_exact_json
-    from .record_kind import classify_kind
+    from .record_kind import classify_kind, PRESERVED_NATIVE_KINDS
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "curate_identity_json"
     )
     from exact_json import ExactJSONFloat, dumps_exact_json
-    from record_kind import classify_kind
+    from record_kind import classify_kind, PRESERVED_NATIVE_KINDS
 
 
 class IdentityCurationError(ValueError):
@@ -47,18 +47,31 @@ class IdentityTreeError(IdentityCurationError):
     """Raised when a cleaned tree is missing or mismatched identity sidecars."""
 
 
+# Preserved native kinds keep exact decimal tokens; fault-recovery simulator
+# output is preserved verbatim under the same rule.
+_EXACT_KINDS = PRESERVED_NATIVE_KINDS | {"fault_recovery"}
+
+
+def _reject_surrogate_text(value: str, path: str) -> None:
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
+
+
+def _reject_member_surrogates(value: Mapping, path: str) -> None:
+    for index, (key, item) in enumerate(value.items()):
+        if isinstance(key, str):
+            _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
+        _reject_unpaired_surrogates(item, f"{path}[{index}]")
+
+
 def _reject_unpaired_surrogates(value: Any, path: str = "$") -> None:
     """Reject strings that cannot be represented as Unicode scalar-value text."""
 
     if isinstance(value, str):
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-            raise ValueError(f"unpaired UTF-16 surrogate in JSON string at {path}")
+        _reject_surrogate_text(value, path)
         return
     if isinstance(value, Mapping):
-        for index, (key, item) in enumerate(value.items()):
-            if isinstance(key, str):
-                _reject_unpaired_surrogates(key, f"{path}.<member-name:{index}>")
-            _reject_unpaired_surrogates(item, f"{path}[{index}]")
+        _reject_member_surrogates(value, path)
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
@@ -70,7 +83,7 @@ def canonical_json(value: Any) -> str:
 
     try:
         _reject_unpaired_surrogates(value)
-        payload = dumps_exact_json(value) if classify_kind(value) == "code_repair" else json.dumps(
+        payload = dumps_exact_json(value) if classify_kind(value) in _EXACT_KINDS else json.dumps(
             value,
             ensure_ascii=False,
             allow_nan=False,
@@ -133,7 +146,7 @@ def _strict_json_loads(payload: str, *, exact: bool = False) -> Any:
         parse_constant=_reject_json_constant,
         parse_float=ExactJSONFloat if exact else parse_finite_json_float,
     )
-    if not exact and classify_kind(value) == "code_repair":
+    if not exact and classify_kind(value) in _EXACT_KINDS:
         return _strict_json_loads(payload, exact=True)
     _reject_unpaired_surrogates(value)
     return value
@@ -145,13 +158,18 @@ def _is_json_whitespace(value: str) -> bool:
     return bool(value) and all(character in " \t\r\n" for character in value)
 
 
+def _reject_ready_mapping(value: Mapping, path: str) -> None:
+    if value.get("training_ready"):
+        raise IdentityCurationError(f"{path} must not contain training_ready: true")
+    for key, item in value.items():
+        _reject_training_ready_true(item, f"{path}.{key}")
+
+
 def _reject_training_ready_true(value: Any, path: str = "$") -> None:
     if isinstance(value, Mapping):
-        if value.get("training_ready"):
-            raise IdentityCurationError(f"{path} must not contain training_ready: true")
-        for key, item in value.items():
-            _reject_training_ready_true(item, f"{path}.{key}")
-    elif isinstance(value, list):
+        _reject_ready_mapping(value, path)
+        return
+    if isinstance(value, list):
         for index, item in enumerate(value):
             _reject_training_ready_true(item, f"{path}[{index}]")
 
