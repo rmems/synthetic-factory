@@ -46,6 +46,15 @@ class CatalogIntegrity(unittest.TestCase):
             with self.assertRaises(catalog.CatalogError):
                 catalog.load_catalog(root)
 
+    def test_oversized_integers_raise_catalog_error(self):
+        lines = support.PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
+        row = json.loads(lines[16])
+        row["novel"] = 10**4096
+        lines[16] = json.dumps(row, sort_keys=True)
+        with support._fixture(pairs="\n".join(lines) + "\n") as root:
+            with self.assertRaisesRegex(catalog.CatalogError, "exact-decimal integer limit"):
+                catalog.load_catalog(root)
+
     def test_an_explicit_file_path_must_name_the_catalog_header(self):
         with support._fixture() as root:
             for name in ("missing.json", "candidate.json"):

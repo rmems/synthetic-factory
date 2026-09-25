@@ -6,7 +6,7 @@ from __future__ import annotations
 import ast
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- fixed git argv for pinned legacy-mill-lane blobs only.
 import tempfile
 import unittest
 from pathlib import Path
@@ -69,7 +69,7 @@ def _legacy_available() -> bool:
         return False
     try:
         for commit in {mill.preserve_commit for mill in CATALOG.catalogs}:
-            subprocess.check_output(
+            subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
                 [str(GIT), "cat-file", "-e", f"{commit}^{{commit}}"],
                 cwd=ROOT,
                 stderr=subprocess.DEVNULL,
@@ -80,13 +80,13 @@ def _legacy_available() -> bool:
 
 
 def _git_show(commit: str, path: str) -> str:
-    return subprocess.check_output(
+    return subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
         [str(GIT), "show", f"{commit}:{path}"], text=True, cwd=ROOT
     )
 
 
 def _git_blob(commit: str, path: str) -> str:
-    return subprocess.check_output(
+    return subprocess.check_output(  # nosec B603 -- fixed git argv, no shell
         [str(GIT), "rev-parse", f"{commit}:{path}"], text=True, cwd=ROOT
     ).strip()
 

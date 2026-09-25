@@ -10,7 +10,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from ._contract import bind_import_twin, dumps_exact_json, load_strict_json, strict_lf_jsonl_lines
+from ._contract import (
+    bind_import_twin,
+    dumps_exact_json,
+    json_integer_is_bounded,
+    load_strict_json,
+    strict_lf_jsonl_lines,
+)
 from .catalog_extract import GQL_PATH, SBOX_PATH, SBOX_PLANT_FIELDS, SSL_PATH
 
 CATALOG_DIR = Path(__file__).resolve().parents[2] / "config" / "leftover6"
@@ -205,6 +211,8 @@ def _integer(value: Any, context: str, *, minimum: int = 0) -> int:
         raise CatalogError(f"{context} must be an integer")
     if value < minimum:
         raise CatalogError(f"{context} out of range: {value}")
+    if not json_integer_is_bounded(value):
+        raise CatalogError(f"{context} exceeds the exact-decimal integer limit")
     return value
 
 
@@ -380,7 +388,12 @@ def _bind_counts(catalog: Catalog, header: Mapping[str, Any]) -> None:
 
 def _require_row_content(catalog: Catalog) -> None:
     for rows, expected in zip((catalog.pairs, catalog.plants), _ROW_CONTENT_PINS, strict=True):
-        payload = dumps_exact_json([dict(row) for row in rows], sort_keys=True).encode()
+        try:
+            payload = dumps_exact_json([dict(row) for row in rows], sort_keys=True).encode()
+        except ValueError as exc:
+            raise CatalogError(
+                "catalog row content cannot be serialized under the exact-decimal contract"
+            ) from exc
         actual = hashlib.sha256(payload).hexdigest()
         _expect(actual, expected, "catalog differs from independently pinned row content")
 

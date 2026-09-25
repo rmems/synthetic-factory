@@ -9,14 +9,13 @@ Compiler validation discards its code object; no mill is imported or executed.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from . import catalog_ast as _catalog_ast
 from . import catalog_literals as _catalog_literals
-from ._contract import bind_import_twin
+from ._contract import bind_import_twin, dumps_exact_json, json_integer_is_bounded
 from .catalog_ast import module_constants
 from .catalog_literals import SBOX_PLANT_FIELDS, _LiteralMapping
 
@@ -112,6 +111,8 @@ def _require_int(value: Any, context: str, minimum: int = 1) -> int:
         raise ValueError(f"{context} is not an int")
     if value < minimum:
         raise ValueError(f"{context} is below the minimum {minimum}")
+    if not json_integer_is_bounded(value):
+        raise ValueError(f"{context} exceeds the exact-decimal integer limit")
     return value
 
 
@@ -228,14 +229,13 @@ def _field_value(field: str, value: Any, context: str) -> Any:
 
 def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
     lines = [
-        json.dumps(dict(row), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-        for row in rows
+        dumps_exact_json(dict(row), ensure_ascii=True, sort_keys=True) for row in rows
     ]
     return "\n".join(lines) + "\n"
 
 
 def dumps_header(document: Mapping[str, Any]) -> str:
-    return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    return dumps_exact_json(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
 bind_import_twin(__name__)
