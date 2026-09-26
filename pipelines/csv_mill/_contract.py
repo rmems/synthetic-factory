@@ -162,6 +162,17 @@ class CsvRefusal(refusals.CodedRefusal):
 refuse, refuse_when, refuse_first = refusals.helpers(CsvRefusal)
 shown = refusals.shown
 
+
+def safe_under_raw(path: Path) -> bool:
+    """Translate raw-tree resolution failures into a coded destination refusal."""
+
+    try:
+        return is_under_raw(path)
+    except (OSError, RuntimeError) as exc:
+        raise CsvRefusal(
+            FINDING_DESTINATION_INVALID, f"cannot resolve path safely: {path}"
+        ) from exc
+
 # The vocabulary exports every coded finding along with the pinned constants.
 # Explicit helper exports keep implementation imports out of the public surface.
 __all__ = [name for name in globals() if name.isupper()] + [
@@ -171,6 +182,7 @@ __all__ = [name for name in globals() if name.isupper()] + [
     "dumps_exact_json",
     "envelope",
     "is_under_raw",
+    "safe_under_raw",
     "is_integer",
     "load_strict_json",
     "refuse",

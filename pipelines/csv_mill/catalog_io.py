@@ -28,6 +28,7 @@ from ._contract import (
     load_strict_json,
 )
 from .catalog_models import Catalog, Mill, Plant
+from .catalog_source import LEGACY_PAIR_DIGESTS, pair_fields_digest
 from .catalog_validation import (
     _claim_unique,
     _field,
@@ -123,7 +124,22 @@ def _pinned_plants(
     plants = tuple(
         _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
     )
+    _bind_legacy_pair_fields(plants)
     return plants, digest
+
+
+def _bind_legacy_pair_fields(plants: tuple[Plant, ...]) -> None:
+    """Refuse pair payloads that do not match the independently pinned extraction."""
+
+    for plant in plants:
+        if plant.source != LEGACY_SOURCE:
+            continue
+        digest = pair_fields_digest(plant.pair_fields())
+        if digest not in LEGACY_PAIR_DIGESTS:
+            raise CsvRefusal(
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{plant.plant_id} pair fields are not the pinned extraction",
+            )
 
 
 def _group_plants(plants: tuple[Plant, ...]) -> dict[str, list[Plant]]:
@@ -190,9 +206,9 @@ def _catalog_mills(meta: dict[str, Any], plants: tuple[Plant, ...]) -> tuple[Mil
 
 def _check_round_allocation(plants: tuple[Plant, ...]) -> None:
     """Keep the declared pair quota across the complete catalog selection."""
-    rounds: set[str] = set()
+    rounds: set[int] = set()
     for plant in plants:
-        _claim_unique(rounds, str(plant.base_round + plant.index), "overlapping catalog round")
+        _claim_unique(rounds, plant.base_round + plant.index, "overlapping catalog round")
 
 
 def load_catalog(

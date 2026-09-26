@@ -184,9 +184,15 @@ def _require_mill_round(mill_id: str, base: int, code: str) -> int:
     return base
 
 
-def _claim_unique(seen: set[str], value: str, detail: str) -> None:
+def _shown_claim(value: object) -> str:
+    if is_integer(value):
+        return dumps_exact_json(value)
+    return str(value)
+
+
+def _claim_unique(seen: set, value: object, detail: str) -> None:
     if value in seen:
-        raise CsvRefusal(FINDING_PLANT_DUPLICATE, f"{detail} {value}")
+        raise CsvRefusal(FINDING_PLANT_DUPLICATE, f"{detail} {_shown_claim(value)}")
     seen.add(value)
 
 

@@ -10,6 +10,7 @@ not hop factories, does not shell out to ``round_txn``, and does not stamp
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,9 +39,9 @@ from ._contract import (
     RUN_FORMAT,
     bind_import_twin,
     dumps_exact_json,
-    is_under_raw,
     is_integer,
     json_integer_is_bounded,
+    safe_under_raw,
 )
 
 __all__ = [
@@ -193,10 +194,14 @@ def _check_destination(out_dir: Path) -> None:
         raise CsvRefusal(
             FINDING_DESTINATION_INVALID, "destination must contain Unicode scalar values"
         ) from exc
-    if is_under_raw(out_dir):
+    if safe_under_raw(out_dir):
         raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, f"{out_dir} names or aliases the raw tree")
     if out_dir.exists() or out_dir.is_symlink():
         raise CsvRefusal(FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
+
+
+def _reportable_path(path: Path) -> str:
+    return os.fsencode(os.fspath(path)).decode("utf-8", "backslashreplace")
 
 
 def run(request: GenerateRequest) -> dict[str, Any]:
@@ -232,7 +237,7 @@ def run(request: GenerateRequest) -> dict[str, Any]:
         NOTES_FILENAME: notes_text,
         RUN_FILENAME: dumps_exact_json(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
     })
-    summary["published_destination"] = str(published)
+    summary["published_destination"] = _reportable_path(published)
     return summary
 
 

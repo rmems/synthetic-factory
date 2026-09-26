@@ -28,6 +28,15 @@ class CatalogBoundaries(unittest.TestCase):
             self.meta["plants_sha256"] = catalog.sha256_bytes(payload)
         self.meta_path.write_text(json.dumps(self.meta))
 
+    def test_forged_keep_with_refreshed_digest_is_refused(self):
+        rows = [json.loads(line) for line in (self.directory / "plants.jsonl").read_text().splitlines()]
+        rows[0]["keep"] = "forged-index"
+        self._save(rows)
+        with self.assertRaises(CsvRefusal) as caught:
+            catalog.load_catalog(self.directory)
+        self.assertEqual(caught.exception.code, "CATALOG_FIELD_INVALID")
+        self.assertIn("pinned extraction", str(caught.exception))
+
     def test_source_provenance_cannot_be_removed_or_rewritten(self):
         original = self.meta["source"]
         for source in (None, {**original, "commit": "0" * 40}, {**original, "method": "exec"}):

@@ -15,6 +15,7 @@ from ._contract import (
     PAIR_KEYS,
     RECORD_PREFIX,
     bind_import_twin,
+    parse_json_integer,
 )
 
 from .catalog_validation import (
@@ -118,10 +119,13 @@ def _source_base(
 
 
 def _suffix_round(mill_id: str) -> int:
+    token = mill_id.removeprefix("csv_r").lstrip("0") or "0"
     try:
-        return int(mill_id[len("csv_r") :])
+        return parse_json_integer(token)
     except ValueError as exc:
-        raise CsvRefusal(FINDING_PLANT_FIELD_INVALID, "mill round suffix exceeds the integer limit") from exc
+        raise CsvRefusal(
+            FINDING_PLANT_FIELD_INVALID, "mill round suffix exceeds the integer limit"
+        ) from exc
 
 
 def _pair_keys(mapping: dict[str, Any], where: str) -> None:

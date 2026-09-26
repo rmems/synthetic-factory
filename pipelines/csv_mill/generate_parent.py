@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ._contract import (
     CsvRefusal, FINDING_DESTINATION_INVALID, FINDING_DESTINATION_UNDER_RAW,
-    bind_import_twin, is_under_raw,
+    bind_import_twin, safe_under_raw,
 )
 
 FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
@@ -32,7 +32,7 @@ def _outside_raw(descriptor: int) -> Path:
 
 def _require_outside_raw(anchor: Path) -> None:
     anchor.resolve(strict=True)
-    if is_under_raw(anchor):
+    if safe_under_raw(anchor):
         raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, "pinned output parent aliases the raw tree")
 
 
@@ -89,7 +89,7 @@ def verify_parent(destination: Path, anchor: Path) -> None:
 
 @contextmanager
 def pinned_parent(destination: Path):
-    if is_under_raw(destination):
+    if safe_under_raw(destination):
         raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, "output names or aliases the raw tree")
     descriptor = _required_parent(destination.parent)
     try:
