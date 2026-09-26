@@ -65,31 +65,48 @@ def _assert_literal_module_identity(test, catalog_ast):
     test.assertIs(packaged.literal_value, catalog_ast.literal_value)
 
 
-def _public_module_twins(package_first, leaf):
-    if leaf == "catalog_extract":
-        if package_first:
-            from pipelines.sir import catalog_extract as first
-            from sir import catalog_extract as second
-        else:
-            from sir import catalog_extract as first
-            from pipelines.sir import catalog_extract as second
-    elif leaf == "identity":
-        if package_first:
-            from pipelines.sir import identity as first
-            from sir import identity as second
-        else:
-            from sir import identity as first
-            from pipelines.sir import identity as second
-    elif leaf == "vocabulary":
-        if package_first:
-            from pipelines.sir import vocabulary as first
-            from sir import vocabulary as second
-        else:
-            from sir import vocabulary as first
-            from pipelines.sir import vocabulary as second
+def _catalog_extract_twins(package_first):
+    if package_first:
+        from pipelines.sir import catalog_extract as first
+        from sir import catalog_extract as second
     else:
-        raise AssertionError(f"unsupported module leaf: {leaf}")
+        from sir import catalog_extract as first
+        from pipelines.sir import catalog_extract as second
     return first, second
+
+
+def _identity_twins(package_first):
+    if package_first:
+        from pipelines.sir import identity as first
+        from sir import identity as second
+    else:
+        from sir import identity as first
+        from pipelines.sir import identity as second
+    return first, second
+
+
+def _vocabulary_twins(package_first):
+    if package_first:
+        from pipelines.sir import vocabulary as first
+        from sir import vocabulary as second
+    else:
+        from sir import vocabulary as first
+        from pipelines.sir import vocabulary as second
+    return first, second
+
+
+_PUBLIC_MODULE_TWIN_IMPORTERS = {
+    "catalog_extract": _catalog_extract_twins,
+    "identity": _identity_twins,
+    "vocabulary": _vocabulary_twins,
+}
+
+
+def _public_module_twins(package_first, leaf):
+    importer = _PUBLIC_MODULE_TWIN_IMPORTERS.get(leaf)
+    if importer is None:
+        raise AssertionError(f"unsupported module leaf: {leaf}")
+    return importer(package_first)
 
 
 class SirImportIdentity(unittest.TestCase):
@@ -130,4 +147,3 @@ class SirImportIdentity(unittest.TestCase):
                 self.assertIs(first.UNSET, second.UNSET)
                 self.assertIs(first.literal_value(ast.parse("unknown", mode="eval").body), second.UNSET)
                 _assert_literal_module_identity(self, first)
-
