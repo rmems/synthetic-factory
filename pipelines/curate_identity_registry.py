@@ -73,8 +73,10 @@ _parse_factory_row = _rows._parse_factory_row
 _legacy_registry_row = _rows._legacy_registry_row
 _source_policy = _rows._source_policy
 _is_procedural_row = _rows._is_procedural_row
+_is_model_channel_row = _rows._is_model_channel_row
 _registry_row_for_validation = _rows._registry_row_for_validation
 _parse_procedural_row = _rows._parse_procedural_row
+_parse_model_channel_row = _rows._parse_model_channel_row
 
 _DEFAULT_REGISTRY: FactoryRegistry | None = None
 
@@ -129,8 +131,12 @@ def _registry_rows(payload: Mapping[str, Any]) -> tuple[str, list[Any]]:
 
 
 def _parse_loaded_registry_row(raw_row: Any, index: int, schema_version: str) -> FactoryRow:
+    if schema_version == REGISTRY_SCHEMA_VERSION and _rows._parity_policy().claims_parity_route(raw_row):
+        return _rows._parse_parity_row(raw_row, index)
     if _is_procedural_row(raw_row, schema_version):
         return _parse_procedural_row(raw_row, index)
+    if _is_model_channel_row(raw_row, schema_version):
+        return _parse_model_channel_row(raw_row, index)
     row_payload = _registry_row_for_validation(raw_row, index, schema_version)
     return _parse_factory_row(row_payload, index)
 
@@ -170,6 +176,15 @@ def _facade_registry_cache():
     return sys.modules[__name__]
 
 
+def _bind_default_registry(cached: FactoryRegistry) -> FactoryRegistry:
+    """Publish the cache onto the facade when load_registry imported it first."""
+
+    global _DEFAULT_REGISTRY
+    _DEFAULT_REGISTRY = cached
+    setattr(_facade_registry_cache(), "_DEFAULT_REGISTRY", cached)
+    return cached
+
+
 def default_registry() -> FactoryRegistry:
     """Return the committed reviewed registry, loaded once per process."""
 
@@ -177,10 +192,7 @@ def default_registry() -> FactoryRegistry:
     cached = getattr(holder, "_DEFAULT_REGISTRY")
     if cached is None:
         cached = load_registry(FACTORY_REGISTRY_PATH)
-        setattr(holder, "_DEFAULT_REGISTRY", cached)
-    global _DEFAULT_REGISTRY
-    _DEFAULT_REGISTRY = cached
-    return cached
+    return _bind_default_registry(cached)
 
 
 if __package__:

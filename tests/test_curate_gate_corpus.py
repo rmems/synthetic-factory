@@ -390,7 +390,7 @@ class CorpusGateTests(unittest.TestCase):
 
     def test_excluded_reward_class_is_valid_gate_coverage(self):
         fixture = GateFixture(self.root)
-        self.assertEqual(fixture.integrate(), 0)
+        self.assertEqual(fixture.integrate(), 1)  # Legacy fixture lacks reviewed rights.
         gate = fixture.manifest()["gates"]["reward_ontology"]
 
         self.assertTrue(gate["passed"])

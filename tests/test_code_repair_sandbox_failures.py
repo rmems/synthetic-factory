@@ -27,6 +27,22 @@ def _serving(report):
 
 
 class SandboxFailures(unittest.TestCase):
+    def test_os_boundary_nonzero_exit_requires_both_startup_attestations(self):
+        job = ex.Job("mutant:test", "def f():\n    pass\n", "f")
+        limits = f"{ex.LIMITS_ATTESTATION_PREFIX}true\n"
+        complete = (limits + f"{ex.LANDLOCK_ATTESTATION_PREFIX}landlock-abi4\n").encode()
+        report = ex._parse_report(job, 1, (complete, b""), require_landlock=True)
+        self.assertEqual(report.detail, "exit status 1")
+        self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
+        self.assertTrue(report.environment["limits_applied"])
+        self.assertEqual(report.environment["landlock"], "landlock-abi4")
+
+        for stdout in (b"", limits.encode()):
+            with self.subTest(stdout=stdout):
+                unavailable = ex._parse_report(job, 1, (stdout, b""), require_landlock=True,
+                )
+                self.assertIn(cv.FINDING_SANDBOX_UNAVAILABLE, unavailable.detail)
+
     def test_attested_crash_without_environment_is_a_candidate_harness_error(self):
         """The trusted attestation survives a crash that loses the JSON environment."""
 
@@ -38,8 +54,8 @@ class SandboxFailures(unittest.TestCase):
                 if environment is not None:
                     body["environment"] = environment
                 report = ex._parse_report(
-                    job, 0, f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode(),
-                    json.dumps(body).encode())
+                    job, 0, (f"{ex.LIMITS_ATTESTATION_PREFIX}true\n".encode(),
+                    json.dumps(body).encode()))
                 self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
                 self.assertIn("MemoryError", report.detail)
                 self.assertNotIn(cv.FINDING_SANDBOX_UNAVAILABLE, report.detail)
@@ -53,7 +69,7 @@ class SandboxFailures(unittest.TestCase):
                            "environment": {"limits_applied": True},
                            "load": {"status": "ok"}, "public": [], "hidden": []}).encode()
         report = ex._parse_report(
-            job, 0, f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode(), body)
+            job, 0, (f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode(), body))
         self.assertEqual(report.status, cv.PHASE_HARNESS_ERROR)
         self.assertIs(report.environment.get("limits_applied"), False)
         with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
@@ -66,7 +82,7 @@ class SandboxFailures(unittest.TestCase):
         for returncode, body in ((0, b""), (0, b"not json"), (0, b"{}"), (1, b"")):
             with self.subTest(returncode=returncode, body=body):
                 report = ex._parse_report(
-                    job, returncode, f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode(), body)
+                    job, returncode, (f"{ex.LIMITS_ATTESTATION_PREFIX}false\n".encode(), body))
                 self.assertIs(report.environment.get("limits_applied"), False)
                 with refusal(self, cv.FINDING_SANDBOX_UNAVAILABLE):
                     generate._run_phase(_serving(report), job)

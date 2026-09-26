@@ -25,6 +25,7 @@ from typing import Any
 from . import catalog as cat
 from . import executor as ex
 from . import planning
+from . import sandbox as sb
 from . import records
 from . import verify
 from . import vocabulary as cv
@@ -136,11 +137,26 @@ def _unlimited(report: ex.PhaseReport) -> bool:
     return claimed is not True and (ran or "limits_applied" in report.environment)
 
 
+def _unisolated(report: ex.PhaseReport) -> bool:
+    """OS-boundary phases must carry a Landlock token; rlimits-only phases do not."""
+
+    identity = report.environment.get("sandbox_identity")
+    if identity not in sb.OS_IDENTITIES:
+        return False
+    if report.status == cv.PHASE_TIMEOUT:
+        return False
+    return not ex.landlock_applied(report.environment.get("landlock"))
+
+
 def _run_phase(state: _State, job: ex.Job) -> ex.PhaseReport:
     report = state.executor.run(job)
     cv.refuse_when(
         _unlimited(report),
         cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required resource limits",
+    )
+    cv.refuse_when(
+        _unisolated(report),
+        cv.FINDING_SANDBOX_UNAVAILABLE, "the harness cannot apply required landlock isolation",
     )
     return report
 

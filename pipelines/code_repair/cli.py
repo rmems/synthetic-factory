@@ -16,6 +16,7 @@ from typing import Any
 
 from . import catalog as cat
 from . import catalog_check as cc
+from . import catalog_load
 from . import executor as ex
 from . import export
 from . import generate
@@ -26,7 +27,7 @@ from . import record_validation as validation
 from . import vocabulary as cv
 from ._contract import bind_import_twin, dumps_exact_json, envelope, oc
 
-__all__ = ["build_parser", "run"]
+__all__ = ["build_parser", "catalog_load", "run"]
 
 
 def build_parser() -> argparse.ArgumentParser:

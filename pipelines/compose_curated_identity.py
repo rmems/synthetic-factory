@@ -158,6 +158,8 @@ def _compose_identity_stage_with_source(
             source_path=source.path,
             source_line=source.line,
             source_sha256=source.sha256,
+            source_json=(source.source_json if curate_identity.classify_kind(record)
+                         in curate_identity.PRESERVED_KINDS else None),
         )
     )
     result, deferred_lane = _deferred_lane_repair_with_source(record, result, source)

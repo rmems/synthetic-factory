@@ -153,6 +153,7 @@ def _bind_entry_source(
         raise GateError(f"{label} source hash does not match the declared source_run bytes")
     entry["_source_key"] = source_key
     entry["_source_record"] = source["record"]
+    entry["_source_bytes"] = source.get("source_bytes")
     return source
 
 
@@ -344,6 +345,7 @@ def _bound_record(
         "source_line": entry["source_line"],
         "source_key": entry["_source_key"],
         "source_record": copy.deepcopy(entry["_source_record"]),
+        "source_bytes": entry.get("_source_bytes"),
         "source_hash": entry["source_hash"],
         "source_record_sha256": source_record_sha256,
         "output_id": actual_output_id,
@@ -466,6 +468,7 @@ def prepare_lanes(plan: dict[str, Any]) -> list[dict[str, Any]]:
             "source_run records lack a retained output or an explicit exclusion/quarantine: "
             f"count={len(missing)}, first={preview}"
         )
+    prepared[0]["_completion_source"] = plan["source_run_dir"]
     return prepared
 
 

@@ -18,7 +18,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from training_audit_test_helpers import episode_preference, thalamic, write  # noqa: E402
+from training_audit_test_helpers import assert_research_only, episode_preference, thalamic, write  # noqa: E402
 
 import training_audit  # noqa: E402
 
@@ -124,7 +124,7 @@ class TrainingAuditPreferencePurity(unittest.TestCase):
 
             report = training_audit.audit_run(root)
 
-        self.assertTrue(report["training_ready"], report["blockers"])
+        assert_research_only(self, report)
         self.assertEqual(report["preferences"]["episode_pairs"], 1)
         self.assertEqual(report["preferences"]["same_goal"], 1)
         self.assertEqual(report["preferences"]["same_context"], 1)

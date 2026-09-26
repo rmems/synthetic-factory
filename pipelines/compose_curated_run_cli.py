@@ -33,6 +33,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=CLI_DESCRIPTION)
     parser.add_argument("source_run", help="source run directory (read-only)")
     parser.add_argument("destination", help="new curated destination (must not exist)")
+    parser.add_argument("--oracle-selection", choices=("all", "eligible-training"), default="all")
     parser.add_argument(
         "--units-migration",
         help="explicit reward calibration sidecar; defaults to the FFPC sidecar",
@@ -58,6 +59,7 @@ def main(
         Path(args.source_run),
         Path(args.destination),
         Path(args.units_migration) if args.units_migration is not None else None,
+        args.oracle_selection,
     )
     try:
         summary = compose_run(context, services.run, hooks)

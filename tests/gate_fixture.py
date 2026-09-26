@@ -14,6 +14,9 @@ GATE_SCRIPT = PIPELINES / "curate_gate.py"
 
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
+TESTS = REPO / "tests"
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
 
 import curate_gate  # noqa: E402
 import curate_identity  # noqa: E402

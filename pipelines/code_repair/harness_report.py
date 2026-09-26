@@ -8,9 +8,11 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
 
 LIMITS_ATTESTATION_PREFIX = "code-repair-limits-attestation/1 "
+LANDLOCK_ATTESTATION_PREFIX = "code-repair-landlock-attestation/1 "
 REPORT_FILENAME = "report.json"
 REPORT_FD_ENV = "CODE_REPAIR_REPORT_FD"
 _ATTESTATION_PREFIX = LIMITS_ATTESTATION_PREFIX.encode()
+_LANDLOCK_ATTESTATION_PREFIX = LANDLOCK_ATTESTATION_PREFIX.encode()
 _ATTESTATION_BY_TOKEN = {
     str(True).lower().encode(): True,
     str(False).lower().encode(): False,
@@ -27,6 +29,25 @@ def limits_attested(stdout: bytes) -> bool | str:
         return "missing limits attestation line"
     applied = _ATTESTATION_BY_TOKEN.get(line[len(_ATTESTATION_PREFIX):].strip())
     return "limits attestation malformed" if applied is None else applied
+
+
+def landlock_attested(stdout: bytes) -> str:
+    """Immutable Landlock token from the second startup line, or why it is absent."""
+
+    _limits, newline, rest = stdout.partition(b"\n")
+    if not newline:
+        return "missing landlock attestation line"
+    line, newline, _rest = rest.partition(b"\n")
+    if not newline or not line.startswith(_LANDLOCK_ATTESTATION_PREFIX):
+        return "missing landlock attestation line"
+    raw = line[len(_LANDLOCK_ATTESTATION_PREFIX):]
+    try:
+        token = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return "landlock attestation malformed"
+    if not token or token.strip() != token:
+        return "landlock attestation malformed"
+    return token
 
 
 def parsed_report(returncode: int, stdout: bytes, body: bytes) -> dict[str, Any] | str:

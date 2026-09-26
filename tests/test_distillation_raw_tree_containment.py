@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Raw-data-safety containment for the distillation JSONL writer.
+"""Raw-data-safety containment for the #78 distillation writers.
 
-Every destination ``distill_jsonl.write_jsonl`` touches must pass through
-``raw_tree_guard`` -- the one raw-path detector in this repository, which
-also recognises another checkout's ``outputs/raw``, symlink aliases and bind
-mounts of the raw root -- before it creates so much as a directory.
+Every destination ``distill_jsonl.write_jsonl`` and the fixture builder touch
+must pass through ``raw_tree_guard`` -- the one raw-path detector in this
+repository, which also recognises another checkout's ``outputs/raw``, symlink
+aliases and bind mounts of the raw root -- before either creates so much as a
+directory; and the fixture builder must never delete or overwrite an existing
+tree: a rebuild goes to a fresh directory, so a failed build leaves the
+previous fixture exactly as it was.
 
-Extracted from PR #138 (the fixture-builder half of these tests stays with
-the builder there). Every test here fails against #138 at 75642831, where
-``write_jsonl`` only checked ``destination.exists()``. Destructive paths are
-exercised only inside disposable temporary directories.
+The writer half was extracted to main in #190; the fixture-builder half stays
+with the builder here. Every test fails against #138 at 75642831, where
+``write_jsonl`` only checked ``destination.exists()``, ``_refuse_raw_tree``
+compared against this checkout's resolved raw root alone, and ``--force`` ran
+``shutil.rmtree`` ahead of every generator. Destructive paths are exercised
+only inside disposable temporary directories.
 """
 
+import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -24,8 +31,16 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import raw_tree_guard  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
+BUILDER = REPO / "scripts" / "build_distillation_fixture.py"
+FAMILIES = ("fault-recovery", "energy-preferences", "moe-router")
 RECORDS = [{"id": "r1", "value": 1}, {"id": "r2", "value": 2}]
 
+
+def _load_builder(name: str):
+    spec = importlib.util.spec_from_file_location(name, BUILDER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _tree_bytes(root: Path) -> dict[str, bytes]:
@@ -43,6 +58,46 @@ def _write_evidence(batch: Path) -> None:
     batch.write_text('{"id": "published-evidence"}\n', encoding="utf-8")
 
 
+def _fixture_shaped_run(out: Path, producer: str) -> None:
+    """A run the builder itself wrote, plus nested files it did not write."""
+
+    for family in FAMILIES:
+        (out / family).mkdir(parents=True)
+        (out / family / "batch-r01.jsonl").write_text(
+            json.dumps({"id": family}) + "\n", encoding="utf-8"
+        )
+    (out / "MANIFEST.json").write_text(
+        json.dumps({"generated_by": producer}) + "\n", encoding="utf-8"
+    )
+    (out / "moe-router" / "teacher-recording-r02.jsonl").write_text(
+        '{"teacher": "recorded"}\n', encoding="utf-8"
+    )
+    (out / "fault-recovery" / "notes").mkdir()
+    (out / "fault-recovery" / "notes" / "important.txt").write_text(
+        "keep me\n", encoding="utf-8"
+    )
+
+
+def _generators_must_not_run(module):
+    """Patch every family generator to fail loudly if a refused build reaches it."""
+
+    return mock.patch.multiple(
+        module,
+        fault_recovery=mock.Mock(
+            wraps=module.fault_recovery,
+            build_records=mock.Mock(side_effect=AssertionError("fault generator ran")),
+        ),
+        energy_preferences=mock.Mock(
+            wraps=module.energy_preferences,
+            build_records=mock.Mock(side_effect=AssertionError("energy generator ran")),
+            select_meter=mock.Mock(side_effect=AssertionError("meter probe ran")),
+        ),
+        moe_router=mock.Mock(
+            wraps=module.moe_router,
+            build_records=mock.Mock(side_effect=AssertionError("router generator ran")),
+            oracles_report=mock.Mock(side_effect=AssertionError("router probe ran")),
+        ),
+    )
 
 
 class DistillJsonlWriterRawTreeGuard(unittest.TestCase):
@@ -101,6 +156,102 @@ class DistillJsonlWriterRawTreeGuard(unittest.TestCase):
             with self.assertRaises(oc.ContractError) as caught:
                 oc.write_jsonl(destination, RECORDS)
             self.assertIn("refusing to overwrite", str(caught.exception))
+
+
+class FixtureBuilderRawTreeContainment(unittest.TestCase):
+    """scripts/build_distillation_fixture.py"""
+
+    def test_refuses_raw_destinations_before_any_generator_runs(self):
+        module = _load_builder("bdf_containment_raw")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            other = root / "other-checkout"
+            _write_evidence(other / "outputs" / "raw" / "run-a" / "factory" / "batch-r01.jsonl")
+            before = _tree_bytes(other)
+            targets = (
+                root / "outputs" / "raw" / "distillation-run",
+                other / "outputs" / "raw" / "distillation-run",
+                other / "outputs" / "raw" / "run-a",
+            )
+            with _generators_must_not_run(module):
+                for out in targets:
+                    for force in (False, True):
+                        with self.subTest(out=out.relative_to(root), force=force):
+                            with self.assertRaises(SystemExit) as caught:
+                                module.build(out, force=force)
+                            self.assertIn("immutable evidence tree", str(caught.exception))
+            self.assertFalse((root / "outputs").exists())
+            self.assertEqual(_tree_bytes(other), before)
+
+    def test_refuses_an_alias_of_the_raw_root_before_any_generator_runs(self):
+        module = _load_builder("bdf_containment_alias")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_root = root / "evidence-root"
+            evidence_root.mkdir()
+            alias = root / "alias-raw"
+            alias.symlink_to(evidence_root, target_is_directory=True)
+            with mock.patch.object(raw_tree_guard, "DEFAULT_RAW_OUTPUT_ROOT", evidence_root):
+                with _generators_must_not_run(module):
+                    for out in (alias / "distillation-run", evidence_root / "distillation-run"):
+                        with self.subTest(out=out.relative_to(root)):
+                            with self.assertRaises(SystemExit) as caught:
+                                module.build(out, force=True)
+                            self.assertIn("immutable evidence tree", str(caught.exception))
+            self.assertEqual(list(evidence_root.iterdir()), [])
+
+    def test_an_existing_run_is_refused_before_any_mutation_even_with_force(self):
+        module = _load_builder("bdf_containment_force")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "distillation-run"
+            _fixture_shaped_run(out, module.MANIFEST_PRODUCER)
+            before = _tree_bytes(out)
+            self.assertIn("moe-router/teacher-recording-r02.jsonl", before)
+            self.assertIn("fault-recovery/notes/important.txt", before)
+            with _generators_must_not_run(module):
+                for force in (True, False):
+                    with self.subTest(force=force):
+                        with self.assertRaises(SystemExit) as caught:
+                            module.build(out, force=force)
+                        self.assertIn("fresh", str(caught.exception))
+                with self.subTest(entry="cli --force"):
+                    with self.assertRaises(SystemExit):
+                        module.main(["--out", str(out), "--force"])
+            # Nothing was deleted, rewritten or added: the run the builder
+            # wrote and the nested files it did not write are byte-identical.
+            self.assertEqual(_tree_bytes(out), before)
+
+    def test_an_empty_existing_directory_is_refused_too(self):
+        module = _load_builder("bdf_containment_empty")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "distillation-run"
+            out.mkdir()
+            with _generators_must_not_run(module):
+                with self.assertRaises(SystemExit):
+                    module.build(out, force=True)
+            self.assertTrue(out.is_dir())
+            self.assertEqual(list(out.iterdir()), [])
+
+    def test_a_generator_failure_leaves_the_previous_fixture_untouched(self):
+        module = _load_builder("bdf_containment_failure")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            previous = root / "distillation-run"
+            _fixture_shaped_run(previous, module.MANIFEST_PRODUCER)
+            before = _tree_bytes(previous)
+            fresh = root / "distillation-run-next"
+            with mock.patch.object(
+                module.fault_recovery,
+                "build_records",
+                side_effect=RuntimeError("generator regression"),
+            ):
+                for force in (False, True):
+                    with self.subTest(force=force):
+                        with self.assertRaises(RuntimeError):
+                            module.build(fresh, force=force)
+            self.assertEqual(_tree_bytes(previous), before)
+            # A failed build into a fresh directory leaves no partial tree.
+            self.assertFalse(fresh.exists())
 
 
 if __name__ == "__main__":

@@ -139,9 +139,9 @@ def compact_audit_report(report: Mapping[str, Any] | None, record_count: int) ->
     return facade._facade_delegate(facade._compact_audit_report_impl, report, record_count)
 
 
-def _audit_records(records_dir: Path, record_count: int) -> dict[str, Any]:
+def _audit_records(records_dir: Path, record_count: int, *, completion_source: Path | None = None) -> dict[str, Any]:
     facade = _facade()
-    report = facade.training_audit.audit_run(records_dir) if record_count else None
+    report = facade.training_audit.audit_run(records_dir, completion_source=completion_source) if record_count else None
     return facade._facade_delegate(facade.compact_audit_report, report, record_count)
 
 
