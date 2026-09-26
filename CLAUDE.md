@@ -22,8 +22,8 @@ carries the project goal, the rights lanes, and the pipeline command reference.
 ## Commands
 
 ```bash
-# Full unit suite (about 3,700 tests; 15-30 min locally -- the procedural publication/replay
-# coverage churns tens of GB of temp files, and CI budgets 20 min) and the operator smoke
+# Full unit suite (about 3,700 tests; 15-30 min locally -- CI shards it with scripts/ci_shard_tests.py;
+# the procedural publication/replay coverage churns tens of GB of temp files) and the operator smoke
 # check; both run in CI. -b keeps CLI payloads the tests print off the console. Set TMPDIR
 # to a directory with room; /tmp fills.
 python3 -m unittest discover -s tests -p 'test_*.py' -q -b
