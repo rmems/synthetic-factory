@@ -51,8 +51,13 @@ def _refuse(detail):
     raise CsvRefusal(FINDING_SOURCE_NOT_PARSEABLE, detail)
 
 
+def _is_plain_str(value):
+    # Exact type: str subclasses can override == and spoof LEGACY_SOURCE.
+    return type(value) is str  # pylint: disable=unidiomatic-typecheck
+
+
 def _parse_source(text, source):
-    if type(text) is not str or type(source) is not str:
+    if not _is_plain_str(text) or not _is_plain_str(source):
         _refuse("catalog source and path must be plain strings")
     _require_text(source, "catalog source path", FINDING_SOURCE_NOT_PARSEABLE)
     try:
@@ -86,7 +91,7 @@ def source_statements(statements):
 def literal_source_tree(text, source, dict_call):
     tree = _parse_source(text, source)
     _require_future_header(tree)
-    archive = type(source) is str and source == LEGACY_SOURCE
+    archive = _is_plain_str(source) and source == LEGACY_SOURCE
     archive = archive and hashlib.sha256(text.encode("utf-8")).hexdigest() == _ARCHIVE_SHA256
     if not archive:
         proof = _LiteralStatements(dict_call)

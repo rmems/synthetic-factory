@@ -10,7 +10,7 @@ import importlib
 import io
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- git show of pinned leftover mill blobs only
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,12 +52,11 @@ def invoke(argv):
 
 
 def _git_show(path: str) -> str | None:
-    executable = shutil.which("git")
-    if executable is None:
+    if shutil.which("git") is None:
         return None
     try:
-        proc = subprocess.run(
-            [executable, "show", f"{LEGACY_COMMIT}:{path}"],
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
+            ["git", "show", f"{LEGACY_COMMIT}:{path}"],
             cwd=REPO,
             check=False,
             capture_output=True,
