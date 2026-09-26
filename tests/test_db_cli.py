@@ -28,9 +28,11 @@ def _leftover_runtime_modules() -> set[str]:
 
 _BEFORE_DB = _leftover_runtime_modules()
 
-from pipelines.db import check as _check  # noqa: E402,F401
-from pipelines.db import cli as _cli  # noqa: E402,F401
-from pipelines.db import config as cfg  # noqa: E402
+from pipelines.db import check as _check  # noqa: F401
+from pipelines.db import cli as _cli  # noqa: F401
+from pipelines.db import config as cfg
+
+_AFTER_DB = _leftover_runtime_modules()
 
 
 class CliJsonSmoke(unittest.TestCase):
@@ -86,7 +88,7 @@ class NoLeftoverMillImport(unittest.TestCase):
                 self.assertNotIn("leftover_mill", name.split("."), path.name)
 
     def test_importing_the_package_does_not_load_leftover_mill(self):
-        self.assertEqual(_leftover_runtime_modules(), _BEFORE_DB)
+        self.assertEqual(_AFTER_DB, _BEFORE_DB)
 
 
 if __name__ == "__main__":
