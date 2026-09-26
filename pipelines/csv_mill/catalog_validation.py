@@ -21,6 +21,7 @@ from ._contract import (
     dumps_exact_json,
     is_integer,
     json_integer_is_bounded,
+    parse_json_integer,
     repo_root,
 )
 
@@ -182,6 +183,16 @@ def _require_mill_round(mill_id: str, base: int, code: str) -> int:
     if mill_id.removeprefix("csv_r").lstrip("0") != dumps_exact_json(base):
         raise CsvRefusal(code, "mill_id suffix must match base_round")
     return base
+
+
+def _suffix_round(mill_id: str) -> int:
+    token = mill_id.removeprefix("csv_r").lstrip("0") or "0"
+    try:
+        return parse_json_integer(token)
+    except ValueError as exc:
+        raise CsvRefusal(
+            FINDING_PLANT_FIELD_INVALID, "mill round suffix exceeds the integer limit"
+        ) from exc
 
 
 def _shown_claim(value: object) -> str:

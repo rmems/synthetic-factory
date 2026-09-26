@@ -52,11 +52,12 @@ def invoke(argv):
 
 
 def _git_show(path: str) -> str | None:
-    if shutil.which("git") is None:
+    executable = shutil.which("git")
+    if executable is None:
         return None
     try:
-        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- fixed git argv, no shell
-            ["git", "show", f"{LEGACY_COMMIT}:{path}"],
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603 -- full git path, pinned commit argv, no shell
+            [executable, "show", f"{LEGACY_COMMIT}:{path}"],
             cwd=REPO,
             check=False,
             capture_output=True,

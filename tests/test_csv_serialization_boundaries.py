@@ -19,43 +19,48 @@ from pipelines.csv_mill._contract import (
 from tests.test_csv import FIRST_PLANT, FIRST_SLUG, FIXTURE, TINY_PAIR, _dict_source, invoke
 
 
+def _under_host_cap(digits, callback):
+    original = sys.get_int_max_str_digits()
+    try:
+        sys.set_int_max_str_digits(digits)
+        return callback()
+    finally:
+        sys.set_int_max_str_digits(original)
+
+
+def _literal_pairs(**extra):
+    return _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX, **extra)
+
+
 class SerializationBoundaries(unittest.TestCase):
     def test_large_round_extraction_ignores_host_digit_cap(self):
         digits = "1" + "0" * 700
-        source = _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX)
-        source += "\nCATALOG_FIRST = " + hex(10**700) + "\n"
-        original = sys.get_int_max_str_digits()
-        try:
-            sys.set_int_max_str_digits(640)
-            rows = catalog.plants_from_source(source, mill_id="csv_r" + digits, source="literal.py")
-            self.assertEqual(rows[0]["base_round"], 10**700)
-        finally:
-            sys.set_int_max_str_digits(original)
+        source = _literal_pairs() + "\nCATALOG_FIRST = " + hex(10**700) + "\n"
+        rows = _under_host_cap(640, lambda: catalog.plants_from_source(
+            source, mill_id="csv_r" + digits, source="literal.py"
+        ))
+        self.assertEqual(rows[0]["base_round"], 10**700)
 
     def test_catalog_integer_decoder_ignores_host_digit_cap(self):
-        original = sys.get_int_max_str_digits()
-        try:
-            sys.set_int_max_str_digits(640)
-            self.assertEqual(load_strict_json('{"base_round":' + "1" + "0" * 700 + '}')["base_round"], 10**700)
-        finally:
-            sys.set_int_max_str_digits(original)
+        payload = '{"base_round":' + "1" + "0" * 700 + "}"
+        decoded = _under_host_cap(640, lambda: load_strict_json(payload))
+        self.assertEqual(decoded["base_round"], 10**700)
 
     def test_cli_round_and_emitted_ids_ignore_host_digit_cap(self):
-        original = sys.get_int_max_str_digits()
         digits = "1" + "0" * 700
-        try:
-            sys.set_int_max_str_digits(640)
-            with tempfile.TemporaryDirectory() as tmp:
-                destination = Path(tmp) / "run"
-                code, out, err = invoke([
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "run"
+
+            def generate_large_round():
+                return invoke([
                     "generate", "--plant", FIRST_PLANT, "--round", digits,
                     "--out", str(destination), "--json",
                 ])
-                self.assertEqual((code, err), (0, ""), out)
-                self.assertIn("r" + digits, (destination / "records.jsonl").read_text())
-                self.assertIn("r" + digits, (destination / "NOTES.md").read_text())
-        finally:
-            sys.set_int_max_str_digits(original)
+
+            code, out, err = _under_host_cap(640, generate_large_round)
+            self.assertEqual((code, err), (0, ""), out)
+            self.assertIn("r" + digits, (destination / "records.jsonl").read_text())
+            self.assertIn("r" + digits, (destination / "NOTES.md").read_text())
 
     def test_surrogateescaped_destination_has_json_refusal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,27 +76,18 @@ class SerializationBoundaries(unittest.TestCase):
 
     def test_suffix_fallback_ignores_host_digit_cap(self):
         digits = "1" + "0" * 700
-        source = _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX)
-        original = sys.get_int_max_str_digits()
-        try:
-            sys.set_int_max_str_digits(640)
-            rows = catalog.plants_from_source(source, mill_id="csv_r" + digits, source="literal.py")
-            self.assertEqual(rows[0]["base_round"], 10**700)
-        finally:
-            sys.set_int_max_str_digits(original)
+        rows = _under_host_cap(640, lambda: catalog.plants_from_source(
+            _literal_pairs(), mill_id="csv_r" + digits, source="literal.py"
+        ))
+        self.assertEqual(rows[0]["base_round"], 10**700)
 
     def test_round_allocation_ignores_host_digit_cap(self):
         base = 10 ** 700
-        original = sys.get_int_max_str_digits()
-        try:
-            sys.set_int_max_str_digits(640)
-            with tempfile.TemporaryDirectory() as tmp:
-                directory = Path(tmp) / "catalog"
-                _write_huge_round_catalog(directory, base)
-                loaded = catalog.load_catalog(directory)
-                self.assertEqual(loaded.plants[0].base_round, base)
-        finally:
-            sys.set_int_max_str_digits(original)
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "catalog"
+            _write_huge_round_catalog(directory, base)
+            loaded = _under_host_cap(640, lambda: catalog.load_catalog(directory))
+            self.assertEqual(loaded.plants[0].base_round, base)
 
     def test_resolved_undecodable_parent_is_json_safe_after_publish(self):
         with tempfile.TemporaryDirectory() as tmp:

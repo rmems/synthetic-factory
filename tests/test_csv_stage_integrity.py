@@ -60,15 +60,19 @@ class StageIntegrity(unittest.TestCase):
         original = generate_io._StageFile.matches
         replaced = {"done": False}
 
+        def swap_records(directory, name):
+            if name != "records.jsonl" or replaced["done"]:
+                return
+            replaced["done"] = True
+            target = Path(f"/proc/self/fd/{directory}") / name
+            target.unlink()
+            target.write_text("replacement")
+
         def matches(owned, directory, name):
             ok = original(owned, directory, name)
-            if ok and name == "records.jsonl" and not replaced["done"]:
-                replaced["done"] = True
-                target = Path(f"/proc/self/fd/{directory}") / name
-                target.unlink()
-                target.write_text("replacement")
-                return True
-            return original(owned, directory, name)
+            if ok:
+                swap_records(directory, name)
+            return ok
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

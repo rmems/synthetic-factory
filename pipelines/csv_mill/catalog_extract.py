@@ -15,7 +15,6 @@ from ._contract import (
     PAIR_KEYS,
     RECORD_PREFIX,
     bind_import_twin,
-    parse_json_integer,
 )
 
 from .catalog_validation import (
@@ -27,6 +26,7 @@ from .catalog_validation import (
     _require_int,
     _require_bounded_int,
     _require_text,
+    _suffix_round,
 )
 
 
@@ -109,23 +109,18 @@ def _source_base(
 ) -> int:
     if not MILL_ID_RE.fullmatch(mill_id):
         raise CsvRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not csv_rNNN")
-    base = base_round
-    if base is None and "CATALOG_FIRST" in assignments:
-        base = _const_eval(assignments["CATALOG_FIRST"])
-    if base is None:
-        base = _suffix_round(mill_id)
+    base = _declared_or_suffix(assignments, mill_id, base_round)
     base = _require_int(base, 1, f"{source} CATALOG_FIRST", FINDING_PLANT_FIELD_INVALID)
     return _require_mill_round(mill_id, base, FINDING_PLANT_FIELD_INVALID)
 
 
-def _suffix_round(mill_id: str) -> int:
-    token = mill_id.removeprefix("csv_r").lstrip("0") or "0"
-    try:
-        return parse_json_integer(token)
-    except ValueError as exc:
-        raise CsvRefusal(
-            FINDING_PLANT_FIELD_INVALID, "mill round suffix exceeds the integer limit"
-        ) from exc
+def _declared_or_suffix(assignments, mill_id, base_round):
+    if base_round is not None:
+        return base_round
+    first = assignments.get("CATALOG_FIRST")
+    if first is not None:
+        return _const_eval(first)
+    return _suffix_round(mill_id)
 
 
 def _pair_keys(mapping: dict[str, Any], where: str) -> None:

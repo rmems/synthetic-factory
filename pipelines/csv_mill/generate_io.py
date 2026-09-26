@@ -162,6 +162,12 @@ class _OwnedStage:
             release_descriptor(owned.descriptor)
         release_descriptor(self.descriptor)
 
+    def publish(self, parent, destination, descriptor):
+        published = parent.resolve(strict=True) / destination.name
+        _authenticate_commit(parent, self.path, destination, self)
+        rename_noreplace(descriptor, self.path.name, destination.name)
+        return _confirm_commit(parent, published, self)
+
 
 def _discard_owned_inode(directory, name, owned):
     """Drop our inode's directory entry even when its bytes were mutated."""
@@ -233,19 +239,12 @@ def _confirm_commit(parent, published, stage):
     return live
 
 
-def _commit_stage(parent, staged, destination, stage, descriptor):
-    published = parent.resolve(strict=True) / destination.name
-    _authenticate_commit(parent, staged, destination, stage)
-    rename_noreplace(descriptor, staged.name, destination.name)
-    return _confirm_commit(parent, published, stage)
-
-
 def _publish(parent: Path, staged: Path, destination: Path, stage: _OwnedStage) -> Path:
     descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
         _lock_entry(stage.descriptor)
         try:
-            return _commit_stage(parent, staged, destination, stage, descriptor)
+            return stage.publish(parent, destination, descriptor)
         finally:
             _unlock_entry(stage.descriptor)
     except FileExistsError as exc:
