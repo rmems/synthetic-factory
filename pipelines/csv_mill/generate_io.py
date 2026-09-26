@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import stat
 import tempfile
 from pathlib import Path
 
 from ._contract import (
-    CsvRefusal, FINDING_DESTINATION_EXISTS, FINDING_DESTINATION_INVALID, bind_import_twin,
+    CsvRefusal,
+    FINDING_DESTINATION_EXISTS,
+    FINDING_DESTINATION_INVALID,
+    FINDING_DESTINATION_UNDER_RAW,
+    bind_import_twin,
+    safe_under_raw,
 )
 from .generate_parent import pinned_parent, release_descriptor, verify_parent
 
@@ -31,13 +37,34 @@ def _same_entry(path, descriptor):
         return False
 
 
-def _remove_empty_entry(path, identity):
+def _lock_entry(descriptor):
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+
+
+def _unlock_entry(descriptor):
     try:
-        if _identity(path.lstat()) == identity:
-            os.rmdir(path)
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
     except OSError:
-        # Replacements observed before the check and nonempty directories stay.
+        # Unlock is best-effort; the descriptor is still released by the caller.
         pass
+
+
+def _if_still(predicate, action):
+    """Run action only when the identity predicate holds twice in a row."""
+
+    try:
+        if predicate() and predicate():
+            action()
+    except OSError:
+        # Replacements observed before the last check stay; never broaden cleanup.
+        pass
+
+
+def _remove_empty_entry(path, identity):
+    def owned():
+        return _identity(path.lstat()) == identity
+
+    _if_still(owned, lambda: os.rmdir(path))
 
 
 def _open_stage(path, identity):
@@ -81,6 +108,13 @@ class _StageFile:
         except OSError:
             return False
 
+    def same_inode(self, directory, name):
+        try:
+            current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            return _identity(current) == _identity(os.fstat(self.descriptor))
+        except OSError:
+            return False
+
 
 class _OwnedStage:
     """Hold the created directory and files until publication or owned cleanup."""
@@ -109,18 +143,19 @@ class _OwnedStage:
                 raise CsvRefusal(FINDING_DESTINATION_INVALID, f"staged file {name} changed")
 
     def _unlink_owned(self, name, owned):
-        # A same-UID actor can still replace the entry between this check and unlink.
-        try:
-            if owned.matches(self.descriptor, name):
-                os.unlink(name, dir_fd=self.descriptor)
-        except OSError:
-            # Never broaden cleanup after an ownership or filesystem failure.
-            pass
+        def still_owned():
+            return owned.matches(self.descriptor, name)
+
+        _if_still(still_owned, lambda: os.unlink(name, dir_fd=self.descriptor))
 
     def cleanup(self):
-        for name, owned in self.files.items():
-            self._unlink_owned(name, owned)
-        _remove_empty_entry(self.path, _identity(os.fstat(self.descriptor)))
+        _lock_entry(self.descriptor)
+        try:
+            for name, owned in self.files.items():
+                self._unlink_owned(name, owned)
+            _remove_empty_entry(self.path, _identity(os.fstat(self.descriptor)))
+        finally:
+            _unlock_entry(self.descriptor)
 
     def close(self):
         for owned in self.files.values():
@@ -128,19 +163,91 @@ class _OwnedStage:
         release_descriptor(self.descriptor)
 
 
+def _discard_owned_inode(directory, name, owned):
+    """Drop our inode's directory entry even when its bytes were mutated."""
+
+    try:
+        if owned.same_inode(directory, name):
+            os.unlink(name, dir_fd=directory)
+    except OSError:
+        pass
+
+
+def _live_path(descriptor):
+    try:
+        return Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+    except OSError:
+        return None
+
+
+def _rmdir_owned(published, stage):
+    candidates = [published]
+    live = _live_path(stage.descriptor)
+    if live is not None:
+        candidates.append(live)
+    for candidate in candidates:
+        try:
+            if _same_entry(candidate, stage.descriptor):
+                os.rmdir(candidate)
+                return
+        except OSError:
+            continue
+
+
+def _rollback_owned_publication(published, stage):
+    for name, owned in stage.files.items():
+        _discard_owned_inode(stage.descriptor, name, owned)
+    _rmdir_owned(published, stage)
+
+
+def _refuse_if_raw(path):
+    if safe_under_raw(path):
+        raise CsvRefusal(FINDING_DESTINATION_UNDER_RAW, "publication landed under the raw tree")
+
+
+def _authenticate_commit(parent, staged, destination, stage):
+    stage.verify()
+    verify_parent(destination, parent)
+    if not _same_entry(staged, stage.descriptor):
+        raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
+
+
+def _parent_matches(live, parent):
+    try:
+        return _identity(live.parent.lstat()) == _identity(parent.stat())
+    except OSError:
+        return False
+
+
+def _confirm_commit(parent, published, stage):
+    live = _live_path(stage.descriptor) or published
+    try:
+        _refuse_if_raw(parent)
+        _refuse_if_raw(live)
+        stage.verify()
+        if not _parent_matches(live, parent):
+            raise CsvRefusal(FINDING_DESTINATION_INVALID, "output parent changed during publication")
+    except BaseException:
+        _rollback_owned_publication(live, stage)
+        raise
+    return live
+
+
+def _commit_stage(parent, staged, destination, stage, descriptor):
+    published = parent.resolve(strict=True) / destination.name
+    _authenticate_commit(parent, staged, destination, stage)
+    rename_noreplace(descriptor, staged.name, destination.name)
+    return _confirm_commit(parent, published, stage)
+
+
 def _publish(parent: Path, staged: Path, destination: Path, stage: _OwnedStage) -> Path:
     descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        stage.verify()
-        # This detects observable relocation before commit. A directory FD
-        # pins an inode, not its namespace: another actor can still move that
-        # inode between this check and rename, or after publication succeeds.
-        verify_parent(destination, parent)
-        published = parent.resolve(strict=True) / destination.name
-        if not _same_entry(staged, stage.descriptor):
-            raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
-        rename_noreplace(descriptor, staged.name, destination.name)
-        return published
+        _lock_entry(stage.descriptor)
+        try:
+            return _commit_stage(parent, staged, destination, stage, descriptor)
+        finally:
+            _unlock_entry(stage.descriptor)
     except FileExistsError as exc:
         raise CsvRefusal(
             FINDING_DESTINATION_EXISTS, f"{destination} already exists"

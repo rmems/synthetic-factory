@@ -129,6 +129,19 @@ class StagePublicationBoundaries(unittest.TestCase):
             self._run()
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_mutated_bytes_at_rename_are_not_published(self):
+        original = generate_io.rename_noreplace
+
+        def publish(dir_fd, src, dest):
+            parent = Path(f"/proc/self/fd/{dir_fd}")
+            (parent / src / "records.jsonl").write_bytes(b"forged-bytes\n")
+            original(dir_fd, src, dest)
+
+        with patch.object(generate_io, "rename_noreplace", publish), self.assertRaises(CsvRefusal) as caught:
+            self._run()
+        self.assertEqual(caught.exception.code, "DESTINATION_INVALID")
+        self.assertFalse(self.destination.exists())
+
     def test_safe_parent_relocation_reports_final_verified_location(self):
         original = generate_io._OwnedStage.write
         safe = self.root / "safe"

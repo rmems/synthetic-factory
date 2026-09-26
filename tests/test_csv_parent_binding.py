@@ -111,6 +111,21 @@ class ParentBinding(unittest.TestCase):
         self.assertEqual(list(self.safe.iterdir()), [])
         self.assertEqual(list(self.raw.iterdir()), [])
 
+    def test_parent_inode_moved_under_raw_at_rename_is_refused(self):
+        original = generate_io.rename_noreplace
+
+        def publish(*args):
+            self.safe.rename(self.raw / "captured")
+            original(*args)
+
+        with patch.object(generate_io, "rename_noreplace", publish), self.assertRaises(CsvRefusal) as caught:
+            self._run(self.safe / "run")
+        self.assertEqual(caught.exception.code, "DESTINATION_UNDER_RAW")
+        captured = self.raw / "captured"
+        self.assertFalse((captured / "run").exists())
+        leftover = [path for path in captured.iterdir() if path.name == "run" or path.name.startswith(".csv-stage-")]
+        self.assertEqual(leftover, [])
+
     def test_relocated_parent_with_restored_alias_is_refused_before_publish(self):
         original = generate_io._OwnedStage.write
         (self.safe / "foreign").write_text("preserve")

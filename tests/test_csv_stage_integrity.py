@@ -56,6 +56,55 @@ class StageIntegrity(unittest.TestCase):
             self.assertEqual(next(root.glob(".csv-stage-*/foreign")).read_text(), "preserve")
 
 
+    def test_name_replaced_after_first_owned_check_is_preserved(self):
+        original = generate_io._StageFile.matches
+        replaced = {"done": False}
+
+        def matches(owned, directory, name):
+            ok = original(owned, directory, name)
+            if ok and name == "records.jsonl" and not replaced["done"]:
+                replaced["done"] = True
+                target = Path(f"/proc/self/fd/{directory}") / name
+                target.unlink()
+                target.write_text("replacement")
+                return True
+            return original(owned, directory, name)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            def refuse(*args, **kwargs):
+                raise OSError("injected publication failure")
+
+            with patch.object(generate_io._StageFile, "matches", matches):
+                with patch.object(generate_io, "_publish", refuse), self.assertRaises(CsvRefusal):
+                    generate.run(self._request(root))
+            stage = next(root.glob(".csv-stage-*"))
+            self.assertEqual((stage / "records.jsonl").read_text(), "replacement")
+
+    def test_empty_replacement_after_first_identity_check_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "stage"
+            path.mkdir()
+            identity = generate_io._identity(path.lstat())
+            seen = {"n": 0}
+            original = Path.lstat
+
+            def lstat(self):
+                result = original(self)
+                if self == path:
+                    seen["n"] += 1
+                    if seen["n"] == 1:
+                        path.rmdir()
+                        path.mkdir()
+                        (path / "foreign").write_text("preserve")
+                return result
+
+            with patch.object(Path, "lstat", lstat):
+                generate_io._remove_empty_entry(path, identity)
+            self.assertEqual((path / "foreign").read_text(), "preserve")
+
+
 class InputBounds(unittest.TestCase):
     def test_round_outside_exact_integer_domain_is_json_refusal(self):
         with tempfile.TemporaryDirectory() as temp:
