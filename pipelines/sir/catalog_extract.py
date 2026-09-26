@@ -100,10 +100,13 @@ def extract_mill_catalog(
 
 def _require_blob_identity(payload: bytes, blob_sha: str) -> None:
     # Git scalar identity must not delegate equality to caller-defined objects.
-    if type(blob_sha) is not str:
+    if type(blob_sha) is not str:  # pylint: disable=unidiomatic-typecheck
         raise ValueError("supplied blob SHA must be a plain string")
     framed = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
-    expected = hashlib.sha1(framed, usedforsecurity=False).hexdigest()
+    expected = hashlib.sha1(  # nosec B324 -- Git blob object identity, not a security digest
+        framed,
+        usedforsecurity=False,
+    ).hexdigest()
     if blob_sha not in ("", expected):
         raise ValueError("supplied blob SHA does not identify the exact source bytes")
 
@@ -116,7 +119,7 @@ def _required_string(value: Any, where: str) -> str:
 
 def _catalog_first(constants: Mapping[str, Any], path: str) -> int:
     value = constants.get("CATALOG_FIRST")
-    if type(value) is not int:
+    if type(value) is not int:  # pylint: disable=unidiomatic-typecheck
         raise ValueError(f"{path} CATALOG_FIRST is not an int")
     return value
 
@@ -124,7 +127,7 @@ def _catalog_first(constants: Mapping[str, Any], path: str) -> int:
 def _round_count(value: Any, n_pairs: int, path: str) -> int:
     if value is None:
         return n_pairs
-    if type(value) is not int or value < 1:
+    if type(value) is not int or value < 1:  # pylint: disable=unidiomatic-typecheck
         raise ValueError(f"{path} N_ROUNDS is not a positive int")
     if value != n_pairs:
         raise ValueError(f"{path} N_ROUNDS={value} disagrees with {n_pairs} pairs")

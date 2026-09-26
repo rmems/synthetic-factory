@@ -63,6 +63,10 @@ class SirCatalogIntegrity(unittest.TestCase):
         del missing["mills"]
         documents = [None, [], "catalog", 42, missing]
         documents.extend(dict(original, mills=value) for value in (None, [], "mills", 42))
+        malformed_mill = dict(original)
+        malformed_mill["mills"] = dict(malformed_mill["mills"])
+        malformed_mill["mills"]["sir-mill-leftover3-r72"] = None
+        documents.append(malformed_mill)
         for document in documents:
             with self.subTest(document=document), tempfile.TemporaryDirectory() as tmp:
                 destination = Path(tmp) / "CATALOG.json"

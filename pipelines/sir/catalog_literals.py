@@ -16,7 +16,7 @@ UNSET = object()
 
 def source_payload(source: str, *, path: str) -> bytes:
     """Bind parsing and hashing to text whose encoding cannot be overridden."""
-    if type(source) is not str or type(path) is not str:
+    if type(source) is not str or type(path) is not str:  # pylint: disable=unidiomatic-typecheck
         raise ValueError("catalog source and path must be plain strings")
     return source.encode("utf-8")
 
@@ -25,7 +25,12 @@ def validated_tree(source):
     """Check compiler constraints, then discard code without executing it."""
     try:
         tree = ast.parse(source, filename="<catalog-source>")
-        compile(tree, "<catalog-source>", "exec", dont_inherit=True)
+        compile(  # nosec B102 -- compiler validation only; source is never executed
+            tree,
+            "<catalog-source>",
+            "exec",
+            dont_inherit=True,
+        )
     except (SyntaxError, RecursionError) as exc:
         raise ValueError(f"catalog source is not valid Python: {exc}") from exc
     return tree
@@ -68,7 +73,10 @@ def _sequence(elts: Iterable[ast.AST | None], env: Mapping[str, Any], ctor):
         if item is UNSET:
             return UNSET
         values.append(item)
-    return ctor(values)
+    try:
+        return ctor(values)
+    except TypeError:
+        return UNSET
 
 
 def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
@@ -78,7 +86,10 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
         if pair is UNSET:
             return UNSET
         key, value = pair
-        out[key] = value
+        try:
+            out[key] = value
+        except TypeError:
+            return UNSET
     return out
 
 

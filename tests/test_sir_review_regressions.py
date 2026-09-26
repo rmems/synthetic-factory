@@ -58,8 +58,10 @@ class SirReviewRegressions(unittest.TestCase):
         source = _LEFTOVER_SNIPPET + '\n# caf\u00e9\n'
         path = 'experiments/sir-mill-leftover3-r72.py'
         payload = source.encode('utf-8')
-        blob = hashlib.sha1(b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
-                            usedforsecurity=False).hexdigest()
+        blob = hashlib.sha1(  # nosec B324 -- Git blob object identity for extractor contract tests
+            b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
+            usedforsecurity=False,
+        ).hexdigest()
         self.assertEqual(extract_mill_catalog(source, path=path, blob_sha=blob)['blob_sha'], blob)
         self.assertEqual(extract_mill_catalog(source, path=path)['blob_sha'], '')
         self.assertEqual(extract_mill_catalog(source, path=path, blob_sha='')['blob_sha'], '')
@@ -305,3 +307,13 @@ class SirReviewRegressions(unittest.TestCase):
             with self.subTest(rebinding=rebinding), self.assertRaises(ValueError):
                 _extract(rebinding)
         self.assertEqual(_extract('def unused():\n    __builtins__ = {}')['n_rows'], 1)
+
+    def test_conditional_annotation_state_cannot_bind_catalog_literals(self):
+        appendix = "__conditional_annotations__ = PAIRS\nignored: int\n"
+        with self.assertRaisesRegex(ValueError, "__conditional_annotations__"):
+            _extract(appendix)
+
+    def test_unhashable_literal_members_fail_as_value_error(self):
+        for appendix in ("EXTRA = {[]: 1}\n", "EXTRA = {1, []}\n"):
+            with self.subTest(appendix=appendix), self.assertRaises(ValueError):
+                _extract(appendix)

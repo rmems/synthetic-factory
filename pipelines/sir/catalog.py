@@ -90,8 +90,12 @@ def _strict_json(text):
 def _require_document_shape(document):
     if not isinstance(document, Mapping):
         raise ValueError("catalog document must be a mapping")
-    if not isinstance(document.get("mills"), Mapping):
+    mills = document.get("mills")
+    if not isinstance(mills, Mapping):
         raise ValueError("catalog mills must be a mapping")
+    for mill_id, row in mills.items():
+        if not isinstance(row, Mapping):
+            raise ValueError(f"catalog mill {mill_id!r} must be a mapping")
 
 
 def _require_header(document, path: Path) -> None:

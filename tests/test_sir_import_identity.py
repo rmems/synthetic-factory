@@ -1,7 +1,6 @@
 """SIR package and direct imports share module state in either import order."""
 
 import ast
-import importlib
 import sys
 import unittest
 
@@ -66,14 +65,39 @@ def _assert_literal_module_identity(test, catalog_ast):
     test.assertIs(packaged.literal_value, catalog_ast.literal_value)
 
 
+def _public_module_twins(package_first, leaf):
+    if leaf == "catalog_extract":
+        if package_first:
+            from pipelines.sir import catalog_extract as first
+            from sir import catalog_extract as second
+        else:
+            from sir import catalog_extract as first
+            from pipelines.sir import catalog_extract as second
+    elif leaf == "identity":
+        if package_first:
+            from pipelines.sir import identity as first
+            from sir import identity as second
+        else:
+            from sir import identity as first
+            from pipelines.sir import identity as second
+    elif leaf == "vocabulary":
+        if package_first:
+            from pipelines.sir import vocabulary as first
+            from sir import vocabulary as second
+        else:
+            from sir import vocabulary as first
+            from pipelines.sir import vocabulary as second
+    else:
+        raise AssertionError(f"unsupported module leaf: {leaf}")
+    return first, second
+
 
 class SirImportIdentity(unittest.TestCase):
     def test_public_module_twins_share_runtime_state(self):
         for leaf in ("catalog_extract", "identity", "vocabulary"):
-            for prefixes in (("pipelines.sir", "sir"), ("sir", "pipelines.sir")):
-                with self.subTest(leaf=leaf, prefixes=prefixes), clean_package_imports(), direct_pipeline_path():
-                    first = importlib.import_module(f"{prefixes[0]}.{leaf}")
-                    second = importlib.import_module(f"{prefixes[1]}.{leaf}")
+            for package_first in (True, False):
+                with self.subTest(leaf=leaf, package_first=package_first), clean_package_imports(), direct_pipeline_path():
+                    first, second = _public_module_twins(package_first, leaf)
                     self.assertIs(first, second)
 
     def test_catalog_class_identity_survives_both_import_orders(self):

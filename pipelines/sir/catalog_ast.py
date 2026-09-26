@@ -81,8 +81,13 @@ def _catalog_statements(statements):
             yield node
 
 
+_RESERVED_MODULE_BINDINGS = frozenset(
+    {"__name__", "__builtins__", "__conditional_annotations__", "__annotations__"}
+)
+
+
 def _require_import_name(name: str | None) -> None:
-    if name in {"__name__", "__builtins__"}:
+    if name in _RESERVED_MODULE_BINDINGS:
         raise ValueError(f"reserved module binding {name} is not a literal catalog")
 
 
