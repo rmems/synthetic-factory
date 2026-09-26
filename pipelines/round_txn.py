@@ -349,6 +349,25 @@ def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
         raise
 
 
+def write_exclusive_text(path: Path, content: str, *, mode: int = 0o644):
+    """Create a text file without following or replacing an existing path."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, mode)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def read_json(path: Path):
     try:
         value = json.loads(path.read_text())

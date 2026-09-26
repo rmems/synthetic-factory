@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -27,7 +28,9 @@ from sir.catalog_extract import (  # noqa: E402
     extract_mill_catalog,
     mill_summary,
     pairs_jsonl_path,
+    write_catalog_files,
 )
+import sir.catalog_extract as catalog_extract_mod  # noqa: E402
 from sir.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from sir.sources import MILL_SOURCES, catalog_sources  # noqa: E402
 from sir import vocabulary as cv  # noqa: E402
@@ -380,6 +383,39 @@ class SirSkeletonTests(unittest.TestCase):
             self.assertNotIn("pairs", mill)
         self.assertEqual(document["n_pair_rows"], 32)
         self.assertIn("never imported or executed", document["extraction"])
+
+    def test_write_catalog_files_leaves_existing_artifacts_when_pairs_staging_fails(self):
+        mill = extract_mill_catalog(
+            _LEFTOVER_SNIPPET,
+            path="experiments/sir-mill-leftover3-r72.py",
+        )
+        mills = [mill]
+        with tempfile.TemporaryDirectory() as tmp:
+            package_dir = Path(tmp)
+            catalog_path = catalog_json_path(package_dir)
+            pairs_path = pairs_jsonl_path(package_dir)
+            original_catalog = '{"catalog": "unchanged"}\n'
+            original_pairs = '{"pair": "unchanged"}\n'
+            catalog_path.write_text(original_catalog, encoding="utf-8")
+            pairs_path.write_text(original_pairs, encoding="utf-8")
+            real_write = catalog_extract_mod.write_exclusive_text
+            calls = 0
+
+            def staging_write(path, content, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("simulated pairs.jsonl staging failure")
+                return real_write(path, content, **kwargs)
+
+            with patch.object(
+                catalog_extract_mod, "write_exclusive_text", side_effect=staging_write
+            ):
+                with self.assertRaises(OSError):
+                    write_catalog_files(mills, package_dir=package_dir)
+            self.assertEqual(catalog_path.read_text(encoding="utf-8"), original_catalog)
+            self.assertEqual(pairs_path.read_text(encoding="utf-8"), original_pairs)
+            self.assertEqual(list(package_dir.glob(".*.migrating")), [])
 
     def test_hops_are_catalogued_not_executed(self):
         self.assertIn("email-webhook-retry-factory", CATALOG.hops)

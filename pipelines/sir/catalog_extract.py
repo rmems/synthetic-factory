@@ -19,9 +19,16 @@ else:
 import ast
 import hashlib
 import json
+import os
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+if __name__.startswith("pipelines."):
+    from ..round_txn import write_exclusive_text
+else:
+    from round_txn import write_exclusive_text
 
 from .catalog_ast import module_constants, module_docstring, module_evaluation_nodes, source_payload
 from .catalog_model import factory_hops, scalar_identity
@@ -302,9 +309,25 @@ def pairs_jsonl_path(package_dir: Path | None = None) -> Path:
 
 
 def write_catalog_files(mills: list[dict[str, Any]], package_dir: Path | None = None) -> None:
-    catalog_json_path(package_dir).write_text(
-        dumps_catalog(catalog_document(mills)), encoding="utf-8"
-    )
-    pairs_jsonl_path(package_dir).write_text(dumps_pairs(mills), encoding="utf-8")
+    catalog_path = catalog_json_path(package_dir)
+    pairs_path = pairs_jsonl_path(package_dir)
+    catalog_body = dumps_catalog(catalog_document(mills))
+    pairs_body = dumps_pairs(mills)
+    parent = catalog_path.parent
+    catalog_temp = parent / f".{catalog_path.name}.{uuid.uuid4().hex}.migrating"
+    pairs_temp = parent / f".{pairs_path.name}.{uuid.uuid4().hex}.migrating"
+    try:
+        write_exclusive_text(catalog_temp, catalog_body)
+        try:
+            write_exclusive_text(pairs_temp, pairs_body)
+        except BaseException:
+            catalog_temp.unlink(missing_ok=True)
+            pairs_temp.unlink(missing_ok=True)
+            raise
+        os.replace(catalog_temp, catalog_path)
+        os.replace(pairs_temp, pairs_path)
+    finally:
+        catalog_temp.unlink(missing_ok=True)
+        pairs_temp.unlink(missing_ok=True)
 
 bind_import_twin(__name__)
