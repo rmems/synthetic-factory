@@ -47,7 +47,7 @@ def scalar_identity(record: Mapping[str, Any]) -> dict[str, Any]:
 
 def _scalar_value(field, record: Mapping[str, Any]) -> Any:
     value = record[field.name]
-    if field.type == "int" and type(value) is not int:
+    if field.type == "int" and type(value) is not int:  # pylint: disable=unidiomatic-typecheck
         raise ValueError(f"{field.name} must be an integer")
     return value
 

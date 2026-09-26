@@ -103,10 +103,8 @@ def _require_blob_identity(payload: bytes, blob_sha: str) -> None:
     if type(blob_sha) is not str:  # pylint: disable=unidiomatic-typecheck
         raise ValueError("supplied blob SHA must be a plain string")
     framed = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
-    expected = hashlib.sha1(  # nosec B324 -- Git blob object identity, not a security digest
-        framed,
-        usedforsecurity=False,
-    ).hexdigest()
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- Git blob object identity, not a security digest
+    expected = hashlib.sha1(framed, usedforsecurity=False).hexdigest()  # nosec B324
     if blob_sha not in ("", expected):
         raise ValueError("supplied blob SHA does not identify the exact source bytes")
 

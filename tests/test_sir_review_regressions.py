@@ -58,10 +58,9 @@ class SirReviewRegressions(unittest.TestCase):
         source = _LEFTOVER_SNIPPET + '\n# caf\u00e9\n'
         path = 'experiments/sir-mill-leftover3-r72.py'
         payload = source.encode('utf-8')
-        blob = hashlib.sha1(  # nosec B324 -- Git blob object identity for extractor contract tests
-            b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload,
-            usedforsecurity=False,
-        ).hexdigest()
+        framed = b'blob ' + str(len(payload)).encode('ascii') + b'\0' + payload
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 -- Git blob object identity for extractor contract tests
+        blob = hashlib.sha1(framed, usedforsecurity=False).hexdigest()  # nosec B324
         self.assertEqual(extract_mill_catalog(source, path=path, blob_sha=blob)['blob_sha'], blob)
         self.assertEqual(extract_mill_catalog(source, path=path)['blob_sha'], '')
         self.assertEqual(extract_mill_catalog(source, path=path, blob_sha='')['blob_sha'], '')
