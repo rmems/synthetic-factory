@@ -1,5 +1,6 @@
 """Training admission needs reproduced measurements and unique identities."""
 
+from contextlib import ExitStack
 from pathlib import Path
 import re
 import sys
@@ -17,13 +18,26 @@ from test_oracle_grounded_record import (
 )
 
 
+def _record_twins():
+    """Both import spellings of the record module; ``record.py`` binds no twin."""
+    twins = (sys.modules.get(name) for name in ("oracle_grounded.record", "pipelines.oracle_grounded.record"))
+    return list({id(module): module for module in twins if module is not None}.values())
+
+
 class OracleTrainingIntegrityTests(unittest.TestCase):
     def _row(self):
         return curate_identity.default_registry().by_path_id["oracle-grounded"]
 
+    def _patch_reproduce(self, stack, **kwargs):
+        replay = mock.Mock(**kwargs)
+        for module in _record_twins():
+            stack.enter_context(mock.patch.object(module, "reproduce", replay))
+        return replay
+
     def test_current_reference_measurement_remains_eligible(self):
         item = build(families.ENCODER_FAMILY)
-        with mock.patch.object(record, "reproduce", wraps=record.reproduce) as replay:
+        with ExitStack() as stack:
+            replay = self._patch_reproduce(stack, wraps=record.reproduce)
             self.assertEqual(admission.natural_eligibility(item, self._row()), (True, ()))
         replay.assert_called_once_with(item, environ={})
 
@@ -46,7 +60,8 @@ class OracleTrainingIntegrityTests(unittest.TestCase):
         for item in (relabel_as_named_runtime(reference), relabel_plasticity_stage_as_named(reference)):
             with self.subTest(implementation=item["oracle"]["implementation"]):
                 self.assertEqual(record.validate_record(item), [])
-                with mock.patch.object(record, "reproduce") as replay:
+                with ExitStack() as stack:
+                    replay = self._patch_reproduce(stack)
                     eligible, reasons = admission.natural_eligibility(item, self._row())
                 self.assertFalse(eligible)
                 self.assertIn("authenticated runtime replay required", reasons)
