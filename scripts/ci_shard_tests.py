@@ -25,15 +25,17 @@ def shard_modules(modules: list[str], shard: int, shards: int) -> list[str]:
 
 @contextlib.contextmanager
 def _tests_import_path(root: Path = ROOT) -> Iterator[None]:
-    """Prepend ``tests/`` to ``sys.path`` and ``PYTHONPATH`` for the shard run."""
+    """Prepend repo root and ``tests/`` like ``python -m unittest`` from ``root``."""
+    root_entry = str(root)
     tests_entry = str(root / "tests")
     prior_path = sys.path.copy()
     prior_pythonpath = os.environ.get("PYTHONPATH")
     sys.path.insert(0, tests_entry)
+    sys.path.insert(0, root_entry)
+    path_entries = [root_entry, tests_entry]
     if prior_pythonpath:
-        os.environ["PYTHONPATH"] = tests_entry + os.pathsep + prior_pythonpath
-    else:
-        os.environ["PYTHONPATH"] = tests_entry
+        path_entries.append(prior_pythonpath)
+    os.environ["PYTHONPATH"] = os.pathsep.join(path_entries)
     try:
         yield
     finally:
@@ -50,7 +52,7 @@ def run_selected_modules(
     coverage: bool,
     root: Path = ROOT,
 ) -> int:
-    """Run ``modules`` like ``python -m unittest -b`` with ``tests/`` on the path."""
+    """Run ``modules`` like ``python -m unittest -b`` with root and ``tests/`` on the path."""
     prior_cwd = Path.cwd()
     os.chdir(root)
     try:

@@ -65,7 +65,7 @@ class CiShardTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertEqual(
             captured["pythonpath"],
-            f"{REPO / 'tests'}{os.pathsep}existing",
+            f"{REPO}{os.pathsep}{REPO / 'tests'}{os.pathsep}existing",
         )
         self.assertEqual(captured["cwd"], REPO)
 
@@ -137,6 +137,21 @@ class CiShardTests(unittest.TestCase):
         self.assertEqual(result, 0)
         runner_cls.assert_called_once_with(buffer=True)
         runner_cls.return_value.run.assert_called_once()
+
+    def test_run_selected_modules_prepends_repo_root_for_package_imports(self):
+        scripts_entry = str(REPO / "scripts")
+        sanitized = [
+            entry
+            for entry in sys.path
+            if not entry or Path(entry).resolve() != REPO.resolve()
+        ]
+        if scripts_entry not in sanitized:
+            sanitized.insert(0, scripts_entry)
+
+        with mock.patch.object(sys, "path", sanitized):
+            result = ci_shard_tests.run_selected_modules(["test_amc"], coverage=False)
+
+        self.assertEqual(result, 0)
 
     def test_invalid_shard_arguments_are_rejected(self):
         with self.assertRaises(SystemExit) as raised:
