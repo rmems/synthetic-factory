@@ -1,0 +1,30 @@
+{
+  "catalog_id": "csv-lll-v1",
+  "factory": "csv-excel-ingest-factory",
+  "format": "csv-catalog/1",
+  "mill_prefix": "csv",
+  "mills": [
+    {
+      "base_round": 114,
+      "mill_id": "csv_r114",
+      "plant_count": 16,
+      "source": "experiments/mill_leftover_leftover_leftover_csv_r114.py"
+    }
+  ],
+  "plant_count": 16,
+  "plants_sha256": "fde92a9fa68588ed6bbcceb0db56bac5ce5b5992ffa75800fef68864a6852c45",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "record_prefix": "cei",
+  "source": {
+    "commit": "813f93f1969c1c4421e5663492e9663739efa642",
+    "method": "git-show+ast.parse",
+    "not_executed": [
+      "experiments/mill_leftover_leftover_leftover_csv_r114.py"
+    ],
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/mill_leftover_leftover_leftover_csv_r114.py"
+    ]
+  }
+}
