@@ -228,6 +228,21 @@ class SirReviewRegressions(unittest.TestCase):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     _extract(f"{field} = {value!r}")
 
+    def test_catalog_first_must_be_a_positive_integer(self):
+        for value in (0, -1):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "CATALOG_FIRST"):
+                _extract(f"CATALOG_FIRST = {value}")
+
+    def test_extractor_refuses_foreign_leftover_mill_paths(self):
+        foreign_paths = (
+            "experiments/search_index_rebuild_leftover3_mill.py",
+            "experiments/sir-loop-leftover3-r72.py",
+            "experiments/other-leftover.py",
+        )
+        for path in foreign_paths:
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                extract_mill_catalog(_LEFTOVER_SNIPPET, path=path)
+
 
     def test_invoked_local_helpers_make_catalog_mutations_unproven(self):
         definition = "def clear():\n    PAIRS.clear()\n"

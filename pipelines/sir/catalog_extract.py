@@ -25,6 +25,7 @@ from typing import Any
 
 from .catalog_ast import module_constants, module_docstring, module_evaluation_nodes, source_payload
 from .catalog_model import factory_hops, scalar_identity
+from .sources import MILL_SOURCES
 from .vocabulary import (
     CATALOG_FILENAME,
     CATALOG_SCHEMA_ID,
@@ -49,10 +50,27 @@ def mill_id_for_path(path: str) -> str:
     return Path(path).stem
 
 
-def mill_kind_for_id(mill_id: str) -> str:
+_OWNED_MILL_PATHS = {source.mill_id: source.path for source in MILL_SOURCES}
+
+
+def _require_owned_mill_id(path: str) -> str:
+    mill_id = mill_id_for_path(path)
+    owned_path = _OWNED_MILL_PATHS.get(mill_id)
+    if owned_path is not None:
+        if owned_path != path:
+            raise ValueError(f"{path} does not match owned sir mill source path {owned_path!r}")
+        return mill_id
     if "leftover" not in mill_id:
         raise ValueError("home mill catalogs belong to the search package")
-    return KIND_LEFTOVER_PAIRS
+    raise ValueError(f"{path} is not an owned sir leftover mill source")
+
+
+def mill_kind_for_id(mill_id: str) -> str:
+    if mill_id in _OWNED_MILL_PATHS:
+        return KIND_LEFTOVER_PAIRS
+    if "leftover" not in mill_id:
+        raise ValueError("home mill catalogs belong to the search package")
+    raise ValueError(f"unknown sir leftover mill {mill_id!r}")
 
 
 def extract_mill_catalog(
@@ -65,8 +83,7 @@ def extract_mill_catalog(
 
     payload = source_payload(source, path=path)
     _require_blob_identity(payload, blob_sha)
-    mill_id = mill_id_for_path(path)
-    mill_kind_for_id(mill_id)
+    mill_id = _require_owned_mill_id(path)
     constants = module_constants(source, path=path)
     tree = ast.parse(source, filename=path)
     factory = _required_string(constants.get("FACTORY", FACTORY), f"{path} FACTORY")
@@ -117,8 +134,8 @@ def _required_string(value: Any, where: str) -> str:
 
 def _catalog_first(constants: Mapping[str, Any], path: str) -> int:
     value = constants.get("CATALOG_FIRST")
-    if type(value) is not int:  # pylint: disable=unidiomatic-typecheck
-        raise ValueError(f"{path} CATALOG_FIRST is not an int")
+    if type(value) is not int or value < 1:  # pylint: disable=unidiomatic-typecheck
+        raise ValueError(f"{path} CATALOG_FIRST is not a positive int")
     return value
 
 
