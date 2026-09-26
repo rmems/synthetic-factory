@@ -25,6 +25,8 @@ else:
 
 __all__ = ["write_run_files"]
 
+_STAGE_CHANGED = "private staging directory changed"
+
 
 def _identity(metadata):
     return metadata.st_dev, metadata.st_ino
@@ -71,7 +73,7 @@ def _open_stage(path, identity):
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         if _identity(os.fstat(descriptor)) != identity:
-            raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
+            raise CsvRefusal(FINDING_DESTINATION_INVALID, _STAGE_CHANGED)
     except BaseException:
         release_descriptor(descriptor)
         raise
@@ -215,7 +217,7 @@ def _authenticate_commit(parent, staged, destination, stage):
     stage.verify()
     verify_parent(destination, parent)
     if not _same_entry(staged, stage.descriptor):
-        raise CsvRefusal(FINDING_DESTINATION_INVALID, "private staging directory changed")
+        raise CsvRefusal(FINDING_DESTINATION_INVALID, _STAGE_CHANGED)
 
 
 def _parent_matches(live, parent):
@@ -244,6 +246,8 @@ def _publish(parent: Path, staged: Path, destination: Path, stage: _OwnedStage) 
     try:
         _lock_entry(stage.descriptor)
         try:
+            if not _same_entry(staged, stage.descriptor):
+                raise CsvRefusal(FINDING_DESTINATION_INVALID, _STAGE_CHANGED)
             return stage.publish(parent, destination, descriptor)
         finally:
             _unlock_entry(stage.descriptor)
