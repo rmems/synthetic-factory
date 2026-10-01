@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +16,7 @@ if str(_TESTS) not in sys.path:
 
 from vset_testutil import (  # noqa: E402
     ACCEPT,
+    MANIFEST,
     PACK,
     REJECT,
     codes as _codes,
@@ -137,3 +141,71 @@ class OracleExecutionTests(unittest.TestCase):
         self.assertTrue(execution["reference"]["ok"])
         self.assertFalse(execution["hidden"]["ok"])
 
+
+class OracleEdgeCaseTests(unittest.TestCase):
+    def test_explicit_empty_reference_tests_fails_closed(self) -> None:
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["oracle"]["reference_tests"] = []
+        errors, _execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+
+    def test_non_list_reference_tests_fails_closed(self) -> None:
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["oracle"]["reference_tests"] = "tests/reference.py"
+        errors, _execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+
+    def test_undeclared_task_id_fails_pack_binding(self) -> None:
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["environment"]["task_id"] = "vset-counter-v1.undeclared"
+        errors, _execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIn("vset.oracle_pack_binding", _codes(errors))
+
+    def test_unreadable_pack_manifest_fails_closed(self) -> None:
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            shutil.copytree(PACK, pack)
+            (pack / "PACK.json").write_text("{not json", encoding="utf-8")
+            errors, _execution = vset.validate_record_with_oracle(record, pack)
+            self.assertIn("vset.oracle_pack_binding", _codes(errors))
+
+    def test_malformed_task_manifest_is_skipped_then_binding_fails(self) -> None:
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["environment"]["task_id"] = "vset-counter-v1.undeclared"
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            shutil.copytree(PACK, pack)
+            (pack / "tasks" / "junk.json").write_text("[", encoding="utf-8")
+            errors, _execution = vset.validate_record_with_oracle(record, pack)
+            self.assertIn("vset.oracle_pack_binding", _codes(errors))
+
+    def test_patch_rejects_illegal_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            for bad in ("", "   ", "..", "../escape.py", "/abs.py", 7):
+                patch = {"files": {bad: "x = 1\n"}}
+                with self.assertRaises(vset.VSetValidationError) as ctx:
+                    vset.apply_patch(work, patch)
+                self.assertEqual(ctx.exception.code, "vset.payload_invalid")
+
+    def test_patch_rejects_directory_target_and_protected_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            (work / "tests").mkdir()
+            with self.assertRaises(vset.VSetValidationError) as ctx:
+                vset.apply_patch(work, {"files": {"tests": "x = 1\n"}})
+            self.assertEqual(ctx.exception.code, "vset.payload_invalid")
+            with self.assertRaises(vset.VSetValidationError) as ctx2:
+                vset.apply_patch(
+                    work,
+                    {"files": {"tests/reference.py": "x = 1\n"}},
+                    protected=["tests/reference.py"],
+                )
+            self.assertEqual(ctx2.exception.code, "vset.payload_invalid")
+
+    def test_manifest_entry_with_non_object_reviewer_fails_closed(self) -> None:
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        manifest["entries"][0]["reviewer"] = 42
+        manifest["manifest_hash"] = vset.manifest_body_hash(manifest)
+        self.assertNotEqual(_codes(vset.validate_manifest(manifest)), [])
