@@ -324,7 +324,11 @@ def _contains_prometheus_marker(value: Any) -> bool:
         lowered = _normalized_identity_text(value)
         return any(marker in lowered for marker in PROMETHEUS_MARKERS)
     if isinstance(value, Mapping):
-        return any(_contains_prometheus_marker(item) for item in value.values())
+        return any(
+            _contains_prometheus_marker(item)
+            for pair in value.items()
+            for item in pair
+        )
     if isinstance(value, list):
         return any(_contains_prometheus_marker(item) for item in value)
     return False

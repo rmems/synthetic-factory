@@ -197,7 +197,7 @@ def validate_record_with_oracle(
         execution = run_oracle(
             pack_dir,
             patch=record_patch(record),
-            reference_tests=list(oracle.get("reference_tests") or ["tests/reference.py"]),
+            reference_tests=_declared_reference_tests(oracle),
             hidden_suite=_hidden_suite_plan(record, oracle, status),
         )
     except VSetValidationError as exc:
@@ -205,6 +205,13 @@ def validate_record_with_oracle(
         return errors, None
     errors.extend(_execution_match_errors(record, oracle, execution, status))
     return errors, execution
+
+
+def _declared_reference_tests(oracle: Mapping[str, Any]) -> list[str]:
+    declared = oracle.get("reference_tests")
+    if declared is None:
+        declared = ["tests/reference.py"]
+    return list(declared)
 
 
 def _hidden_suite_plan(

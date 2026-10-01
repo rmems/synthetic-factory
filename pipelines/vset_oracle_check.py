@@ -198,13 +198,13 @@ def _illegal_pack_relative(path: str) -> bool:
 
 
 def _string_path_list_error(value: Any, field: str, *, required: bool) -> VSetValidationError | None:
-    if not value and not required:
+    valid = isinstance(value, list) and value and all(isinstance(item, str) for item in value)
+    if valid or (not required and (value is None or value == [])):
         return None
-    if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        return None
+    qualifier = "non-empty " if required else ""
     return VSetValidationError(
         ERR_ORACLE_EXECUTION_MISMATCH,
-        f"oracle.{field} must be a list of paths",
+        f"oracle.{field} must be a {qualifier}list of paths",
     )
 
 
@@ -219,7 +219,9 @@ def _first_illegal_pack_path(paths: Iterable[Any]) -> VSetValidationError | None
 
 
 def _oracle_path_list_error(oracle: Mapping[str, Any]) -> VSetValidationError | None:
-    reference_tests = oracle.get("reference_tests") or ["tests/reference.py"]
+    reference_tests = oracle.get("reference_tests")
+    if reference_tests is None:
+        reference_tests = ["tests/reference.py"]
     hidden_tests = oracle.get("hidden_tests") or []
     typed = _string_path_list_error(reference_tests, "reference_tests", required=True)
     if typed is not None:

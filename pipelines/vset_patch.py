@@ -76,7 +76,7 @@ def _write_patch_file(
     dest = _resolve_patch_dest(work, relative)
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(contents)
+        dest.write_text(contents, encoding="utf-8")
     except OSError as exc:
         raise VSetValidationError(
             ERR_PAYLOAD_INVALID, f"cannot write patch file {relative!r}: {exc}"

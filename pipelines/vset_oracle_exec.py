@@ -280,11 +280,16 @@ def run_oracle(
     protected = list(reference_list) + list(hidden_list)
     with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
         work = Path(tmp) / "pack"
-        shutil.copytree(
-            pack_dir,
-            work,
-            ignore=lambda directory, names: _ignore_pack_member(directory, names, pack_dir),
-        )
+        try:
+            shutil.copytree(
+                pack_dir,
+                work,
+                ignore=lambda directory, names: _ignore_pack_member(directory, names, pack_dir),
+            )
+        except OSError as exc:
+            raise VSetValidationError(
+                ERR_ORACLE_EXECUTION_MISMATCH, f"cannot stage pack worktree: {exc}"
+            ) from exc
         stages = _fail_first_reports(work, pack_dir, plan, protected)
         if patch is not None:
             apply_patch(work, patch, protected=protected)
