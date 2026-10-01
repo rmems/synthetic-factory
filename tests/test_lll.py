@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import hashlib
 import io
 import json
 import shutil
@@ -32,8 +33,8 @@ PACKAGE_FILES = (
 
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from pipelines.lll import catalog, cli, generate  # noqa: E402
-from pipelines.lll._contract import (  # noqa: E402
+from pipelines.lll import catalog, cli, generate
+from pipelines.lll._contract import (
     FACTORY,
     FAMILY,
     FINDING_DESTINATION_EXISTS,
@@ -41,10 +42,10 @@ from pipelines.lll._contract import (  # noqa: E402
     FINDING_USAGE,
     FINDING_VENDOR_PATH,
     GENERATOR,
-    LllRefusal,
     RECORD_PREFIX,
     REVIEWED_HOME,
     SOURCE_MILLS,
+    LllRefusal,
     refuse_vendor_paths,
 )
 
@@ -54,6 +55,26 @@ def invoke(argv):
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = cli.run(argv)
     return code, out.getvalue(), err.getvalue()
+
+
+def _scratch_catalog(
+    scratch: Path,
+    *,
+    header: dict | None = None,
+    plants_lines: list[str] | None = None,
+) -> Path:
+    dest = scratch / "catalog"
+    dest.mkdir(parents=True, exist_ok=True)
+    source_header = json.loads((COMMITTED / "CATALOG.json").read_text())
+    if header is not None:
+        source_header.update(header)
+    plants_bytes = (COMMITTED / "plants.jsonl").read_bytes()
+    if plants_lines is not None:
+        plants_bytes = ("\n".join(plants_lines) + "\n").encode()
+        source_header["plants_sha256"] = hashlib.sha256(plants_bytes).hexdigest()
+    (dest / "CATALOG.json").write_text(json.dumps(source_header, indent=2))
+    (dest / "plants.jsonl").write_bytes(plants_bytes)
+    return dest
 
 
 def _git_show(path: str) -> str | None:
@@ -168,6 +189,10 @@ class LllPackageTests(unittest.TestCase):
         self.assertEqual(len(loaded.mills), 3)
         self.assertEqual(loaded.plants[0].plant_id, FIRST_PLANT)
         self.assertEqual(loaded.plants[0].success_slug, FIRST_SLUG)
+        self.assertEqual(
+            catalog.render_plants_jsonl(loaded.plants),
+            (COMMITTED / "plants.jsonl").read_bytes(),
+        )
         self.assertEqual(loaded.plants[-1].success_slug, "swift-consume-operator-move")
         self.assertEqual(
             [mill.mill_id for mill in loaded.mills],
@@ -284,6 +309,173 @@ class LllPackageTests(unittest.TestCase):
             code, out, err = invoke(["generate", "--out", str(scratch / "missing")])
             self.assertEqual(code, 2)
             self.assertIn(FINDING_USAGE, err)
+        finally:
+            shutil.rmtree(scratch)
+
+    def test_plant_lookup_refuses_an_unknown_id(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        with self.assertRaises(LllRefusal) as caught:
+            loaded.plant("lhc-mill-lll-lang-r4750:not-a-real-plant")
+        self.assertIn("PLANT_NOT_FOUND", str(caught.exception))
+        with self.assertRaises(LllRefusal):
+            loaded.mill_plants("lhc-mill-lll-r-not")
+
+    def test_load_catalog_refuses_drifted_files(self):
+        scratch = Path(tempfile.mkdtemp(prefix="lll-badcat-"))
+        try:
+            dest = _scratch_catalog(scratch / "missing-header")
+            (dest / "CATALOG.json").unlink()
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("CATALOG_FILE_MISSING", str(caught.exception))
+            self.assertEqual(len(catalog.catalog_check(dest)), 1)
+
+            dest = _scratch_catalog(scratch / "bad-header")
+            (dest / "CATALOG.json").write_text("{")
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("CATALOG_FIELD_INVALID", str(caught.exception))
+
+            dest = _scratch_catalog(scratch / "list-header")
+            (dest / "CATALOG.json").write_text("[]")
+            with self.assertRaises(LllRefusal):
+                catalog.load_catalog(dest)
+
+            dest = _scratch_catalog(scratch / "sha")
+            (dest / "plants.jsonl").write_bytes(b"drift\n")
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("PLANTS_SHA_MISMATCH", str(caught.exception))
+
+            dest = _scratch_catalog(scratch / "bad-line", plants_lines=["{"])
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("PLANT_FIELD_INVALID", str(caught.exception))
+
+            dest = _scratch_catalog(scratch / "list-line", plants_lines=["[]"])
+            with self.assertRaises(LllRefusal):
+                catalog.load_catalog(dest)
+
+            lines = (COMMITTED / "plants.jsonl").read_text().splitlines()
+            dest = _scratch_catalog(
+                scratch / "dup", plants_lines=[lines[0], lines[0]]
+            )
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("PLANT_DUPLICATE", str(caught.exception))
+
+            dest = _scratch_catalog(scratch / "no-plants")
+            (dest / "plants.jsonl").unlink()
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("CATALOG_FILE_MISSING", str(caught.exception))
+
+            dest = _scratch_catalog(scratch / "factory", header={"factory": "nope"})
+            with self.assertRaises(LllRefusal) as caught:
+                catalog.load_catalog(dest)
+            self.assertIn("CATALOG_FIELD_INVALID", str(caught.exception))
+        finally:
+            shutil.rmtree(scratch)
+
+    def test_catalog_check_reports_meta_mill_and_source_drift(self):
+        scratch = Path(tempfile.mkdtemp(prefix="lll-drift-"))
+        try:
+            header = json.loads((COMMITTED / "CATALOG.json").read_text())
+            header["pair_count"] = 0
+            header["plant_count"] = 0
+            header["generator"] = "rogue"
+            header["catalog_id"] = "wrong"
+            header["mills"][0]["blob_sha"] = "deadbeef"
+            header["mills"].append(
+                {
+                    "mill_id": "rogue-mill",
+                    "base_round": 1,
+                    "blob_sha": "x",
+                    "pair_count": 0,
+                    "plant_count": 0,
+                    "source": "experiments/rogue.py",
+                }
+            )
+            header["source"]["ref"] = "other-ref"
+            header["source"]["method"] = "exec"
+            header["source"]["scripts"] = []
+            header["source"]["not_executed"] = []
+            dest = _scratch_catalog(scratch / "drift", header=header)
+            findings = catalog.catalog_check(dest)
+            self.assertGreaterEqual(len(findings), 5)
+            joined = "\n".join(findings)
+            for needle in ("pair_count", "plant_count", "generator", "drifted", "rogue-mill"):
+                self.assertIn(needle, joined)
+
+            header = json.loads((COMMITTED / "CATALOG.json").read_text())
+            header["mills"][0]["pair_count"] = 99
+            header["mills"][0]["plant_count"] = 0
+            dest = _scratch_catalog(scratch / "counts", header=header)
+            findings = catalog.catalog_check(dest)
+            self.assertTrue(any("counts drifted" in item for item in findings))
+
+            lines = (COMMITTED / "plants.jsonl").read_text().splitlines()
+            row = json.loads(lines[0])
+            row["base_round"] = 1
+            row["index"] = 9
+            lines[0] = json.dumps(row)
+            dest = _scratch_catalog(scratch / "coords", plants_lines=lines)
+            findings = catalog.catalog_check(dest)
+            self.assertTrue(any("coordinates drifted" in item for item in findings))
+            self.assertTrue(any("index drifted" in item for item in findings))
+        finally:
+            shutil.rmtree(scratch)
+
+    def test_plants_from_source_refuses_malformed_sources(self):
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.plants_from_source(
+                "def broken(:", mill_id="m", path="x.py", base_round=1
+            )
+        self.assertIn("SOURCE_NOT_PARSEABLE", str(caught.exception))
+        with self.assertRaises(LllRefusal):
+            catalog.plants_from_source(
+                "PAIRS = []\nPAIRS.append(('t', a, b))\n",
+                mill_id="m",
+                path="x.py",
+                base_round=1,
+            )
+        with self.assertRaises(LllRefusal):
+            catalog.plants_from_source(
+                "PAIRS = []\nfa, fb = fn_pair('a', 'b', 'c', 'd', 'e', 'f')\n",
+                mill_id="m",
+                path="x.py",
+                base_round=1,
+            )
+
+    def test_generate_cli_mill_and_refusal_json(self):
+        scratch = Path(tempfile.mkdtemp(prefix="lll-cli2-"))
+        try:
+            dest = scratch / "mill-out"
+            code, out, err = invoke(
+                [
+                    "generate",
+                    "--mill",
+                    "lhc-mill-lll-lang-r4750",
+                    "--out",
+                    str(dest),
+                    "--json",
+                ]
+            )
+            self.assertEqual(code, 0, err)
+            self.assertEqual(json.loads(out)["records"], 16)
+            code, out, err = invoke(
+                ["generate", "--mill", "nope", "--round", "3", "--out", str(scratch / "x"), "--json"]
+            )
+            self.assertEqual(code, 2)
+            self.assertEqual(json.loads(out)["status"], "refusal")
+            code, out, err = invoke(
+                ["generate", "--mill", "nope", "--round", "3", "--out", str(scratch / "y")]
+            )
+            self.assertEqual(code, 2)
+            self.assertIn("USAGE", err)
+            code, out, err = invoke(["catalog"])
+            self.assertEqual(code, 0, err)
+            self.assertIn(FIRST_PLANT, out)
         finally:
             shutil.rmtree(scratch)
 
