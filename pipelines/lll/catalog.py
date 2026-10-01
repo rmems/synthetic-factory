@@ -198,7 +198,7 @@ def _require_str(mapping: Mapping[str, Any], key: str, where: str) -> str:
 def _require_int(mapping: Mapping[str, Any], key: str, where: str) -> int:
     value = mapping.get(key)
     refuse_when(
-        type(value) is not int or value < 0,
+        not isinstance(value, int) or isinstance(value, bool) or value < 0,
         FINDING_CATALOG_FIELD_INVALID if where == "catalog" else FINDING_PLANT_FIELD_INVALID,
         f"{where} {key} must be a non-negative int",
     )

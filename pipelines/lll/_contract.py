@@ -204,7 +204,7 @@ def load_strict_json(payload: str | bytes):
 
 def require_round(rnd: int) -> int:
     refuse_when(
-        type(rnd) is not int or rnd < 1,
+        not isinstance(rnd, int) or isinstance(rnd, bool) or rnd < 1,
         FINDING_ROUND_INVALID,
         f"round must be a positive int, got {shown(rnd)}",
     )

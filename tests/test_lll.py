@@ -8,7 +8,7 @@ import contextlib
 import io
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- git show of pinned legacy-mill-lane blobs only.
 import sys
 import tempfile
 import unittest
@@ -58,7 +58,7 @@ def invoke(argv):
 
 def _git_show(path: str) -> str | None:
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 B607 -- pinned git show of legacy ref blobs only.
             ["git", "show", f"{LEGACY_REF}:{path}"],
             cwd=REPO,
             check=False,
