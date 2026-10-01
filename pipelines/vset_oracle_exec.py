@@ -234,9 +234,9 @@ def _fail_first_reports(
     work: Path,
     pack_dir: Path,
     plan: Mapping[str, Any],
-    hidden_list: list[str],
     protected: list[str],
 ) -> list[dict[str, Any]]:
+    hidden_list = list(plan.get("tests") or ())
     stages: list[dict[str, Any]] = []
     for index, pre_state in enumerate(plan.get("fail_first") or ()):
         if pre_state is not None:
@@ -283,7 +283,7 @@ def run_oracle(
             work,
             ignore=lambda directory, names: _ignore_pack_member(directory, names, pack_dir),
         )
-        stages = _fail_first_reports(work, pack_dir, plan, hidden_list, protected)
+        stages = _fail_first_reports(work, pack_dir, plan, protected)
         if patch is not None:
             apply_patch(work, patch, protected=protected)
         reference = _run_modules(work, pack_dir, reference_list)

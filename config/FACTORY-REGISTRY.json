@@ -1,7 +1,7 @@
 {
   "schema_version": "factory-registry-v0.4",
   "lookup_key": "path_id",
-  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path \u2192 identity.unknown_factory; registered path with missing or different meta.factory \u2192 identity.factory_path_payload_mismatch; kind not in the row's record_kinds \u2192 identity.factory_not_authorized_for_kind. Onboard a hosted generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Onboard a model-channel generator by adding the exact sealed row from schemas/model-channel-source-policy-v1.json and the matching _REVIEWED_GENERATOR_RIGHTS assignment; local_vllm, local_ollama, and openrouter_api identities never share rights with each other or with hosted/API channels. Identity retain is not publication and not training_ready.",
+  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a hosted generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Onboard a model-channel generator by adding the exact sealed row from schemas/model-channel-source-policy-v1.json and the matching _REVIEWED_GENERATOR_RIGHTS assignment; local_vllm, local_ollama, and openrouter_api identities never share rights with each other or with hosted/API channels. Identity retain is not publication and not training_ready.",
   "factories": [
     {
       "path_id": "agentic-coding-trajectory-factory",
@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:15f3778a05b3ded56a1f9f012efa158b14a422e5e2492f5360601499bda7a516",
+      "generator_version": "sha256:575d703a8af63972da7ebf05bd8fc57748566652d93a197c8b92f6785686c9c8",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,14 +1709,14 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "e2dc9036cde140ca0cb0abe73ad5cc5c01b566d2814a5077d615512c3c2e36ab"
+      "parity_policy_sha256": "83dab4f4e7d4821b91ab48110f5e3a91f6d1d437954ea2dbc8a945a81b6882cd"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:5f18c8ce80546de067280f1f7964c8a1b309ee6098e0e4c5aa2d817f7f410453",
+      "generator_version": "sha256:3a9632757cc7c49e7fc40f2fb56fe56e84fd31b0c00ddff317f2d1336d6f111e",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1736,7 +1736,7 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "e2dc9036cde140ca0cb0abe73ad5cc5c01b566d2814a5077d615512c3c2e36ab"
+      "parity_policy_sha256": "83dab4f4e7d4821b91ab48110f5e3a91f6d1d437954ea2dbc8a945a81b6882cd"
     },
     {
       "path_id": "fault-recovery-simulator-factory",
