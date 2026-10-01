@@ -52,9 +52,7 @@ def _resolve_patch_dest(work: Path, relative: str) -> Path:
     return dest
 
 
-def _write_patch_file(
-    work: Path, relative: Any, contents: Any, protected: frozenset[str]
-) -> None:
+def _check_patch_write(relative: Any, contents: Any, protected: frozenset[str]) -> None:
     if _illegal_patch_path(relative):
         raise VSetValidationError("vset.payload_invalid", f"illegal patch path {relative!r}")
     if _patch_path_key(relative) in protected:
@@ -64,6 +62,12 @@ def _write_patch_file(
         )
     if not isinstance(contents, str):
         raise VSetValidationError("vset.payload_invalid", f"patch file {relative} must be a string")
+
+
+def _write_patch_file(
+    work: Path, relative: Any, contents: Any, protected: frozenset[str]
+) -> None:
+    _check_patch_write(relative, contents, protected)
     dest = _resolve_patch_dest(work, relative)
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)

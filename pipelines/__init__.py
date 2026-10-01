@@ -341,6 +341,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "vset_oracle",
     "vset_oracle_exec",
     "vset_manifest_entries",
+    "vset_manifest_entry_oracle",
     "vset_manifest",
     "validate_vset",
 ))

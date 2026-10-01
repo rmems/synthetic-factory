@@ -115,6 +115,10 @@ def _load_tests(
     path = _resolve_under_work(work, relative, code="vset.oracle_execution_mismatch")
     if not path.is_file():
         raise VSetValidationError("vset.oracle_execution_mismatch", f"missing test module {relative}")
+    return _load_suite(path, relative)
+
+
+def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
     module_name = "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:

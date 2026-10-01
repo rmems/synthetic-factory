@@ -55,16 +55,21 @@ def _load_pack_manifest(pack_dir: Path) -> tuple[dict[str, Any], VSetValidationE
     return (meta if isinstance(meta, dict) else {}), None
 
 
+def _load_task_manifest(path: Path) -> Mapping[str, Any] | None:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return manifest if isinstance(manifest, Mapping) else None
+
+
 def _task_manifest(pack_dir: Path, task_id: Any) -> Mapping[str, Any] | None:
     tasks_dir = pack_dir / "tasks"
     if not isinstance(task_id, str) or not task_id.strip() or not tasks_dir.is_dir():
         return None
     for path in sorted(tasks_dir.glob("*.json")):
-        try:
-            manifest = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(manifest, Mapping) and manifest.get("task_id") == task_id:
+        manifest = _load_task_manifest(path)
+        if manifest is not None and manifest.get("task_id") == task_id:
             return manifest
     return None
 
