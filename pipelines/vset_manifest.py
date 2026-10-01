@@ -84,7 +84,7 @@ def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
             if key in environment
         },
         "release": {
-            key: release[key]
+            key: release.get(key)
             for key in ("factory_contract_version", "factory_registry_sha256")
             if key in release
         },
