@@ -1,0 +1,497 @@
+#!/usr/bin/env python3
+"""Pinned leftover leftover leftover catalog: load, pin, and AST-extract.
+
+A catalog directory holds ``CATALOG.json`` and ``plants.jsonl``. Historical
+leftover leftover leftover mill scripts are read only as text through
+:func:`plants_from_source` (``ast.parse``, ``exec: false``).
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, cast
+
+from . import catalog_ast as _ast
+from ._contract import (
+    CATALOG_FILENAME,
+    CATALOG_FORMAT,
+    DEFAULT_CATALOG_ID,
+    FACTORY,
+    FINDING_CATALOG_FIELD_INVALID,
+    FINDING_CATALOG_FIELD_MISSING,
+    FINDING_CATALOG_FILE_MISSING,
+    FINDING_FACTORY_NOT_REGISTERED,
+    FINDING_MILL_NOT_FOUND,
+    FINDING_PLANT_DUPLICATE,
+    FINDING_PLANT_FIELD_INVALID,
+    FINDING_PLANT_FIELD_MISSING,
+    FINDING_PLANT_NOT_FOUND,
+    FINDING_PLANTS_SHA_MISMATCH,
+    GENERATOR,
+    LEGACY_COMMIT,
+    LEGACY_REF,
+    LllRefusal,
+    MILL_PREFIX,
+    PAIR_KEYS,
+    PLANTS_FILENAME,
+    QUOTA_PER_ROUND,
+    RECORD_KIND,
+    RECORD_PREFIX,
+    SOURCE_MILLS,
+    bind_import_twin,
+    dumps_exact_json,
+    load_strict_json,
+    refuse_when,
+    repo_root,
+    shown,
+)
+
+REQUIRED_META_FIELDS = (
+    "catalog_id",
+    "factory",
+    "format",
+    "mill_prefix",
+    "mills",
+    "pair_count",
+    "plant_count",
+    "plants_sha256",
+    "quota_per_round",
+    "record_kind",
+    "record_prefix",
+    "source",
+)
+REQUIRED_SOURCE_FIELDS = ("commit", "method", "not_executed", "ref", "scripts")
+SLUG_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+__all__ = [
+    "Catalog",
+    "Mill",
+    "Plant",
+    "catalog_check",
+    "default_catalog_dir",
+    "load_catalog",
+    "plants_from_source",
+    "sha256_bytes",
+]
+
+
+@dataclass(frozen=True)
+class Plant:
+    """One leftover leftover leftover pair identity extracted from ``fn_pair``."""
+
+    plant_id: str
+    mill_id: str
+    source: str
+    base_round: int
+    index: int
+    title: str
+    success_slug: str
+    fail_slug: str
+    success_plant: str
+    fail_plant: str
+
+    def pair_fields(self) -> dict[str, str]:
+        return {key: getattr(self, key) for key in PAIR_KEYS}
+
+    def as_mapping(self) -> dict[str, Any]:
+        return {
+            "base_round": self.base_round,
+            "fail_plant": self.fail_plant,
+            "fail_slug": self.fail_slug,
+            "index": self.index,
+            "mill_id": self.mill_id,
+            "plant_id": self.plant_id,
+            "source": self.source,
+            "success_plant": self.success_plant,
+            "success_slug": self.success_slug,
+            "title": self.title,
+        }
+
+
+@dataclass(frozen=True)
+class Mill:
+    mill_id: str
+    base_round: int
+    source: str
+    blob_sha: str
+    pair_count: int
+    plant_count: int
+
+
+@dataclass(frozen=True)
+class Catalog:
+    catalog_id: str
+    directory: Path
+    factory: str
+    plants_sha256: str
+    plants: tuple[Plant, ...]
+    mills: tuple[Mill, ...]
+    meta: Mapping[str, Any]
+
+    def plant(self, plant_id: str) -> Plant:
+        for item in self.plants:
+            if item.plant_id == plant_id:
+                return item
+        raise LllRefusal(FINDING_PLANT_NOT_FOUND, f"no plant {shown(plant_id)}")
+
+    def mill_plants(self, mill_id: str) -> tuple[Plant, ...]:
+        found = tuple(item for item in self.plants if item.mill_id == mill_id)
+        refuse_when(not found, FINDING_MILL_NOT_FOUND, f"no mill {shown(mill_id)}")
+        return found
+
+
+def default_catalog_dir() -> Path:
+    return repo_root() / "config" / "lll"
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def plants_from_source(
+    source: str,
+    *,
+    mill_id: str,
+    path: str,
+    base_round: int,
+) -> tuple[Plant, ...]:
+    """Extract leftover leftover leftover ``fn_pair`` identities. Never exec."""
+
+    rows: list[Plant] = []
+    seen: set[str] = set()
+    for title, args in _ast.extract_pairs(source, path=path):
+        plant_id = f"{mill_id}:{args[0]}"
+        refuse_when(plant_id in seen, FINDING_PLANT_DUPLICATE, f"{path} duplicate {plant_id}")
+        seen.add(plant_id)
+        rows.append(
+            Plant(
+                plant_id=plant_id,
+                mill_id=mill_id,
+                source=path,
+                base_round=base_round,
+                index=len(rows),
+                title=title,
+                success_slug=args[0],
+                fail_slug=args[1],
+                success_plant=args[2],
+                fail_plant=args[3],
+            )
+        )
+    return tuple(rows)
+
+
+
+
+def _require_str(mapping: Mapping[str, Any], key: str, where: str) -> str:
+    value = mapping.get(key)
+    refuse_when(
+        not isinstance(value, str) or not value.strip(),
+        FINDING_CATALOG_FIELD_INVALID if where == "catalog" else FINDING_PLANT_FIELD_INVALID,
+        f"{where} {key} must be a non-empty string",
+    )
+    return cast(str, value)
+
+
+def _require_int(mapping: Mapping[str, Any], key: str, where: str) -> int:
+    value = mapping.get(key)
+    refuse_when(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0,
+        FINDING_CATALOG_FIELD_INVALID if where == "catalog" else FINDING_PLANT_FIELD_INVALID,
+        f"{where} {key} must be a non-negative int",
+    )
+    return cast(int, value)
+
+
+def _slug_ok(value: str) -> bool:
+    return bool(value) and value[0].isalpha() and set(value) <= SLUG_CHARS
+
+
+def _plant_from_row(row: Mapping[str, Any], index: int) -> Plant:
+    refuse_when(
+        not isinstance(row, Mapping),
+        FINDING_PLANT_FIELD_INVALID,
+        f"plant {index} is not an object",
+    )
+    missing = [key for key in Plant.__dataclass_fields__ if key not in row]
+    refuse_when(
+        bool(missing),
+        FINDING_PLANT_FIELD_MISSING,
+        f"plant {index} missing {missing}",
+    )
+    mill_id = _require_str(row, "mill_id", "plant")
+    success_slug = _require_str(row, "success_slug", "plant")
+    fail_slug = _require_str(row, "fail_slug", "plant")
+    success_plant = _require_str(row, "success_plant", "plant")
+    fail_plant = _require_str(row, "fail_plant", "plant")
+    title = _require_str(row, "title", "plant")
+    source = _require_str(row, "source", "plant")
+    plant_id = _require_str(row, "plant_id", "plant")
+    base_round = _require_int(row, "base_round", "plant")
+    row_index = _require_int(row, "index", "plant")
+    refuse_when(
+        plant_id != f"{mill_id}:{success_slug}",
+        FINDING_PLANT_FIELD_INVALID,
+        f"plant_id {shown(plant_id)} does not match mill and success slug",
+    )
+    slugs = (success_slug, fail_slug, success_plant, fail_plant)
+    refuse_when(
+        not all(_slug_ok(item) for item in slugs),
+        FINDING_PLANT_FIELD_INVALID,
+        f"plant {shown(plant_id)} has an invalid leftover leftover leftover slug",
+    )
+    return Plant(
+        plant_id=plant_id,
+        mill_id=mill_id,
+        source=source,
+        base_round=base_round,
+        index=row_index,
+        title=title,
+        success_slug=success_slug,
+        fail_slug=fail_slug,
+        success_plant=success_plant,
+        fail_plant=fail_plant,
+    )
+
+
+def _mill_from_row(row: Mapping[str, Any]) -> Mill:
+    refuse_when(
+        not isinstance(row, Mapping),
+        FINDING_CATALOG_FIELD_INVALID,
+        "mill row is not an object",
+    )
+    return Mill(
+        mill_id=_require_str(row, "mill_id", "catalog"),
+        base_round=_require_int(row, "base_round", "catalog"),
+        source=_require_str(row, "source", "catalog"),
+        blob_sha=_require_str(row, "blob_sha", "catalog"),
+        pair_count=_require_int(row, "pair_count", "catalog"),
+        plant_count=_require_int(row, "plant_count", "catalog"),
+    )
+
+
+def _registry_factories() -> set[str]:
+    payload = load_strict_json((repo_root() / "config" / "FACTORY-REGISTRY.json").read_text())
+    rows = payload.get("factories") if isinstance(payload, Mapping) else None
+    refuse_when(
+        not isinstance(rows, list),
+        FINDING_FACTORY_NOT_REGISTERED,
+        "factory registry is malformed",
+    )
+    return {
+        str(row["path_id"])
+        for row in rows
+        if isinstance(row, Mapping) and isinstance(row.get("path_id"), str)
+    }
+
+
+def _catalog_header(catalog_dir: Path) -> Mapping[str, Any]:
+    header_path = catalog_dir / CATALOG_FILENAME
+    refuse_when(
+        not header_path.is_file(),
+        FINDING_CATALOG_FILE_MISSING,
+        f"missing {header_path}",
+    )
+    try:
+        header = load_strict_json(header_path.read_text())
+    except ValueError as exc:
+        raise LllRefusal(FINDING_CATALOG_FIELD_INVALID, f"CATALOG.json does not parse: {exc}") from exc
+    refuse_when(
+        not isinstance(header, Mapping),
+        FINDING_CATALOG_FIELD_INVALID,
+        "CATALOG.json is not an object",
+    )
+    header = cast(Mapping[str, Any], header)
+    missing = [key for key in REQUIRED_META_FIELDS if key not in header]
+    refuse_when(
+        bool(missing),
+        FINDING_CATALOG_FIELD_MISSING,
+        f"CATALOG.json missing {missing}",
+    )
+    source = header.get("source")
+    refuse_when(
+        not isinstance(source, Mapping),
+        FINDING_CATALOG_FIELD_INVALID,
+        "source is not an object",
+    )
+    source = cast(Mapping[str, Any], source)
+    source_missing = [key for key in REQUIRED_SOURCE_FIELDS if key not in source]
+    refuse_when(
+        bool(source_missing),
+        FINDING_CATALOG_FIELD_MISSING,
+        f"source missing {source_missing}",
+    )
+    return header
+
+
+def _plants_from_file(plants_path: Path) -> list[Plant]:
+    refuse_when(
+        not plants_path.is_file(),
+        FINDING_CATALOG_FILE_MISSING,
+        f"missing {plants_path}",
+    )
+    plants: list[Plant] = []
+    seen: set[str] = set()
+    for index, line in enumerate(plants_path.read_bytes().decode().splitlines()):
+        if not line.strip():
+            continue
+        try:
+            row = load_strict_json(line)
+        except ValueError as exc:
+            raise LllRefusal(
+                FINDING_PLANT_FIELD_INVALID, f"plant line {index} does not parse: {exc}"
+            ) from exc
+        refuse_when(
+            not isinstance(row, Mapping),
+            FINDING_PLANT_FIELD_INVALID,
+            f"plant line {index} is not an object",
+        )
+        plant = _plant_from_row(cast(Mapping[str, Any], row), index)
+        refuse_when(plant.plant_id in seen, FINDING_PLANT_DUPLICATE, f"duplicate {plant.plant_id}")
+        seen.add(plant.plant_id)
+        plants.append(plant)
+    return plants
+
+
+def load_catalog(directory: Path | None = None) -> Catalog:
+    catalog_dir = Path(directory) if directory is not None else default_catalog_dir()
+    plants_path = catalog_dir / PLANTS_FILENAME
+    header = _catalog_header(catalog_dir)
+    refuse_when(
+        not plants_path.is_file(),
+        FINDING_CATALOG_FILE_MISSING,
+        f"missing {plants_path}",
+    )
+    plants_text = plants_path.read_bytes()
+    declared = _require_str(header, "plants_sha256", "catalog")
+    refuse_when(
+        sha256_bytes(plants_text) != declared,
+        FINDING_PLANTS_SHA_MISMATCH,
+        "plants.jsonl digest drifted",
+    )
+    plants = _plants_from_file(plants_path)
+    mills = tuple(_mill_from_row(row) for row in header["mills"])
+    refuse_when(
+        _require_str(header, "factory", "catalog") != FACTORY,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"factory must be {FACTORY}",
+    )
+    refuse_when(
+        FACTORY not in _registry_factories(),
+        FINDING_FACTORY_NOT_REGISTERED,
+        f"{FACTORY} is not a reviewed registry row",
+    )
+    return Catalog(
+        catalog_id=_require_str(header, "catalog_id", "catalog"),
+        directory=catalog_dir,
+        factory=FACTORY,
+        plants_sha256=declared,
+        plants=tuple(plants),
+        mills=mills,
+        meta=header,
+    )
+
+
+_EXPECTED_META = {
+    "catalog_id": DEFAULT_CATALOG_ID,
+    "format": CATALOG_FORMAT,
+    "mill_prefix": MILL_PREFIX,
+    "record_prefix": RECORD_PREFIX,
+    "record_kind": RECORD_KIND,
+    "quota_per_round": QUOTA_PER_ROUND,
+}
+
+
+def _meta_findings(loaded: Catalog) -> list[str]:
+    findings = [
+        f"{FINDING_CATALOG_FIELD_INVALID}: {key} must be {want}"
+        for key, want in _EXPECTED_META.items()
+        if (loaded.catalog_id if key == "catalog_id" else loaded.meta.get(key)) != want
+    ]
+    if loaded.meta.get("pair_count") != len(loaded.plants):
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: pair_count does not match plants.jsonl")
+    if loaded.meta.get("plant_count") != len(loaded.plants) * 2:
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: plant_count must be two per pair")
+    if loaded.meta.get("generator") not in {None, GENERATOR}:
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: generator must stay {GENERATOR}")
+    return findings
+
+
+def _mill_findings(loaded: Catalog) -> list[str]:
+    findings: list[str] = []
+    expected = {item[0]: item for item in SOURCE_MILLS}
+    mill_ids = [mill.mill_id for mill in loaded.mills]
+    if len(set(mill_ids)) != len(mill_ids) or set(mill_ids) != set(expected):
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: mill pin set drifted")
+    for mill in loaded.mills:
+        pin = expected.get(mill.mill_id)
+        if pin is None:
+            findings.append(f"{FINDING_MILL_NOT_FOUND}: unexpected mill {mill.mill_id}")
+            continue
+        _, source, base_round, blob_sha = pin
+        if (mill.source, mill.base_round, mill.blob_sha) != (source, base_round, blob_sha):
+            findings.append(
+                f"{FINDING_CATALOG_FIELD_INVALID}: mill pin drifted for {mill.mill_id}"
+            )
+        findings.extend(_mill_plant_findings(mill, loaded.mill_plants(mill.mill_id)))
+    return findings
+
+
+def _mill_plant_findings(mill: Mill, owned: tuple[Plant, ...]) -> list[str]:
+    findings: list[str] = []
+    if mill.pair_count != len(owned) or mill.plant_count != len(owned) * 2:
+        findings.append(
+            f"{FINDING_CATALOG_FIELD_INVALID}: mill counts drifted for {mill.mill_id}"
+        )
+    for index, plant in enumerate(owned):
+        if plant.source != mill.source or plant.base_round != mill.base_round:
+            findings.append(
+                f"{FINDING_CATALOG_FIELD_INVALID}: plant coordinates drifted for {plant.plant_id}"
+            )
+        if plant.index != index:
+            findings.append(
+                f"{FINDING_CATALOG_FIELD_INVALID}: plant index drifted for {plant.plant_id}"
+            )
+    return findings
+
+
+def _source_findings(loaded: Catalog) -> list[str]:
+    findings: list[str] = []
+    source = loaded.meta["source"]
+    if source.get("ref") != LEGACY_REF or source.get("commit") != LEGACY_COMMIT:
+        findings.append(
+            f"{FINDING_CATALOG_FIELD_INVALID}: leftover leftover leftover source pin drifted"
+        )
+    if source.get("method") != "git-show+ast.parse":
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: extract method must stay AST-only")
+    scripts = [item[1] for item in SOURCE_MILLS]
+    if source.get("scripts") != scripts:
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: source scripts drifted")
+    if source.get("not_executed") != scripts:
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: not_executed scripts drifted")
+    return findings
+
+
+def catalog_check(directory: Path | None = None) -> list[str]:
+    """Return coded findings. An empty list means the pinned catalog is sound."""
+
+    try:
+        loaded = load_catalog(directory)
+    except LllRefusal as exc:
+        return [str(exc)]
+    return _meta_findings(loaded) + _mill_findings(loaded) + _source_findings(loaded)
+
+
+def render_plants_jsonl(plants: tuple[Plant, ...]) -> bytes:
+    """Exact leftover leftover leftover plant bytes used for the digest pin."""
+
+    lines = [
+        dumps_exact_json(plant.as_mapping(), ensure_ascii=False, sort_keys=True)
+        for plant in plants
+    ]
+    return ("".join(line + "\n" for line in lines)).encode()
+
+
+bind_import_twin(__name__)
