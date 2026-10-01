@@ -2,7 +2,7 @@
   "schema_version": "vset-release-manifest-v1",
   "actor_provenance_schema_version": "actor-provenance-v1",
   "factory_contract_version": "factory-registry-v0.4",
-  "factory_registry_sha256": "sha256:e1dd29acaed91af19b001c61fd10ebb1d1ecd4de9d83cafa49686c48e84ca151",
+  "factory_registry_sha256": "sha256:4e4d8d123717255ee56f0df968591ba36fabbab4852d9dc3b65c7d54b8f0077c",
   "counts": {
     "records": 2,
     "by_record_kind": {
@@ -57,7 +57,7 @@
       },
       "release": {
         "factory_contract_version": "factory-registry-v0.4",
-        "factory_registry_sha256": "sha256:e1dd29acaed91af19b001c61fd10ebb1d1ecd4de9d83cafa49686c48e84ca151"
+        "factory_registry_sha256": "sha256:4e4d8d123717255ee56f0df968591ba36fabbab4852d9dc3b65c7d54b8f0077c"
       }
     },
     {
@@ -95,9 +95,9 @@
       },
       "release": {
         "factory_contract_version": "factory-registry-v0.4",
-        "factory_registry_sha256": "sha256:e1dd29acaed91af19b001c61fd10ebb1d1ecd4de9d83cafa49686c48e84ca151"
+        "factory_registry_sha256": "sha256:4e4d8d123717255ee56f0df968591ba36fabbab4852d9dc3b65c7d54b8f0077c"
       }
     }
   ],
-  "manifest_hash": "sha256:a126adf4c7a63ddca7576d8c6dfd55017534db0b423545723e559599ce2ecc77"
+  "manifest_hash": "sha256:69ac56a7f5ea5cb948c6c7cd2e01d430831a4a0daf928f645ef9610d411663fb"
 }
