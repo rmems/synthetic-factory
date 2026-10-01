@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:575d703a8af63972da7ebf05bd8fc57748566652d93a197c8b92f6785686c9c8",
+      "generator_version": "sha256:533e9b2bcb53aac482726b5b6f3d7def0a0f78be4d7781d3e1cfbebf239011b0",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,14 +1709,14 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "83dab4f4e7d4821b91ab48110f5e3a91f6d1d437954ea2dbc8a945a81b6882cd"
+      "parity_policy_sha256": "4d7083bb6b185b7fad3fcaa306a00f3131a7ad96a9f21d7f6ac7387cff6b16f4"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:3a9632757cc7c49e7fc40f2fb56fe56e84fd31b0c00ddff317f2d1336d6f111e",
+      "generator_version": "sha256:88cb5c73fa3630fb7887de82aba4a97a58abfada2981df5bc9ea1e2d0370038d",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1736,7 +1736,7 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "83dab4f4e7d4821b91ab48110f5e3a91f6d1d437954ea2dbc8a945a81b6882cd"
+      "parity_policy_sha256": "4d7083bb6b185b7fad3fcaa306a00f3131a7ad96a9f21d7f6ac7387cff6b16f4"
     },
     {
       "path_id": "fault-recovery-simulator-factory",
