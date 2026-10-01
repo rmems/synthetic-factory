@@ -27,26 +27,26 @@ else:
 __all__ = ["build_parser", "run"]
 
 
+def _catalog_command(commands: argparse._SubParsersAction, name: str, help_text: str) -> argparse.ArgumentParser:
+    cmd = commands.add_parser(name, help=help_text)
+    cmd.add_argument("--catalog", type=Path, default=None)
+    cmd.add_argument("--json", action="store_true")
+    return cmd
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pipelines.lll.cli", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    listing = commands.add_parser("catalog", help="list pinned leftover leftover leftover pairs")
-    listing.add_argument("--catalog", type=Path, default=None)
-    listing.add_argument("--json", action="store_true")
+    _catalog_command(commands, "catalog", "list pinned leftover leftover leftover pairs")
+    _catalog_command(commands, "catalog-check", "load the pinned catalog and verify pins")
 
-    check = commands.add_parser("catalog-check", help="load the pinned catalog and verify pins")
-    check.add_argument("--catalog", type=Path, default=None)
-    check.add_argument("--json", action="store_true")
-
-    gen_cmd = commands.add_parser("generate", help="replay pair identities into a new directory")
-    gen_cmd.add_argument("--catalog", type=Path, default=None)
+    gen_cmd = _catalog_command(commands, "generate", "replay pair identities into a new directory")
     gen_cmd.add_argument("--out", type=Path, required=True)
     gen_cmd.add_argument("--plant", default=None, help="exact plant_id (mill_id:success_slug)")
     gen_cmd.add_argument("--mill", default=None, help="one mill_id, every pair in order")
     gen_cmd.add_argument("--all", action="store_true", help="every pair in the catalog")
     gen_cmd.add_argument("--round", type=int, default=None, help="id round; only with --plant")
-    gen_cmd.add_argument("--json", action="store_true")
     return parser
 
 

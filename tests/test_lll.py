@@ -248,13 +248,12 @@ class LllPackageTests(unittest.TestCase):
                     raise KeyboardInterrupt
                 return real_write(self, *args, **kwargs)
 
-            with mock.patch.object(Path, "write_text", boom):
-                with self.assertRaises(KeyboardInterrupt):
-                    generate.run(
-                        generate.GenerateRequest(
-                            catalog_dir=COMMITTED, out_dir=dest, plant_id=FIRST_PLANT
-                        )
+            with mock.patch.object(Path, "write_text", boom), self.assertRaises(KeyboardInterrupt):
+                generate.run(
+                    generate.GenerateRequest(
+                        catalog_dir=COMMITTED, out_dir=dest, plant_id=FIRST_PLANT
                     )
+                )
             self.assertFalse(dest.exists())
         finally:
             shutil.rmtree(scratch)

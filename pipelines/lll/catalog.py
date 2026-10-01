@@ -13,7 +13,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -188,18 +188,26 @@ def _fn_pair_args(node: ast.Assign) -> list[str] | None:
     if _call_name(node.value) != "fn_pair":
         return None
     args = [_literal(item) for item in node.value.args]
-    if len(args) < 4 or not all(isinstance(item, str) and item for item in args[:4]):
+    if len(args) < 4:
         return None
-    return [item for item in args[:4] if isinstance(item, str)]
+    head = args[:4]
+    if not all(isinstance(item, str) and item for item in head):
+        return None
+    return cast(list[str], head)
+
+
+def _is_pairs_append(call: ast.Call) -> bool:
+    func = call.func
+    if not isinstance(func, ast.Attribute) or func.attr != "append":
+        return False
+    return isinstance(func.value, ast.Name) and func.value.id == "PAIRS"
 
 
 def _append_title(node: ast.AST) -> str | None:
     if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
         return None
     call = node.value
-    if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
-        return None
-    if not isinstance(call.func.value, ast.Name) or call.func.value.id != "PAIRS":
+    if not _is_pairs_append(call):
         return None
     if len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
         return None
@@ -243,8 +251,8 @@ def plants_from_source(
             FINDING_SOURCE_NOT_PARSEABLE,
             f"{path} appends a leftover leftover leftover pair without fn_pair",
         )
-        assert pending is not None
-        plant_id = f"{mill_id}:{pending[0]}"
+        pair_args = cast(list[str], pending)
+        plant_id = f"{mill_id}:{pair_args[0]}"
         refuse_when(plant_id in seen, FINDING_PLANT_DUPLICATE, f"{path} duplicate {plant_id}")
         seen.add(plant_id)
         rows.append(
@@ -255,10 +263,10 @@ def plants_from_source(
                 base_round=base_round,
                 index=len(rows),
                 title=title,
-                success_slug=pending[0],
-                fail_slug=pending[1],
-                success_plant=pending[2],
-                fail_plant=pending[3],
+                success_slug=pair_args[0],
+                fail_slug=pair_args[1],
+                success_plant=pair_args[2],
+                fail_plant=pair_args[3],
             )
         )
         pending = None
@@ -282,8 +290,7 @@ def _require_str(mapping: Mapping[str, Any], key: str, where: str) -> str:
         FINDING_CATALOG_FIELD_INVALID if where == "catalog" else FINDING_PLANT_FIELD_INVALID,
         f"{where} {key} must be a non-empty string",
     )
-    assert isinstance(value, str)
-    return value
+    return cast(str, value)
 
 
 def _require_int(mapping: Mapping[str, Any], key: str, where: str) -> int:
@@ -293,8 +300,7 @@ def _require_int(mapping: Mapping[str, Any], key: str, where: str) -> int:
         FINDING_CATALOG_FIELD_INVALID if where == "catalog" else FINDING_PLANT_FIELD_INVALID,
         f"{where} {key} must be a non-negative int",
     )
-    assert type(value) is int
-    return value
+    return cast(int, value)
 
 
 def _slug_ok(value: str) -> bool:
@@ -309,7 +315,7 @@ def _plant_from_row(row: Mapping[str, Any], index: int) -> Plant:
     )
     missing = [key for key in Plant.__dataclass_fields__ if key not in row]
     refuse_when(
-        missing,
+        bool(missing),
         FINDING_PLANT_FIELD_MISSING,
         f"plant {index} missing {missing}",
     )
@@ -379,19 +385,12 @@ def _registry_factories() -> set[str]:
     }
 
 
-def load_catalog(directory: Path | None = None) -> Catalog:
-    catalog_dir = Path(directory) if directory is not None else default_catalog_dir()
+def _catalog_header(catalog_dir: Path) -> Mapping[str, Any]:
     header_path = catalog_dir / CATALOG_FILENAME
-    plants_path = catalog_dir / PLANTS_FILENAME
     refuse_when(
         not header_path.is_file(),
         FINDING_CATALOG_FILE_MISSING,
         f"missing {header_path}",
-    )
-    refuse_when(
-        not plants_path.is_file(),
-        FINDING_CATALOG_FILE_MISSING,
-        f"missing {plants_path}",
     )
     header = load_strict_json(header_path.read_text())
     refuse_when(
@@ -399,9 +398,10 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_CATALOG_FIELD_INVALID,
         "CATALOG.json is not an object",
     )
+    header = cast(Mapping[str, Any], header)
     missing = [key for key in REQUIRED_META_FIELDS if key not in header]
     refuse_when(
-        missing,
+        bool(missing),
         FINDING_CATALOG_FIELD_MISSING,
         f"CATALOG.json missing {missing}",
     )
@@ -413,17 +413,22 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     )
     source_missing = [key for key in REQUIRED_SOURCE_FIELDS if key not in source]
     refuse_when(
-        source_missing,
+        bool(source_missing),
         FINDING_CATALOG_FIELD_MISSING,
         f"source missing {source_missing}",
     )
-    plants_text = plants_path.read_bytes()
-    digest = sha256_bytes(plants_text)
-    declared = _require_str(header, "plants_sha256", "catalog")
-    refuse_when(digest != declared, FINDING_PLANTS_SHA_MISMATCH, "plants.jsonl digest drifted")
+    return header
+
+
+def _plants_from_file(plants_path: Path) -> list[Plant]:
+    refuse_when(
+        not plants_path.is_file(),
+        FINDING_CATALOG_FILE_MISSING,
+        f"missing {plants_path}",
+    )
     plants: list[Plant] = []
     seen: set[str] = set()
-    for index, line in enumerate(plants_text.decode().splitlines()):
+    for index, line in enumerate(plants_path.read_bytes().decode().splitlines()):
         if not line.strip():
             continue
         row = load_strict_json(line)
@@ -432,10 +437,30 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             FINDING_PLANT_FIELD_INVALID,
             f"plant line {index} is not an object",
         )
-        plant = _plant_from_row(row, index)
+        plant = _plant_from_row(cast(Mapping[str, Any], row), index)
         refuse_when(plant.plant_id in seen, FINDING_PLANT_DUPLICATE, f"duplicate {plant.plant_id}")
         seen.add(plant.plant_id)
         plants.append(plant)
+    return plants
+
+
+def load_catalog(directory: Path | None = None) -> Catalog:
+    catalog_dir = Path(directory) if directory is not None else default_catalog_dir()
+    plants_path = catalog_dir / PLANTS_FILENAME
+    header = _catalog_header(catalog_dir)
+    refuse_when(
+        not plants_path.is_file(),
+        FINDING_CATALOG_FILE_MISSING,
+        f"missing {plants_path}",
+    )
+    plants_text = plants_path.read_bytes()
+    declared = _require_str(header, "plants_sha256", "catalog")
+    refuse_when(
+        sha256_bytes(plants_text) != declared,
+        FINDING_PLANTS_SHA_MISMATCH,
+        "plants.jsonl digest drifted",
+    )
+    plants = _plants_from_file(plants_path)
     mills = tuple(_mill_from_row(row) for row in header["mills"])
     refuse_when(
         _require_str(header, "factory", "catalog") != FACTORY,
@@ -458,32 +483,33 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     )
 
 
-def catalog_check(directory: Path | None = None) -> list[str]:
-    """Return coded findings. An empty list means the pinned catalog is sound."""
+_EXPECTED_META = {
+    "catalog_id": DEFAULT_CATALOG_ID,
+    "format": CATALOG_FORMAT,
+    "mill_prefix": MILL_PREFIX,
+    "record_prefix": RECORD_PREFIX,
+    "record_kind": RECORD_KIND,
+    "quota_per_round": QUOTA_PER_ROUND,
+}
 
-    try:
-        loaded = load_catalog(directory)
-    except LllRefusal as exc:
-        return [str(exc)]
-    findings: list[str] = []
-    if loaded.catalog_id != DEFAULT_CATALOG_ID:
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: catalog_id must be {DEFAULT_CATALOG_ID}")
-    if loaded.meta.get("format") != CATALOG_FORMAT:
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: format must be {CATALOG_FORMAT}")
-    if loaded.meta.get("mill_prefix") != MILL_PREFIX:
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: mill_prefix must be {MILL_PREFIX}")
-    if loaded.meta.get("record_prefix") != RECORD_PREFIX:
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: record_prefix must be {RECORD_PREFIX}")
-    if loaded.meta.get("record_kind") != RECORD_KIND:
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: record_kind must be {RECORD_KIND}")
-    if loaded.meta.get("quota_per_round") != QUOTA_PER_ROUND:
-        findings.append(
-            f"{FINDING_CATALOG_FIELD_INVALID}: quota_per_round must be {QUOTA_PER_ROUND}"
-        )
+
+def _meta_findings(loaded: Catalog) -> list[str]:
+    findings = [
+        f"{FINDING_CATALOG_FIELD_INVALID}: {key} must be {want}"
+        for key, want in _EXPECTED_META.items()
+        if (loaded.catalog_id if key == "catalog_id" else loaded.meta.get(key)) != want
+    ]
     if loaded.meta.get("pair_count") != len(loaded.plants):
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: pair_count does not match plants.jsonl")
     if loaded.meta.get("plant_count") != len(loaded.plants) * 2:
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: plant_count must be two per pair")
+    if loaded.meta.get("generator") not in {None, GENERATOR}:
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: generator must stay {GENERATOR}")
+    return findings
+
+
+def _mill_findings(loaded: Catalog) -> list[str]:
+    findings: list[str] = []
     if len(loaded.mills) != len(SOURCE_MILLS):
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: mill pin count drifted")
     expected = {item[0]: item for item in SOURCE_MILLS}
@@ -502,6 +528,11 @@ def catalog_check(directory: Path | None = None) -> list[str]:
             findings.append(
                 f"{FINDING_CATALOG_FIELD_INVALID}: mill counts drifted for {mill.mill_id}"
             )
+    return findings
+
+
+def _source_findings(loaded: Catalog) -> list[str]:
+    findings: list[str] = []
     source = loaded.meta["source"]
     if source.get("ref") != LEGACY_REF or source.get("commit") != LEGACY_COMMIT:
         findings.append(
@@ -509,12 +540,19 @@ def catalog_check(directory: Path | None = None) -> list[str]:
         )
     if source.get("method") != "git-show+ast.parse":
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: extract method must stay AST-only")
-    scripts = source.get("scripts")
-    if scripts != [item[1] for item in SOURCE_MILLS]:
+    if source.get("scripts") != [item[1] for item in SOURCE_MILLS]:
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: source scripts drifted")
-    if loaded.meta.get("generator") not in {None, GENERATOR}:
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: generator must stay {GENERATOR}")
     return findings
+
+
+def catalog_check(directory: Path | None = None) -> list[str]:
+    """Return coded findings. An empty list means the pinned catalog is sound."""
+
+    try:
+        loaded = load_catalog(directory)
+    except LllRefusal as exc:
+        return [str(exc)]
+    return _meta_findings(loaded) + _mill_findings(loaded) + _source_findings(loaded)
 
 
 def render_plants_jsonl(plants: tuple[Plant, ...]) -> bytes:
