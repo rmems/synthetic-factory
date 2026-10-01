@@ -87,16 +87,9 @@ def require_row(row, kind):
     if row is None:
         raise ParityPolicyError("native parity source directory has no reviewed authority")
     actual = {key: getattr(row, key, None) for key in expected}
-    for key, fallback in (
-        ("record_kinds", ()),
-        ("allowed_curation_lanes", ()),
-        ("provenance_contract_by_kind", {}),
-    ):
-        if actual[key] is None:
-            actual[key] = fallback
-    actual["record_kinds"] = sorted(actual["record_kinds"])
-    actual["allowed_curation_lanes"] = list(actual["allowed_curation_lanes"])
-    actual["provenance_contract_by_kind"] = dict(actual["provenance_contract_by_kind"])
+    actual["record_kinds"] = sorted(actual["record_kinds"] or ())
+    actual["allowed_curation_lanes"] = list(actual["allowed_curation_lanes"] or ())
+    actual["provenance_contract_by_kind"] = dict(actual["provenance_contract_by_kind"] or {})
     validate_registry_row(actual)
 
 
