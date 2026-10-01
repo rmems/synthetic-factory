@@ -49,6 +49,7 @@ from vset_manifest import (  # noqa: E402
     validate_manifest,
 )
 from vset_oracle import (  # noqa: E402
+    _execution_result_hash,
     _load_tests,
     apply_patch,
     record_patch,
@@ -64,6 +65,35 @@ _record_patch = record_patch
 _oracle_errors = oracle_errors
 _payload_errors = payload_errors
 _source_kind_errors = source_kind_errors
+
+# Public surface: tests and factory pipelines import these through
+# ``import validate_vset as vset``; keep them re-exported here.
+__all__ = [
+    "IDENTITY_UNRESOLVED_PROVENANCE",
+    "MANIFEST_ROLES",
+    "VSetValidationError",
+    "iter_record_paths",
+    "load_json",
+    "pack_snapshot_hash",
+    "registry_pin",
+    "summarize",
+    "manifest_body_hash",
+    "manifest_entry_from_record",
+    "validate_manifest",
+    "_is_invalid_or_impossible",
+    "_execution_result_hash",
+    "_load_tests",
+    "apply_patch",
+    "record_patch",
+    "run_oracle",
+    "validate_record_with_oracle",
+    "oracle_errors",
+    "validate_record",
+    "payload_errors",
+    "source_kind_errors",
+    "parse_args",
+    "main",
+]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -127,7 +157,7 @@ def _execution_summary(execution: dict[str, Any] | None) -> dict[str, Any]:
         "oracle_execution": {
             "reference_ok": execution["reference"]["ok"],
             "hidden_ok": None if hidden is None else hidden["ok"],
-            "result_hash": execution["reference"]["result_hash"],
+            "result_hash": _execution_result_hash(execution),
         }
     }
 
@@ -151,11 +181,24 @@ def _one_record_report(
 
 
 def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> int:
-    """One unreadable record is a reported failure, never a lost report."""
+    """One unreadable record is a reported failure, never a lost report.
 
+    A directory with no JSON inputs is not a quiet pass: validating an
+    empty record set must fail closed so a wrong path is never read as
+    an all-green run.
+    """
+
+    paths = iter_record_paths(target)
+    if not paths:
+        error = VSetValidationError(
+            "vset.record_not_object", f"no JSON record inputs under {target}"
+        )
+        print(json.dumps({"records": [], "ok": False, **summarize([error])}, indent=2))
+        _print_errors(target, [error])
+        return 1
     reports = []
     failed = False
-    for path in iter_record_paths(target):
+    for path in paths:
         item, errors = _one_record_report(path, args, pack)
         reports.append(item)
         if errors:
@@ -178,6 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     if pack is not None and not args.oracle:
         # A pack that never executes must not read as validated provenance.
         print("--pack requires --oracle", file=sys.stderr)
+        return 2
+    if args.manifest and (args.oracle or pack is not None):
+        # Manifest mode has no oracle execution path; accepting --oracle
+        # or --pack here would read as if the manifest's claims were run.
+        print("--manifest does not accept --oracle/--pack", file=sys.stderr)
         return 2
     if args.manifest:
         return _run_manifest(target)

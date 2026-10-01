@@ -11,6 +11,7 @@ from vset_constants import (
     VSetValidationError,
     _is_nonempty,
     _is_sha256,
+    _normalized_identity_text,
 )
 
 
@@ -98,9 +99,8 @@ def _validated_oracle_errors(
     solver = record.get("solver") if isinstance(record.get("solver"), Mapping) else {}
     author = record.get("task_author") if isinstance(record.get("task_author"), Mapping) else {}
     errors: list[VSetValidationError] = []
-    errors.extend(_self_certify_kind_errors(kind))
+    errors.extend(validated_oracle_independence_errors(oracle, solver, author))
     errors.extend(_validated_evidence_errors(oracle))
-    errors.extend(_certifier_errors(oracle.get("certifier"), solver, author))
     errors.extend(_solver_upgrade_errors(oracle, solver, kind))
     return errors
 
@@ -121,10 +121,28 @@ def _actor_identity_strings(actor: Mapping[str, Any]) -> frozenset[str]:
 def _certifier_is_actor(
     certifier: str, solver: Mapping[str, Any], author: Mapping[str, Any]
 ) -> bool:
-    if certifier.casefold() in _CERTIFIER_ROLE_ALIASES:
+    normalized = _normalized_identity_text(certifier)
+    if normalized in _CERTIFIER_ROLE_ALIASES or certifier.casefold() in _CERTIFIER_ROLE_ALIASES:
         return True
-    forbidden = _actor_identity_strings(solver) | _actor_identity_strings(author)
-    return certifier in forbidden
+    forbidden = {
+        _normalized_identity_text(value)
+        for value in _actor_identity_strings(solver) | _actor_identity_strings(author)
+    }
+    return normalized in forbidden
+
+
+def validated_oracle_independence_errors(
+    oracle: Mapping[str, Any], solver: Mapping[str, Any], author: Mapping[str, Any]
+) -> list[VSetValidationError]:
+    """Certifier + kind independence rules for a ``validated`` oracle claim.
+
+    Shared by the record validator and the release-manifest entry
+    validator so both surfaces enforce the same independence contract.
+    """
+
+    errors = _self_certify_kind_errors(oracle.get("kind"))
+    errors.extend(_certifier_errors(oracle.get("certifier"), solver, author))
+    return errors
 
 
 def _certifier_errors(

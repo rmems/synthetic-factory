@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -61,7 +62,8 @@ VALIDATING_ORACLE_KINDS = frozenset(
 SHA256_RE = r"^sha256:[0-9a-f]{64}$"
 _SHA256 = re.compile(SHA256_RE)
 _REASON = re.compile(r"^[a-z][a-z0-9_.]*$")
-PROMETHEUS_MARKERS = ("operation-prometheus", "rmems/operation-prometheus")
+PROMETHEUS_MARKERS = ("operation-prometheus",)
+PROMETHEUS_FAMILIES = frozenset({"prometheus", "prometheus-real"})
 SYNTHETIC_PACK_PREFIX = "vset-"
 IDENTITY_ENV_KEYS = frozenset(
     {
@@ -71,6 +73,53 @@ IDENTITY_ENV_KEYS = frozenset(
         "github_repo",
         "upstream_source",
         "lineage_id",
+    }
+)
+PACK_SNAPSHOT_ROOTS = ("src", "tests")
+RECORD_TOP_LEVEL_KEYS = frozenset(
+    {
+        "schema_version",
+        "record_kind",
+        "actor_provenance_schema_version",
+        "source_kind",
+        "task_author",
+        "solver",
+        "reviewer",
+        "oracle",
+        "curation",
+        "environment",
+        "release",
+        "payload",
+        "training_view",
+        "trace",
+        "prometheus_lineage",
+    }
+)
+ACTOR_FIELDS = frozenset(
+    {"model", "version", "run_id", "prompt_hash", "tool_policy", "outcome"}
+)
+ENTRY_TOP_LEVEL_KEYS = frozenset(
+    {
+        "record_kind",
+        "source_kind",
+        "task_author",
+        "solver",
+        "reviewer",
+        "oracle",
+        "curation",
+        "environment",
+        "release",
+    }
+)
+MANIFEST_TOP_LEVEL_KEYS = frozenset(
+    {
+        "schema_version",
+        "actor_provenance_schema_version",
+        "factory_contract_version",
+        "factory_registry_sha256",
+        "manifest_hash",
+        "counts",
+        "entries",
     }
 )
 KIND_PAYLOAD_KEYS = {
@@ -95,9 +144,6 @@ KIND_PAYLOAD_KEYS = {
         "outcome",
     ),
 }
-PACK_SNAPSHOT_ROOTS = ("src", "tests")
-
-
 class VSetValidationError(ValueError):
     """One fail-closed contract violation."""
 
@@ -137,12 +183,24 @@ def registry_pin(registry_path: Path | None = None) -> dict[str, str]:
     }
 
 
-def pack_snapshot_hash(pack_dir: Path) -> str:
-    """Content-bind repo-pack sources under ``src/`` and ``tests/``.
+def _snapshot_excluded(pack_dir: Path, relative: Path) -> bool:
+    parts = relative.parts
+    if not parts:
+        return True
+    if parts[0] == "tasks" or parts[0] == "PACK.json":
+        return True
+    return "__pycache__" in parts or relative.suffix in {".pyc", ".pyo"}
 
-    Factory metadata (``PACK.json``), task manifests, bytecode, and
-    other bookkeeping are not part of the snapshot. The pin must be
-    stable across ``compileall`` and Python minor versions.
+
+def pack_snapshot_hash(pack_dir: Path) -> str:
+    """Content-bind every file the oracle worktree can execute or read.
+
+    Factory metadata (``PACK.json``), root-level task manifests
+    (``tasks/``), and bytecode are not part of the snapshot. Every other
+    file -- including root-level modules and fixtures a test may import
+    or read -- is hashed so two packs cannot share a pin while running
+    different code. The pin stays stable across ``compileall`` and
+    Python minor versions.
     """
 
     pack_dir = Path(pack_dir)
@@ -151,10 +209,7 @@ def pack_snapshot_hash(pack_dir: Path) -> str:
         if not path.is_file():
             continue
         relative = path.relative_to(pack_dir)
-        parts = relative.parts
-        if not parts or parts[0] not in PACK_SNAPSHOT_ROOTS:
-            continue
-        if "__pycache__" in parts or relative.suffix in {".pyc", ".pyo"}:
+        if _snapshot_excluded(pack_dir, relative):
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         rows.append(f"{relative.as_posix()}:{digest}")
@@ -225,6 +280,12 @@ def _check_actor(
     require_tool_policy: bool = False,
 ) -> dict[str, Any]:
     actor = _require_object(value, role)
+    unknown = sorted(set(actor) - ACTOR_FIELDS)
+    if unknown:
+        raise VSetValidationError(
+            "vset.actor_fields_invalid",
+            f"{role} has undeclared fields {unknown}",
+        )
     _require_actor_identity(actor, role)
     _require_actor_optionals(
         actor, role, require_prompt_hash=require_prompt_hash, require_tool_policy=require_tool_policy
@@ -232,9 +293,13 @@ def _check_actor(
     return actor
 
 
+def _normalized_identity_text(value: str) -> str:
+    return value.lower().replace("_", "-")
+
+
 def _contains_prometheus_marker(value: Any) -> bool:
     if isinstance(value, str):
-        lowered = value.lower()
+        lowered = _normalized_identity_text(value)
         return any(marker in lowered for marker in PROMETHEUS_MARKERS)
     if isinstance(value, Mapping):
         return any(_contains_prometheus_marker(item) for item in value.values())
@@ -243,8 +308,60 @@ def _contains_prometheus_marker(value: Any) -> bool:
     return False
 
 
+def _reject_non_finite_constant(token: str) -> None:
+    raise json.JSONDecodeError(f"non-finite constant {token}", token, 0)
+
+
 def load_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Strict JSON: bare ``NaN``/``Infinity`` constants are rejected at load."""
+
+    return json.loads(
+        path.read_text(encoding="utf-8"), parse_constant=_reject_non_finite_constant
+    )
+
+
+def nonfinite_error(value: Any, where: str = "document") -> VSetValidationError | None:
+    """Report NaN/Infinity handed to a validator by a direct API caller."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        return VSetValidationError(
+            "vset.payload_invalid", f"{where} contains a non-finite number"
+        )
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            found = nonfinite_error(item, f"{where}.{key}")
+            if found is not None:
+                return found
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            found = nonfinite_error(item, f"{where}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
+def _reason_token_invalid(item: Any) -> bool:
+    return not isinstance(item, str) or not _REASON.fullmatch(item)
+
+
+def reason_codes_error(reasons: Any, where: str) -> list[VSetValidationError]:
+    """reason_codes must be a list of unique lowercase reason tokens."""
+
+    if not isinstance(reasons, list) or any(_reason_token_invalid(item) for item in reasons):
+        return [
+            VSetValidationError(
+                "vset.actor_fields_invalid",
+                f"{where}.reason_codes must be a list of lowercase reason tokens",
+            )
+        ]
+    if len(set(reasons)) != len(reasons):
+        return [
+            VSetValidationError(
+                "vset.actor_fields_invalid",
+                f"{where}.reason_codes must not contain duplicates",
+            )
+        ]
+    return []
 
 
 def iter_record_paths(target: Path) -> list[Path]:

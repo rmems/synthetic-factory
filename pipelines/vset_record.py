@@ -17,13 +17,15 @@ from vset_constants import (  # noqa: E402
     CURATION_DECISIONS,
     IDENTITY_UNRESOLVED_PROVENANCE,
     RECORD_KINDS,
+    RECORD_TOP_LEVEL_KEYS,
     REVIEW_REQUIRED_KINDS,
     SCHEMA_VERSION,
     VSetValidationError,
-    _REASON,
     _check_actor,
     _is_nonempty,
     _is_sha256,
+    nonfinite_error,
+    reason_codes_error,
     registry_pin,
 )
 from vset_oracle_check import oracle_errors  # noqa: E402
@@ -42,8 +44,18 @@ def validate_record(
         return [VSetValidationError("vset.record_not_object", "record must be a JSON object")]
     errors: list[VSetValidationError] = []
     errors.extend(_schema_header_errors(record))
+    nonfinite = nonfinite_error(record, "record")
+    if nonfinite is not None:
+        errors.append(nonfinite)
+    for key in sorted(set(record) - RECORD_TOP_LEVEL_KEYS):
+        errors.append(
+            VSetValidationError(
+                "vset.payload_invalid",
+                f"undeclared top-level record field {key!r}",
+            )
+        )
     kind = record.get("record_kind")
-    if kind not in RECORD_KINDS:
+    if not isinstance(kind, str) or kind not in RECORD_KINDS:
         errors.append(
             VSetValidationError(
                 "vset.record_kind_invalid",
@@ -193,7 +205,28 @@ def _curation_errors(
         record["oracle"].get("status") if isinstance(record.get("oracle"), dict) else None
     )
     errors.extend(_accept_gate_errors(record, decision, oracle_status))
+    errors.extend(_invalid_outcome_errors(curation, decision, oracle_status))
     return errors
+
+
+def _invalid_outcome_errors(
+    curation: dict[str, Any], decision: Any, oracle_status: Any
+) -> list[VSetValidationError]:
+    """Invalid or impossible tasks stay first-class measured outcomes."""
+
+    reasons = curation.get("reason_codes")
+    impossible = isinstance(reasons, list) and "vset.impossible_task" in reasons
+    if oracle_status != "invalid" and not impossible:
+        return []
+    if decision == "measure" and isinstance(reasons, list) and reasons:
+        return []
+    return [
+        VSetValidationError(
+            "vset.invalid_outcome_dropped",
+            "invalid or impossible tasks require decision=measure with an "
+            "explanatory reason code",
+        )
+    ]
 
 
 def _accept_gate_errors(
@@ -219,22 +252,10 @@ def _accept_gate_errors(
     return errors
 
 
-def _reason_token_invalid(item: Any) -> bool:
-    return not isinstance(item, str) or not _REASON.fullmatch(item)
-
-
-def _reason_list_invalid(reasons: Any) -> bool:
-    return not isinstance(reasons, list) or any(_reason_token_invalid(item) for item in reasons)
-
-
 def _curation_reason_errors(reasons: Any) -> list[VSetValidationError]:
-    if _reason_list_invalid(reasons):
-        return [
-            VSetValidationError(
-                "vset.actor_fields_invalid",
-                "curation.reason_codes must be a list of lowercase reason tokens",
-            )
-        ]
+    errors = reason_codes_error(reasons, "curation")
+    if errors:
+        return errors
     if IDENTITY_UNRESOLVED_PROVENANCE not in reasons:
         return []
     return [
