@@ -225,7 +225,12 @@ def pack_snapshot_hash(pack_dir: Path) -> str:
         relative = path.relative_to(pack_dir)
         if _snapshot_excluded(relative):
             continue
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise VSetValidationError(
+                ERR_PAYLOAD_INVALID, f"unreadable pack member {relative.as_posix()}: {exc}"
+            ) from exc
         rows.append(f"{relative.as_posix()}:{digest}")
     return _sha256_text("\n".join(rows))
 
