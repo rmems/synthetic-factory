@@ -174,5 +174,8 @@ def _reject_training_ready_true(value: Any, path: str = "$") -> None:
             _reject_training_ready_true(item, f"{path}[{index}]")
 
 
+strict_json_loads = _strict_json_loads
+
+
 if __package__:
     _expose_package_sibling(__name__)

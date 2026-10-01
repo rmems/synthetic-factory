@@ -83,7 +83,8 @@ class PackOptionSurfaceTests(unittest.TestCase):
 class UnreadableInputTests(unittest.TestCase):
     """A file we cannot decode is a reported record failure, not a crash."""
 
-    def _broken_dir(self) -> tempfile.TemporaryDirectory:
+    @staticmethod
+    def _broken_dir() -> tempfile.TemporaryDirectory:
         tmp = tempfile.TemporaryDirectory(prefix="vset-cli-")
         root = Path(tmp.name)
         shutil.copy(ACCEPT / "issue-patch-validated.json", root / "aa-good.json")

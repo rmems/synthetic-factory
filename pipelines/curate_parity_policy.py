@@ -31,7 +31,7 @@ def load_policy(path=POLICY_PATH):
         payload = Path(path).read_bytes()
         if hashlib.sha256(payload).hexdigest() != POLICY_SHA256:
             raise ParityPolicyError("parity policy differs from independently reviewed bytes")
-        return _json._strict_json_loads(payload.decode("utf-8"))
+        return _json.strict_json_loads(payload.decode("utf-8"))
     except (OSError, ValueError, RecursionError) as exc:
         raise ParityPolicyError(f"parity policy unreadable or invalid: {exc}") from exc
 
@@ -87,6 +87,13 @@ def require_row(row, kind):
     if row is None:
         raise ParityPolicyError("native parity source directory has no reviewed authority")
     actual = {key: getattr(row, key, None) for key in expected}
+    for key, fallback in (
+        ("record_kinds", ()),
+        ("allowed_curation_lanes", ()),
+        ("provenance_contract_by_kind", {}),
+    ):
+        if actual[key] is None:
+            actual[key] = fallback
     actual["record_kinds"] = sorted(actual["record_kinds"])
     actual["allowed_curation_lanes"] = list(actual["allowed_curation_lanes"])
     actual["provenance_contract_by_kind"] = dict(actual["provenance_contract_by_kind"])
