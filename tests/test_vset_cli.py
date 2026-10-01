@@ -58,6 +58,21 @@ class PackOptionSurfaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("--pack requires --oracle", result.stderr)
 
+    def test_oracle_without_pack_is_rejected(self):
+        result = _cli(str(ACCEPT), "--oracle")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("--oracle requires --pack", result.stderr)
+
+    def test_oracle_with_manifest_is_rejected(self):
+        result = _cli("--manifest", str(MANIFEST), "--oracle", "--pack", str(PACK))
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("--manifest does not accept --oracle/--pack", result.stderr)
+
+    def test_missing_target_is_rejected(self):
+        result = _cli("does-not-exist-vset-target")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("not found:", result.stderr)
+
     def test_pack_help_does_not_promise_a_default(self):
         result = _cli("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
