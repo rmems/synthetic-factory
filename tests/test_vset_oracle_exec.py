@@ -21,13 +21,13 @@ from vset_testutil import (  # noqa: E402
 )
 
 class OracleExecutionTests(unittest.TestCase):
-    def test_pack_snapshot_matches_accepted_fixtures(self):
+    def test_pack_snapshot_matches_accepted_fixtures(self) -> None:
         digest = vset.pack_snapshot_hash(PACK)
         for path in sorted(ACCEPT.glob("*.json")):
             record = _load(path)
             self.assertEqual(record["environment"]["repo_snapshot_hash"], digest, path.name)
 
-    def test_pack_snapshot_ignores_bytecode(self):
+    def test_pack_snapshot_ignores_bytecode(self) -> None:
         before = vset.pack_snapshot_hash(PACK)
         cache = PACK / "tests" / "__pycache__"
         cache.mkdir(exist_ok=True)
@@ -38,7 +38,7 @@ class OracleExecutionTests(unittest.TestCase):
         finally:
             junk.unlink(missing_ok=True)
 
-    def test_pack_snapshot_ignores_factory_metadata(self):
+    def test_pack_snapshot_ignores_factory_metadata(self) -> None:
         before = vset.pack_snapshot_hash(PACK)
         pack_meta = PACK / "PACK.json"
         original = pack_meta.read_text()
@@ -48,7 +48,7 @@ class OracleExecutionTests(unittest.TestCase):
         finally:
             pack_meta.write_text(original)
 
-    def test_validated_issue_patch_oracle_executes(self):
+    def test_validated_issue_patch_oracle_executes(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertEqual(_codes(errors), [])
@@ -58,7 +58,7 @@ class OracleExecutionTests(unittest.TestCase):
         self.assertTrue(execution["reference"]["ok"])
         self.assertTrue(execution["hidden"]["ok"])
 
-    def test_validated_review_and_recovery_oracles_execute(self):
+    def test_validated_review_and_recovery_oracles_execute(self) -> None:
         for name in (
             "review-remediation-validated.json",
             "failure-recovery-validated.json",
@@ -71,7 +71,7 @@ class OracleExecutionTests(unittest.TestCase):
                 self.assertTrue(execution["reference"]["ok"])
                 self.assertTrue(execution["hidden"]["ok"])
 
-    def test_provisional_runs_reference_without_claiming_validated(self):
+    def test_provisional_runs_reference_without_claiming_validated(self) -> None:
         record = _load(ACCEPT / "provisional.json")
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertEqual(_codes(errors), [])
@@ -79,34 +79,34 @@ class OracleExecutionTests(unittest.TestCase):
         self.assertIsNone(execution["hidden"])
         self.assertEqual(record["oracle"]["status"], "provisional")
 
-    def test_invalid_impossible_is_measured_without_self_certifying(self):
+    def test_invalid_impossible_is_measured_without_self_certifying(self) -> None:
         record = _load(ACCEPT / "invalid-impossible.json")
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertEqual(_codes(errors), [])
         self.assertIsNone(execution)
         self.assertEqual(record["curation"]["reason_codes"], ["vset.impossible_task"])
 
-    def test_unpatched_hidden_tests_fail_and_cannot_validate(self):
+    def test_unpatched_hidden_tests_fail_and_cannot_validate(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
         del record["payload"]["patch"]
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
         self.assertFalse(execution["hidden"]["ok"])
 
-    def test_hidden_pass_is_meaningless_when_oracle_is_self_certified(self):
+    def test_hidden_pass_is_meaningless_when_oracle_is_self_certified(self) -> None:
         record = _load(REJECT / "self-certify-solver-pass.json")
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         codes = _codes(errors)
         self.assertIn("vset.oracle_self_certified", codes)
         self.assertTrue(execution["hidden"]["ok"])
 
-    def test_wrong_result_hash_fails_closed(self):
+    def test_wrong_result_hash_fails_closed(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
         record["oracle"]["result_hash"] = "sha256:" + ("cd" * 32)
         errors, _execution = vset.validate_record_with_oracle(record, PACK)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
 
-    def test_hidden_suite_checks_state_on_the_negative_delta_case(self):
+    def test_hidden_suite_checks_state_on_the_negative_delta_case(self) -> None:
         """A `sub` that stores nothing for a negative delta must not pass.
 
         The hidden FAIL_TO_PASS suite is the only thing between a real fix

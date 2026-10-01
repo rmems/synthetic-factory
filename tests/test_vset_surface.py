@@ -40,14 +40,14 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
             code = vset.main(list(args))
         return code, stdout.getvalue(), stderr.getvalue()
 
-    def test_non_object_record_and_manifest_fail_closed(self):
+    def test_non_object_record_and_manifest_fail_closed(self) -> None:
         self.assertIn("vset.record_not_object", _codes(vset.validate_record([])))
         self.assertIn("vset.record_not_object", _codes(vset.validate_manifest("nope")))
         errors, execution = vset.validate_record_with_oracle("nope", PACK)
         self.assertIn("vset.record_not_object", _codes(errors))
         self.assertIsNone(execution)
 
-    def test_schema_and_kind_header_errors(self):
+    def test_schema_and_kind_header_errors(self) -> None:
         record = self._record()
         record["schema_version"] = "vset-record-v0"
         record["actor_provenance_schema_version"] = "actor-provenance-v0"
@@ -56,7 +56,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
         self.assertIn("vset.schema_version_invalid", codes)
         self.assertIn("vset.record_kind_invalid", codes)
 
-    def test_source_kind_and_payload_shape_errors(self):
+    def test_source_kind_and_payload_shape_errors(self) -> None:
         record = self._record()
         record["source_kind"] = "lab_notes"
         self.assertIn("vset.source_kind_invalid", _codes(vset.validate_record(record)))
@@ -67,7 +67,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
         del record["payload"]["patch"]
         self.assertIn("vset.payload_invalid", _codes(vset.validate_record(record)))
 
-    def test_actor_field_and_optional_reviewer_errors(self):
+    def test_actor_field_and_optional_reviewer_errors(self) -> None:
         record = self._record()
         record["task_author"]["model"] = "   "
         record["solver"]["tool_policy"] = ""
@@ -84,7 +84,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
         record["reviewer"] = {"model": "r", "version": "v", "run_id": "review-run"}
         self.assertEqual(_codes(vset.validate_record(record)), [])
 
-    def test_oracle_and_curation_and_release_shape_errors(self):
+    def test_oracle_and_curation_and_release_shape_errors(self) -> None:
         record = self._record()
         record["oracle"]["status"] = "certified"
         self.assertIn("vset.oracle_status_invalid", _codes(vset.validate_record(record)))
@@ -125,7 +125,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
             _codes(vset.validate_record(record)),
         )
 
-    def test_apply_patch_and_run_oracle_existing_guards(self):
+    def test_apply_patch_and_run_oracle_existing_guards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             with self.assertRaises(vset.VSetValidationError) as ctx:
@@ -141,7 +141,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
             vset.run_oracle(ACCEPT / "issue-patch-validated.json")
         self.assertEqual(ctx.exception.code, "vset.oracle_execution_mismatch")
 
-    def test_oracle_execution_path_list_and_snapshot_errors(self):
+    def test_oracle_execution_path_list_and_snapshot_errors(self) -> None:
         record = self._record("provisional.json")
         record["oracle"]["reference_tests"] = "tests/reference.py"
         errors, execution = vset.validate_record_with_oracle(record, PACK)
@@ -162,7 +162,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
         errors, _execution = vset.validate_record_with_oracle(record, PACK)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
 
-    def test_manifest_entry_projection_and_existing_count_errors(self):
+    def test_manifest_entry_projection_and_existing_count_errors(self) -> None:
         record = self._record()
         entry = vset.manifest_entry_from_record(record)
         self.assertEqual(entry["record_kind"], "issue_patch_v1")
@@ -199,7 +199,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
         del manifest["counts"]
         self.assertIn("vset.payload_invalid", _codes(vset.validate_manifest(manifest)))
 
-    def test_manifest_entry_evidence_errors(self):
+    def test_manifest_entry_evidence_errors(self) -> None:
         manifest = _load(MANIFEST)
         manifest["entries"][0]["environment"]["repo_snapshot_hash"] = "sha256:nope"
         manifest["entries"][0]["oracle"]["result_hash"] = "sha256:nope"
@@ -219,7 +219,7 @@ class ExistingSurfaceCoverageTests(unittest.TestCase):
         manifest["entries"][0]["reviewer"] = None
         self.assertIn("vset.reviewer_required", _codes(vset.validate_manifest(manifest)))
 
-    def test_helpers_and_in_process_cli(self):
+    def test_helpers_and_in_process_cli(self) -> None:
         path = ACCEPT / "issue-patch-validated.json"
         self.assertEqual(vset.iter_record_paths(path), [path])
         self.assertIn(path, vset.iter_record_paths(ACCEPT))

@@ -2,12 +2,12 @@
 
 
 class Counter:
-    def __init__(self, value=0):
+    def __init__(self, value: int = 0) -> None:
         self._value = int(value)
 
-    def add(self, delta):
+    def add(self, delta: int) -> int:
         self._value += int(delta)
         return self._value
 
-    def get(self):
+    def get(self) -> int:
         return self._value

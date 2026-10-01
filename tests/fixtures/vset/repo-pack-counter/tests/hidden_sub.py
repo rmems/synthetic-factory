@@ -11,12 +11,12 @@ from counter import Counter
 
 
 class HiddenSubTests(unittest.TestCase):
-    def test_sub_decrements(self):
+    def test_sub_decrements(self) -> None:
         counter = Counter(5)
-        self.assertEqual(counter.sub(2), 3)
+        self.assertEqual(counter.sub(2), 3)  # type: ignore[attr-defined]
         self.assertEqual(counter.get(), 3)
 
-    def test_sub_negative_delta_adds(self):
+    def test_sub_negative_delta_adds(self) -> None:
         counter = Counter(1)
-        self.assertEqual(counter.sub(-4), 5)
+        self.assertEqual(counter.sub(-4), 5)  # type: ignore[attr-defined]
         self.assertEqual(counter.get(), 5)

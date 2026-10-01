@@ -19,7 +19,7 @@ from vset_testutil import (  # noqa: E402
 )
 
 class ReleaseManifestTests(unittest.TestCase):
-    def test_pilot_manifest_retains_actor_graph_and_pins(self):
+    def test_pilot_manifest_retains_actor_graph_and_pins(self) -> None:
         manifest = _load(MANIFEST)
         self.assertEqual(_codes(vset.validate_manifest(manifest)), [])
         pin = vset.registry_pin()
@@ -37,7 +37,7 @@ class ReleaseManifestTests(unittest.TestCase):
             if entry["oracle"]["status"] == "validated":
                 self.assertTrue(entry["oracle"]["result_hash"].startswith("sha256:"))
 
-    def test_dropping_an_impossible_entry_fails_closed(self):
+    def test_dropping_an_impossible_entry_fails_closed(self) -> None:
         manifest = _load(MANIFEST)
         kept = [
             entry
@@ -71,14 +71,14 @@ class ReleaseManifestTests(unittest.TestCase):
         manifest["manifest_hash"] = vset.manifest_body_hash(manifest)
         self.assertIn("vset.payload_invalid", _codes(vset.validate_manifest(manifest)))
 
-    def test_missing_manifest_actor_role_is_vset_not_identity(self):
+    def test_missing_manifest_actor_role_is_vset_not_identity(self) -> None:
         manifest = _load(MANIFEST)
         del manifest["entries"][0]["solver"]
         codes = _codes(vset.validate_manifest(manifest))
         self.assertIn("vset.missing_actor_role", codes)
         self.assertNotIn(vset.IDENTITY_UNRESOLVED_PROVENANCE, codes)
 
-    def test_identity_reason_on_a_manifest_entry_fails_closed(self):
+    def test_identity_reason_on_a_manifest_entry_fails_closed(self) -> None:
         manifest = _load(MANIFEST)
         manifest["entries"][0]["curation"]["reason_codes"] = [
             vset.IDENTITY_UNRESOLVED_PROVENANCE
@@ -87,7 +87,7 @@ class ReleaseManifestTests(unittest.TestCase):
             "vset.identity_reason_collision", _codes(vset.validate_manifest(manifest))
         )
 
-    def test_wrong_manifest_hash_fails_closed(self):
+    def test_wrong_manifest_hash_fails_closed(self) -> None:
         manifest = _load(MANIFEST)
         manifest["manifest_hash"] = "sha256:" + ("ab" * 32)
         self.assertIn(

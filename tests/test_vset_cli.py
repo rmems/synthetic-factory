@@ -17,18 +17,18 @@ if str(_TESTS) not in sys.path:
 from vset_testutil import ACCEPT, MANIFEST, PACK, REJECT, cli as _cli  # noqa: E402
 
 class ValidateVsetCliTests(unittest.TestCase):
-    def test_accept_directory_exits_zero(self):
+    def test_accept_directory_exits_zero(self) -> None:
         result = _cli(str(ACCEPT))
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ok"])
 
-    def test_reject_directory_exits_nonzero(self):
+    def test_reject_directory_exits_nonzero(self) -> None:
         result = _cli(str(REJECT))
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("ERROR:", result.stderr)
 
-    def test_oracle_cli_validates_the_accepted_issue_patch(self):
+    def test_oracle_cli_validates_the_accepted_issue_patch(self) -> None:
         result = _cli(
             "--oracle",
             "--pack",
@@ -39,7 +39,7 @@ class ValidateVsetCliTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["records"][0]["oracle_execution"]["hidden_ok"])
 
-    def test_manifest_cli_exits_zero(self):
+    def test_manifest_cli_exits_zero(self) -> None:
         result = _cli("--manifest", str(MANIFEST))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["ok"])
@@ -48,32 +48,32 @@ class ValidateVsetCliTests(unittest.TestCase):
 class PackOptionSurfaceTests(unittest.TestCase):
     """--pack must never look like it participated when it cannot."""
 
-    def test_pack_without_oracle_is_rejected(self):
+    def test_pack_without_oracle_is_rejected(self) -> None:
         result = _cli(str(ACCEPT), "--pack", str(PACK))
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("--pack requires --oracle", result.stderr)
 
-    def test_pack_with_manifest_is_rejected(self):
+    def test_pack_with_manifest_is_rejected(self) -> None:
         result = _cli("--manifest", str(MANIFEST), "--pack", str(PACK))
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("--pack requires --oracle", result.stderr)
 
-    def test_oracle_without_pack_is_rejected(self):
+    def test_oracle_without_pack_is_rejected(self) -> None:
         result = _cli(str(ACCEPT), "--oracle")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("--oracle requires --pack", result.stderr)
 
-    def test_oracle_with_manifest_is_rejected(self):
+    def test_oracle_with_manifest_is_rejected(self) -> None:
         result = _cli("--manifest", str(MANIFEST), "--oracle", "--pack", str(PACK))
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("--manifest does not accept --oracle/--pack", result.stderr)
 
-    def test_missing_target_is_rejected(self):
+    def test_missing_target_is_rejected(self) -> None:
         result = _cli("does-not-exist-vset-target")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("not found:", result.stderr)
 
-    def test_pack_help_does_not_promise_a_default(self):
+    def test_pack_help_does_not_promise_a_default(self) -> None:
         result = _cli("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("defaults next to fixtures", result.stdout)
@@ -92,7 +92,7 @@ class UnreadableInputTests(unittest.TestCase):
         (root / "zz-not-utf8.json").write_bytes(b"\xff\xfe\x00{")
         return tmp
 
-    def test_unreadable_record_does_not_abort_the_directory_run(self):
+    def test_unreadable_record_does_not_abort_the_directory_run(self) -> None:
         with self._broken_dir() as name:
             result = _cli(name)
         self.assertEqual(result.returncode, 1, result.stderr)
@@ -109,7 +109,7 @@ class UnreadableInputTests(unittest.TestCase):
                     by_name[broken]["reason_codes"], ["vset.record_not_object"]
                 )
 
-    def test_unreadable_manifest_is_a_reason_code_not_a_traceback(self):
+    def test_unreadable_manifest_is_a_reason_code_not_a_traceback(self) -> None:
         with tempfile.TemporaryDirectory(prefix="vset-cli-") as name:
             path = Path(name) / "manifest.json"
             path.write_text("{not json", encoding="utf-8")

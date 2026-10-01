@@ -11,10 +11,10 @@ from counter import Counter
 
 
 class ReferenceTests(unittest.TestCase):
-    def test_add_increments(self):
+    def test_add_increments(self) -> None:
         counter = Counter(1)
         self.assertEqual(counter.add(2), 3)
         self.assertEqual(counter.get(), 3)
 
-    def test_get_initial_value(self):
+    def test_get_initial_value(self) -> None:
         self.assertEqual(Counter(4).get(), 4)

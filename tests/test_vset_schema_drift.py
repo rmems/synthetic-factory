@@ -99,7 +99,7 @@ def _conditionals() -> dict[str, list[dict[str, Any]]]:
 
 
 class RecordSchemaDriftTests(unittest.TestCase):
-    def test_every_fixture_top_level_key_is_declared(self):
+    def test_every_fixture_top_level_key_is_declared(self) -> None:
         """additionalProperties:false must not forbid a key the validator reads."""
 
         declared = set(_closed_branch(_schema(RECORD_SCHEMA))["properties"])
@@ -108,7 +108,7 @@ class RecordSchemaDriftTests(unittest.TestCase):
                 with self.subTest(fixture=path.name):
                     self.assertEqual(set(_load(path)) - declared, set())
 
-    def test_prometheus_lineage_is_declared_because_the_validator_reads_it(self):
+    def test_prometheus_lineage_is_declared_because_the_validator_reads_it(self) -> None:
         """A top-level key the validator inspects cannot be schema-forbidden.
 
         ``_prometheus_identity_claimed`` scans ``record["prometheus_lineage"]``
@@ -126,7 +126,7 @@ class RecordSchemaDriftTests(unittest.TestCase):
             "vset.source_kind_masquerade", _codes(vset.validate_record(record))
         )
 
-    def test_payload_conditionals_match_kind_payload_keys(self):
+    def test_payload_conditionals_match_kind_payload_keys(self) -> None:
         conditionals = _conditionals()
         self.assertEqual(set(conditionals), set(RECORD_KINDS))
         for kind, required in KIND_PAYLOAD_KEYS.items():
@@ -137,7 +137,7 @@ class RecordSchemaDriftTests(unittest.TestCase):
                     declared |= set(payload.get("required", []))
                 self.assertEqual(declared, set(required))
 
-    def test_review_required_kinds_demand_a_reviewer_object(self):
+    def test_review_required_kinds_demand_a_reviewer_object(self) -> None:
         conditionals = _conditionals()
         for kind in REVIEW_REQUIRED_KINDS:
             with self.subTest(kind=kind):
@@ -155,7 +155,7 @@ class RecordSchemaDriftTests(unittest.TestCase):
         missing = _load(REJECT / "missing-reviewer-when-required.json")
         self.assertIn("vset.reviewer_required", _codes(vset.validate_record(missing)))
 
-    def test_schema_names_the_authoritative_gate(self):
+    def test_schema_names_the_authoritative_gate(self) -> None:
         """The recursive hidden-reasoning ban is not expressible here."""
 
         description = _schema(RECORD_SCHEMA)["description"]
@@ -172,7 +172,7 @@ class ManifestSchemaDriftTests(unittest.TestCase):
             required |= set(branch.get("required", []))
         return required
 
-    def test_task_author_requires_prompt_hash_on_both_sides(self):
+    def test_task_author_requires_prompt_hash_on_both_sides(self) -> None:
         self.assertIn("prompt_hash", self._actor_required("task_author"))
         manifest = _load(MANIFEST)
         del manifest["entries"][0]["task_author"]["prompt_hash"]
@@ -181,7 +181,7 @@ class ManifestSchemaDriftTests(unittest.TestCase):
             "vset.actor_fields_invalid", _codes(vset.validate_manifest(manifest))
         )
 
-    def test_solver_requires_tool_policy_on_both_sides(self):
+    def test_solver_requires_tool_policy_on_both_sides(self) -> None:
         self.assertIn("tool_policy", self._actor_required("solver"))
         manifest = _load(MANIFEST)
         del manifest["entries"][0]["solver"]["tool_policy"]
@@ -190,7 +190,7 @@ class ManifestSchemaDriftTests(unittest.TestCase):
             "vset.actor_fields_invalid", _codes(vset.validate_manifest(manifest))
         )
 
-    def test_by_record_kind_is_zero_filled_on_both_sides(self):
+    def test_by_record_kind_is_zero_filled_on_both_sides(self) -> None:
         declared = _schema(MANIFEST_SCHEMA)["properties"]["counts"]["properties"][
             "by_record_kind"
         ]
@@ -198,7 +198,7 @@ class ManifestSchemaDriftTests(unittest.TestCase):
         self.assertEqual(set(declared["properties"]), set(RECORD_KINDS))
         self.assertIs(declared["additionalProperties"], False)
 
-    def test_zero_filled_tally_is_accepted_and_an_omitted_kind_is_not(self):
+    def test_zero_filled_tally_is_accepted_and_an_omitted_kind_is_not(self) -> None:
         manifest = _load(MANIFEST)
         self.assertEqual(set(manifest["counts"]["by_record_kind"]), set(RECORD_KINDS))
         self.assertEqual(_codes(vset.validate_manifest(manifest)), [])
@@ -212,13 +212,13 @@ class ManifestSchemaDriftTests(unittest.TestCase):
 
 
 class FixturePinFreshnessTests(unittest.TestCase):
-    def test_fixture_pins_match_the_live_repository(self):
+    def test_fixture_pins_match_the_live_repository(self) -> None:
         """Registry and repo-pack edits have a stated regeneration step."""
 
         stale = [str(path.relative_to(REPO)) for path in pins.stale_fixtures()]
         self.assertEqual(stale, [], f"stale VSET fixture pins; run: {REFRESH}")
 
-    def test_refresh_is_idempotent_and_check_agrees(self):
+    def test_refresh_is_idempotent_and_check_agrees(self) -> None:
         with redirect_stdout(io.StringIO()):
             self.assertEqual(pins.main(["--check"]), 0)
 

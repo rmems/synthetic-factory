@@ -26,7 +26,7 @@ from vset_testutil import (  # noqa: E402
 class FailClosedHygieneTests(unittest.TestCase):
     """Smallest proofs for the five existing split-module holes."""
 
-    def test_non_object_required_role_is_rejected(self):
+    def test_non_object_required_role_is_rejected(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
         record["task_author"] = "fixture-author"
         self.assertIn("vset.actor_fields_invalid", _codes(vset.validate_record(record)))
@@ -34,14 +34,14 @@ class FailClosedHygieneTests(unittest.TestCase):
         record["solver"] = ["not-an-object"]
         self.assertIn("vset.actor_fields_invalid", _codes(vset.validate_record(record)))
 
-    def test_reference_tests_parent_path_is_rejected(self):
+    def test_reference_tests_parent_path_is_rejected(self) -> None:
         record = _load(ACCEPT / "provisional.json")
         record["oracle"]["reference_tests"] = ["../outside.py"]
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
         self.assertIsNone(execution)
 
-    def test_oracle_does_not_leak_a_non_counter_pack_module(self):
+    def test_oracle_does_not_leak_a_non_counter_pack_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp)
             (pack / "src").mkdir()
@@ -61,7 +61,7 @@ class FailClosedHygieneTests(unittest.TestCase):
                 any(name.startswith("vset_oracle_tests_") for name in sys.modules)
             )
 
-    def test_empty_or_all_skipped_suite_is_not_ok(self):
+    def test_empty_or_all_skipped_suite_is_not_ok(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp)
             (pack / "src").mkdir()
@@ -79,7 +79,7 @@ class FailClosedHygieneTests(unittest.TestCase):
             skipped = vset.run_oracle(pack, reference_tests=["tests/skipped.py"])
             self.assertFalse(skipped["reference"]["ok"])
 
-    def test_oracle_cli_forwards_require_registry_sha(self):
+    def test_oracle_cli_forwards_require_registry_sha(self) -> None:
         path = ACCEPT / "issue-patch-validated.json"
         stdout = io.StringIO()
         stderr = io.StringIO()

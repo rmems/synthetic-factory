@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -26,7 +27,7 @@ def load_record(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def codes(errors) -> list[str]:
+def codes(errors: Iterable[vset.VSetValidationError]) -> list[str]:
     return [item.code for item in errors]
 
 

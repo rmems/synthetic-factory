@@ -11,7 +11,7 @@ from counter import Counter
 
 
 class HiddenNoneTests(unittest.TestCase):
-    def test_add_rejects_none(self):
+    def test_add_rejects_none(self) -> None:
         counter = Counter()
         with self.assertRaises(ValueError):
-            counter.add(None)
+            counter.add(None)  # type: ignore[arg-type]
