@@ -16,17 +16,6 @@ from ._contract import (
 __all__ = ["extract_pairs"]
 
 
-def _call_name(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Call):
-        return None
-    func = node.func
-    if isinstance(func, ast.Name):
-        return func.id
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    return None
-
-
 def _literal(node: ast.AST) -> Any:
     try:
         return ast.literal_eval(node)
@@ -34,71 +23,91 @@ def _literal(node: ast.AST) -> Any:
         return None
 
 
-def _tuple_names(node: ast.AST) -> tuple[str, ...] | None:
+def _call_name(node: ast.AST) -> str | None:
+    func = node.func if isinstance(node, ast.Call) else None
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _assign_tuple(node: ast.AST) -> list[ast.expr] | None:
     if not isinstance(node, ast.Assign) or len(node.targets) != 1:
         return None
     target = node.targets[0]
-    if not isinstance(target, ast.Tuple):
+    return target.elts if isinstance(target, ast.Tuple) else None
+
+
+def _tuple_names(node: ast.AST) -> tuple[str, ...] | None:
+    elts = _assign_tuple(node)
+    if elts is None or not all(isinstance(elt, ast.Name) for elt in elts):
         return None
-    names: list[str] = []
-    for elt in target.elts:
-        if not isinstance(elt, ast.Name):
-            return None
-        names.append(elt.id)
-    return tuple(names)
+    return tuple(elt.id for elt in elts)
+
+
+def _is_str_quad(items: list[Any]) -> bool:
+    return len(items) == 4 and all(isinstance(item, str) and item for item in items)
 
 
 def _fn_pair_args(node: ast.Assign) -> list[str] | None:
     if _call_name(node.value) != "fn_pair":
         return None
-    args = [_literal(item) for item in node.value.args]
-    if len(args) < 4:
-        return None
-    head = args[:4]
-    if not all(isinstance(item, str) and item for item in head):
-        return None
-    return cast(list[str], head)
+    head = [_literal(item) for item in node.value.args][:4]
+    return cast(list[str], head) if _is_str_quad(head) else None
 
 
-def _is_pairs_append(call: ast.Call) -> bool:
-    func = call.func
-    if not isinstance(func, ast.Attribute) or func.attr != "append":
-        return False
-    return isinstance(func.value, ast.Name) and func.value.id == "PAIRS"
+def _is_pairs_append(func: ast.expr) -> bool:
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "append"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "PAIRS"
+    )
+
+
+def _pairs_tuple(call: ast.Call) -> list[ast.expr] | None:
+    if not _is_pairs_append(call.func) or len(call.args) != 1:
+        return None
+    arg = call.args[0]
+    return arg.elts if isinstance(arg, ast.Tuple) else None
 
 
 def _append_title(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-        return None
-    call = node.value
-    if not _is_pairs_append(call):
-        return None
-    if len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
-        return None
-    if not call.args[0].elts:
-        return None
-    title = _literal(call.args[0].elts[0])
+    call = node.value if isinstance(node, ast.Expr) else None
+    elts = _pairs_tuple(call) if isinstance(call, ast.Call) else None
+    title = _literal(elts[0]) if elts else None
     return title if isinstance(title, str) and title else None
+
+
+def _parse(source: str, path: str) -> ast.Module:
+    try:
+        return ast.parse(source, filename=path)
+    except SyntaxError as exc:
+        raise LllRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{path} does not parse: {exc}") from exc
+
+
+def _bind_args(node: ast.AST, path: str) -> list[str] | None:
+    if _tuple_names(node) != ("fa", "fb") or not isinstance(node, ast.Assign):
+        return None
+    args = _fn_pair_args(node)
+    refuse_when(
+        args is None,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{path} has a malformed fn_pair bind",
+    )
+    return args
 
 
 def extract_pairs(source: str, *, path: str) -> tuple[tuple[str, list[str]], ...]:
     """Yield ``(title, fn_pair_args)`` rows from a mill script. Never exec."""
 
-    try:
-        tree = ast.parse(source, filename=path)
-    except SyntaxError as exc:
-        raise LllRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{path} does not parse: {exc}") from exc
     pending: list[str] | None = None
     rows: list[tuple[str, list[str]]] = []
-    for node in tree.body:
-        names = _tuple_names(node)
-        if names == ("fa", "fb") and isinstance(node, ast.Assign):
-            pending = _fn_pair_args(node)
-            refuse_when(
-                pending is None,
-                FINDING_SOURCE_NOT_PARSEABLE,
-                f"{path} has a malformed fn_pair bind",
-            )
+    for node in _parse(source, path).body:
+        bound = _bind_args(node, path)
+        if bound is not None:
+            pending = bound
             continue
         title = _append_title(node)
         if title is None:
