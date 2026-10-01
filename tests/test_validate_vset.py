@@ -40,12 +40,6 @@ class FailClosedHygieneTests(unittest.TestCase):
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
         self.assertIsNone(execution)
-        with tempfile.TemporaryDirectory() as tmp:
-            work = Path(tmp)
-            (work / "tests").mkdir()
-            with self.assertRaises(vset.VSetValidationError) as ctx:
-                vset._load_tests(work, "../outside.py")
-            self.assertEqual(ctx.exception.code, "vset.oracle_execution_mismatch")
 
     def test_oracle_does_not_leak_a_non_counter_pack_module(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -38,4 +38,5 @@ def cli(*args: str) -> subprocess.CompletedProcess[str]:
         cwd=str(REPO),
         capture_output=True,
         text=True,
+        check=False,
     )

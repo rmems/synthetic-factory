@@ -28,10 +28,12 @@ from vset_testutil import (  # noqa: E402
 class ExistingSurfaceCoverageTests(unittest.TestCase):
     """Exercise already-shipped error and CLI branches. No new contract."""
 
-    def _record(self, name: str = "issue-patch-validated.json") -> dict:
+    @staticmethod
+    def _record(name: str = "issue-patch-validated.json") -> dict:
         return _load(ACCEPT / name)
 
-    def _main(self, *args: str) -> tuple[int, str, str]:
+    @staticmethod
+    def _main(*args: str) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):

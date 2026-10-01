@@ -164,7 +164,8 @@ class RecordSchemaDriftTests(unittest.TestCase):
 
 
 class ManifestSchemaDriftTests(unittest.TestCase):
-    def _actor_required(self, role: str) -> set[str]:
+    @staticmethod
+    def _actor_required(role: str) -> set[str]:
         entry = _schema(MANIFEST_SCHEMA)["$defs"]["entry"]["properties"][role]
         required = set()
         for branch in entry.get("allOf", [entry]):

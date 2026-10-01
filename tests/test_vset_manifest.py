@@ -42,7 +42,11 @@ class ReleaseManifestTests(unittest.TestCase):
         kept = [
             entry
             for entry in manifest["entries"]
-            if not vset._is_invalid_or_impossible(entry)
+            if not (
+                entry.get("oracle", {}).get("status") == "invalid"
+                or "vset.impossible_task"
+                in entry.get("curation", {}).get("reason_codes", [])
+            )
         ]
         manifest["entries"] = kept
         manifest["counts"]["records"] = 1
