@@ -169,12 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         _report(stale, "stale")
         return 1
-    fixture_root = str(FIXTURES.resolve()) + os.sep
+    fixture_root = os.path.realpath(FIXTURES)
     for path in stale:
-        target = path.resolve()
-        if not str(target).startswith(fixture_root):
+        target = os.path.realpath(path)
+        if os.path.commonpath((fixture_root, target)) != fixture_root:
             raise SystemExit(f"refusing to write outside the fixture tree: {path}")
-        target.write_text(wanted[path], encoding="utf-8")
+        Path(target).write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
     return 0
 

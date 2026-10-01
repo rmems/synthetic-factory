@@ -12,11 +12,10 @@ if __package__:
 
     _assert_direct_sibling("vset_oracle")
     from .vset_constants import (
-        SELF_CERTIFY_ORACLE_KINDS,
         VSetValidationError,
         _mapping_or_empty,
     )
-    from .vset_oracle_exec import _execution_result_hash, run_oracle
+    from .vset_oracle_exec import run_oracle
     from .vset_oracle_check import _execution_match_errors, _oracle_path_list_error
     from .vset_patch import pre_patches, record_patch
     from .vset_record import validate_record
@@ -25,11 +24,10 @@ else:
         "vset_oracle"
     )
     from vset_constants import (
-        SELF_CERTIFY_ORACLE_KINDS,
         VSetValidationError,
         _mapping_or_empty,
     )
-    from vset_oracle_exec import _execution_result_hash, run_oracle
+    from vset_oracle_exec import run_oracle
     from vset_oracle_check import _execution_match_errors, _oracle_path_list_error
     from vset_patch import pre_patches, record_patch
     from vset_record import validate_record
