@@ -163,7 +163,32 @@
             "status": { "enum": ["invalid", "provisional", "validated"] },
             "result_hash": { "$ref": "#/$defs/sha256" },
             "certifier": { "$ref": "#/$defs/nonempty" }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "status": { "const": "validated" } },
+                "required": ["status"]
+              },
+              "then": {
+                "required": ["kind", "status", "result_hash", "certifier"],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "deterministic_fixture_reference",
+                      "trusted_reference_implementation",
+                      "fail_to_pass_pass_to_pass",
+                      "property_metamorphic",
+                      "mutation_threshold",
+                      "adversarial_independent",
+                      "human_adjudication"
+                    ]
+                  }
+                },
+                "description": "A validated entry oracle needs a validating kind plus independent evidence; validated_oracle_independence_errors enforces the same rule at validation time."
+              }
+            }
+          ]
         },
         "curation": {
           "type": "object",
@@ -172,6 +197,7 @@
             "decision": { "enum": ["accept", "exclude", "measure"] },
             "reason_codes": {
               "type": "array",
+              "uniqueItems": true,
               "items": { "type": "string" }
             }
           }

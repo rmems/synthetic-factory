@@ -11,11 +11,16 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from vset_constants import VSetValidationError  # noqa: E402
+    _assert_direct_sibling("vset_patch")
+    from .vset_constants import VSetValidationError
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_patch"
+    )
+    from vset_constants import VSetValidationError
 
 
 def _illegal_patch_path(relative: Any) -> bool:
@@ -113,3 +118,7 @@ def pre_patches(record: Mapping[str, Any]) -> list[Mapping[str, Any]]:
         return []
     initial = payload.get("initial_patch")
     return [initial] if isinstance(initial, Mapping) else []
+
+
+if __package__:
+    _expose_package_sibling(__name__)

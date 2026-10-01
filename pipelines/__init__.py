@@ -333,6 +333,15 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "validate_run_preference_context",
     "validate_run_routes",
     "validate_run_cli",
+    "vset_constants",
+    "vset_source",
+    "vset_oracle_check",
+    "vset_patch",
+    "vset_record",
+    "vset_oracle",
+    "vset_manifest_entries",
+    "vset_manifest",
+    "validate_vset",
 ))
 
 

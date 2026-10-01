@@ -6,30 +6,54 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from curate_coding import contains_hidden_reasoning_key  # noqa: E402
-from curate_identity import REGISTRY_SCHEMA_VERSION  # noqa: E402
-from vset_constants import (  # noqa: E402
-    ACTOR_PROVENANCE_VERSION,
-    CURATION_DECISIONS,
-    IDENTITY_UNRESOLVED_PROVENANCE,
-    RECORD_KINDS,
-    RECORD_TOP_LEVEL_KEYS,
-    REVIEW_REQUIRED_KINDS,
-    SCHEMA_VERSION,
-    VSetValidationError,
-    _check_actor,
-    _is_nonempty,
-    _is_sha256,
-    nonfinite_error,
-    reason_codes_error,
-    registry_pin,
-)
-from vset_oracle_check import oracle_errors  # noqa: E402
-from vset_source import payload_errors, source_kind_errors  # noqa: E402
+    _assert_direct_sibling("vset_record")
+    from .curate_coding import contains_hidden_reasoning_key
+    from .curate_identity import REGISTRY_SCHEMA_VERSION
+    from .vset_constants import (
+        ACTOR_PROVENANCE_VERSION,
+        CURATION_DECISIONS,
+        IDENTITY_UNRESOLVED_PROVENANCE,
+        RECORD_KINDS,
+        RECORD_TOP_LEVEL_KEYS,
+        REVIEW_REQUIRED_KINDS,
+        SCHEMA_VERSION,
+        VSetValidationError,
+        _check_actor,
+        _is_nonempty,
+        _is_sha256,
+        nonfinite_error,
+        reason_codes_error,
+        registry_pin,
+    )
+    from .vset_oracle_check import oracle_errors
+    from .vset_source import payload_errors, source_kind_errors
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_record"
+    )
+    from curate_coding import contains_hidden_reasoning_key
+    from curate_identity import REGISTRY_SCHEMA_VERSION
+    from vset_constants import (
+        ACTOR_PROVENANCE_VERSION,
+        CURATION_DECISIONS,
+        IDENTITY_UNRESOLVED_PROVENANCE,
+        RECORD_KINDS,
+        RECORD_TOP_LEVEL_KEYS,
+        REVIEW_REQUIRED_KINDS,
+        SCHEMA_VERSION,
+        VSetValidationError,
+        _check_actor,
+        _is_nonempty,
+        _is_sha256,
+        nonfinite_error,
+        reason_codes_error,
+        registry_pin,
+    )
+    from vset_oracle_check import oracle_errors
+    from vset_source import payload_errors, source_kind_errors
 
 
 def validate_record(
@@ -352,3 +376,7 @@ def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
             )
         ]
     return []
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -7,38 +7,61 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from vset_constants import (  # noqa: E402
-    ACTOR_PROVENANCE_VERSION,
-    CURATION_DECISIONS,
-    MANIFEST_SCHEMA_VERSION,
-    MANIFEST_TOP_LEVEL_KEYS,
-    ORACLE_STATUSES,
-    RECORD_KINDS,
-    VSetValidationError,
-    _canonical_json,
-    _sha256_text,
-    nonfinite_error,
-    registry_pin,
-)
-from vset_manifest_entries import (  # noqa: E402
-    _is_invalid_or_impossible,
-    manifest_entry_errors,
-)
+    _assert_direct_sibling("vset_manifest")
+    from .vset_constants import (
+        ACTOR_PROVENANCE_VERSION,
+        CURATION_DECISIONS,
+        MANIFEST_SCHEMA_VERSION,
+        MANIFEST_TOP_LEVEL_KEYS,
+        ORACLE_STATUSES,
+        RECORD_KINDS,
+        VSetValidationError,
+        _canonical_json,
+        _sha256_text,
+        nonfinite_error,
+        registry_pin,
+    )
+    from .vset_manifest_entries import (
+        _is_invalid_or_impossible,
+        manifest_entry_errors,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_manifest"
+    )
+    from vset_constants import (
+        ACTOR_PROVENANCE_VERSION,
+        CURATION_DECISIONS,
+        MANIFEST_SCHEMA_VERSION,
+        MANIFEST_TOP_LEVEL_KEYS,
+        ORACLE_STATUSES,
+        RECORD_KINDS,
+        VSetValidationError,
+        _canonical_json,
+        _sha256_text,
+        nonfinite_error,
+        registry_pin,
+    )
+    from vset_manifest_entries import (
+        _is_invalid_or_impossible,
+        manifest_entry_errors,
+    )
+
+
+def _mapping_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
     """Project the #154 actor graph a later release candidate can consume."""
 
-    oracle = record.get("oracle") if isinstance(record.get("oracle"), Mapping) else {}
-    curation = record.get("curation") if isinstance(record.get("curation"), Mapping) else {}
-    environment = (
-        record.get("environment") if isinstance(record.get("environment"), Mapping) else {}
-    )
-    release = record.get("release") if isinstance(record.get("release"), Mapping) else {}
+    oracle = _mapping_or_empty(record.get("oracle"))
+    curation = _mapping_or_empty(record.get("curation"))
+    environment = _mapping_or_empty(record.get("environment"))
+    release = _mapping_or_empty(record.get("release"))
     reviewer = record.get("reviewer")
     return {
         "record_kind": record.get("record_kind"),
@@ -175,7 +198,24 @@ def _manifest_header_errors(
     return errors
 
 
+def _bool_counts_in(value: Any) -> bool:
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, Mapping):
+        return any(_bool_counts_in(item) for item in value.values())
+    return False
+
+
 def _count_mismatch(actual: Any, expected: Any, message: str) -> list[VSetValidationError]:
+    # ``True == 1`` in Python, so a JSON boolean would silently satisfy an
+    # integer count without this check.
+    if _bool_counts_in(actual):
+        return [
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts must be integers, not booleans: " + message,
+            )
+        ]
     if actual == expected:
         return []
     return [VSetValidationError("vset.payload_invalid", message)]
@@ -236,3 +276,7 @@ def _manifest_count_errors(
     expected_invalid = sum(1 for entry in entries if _is_invalid_or_impossible(entry))
     errors.extend(_invalid_or_impossible_count_errors(counts, expected_invalid))
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

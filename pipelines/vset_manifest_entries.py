@@ -9,29 +9,48 @@ uniqueness, and identity rules are enforced here too.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Any, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from vset_constants import (  # noqa: E402
-    CURATION_DECISIONS,
-    ENTRY_TOP_LEVEL_KEYS,
-    IDENTITY_UNRESOLVED_PROVENANCE,
-    MANIFEST_ROLES,
-    ORACLE_STATUSES,
-    RECORD_KINDS,
-    REVIEW_REQUIRED_KINDS,
-    VSetValidationError,
-    _check_actor,
-    _is_sha256,
-    nonfinite_error,
-    reason_codes_error,
-)
-from vset_oracle_check import validated_oracle_independence_errors  # noqa: E402
-from vset_source import source_kind_errors  # noqa: E402
+    _assert_direct_sibling("vset_manifest_entries")
+    from .vset_constants import (
+        CURATION_DECISIONS,
+        ENTRY_TOP_LEVEL_KEYS,
+        IDENTITY_UNRESOLVED_PROVENANCE,
+        MANIFEST_ROLES,
+        ORACLE_STATUSES,
+        RECORD_KINDS,
+        REVIEW_REQUIRED_KINDS,
+        VSetValidationError,
+        _check_actor,
+        _is_sha256,
+        nonfinite_error,
+        reason_codes_error,
+    )
+    from .vset_oracle_check import validated_oracle_independence_errors
+    from .vset_source import source_kind_errors
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_manifest_entries"
+    )
+    from vset_constants import (
+        CURATION_DECISIONS,
+        ENTRY_TOP_LEVEL_KEYS,
+        IDENTITY_UNRESOLVED_PROVENANCE,
+        MANIFEST_ROLES,
+        ORACLE_STATUSES,
+        RECORD_KINDS,
+        REVIEW_REQUIRED_KINDS,
+        VSetValidationError,
+        _check_actor,
+        _is_sha256,
+        nonfinite_error,
+        reason_codes_error,
+    )
+    from vset_oracle_check import validated_oracle_independence_errors
+    from vset_source import source_kind_errors
 
 
 def manifest_entry_errors(
@@ -129,7 +148,7 @@ def _entry_environment_errors(where: str, entry: Mapping[str, Any]) -> list[VSet
             )
         )
     task_id = environment.get("task_id")
-    if task_id is not None and (not isinstance(task_id, str) or not task_id.strip()):
+    if not isinstance(task_id, str) or not task_id.strip():
         errors.append(
             VSetValidationError(
                 "vset.payload_invalid", f"{env_where}.task_id must be a non-empty string"
@@ -240,7 +259,7 @@ def _entry_release_pin_errors(
     if not isinstance(release, Mapping):
         return []
     errors: list[VSetValidationError] = []
-    if release.get("factory_contract_version") not in {None, pin["schema_version"]}:
+    if release.get("factory_contract_version") != pin["schema_version"]:
         errors.append(
             VSetValidationError(
                 "vset.release_contract_mismatch",
@@ -255,3 +274,7 @@ def _entry_release_pin_errors(
             )
         )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

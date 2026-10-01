@@ -14,19 +14,32 @@ import unittest
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from vset_constants import (  # noqa: E402
-    SELF_CERTIFY_ORACLE_KINDS,
-    VSetValidationError,
-    _canonical_json,
-    _sha256_text,
-    pack_snapshot_hash,
-)
-from vset_patch import apply_patch, pre_patches, record_patch  # noqa: E402
-from vset_record import validate_record  # noqa: E402
+    _assert_direct_sibling("vset_oracle")
+    from .vset_constants import (
+        SELF_CERTIFY_ORACLE_KINDS,
+        VSetValidationError,
+        _canonical_json,
+        _sha256_text,
+        pack_snapshot_hash,
+    )
+    from .vset_patch import apply_patch, pre_patches, record_patch
+    from .vset_record import validate_record
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_oracle"
+    )
+    from vset_constants import (
+        SELF_CERTIFY_ORACLE_KINDS,
+        VSetValidationError,
+        _canonical_json,
+        _sha256_text,
+        pack_snapshot_hash,
+    )
+    from vset_patch import apply_patch, pre_patches, record_patch
+    from vset_record import validate_record
 
 _CAPTURE_LIMIT = 4000
 
@@ -396,7 +409,9 @@ def validate_record_with_oracle(
     )
     if not isinstance(record, dict):
         return errors, None
-    oracle = record.get("oracle") if isinstance(record.get("oracle"), Mapping) else {}
+    oracle: Mapping[str, Any] = (
+        record["oracle"] if isinstance(record.get("oracle"), Mapping) else {}
+    )
     status = oracle.get("status")
     if status not in {"provisional", "validated"}:
         return errors, None
@@ -551,3 +566,7 @@ def _validated_execution_errors(
             )
         )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

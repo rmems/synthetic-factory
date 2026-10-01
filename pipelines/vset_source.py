@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Mapping
 
-from vset_constants import (
-    KIND_PAYLOAD_KEYS,
-    PROMETHEUS_FAMILIES,
-    SOURCE_KINDS,
-    SYNTHETIC_PACK_PREFIX,
-    VSetValidationError,
-    _contains_prometheus_marker,
-    _normalized_identity_text,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("vset_source")
+    from .vset_constants import (
+        KIND_PAYLOAD_KEYS,
+        PROMETHEUS_FAMILIES,
+        SOURCE_KINDS,
+        SYNTHETIC_PACK_PREFIX,
+        VSetValidationError,
+        _contains_prometheus_marker,
+        _normalized_identity_text,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_source"
+    )
+    from vset_constants import (
+        KIND_PAYLOAD_KEYS,
+        PROMETHEUS_FAMILIES,
+        SOURCE_KINDS,
+        SYNTHETIC_PACK_PREFIX,
+        VSetValidationError,
+        _contains_prometheus_marker,
+        _normalized_identity_text,
+    )
 
 
 def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
@@ -98,5 +116,9 @@ def payload_errors(kind: str, payload: Any) -> list[VSetValidationError]:
             )
         ]
     return []
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

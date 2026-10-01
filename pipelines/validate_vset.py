@@ -28,37 +28,68 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from vset_constants import (  # noqa: E402
-    IDENTITY_UNRESOLVED_PROVENANCE,
-    MANIFEST_ROLES,
-    VSetValidationError,
-    iter_record_paths,
-    load_json,
-    pack_snapshot_hash,
-    registry_pin,
-    summarize,
-)
-from vset_manifest import (  # noqa: E402
-    _is_invalid_or_impossible,
-    manifest_body_hash,
-    manifest_entry_from_record,
-    validate_manifest,
-)
-from vset_oracle import (  # noqa: E402
-    _execution_result_hash,
-    _load_tests,
-    apply_patch,
-    record_patch,
-    run_oracle,
-    validate_record_with_oracle,
-)
-from vset_oracle_check import oracle_errors  # noqa: E402
-from vset_record import validate_record  # noqa: E402
-from vset_source import payload_errors, source_kind_errors  # noqa: E402
+    _assert_direct_sibling("validate_vset")
+    from .vset_constants import (
+        IDENTITY_UNRESOLVED_PROVENANCE,
+        MANIFEST_ROLES,
+        VSetValidationError,
+        iter_record_paths,
+        load_json,
+        pack_snapshot_hash,
+        registry_pin,
+        summarize,
+    )
+    from .vset_manifest import (
+        _is_invalid_or_impossible,
+        manifest_body_hash,
+        manifest_entry_from_record,
+        validate_manifest,
+    )
+    from .vset_oracle import (
+        _execution_result_hash,
+        _load_tests,
+        apply_patch,
+        record_patch,
+        run_oracle,
+        validate_record_with_oracle,
+    )
+    from .vset_oracle_check import oracle_errors
+    from .vset_record import validate_record
+    from .vset_source import payload_errors, source_kind_errors
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "validate_vset"
+    )
+    from vset_constants import (
+        IDENTITY_UNRESOLVED_PROVENANCE,
+        MANIFEST_ROLES,
+        VSetValidationError,
+        iter_record_paths,
+        load_json,
+        pack_snapshot_hash,
+        registry_pin,
+        summarize,
+    )
+    from vset_manifest import (
+        _is_invalid_or_impossible,
+        manifest_body_hash,
+        manifest_entry_from_record,
+        validate_manifest,
+    )
+    from vset_oracle import (
+        _execution_result_hash,
+        _load_tests,
+        apply_patch,
+        record_patch,
+        run_oracle,
+        validate_record_with_oracle,
+    )
+    from vset_oracle_check import oracle_errors
+    from vset_record import validate_record
+    from vset_source import payload_errors, source_kind_errors
 
 # Compatibility aliases for the pre-split private names.
 _record_patch = record_patch
@@ -230,6 +261,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.manifest:
         return _run_manifest(target)
     return _run_records(target, args, pack)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

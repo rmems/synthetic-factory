@@ -15,15 +15,16 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-from curate_identity import (  # noqa: E402
-    FACTORY_REGISTRY_PATH,
-    REGISTRY_SCHEMA_VERSION,
-    load_registry,
-)
+    _assert_direct_sibling("vset_constants")
+    from .curate_identity import FACTORY_REGISTRY_PATH, load_registry
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_constants"
+    )
+    from curate_identity import FACTORY_REGISTRY_PATH, load_registry
 
 SCHEMA_VERSION = "vset-record-v1"
 ACTOR_PROVENANCE_VERSION = "actor-provenance-v1"
@@ -377,3 +378,7 @@ def summarize(errors: list[VSetValidationError]) -> dict[str, Any]:
         "reason_codes": [item.code for item in errors],
         "errors": [str(item) for item in errors],
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Mapping
 
-from vset_constants import (
-    ORACLE_STATUSES,
-    SELF_CERTIFY_ORACLE_KINDS,
-    VALIDATING_ORACLE_KINDS,
-    VSetValidationError,
-    _is_nonempty,
-    _is_sha256,
-    _normalized_identity_text,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("vset_oracle_check")
+    from .vset_constants import (
+        ORACLE_STATUSES,
+        SELF_CERTIFY_ORACLE_KINDS,
+        VALIDATING_ORACLE_KINDS,
+        VSetValidationError,
+        _is_nonempty,
+        _is_sha256,
+        _normalized_identity_text,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_oracle_check"
+    )
+    from vset_constants import (
+        ORACLE_STATUSES,
+        SELF_CERTIFY_ORACLE_KINDS,
+        VALIDATING_ORACLE_KINDS,
+        VSetValidationError,
+        _is_nonempty,
+        _is_sha256,
+        _normalized_identity_text,
+    )
 
 
 def oracle_errors(
@@ -96,8 +114,12 @@ def _solver_upgrade_errors(
 def _validated_oracle_errors(
     record: Mapping[str, Any], oracle: Mapping[str, Any], kind: Any
 ) -> list[VSetValidationError]:
-    solver = record.get("solver") if isinstance(record.get("solver"), Mapping) else {}
-    author = record.get("task_author") if isinstance(record.get("task_author"), Mapping) else {}
+    solver: Mapping[str, Any] = (
+        record["solver"] if isinstance(record.get("solver"), Mapping) else {}
+    )
+    author: Mapping[str, Any] = (
+        record["task_author"] if isinstance(record.get("task_author"), Mapping) else {}
+    )
     errors: list[VSetValidationError] = []
     errors.extend(validated_oracle_independence_errors(oracle, solver, author))
     errors.extend(_validated_evidence_errors(oracle))
@@ -163,3 +185,7 @@ def _certifier_errors(
             "oracle.certifier must not be the solver or task_author",
         )
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
