@@ -66,21 +66,7 @@ def validate_record(
 
     if not isinstance(record, dict):
         return [VSetValidationError("vset.record_not_object", "record must be a JSON object")]
-    errors: list[VSetValidationError] = []
-    errors.extend(_schema_header_errors(record))
-    nonfinite = nonfinite_error(record, "record")
-    if nonfinite is not None:
-        errors.append(nonfinite)
-    errors.extend(_unknown_top_level_errors(record))
-    kind = record.get("record_kind")
-    if not isinstance(kind, str) or kind not in RECORD_KINDS:
-        errors.append(
-            VSetValidationError(
-                "vset.record_kind_invalid",
-                "record_kind must be issue_patch_v1, review_remediation_v1, or failure_recovery_v1",
-            )
-        )
-        kind = None
+    errors, kind = _record_head_errors(record)
     errors.extend(source_kind_errors(record))
     errors.extend(_required_role_errors(record))
     errors.extend(_actor_graph_errors(record, kind))
@@ -95,6 +81,26 @@ def validate_record(
         errors.extend(payload_errors(kind, record.get("payload")))
     errors.extend(_training_view_errors(record.get("training_view")))
     return errors
+
+
+def _record_head_errors(
+    record: dict[str, Any],
+) -> tuple[list[VSetValidationError], str | None]:
+    errors = _schema_header_errors(record)
+    nonfinite = nonfinite_error(record, "record")
+    if nonfinite is not None:
+        errors.append(nonfinite)
+    errors.extend(_unknown_top_level_errors(record))
+    kind = record.get("record_kind")
+    if not isinstance(kind, str) or kind not in RECORD_KINDS:
+        errors.append(
+            VSetValidationError(
+                "vset.record_kind_invalid",
+                "record_kind must be issue_patch_v1, review_remediation_v1, or failure_recovery_v1",
+            )
+        )
+        kind = None
+    return errors, kind
 
 
 def _unknown_top_level_errors(record: dict[str, Any]) -> list[VSetValidationError]:

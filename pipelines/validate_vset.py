@@ -243,14 +243,16 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
 def _usage_error(args: argparse.Namespace) -> str | None:
     if not Path(args.target).exists():
         return f"not found: {args.target}"
-    if args.oracle and not args.pack:
-        return "--oracle requires --pack"
-    if args.pack and not args.oracle:
-        # A pack that never executes must not read as validated provenance.
-        return "--pack requires --oracle"
+    # A pack that never executes must not read as validated provenance.
+    mismatch = {
+        (True, False): "--oracle requires --pack",
+        (False, True): "--pack requires --oracle",
+    }.get((bool(args.oracle), bool(args.pack)))
+    if mismatch is not None:
+        return mismatch
+    # Manifest mode has no oracle execution path: accepting --oracle/--pack
+    # here would read as if the manifest's claims were run.
     if args.manifest and (args.oracle or args.pack):
-        # Manifest mode has no oracle execution path; accepting --oracle
-        # or --pack here would read as if the manifest's claims were run.
         return "--manifest does not accept --oracle/--pack"
     return None
 

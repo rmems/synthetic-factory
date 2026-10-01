@@ -226,6 +226,28 @@ def _ignore_pack_member(directory: str, names: list[str], root: Path) -> set[str
     return ignored
 
 
+def _fail_first_reports(
+    work: Path,
+    pack_dir: Path,
+    plan: Mapping[str, Any],
+    hidden_list: list[str],
+    protected: list[str],
+) -> list[dict[str, Any]]:
+    stages: list[dict[str, Any]] = []
+    for index, pre_state in enumerate(plan.get("fail_first") or ()):
+        if pre_state is not None:
+            apply_patch(work, pre_state, protected=protected)
+        stage = _run_modules(work, pack_dir, hidden_list)
+        stages.append(
+            {
+                "stage": "pristine" if pre_state is None else f"pre_patch_{index}",
+                "ok": stage["ok"],
+                "result_hash": stage["result_hash"],
+            }
+        )
+    return stages
+
+
 def run_oracle(
     pack_dir: Path,
     *,
@@ -249,7 +271,6 @@ def run_oracle(
     plan = _mapping_or_empty(hidden_suite)
     reference_list = list(reference_tests)
     hidden_list = list(plan.get("tests") or ())
-    fail_first = plan.get("fail_first") or ()
     protected = list(reference_list) + list(hidden_list)
     with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
         work = Path(tmp) / "pack"
@@ -258,18 +279,7 @@ def run_oracle(
             work,
             ignore=lambda directory, names: _ignore_pack_member(directory, names, pack_dir),
         )
-        stages: list[dict[str, Any]] = []
-        for index, pre_state in enumerate(fail_first):
-            if pre_state is not None:
-                apply_patch(work, pre_state, protected=protected)
-            stage = _run_modules(work, pack_dir, hidden_list)
-            stages.append(
-                {
-                    "stage": "pristine" if pre_state is None else f"pre_patch_{index}",
-                    "ok": stage["ok"],
-                    "result_hash": stage["result_hash"],
-                }
-            )
+        stages = _fail_first_reports(work, pack_dir, plan, hidden_list, protected)
         if patch is not None:
             apply_patch(work, patch, protected=protected)
         reference = _run_modules(work, pack_dir, reference_list)
