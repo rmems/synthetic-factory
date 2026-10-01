@@ -198,13 +198,18 @@ def _illegal_pack_relative(path: str) -> bool:
 
 
 def _string_path_list_error(value: Any, field: str, *, required: bool) -> VSetValidationError | None:
-    valid = isinstance(value, list) and value and all(isinstance(item, str) for item in value)
-    if valid or (not required and (value is None or value == [])):
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        if value or not required:
+            return None
+        return VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH,
+            f"oracle.{field} must be a non-empty list of paths",
+        )
+    if value is None and not required:
         return None
-    qualifier = "non-empty " if required else ""
     return VSetValidationError(
         ERR_ORACLE_EXECUTION_MISMATCH,
-        f"oracle.{field} must be a {qualifier}list of paths",
+        f"oracle.{field} must be a list of paths",
     )
 
 
