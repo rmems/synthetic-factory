@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_record_checks")
@@ -225,5 +225,5 @@ def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
 
 
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)

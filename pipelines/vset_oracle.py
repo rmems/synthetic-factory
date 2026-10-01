@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle")
@@ -217,5 +217,5 @@ def _hidden_suite_plan(
     }
 
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)

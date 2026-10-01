@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_patch")
@@ -129,5 +129,5 @@ def pre_patches(record: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [initial] if isinstance(initial, Mapping) else []
 
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)

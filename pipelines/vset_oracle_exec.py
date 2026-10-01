@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_exec")
@@ -313,5 +313,5 @@ def _execution_result_hash(execution: Mapping[str, Any]) -> str:
     )
 
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)

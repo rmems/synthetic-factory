@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 from typing import Any, Mapping
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_manifest_entries")
@@ -185,5 +185,5 @@ def _entry_release_pin_errors(
     return errors
 
 
-if __package__:
+if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)
