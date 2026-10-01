@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -168,10 +169,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         _report(stale, "stale")
         return 1
-    allowed_parents = {directory.resolve() for directory in RECORD_DIRS}
+    fixture_root = str(FIXTURES.resolve()) + os.sep
     for path in stale:
         target = path.resolve()
-        if target != MANIFEST.resolve() and target.parent not in allowed_parents:
+        if not str(target).startswith(fixture_root):
             raise SystemExit(f"refusing to write outside the fixture tree: {path}")
         target.write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
