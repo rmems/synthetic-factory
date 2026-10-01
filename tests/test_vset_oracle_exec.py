@@ -142,18 +142,19 @@ class OracleExecutionTests(unittest.TestCase):
         self.assertFalse(execution["hidden"]["ok"])
 
 
-class OracleEdgeCaseTests(unittest.TestCase):
-    def test_explicit_empty_reference_tests_fails_closed(self) -> None:
-        record = _load(ACCEPT / "issue-patch-validated.json")
-        record["oracle"]["reference_tests"] = []
-        errors, _execution = vset.validate_record_with_oracle(record, PACK)
-        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+def _staged_pack(tmp: str) -> Path:
+    pack = Path(tmp) / "pack"
+    shutil.copytree(PACK, pack)
+    return pack
 
-    def test_non_list_reference_tests_fails_closed(self) -> None:
+
+class OracleEdgeCaseTests(unittest.TestCase):
+    def test_declared_reference_tests_must_be_a_non_empty_list(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
-        record["oracle"]["reference_tests"] = "tests/reference.py"
-        errors, _execution = vset.validate_record_with_oracle(record, PACK)
-        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+        for declared in ([], "tests/reference.py"):
+            record["oracle"]["reference_tests"] = declared
+            errors, _execution = vset.validate_record_with_oracle(record, PACK)
+            self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
 
     def test_undeclared_task_id_fails_pack_binding(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
@@ -164,8 +165,7 @@ class OracleEdgeCaseTests(unittest.TestCase):
     def test_unreadable_pack_manifest_fails_closed(self) -> None:
         record = _load(ACCEPT / "issue-patch-validated.json")
         with tempfile.TemporaryDirectory() as tmp:
-            pack = Path(tmp) / "pack"
-            shutil.copytree(PACK, pack)
+            pack = _staged_pack(tmp)
             (pack / "PACK.json").write_text("{not json", encoding="utf-8")
             errors, _execution = vset.validate_record_with_oracle(record, pack)
             self.assertIn("vset.oracle_pack_binding", _codes(errors))
@@ -174,8 +174,7 @@ class OracleEdgeCaseTests(unittest.TestCase):
         record = _load(ACCEPT / "issue-patch-validated.json")
         record["environment"]["task_id"] = "vset-counter-v1.undeclared"
         with tempfile.TemporaryDirectory() as tmp:
-            pack = Path(tmp) / "pack"
-            shutil.copytree(PACK, pack)
+            pack = _staged_pack(tmp)
             (pack / "tasks" / "junk.json").write_text("[", encoding="utf-8")
             errors, _execution = vset.validate_record_with_oracle(record, pack)
             self.assertIn("vset.oracle_pack_binding", _codes(errors))
