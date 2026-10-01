@@ -140,7 +140,7 @@ same unit tests and operator smoke check.
 
 ## Structure
 - `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1, vset-record-v1, and vset-release-manifest-v1
-- `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
+- `prompts/` — retired in [#184]; the factory prompts are preserved at tag `legacy-prompt-factory-v0.2` (see below)
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
