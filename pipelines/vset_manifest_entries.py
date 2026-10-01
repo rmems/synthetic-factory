@@ -26,6 +26,7 @@ if __package__:
         VSetValidationError,
         _check_actor,
         _is_sha256,
+        _mapping_or_empty,
         nonfinite_error,
         reason_codes_error,
     )
@@ -46,6 +47,7 @@ else:
         VSetValidationError,
         _check_actor,
         _is_sha256,
+        _mapping_or_empty,
         nonfinite_error,
         reason_codes_error,
     )
@@ -157,22 +159,23 @@ def _entry_environment_errors(where: str, entry: Mapping[str, Any]) -> list[VSet
     return errors
 
 
-def _entry_oracle_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:
-    oracle = entry.get("oracle")
-    if oracle is None:
-        return []
-    if not isinstance(oracle, Mapping):
-        return [VSetValidationError("vset.payload_invalid", f"{where}.oracle must be an object")]
-    errors: list[VSetValidationError] = []
+def _entry_oracle_status_errors(
+    where: str, oracle: Mapping[str, Any]
+) -> list[VSetValidationError]:
     status = oracle.get("status")
-    if status is not None and status not in ORACLE_STATUSES:
-        errors.append(
-            VSetValidationError(
-                "vset.oracle_status_invalid", f"{where}.oracle.status is not a known status"
-            )
+    if status is None or status in ORACLE_STATUSES:
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_status_invalid", f"{where}.oracle.status is not a known status"
         )
-    if status != "validated":
-        return errors
+    ]
+
+
+def _entry_validated_oracle_errors(
+    where: str, entry: Mapping[str, Any], oracle: Mapping[str, Any]
+) -> list[VSetValidationError]:
+    errors: list[VSetValidationError] = []
     if not _is_sha256(oracle.get("result_hash")):
         errors.append(
             VSetValidationError(
@@ -180,19 +183,50 @@ def _entry_oracle_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValid
                 f"{where} validated oracle requires result_hash",
             )
         )
-    solver = entry.get("solver") if isinstance(entry.get("solver"), Mapping) else {}
-    author = entry.get("task_author") if isinstance(entry.get("task_author"), Mapping) else {}
+    solver: Mapping[str, Any] = _mapping_or_empty(entry.get("solver"))
+    author: Mapping[str, Any] = _mapping_or_empty(entry.get("task_author"))
     errors.extend(validated_oracle_independence_errors(oracle, solver, author))
+    return errors
+
+
+def _entry_oracle_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:
+    oracle = entry.get("oracle")
+    if oracle is None:
+        return []
+    if not isinstance(oracle, Mapping):
+        return [VSetValidationError("vset.payload_invalid", f"{where}.oracle must be an object")]
+    errors = _entry_oracle_status_errors(where, oracle)
+    if oracle.get("status") == "validated":
+        errors.extend(_entry_validated_oracle_errors(where, entry, oracle))
     return errors
 
 
 def _is_invalid_or_impossible(entry: Mapping[str, Any]) -> bool:
     if not isinstance(entry, Mapping):
         return False
-    oracle = entry.get("oracle") if isinstance(entry.get("oracle"), Mapping) else {}
-    curation = entry.get("curation") if isinstance(entry.get("curation"), Mapping) else {}
-    reasons = curation.get("reason_codes") if isinstance(curation.get("reason_codes"), list) else []
+    oracle = _mapping_or_empty(entry.get("oracle"))
+    curation = _mapping_or_empty(entry.get("curation"))
+    reasons_value = curation.get("reason_codes")
+    reasons: list[Any] = reasons_value if isinstance(reasons_value, list) else []
     return oracle.get("status") == "invalid" or "vset.impossible_task" in reasons
+
+
+def _entry_reason_errors(
+    where: str, curation: Mapping[str, Any]
+) -> list[VSetValidationError]:
+    if "reason_codes" not in curation:
+        return []
+    errors = reason_codes_error(curation["reason_codes"], f"{where}.curation")
+    reasons_value = curation["reason_codes"]
+    reasons: list[Any] = reasons_value if isinstance(reasons_value, list) else []
+    if IDENTITY_UNRESOLVED_PROVENANCE in reasons:
+        errors.append(
+            VSetValidationError(
+                "vset.identity_reason_collision",
+                f"{where} must not reuse identity.unresolved_provenance for an actor gap",
+            )
+        )
+    return errors
 
 
 def _entry_curation_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:
@@ -209,16 +243,7 @@ def _entry_curation_errors(where: str, entry: Mapping[str, Any]) -> list[VSetVal
                 "vset.actor_fields_invalid", f"{where}.curation.decision is not a known decision"
             )
         )
-    if "reason_codes" in curation:
-        errors.extend(reason_codes_error(curation["reason_codes"], f"{where}.curation"))
-        reasons = curation["reason_codes"]
-        if isinstance(reasons, list) and IDENTITY_UNRESOLVED_PROVENANCE in reasons:
-            errors.append(
-                VSetValidationError(
-                    "vset.identity_reason_collision",
-                    f"{where} must not reuse identity.unresolved_provenance for an actor gap",
-                )
-            )
+    errors.extend(_entry_reason_errors(where, curation))
     if _is_invalid_or_impossible(entry) and decision != "measure":
         errors.append(
             VSetValidationError(

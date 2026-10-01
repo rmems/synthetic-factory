@@ -71,13 +71,7 @@ def validate_record(
     nonfinite = nonfinite_error(record, "record")
     if nonfinite is not None:
         errors.append(nonfinite)
-    for key in sorted(set(record) - RECORD_TOP_LEVEL_KEYS):
-        errors.append(
-            VSetValidationError(
-                "vset.payload_invalid",
-                f"undeclared top-level record field {key!r}",
-            )
-        )
+    errors.extend(_unknown_top_level_errors(record))
     kind = record.get("record_kind")
     if not isinstance(kind, str) or kind not in RECORD_KINDS:
         errors.append(
@@ -101,6 +95,16 @@ def validate_record(
         errors.extend(payload_errors(kind, record.get("payload")))
     errors.extend(_training_view_errors(record.get("training_view")))
     return errors
+
+
+def _unknown_top_level_errors(record: dict[str, Any]) -> list[VSetValidationError]:
+    return [
+        VSetValidationError(
+            "vset.payload_invalid",
+            f"undeclared top-level record field {key!r}",
+        )
+        for key in sorted(set(record) - RECORD_TOP_LEVEL_KEYS)
+    ]
 
 
 def _schema_header_errors(record: dict[str, Any]) -> list[VSetValidationError]:

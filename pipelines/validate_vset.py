@@ -48,14 +48,13 @@ if __package__:
         manifest_entry_from_record,
         validate_manifest,
     )
-    from .vset_oracle import (
+    from .vset_oracle import validate_record_with_oracle
+    from .vset_oracle_exec import (
         _execution_result_hash,
         _load_tests,
-        apply_patch,
-        record_patch,
         run_oracle,
-        validate_record_with_oracle,
     )
+    from .vset_patch import apply_patch, record_patch
     from .vset_oracle_check import oracle_errors
     from .vset_record import validate_record
     from .vset_source import payload_errors, source_kind_errors
@@ -79,14 +78,13 @@ else:
         manifest_entry_from_record,
         validate_manifest,
     )
-    from vset_oracle import (
+    from vset_oracle import validate_record_with_oracle
+    from vset_oracle_exec import (
         _execution_result_hash,
         _load_tests,
-        apply_patch,
-        record_patch,
         run_oracle,
-        validate_record_with_oracle,
     )
+    from vset_patch import apply_patch, record_patch
     from vset_oracle_check import oracle_errors
     from vset_record import validate_record
     from vset_source import payload_errors, source_kind_errors
@@ -200,7 +198,10 @@ def _one_record_report(
     if load_error is not None:
         return {"path": str(path), **summarize([load_error])}, [load_error]
     if args.oracle:
-        assert pack is not None
+        if pack is None:
+            raise VSetValidationError(
+                "vset.oracle_execution_mismatch", "--oracle requires --pack"
+            )
         errors, execution = validate_record_with_oracle(
             record, pack, require_registry_sha=args.require_registry_sha
         )
@@ -239,27 +240,31 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
     return 1 if failed else 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    target = Path(args.target)
-    if not target.exists():
-        print(f"not found: {target}", file=sys.stderr)
-        return 2
-    pack = Path(args.pack) if args.pack else None
-    if args.oracle and pack is None:
-        print("--oracle requires --pack", file=sys.stderr)
-        return 2
-    if pack is not None and not args.oracle:
+def _usage_error(args: argparse.Namespace) -> str | None:
+    if not Path(args.target).exists():
+        return f"not found: {args.target}"
+    if args.oracle and not args.pack:
+        return "--oracle requires --pack"
+    if args.pack and not args.oracle:
         # A pack that never executes must not read as validated provenance.
-        print("--pack requires --oracle", file=sys.stderr)
-        return 2
-    if args.manifest and (args.oracle or pack is not None):
+        return "--pack requires --oracle"
+    if args.manifest and (args.oracle or args.pack):
         # Manifest mode has no oracle execution path; accepting --oracle
         # or --pack here would read as if the manifest's claims were run.
-        print("--manifest does not accept --oracle/--pack", file=sys.stderr)
+        return "--manifest does not accept --oracle/--pack"
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    error = _usage_error(args)
+    if error is not None:
+        print(error, file=sys.stderr)
         return 2
+    target = Path(args.target)
     if args.manifest:
         return _run_manifest(target)
+    pack = Path(args.pack) if args.pack else None
     return _run_records(target, args, pack)
 
 

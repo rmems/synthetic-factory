@@ -16,6 +16,7 @@ if __package__:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
+        _mapping_or_empty,
         _normalized_identity_text,
     )
 else:
@@ -29,6 +30,7 @@ else:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
+        _mapping_or_empty,
         _normalized_identity_text,
     )
 
@@ -114,12 +116,8 @@ def _solver_upgrade_errors(
 def _validated_oracle_errors(
     record: Mapping[str, Any], oracle: Mapping[str, Any], kind: Any
 ) -> list[VSetValidationError]:
-    solver: Mapping[str, Any] = (
-        record["solver"] if isinstance(record.get("solver"), Mapping) else {}
-    )
-    author: Mapping[str, Any] = (
-        record["task_author"] if isinstance(record.get("task_author"), Mapping) else {}
-    )
+    solver: Mapping[str, Any] = _mapping_or_empty(record.get("solver"))
+    author: Mapping[str, Any] = _mapping_or_empty(record.get("task_author"))
     errors: list[VSetValidationError] = []
     errors.extend(validated_oracle_independence_errors(oracle, solver, author))
     errors.extend(_validated_evidence_errors(oracle))

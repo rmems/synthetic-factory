@@ -20,6 +20,8 @@ if __package__:
         RECORD_KINDS,
         VSetValidationError,
         _canonical_json,
+        _mapping_or_empty,
+        _pick,
         _sha256_text,
         nonfinite_error,
         registry_pin,
@@ -41,6 +43,8 @@ else:
         RECORD_KINDS,
         VSetValidationError,
         _canonical_json,
+        _mapping_or_empty,
+        _pick,
         _sha256_text,
         nonfinite_error,
         registry_pin,
@@ -49,10 +53,6 @@ else:
         _is_invalid_or_impossible,
         manifest_entry_errors,
     )
-
-
-def _mapping_or_empty(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -69,25 +69,17 @@ def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
         "task_author": copy.deepcopy(record.get("task_author")),
         "solver": copy.deepcopy(record.get("solver")),
         "reviewer": None if reviewer is None else copy.deepcopy(reviewer),
-        "oracle": {
-            key: oracle[key]
-            for key in ("kind", "status", "result_hash", "certifier")
-            if key in oracle
-        },
+        "oracle": _pick(oracle, ("kind", "status", "result_hash", "certifier")),
         "curation": {
             "decision": curation.get("decision"),
             "reason_codes": list(curation.get("reason_codes") or []),
         },
-        "environment": {
-            key: environment[key]
-            for key in ("repo_snapshot_hash", "task_id", "repo_pack_id")
-            if key in environment
-        },
-        "release": {
-            key: release.get(key)
-            for key in ("factory_contract_version", "factory_registry_sha256")
-            if key in release
-        },
+        "environment": _pick(
+            environment, ("repo_snapshot_hash", "task_id", "repo_pack_id")
+        ),
+        "release": _pick(
+            release, ("factory_contract_version", "factory_registry_sha256")
+        ),
     }
 
 

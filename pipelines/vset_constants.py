@@ -13,7 +13,7 @@ import math
 import re
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -184,7 +184,7 @@ def registry_pin(registry_path: Path | None = None) -> dict[str, str]:
     }
 
 
-def _snapshot_excluded(pack_dir: Path, relative: Path) -> bool:
+def _snapshot_excluded(relative: Path) -> bool:
     parts = relative.parts
     if not parts:
         return True
@@ -210,7 +210,7 @@ def pack_snapshot_hash(pack_dir: Path) -> str:
         if not path.is_file():
             continue
         relative = path.relative_to(pack_dir)
-        if _snapshot_excluded(pack_dir, relative):
+        if _snapshot_excluded(relative):
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         rows.append(f"{relative.as_posix()}:{digest}")
@@ -219,6 +219,14 @@ def pack_snapshot_hash(pack_dir: Path) -> str:
 
 def _is_sha256(value: Any) -> bool:
     return isinstance(value, str) and bool(_SHA256.fullmatch(value))
+
+
+def _mapping_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _pick(mapping: dict[str, Any], keys: Iterable[str]) -> dict[str, Any]:
+    return {key: mapping[key] for key in keys if key in mapping}
 
 
 def _is_nonempty(value: Any) -> bool:
@@ -321,6 +329,14 @@ def load_json(path: Path) -> Any:
     )
 
 
+def _nonfinite_children(value: Any, where: str) -> list[tuple[Any, str]]:
+    if isinstance(value, Mapping):
+        return [(item, f"{where}.{key}") for key, item in value.items()]
+    if isinstance(value, (list, tuple)):
+        return [(item, f"{where}[{index}]") for index, item in enumerate(value)]
+    return []
+
+
 def nonfinite_error(value: Any, where: str = "document") -> VSetValidationError | None:
     """Report NaN/Infinity handed to a validator by a direct API caller."""
 
@@ -328,16 +344,10 @@ def nonfinite_error(value: Any, where: str = "document") -> VSetValidationError 
         return VSetValidationError(
             "vset.payload_invalid", f"{where} contains a non-finite number"
         )
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            found = nonfinite_error(item, f"{where}.{key}")
-            if found is not None:
-                return found
-    if isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            found = nonfinite_error(item, f"{where}[{index}]")
-            if found is not None:
-                return found
+    for child, label in _nonfinite_children(value, where):
+        found = nonfinite_error(child, label)
+        if found is not None:
+            return found
     return None
 
 

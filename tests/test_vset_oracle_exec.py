@@ -53,7 +53,8 @@ class OracleExecutionTests(unittest.TestCase):
         errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertEqual(_codes(errors), [])
         self.assertIsNotNone(execution)
-        assert execution is not None
+        if execution is None:
+            self.fail("expected an oracle execution report")
         self.assertTrue(execution["reference"]["ok"])
         self.assertTrue(execution["hidden"]["ok"])
 

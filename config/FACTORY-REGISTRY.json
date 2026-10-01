@@ -1,7 +1,7 @@
 {
   "schema_version": "factory-registry-v0.4",
   "lookup_key": "path_id",
-  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a hosted generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Onboard a model-channel generator by adding the exact sealed row from schemas/model-channel-source-policy-v1.json and the matching _REVIEWED_GENERATOR_RIGHTS assignment; local_vllm, local_ollama, and openrouter_api identities never share rights with each other or with hosted/API channels. Identity retain is not publication and not training_ready.",
+  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path \u2192 identity.unknown_factory; registered path with missing or different meta.factory \u2192 identity.factory_path_payload_mismatch; kind not in the row's record_kinds \u2192 identity.factory_not_authorized_for_kind. Onboard a hosted generator by adding a reviewed registry row and adding or updating its exact generator/provider/channel assignment in pipelines/curate_identity.py _REVIEWED_GENERATOR_RIGHTS; both reviewed entries are required. Onboard a model-channel generator by adding the exact sealed row from schemas/model-channel-source-policy-v1.json and the matching _REVIEWED_GENERATOR_RIGHTS assignment; local_vllm, local_ollama, and openrouter_api identities never share rights with each other or with hosted/API channels. Identity retain is not publication and not training_ready.",
   "factories": [
     {
       "path_id": "agentic-coding-trajectory-factory",
@@ -1689,7 +1689,7 @@
       "payload_factory": "hardware-parity-spike-trajectories",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.hardware_parity.scenario_catalog",
-      "generator_version": "sha256:2704cab1c6cc0a7c38ff6cc9b5225b91e81abb18d56f7dfdac2833724c978f70",
+      "generator_version": "sha256:c9daa8e741ba16c36830007fe61fd5f880bbb99cc4a7481159ca006d4f03d9ff",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1709,14 +1709,14 @@
       },
       "catalog_id": "synthetic-factory.hardware_parity.scenario_catalog",
       "catalog_sha256": "sha256:45574bf07b7e19892a4e507b896906320f7ecda938a7ea48df2038125985154e",
-      "parity_policy_sha256": "66a924b6483f6248b0e949377c1899e6811aeed7b493b433c073d00d081825ff"
+      "parity_policy_sha256": "ded4388824217d4556d620c7a0c174b13d8d3a37bc0ba80cbeb7642cf7b69685"
     },
     {
       "path_id": "nir-cross-runtime-equivalence",
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:021d19e935d8c4ecb7db36ac8de2e95e6f23de5f4826bc53cd189e7e2b64a0e2",
+      "generator_version": "sha256:df281c398dc81b6c187570864721cc24bd528d673d4ac2bc7fd10bffa51df7b6",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",
@@ -1736,9 +1736,9 @@
       },
       "catalog_id": "synthetic-factory.nir_equivalence.graph_catalog",
       "catalog_sha256": "sha256:d51cadb6492baa2d96b38f06a817eb76c26a49dabe59868587d7aab7c9882b73",
-      "parity_policy_sha256": "66a924b6483f6248b0e949377c1899e6811aeed7b493b433c073d00d081825ff"
-    }
-    ,{
+      "parity_policy_sha256": "ded4388824217d4556d620c7a0c174b13d8d3a37bc0ba80cbeb7642cf7b69685"
+    },
+    {
       "path_id": "fault-recovery-simulator-factory",
       "source_type": "dedicated",
       "payload_factory": "fault-recovery-simulator-factory",
@@ -1763,8 +1763,8 @@
       "provenance_contract_by_kind": {
         "fault_recovery": "replay_fault_recovery"
       }
-    }
-    ,{
+    },
+    {
       "path_id": "deepseek-placeholder-factory",
       "source_type": "dedicated",
       "payload_factory": "deepseek-placeholder-factory",
@@ -1787,8 +1787,8 @@
       "provenance_contract_by_kind": {
         "episode": "synthetic_shape_implies_designed"
       }
-    }
-    ,{
+    },
+    {
       "path_id": "nemotron-placeholder-factory",
       "source_type": "dedicated",
       "payload_factory": "nemotron-placeholder-factory",

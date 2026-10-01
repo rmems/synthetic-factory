@@ -168,9 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         _report(stale, "stale")
         return 1
+    allowed_parents = {directory.resolve() for directory in RECORD_DIRS}
     for path in stale:
         target = path.resolve()
-        if not target.is_relative_to(FIXTURES):
+        if target != MANIFEST.resolve() and target.parent not in allowed_parents:
             raise SystemExit(f"refusing to write outside the fixture tree: {path}")
         target.write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
