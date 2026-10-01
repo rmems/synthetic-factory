@@ -21,7 +21,6 @@ if __package__:
     from .vset_constants import (
         CURATION_DECISIONS,
         IDENTITY_UNRESOLVED_PROVENANCE,
-        SCHEMA_VERSION,
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
@@ -37,7 +36,6 @@ else:
     from vset_constants import (
         CURATION_DECISIONS,
         IDENTITY_UNRESOLVED_PROVENANCE,
-        SCHEMA_VERSION,
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
@@ -80,11 +78,12 @@ def _invalid_outcome_errors(
     """Invalid or impossible tasks stay first-class measured outcomes."""
 
     reasons = curation.get("reason_codes")
-    impossible = isinstance(reasons, list) and "vset.impossible_task" in reasons
-    if oracle_status != "invalid":
-        if not impossible:
-            return []
-    if decision == "measure" and isinstance(reasons, list) and reasons:
+    if not isinstance(reasons, list):
+        reasons = ()
+    impossible = "vset.impossible_task" in reasons
+    if oracle_status != "invalid" and not impossible:
+        return []
+    if decision == "measure" and reasons:
         return []
     return [
         VSetValidationError(

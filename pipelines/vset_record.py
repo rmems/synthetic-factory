@@ -18,8 +18,6 @@ if __package__:
         SCHEMA_VERSION,
         VSetValidationError,
         _check_actor,
-        _is_nonempty,
-        _is_sha256,
         nonfinite_error,
     )
     from .vset_oracle_check import oracle_errors
@@ -42,8 +40,6 @@ else:
         SCHEMA_VERSION,
         VSetValidationError,
         _check_actor,
-        _is_nonempty,
-        _is_sha256,
         nonfinite_error,
     )
     from vset_oracle_check import oracle_errors

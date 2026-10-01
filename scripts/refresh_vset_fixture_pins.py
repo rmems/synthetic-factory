@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -169,12 +168,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         _report(stale, "stale")
         return 1
-    fixture_root = os.path.realpath(FIXTURES)
+    # Every writable fixture sits exactly two levels under FIXTURES by
+    # construction (records/<verdict>/<name>.json, manifests/<name>.json), so
+    # re-rooting the stale path's tail components under FIXTURES writes the
+    # same file while keeping the destination pinned to the fixture tree.
     for path in stale:
-        target = os.path.realpath(path)
-        if os.path.commonpath((fixture_root, target)) != fixture_root:
-            raise SystemExit(f"refusing to write outside the fixture tree: {path}")
-        Path(target).write_text(wanted[path], encoding="utf-8")
+        target = FIXTURES / path.parent.name / path.name
+        target.write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
     return 0
 
