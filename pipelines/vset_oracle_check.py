@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import sys
-from typing import Any, Mapping
+from pathlib import Path
+from typing import Any, Iterable, Mapping
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_check")
+    from .vset_oracle_exec import _execution_result_hash
     from .vset_constants import (
         ORACLE_STATUSES,
         SELF_CERTIFY_ORACLE_KINDS,
@@ -23,6 +25,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_check"
     )
+    from vset_oracle_exec import _execution_result_hash
     from vset_constants import (
         ORACLE_STATUSES,
         SELF_CERTIFY_ORACLE_KINDS,
@@ -183,6 +186,123 @@ def _certifier_errors(
             "oracle.certifier must not be the solver or task_author",
         )
     ]
+
+
+def _illegal_pack_relative(path: str) -> bool:
+    candidate = Path(path)
+    return not path.strip() or candidate.is_absolute() or ".." in candidate.parts
+
+
+def _string_path_list_error(value: Any, field: str, *, required: bool) -> VSetValidationError | None:
+    if not value and not required:
+        return None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return None
+    return VSetValidationError(
+        "vset.oracle_execution_mismatch",
+        f"oracle.{field} must be a list of paths",
+    )
+
+
+def _first_illegal_pack_path(paths: Iterable[Any]) -> VSetValidationError | None:
+    for item in paths:
+        if isinstance(item, str) and _illegal_pack_relative(item):
+            return VSetValidationError(
+                "vset.oracle_execution_mismatch",
+                f"oracle test path must stay under the pack: {item!r}",
+            )
+    return None
+
+
+def _oracle_path_list_error(oracle: Mapping[str, Any]) -> VSetValidationError | None:
+    reference_tests = oracle.get("reference_tests") or ["tests/reference.py"]
+    hidden_tests = oracle.get("hidden_tests") or []
+    typed = _string_path_list_error(reference_tests, "reference_tests", required=True)
+    if typed is not None:
+        return typed
+    typed = _string_path_list_error(hidden_tests, "hidden_tests", required=False)
+    if typed is not None:
+        return typed
+    return _first_illegal_pack_path(list(reference_tests) + list(hidden_tests or []))
+
+
+def _execution_match_errors(
+    record: Mapping[str, Any],
+    oracle: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    status: Any,
+) -> list[VSetValidationError]:
+    errors: list[VSetValidationError] = []
+    expected = record.get("environment", {})
+    if isinstance(expected, Mapping) and expected.get("repo_snapshot_hash") not in {
+        None,
+        execution["pack_snapshot_hash"],
+    }:
+        errors.append(
+            VSetValidationError(
+                "vset.oracle_execution_mismatch",
+                "environment.repo_snapshot_hash does not match the repo pack",
+            )
+        )
+    errors.extend(_fail_first_errors(execution["fail_first"]))
+    if status != "validated":
+        return errors
+    errors.extend(_validated_execution_errors(oracle, execution))
+    return errors
+
+
+def _fail_first_errors(stages: Iterable[Mapping[str, Any]]) -> list[VSetValidationError]:
+    errors: list[VSetValidationError] = []
+    for stage in stages:
+        if stage["ok"]:
+            errors.append(
+                VSetValidationError(
+                    "vset.oracle_execution_mismatch",
+                    f"hidden suite passes before the candidate patch at {stage['stage']}; "
+                    "the recorded fail-to-pass claim is not demonstrated",
+                )
+            )
+    return errors
+
+
+def _hidden_suite_errors(hidden: Any) -> list[VSetValidationError]:
+    if hidden is None or hidden["ok"]:
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_execution_mismatch",
+            "validated oracle requires declared hidden tests to pass",
+        )
+    ]
+
+
+def _validated_execution_errors(
+    oracle: Mapping[str, Any], execution: Mapping[str, Any]
+) -> list[VSetValidationError]:
+    errors: list[VSetValidationError] = []
+    if not execution["reference"]["ok"]:
+        errors.append(
+            VSetValidationError(
+                "vset.oracle_execution_mismatch",
+                "validated oracle requires the reference suite to pass",
+            )
+        )
+    errors.extend(_hidden_suite_errors(execution["hidden"]))
+    if oracle.get("result_hash") != _execution_result_hash(execution):
+        errors.append(
+            VSetValidationError(
+                "vset.oracle_execution_mismatch",
+                "oracle.result_hash does not match deterministic fixture execution",
+            )
+        )
+    if oracle.get("kind") in SELF_CERTIFY_ORACLE_KINDS:
+        errors.append(
+            VSetValidationError(
+                "vset.oracle_self_certified",
+                "hidden-test pass is meaningless unless the oracle itself is valid",
+            )
+        )
+    return errors
 
 
 if __package__:

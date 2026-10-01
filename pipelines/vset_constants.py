@@ -78,23 +78,27 @@ IDENTITY_ENV_KEYS = frozenset(
 )
 PACK_SNAPSHOT_ROOTS = ("src", "tests")
 RECORD_TOP_LEVEL_KEYS = frozenset(
-    {
+    (
         "schema_version",
         "record_kind",
         "actor_provenance_schema_version",
         "source_kind",
+    )
+    + (
         "task_author",
         "solver",
         "reviewer",
         "oracle",
         "curation",
+    )
+    + (
         "environment",
         "release",
         "payload",
         "training_view",
         "trace",
         "prometheus_lineage",
-    }
+    )
 )
 ACTOR_FIELDS = frozenset(
     {"model", "version", "run_id", "prompt_hash", "tool_policy", "outcome"}
