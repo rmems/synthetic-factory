@@ -25,6 +25,7 @@ PACKAGE_FILES = (
     "__init__.py",
     "_contract.py",
     "catalog.py",
+    "catalog_ast.py",
     "cli.py",
     "generate.py",
 )
@@ -82,7 +83,7 @@ def _fn_pair_source(pairs: list[tuple[str, str, str, str, str]]) -> str:
 
 
 class LllPackageTests(unittest.TestCase):
-    def test_family_home_is_the_five_cleaned_modules(self):
+    def test_family_home_is_the_cleaned_modules(self):
         home = REPO / "pipelines" / "lll"
         self.assertEqual(sorted(path.name for path in home.glob("*.py")), sorted(PACKAGE_FILES))
         self.assertEqual(list(home.glob("lhc-mill-lll*.py")), [])

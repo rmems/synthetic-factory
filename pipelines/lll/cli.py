@@ -101,8 +101,6 @@ def _catalog_check(args: argparse.Namespace) -> int:
 
 
 def _generate(args: argparse.Namespace) -> int:
-    if args.round is not None and args.plant is None:
-        raise LllRefusal("USAGE", "--round is only valid with --plant")
     summary = gen.run(
         gen.GenerateRequest(
             catalog_dir=_catalog_dir(args),
@@ -130,7 +128,16 @@ def run(argv: list[str] | None = None) -> int:
         if args.command == "generate":
             return _generate(args)
     except LllRefusal as exc:
-        print(exc, file=sys.stderr)
+        if getattr(args, "json", False):
+            print(
+                dumps_exact_json(
+                    {"status": "refusal", "error": str(exc)},
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(exc, file=sys.stderr)
         return 2
     parser.error(f"unknown command {args.command}")
     return 2

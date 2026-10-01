@@ -8,13 +8,13 @@ leftover leftover leftover mill scripts are read only as text through
 
 from __future__ import annotations
 
-import ast
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from . import catalog_ast as _ast
 from ._contract import (
     CATALOG_FILENAME,
     CATALOG_FORMAT,
@@ -30,7 +30,6 @@ from ._contract import (
     FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_PLANTS_SHA_MISMATCH,
-    FINDING_SOURCE_NOT_PARSEABLE,
     GENERATOR,
     LEGACY_COMMIT,
     LEGACY_REF,
@@ -152,71 +151,6 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _call_name(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Call):
-        return None
-    func = node.func
-    if isinstance(func, ast.Name):
-        return func.id
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    return None
-
-
-def _literal(node: ast.AST) -> Any:
-    try:
-        return ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError):
-        return None
-
-
-def _tuple_names(node: ast.AST) -> tuple[str, ...] | None:
-    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
-        return None
-    target = node.targets[0]
-    if not isinstance(target, ast.Tuple):
-        return None
-    names: list[str] = []
-    for elt in target.elts:
-        if not isinstance(elt, ast.Name):
-            return None
-        names.append(elt.id)
-    return tuple(names)
-
-
-def _fn_pair_args(node: ast.Assign) -> list[str] | None:
-    if _call_name(node.value) != "fn_pair":
-        return None
-    args = [_literal(item) for item in node.value.args]
-    if len(args) < 4:
-        return None
-    head = args[:4]
-    if not all(isinstance(item, str) and item for item in head):
-        return None
-    return cast(list[str], head)
-
-
-def _is_pairs_append(call: ast.Call) -> bool:
-    func = call.func
-    if not isinstance(func, ast.Attribute) or func.attr != "append":
-        return False
-    return isinstance(func.value, ast.Name) and func.value.id == "PAIRS"
-
-
-def _append_title(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-        return None
-    call = node.value
-    if not _is_pairs_append(call):
-        return None
-    if len(call.args) != 1 or not isinstance(call.args[0], ast.Tuple):
-        return None
-    if not call.args[0].elts:
-        return None
-    title = _literal(call.args[0].elts[0])
-    return title if isinstance(title, str) and title else None
-
-
 def plants_from_source(
     source: str,
     *,
@@ -226,33 +160,10 @@ def plants_from_source(
 ) -> tuple[Plant, ...]:
     """Extract leftover leftover leftover ``fn_pair`` identities. Never exec."""
 
-    try:
-        tree = ast.parse(source, filename=path)
-    except SyntaxError as exc:
-        raise LllRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{path} does not parse: {exc}") from exc
-    pending: list[str] | None = None
     rows: list[Plant] = []
     seen: set[str] = set()
-    for node in tree.body:
-        names = _tuple_names(node)
-        if names == ("fa", "fb") and isinstance(node, ast.Assign):
-            pending = _fn_pair_args(node)
-            refuse_when(
-                pending is None,
-                FINDING_SOURCE_NOT_PARSEABLE,
-                f"{path} has a malformed fn_pair bind",
-            )
-            continue
-        title = _append_title(node)
-        if title is None:
-            continue
-        refuse_when(
-            pending is None,
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{path} appends a leftover leftover leftover pair without fn_pair",
-        )
-        pair_args = cast(list[str], pending)
-        plant_id = f"{mill_id}:{pair_args[0]}"
+    for title, args in _ast.extract_pairs(source, path=path):
+        plant_id = f"{mill_id}:{args[0]}"
         refuse_when(plant_id in seen, FINDING_PLANT_DUPLICATE, f"{path} duplicate {plant_id}")
         seen.add(plant_id)
         rows.append(
@@ -263,24 +174,15 @@ def plants_from_source(
                 base_round=base_round,
                 index=len(rows),
                 title=title,
-                success_slug=pair_args[0],
-                fail_slug=pair_args[1],
-                success_plant=pair_args[2],
-                fail_plant=pair_args[3],
+                success_slug=args[0],
+                fail_slug=args[1],
+                success_plant=args[2],
+                fail_plant=args[3],
             )
         )
-        pending = None
-    refuse_when(
-        pending is not None,
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"{path} has a leftover leftover leftover fn_pair without PAIRS.append",
-    )
-    refuse_when(
-        not rows,
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"{path} has no leftover leftover leftover pairs",
-    )
     return tuple(rows)
+
+
 
 
 def _require_str(mapping: Mapping[str, Any], key: str, where: str) -> str:
@@ -392,7 +294,10 @@ def _catalog_header(catalog_dir: Path) -> Mapping[str, Any]:
         FINDING_CATALOG_FILE_MISSING,
         f"missing {header_path}",
     )
-    header = load_strict_json(header_path.read_text())
+    try:
+        header = load_strict_json(header_path.read_text())
+    except ValueError as exc:
+        raise LllRefusal(FINDING_CATALOG_FIELD_INVALID, f"CATALOG.json does not parse: {exc}") from exc
     refuse_when(
         not isinstance(header, Mapping),
         FINDING_CATALOG_FIELD_INVALID,
@@ -411,6 +316,7 @@ def _catalog_header(catalog_dir: Path) -> Mapping[str, Any]:
         FINDING_CATALOG_FIELD_INVALID,
         "source is not an object",
     )
+    source = cast(Mapping[str, Any], source)
     source_missing = [key for key in REQUIRED_SOURCE_FIELDS if key not in source]
     refuse_when(
         bool(source_missing),
@@ -431,7 +337,12 @@ def _plants_from_file(plants_path: Path) -> list[Plant]:
     for index, line in enumerate(plants_path.read_bytes().decode().splitlines()):
         if not line.strip():
             continue
-        row = load_strict_json(line)
+        try:
+            row = load_strict_json(line)
+        except ValueError as exc:
+            raise LllRefusal(
+                FINDING_PLANT_FIELD_INVALID, f"plant line {index} does not parse: {exc}"
+            ) from exc
         refuse_when(
             not isinstance(row, Mapping),
             FINDING_PLANT_FIELD_INVALID,
@@ -510,9 +421,10 @@ def _meta_findings(loaded: Catalog) -> list[str]:
 
 def _mill_findings(loaded: Catalog) -> list[str]:
     findings: list[str] = []
-    if len(loaded.mills) != len(SOURCE_MILLS):
-        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: mill pin count drifted")
     expected = {item[0]: item for item in SOURCE_MILLS}
+    mill_ids = [mill.mill_id for mill in loaded.mills]
+    if len(set(mill_ids)) != len(mill_ids) or set(mill_ids) != set(expected):
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: mill pin set drifted")
     for mill in loaded.mills:
         pin = expected.get(mill.mill_id)
         if pin is None:
@@ -523,10 +435,24 @@ def _mill_findings(loaded: Catalog) -> list[str]:
             findings.append(
                 f"{FINDING_CATALOG_FIELD_INVALID}: mill pin drifted for {mill.mill_id}"
             )
-        owned = loaded.mill_plants(mill.mill_id)
-        if mill.pair_count != len(owned) or mill.plant_count != len(owned) * 2:
+        findings.extend(_mill_plant_findings(mill, loaded.mill_plants(mill.mill_id)))
+    return findings
+
+
+def _mill_plant_findings(mill: Mill, owned: tuple[Plant, ...]) -> list[str]:
+    findings: list[str] = []
+    if mill.pair_count != len(owned) or mill.plant_count != len(owned) * 2:
+        findings.append(
+            f"{FINDING_CATALOG_FIELD_INVALID}: mill counts drifted for {mill.mill_id}"
+        )
+    for index, plant in enumerate(owned):
+        if plant.source != mill.source or plant.base_round != mill.base_round:
             findings.append(
-                f"{FINDING_CATALOG_FIELD_INVALID}: mill counts drifted for {mill.mill_id}"
+                f"{FINDING_CATALOG_FIELD_INVALID}: plant coordinates drifted for {plant.plant_id}"
+            )
+        if plant.index != index:
+            findings.append(
+                f"{FINDING_CATALOG_FIELD_INVALID}: plant index drifted for {plant.plant_id}"
             )
     return findings
 
@@ -540,8 +466,11 @@ def _source_findings(loaded: Catalog) -> list[str]:
         )
     if source.get("method") != "git-show+ast.parse":
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: extract method must stay AST-only")
-    if source.get("scripts") != [item[1] for item in SOURCE_MILLS]:
+    scripts = [item[1] for item in SOURCE_MILLS]
+    if source.get("scripts") != scripts:
         findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: source scripts drifted")
+    if source.get("not_executed") != scripts:
+        findings.append(f"{FINDING_CATALOG_FIELD_INVALID}: not_executed scripts drifted")
     return findings
 
 

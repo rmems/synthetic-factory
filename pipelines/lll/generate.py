@@ -16,7 +16,9 @@ from typing import Any
 
 from . import catalog as cat
 from ._contract import (
+    DEFAULT_CATALOG_ID,
     FACTORY,
+    FINDING_CATALOG_FIELD_INVALID,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_USAGE,
@@ -82,7 +84,7 @@ def _check_destination(out_dir: Path) -> None:
 def record(plant: cat.Plant, *, round_n: int | None = None) -> dict[str, Any]:
     """One compact leftover leftover leftover identity. Not a published episode."""
 
-    rnd = require_round(round_n if round_n is not None else plant.base_round)
+    rnd = require_round(round_n if round_n is not None else plant.base_round + plant.index)
     return {
         "id": f"{RECORD_PREFIX}-r{rnd}-{plant.success_slug}",
         "title": plant.title,
@@ -96,7 +98,7 @@ def record(plant: cat.Plant, *, round_n: int | None = None) -> dict[str, Any]:
             "mill_id": plant.mill_id,
             "intended_use": INTENDED_USE,
             "project_training_policy": PROJECT_TRAINING_POLICY,
-            "catalog_id": plant.mill_id,
+            "catalog_id": DEFAULT_CATALOG_ID,
             "quota": QUOTA_PER_ROUND,
         },
     }
@@ -142,6 +144,17 @@ def _write_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
 def run(request: GenerateRequest) -> dict[str, Any]:
     """Write leftover leftover leftover identities into a new directory."""
 
+    refuse_when(
+        request.round is not None and request.plant_id is None,
+        FINDING_USAGE,
+        "--round is only valid with --plant",
+    )
+    findings = cat.catalog_check(request.catalog_dir)
+    refuse_when(
+        bool(findings),
+        FINDING_CATALOG_FIELD_INVALID,
+        f"catalog pins failed: {'; '.join(findings)}",
+    )
     loaded = cat.load_catalog(request.catalog_dir)
     plants = _selected_plants(loaded, request)
     recs = [record(plant, round_n=request.round) for plant in plants]

@@ -16,7 +16,7 @@ from ._contract import (
     bind_import_twin,
     refuse_vendor_paths,
 )
-from . import catalog, cli, generate
+from . import catalog, catalog_ast, generate
 
 __all__ = [
     "FACTORY",
@@ -25,7 +25,7 @@ __all__ = [
     "LllRefusal",
     "bind_import_twin",
     "catalog",
-    "cli",
+    "catalog_ast",
     "generate",
     "refuse_vendor_paths",
 ]
