@@ -62,6 +62,15 @@ VALIDATING_ORACLE_KINDS = frozenset(
 )
 SHA256_RE = r"^sha256:[0-9a-f]{64}$"
 _SHA256 = re.compile(SHA256_RE)
+ERR_ACTOR_FIELDS_INVALID = "vset.actor_fields_invalid"
+ERR_PAYLOAD_INVALID = "vset.payload_invalid"
+ERR_RELEASE_CONTRACT_MISMATCH = "vset.release_contract_mismatch"
+ERR_ORACLE_PACK_BINDING = "vset.oracle_pack_binding"
+ERR_ORACLE_SELF_CERTIFIED = "vset.oracle_self_certified"
+ERR_ORACLE_EXECUTION_MISMATCH = "vset.oracle_execution_mismatch"
+ERR_SOURCE_KIND_MASQUERADE = "vset.source_kind_masquerade"
+ERR_RECORD_NOT_OBJECT = "vset.record_not_object"
+
 _REASON = re.compile(r"^[a-z][a-z0-9_.]*$")
 PROMETHEUS_MARKERS = ("operation-prometheus",)
 PROMETHEUS_FAMILIES = frozenset({"prometheus", "prometheus-real"})
@@ -239,7 +248,7 @@ def _is_nonempty(value: Any) -> bool:
 
 def _require_object(value: Any, where: str) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise VSetValidationError("vset.record_not_object", f"{where} must be a JSON object")
+        raise VSetValidationError(ERR_RECORD_NOT_OBJECT, f"{where} must be a JSON object")
     return value
 
 
@@ -247,7 +256,7 @@ def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
     for field in ("model", "version", "run_id"):
         if not _is_nonempty(actor.get(field)):
             raise VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 f"{role}.{field} must be a non-empty normalized string",
             )
 
@@ -255,7 +264,7 @@ def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
 def _reject_bad_sha256(actor: dict[str, Any], role: str, field: str) -> None:
     if not _is_sha256(actor.get(field)):
         raise VSetValidationError(
-            "vset.actor_fields_invalid",
+            ERR_ACTOR_FIELDS_INVALID,
             f"{role}.{field} must be sha256:<64 hex>",
         )
 
@@ -263,7 +272,7 @@ def _reject_bad_sha256(actor: dict[str, Any], role: str, field: str) -> None:
 def _reject_bad_nonempty(actor: dict[str, Any], role: str, field: str) -> None:
     if not _is_nonempty(actor.get(field)):
         raise VSetValidationError(
-            "vset.actor_fields_invalid",
+            ERR_ACTOR_FIELDS_INVALID,
             f"{role}.{field} must be a non-empty normalized string",
         )
 
@@ -296,7 +305,7 @@ def _check_actor(
     unknown = sorted(set(actor) - ACTOR_FIELDS)
     if unknown:
         raise VSetValidationError(
-            "vset.actor_fields_invalid",
+            ERR_ACTOR_FIELDS_INVALID,
             f"{role} has undeclared fields {unknown}",
         )
     _require_actor_identity(actor, role)
@@ -346,7 +355,7 @@ def nonfinite_error(value: Any, where: str = "document") -> VSetValidationError 
 
     if isinstance(value, float) and not math.isfinite(value):
         return VSetValidationError(
-            "vset.payload_invalid", f"{where} contains a non-finite number"
+            ERR_PAYLOAD_INVALID, f"{where} contains a non-finite number"
         )
     for child, label in _nonfinite_children(value, where):
         found = nonfinite_error(child, label)
@@ -365,14 +374,14 @@ def reason_codes_error(reasons: Any, where: str) -> list[VSetValidationError]:
     if not isinstance(reasons, list) or any(_reason_token_invalid(item) for item in reasons):
         return [
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 f"{where}.reason_codes must be a list of lowercase reason tokens",
             )
         ]
     if len(set(reasons)) != len(reasons):
         return [
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 f"{where}.reason_codes must not contain duplicates",
             )
         ]

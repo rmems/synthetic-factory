@@ -24,24 +24,26 @@ if __package__:
 
     _assert_direct_sibling("vset_oracle_exec")
     from .vset_constants import (
+        ERR_ORACLE_EXECUTION_MISMATCH,
         VSetValidationError,
         _canonical_json,
         _mapping_or_empty,
         _sha256_text,
         pack_snapshot_hash,
-    )
+)
     from .vset_patch import apply_patch
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_exec"
     )
     from vset_constants import (
+        ERR_ORACLE_EXECUTION_MISMATCH,
         VSetValidationError,
         _canonical_json,
         _mapping_or_empty,
         _sha256_text,
         pack_snapshot_hash,
-    )
+)
     from vset_patch import apply_patch
 
 _CAPTURE_LIMIT = 4000
@@ -98,7 +100,7 @@ def _restore_oracle_file(pack_dir: Path, work: Path, relative: str) -> None:
     """
 
     source = pack_dir / relative
-    dest = _resolve_under_work(work, relative, code="vset.oracle_execution_mismatch")
+    dest = _resolve_under_work(work, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
     if source.is_file():
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, dest)
@@ -112,9 +114,9 @@ def _load_tests(
         relative = str(pack_dir)
         pack_dir = work
     _restore_oracle_file(Path(pack_dir), work, relative)
-    path = _resolve_under_work(work, relative, code="vset.oracle_execution_mismatch")
+    path = _resolve_under_work(work, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
     if not path.is_file():
-        raise VSetValidationError("vset.oracle_execution_mismatch", f"missing test module {relative}")
+        raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}")
     return _load_suite(path, relative)
 
 
@@ -122,7 +124,7 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
     module_name = "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise VSetValidationError("vset.oracle_execution_mismatch", f"cannot load {relative}")
+        raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"cannot load {relative}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     try:
@@ -132,7 +134,7 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
         raise
     except Exception as exc:
         raise VSetValidationError(
-            "vset.oracle_execution_mismatch",
+            ERR_ORACLE_EXECUTION_MISMATCH,
             f"test module {relative} failed to load: {exc}",
         ) from exc
 
@@ -271,7 +273,7 @@ def run_oracle(
 
     pack_dir = Path(pack_dir)
     if not pack_dir.is_dir():
-        raise VSetValidationError("vset.oracle_execution_mismatch", f"not a pack directory: {pack_dir}")
+        raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"not a pack directory: {pack_dir}")
     plan = _mapping_or_empty(hidden_suite)
     reference_list = list(reference_tests)
     hidden_list = list(plan.get("tests") or ())

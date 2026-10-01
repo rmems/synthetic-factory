@@ -33,6 +33,7 @@ if __package__:
 
     _assert_direct_sibling("validate_vset")
     from .vset_constants import (
+        ERR_ORACLE_EXECUTION_MISMATCH,
         IDENTITY_UNRESOLVED_PROVENANCE,
         MANIFEST_ROLES,
         VSetValidationError,
@@ -41,7 +42,7 @@ if __package__:
         pack_snapshot_hash,
         registry_pin,
         summarize,
-    )
+)
     from .vset_manifest import (
         _is_invalid_or_impossible,
         manifest_body_hash,
@@ -63,6 +64,7 @@ else:
         "validate_vset"
     )
     from vset_constants import (
+        ERR_ORACLE_EXECUTION_MISMATCH,
         IDENTITY_UNRESOLVED_PROVENANCE,
         MANIFEST_ROLES,
         VSetValidationError,
@@ -71,7 +73,7 @@ else:
         pack_snapshot_hash,
         registry_pin,
         summarize,
-    )
+)
     from vset_manifest import (
         _is_invalid_or_impossible,
         manifest_body_hash,
@@ -184,7 +186,7 @@ def _one_record_report(
     if args.oracle:
         if pack is None:
             raise VSetValidationError(
-                "vset.oracle_execution_mismatch", "--oracle requires --pack"
+                ERR_ORACLE_EXECUTION_MISMATCH, "--oracle requires --pack"
             )
         errors, execution = validate_record_with_oracle(
             record, pack, require_registry_sha=args.require_registry_sha

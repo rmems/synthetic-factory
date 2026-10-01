@@ -10,6 +10,8 @@ if __package__:
 
     _assert_direct_sibling("vset_source")
     from .vset_constants import (
+        ERR_PAYLOAD_INVALID,
+        ERR_SOURCE_KIND_MASQUERADE,
         KIND_PAYLOAD_KEYS,
         PROMETHEUS_FAMILIES,
         SOURCE_KINDS,
@@ -17,12 +19,14 @@ if __package__:
         VSetValidationError,
         _contains_prometheus_marker,
         _normalized_identity_text,
-    )
+)
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_source"
     )
     from vset_constants import (
+        ERR_PAYLOAD_INVALID,
+        ERR_SOURCE_KIND_MASQUERADE,
         KIND_PAYLOAD_KEYS,
         PROMETHEUS_FAMILIES,
         SOURCE_KINDS,
@@ -30,7 +34,7 @@ else:
         VSetValidationError,
         _contains_prometheus_marker,
         _normalized_identity_text,
-    )
+)
 
 
 def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
@@ -53,7 +57,7 @@ def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
         if isinstance(pack_id, str) and pack_id.startswith(SYNTHETIC_PACK_PREFIX):
             errors.append(
                 VSetValidationError(
-                    "vset.source_kind_masquerade",
+                    ERR_SOURCE_KIND_MASQUERADE,
                     "real_public_engineering must not use a synthetic VSET repo pack as its identity",
                 )
             )
@@ -88,14 +92,14 @@ def _synthetic_masquerade_errors(
     if _prometheus_identity_claimed(record, env):
         errors.append(
             VSetValidationError(
-                "vset.source_kind_masquerade",
+                ERR_SOURCE_KIND_MASQUERADE,
                 "synthetic records must not claim Operation Prometheus as source identity",
             )
         )
     if _real_family_claimed(env):
         errors.append(
             VSetValidationError(
-                "vset.source_kind_masquerade",
+                ERR_SOURCE_KIND_MASQUERADE,
                 "synthetic records must not masquerade as real_public_engineering / Prometheus",
             )
         )
@@ -105,13 +109,13 @@ def _synthetic_masquerade_errors(
 def payload_errors(kind: str, payload: Any) -> list[VSetValidationError]:
     if not isinstance(payload, dict) or not payload:
         return [
-            VSetValidationError("vset.payload_invalid", "payload must be a non-empty object")
+            VSetValidationError(ERR_PAYLOAD_INVALID, "payload must be a non-empty object")
         ]
     missing = [key for key in KIND_PAYLOAD_KEYS[kind] if key not in payload]
     if missing:
         return [
             VSetValidationError(
-                "vset.payload_invalid",
+                ERR_PAYLOAD_INVALID,
                 f"{kind} payload missing {missing}",
             )
         ]

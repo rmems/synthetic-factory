@@ -20,13 +20,15 @@ if __package__:
     from .curate_identity import REGISTRY_SCHEMA_VERSION
     from .vset_constants import (
         CURATION_DECISIONS,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         IDENTITY_UNRESOLVED_PROVENANCE,
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
         reason_codes_error,
         registry_pin,
-    )
+)
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_record_checks"
@@ -35,13 +37,15 @@ else:
     from curate_identity import REGISTRY_SCHEMA_VERSION
     from vset_constants import (
         CURATION_DECISIONS,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         IDENTITY_UNRESOLVED_PROVENANCE,
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
         reason_codes_error,
         registry_pin,
-    )
+)
 
 
 def _curation_errors(
@@ -51,7 +55,7 @@ def _curation_errors(
     if not _is_nonempty(curation.get("pipeline_version")):
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 "curation.pipeline_version must be a non-empty string",
             )
         )
@@ -59,7 +63,7 @@ def _curation_errors(
     if decision not in CURATION_DECISIONS:
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 "curation.decision must be accept, exclude, or measure",
             )
         )
@@ -137,14 +141,14 @@ def _environment_errors(environment: dict[str, Any]) -> list[VSetValidationError
     if not _is_sha256(environment.get("repo_snapshot_hash")):
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 "environment.repo_snapshot_hash must be sha256:<64 hex>",
             )
         )
     if not _is_nonempty(environment.get("task_id")):
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 "environment.task_id must be a non-empty string",
             )
         )
@@ -163,14 +167,14 @@ def _release_errors(
     if release.get("factory_contract_version") != pin["schema_version"]:
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 f"release.factory_contract_version must be {pin['schema_version']}",
             )
         )
     if not _is_sha256(release.get("manifest_hash")):
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 "release.manifest_hash must be sha256:<64 hex>",
             )
         )
@@ -178,7 +182,7 @@ def _release_errors(
     if pin["schema_version"] != REGISTRY_SCHEMA_VERSION:
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 "loaded registry schema_version drifted from identity's REGISTRY_SCHEMA_VERSION",
             )
         )
@@ -195,7 +199,7 @@ def _stamped_registry_errors(
         return []
     return [
         VSetValidationError(
-            "vset.release_contract_mismatch",
+            ERR_RELEASE_CONTRACT_MISMATCH,
             "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
         )
     ]

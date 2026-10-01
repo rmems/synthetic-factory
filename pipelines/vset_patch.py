@@ -15,13 +15,18 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_patch")
-    from .vset_constants import VSetValidationError
+    from .vset_constants import (
+        ERR_PAYLOAD_INVALID,
+        VSetValidationError,
+    )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_patch"
     )
-    from vset_constants import VSetValidationError
-
+    from vset_constants import (
+        ERR_PAYLOAD_INVALID,
+        VSetValidationError,
+    )
 
 def _illegal_patch_path(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
@@ -43,25 +48,25 @@ def _resolve_patch_dest(work: Path, relative: str) -> Path:
     dest = (work / relative).resolve()
     if _escapes_work(work, dest):
         raise VSetValidationError(
-            "vset.payload_invalid", f"patch path escapes the worktree {relative!r}"
+            ERR_PAYLOAD_INVALID, f"patch path escapes the worktree {relative!r}"
         )
     if dest == work.resolve() or dest.is_dir():
         raise VSetValidationError(
-            "vset.payload_invalid", f"patch destination is a directory: {relative!r}"
+            ERR_PAYLOAD_INVALID, f"patch destination is a directory: {relative!r}"
         )
     return dest
 
 
 def _check_patch_write(relative: Any, contents: Any, protected: frozenset[str]) -> None:
     if _illegal_patch_path(relative):
-        raise VSetValidationError("vset.payload_invalid", f"illegal patch path {relative!r}")
+        raise VSetValidationError(ERR_PAYLOAD_INVALID, f"illegal patch path {relative!r}")
     if _patch_path_key(relative) in protected:
         raise VSetValidationError(
-            "vset.payload_invalid",
+            ERR_PAYLOAD_INVALID,
             f"patch must not overwrite a declared oracle test: {relative!r}",
         )
     if not isinstance(contents, str):
-        raise VSetValidationError("vset.payload_invalid", f"patch file {relative} must be a string")
+        raise VSetValidationError(ERR_PAYLOAD_INVALID, f"patch file {relative} must be a string")
 
 
 def _write_patch_file(
@@ -74,7 +79,7 @@ def _write_patch_file(
         dest.write_text(contents)
     except OSError as exc:
         raise VSetValidationError(
-            "vset.payload_invalid", f"cannot write patch file {relative!r}: {exc}"
+            ERR_PAYLOAD_INVALID, f"cannot write patch file {relative!r}: {exc}"
         ) from exc
 
 
@@ -82,10 +87,10 @@ def apply_patch(
     work: Path, patch: Any, *, protected: Iterable[str] = ()
 ) -> None:
     if not isinstance(patch, Mapping):
-        raise VSetValidationError("vset.payload_invalid", "patch must be an object")
+        raise VSetValidationError(ERR_PAYLOAD_INVALID, "patch must be an object")
     files = patch.get("files")
     if not isinstance(files, Mapping) or not files:
-        raise VSetValidationError("vset.payload_invalid", "patch.files must be a non-empty object")
+        raise VSetValidationError(ERR_PAYLOAD_INVALID, "patch.files must be a non-empty object")
     protected_keys = frozenset(_patch_path_key(item) for item in protected)
     for relative, contents in files.items():
         _write_patch_file(work, relative, contents, protected_keys)

@@ -12,6 +12,8 @@ if __package__:
     _assert_direct_sibling("vset_record")
     from .vset_constants import (
         ACTOR_PROVENANCE_VERSION,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
         RECORD_KINDS,
         RECORD_TOP_LEVEL_KEYS,
         REVIEW_REQUIRED_KINDS,
@@ -19,7 +21,7 @@ if __package__:
         VSetValidationError,
         _check_actor,
         nonfinite_error,
-    )
+)
     from .vset_oracle_check import oracle_errors
     from .vset_record_checks import (
         _curation_errors,
@@ -34,6 +36,8 @@ else:
     )
     from vset_constants import (
         ACTOR_PROVENANCE_VERSION,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
         RECORD_KINDS,
         RECORD_TOP_LEVEL_KEYS,
         REVIEW_REQUIRED_KINDS,
@@ -41,7 +45,7 @@ else:
         VSetValidationError,
         _check_actor,
         nonfinite_error,
-    )
+)
     from vset_oracle_check import oracle_errors
     from vset_record_checks import (
         _curation_errors,
@@ -102,7 +106,7 @@ def _record_head_errors(
 def _unknown_top_level_errors(record: dict[str, Any]) -> list[VSetValidationError]:
     return [
         VSetValidationError(
-            "vset.payload_invalid",
+            ERR_PAYLOAD_INVALID,
             f"undeclared top-level record field {key!r}",
         )
         for key in sorted(set(record) - RECORD_TOP_LEVEL_KEYS)
@@ -138,7 +142,7 @@ def _required_role_errors(record: dict[str, Any]) -> list[VSetValidationError]:
         elif not isinstance(record[role], dict):
             errors.append(
                 VSetValidationError(
-                    "vset.actor_fields_invalid",
+                    ERR_ACTOR_FIELDS_INVALID,
                     f"{role} must be a JSON object",
                 )
             )
@@ -196,7 +200,7 @@ def _reviewer_errors(reviewer: Any, kind: str | None) -> list[VSetValidationErro
     if not isinstance(reviewer, dict):
         return [
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 "reviewer must be an object when present",
             )
         ]

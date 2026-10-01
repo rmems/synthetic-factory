@@ -12,9 +12,10 @@ if __package__:
 
     _assert_direct_sibling("vset_oracle")
     from .vset_constants import (
+        ERR_ORACLE_PACK_BINDING,
         VSetValidationError,
         _mapping_or_empty,
-    )
+)
     from .vset_oracle_exec import run_oracle
     from .vset_oracle_check import _execution_match_errors, _oracle_path_list_error
     from .vset_patch import pre_patches, record_patch
@@ -24,9 +25,10 @@ else:
         "vset_oracle"
     )
     from vset_constants import (
+        ERR_ORACLE_PACK_BINDING,
         VSetValidationError,
         _mapping_or_empty,
-    )
+)
     from vset_oracle_exec import run_oracle
     from vset_oracle_check import _execution_match_errors, _oracle_path_list_error
     from vset_patch import pre_patches, record_patch
@@ -50,7 +52,7 @@ def _load_pack_manifest(pack_dir: Path) -> tuple[dict[str, Any], VSetValidationE
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return {}, VSetValidationError(
-            "vset.oracle_pack_binding", f"unreadable PACK.json: {exc}"
+            ERR_ORACLE_PACK_BINDING, f"unreadable PACK.json: {exc}"
         )
     return (meta if isinstance(meta, dict) else {}), None
 
@@ -97,7 +99,7 @@ def _task_oracle_field_errors(
         fields.extend(["reference_tests", "hidden_tests", "command"])
     return [
         VSetValidationError(
-            "vset.oracle_pack_binding",
+            ERR_ORACLE_PACK_BINDING,
             f"oracle.{field} does not match the pack task manifest",
         )
         for field in fields
@@ -114,7 +116,7 @@ def _task_binding_errors(
     if manifest is None:
         return [
             VSetValidationError(
-                "vset.oracle_pack_binding",
+                ERR_ORACLE_PACK_BINDING,
                 "environment.task_id is not declared by the selected pack",
             )
         ]
@@ -123,7 +125,7 @@ def _task_binding_errors(
     if declared_kind is not None and declared_kind != record.get("record_kind"):
         errors.append(
             VSetValidationError(
-                "vset.oracle_pack_binding",
+                ERR_ORACLE_PACK_BINDING,
                 "record_kind does not match the pack task manifest",
             )
         )
@@ -140,14 +142,14 @@ def _pack_id_errors(
     if env.get("repo_pack_id") not in (None, pack_id):
         errors.append(
             VSetValidationError(
-                "vset.oracle_pack_binding",
+                ERR_ORACLE_PACK_BINDING,
                 "environment.repo_pack_id does not match the selected pack",
             )
         )
     if oracle.get("repo_commit") not in (None, pack_id):
         errors.append(
             VSetValidationError(
-                "vset.oracle_pack_binding",
+                ERR_ORACLE_PACK_BINDING,
                 "oracle.repo_commit does not match the selected pack",
             )
         )

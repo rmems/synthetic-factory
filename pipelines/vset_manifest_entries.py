@@ -17,6 +17,9 @@ if __package__:
     _assert_direct_sibling("vset_manifest_entries")
     from .vset_constants import (
         ENTRY_TOP_LEVEL_KEYS,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         MANIFEST_ROLES,
         RECORD_KINDS,
         REVIEW_REQUIRED_KINDS,
@@ -24,7 +27,7 @@ if __package__:
         _check_actor,
         _is_sha256,
         nonfinite_error,
-    )
+)
     from .vset_manifest_entry_oracle import (
         _entry_curation_errors,
         _entry_oracle_errors,
@@ -36,6 +39,9 @@ else:
     )
     from vset_constants import (
         ENTRY_TOP_LEVEL_KEYS,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         MANIFEST_ROLES,
         RECORD_KINDS,
         REVIEW_REQUIRED_KINDS,
@@ -43,7 +49,7 @@ else:
         _check_actor,
         _is_sha256,
         nonfinite_error,
-    )
+)
     from vset_manifest_entry_oracle import (
         _entry_curation_errors,
         _entry_oracle_errors,
@@ -62,7 +68,7 @@ def manifest_entry_errors(
     if unknown:
         errors.append(
             VSetValidationError(
-                "vset.payload_invalid", f"{where} has undeclared fields {unknown}"
+                ERR_PAYLOAD_INVALID, f"{where} has undeclared fields {unknown}"
             )
         )
     if entry.get("record_kind") not in RECORD_KINDS:
@@ -136,12 +142,12 @@ def _entry_environment_errors(where: str, entry: Mapping[str, Any]) -> list[VSet
     if environment is None:
         return []
     if not isinstance(environment, Mapping):
-        return [VSetValidationError("vset.payload_invalid", f"{env_where} must be an object")]
+        return [VSetValidationError(ERR_PAYLOAD_INVALID, f"{env_where} must be an object")]
     errors: list[VSetValidationError] = []
     if not _is_sha256(environment.get("repo_snapshot_hash")):
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid",
+                ERR_ACTOR_FIELDS_INVALID,
                 f"{env_where}.repo_snapshot_hash must be sha256:<64 hex>",
             )
         )
@@ -149,7 +155,7 @@ def _entry_environment_errors(where: str, entry: Mapping[str, Any]) -> list[VSet
     if not isinstance(task_id, str) or not task_id.strip():
         errors.append(
             VSetValidationError(
-                "vset.payload_invalid", f"{env_where}.task_id must be a non-empty string"
+                ERR_PAYLOAD_INVALID, f"{env_where}.task_id must be a non-empty string"
             )
         )
     return errors
@@ -165,14 +171,14 @@ def _entry_release_pin_errors(
     if release.get("factory_contract_version") != pin["schema_version"]:
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 f"{where}.release.factory_contract_version must match the registry pin",
             )
         )
     if release.get("factory_registry_sha256") not in {None, pin["sha256"]}:
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 f"{where}.release.factory_registry_sha256 must match the registry pin",
             )
         )

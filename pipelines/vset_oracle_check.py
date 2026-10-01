@@ -12,6 +12,8 @@ if __package__:
     _assert_direct_sibling("vset_oracle_check")
     from .vset_oracle_exec import _execution_result_hash
     from .vset_constants import (
+        ERR_ORACLE_EXECUTION_MISMATCH,
+        ERR_ORACLE_SELF_CERTIFIED,
         ORACLE_STATUSES,
         SELF_CERTIFY_ORACLE_KINDS,
         VALIDATING_ORACLE_KINDS,
@@ -20,13 +22,15 @@ if __package__:
         _is_sha256,
         _mapping_or_empty,
         _normalized_identity_text,
-    )
+)
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_check"
     )
     from vset_oracle_exec import _execution_result_hash
     from vset_constants import (
+        ERR_ORACLE_EXECUTION_MISMATCH,
+        ERR_ORACLE_SELF_CERTIFIED,
         ORACLE_STATUSES,
         SELF_CERTIFY_ORACLE_KINDS,
         VALIDATING_ORACLE_KINDS,
@@ -35,7 +39,7 @@ else:
         _is_sha256,
         _mapping_or_empty,
         _normalized_identity_text,
-    )
+)
 
 
 def oracle_errors(
@@ -67,14 +71,14 @@ def _self_certify_kind_errors(kind: Any) -> list[VSetValidationError]:
     if kind in SELF_CERTIFY_ORACLE_KINDS:
         errors.append(
             VSetValidationError(
-                "vset.oracle_self_certified",
+                ERR_ORACLE_SELF_CERTIFIED,
                 "a solver or task-author claim cannot certify oracle_status=validated",
             )
         )
     if kind not in VALIDATING_ORACLE_KINDS:
         errors.append(
             VSetValidationError(
-                "vset.oracle_self_certified",
+                ERR_ORACLE_SELF_CERTIFIED,
                 f"oracle.kind {kind!r} cannot independently certify validated",
             )
         )
@@ -110,7 +114,7 @@ def _solver_upgrade_errors(
         return []
     return [
         VSetValidationError(
-            "vset.oracle_self_certified",
+            ERR_ORACLE_SELF_CERTIFIED,
             "solver success must not upgrade oracle_status to validated",
         )
     ]
@@ -174,7 +178,7 @@ def _certifier_errors(
     if not _is_nonempty(certifier):
         return [
             VSetValidationError(
-                "vset.oracle_self_certified",
+                ERR_ORACLE_SELF_CERTIFIED,
                 "validated oracle requires an independent certifier",
             )
         ]
@@ -182,7 +186,7 @@ def _certifier_errors(
         return []
     return [
         VSetValidationError(
-            "vset.oracle_self_certified",
+            ERR_ORACLE_SELF_CERTIFIED,
             "oracle.certifier must not be the solver or task_author",
         )
     ]
@@ -199,7 +203,7 @@ def _string_path_list_error(value: Any, field: str, *, required: bool) -> VSetVa
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return None
     return VSetValidationError(
-        "vset.oracle_execution_mismatch",
+        ERR_ORACLE_EXECUTION_MISMATCH,
         f"oracle.{field} must be a list of paths",
     )
 
@@ -208,7 +212,7 @@ def _first_illegal_pack_path(paths: Iterable[Any]) -> VSetValidationError | None
     for item in paths:
         if isinstance(item, str) and _illegal_pack_relative(item):
             return VSetValidationError(
-                "vset.oracle_execution_mismatch",
+                ERR_ORACLE_EXECUTION_MISMATCH,
                 f"oracle test path must stay under the pack: {item!r}",
             )
     return None
@@ -240,7 +244,7 @@ def _execution_match_errors(
     }:
         errors.append(
             VSetValidationError(
-                "vset.oracle_execution_mismatch",
+                ERR_ORACLE_EXECUTION_MISMATCH,
                 "environment.repo_snapshot_hash does not match the repo pack",
             )
         )
@@ -257,7 +261,7 @@ def _fail_first_errors(stages: Iterable[Mapping[str, Any]]) -> list[VSetValidati
         if stage["ok"]:
             errors.append(
                 VSetValidationError(
-                    "vset.oracle_execution_mismatch",
+                    ERR_ORACLE_EXECUTION_MISMATCH,
                     f"hidden suite passes before the candidate patch at {stage['stage']}; "
                     "the recorded fail-to-pass claim is not demonstrated",
                 )
@@ -270,7 +274,7 @@ def _hidden_suite_errors(hidden: Any) -> list[VSetValidationError]:
         return []
     return [
         VSetValidationError(
-            "vset.oracle_execution_mismatch",
+            ERR_ORACLE_EXECUTION_MISMATCH,
             "validated oracle requires declared hidden tests to pass",
         )
     ]
@@ -283,7 +287,7 @@ def _validated_execution_errors(
     if not execution["reference"]["ok"]:
         errors.append(
             VSetValidationError(
-                "vset.oracle_execution_mismatch",
+                ERR_ORACLE_EXECUTION_MISMATCH,
                 "validated oracle requires the reference suite to pass",
             )
         )
@@ -291,14 +295,14 @@ def _validated_execution_errors(
     if oracle.get("result_hash") != _execution_result_hash(execution):
         errors.append(
             VSetValidationError(
-                "vset.oracle_execution_mismatch",
+                ERR_ORACLE_EXECUTION_MISMATCH,
                 "oracle.result_hash does not match deterministic fixture execution",
             )
         )
     if oracle.get("kind") in SELF_CERTIFY_ORACLE_KINDS:
         errors.append(
             VSetValidationError(
-                "vset.oracle_self_certified",
+                ERR_ORACLE_SELF_CERTIFIED,
                 "hidden-test pass is meaningless unless the oracle itself is valid",
             )
         )

@@ -16,13 +16,15 @@ if __package__:
     _assert_direct_sibling("vset_manifest_entry_oracle")
     from .vset_constants import (
         CURATION_DECISIONS,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
         IDENTITY_UNRESOLVED_PROVENANCE,
         ORACLE_STATUSES,
         VSetValidationError,
         _is_sha256,
         _mapping_or_empty,
         reason_codes_error,
-    )
+)
     from .vset_oracle_check import validated_oracle_independence_errors
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -30,13 +32,15 @@ else:
     )
     from vset_constants import (
         CURATION_DECISIONS,
+        ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
         IDENTITY_UNRESOLVED_PROVENANCE,
         ORACLE_STATUSES,
         VSetValidationError,
         _is_sha256,
         _mapping_or_empty,
         reason_codes_error,
-    )
+)
     from vset_oracle_check import validated_oracle_independence_errors
 
 
@@ -75,7 +79,7 @@ def _entry_oracle_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValid
     if oracle is None:
         return []
     if not isinstance(oracle, Mapping):
-        return [VSetValidationError("vset.payload_invalid", f"{where}.oracle must be an object")]
+        return [VSetValidationError(ERR_PAYLOAD_INVALID, f"{where}.oracle must be an object")]
     errors = _entry_oracle_status_errors(where, oracle)
     if oracle.get("status") == "validated":
         errors.extend(_entry_validated_oracle_errors(where, entry, oracle))
@@ -115,13 +119,13 @@ def _entry_curation_errors(where: str, entry: Mapping[str, Any]) -> list[VSetVal
     if curation is None:
         return []
     if not isinstance(curation, Mapping):
-        return [VSetValidationError("vset.payload_invalid", f"{where}.curation must be an object")]
+        return [VSetValidationError(ERR_PAYLOAD_INVALID, f"{where}.curation must be an object")]
     errors: list[VSetValidationError] = []
     decision = curation.get("decision")
     if decision is not None and decision not in CURATION_DECISIONS:
         errors.append(
             VSetValidationError(
-                "vset.actor_fields_invalid", f"{where}.curation.decision is not a known decision"
+                ERR_ACTOR_FIELDS_INVALID, f"{where}.curation.decision is not a known decision"
             )
         )
     errors.extend(_entry_reason_errors(where, curation))

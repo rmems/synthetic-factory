@@ -14,6 +14,8 @@ if __package__:
     from .vset_constants import (
         ACTOR_PROVENANCE_VERSION,
         CURATION_DECISIONS,
+        ERR_PAYLOAD_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         MANIFEST_SCHEMA_VERSION,
         MANIFEST_TOP_LEVEL_KEYS,
         ORACLE_STATUSES,
@@ -25,7 +27,7 @@ if __package__:
         _sha256_text,
         nonfinite_error,
         registry_pin,
-    )
+)
     from .vset_manifest_entries import manifest_entry_errors
     from .vset_manifest_entry_oracle import _is_invalid_or_impossible
 else:
@@ -35,6 +37,8 @@ else:
     from vset_constants import (
         ACTOR_PROVENANCE_VERSION,
         CURATION_DECISIONS,
+        ERR_PAYLOAD_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         MANIFEST_SCHEMA_VERSION,
         MANIFEST_TOP_LEVEL_KEYS,
         ORACLE_STATUSES,
@@ -46,7 +50,7 @@ else:
         _sha256_text,
         nonfinite_error,
         registry_pin,
-    )
+)
     from vset_manifest_entries import manifest_entry_errors
     from vset_manifest_entry_oracle import _is_invalid_or_impossible
 
@@ -123,7 +127,7 @@ def validate_manifest(
     if unknown:
         errors.append(
             VSetValidationError(
-                "vset.payload_invalid", f"manifest has undeclared fields {unknown}"
+                ERR_PAYLOAD_INVALID, f"manifest has undeclared fields {unknown}"
             )
         )
     nonfinite = nonfinite_error(manifest, "manifest")
@@ -133,7 +137,7 @@ def validate_manifest(
     entries = manifest.get("entries")
     if not isinstance(entries, list) or not entries:
         errors.append(
-            VSetValidationError("vset.payload_invalid", "manifest.entries must be a non-empty list")
+            VSetValidationError(ERR_PAYLOAD_INVALID, "manifest.entries must be a non-empty list")
         )
         return errors
     pin = registry_pin(registry_path)
@@ -143,7 +147,7 @@ def validate_manifest(
     if manifest.get("manifest_hash") != manifest_body_hash(manifest):
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 "manifest_hash does not match the canonical actor-graph body",
             )
         )
@@ -172,14 +176,14 @@ def _manifest_header_errors(
     if manifest.get("factory_contract_version") != pin["schema_version"]:
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 f"factory_contract_version must be {pin['schema_version']}",
             )
         )
     if manifest.get("factory_registry_sha256") != pin["sha256"]:
         errors.append(
             VSetValidationError(
-                "vset.release_contract_mismatch",
+                ERR_RELEASE_CONTRACT_MISMATCH,
                 "factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
             )
         )
@@ -200,13 +204,13 @@ def _count_mismatch(actual: Any, expected: Any, message: str) -> list[VSetValida
     if _bool_counts_in(actual):
         return [
             VSetValidationError(
-                "vset.payload_invalid",
+                ERR_PAYLOAD_INVALID,
                 "counts must be integers, not booleans: " + message,
             )
         ]
     if actual == expected:
         return []
-    return [VSetValidationError("vset.payload_invalid", message)]
+    return [VSetValidationError(ERR_PAYLOAD_INVALID, message)]
 
 
 def _invalid_or_impossible_count_errors(
@@ -215,7 +219,7 @@ def _invalid_or_impossible_count_errors(
     if "invalid_or_impossible" not in counts:
         return [
             VSetValidationError(
-                "vset.payload_invalid",
+                ERR_PAYLOAD_INVALID,
                 "counts.invalid_or_impossible is required; invalid tasks are not silent drops",
             )
         ]
@@ -231,7 +235,7 @@ def _manifest_count_errors(
 ) -> list[VSetValidationError]:
     counts = manifest.get("counts")
     if not isinstance(counts, dict):
-        return [VSetValidationError("vset.payload_invalid", "manifest.counts must be an object")]
+        return [VSetValidationError(ERR_PAYLOAD_INVALID, "manifest.counts must be an object")]
     errors: list[VSetValidationError] = []
     errors.extend(
         _count_mismatch(
