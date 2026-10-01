@@ -102,7 +102,7 @@ def _count_map(
     key_path: tuple[str, ...],
     allowed: Iterable[str] | None = None,
 ) -> dict[str, int]:
-    tallies: dict[str, int] = {name: 0 for name in allowed} if allowed is not None else {}
+    tallies: dict[str, int] = dict.fromkeys(allowed, 0) if allowed is not None else {}
     for entry in entries:
         cursor: Any = entry
         for key in key_path:

@@ -168,12 +168,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         _report(stale, "stale")
         return 1
-    # Every writable fixture sits exactly two levels under FIXTURES by
+    # Every writable fixture sits at a fixed depth under FIXTURES by
     # construction (records/<verdict>/<name>.json, manifests/<name>.json), so
     # re-rooting the stale path's tail components under FIXTURES writes the
     # same file while keeping the destination pinned to the fixture tree.
     for path in stale:
-        target = FIXTURES / path.parent.name / path.name
+        if path.parent.parent.name == "records":
+            target = FIXTURES / "records" / path.parent.name / path.name
+        else:
+            target = FIXTURES / path.parent.name / path.name
         target.write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
     return 0

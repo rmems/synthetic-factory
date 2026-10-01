@@ -51,7 +51,7 @@
         "reason_codes": []
       },
       "environment": {
-        "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+        "repo_snapshot_hash": "sha256:1b029804867b512feff7f60d025ce7283239e15cc10786dd3f813ae31c2283b7",
         "task_id": "vset-counter-v1.add-sub",
         "repo_pack_id": "vset-counter-v1"
       },
@@ -89,7 +89,7 @@
         ]
       },
       "environment": {
-        "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+        "repo_snapshot_hash": "sha256:1b029804867b512feff7f60d025ce7283239e15cc10786dd3f813ae31c2283b7",
         "task_id": "vset-counter-v1.impossible-halting",
         "repo_pack_id": "vset-counter-v1"
       },
@@ -99,5 +99,5 @@
       }
     }
   ],
-  "manifest_hash": "sha256:ffc82d16feba530f7af57da2241cace40f0c83b53e62918dc6cb6420c59b7960"
+  "manifest_hash": "sha256:68351a857cf14733db13f51853eb4fa937b1205e13897e21139b8860fb042f91"
 }

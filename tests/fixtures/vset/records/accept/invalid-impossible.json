@@ -32,7 +32,7 @@
     ]
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+    "repo_snapshot_hash": "sha256:1b029804867b512feff7f60d025ce7283239e15cc10786dd3f813ae31c2283b7",
     "task_id": "vset-counter-v1.impossible-halting",
     "repo_pack_id": "vset-counter-v1"
   },
