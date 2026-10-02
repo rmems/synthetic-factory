@@ -2,6 +2,8 @@
 
 import errno
 import json
+import os
+import signal
 import sys
 import tempfile
 import unittest
@@ -50,6 +52,42 @@ class QualityGateInputIntegrity(unittest.TestCase):
         finally:
             path.chmod(mode)
 
+    @contextmanager
+    def listing_failure(self, denied):
+        original_iterdir = Path.iterdir
+
+        def iterdir_with_error(path):
+            if path == denied:
+                raise PermissionError(errno.EACCES, "listing denied", str(path))
+            return original_iterdir(path)
+
+        with patch.object(Path, "iterdir", iterdir_with_error):
+            yield
+
+    @contextmanager
+    def audit_deadline(self):
+        def expired(_signum, _frame):
+            self.fail("quality gate blocked opening a nonregular input")
+
+        previous_handler = signal.signal(signal.SIGALRM, expired)
+        previous_timer = signal.setitimer(signal.ITIMER_REAL, 5)
+        try:
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+            signal.signal(signal.SIGALRM, previous_handler)
+
+    def audit_cli(self):
+        output = StringIO()
+        with (
+            self.audit_deadline(),
+            redirect_stdout(output),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            quality_gate.main([str(self.root), "--json", "--no-embedding-dedup"])
+        self.assertEqual(caught.exception.code, 1)
+        return json.loads(output.getvalue())
+
     def test_duplicate_keys_cannot_overwrite_provenance_or_nested_evidence(self):
         ambiguous_records = (
             '{"state":{"sim_or_real":"simulated"},"state":{"sim_or_real":"real"}}',
@@ -97,6 +135,33 @@ class QualityGateInputIntegrity(unittest.TestCase):
         self.assertEqual(report["counts"]["total"], 0)
         self.assertEqual(report["errors"]["unreadable_files"], 1)
         self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], ".")
+
+    def test_listing_failure_blocks_independently_of_filesystem_permissions(self):
+        hidden = self.write("hidden/batch.jsonl").parent
+        self.write("visible.jsonl")
+
+        for denied, expected_total, relative in ((self.root, 0, "."), (hidden, 1, "hidden")):
+            with self.subTest(relative=relative), self.listing_failure(denied):
+                report = self.audit()
+
+            self.assertTrue(report["blocked"])
+            self.assertEqual(report["counts"]["total"], expected_total)
+            self.assertEqual(report["errors"]["unreadable_files"], 1)
+            self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], relative)
+
+    def test_cli_listing_failure_blocks_even_for_privileged_users(self):
+        hidden = self.write("hidden/batch.jsonl").parent
+        output = StringIO()
+
+        with (
+            self.listing_failure(hidden),
+            redirect_stdout(output),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            quality_gate.main([str(self.root), "--json", "--no-embedding-dedup"])
+
+        self.assertEqual(caught.exception.code, 1)
+        self.assertTrue(json.loads(output.getvalue())["blocked"])
 
     def test_unreadable_source_file_keeps_its_relative_diagnostic(self):
         source = self.write("lane/batch.jsonl")
@@ -149,9 +214,12 @@ class QualityGateInputIntegrity(unittest.TestCase):
         hidden = self.write("hidden/batch.jsonl").parent
         output = StringIO()
 
-        with self.unreadable(hidden), redirect_stdout(output):
-            with self.assertRaises(SystemExit) as caught:
-                quality_gate.main([str(self.root), "--json", "--no-embedding-dedup"])
+        with (
+            self.unreadable(hidden),
+            redirect_stdout(output),
+            self.assertRaises(SystemExit) as caught,
+        ):
+            quality_gate.main([str(self.root), "--json", "--no-embedding-dedup"])
 
         self.assertEqual(caught.exception.code, 1)
         self.assertTrue(json.loads(output.getvalue())["blocked"])
@@ -186,6 +254,19 @@ class QualityGateInputIntegrity(unittest.TestCase):
         self.assertEqual(report["counts"]["total"], 1)
         self.assertEqual(report["errors"]["unreadable_files"], 0)
 
+    def test_regular_inputs_work_when_nonblocking_open_flag_is_unavailable(self):
+        self.write("batch.jsonl")
+
+        with patch.dict(os.__dict__):
+            os.__dict__.pop("O_NONBLOCK", None)
+            try:
+                report = self.audit()
+            except AttributeError as exc:
+                self.fail(f"regular input requires an unavailable platform flag: {exc}")
+
+        self.assertFalse(report["blocked"])
+        self.assertEqual(report["counts"]["total"], 1)
+
     def test_dangling_jsonl_symlink_blocks(self):
         (self.root / "broken.jsonl").symlink_to(self.root / "absent")
 
@@ -194,6 +275,43 @@ class QualityGateInputIntegrity(unittest.TestCase):
         self.assertTrue(report["blocked"])
         self.assertEqual(report["errors"]["unreadable_files"], 1)
         self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], "broken.jsonl")
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "requires an interruptible deadline")
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires named pipes")
+    def test_fifo_input_blocks_the_gate_without_hanging(self):
+        os.mkfifo(self.root / "pipe.jsonl")
+
+        report = self.audit_cli()
+
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["errors"]["unreadable_files"], 1)
+        self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], "pipe.jsonl")
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "requires an interruptible deadline")
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires named pipes")
+    def test_symlink_to_fifo_blocks_the_gate_without_hanging(self):
+        source = self.root / "named-pipe"
+        os.mkfifo(source)
+        (self.root / "alias.jsonl").symlink_to(source)
+
+        report = self.audit_cli()
+
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["errors"]["unreadable_files"], 1)
+        self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], "alias.jsonl")
+
+    @unittest.skipUnless(Path("/proc/self/fd").is_dir(), "requires Linux descriptor inventory")
+    def test_rejected_device_inputs_do_not_leak_descriptors(self):
+        (self.root / "device.jsonl").symlink_to(os.devnull)
+        descriptor_directory = Path("/proc/self/fd")
+        before = set(descriptor_directory.iterdir())
+
+        for _ in range(8):
+            report = self.audit()
+
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["errors"]["unreadable_files"], 1)
+        self.assertEqual(set(descriptor_directory.iterdir()), before)
 
     def test_directory_named_jsonl_remains_an_unreadable_input(self):
         self.write("lane.jsonl/batch.jsonl")

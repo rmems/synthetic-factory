@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import stat
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
@@ -228,9 +229,24 @@ def _record_unreadable(state, rel, exc):
         )
 
 
+def _open_nonblocking(path, flags):
+    # POSIX FIFOs need nonblocking open; platforms without the flag still
+    # support ordinary files and validate the opened descriptor below.
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
+
+
+def _read_regular_bytes(path):
+    # Check the opened descriptor, since a path can change after discovery.
+    # Nonblocking open prevents a FIFO from hanging before that check runs.
+    with open(path, "rb", opener=_open_nonblocking) as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise OSError(f"JSONL input is not a regular file: {path}")
+        return handle.read()
+
+
 def _read_jsonl(path, rel, state):
     try:
-        payload = path.read_bytes()
+        payload = _read_regular_bytes(path)
         return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
