@@ -47,9 +47,10 @@ class ExportReplayEvidenceValues(ResearchExportAllowed, unittest.TestCase):
             curated = compose_fixture(root)
             _reseal_evidence(curated, mutation)
             destination = root / "export"
+            request = export_hf.ExportRequest(curated, destination)
 
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(export_hf.ExportRequest(curated, destination))
+                export_hf.export_run(request)
 
             self.assertFalse(destination.exists())
 
