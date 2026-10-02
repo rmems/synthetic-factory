@@ -1,0 +1,27 @@
+pipelines/quality_gate_audit.py
+  s_42269a80605825::t_6c68cde300791b 8,232,236-246,249
+  s_42269a80605825::t_98c5190c477734 233-235
+tests/test_quality_gate_input_integrity.py
+  s_42269a80605825::t_a89e93c420ee4a 257-269
+  s_42269a80605825::t_e34d36f9b6100b 5,55-66,70,90,139-164,280-289,291-314
+  s_42269a80605825::t_e9227477768a6d 217-222
+  s_42269a80605825::t_5efbbc8010d2c0 6,67-69,71-89,279,290
+docs/quality-gate.md
+  s_42269a80605825::t_6c68cde300791b 40-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a3db6b68d6464062b2784fa106b2df29dbe59a42",
+  "prompts": {},
+  "sessions": {
+    "s_42269a80605825": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fd7f-cd0f-7821-b666-39779ec007ad",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
