@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Amp orb setup for synthetic-factory.
+#
+# Amp runs this from the repository root when it builds a project orb snapshot
+# (Debian 12, CPU only: orbs have no GPU). It must finish within 20 minutes and
+# be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
+#
+# Installs only what this repo's CI and manifests need:
+#   - apt: build-essential, pkg-config, bubblewrap
+#   - Rust 1.98.1 (+rustfmt, clippy) [default]
+#   - uv + Python 3.14 venv with coverage==7.15.4
+#   - cargo fetch --locked
+#
+# It ends with a dependency fetch/prebuild, not a test run.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  SUDO="sudo"
+fi
+
+# Install Debian packages that are not already present.
+apt_install() {
+  local missing=() pkg
+  for pkg in "$@"; do
+    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+      missing+=("$pkg")
+    fi
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    $SUDO apt-get -o Acquire::Retries=5 update -qq
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends "${missing[@]}"
+  fi
+}
+
+# --- System packages (C toolchain; bubblewrap for the sandboxed test shards (python.yml)) ---
+apt_install build-essential pkg-config bubblewrap
+
+# --- Rust (rustup) ---
+export PATH="$HOME/.cargo/bin:$PATH"
+if ! command -v rustup >/dev/null 2>&1; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+    sh -s -- -y --default-toolchain none --profile minimal
+fi
+# python.yml: rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+rustup default 1.98.1
+
+# --- Python (uv) ---
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+# requires-python >=3.14; CI uses 3.14. Pipelines are stdlib-only.
+uv python install 3.14
+if [ ! -x .venv/bin/python ]; then
+  uv venv --python 3.14 .venv
+fi
+uv pip install --python .venv/bin/python --only-binary ':all:' 'coverage==7.15.4'
+
+# --- Prefetch crates (no build, no tests) ---
+cargo fetch --locked
+
+echo "Amp orb setup for synthetic-factory finished."
