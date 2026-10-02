@@ -20,11 +20,13 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("export_contract")
+    from .exact_json import exact_fraction, parse_finite_json_float
     from .tag_jsonutil import reject_duplicate_object_keys
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "export_contract"
     )
+    from exact_json import exact_fraction, parse_finite_json_float
     from tag_jsonutil import reject_duplicate_object_keys
 
 EXPORT_NAME = "export_hf"
@@ -99,6 +101,18 @@ def _is_json_integer(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _parse_evidence_float(token: str) -> float:
+    """Keep legacy numeric spellings unless binary-float decoding loses value.
+
+    Sidecar identities normalize equivalent decimals through ordinary floats.
+    Retain the exact token only when that normalization would change its value.
+    """
+
+    parsed = _reject_nonfinite_json_float(token)
+    exact = parse_finite_json_float(token)
+    return parsed if exact_fraction(parsed) == exact.fraction else exact
+
+
 def _require_equal(actual: Any, expected: Any, message: str) -> None:
     """Reject an authenticated declaration that differs from its evidence."""
 
@@ -112,7 +126,7 @@ def _loads_json(payload: str, label: str) -> Any:
             payload,
             object_pairs_hook=reject_duplicate_object_keys,
             parse_constant=_reject_json_constant,
-            parse_float=_reject_nonfinite_json_float,
+            parse_float=_parse_evidence_float,
         )
     except (ValueError, RecursionError) as exc:
         raise ExportError(f"{label}: invalid JSON: {exc}") from exc
