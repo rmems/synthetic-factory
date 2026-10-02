@@ -1,0 +1,19 @@
+tests/test_export_replay_evidence_values.py
+  s_42269a80605825::t_b1d44a9c92d11e 50,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f32ffebf54225189ce18a008881d4c9eb4f1f3f9",
+  "prompts": {},
+  "sessions": {
+    "s_42269a80605825": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fd7f-cd0f-7821-b666-39779ec007ad",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
