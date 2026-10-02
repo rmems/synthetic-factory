@@ -6,7 +6,7 @@
 # be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
 #
 # Installs only what this repo's CI and manifests need:
-#   - apt: build-essential, pkg-config, bubblewrap
+#   - apt: build-essential, pkg-config, bubblewrap, curl, ca-certificates
 #   - Rust 1.98.1 (+rustfmt, clippy) [default]
 #   - uv + Python 3.14 venv with coverage==7.15.4
 #   - cargo fetch --locked
@@ -35,8 +35,8 @@ apt_install() {
   fi
 }
 
-# --- System packages (C toolchain; bubblewrap for the sandboxed test shards (python.yml)) ---
-apt_install build-essential pkg-config bubblewrap
+# --- System packages (C toolchain; bubblewrap for the sandboxed test shards (python.yml); curl for the installers) ---
+apt_install build-essential pkg-config bubblewrap curl ca-certificates
 
 # --- Rust (rustup) ---
 export PATH="$HOME/.cargo/bin:$PATH"
