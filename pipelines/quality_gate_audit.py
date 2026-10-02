@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import stat
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -22,6 +23,7 @@ from quality_gate_embedding import (
     validate_embedding_threshold,
 )
 from quality_gate_identity import record_hash
+from tag_jsonutil import reject_duplicate_object_keys
 from training_audit import reward_shape
 from validate_run import reject_json_constant
 
@@ -255,6 +257,7 @@ def _parse_record(line, rel, lineno, state):
     try:
         record = json.loads(
             line,
+            object_pairs_hook=reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
             parse_float=_parse_exact_json_float,
         )
@@ -324,9 +327,41 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             )
 
 
+def _directory_members(directory, run_dir, state):
+    try:
+        paths = sorted(directory.iterdir())
+    except OSError as exc:
+        _record_unreadable(state, directory.relative_to(run_dir), exc)
+        return
+    for path in paths:
+        try:
+            mode = path.stat(follow_symlinks=False).st_mode
+        except OSError as exc:
+            _record_unreadable(state, path.relative_to(run_dir), exc)
+            continue
+        yield path, stat.S_ISDIR(mode)
+
+
+def _jsonl_paths(run_dir, state):
+    """Discover inputs without suppressing listing or metadata failures."""
+    pending = [run_dir]
+    paths = []
+    while pending:
+        children = []
+        for path, is_directory in _directory_members(pending.pop(), run_dir, state):
+            if path.name.endswith(".jsonl"):
+                paths.append(path)
+            if is_directory:
+                children.append(path)
+        pending.extend(reversed(children))
+    # Keep rglob's global Path ordering for dedup representatives, including
+    # JSONL file symlinks; directory symlinks are never descended.
+    return sorted(paths)
+
+
 def _scan_run(run_dir, embedding_dedup):
     state = ScanState()
-    for path in sorted(run_dir.rglob("*.jsonl")):
+    for path in _jsonl_paths(run_dir, state):
         _scan_jsonl_file(path, run_dir, state, embedding_dedup)
     return state
 
@@ -387,9 +422,9 @@ def _input_messages(scan):
     blockers = []
     warnings = []
     if scan.unreadable_files:
-        blockers.append(f"{scan.unreadable_files} file(s) unreadable/undecodable")
+        blockers.append(f"{scan.unreadable_files} input path(s) unreadable/undecodable")
         warnings.append(
-            f"{scan.unreadable_files} file(s) unreadable/undecodable — counts, "
+            f"{scan.unreadable_files} input path(s) unreadable/undecodable — counts, "
             "mix and dedup cover only the readable subset"
         )
     if scan.malformed_lines:
