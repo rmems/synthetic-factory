@@ -200,10 +200,7 @@ class JsonlReadIntegrityTests(unittest.TestCase):
                         return original_read(path)
 
                     with mock.patch.object(Path, "read_bytes", fail_broken_read):
-                        try:
-                            result = _invoke_inprocess("--write", str(root))
-                        except OSError as exc:
-                            self.fail(f"source read escaped without a verdict: {exc}")
+                        result = _invoke_inprocess("--write", str(root))
                     self._assert_failed_file_report(root, result)
 
     def test_unreadable_payload_is_a_controlled_file_error(self):
