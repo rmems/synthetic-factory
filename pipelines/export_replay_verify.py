@@ -24,6 +24,7 @@ from compose_contract import default_units_migration_path  # noqa: E402
 from export_calibration import _authenticated_calibration  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import _stable_file_identity  # noqa: E402
+from quality_gate_identity import canonical_numeric_value  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,13 @@ class _PublishedReplay:
     sidecar_documents: Sequence[Any]
 
 
+def _require_replayed_evidence(actual: Any, expected: Any, message: str) -> None:
+    """Match JSON types and exact numbers while allowing equivalent decimals."""
+
+    if canonical_numeric_value(actual) != canonical_numeric_value(expected):
+        raise ExportError(message)
+
+
 def _require_replayed_documents(
     snapshot,
     manifest_documents: Sequence[Any],
@@ -43,14 +51,16 @@ def _require_replayed_documents(
 ) -> None:
     """The published manifest and sidecars must replay row for row."""
 
-    if list(manifest_documents) != snapshot.expected_manifest:
-        raise ExportError(
-            "compose manifest does not reproduce from the authenticated current source snapshot"
-        )
-    if list(sidecar_documents) != snapshot.expected_sidecars:
-        raise ExportError(
-            "reward sidecars do not reproduce from the authenticated current source snapshot"
-        )
+    _require_replayed_evidence(
+        list(manifest_documents),
+        snapshot.expected_manifest,
+        "compose manifest does not reproduce from the authenticated current source snapshot",
+    )
+    _require_replayed_evidence(
+        list(sidecar_documents),
+        snapshot.expected_sidecars,
+        "reward sidecars do not reproduce from the authenticated current source snapshot",
+    )
 
 
 def _require_replayed_outputs(
@@ -60,8 +70,11 @@ def _require_replayed_outputs(
 ) -> None:
     """The declared and emitted curated outputs must replay byte for byte."""
 
-    if summary.get("outputs") != snapshot.expected_outputs:
-        raise ExportError("COMPOSE.json: output declarations do not reproduce from source")
+    _require_replayed_evidence(
+        summary.get("outputs"),
+        snapshot.expected_outputs,
+        "COMPOSE.json: output declarations do not reproduce from source",
+    )
     if set(actual_outputs) != set(snapshot.expected_payloads):
         raise ExportError("curated output paths do not reproduce from the source snapshot")
     for output_path, payload in snapshot.expected_payloads.items():
@@ -97,8 +110,9 @@ def _require_replayed_counts(snapshot, summary: dict[str, Any]) -> None:
         "rights": "COMPOSE.json: rights summary does not reproduce",
     }
     for field_name, expected_value in expected.items():
-        if summary.get(field_name) != expected_value:
-            raise ExportError(failures[field_name])
+        _require_replayed_evidence(
+            summary.get(field_name), expected_value, failures[field_name]
+        )
 
 
 def _verify_replay_matches_context(
