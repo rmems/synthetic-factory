@@ -22,6 +22,9 @@ venv/
 coverage.xml
 htmlcov/
 
+# Amp orb portals are runtime-only
+.amp/portals/*
+
 # OS / editor
 .DS_Store
 .idea/

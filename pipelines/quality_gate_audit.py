@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import stat
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -22,6 +24,7 @@ from quality_gate_embedding import (
     validate_embedding_threshold,
 )
 from quality_gate_identity import record_hash
+from tag_jsonutil import reject_duplicate_object_keys
 from training_audit import reward_shape
 from validate_run import reject_json_constant
 
@@ -204,6 +207,7 @@ def _record_provenance_kind(record):
 class ScanState:
     hashes: Counter = field(default_factory=Counter)
     first_seen: dict = field(default_factory=dict)
+    directory_identities: dict = field(default_factory=dict)
     provenance: Counter = field(default_factory=Counter)
     reward_keys: Counter = field(default_factory=Counter)
     reward_shapes: Counter = field(default_factory=Counter)
@@ -226,9 +230,58 @@ def _record_unreadable(state, rel, exc):
         )
 
 
-def _read_jsonl(path, rel, state):
+def _open_nonblocking(path, flags, *, dir_fd=None):
+    # POSIX FIFOs need nonblocking open; platforms without the flag still
+    # support ordinary files and validate the opened descriptor below.
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0), dir_fd=dir_fd)
+
+
+def _open_regular_file(name, directory_descriptor, path):
+    descriptor = _open_nonblocking(name, os.O_RDONLY, dir_fd=directory_descriptor)
     try:
-        payload = path.read_bytes()
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError(f"JSONL input is not a regular file: {path}")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _open_directory_chain(path, run_dir, directory_identities):
+    descriptor = _open_directory(run_dir, directory_identities[run_dir])
+    current = run_dir
+    try:
+        for name in path.relative_to(run_dir).parts[:-1]:
+            current /= name
+            child = _open_directory(
+                name,
+                directory_identities[current],
+                dir_fd=descriptor,
+                label=current,
+            )
+            os.close(descriptor)
+            descriptor = child
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _read_regular_bytes(path, run_dir, directory_identities):
+    # Reopen every discovered directory through pinned descriptors so a
+    # post-enumeration replacement cannot redirect the later file read.
+    directory_descriptor = _open_directory_chain(path, run_dir, directory_identities)
+    try:
+        descriptor = _open_regular_file(path.name, directory_descriptor, path)
+        with os.fdopen(descriptor, "rb") as handle:
+            return handle.read()
+    finally:
+        os.close(directory_descriptor)
+
+
+def _read_jsonl(path, rel, state, run_dir):
+    try:
+        payload = _read_regular_bytes(path, run_dir, state.directory_identities)
         return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
@@ -255,6 +308,7 @@ def _parse_record(line, rel, lineno, state):
     try:
         record = json.loads(
             line,
+            object_pairs_hook=reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
             parse_float=_parse_exact_json_float,
         )
@@ -311,7 +365,8 @@ def _consume_record(parsed, where, state, embedding_dedup):
 
 def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
     rel = path.relative_to(run_dir)
-    for lineno, line in enumerate(_read_jsonl(path, rel, state), 1):
+    lines = _read_jsonl(path, rel, state, run_dir)
+    for lineno, line in enumerate(lines, 1):
         if not line.strip():
             continue
         parsed = _parse_record(line, rel, lineno, state)
@@ -324,9 +379,87 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             )
 
 
+def _open_directory(directory, expected_identity, *, dir_fd=None, label=None):
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor = os.open(directory, flags, dir_fd=dir_fd)
+    try:
+        metadata = os.fstat(descriptor)
+        if (metadata.st_dev, metadata.st_ino) != expected_identity:
+            raise OSError(f"directory changed after discovery: {label or directory}")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _directory_entry(directory, name, descriptor):
+    path = directory / name
+    try:
+        child = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+    except OSError as exc:
+        return path, None, exc
+    identity = (child.st_dev, child.st_ino) if stat.S_ISDIR(child.st_mode) else None
+    return path, identity, None
+
+
+def _directory_members(directory, expected_identity, run_dir, state):
+    try:
+        descriptor = _open_directory(directory, expected_identity)
+    except OSError as exc:
+        _record_unreadable(state, directory.relative_to(run_dir), exc)
+        return
+    try:
+        with os.scandir(descriptor) as entries:
+            names = sorted(entry.name for entry in entries)
+        for name in names:
+            path, identity, error = _directory_entry(directory, name, descriptor)
+            if error is not None:
+                _record_unreadable(state, path.relative_to(run_dir), error)
+                continue
+            yield path, identity
+    except OSError as exc:
+        _record_unreadable(state, directory.relative_to(run_dir), exc)
+    finally:
+        os.close(descriptor)
+
+
+def _jsonl_paths(run_dir, state):
+    """Discover inputs without suppressing listing or metadata failures."""
+    try:
+        metadata = run_dir.stat(follow_symlinks=False)
+    except OSError as exc:
+        _record_unreadable(state, Path("."), exc)
+        return []
+    if not stat.S_ISDIR(metadata.st_mode):
+        _record_unreadable(state, Path("."), OSError("run directory is a symlink"))
+        return []
+    root_identity = (metadata.st_dev, metadata.st_ino)
+    pending = [(run_dir, root_identity)]
+    state.directory_identities[run_dir] = root_identity
+    paths = []
+    while pending:
+        children = []
+        directory, identity = pending.pop()
+        for path, child_identity in _directory_members(directory, identity, run_dir, state):
+            if path.name.endswith(".jsonl"):
+                paths.append(path)
+            if child_identity is not None:
+                state.directory_identities[path] = child_identity
+                children.append((path, child_identity))
+        pending.extend(reversed(children))
+    # Keep rglob's global Path ordering for dedup representatives, including
+    # JSONL file symlinks; directory symlinks are never descended.
+    return sorted(paths)
+
+
 def _scan_run(run_dir, embedding_dedup):
     state = ScanState()
-    for path in sorted(run_dir.rglob("*.jsonl")):
+    for path in _jsonl_paths(run_dir, state):
         _scan_jsonl_file(path, run_dir, state, embedding_dedup)
     return state
 
@@ -387,9 +520,9 @@ def _input_messages(scan):
     blockers = []
     warnings = []
     if scan.unreadable_files:
-        blockers.append(f"{scan.unreadable_files} file(s) unreadable/undecodable")
+        blockers.append(f"{scan.unreadable_files} input path(s) unreadable/undecodable")
         warnings.append(
-            f"{scan.unreadable_files} file(s) unreadable/undecodable — counts, "
+            f"{scan.unreadable_files} input path(s) unreadable/undecodable — counts, "
             "mix and dedup cover only the readable subset"
         )
     if scan.malformed_lines:
