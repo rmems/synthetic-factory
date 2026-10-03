@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -40,6 +41,8 @@ def _decode_jsonl(path, rel):
         return path.read_bytes().decode("utf-8"), None
     except UnicodeDecodeError as exc:
         return None, f"{rel}: invalid UTF-8: {exc}"
+    except OSError as exc:
+        return None, f"{rel}: cannot read file: {exc}"
 
 
 def _validate_physical_lines(text, rel, check_line, parse_record):
@@ -80,11 +83,41 @@ def _validate_jsonl_file(path, run_dir, check_line, parse_record):
     return entry
 
 
+def _directory_entries(directory, run_dir, errors):
+    try:
+        return sorted(directory.iterdir())
+    except OSError as exc:
+        if directory == run_dir:
+            raise
+        errors.append(f"{directory.relative_to(run_dir)}: cannot scan directory: {exc}")
+        return []
+
+
+def _jsonl_paths(run_dir, errors):
+    paths = []
+    pending = [run_dir]
+    while pending:
+        directory = pending.pop()
+        for path in _directory_entries(directory, run_dir, errors):
+            try:
+                mode = path.stat(follow_symlinks=False).st_mode
+            except OSError as exc:
+                errors.append(f"{path.relative_to(run_dir)}: cannot inspect path: {exc}")
+                continue
+            # Explicit stat keeps metadata errors visible without recursing
+            # through directory symlinks, matching the previous glob policy.
+            if stat.S_ISDIR(mode):
+                pending.append(path)
+            if path.name.endswith(".jsonl"):
+                paths.append(path)
+    return sorted(paths)
+
+
 def assemble_manifest(run_dir, check_line, parse_record):
-    """Walk ``run_dir`` JSONL files and return the in-memory manifest."""
+    """Assemble a manifest, raising OSError if the root cannot be scanned."""
     manifest = {"run_dir": str(run_dir), "files": [], "totals": {}, "errors": []}
     kind_totals = {}
-    for path in sorted(run_dir.rglob("*.jsonl")):
+    for path in _jsonl_paths(run_dir, manifest["errors"]):
         entry = _validate_jsonl_file(path, run_dir, check_line, parse_record)
         for kind, count in entry["kinds"].items():
             kind_totals[kind] = kind_totals.get(kind, 0) + count
@@ -118,8 +151,12 @@ def main(argv=None, *, check_line, parse_record=None):
     """Run the public CLI. ``check_line`` is the facade's live router."""
     parse_record = _default_parse_record if parse_record is None else parse_record
     args = parse_args(argv)
-    run_dir = Path(args.run_dir).resolve()
-    manifest = assemble_manifest(run_dir, check_line, parse_record)
+    try:
+        run_dir = Path(args.run_dir).resolve()
+        manifest = assemble_manifest(run_dir, check_line, parse_record)
+    except OSError as exc:
+        print(f"ERROR: cannot validate run directory {args.run_dir}: {exc}", file=sys.stderr)
+        sys.exit(1)
     if args.write:
         _write_manifest(run_dir, manifest)
     sys.exit(emit_report(manifest))
