@@ -229,24 +229,58 @@ def _record_unreadable(state, rel, exc):
         )
 
 
-def _open_nonblocking(path, flags):
+def _open_nonblocking(path, flags, *, dir_fd=None):
     # POSIX FIFOs need nonblocking open; platforms without the flag still
     # support ordinary files and validate the opened descriptor below.
-    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0), dir_fd=dir_fd)
 
 
-def _read_regular_bytes(path):
-    # Check the opened descriptor, since a path can change after discovery.
-    # Nonblocking open prevents a FIFO from hanging before that check runs.
-    with open(path, "rb", opener=_open_nonblocking) as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-            raise OSError(f"JSONL input is not a regular file: {path}")
-        return handle.read()
-
-
-def _read_jsonl(path, rel, state):
+def _open_regular_file(name, directory_descriptor, path):
+    descriptor = _open_nonblocking(name, os.O_RDONLY, dir_fd=directory_descriptor)
     try:
-        payload = _read_regular_bytes(path)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError(f"JSONL input is not a regular file: {path}")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _open_directory_chain(path, run_dir, directory_identities):
+    descriptor = _open_directory(run_dir, directory_identities[run_dir])
+    current = run_dir
+    try:
+        for name in path.relative_to(run_dir).parts[:-1]:
+            current /= name
+            child = _open_directory(
+                name,
+                directory_identities[current],
+                dir_fd=descriptor,
+                label=current,
+            )
+            os.close(descriptor)
+            descriptor = child
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _read_regular_bytes(path, run_dir, directory_identities):
+    # Reopen every discovered directory through pinned descriptors so a
+    # post-enumeration replacement cannot redirect the later file read.
+    directory_descriptor = _open_directory_chain(path, run_dir, directory_identities)
+    try:
+        descriptor = _open_regular_file(path.name, directory_descriptor, path)
+        with os.fdopen(descriptor, "rb") as handle:
+            return handle.read()
+    finally:
+        os.close(directory_descriptor)
+
+
+def _read_jsonl(path, rel, state, run_dir, directory_identities):
+    try:
+        payload = _read_regular_bytes(path, run_dir, directory_identities)
         return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
@@ -328,9 +362,10 @@ def _consume_record(parsed, where, state, embedding_dedup):
     _consume_rewards(parsed.value, state)
 
 
-def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
+def _scan_jsonl_file(path, run_dir, state, embedding_dedup, directory_identities):
     rel = path.relative_to(run_dir)
-    for lineno, line in enumerate(_read_jsonl(path, rel, state), 1):
+    lines = _read_jsonl(path, rel, state, run_dir, directory_identities)
+    for lineno, line in enumerate(lines, 1):
         if not line.strip():
             continue
         parsed = _parse_record(line, rel, lineno, state)
@@ -343,18 +378,18 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             )
 
 
-def _open_directory(directory, expected_identity):
+def _open_directory(directory, expected_identity, *, dir_fd=None, label=None):
     flags = (
         os.O_RDONLY
         | getattr(os, "O_DIRECTORY", 0)
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0)
     )
-    descriptor = os.open(directory, flags)
+    descriptor = os.open(directory, flags, dir_fd=dir_fd)
     try:
         metadata = os.fstat(descriptor)
         if (metadata.st_dev, metadata.st_ino) != expected_identity:
-            raise OSError(f"directory changed after discovery: {directory}")
+            raise OSError(f"directory changed after discovery: {label or directory}")
     except BaseException:
         os.close(descriptor)
         raise
@@ -398,11 +433,13 @@ def _jsonl_paths(run_dir, state):
         metadata = run_dir.stat(follow_symlinks=False)
     except OSError as exc:
         _record_unreadable(state, Path("."), exc)
-        return []
+        return [], {}
     if not stat.S_ISDIR(metadata.st_mode):
         _record_unreadable(state, Path("."), OSError("run directory is a symlink"))
-        return []
-    pending = [(run_dir, (metadata.st_dev, metadata.st_ino))]
+        return [], {}
+    root_identity = (metadata.st_dev, metadata.st_ino)
+    pending = [(run_dir, root_identity)]
+    directory_identities = {run_dir: root_identity}
     paths = []
     while pending:
         children = []
@@ -411,17 +448,25 @@ def _jsonl_paths(run_dir, state):
             if path.name.endswith(".jsonl"):
                 paths.append(path)
             if child_identity is not None:
+                directory_identities[path] = child_identity
                 children.append((path, child_identity))
         pending.extend(reversed(children))
     # Keep rglob's global Path ordering for dedup representatives, including
     # JSONL file symlinks; directory symlinks are never descended.
-    return sorted(paths)
+    return sorted(paths), directory_identities
 
 
 def _scan_run(run_dir, embedding_dedup):
     state = ScanState()
-    for path in _jsonl_paths(run_dir, state):
-        _scan_jsonl_file(path, run_dir, state, embedding_dedup)
+    paths, directory_identities = _jsonl_paths(run_dir, state)
+    for path in paths:
+        _scan_jsonl_file(
+            path,
+            run_dir,
+            state,
+            embedding_dedup,
+            directory_identities,
+        )
     return state
 
 

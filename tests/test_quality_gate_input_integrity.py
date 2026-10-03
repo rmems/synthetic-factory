@@ -15,6 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 import quality_gate  # noqa: E402
+import quality_gate_audit  # noqa: E402
 
 
 REAL_RECORD = '{"state":{"sim_or_real":"real","note":"readable neighbor"}}\n'
@@ -245,6 +246,36 @@ class QualityGateInputIntegrity(unittest.TestCase):
         self.assertEqual(report["counts"]["total"], 0)
         self.assertEqual(report["errors"]["unreadable_files"], 1)
         self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], "queued")
+
+    def test_enumerated_file_is_not_reopened_through_replaced_directory(self):
+        queued = self.write("queued/safe.jsonl").parent
+        relocated = self.root / "relocated"
+        outside_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(outside_temporary.cleanup)
+        outside = Path(outside_temporary.name)
+        (outside / "safe.jsonl").write_text(REAL_RECORD, encoding="utf-8")
+        original_paths = quality_gate_audit._jsonl_paths
+        swapped = False
+
+        def paths_then_swap(run_dir, state):
+            nonlocal swapped
+            paths = original_paths(run_dir, state)
+            queued.rename(relocated)
+            queued.symlink_to(outside, target_is_directory=True)
+            swapped = True
+            return paths
+
+        with patch.object(quality_gate_audit, "_jsonl_paths", paths_then_swap):
+            report = self.audit()
+
+        self.assertTrue(swapped)
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(report["errors"]["unreadable_files"], 1)
+        self.assertEqual(
+            report["errors"]["unreadable_examples"][0]["file"],
+            "queued/safe.jsonl",
+        )
 
     def test_cli_emits_a_blocked_report_for_an_unreadable_subtree(self):
         hidden = self.write("hidden/batch.jsonl").parent
