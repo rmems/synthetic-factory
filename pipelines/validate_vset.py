@@ -210,8 +210,16 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
 _MANIFEST_OPTION_ERROR = "--manifest does not accept --oracle/--pack"
 
 
+def _manifest_rejected(args: argparse.Namespace) -> bool:
+    if not args.manifest:
+        return False
+    if args.oracle:
+        return True
+    return bool(args.pack)
+
+
 def _option_error(args: argparse.Namespace) -> str | None:
-    if args.manifest and (args.oracle or args.pack):
+    if _manifest_rejected(args):
         return _MANIFEST_OPTION_ERROR
     if args.oracle and not args.pack:
         return "--oracle requires --pack"
