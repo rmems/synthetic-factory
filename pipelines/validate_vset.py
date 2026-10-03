@@ -32,64 +32,44 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("validate_vset")
-    from .vset_constants import (
-        ERR_ORACLE_EXECUTION_MISMATCH,
-        IDENTITY_UNRESOLVED_PROVENANCE,
-        MANIFEST_ROLES,
-        VSetValidationError,
-        iter_record_paths,
-        pack_snapshot_hash,
-        registry_pin,
-        summarize,
-)
-    from .vset_manifest import (
-        _is_invalid_or_impossible,
-        manifest_body_hash,
-        manifest_entry_from_record,
-        validate_manifest,
-    )
-    from .vset_oracle import validate_record_with_oracle
-    from .vset_oracle_exec import (
-        _execution_result_hash,
-        _load_tests,
-        run_oracle,
-    )
-    from .vset_patch import apply_patch, record_patch
-    from .vset_oracle_check import oracle_errors
-    from .vset_record_checks import load_json
-    from .vset_record import validate_record
-    from .vset_source import payload_errors, source_kind_errors
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "validate_vset"
     )
-    from vset_constants import (
-        ERR_ORACLE_EXECUTION_MISMATCH,
-        IDENTITY_UNRESOLVED_PROVENANCE,
-        MANIFEST_ROLES,
-        VSetValidationError,
-        iter_record_paths,
-        pack_snapshot_hash,
-        registry_pin,
-        summarize,
-)
-    from vset_manifest import (
-        _is_invalid_or_impossible,
-        manifest_body_hash,
-        manifest_entry_from_record,
-        validate_manifest,
-    )
-    from vset_oracle import validate_record_with_oracle
-    from vset_oracle_exec import (
-        _execution_result_hash,
-        _load_tests,
-        run_oracle,
-    )
-    from vset_patch import apply_patch, record_patch
-    from vset_oracle_check import oracle_errors
-    from vset_record_checks import load_json
-    from vset_record import validate_record
-    from vset_source import payload_errors, source_kind_errors
+
+import vset_constants as _vset_constants
+import vset_manifest as _vset_manifest
+import vset_oracle as _vset_oracle
+import vset_oracle_exec as _vset_oracle_exec
+import vset_patch as _vset_patch
+import vset_oracle_check as _vset_oracle_check
+import vset_record_checks as _vset_record_checks
+import vset_record as _vset_record
+import vset_source as _vset_source
+
+ERR_ORACLE_EXECUTION_MISMATCH = _vset_constants.ERR_ORACLE_EXECUTION_MISMATCH
+IDENTITY_UNRESOLVED_PROVENANCE = _vset_constants.IDENTITY_UNRESOLVED_PROVENANCE
+MANIFEST_ROLES = _vset_constants.MANIFEST_ROLES
+VSetValidationError = _vset_constants.VSetValidationError
+iter_record_paths = _vset_constants.iter_record_paths
+pack_snapshot_hash = _vset_constants.pack_snapshot_hash
+registry_pin = _vset_constants.registry_pin
+summarize = _vset_constants.summarize
+_is_invalid_or_impossible = _vset_manifest._is_invalid_or_impossible
+manifest_body_hash = _vset_manifest.manifest_body_hash
+manifest_entry_from_record = _vset_manifest.manifest_entry_from_record
+validate_manifest = _vset_manifest.validate_manifest
+validate_record_with_oracle = _vset_oracle.validate_record_with_oracle
+_execution_result_hash = _vset_oracle_exec._execution_result_hash
+_load_tests = _vset_oracle_exec._load_tests
+run_oracle = _vset_oracle_exec.run_oracle
+apply_patch = _vset_patch.apply_patch
+record_patch = _vset_patch.record_patch
+oracle_errors = _vset_oracle_check.oracle_errors
+load_json = _vset_record_checks.load_json
+validate_record = _vset_record.validate_record
+payload_errors = _vset_source.payload_errors
+source_kind_errors = _vset_source.source_kind_errors
 
 # Compatibility aliases for the pre-split private names.
 _record_patch = record_patch

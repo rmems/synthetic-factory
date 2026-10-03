@@ -232,13 +232,6 @@ def _stamped_registry_errors(
     release: dict[str, Any], pin: dict[str, str]
 ) -> list[VSetValidationError]:
     stamped = release.get("factory_registry_sha256")
-    if stamped is None or stamped != pin["sha256"]:
-        return [
-            VSetValidationError(
-                ERR_RELEASE_CONTRACT_MISMATCH,
-                "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
-            )
-        ]
     if stamped == pin["sha256"]:
         return []
     return [

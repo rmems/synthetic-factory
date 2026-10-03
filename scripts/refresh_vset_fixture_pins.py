@@ -158,38 +158,32 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _fixture_destination(path: Path) -> Path:
-    """Rebuild a fixture path from fixed names, never from a resolved input.
+def _guarded_write(verdict: str, name: str, text: str) -> None:
+    """Write one enumerated fixture. Names are not paths.
 
-    ``path`` is one of the constants this script enumerated. Reconstructing
-    the destination from ``path.name`` keeps the write inside FIXTURES even
-    if a caller later hands the function a path that resolves elsewhere.
+    ``verdict`` is only ``accept``, ``reject``, or ``manifests``. ``name``
+    is a file name. Joining those to FIXTURES cannot follow a caller path.
     """
 
-    name = path.name
-    if path.parent.name in {"accept", "reject"} and path.parent.parent.name == "records":
-        return FIXTURES / "records" / path.parent.name / name
-    if path.parent.name == "manifests":
-        return FIXTURES / "manifests" / name
-    raise SystemExit(f"refusing to write an unlisted fixture: {path}")
-
-
-def _guarded_write(path: Path, text: str) -> None:
-    target = _fixture_destination(path)
-    fixtures = FIXTURES.resolve()
-    resolved = target.resolve()
-    if fixtures != resolved and fixtures not in resolved.parents:
-        raise SystemExit(f"refusing to write outside the VSET fixtures: {path}")
-    # Destination is rebuilt from FIXTURES plus a fixed verdict directory and
-    # the fixture file name. It is not the caller's resolved path.
-    target.write_text(text, encoding="utf-8")
+    if verdict not in {"accept", "reject", "manifests"}:
+        raise SystemExit(f"refusing to write an unlisted fixture verdict: {verdict}")
+    if name != Path(name).name or not name.endswith(".json"):
+        raise SystemExit(f"refusing to write an unlisted fixture name: {name}")
+    if verdict == "manifests":
+        destination = FIXTURES / "manifests" / name
+    else:
+        destination = FIXTURES / "records" / verdict / name
+    destination.write_text(text, encoding="utf-8")
 
 
 def _rewrite(wanted: dict[Path, str], stale: list[Path]) -> None:
-    allowed = {path for path in wanted if path in set(stale)}
-    for path in sorted(allowed):
-        _guarded_write(path, wanted[path])
-    _report(sorted(allowed), "rewrote")
+    allowed = sorted(path for path in wanted if path in set(stale))
+    for path in allowed:
+        if path.parent.name == "manifests":
+            _guarded_write("manifests", path.name, wanted[path])
+        else:
+            _guarded_write(path.parent.name, path.name, wanted[path])
+    _report(allowed, "rewrote")
 
 
 def main(argv: list[str] | None = None) -> int:
