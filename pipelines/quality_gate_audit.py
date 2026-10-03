@@ -343,42 +343,53 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             )
 
 
-def _directory_members(directory, expected_identity, run_dir, state):
+def _open_directory(directory, expected_identity):
     flags = (
         os.O_RDONLY
         | getattr(os, "O_DIRECTORY", 0)
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0)
     )
-    try:
-        descriptor = os.open(directory, flags)
-    except OSError as exc:
-        _record_unreadable(state, directory.relative_to(run_dir), exc)
-        return
+    descriptor = os.open(directory, flags)
     try:
         metadata = os.fstat(descriptor)
         if (metadata.st_dev, metadata.st_ino) != expected_identity:
             raise OSError(f"directory changed after discovery: {directory}")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _directory_entry(directory, name, descriptor):
+    path = directory / name
+    try:
+        child = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+    except OSError as exc:
+        return path, None, exc
+    identity = (child.st_dev, child.st_ino) if stat.S_ISDIR(child.st_mode) else None
+    return path, identity, None
+
+
+def _directory_members(directory, expected_identity, run_dir, state):
+    try:
+        descriptor = _open_directory(directory, expected_identity)
+    except OSError as exc:
+        _record_unreadable(state, directory.relative_to(run_dir), exc)
+        return
+    try:
         with os.scandir(descriptor) as entries:
             names = sorted(entry.name for entry in entries)
         for name in names:
-            path = directory / name
-            try:
-                child = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
-            except OSError as exc:
-                _record_unreadable(state, path.relative_to(run_dir), exc)
+            path, identity, error = _directory_entry(directory, name, descriptor)
+            if error is not None:
+                _record_unreadable(state, path.relative_to(run_dir), error)
                 continue
-            identity = None
-            if stat.S_ISDIR(child.st_mode):
-                identity = (child.st_dev, child.st_ino)
             yield path, identity
     except OSError as exc:
         _record_unreadable(state, directory.relative_to(run_dir), exc)
     finally:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
+        os.close(descriptor)
 
 
 def _jsonl_paths(run_dir, state):
