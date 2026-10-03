@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# Draft CodeRabbit config for rmems/synthetic-factory (generated locally, not pushed).
+# CodeRabbit config for rmems/synthetic-factory.
 language: en-US
 reviews:
   profile: chill
@@ -9,18 +9,18 @@ reviews:
     enabled: true
     drafts: false
   path_filters:
-  - '!**/target/**'
+    - '!**/target/**'
   path_instructions:
-  - path: '{pipelines,scripts,tests}/**/*.py'
-    instructions: 'Python >=3.14 (CI 3.14; ruff target-version py314). CI gate: `python -m unittest ...`, `python scripts/ci_shard_tests.py --shard N --shards 4 --coverage`, `python -m compileall ...`, smoke pipelines. Keep code compatible with the declared Python floor. 3.14-only syntax is fine. Do not lazy-load taxonomy mappings to make imports cheap.'
-  - path: '{pipelines/oracle_*.py,pipelines/oracle_grounded/**,pipelines/compose_destination_rename.py,pipelines/compose_destination_directory.py,pipelines/compose_contract.py,schemas/**}'
-    instructions: 'Byte-sealed files: `oracle.module_digest` and golden manifest sha256 pins hash these exact bytes (LF enforced in `.gitattributes`). Any edit must update the corresponding digests/pins in the same PR; flag formatting-only changes.'
-  - path: rust/**/*.rs
-    instructions: 'Rust edition 2024 for `nir-rs` and `silicon-bridge`, 2021 for `sf-oracle`; `rust-version = "1.98.1"`; CI uses `cargo +1.98.1`. Do not suggest downgrading the edition or using std/language APIs newer than the pinned toolchain/MSRV. CI gate: `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`, `cargo +1.98.1 test --locked -p sf-oracle`. Flag anything that would fail `cargo fmt --check` or clippy `-D warnings`.'
-  - path: '**/Cargo.toml'
-    instructions: Cargo manifest. Call out new dependencies and feature changes, and keep `rust-version` / `edition` consistent with CI.
-  - path: .github/workflows/**
-    instructions: GitHub Actions workflows. Keep `permissions:` least-privilege and job commands in sync with the local gates documented in the repo. Every `uses:` is pinned to a full commit SHA today; new or bumped actions must be too.
+    - path: '{pipelines,scripts,tests,.claude/skills}/**/*.py'
+      instructions: 'Python >=3.14 (CI 3.14; ruff target-version py314). CI gate: python -m unittest ..., python scripts/ci_shard_tests.py --shard N --shards 4 --coverage, python -m compileall ..., smoke pipelines. Keep code compatible with the declared Python floor. 3.14-only syntax is fine. Do not lazy-load taxonomy mappings to make imports cheap.'
+    - path: '{pipelines/oracle_grounded/*.py,tests/fixtures/oracle-grounded/**/*.jsonl,schemas/procedural-oracle-policy-v1.json,schemas/oracle-grounded-v1.schema.json,schemas/oracle-grounded/*.schema.json,pipelines/oracle_*.py,pipelines/compose_destination_rename.py,pipelines/compose_destination_directory.py,pipelines/compose_contract.py,LICENSE,Cargo.toml,Cargo.lock,rust/sf-oracle/Cargo.toml,rust/sf-oracle/build.rs,rust/sf-oracle/src/*.rs}'
+      instructions: 'Exact-byte files: source authority digests seal the policy, catalog, program, native-source, and license inputs, while golden manifests pin fixture JSONL bytes. LF is enforced in .gitattributes. Any edit must update the corresponding digests or pins in the same PR; flag formatting-only changes.'
+    - path: rust/**/*.rs
+      instructions: 'Rust edition 2024 for nir-rs and silicon-bridge, 2021 for sf-oracle. nir-rs and silicon-bridge declare rust-version = "1.98.1"; sf-oracle declares no rust-version. CI uses cargo +1.98.1 for all crates. Do not suggest downgrading the edition or using std or language APIs newer than the applicable declared MSRV or CI toolchain. CI gate: cargo +1.98.1 clippy --locked --all-targets -- -D warnings, cargo +1.98.1 test --locked -p sf-oracle. Flag anything that would fail cargo fmt --check or clippy -D warnings.'
+    - path: '**/Cargo.toml'
+      instructions: Cargo manifest. Call out new dependencies and feature changes, and keep rust-version and edition consistent with CI.
+    - path: .github/workflows/**
+      instructions: 'GitHub Actions workflows. Keep permissions: least-privilege and job commands in sync with the local gates documented in the repo. Every uses: is pinned to a full commit SHA today; new or bumped actions must be too.'
   tools:
     ruff:
       enabled: true
