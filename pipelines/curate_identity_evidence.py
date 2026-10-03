@@ -19,7 +19,7 @@ import copy
 import re
 import sys
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, NoReturn, cast
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -40,13 +40,13 @@ SourceRecord = _sources.SourceRecord
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _fail(error: IdentityTreeError) -> None:
+def _fail(error: IdentityTreeError) -> NoReturn:
     """Raise ``error``; one raise site keeps fail-closed checks branch-light."""
 
     raise error
 
 
-def _fail_chained(error: IdentityTreeError, cause: BaseException) -> None:
+def _fail_chained(error: IdentityTreeError, cause: BaseException) -> NoReturn:
     """Raise ``error`` from ``cause`` for the single chained raise site."""
 
     raise error from cause
@@ -93,7 +93,7 @@ def _manifest_hash_basis(source_meta: Mapping[str, Any], where: str) -> str:
     hash_basis = source_meta.get("hash_basis")
     if hash_basis not in {"canonical-json-sha256", "source-json-line-sha256"}:
         _fail(IdentityTreeError(f"{where}.hash_basis is invalid"))
-    return hash_basis
+    return cast(str, hash_basis)
 
 
 @dataclass(frozen=True)

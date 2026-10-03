@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Mapping, NoReturn
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -44,7 +44,7 @@ CANONICAL_PROVENANCE = _provenance.CANONICAL_PROVENANCE
 ManifestDependencies = _evidence.ManifestDependencies
 
 
-def _fail(error: IdentityTreeError) -> None:
+def _fail(error: IdentityTreeError) -> NoReturn:
     """Raise ``error``; one raise site keeps fail-closed checks branch-light."""
 
     raise error
@@ -169,9 +169,10 @@ def _owner_state_emits(owner_provenance: Any, state: Mapping, canonical: Mapping
 
 
 def _emitted_state(target: _EmittedTarget, where: str) -> Mapping[str, Any]:
-    if target.state_path != _sources.pointer(target.owner_path, "state"):
+    state_path = _sources.pointer(target.owner_path, "state")
+    if target.state_path != state_path:
         _fail(IdentityTreeError(f"{where}.state_path does not belong to owner_path"))
-    state = _sources.pointer_value(target.record, target.state_path)
+    state = _sources.pointer_value(target.record, state_path)
     if not isinstance(state, Mapping):
         _fail(IdentityTreeError(f"{where}.state_path must name an object"))
     return state

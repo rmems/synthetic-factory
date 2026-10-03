@@ -18,7 +18,7 @@ import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Mapping, NoReturn, TypeGuard, cast
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -39,7 +39,7 @@ IdentityCurationError = _identity_json.IdentityCurationError
 IdentityTreeError = _identity_json.IdentityTreeError
 
 
-def _fail(error: IdentityCurationError | IdentityTreeError) -> None:
+def _fail(error: IdentityCurationError | IdentityTreeError) -> NoReturn:
     """Raise ``error``; one raise site keeps fail-closed checks branch-light."""
 
     raise error
@@ -174,7 +174,7 @@ def _resolved_source_digest(source, canonical_source: str, original: str | None,
             original is not None
             and deps.classify_kind(source.record) in PRESERVED_KINDS
         )
-        original = original if preserve_source else canonical_source
+        original = cast(str, original) if preserve_source else canonical_source
         digest = deps.sha256_bytes(original.encode("utf-8"))
         basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"
         return digest, basis, original
@@ -184,7 +184,7 @@ def _resolved_source_digest(source, canonical_source: str, original: str | None,
     return digest, "source-json-line-sha256", original
 
 
-def _is_valid_source_line(line: object) -> bool:
+def _is_valid_source_line(line: object) -> TypeGuard[int]:
     if isinstance(line, bool):
         return False
     if not isinstance(line, int):
