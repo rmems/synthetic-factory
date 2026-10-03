@@ -54,14 +54,22 @@ class QualityGateInputIntegrity(unittest.TestCase):
 
     @contextmanager
     def listing_failure(self, denied):
-        original_iterdir = Path.iterdir
+        original_scandir = os.scandir
+        denied_metadata = denied.stat()
 
-        def iterdir_with_error(path):
-            if path == denied:
+        def scandir_with_error(path):
+            if isinstance(path, int):
+                metadata = os.fstat(path)
+                if (metadata.st_dev, metadata.st_ino) == (
+                    denied_metadata.st_dev,
+                    denied_metadata.st_ino,
+                ):
+                    raise PermissionError(errno.EACCES, "listing denied", str(denied))
+            elif path == denied:
                 raise PermissionError(errno.EACCES, "listing denied", str(path))
-            return original_iterdir(path)
+            return original_scandir(path)
 
-        with patch.object(Path, "iterdir", iterdir_with_error):
+        with patch.object(os, "scandir", scandir_with_error):
             yield
 
     @contextmanager
@@ -194,21 +202,49 @@ class QualityGateInputIntegrity(unittest.TestCase):
 
     def test_unreadable_member_metadata_cannot_hide_a_subtree(self):
         hidden = self.write("hidden/batch.jsonl").parent
-        original_stat = Path.stat
+        original_stat = os.stat
 
         def stat_with_error(path, *args, **kwargs):
-            if path == hidden:
+            if path in (hidden, hidden.name):
                 raise OSError(errno.EIO, "metadata read failed", str(path))
             return original_stat(path, *args, **kwargs)
 
         # Portable injection for a filesystem I/O failure that chmod cannot model.
-        with patch.object(Path, "stat", stat_with_error):
+        with patch.object(os, "stat", stat_with_error):
             report = self.audit()
 
         self.assertTrue(report["blocked"])
         self.assertEqual(report["counts"]["total"], 0)
         self.assertEqual(report["errors"]["unreadable_files"], 1)
         self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], "hidden")
+
+    def test_queued_directory_replaced_by_symlink_is_not_descended(self):
+        queued = self.root / "queued"
+        queued.mkdir()
+        outside_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(outside_temporary.cleanup)
+        outside = Path(outside_temporary.name)
+        (outside / "external.jsonl").write_text(REAL_RECORD, encoding="utf-8")
+        original_stat = os.stat
+        swapped = False
+
+        def stat_then_swap(path, *args, **kwargs):
+            nonlocal swapped
+            metadata = original_stat(path, *args, **kwargs)
+            if path in (queued, queued.name) and not swapped:
+                swapped = True
+                queued.rmdir()
+                queued.symlink_to(outside, target_is_directory=True)
+            return metadata
+
+        with patch.object(os, "stat", stat_then_swap):
+            report = self.audit()
+
+        self.assertTrue(swapped)
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(report["errors"]["unreadable_files"], 1)
+        self.assertEqual(report["errors"]["unreadable_examples"][0]["file"], "queued")
 
     def test_cli_emits_a_blocked_report_for_an_unreadable_subtree(self):
         hidden = self.write("hidden/batch.jsonl").parent

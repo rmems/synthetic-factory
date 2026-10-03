@@ -343,32 +343,64 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             )
 
 
-def _directory_members(directory, run_dir, state):
+def _directory_members(directory, expected_identity, run_dir, state):
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     try:
-        paths = sorted(directory.iterdir())
+        descriptor = os.open(directory, flags)
     except OSError as exc:
         _record_unreadable(state, directory.relative_to(run_dir), exc)
         return
-    for path in paths:
+    try:
+        metadata = os.fstat(descriptor)
+        if (metadata.st_dev, metadata.st_ino) != expected_identity:
+            raise OSError(f"directory changed after discovery: {directory}")
+        with os.scandir(descriptor) as entries:
+            names = sorted(entry.name for entry in entries)
+        for name in names:
+            path = directory / name
+            try:
+                child = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            except OSError as exc:
+                _record_unreadable(state, path.relative_to(run_dir), exc)
+                continue
+            identity = None
+            if stat.S_ISDIR(child.st_mode):
+                identity = (child.st_dev, child.st_ino)
+            yield path, identity
+    except OSError as exc:
+        _record_unreadable(state, directory.relative_to(run_dir), exc)
+    finally:
         try:
-            mode = path.stat(follow_symlinks=False).st_mode
-        except OSError as exc:
-            _record_unreadable(state, path.relative_to(run_dir), exc)
-            continue
-        yield path, stat.S_ISDIR(mode)
+            os.close(descriptor)
+        except OSError:
+            pass
 
 
 def _jsonl_paths(run_dir, state):
     """Discover inputs without suppressing listing or metadata failures."""
-    pending = [run_dir]
+    try:
+        metadata = run_dir.stat(follow_symlinks=False)
+    except OSError as exc:
+        _record_unreadable(state, Path("."), exc)
+        return []
+    if not stat.S_ISDIR(metadata.st_mode):
+        _record_unreadable(state, Path("."), OSError("run directory is a symlink"))
+        return []
+    pending = [(run_dir, (metadata.st_dev, metadata.st_ino))]
     paths = []
     while pending:
         children = []
-        for path, is_directory in _directory_members(pending.pop(), run_dir, state):
+        directory, identity = pending.pop()
+        for path, child_identity in _directory_members(directory, identity, run_dir, state):
             if path.name.endswith(".jsonl"):
                 paths.append(path)
-            if is_directory:
-                children.append(path)
+            if child_identity is not None:
+                children.append((path, child_identity))
         pending.extend(reversed(children))
     # Keep rglob's global Path ordering for dedup representatives, including
     # JSONL file symlinks; directory symlinks are never descended.
