@@ -31,7 +31,7 @@ if __package__:  # pragma: no cover - package-child import path
         _sha256_text,
         pack_snapshot_hash,
 )
-    from .vset_patch import apply_patch, _illegal_work_relative
+    from .vset_patch import apply_patch, escapes_work, illegal_work_relative
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_exec"
@@ -44,7 +44,7 @@ else:
         _sha256_text,
         pack_snapshot_hash,
 )
-    from vset_patch import apply_patch, _illegal_work_relative
+    from vset_patch import apply_patch, escapes_work, illegal_work_relative
 
 _CAPTURE_LIMIT = 4000
 
@@ -79,16 +79,11 @@ class _OracleResult(unittest.TestResult):
         self.rows.append({"id": test.id(), "status": "unexpectedSuccess"})
 
 
-def _escapes_work(work: Path, dest: Path) -> bool:
-    root = work.resolve()
-    return dest != root and root not in dest.parents
-
-
 def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
-    if _illegal_work_relative(relative):
+    if illegal_work_relative(relative):
         raise VSetValidationError(code, f"illegal path {relative!r}")
     dest = (work / relative).resolve()
-    if _escapes_work(work, dest):
+    if escapes_work(work, dest):
         raise VSetValidationError(code, f"path escapes worktree {relative!r}")
     return dest
 

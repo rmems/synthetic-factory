@@ -37,40 +37,40 @@ else:
         "validate_vset"
     )
 
-import vset_constants as _vset_constants
-import vset_manifest as _vset_manifest
-import vset_manifest_entry_oracle as _vset_manifest_entry
-import vset_oracle as _vset_oracle
-import vset_oracle_exec as _vset_oracle_exec
-import vset_patch as _vset_patch
-import vset_oracle_check as _vset_oracle_check
-import vset_record_checks as _vset_record_checks
-import vset_record as _vset_record
-import vset_source as _vset_source
+import vset_constants
+import vset_manifest
+import vset_manifest_entry_oracle
+import vset_oracle
+import vset_oracle_exec
+import vset_patch
+import vset_oracle_check
+import vset_record_checks
+import vset_record
+import vset_source
 
-ERR_ORACLE_EXECUTION_MISMATCH = _vset_constants.ERR_ORACLE_EXECUTION_MISMATCH
-IDENTITY_UNRESOLVED_PROVENANCE = _vset_constants.IDENTITY_UNRESOLVED_PROVENANCE
-MANIFEST_ROLES = _vset_constants.MANIFEST_ROLES
-VSetValidationError = _vset_constants.VSetValidationError
-iter_record_paths = _vset_constants.iter_record_paths
-pack_snapshot_hash = _vset_constants.pack_snapshot_hash
-registry_pin = _vset_constants.registry_pin
-summarize = _vset_constants.summarize
-_is_invalid_or_impossible = _vset_manifest_entry.is_invalid_or_impossible
-manifest_body_hash = _vset_manifest.manifest_body_hash
-manifest_entry_from_record = _vset_manifest.manifest_entry_from_record
-validate_manifest = _vset_manifest.validate_manifest
-validate_record_with_oracle = _vset_oracle.validate_record_with_oracle
-_execution_result_hash = _vset_oracle_exec.execution_result_hash
-_load_tests = _vset_oracle_exec.load_tests
-run_oracle = _vset_oracle_exec.run_oracle
-apply_patch = _vset_patch.apply_patch
-record_patch = _vset_patch.record_patch
-oracle_errors = _vset_oracle_check.oracle_errors
-load_json = _vset_record_checks.load_json
-validate_record = _vset_record.validate_record
-payload_errors = _vset_source.payload_errors
-source_kind_errors = _vset_source.source_kind_errors
+ERR_ORACLE_EXECUTION_MISMATCH = vset_constants.ERR_ORACLE_EXECUTION_MISMATCH
+IDENTITY_UNRESOLVED_PROVENANCE = vset_constants.IDENTITY_UNRESOLVED_PROVENANCE
+MANIFEST_ROLES = vset_constants.MANIFEST_ROLES
+VSetValidationError = vset_constants.VSetValidationError
+iter_record_paths = vset_constants.iter_record_paths
+pack_snapshot_hash = vset_constants.pack_snapshot_hash
+registry_pin = vset_constants.registry_pin
+summarize = vset_constants.summarize
+_is_invalid_or_impossible = vset_manifest_entry_oracle.is_invalid_or_impossible
+manifest_body_hash = vset_manifest.manifest_body_hash
+manifest_entry_from_record = vset_manifest.manifest_entry_from_record
+validate_manifest = vset_manifest.validate_manifest
+validate_record_with_oracle = vset_oracle.validate_record_with_oracle
+_execution_result_hash = vset_oracle_exec.execution_result_hash
+_load_tests = vset_oracle_exec.load_tests
+run_oracle = vset_oracle_exec.run_oracle
+apply_patch = vset_patch.apply_patch
+record_patch = vset_patch.record_patch
+oracle_errors = vset_oracle_check.oracle_errors
+load_json = vset_record_checks.load_json
+validate_record = vset_record.validate_record
+payload_errors = vset_source.payload_errors
+source_kind_errors = vset_source.source_kind_errors
 
 # Compatibility aliases for the pre-split private names.
 _record_patch = record_patch

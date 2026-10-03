@@ -36,7 +36,7 @@ def _patch_path_shape_illegal(candidate: Path) -> bool:
     return not candidate.parts
 
 
-def _illegal_work_relative(relative: Any) -> bool:
+def illegal_work_relative(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
         return True
     candidate = Path(relative)
@@ -44,7 +44,7 @@ def _illegal_work_relative(relative: Any) -> bool:
 
 
 def _illegal_patch_path(relative: Any) -> bool:
-    if _illegal_work_relative(relative):
+    if illegal_work_relative(relative):
         return True
     candidate = Path(relative)
     if _patch_path_shape_illegal(candidate):
@@ -58,14 +58,14 @@ def _patch_path_key(relative: str) -> str:
     return Path(relative).as_posix().lstrip("./")
 
 
-def _escapes_work(work: Path, dest: Path) -> bool:
+def escapes_work(work: Path, dest: Path) -> bool:
     root = work.resolve()
     return dest != root and root not in dest.parents
 
 
 def _resolve_patch_dest(work: Path, relative: str) -> Path:
     dest = (work / relative).resolve()
-    if _escapes_work(work, dest):
+    if escapes_work(work, dest):
         raise VSetValidationError(
             ERR_PAYLOAD_INVALID, f"patch path escapes the worktree {relative!r}"
         )
