@@ -26,6 +26,7 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
+        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -43,6 +44,7 @@ else:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
+        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -227,10 +229,8 @@ _TRAINING_VIEW_LEAKS = frozenset(
 
 def _training_view_key(key: Any) -> str:
     text = str(key)
-    separated = "".join(
-        f"_{char.lower()}" if char.isupper() else char for char in text
-    )
-    return separated.replace("-", "_").casefold()
+    separated = "".join(f"_{char}" if char.isupper() else char for char in text)
+    return normalize_identity(separated).replace("-", "_")
 
 
 def _training_view_leaks(training_view: dict[str, Any]) -> bool:

@@ -70,7 +70,7 @@ def _prometheus_identity_claimed(record: Mapping[str, Any], env: Mapping[str, An
     # provenance keys, and additionalProperties keeps them writable.
     return _contains_prometheus_marker(env) or _contains_prometheus_marker(
         record.get("prometheus_lineage")
-    )
+    ) or _contains_prometheus_marker(record.get("training_view"))
 
 
 def _real_family_claimed(env: Mapping[str, Any]) -> bool:

@@ -172,11 +172,13 @@ def main(argv: list[str] | None = None) -> int:
     # construction (records/<verdict>/<name>.json, manifests/<name>.json), so
     # re-rooting the stale path's tail components under FIXTURES writes the
     # same file while keeping the destination pinned to the fixture tree.
+    root = REPO.resolve()
     for path in stale:
-        if path.parent.parent.name == "records":
-            target = FIXTURES / "records" / path.parent.name / path.name
-        else:
-            target = FIXTURES / path.parent.name / path.name
+        target = path.resolve()
+        if root not in target.parents and target != root:
+            raise SystemExit(f"refusing to write outside the repository: {path}")
+        if FIXTURES.resolve() not in target.parents:
+            raise SystemExit(f"refusing to write outside the VSET fixtures: {path}")
         target.write_text(wanted[path], encoding="utf-8")
     _report(stale, "rewrote")
     return 0

@@ -227,6 +227,8 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
 
 
 def _usage_error(args: argparse.Namespace) -> str | None:
+    if args.manifest and (args.oracle or args.pack):
+        return "--manifest does not accept --oracle/--pack"
     if not Path(args.target).exists():
         return f"not found: {args.target}"
     # A pack that never executes must not read as validated provenance.
@@ -240,8 +242,6 @@ def _usage_error(args: argparse.Namespace) -> str | None:
     # here would read as if the manifest's claims were run. --oracle without
     # --pack is already rejected above, so --pack is the only extra flag to
     # refuse here.
-    if args.manifest and args.pack:
-        return "--manifest does not accept --oracle/--pack"
     return None
 
 

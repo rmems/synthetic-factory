@@ -56,7 +56,7 @@ class PackOptionSurfaceTests(unittest.TestCase):
     def test_pack_with_manifest_is_rejected(self) -> None:
         result = _cli("--manifest", str(MANIFEST), "--pack", str(PACK))
         self.assertEqual(result.returncode, 2, result.stdout)
-        self.assertIn("--pack requires --oracle", result.stderr)
+        self.assertIn("--manifest does not accept --oracle/--pack", result.stderr)
 
     def test_oracle_without_pack_is_rejected(self) -> None:
         result = _cli(str(ACCEPT), "--oracle")

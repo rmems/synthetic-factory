@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Any, cast
@@ -120,13 +121,16 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
+_KEY_CONFUSABLES = str.maketrans({"о": "o", "ο": "o", "а": "a", "е": "e", "і": "i", "ѕ": "s"})
+
+
 def normalized_key_name(value: Any) -> str:
-    """Normalize JSON keys across case, separators, and camel-case boundaries."""
-    return re.sub(
-        r"[^a-z0-9]+",
-        "_",
-        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(value)).casefold(),
-    ).strip("_")
+    """Normalize JSON keys across case, separators, camel-case, and lookalikes."""
+    text = unicodedata.normalize("NFKC", str(value))
+    text = "".join(char for char in text if unicodedata.category(char) != "Cf")
+    text = text.translate(_KEY_CONFUSABLES)
+    separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", text)
+    return re.sub(r"[^a-z0-9]+", "_", separated.casefold()).strip("_")
 
 
 def is_hidden_reasoning_key(key: Any) -> bool:
