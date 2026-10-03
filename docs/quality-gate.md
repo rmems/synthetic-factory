@@ -26,11 +26,22 @@ Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 | **Exact-hash dedup** | SHA-256 over a canonical training-identity view: states, decisions, actions, outcomes and rewards (fallback: whole record) | ``blocked = true``, exit 1 |
 | **Embedding dedup** | Cosine similarity over a separate semantic view with canonical record ids removed. Pairs above ``--threshold`` (default 0.97) are clustered; one member is kept, the rest are excluded with a ``reason`` | ``blocked = true``, exit 1 |
 | **Synthetic/real mix** | Buckets ``provenance.kind`` / ``state.sim_or_real`` → synthetic ``{designed, simulated, hil}`` vs ``{real, unknown}`` vs ``unlabeled`` (no recognized label) | **Blocks** above the ceiling (default ``0.30 target + 0.20 tolerance = 0.50``); warns between target and ceiling |
-| **Read/parse failures** | Files that cannot be read or UTF-8 decoded, and lines that are not valid JSON | Counted in ``errors`` with examples; ``blocked = true``, exit 1 |
+| **Read/parse failures** | Directory listing or member metadata failures, files that cannot be read or UTF-8 decoded, and invalid or duplicate-key JSON lines | Counted in ``errors`` with examples; ``blocked = true``, exit 1 |
 | **Reward-shape entropy** | Distinct ``reward_components`` keys and structural shapes | **Report only.** Magnitudes are never mixed or aggregated — the ontology fix belongs to sf-c5l.4 |
 
 Every reason the gate blocked is listed in ``blockers``; soft findings stay
 in ``warnings``.
+
+The existing ``unreadable_files`` fields also count directory traversal and
+member metadata failures. Their examples identify the relative input path
+(``.`` for the run root); counts, mix and dedup describe only the readable
+subset when any such failure occurs. Duplicate object keys at any depth count
+as ``malformed_lines`` and the ambiguous line is excluded. A readable empty
+directory remains valid under the default mix policy. Symlinks with ``.jsonl``
+names are read when their opened target is a regular file, while directory
+symlinks are not descended. FIFOs, devices and other nonregular JSONL inputs
+block the gate. On platforms with ``O_NONBLOCK``, nonblocking open prevents a
+FIFO from hanging the audit before the descriptor type can be checked.
 
 ## Embedding dedup
 
