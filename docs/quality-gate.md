@@ -40,8 +40,8 @@ as ``malformed_lines`` and the ambiguous line is excluded. A readable empty
 directory remains valid under the default mix policy. Symlinks with ``.jsonl``
 names are read when their opened target is a regular file, while directory
 symlinks are not descended. FIFOs, devices and other nonregular JSONL inputs
-block the gate; nonblocking open prevents a FIFO from hanging the audit before
-the descriptor type can be checked.
+block the gate. On platforms with ``O_NONBLOCK``, nonblocking open prevents a
+FIFO from hanging the audit before the descriptor type can be checked.
 
 ## Embedding dedup
 

@@ -207,6 +207,7 @@ def _record_provenance_kind(record):
 class ScanState:
     hashes: Counter = field(default_factory=Counter)
     first_seen: dict = field(default_factory=dict)
+    directory_identities: dict = field(default_factory=dict)
     provenance: Counter = field(default_factory=Counter)
     reward_keys: Counter = field(default_factory=Counter)
     reward_shapes: Counter = field(default_factory=Counter)
@@ -278,9 +279,9 @@ def _read_regular_bytes(path, run_dir, directory_identities):
         os.close(directory_descriptor)
 
 
-def _read_jsonl(path, rel, state, run_dir, directory_identities):
+def _read_jsonl(path, rel, state, run_dir):
     try:
-        payload = _read_regular_bytes(path, run_dir, directory_identities)
+        payload = _read_regular_bytes(path, run_dir, state.directory_identities)
         return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
@@ -362,9 +363,9 @@ def _consume_record(parsed, where, state, embedding_dedup):
     _consume_rewards(parsed.value, state)
 
 
-def _scan_jsonl_file(path, run_dir, state, embedding_dedup, directory_identities):
+def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
     rel = path.relative_to(run_dir)
-    lines = _read_jsonl(path, rel, state, run_dir, directory_identities)
+    lines = _read_jsonl(path, rel, state, run_dir)
     for lineno, line in enumerate(lines, 1):
         if not line.strip():
             continue
@@ -433,13 +434,13 @@ def _jsonl_paths(run_dir, state):
         metadata = run_dir.stat(follow_symlinks=False)
     except OSError as exc:
         _record_unreadable(state, Path("."), exc)
-        return [], {}
+        return []
     if not stat.S_ISDIR(metadata.st_mode):
         _record_unreadable(state, Path("."), OSError("run directory is a symlink"))
-        return [], {}
+        return []
     root_identity = (metadata.st_dev, metadata.st_ino)
     pending = [(run_dir, root_identity)]
-    directory_identities = {run_dir: root_identity}
+    state.directory_identities[run_dir] = root_identity
     paths = []
     while pending:
         children = []
@@ -448,25 +449,18 @@ def _jsonl_paths(run_dir, state):
             if path.name.endswith(".jsonl"):
                 paths.append(path)
             if child_identity is not None:
-                directory_identities[path] = child_identity
+                state.directory_identities[path] = child_identity
                 children.append((path, child_identity))
         pending.extend(reversed(children))
     # Keep rglob's global Path ordering for dedup representatives, including
     # JSONL file symlinks; directory symlinks are never descended.
-    return sorted(paths), directory_identities
+    return sorted(paths)
 
 
 def _scan_run(run_dir, embedding_dedup):
     state = ScanState()
-    paths, directory_identities = _jsonl_paths(run_dir, state)
-    for path in paths:
-        _scan_jsonl_file(
-            path,
-            run_dir,
-            state,
-            embedding_dedup,
-            directory_identities,
-        )
+    for path in _jsonl_paths(run_dir, state):
+        _scan_jsonl_file(path, run_dir, state, embedding_dedup)
     return state
 
 
