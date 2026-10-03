@@ -1,92 +1,162 @@
 #!/usr/bin/env bash
 # Amp orb setup for synthetic-factory.
 #
-# Amp runs this from the repository root when it builds a project orb snapshot
-# (Debian 12, CPU only: orbs have no GPU). It must finish within 20 minutes and
-# be safe to run more than once. See https://ampcode.com/docs/orbs/customizing
-#
-# Installs only what this repo's CI and manifests need:
-#   - apt: build-essential, pkg-config, bubblewrap, curl, ca-certificates
-#   - Rust 1.98.1 (+rustfmt, clippy) [default]
-#   - uv + Python 3.14 venv with coverage==7.15.4
-#   - cargo fetch --locked
-#   - tool directories exposed to later shells (/etc/profile.d + /usr/local/bin links)
-#
-# It ends with a dependency fetch/prebuild, not a test run.
+# Runs from the repository root while Amp builds a project snapshot (Debian 12,
+# CPU-only). Keep it idempotent and fast on a warm snapshot; install dependencies,
+# but do not run tests or start services here. See https://ampcode.com/docs/orbs/customizing.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+repo_root="$(pwd -P)"
 
-SUDO=""
-if [ "$(id -u)" -ne 0 ]; then
-  SUDO="sudo"
+readonly RUSTUP_VERSION=1.28.2
+readonly RUSTUP_SHA256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+readonly UV_VERSION=0.12.21
+readonly UV_SHA256=23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0
+readonly RUST_VERSION=1.98.1
+readonly COVERAGE_VERSION=7.15.4
+
+if [[ "$(uname -m)" != x86_64 ]]; then
+  echo "Amp orb setup currently supports x86_64 only (got $(uname -m))." >&2
+  exit 1
 fi
 
-# Install Debian packages that are not already present.
-apt_install() {
-  local missing=() pkg
-  for pkg in "$@"; do
-    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
-      missing+=("$pkg")
+if [[ "$(id -u)" -eq 0 ]]; then
+  SUDO=()
+elif command -v sudo >/dev/null 2>&1; then
+  SUDO=(sudo)
+else
+  SUDO=()
+fi
+
+run_timed() {
+  local label="$1" start=$SECONDS
+  shift
+  printf '[setup] %s started\n' "$label"
+  "$@"
+  printf '[setup] %s finished in %ss\n' "$label" "$((SECONDS - start))"
+}
+
+install_system_packages() {
+  local missing=() package
+  for package in build-essential pkg-config bubblewrap curl ca-certificates; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed'; then
+      missing+=("$package")
     fi
   done
-  if [ "${#missing[@]}" -gt 0 ]; then
-    $SUDO apt-get -o Acquire::Retries=5 update -qq
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends "${missing[@]}"
+
+  if ((${#missing[@]})); then
+    if [[ "$(id -u)" -ne 0 ]] && ! command -v sudo >/dev/null 2>&1; then
+      echo "Missing Debian packages (${missing[*]}) and sudo is unavailable." >&2
+      return 1
+    fi
+    "${SUDO[@]}" apt-get -o Acquire::Retries=5 update -qq
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get \
+      -o Acquire::Retries=5 install -y --no-install-recommends "${missing[@]}"
   fi
 }
 
-# --- System packages (C toolchain; bubblewrap for the sandboxed test shards (python.yml); curl for the installers) ---
-apt_install build-essential pkg-config bubblewrap curl ca-certificates
+download_rustup() {
+  local install_dir="$HOME/.cargo/bin" target="x86_64-unknown-linux-gnu"
+  local installer="$tmp_dir/rustup-init"
+  local base_url="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${target}"
 
-# --- Rust (rustup) ---
-export PATH="$HOME/.cargo/bin:$PATH"
-if ! command -v rustup >/dev/null 2>&1; then
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-    sh -s -- -y --default-toolchain none --profile minimal
-fi
-# python.yml: rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
-rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
-rustup default 1.98.1
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+    "$base_url/rustup-init" --output "$installer"
+  printf '%s  %s\n' "$RUSTUP_SHA256" "$installer" | sha256sum --check --status
+  chmod 0755 "$installer"
+  mkdir -p "$install_dir"
+  "$installer" -y --no-modify-path --default-toolchain none --profile minimal
+}
 
-# --- Python (uv) ---
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v uv >/dev/null 2>&1; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-fi
-# requires-python >=3.14; CI uses 3.14. Pipelines are stdlib-only.
-uv python install 3.14
-if [ ! -x .venv/bin/python ]; then
-  uv venv --python 3.14 .venv
-fi
-uv pip install --python .venv/bin/python --only-binary ':all:' 'coverage==7.15.4'
+install_rust() {
+  export PATH="$HOME/.cargo/bin:$PATH"
+  if ! command -v rustup >/dev/null 2>&1; then
+    download_rustup
+  fi
+  rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt --component clippy
+  rustup default "$RUST_VERSION"
+}
 
-# --- Prefetch crates (no build, no tests) ---
-cargo fetch --locked
+install_uv() {
+  local uv_bin="$HOME/.local/bin/uv"
+  local archive="$tmp_dir/uv.tar.gz"
+  local base_url="https://releases.astral.sh/github/uv/releases/download/${UV_VERSION}"
 
-# --- Expose the tools to later shells ---
-# The PATH exports above last only for this script; Amp starts the agent's shell
-# separately. Login shells get these directories from /etc/profile.d, and every other
-# shell finds the entry points through symlinks in /usr/local/bin (on the default PATH).
-# In login shells the venv's bin comes first, so python3 is the venv's Python.
-# The links skip python and pip so the system python3 stays the default elsewhere.
-repo_root="$(pwd)"
-tool_dirs=("$HOME/.cargo/bin" "$repo_root/.venv/bin" "$HOME/.local/bin")
-# shellcheck disable=SC2016 # $PATH must expand when the profile is sourced, not now.
-printf 'export PATH=%q:$PATH\n' "$(IFS=:; echo "${tool_dirs[*]}")" |
-  $SUDO tee /etc/profile.d/amp-orb-synthetic-factory.sh >/dev/null
-for dir in "${tool_dirs[@]}"; do
-  [ -d "$dir" ] || continue
-  for tool in "$dir"/*; do
-    name="${tool##*/}"
-    case "$name" in
-      # uv's installer also drops env/env.fish (sourced, not run) in ~/.local/bin.
-      python* | pip* | activate* | deactivate | Activate.ps1 | env | env.fish) continue ;;
-    esac
-    if [ -f "$tool" ] && [ -x "$tool" ]; then
-      $SUDO ln -sfn "$tool" "/usr/local/bin/$name"
-    fi
-  done
-done
+  if [[ -x "$uv_bin" ]] && [[ "$($uv_bin --version)" == "uv ${UV_VERSION}" ]]; then
+    return
+  fi
+
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+    "$base_url/uv-x86_64-unknown-linux-gnu.tar.gz" --output "$archive"
+  printf '%s  %s\n' "$UV_SHA256" "$archive" | sha256sum --check --status
+  tar -xzf "$archive" -C "$tmp_dir"
+  mkdir -p "$HOME/.local/bin"
+  install -m 0755 "$tmp_dir/uv-x86_64-unknown-linux-gnu/uv" "$uv_bin"
+  install -m 0755 "$tmp_dir/uv-x86_64-unknown-linux-gnu/uvx" "$HOME/.local/bin/uvx"
+}
+
+install_python() {
+  export PATH="$HOME/.local/bin:$PATH"
+  uv python install --default 3.14
+
+  if [[ ! -x .venv/bin/python ]] || ! .venv/bin/python -c \
+    'import sys; raise SystemExit(sys.version_info < (3, 14))'; then
+    uv venv --clear --python 3.14 .venv
+  fi
+
+  uv pip install --python .venv/bin/python --only-binary ':all:' "coverage==${COVERAGE_VERSION}"
+}
+
+fetch_cargo_dependencies() {
+  export PATH="$HOME/.cargo/bin:$PATH"
+  cargo fetch --locked
+}
+
+shell_quote() {
+  local escaped=${1//\'/\'\\\'\'}
+  printf "'%s'" "$escaped"
+}
+
+configure_login_path() {
+  local profile
+  local marker='# Amp orb toolchain: synthetic-factory'
+  local shell_repo_root shell_tool_path tool_path
+  local tool_dirs=("$repo_root/.venv/bin" "$HOME/.cargo/bin" "$HOME/.local/bin")
+
+  if [[ -e "$HOME/.bash_profile" ]]; then
+    profile="$HOME/.bash_profile"
+  elif [[ -e "$HOME/.bash_login" ]]; then
+    profile="$HOME/.bash_login"
+  else
+    profile="$HOME/.profile"
+  fi
+
+  if grep -Fqx "$marker" "$profile" 2>/dev/null; then
+    return
+  fi
+
+  tool_path="$(IFS=:; printf '%s' "${tool_dirs[*]}")"
+  shell_repo_root="$(shell_quote "$repo_root")"
+  shell_tool_path="$(shell_quote "$tool_path")"
+  {
+    printf '\n%s\n' "$marker"
+    printf 'AMP_SYNTHETIC_FACTORY_ROOT=%s\n' "$shell_repo_root"
+    printf 'case "$PWD/" in\n'
+    printf '  "$AMP_SYNTHETIC_FACTORY_ROOT/"*) export PATH=%s:"$PATH" ;;\n' "$shell_tool_path"
+    printf 'esac\n'
+    printf 'unset AMP_SYNTHETIC_FACTORY_ROOT\n'
+  } >> "$profile"
+}
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+run_timed 'Debian packages' install_system_packages
+run_timed 'Rust toolchain' install_rust
+run_timed 'uv package manager' install_uv
+run_timed 'Python and coverage' install_python
+run_timed 'Locked Cargo dependencies' fetch_cargo_dependencies
+run_timed 'Login-shell PATH' configure_login_path
 
 echo "Amp orb setup for synthetic-factory finished."
