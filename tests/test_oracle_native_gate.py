@@ -1,5 +1,6 @@
 """Explicit native replay authority is scoped to caller-selected executables."""
 
+from contextlib import ExitStack
 from pathlib import Path
 import sys
 import unittest
@@ -9,13 +10,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 from oracle_grounded import admission, record
 
 
+def _record_twins():
+    """Both import spellings of the record module; ``record.py`` binds no twin."""
+    names = ("oracle_grounded.record", "pipelines.oracle_grounded.record")
+    twins = (record, *(sys.modules.get(name) for name in names))
+    return list({id(module): module for module in twins if module is not None}.values())
+
+
 class NativeGateTests(unittest.TestCase):
     def item(self, profile="axon-stream-v1", family="spike-encoder-equivalence-pairs"):
         return {"family": family, "scenario": {"profile": profile},
                 "oracle": {"implementation": "named-runtime"}}
 
+    def _patch_reproduce(self, stack, **kwargs):
+        replay = mock.Mock(**kwargs)
+        for module in _record_twins():
+            stack.enter_context(mock.patch.object(module, "reproduce", replay))
+        return replay
+
     def test_plain_admission_never_spawns_a_runtime(self):
-        with mock.patch.object(record, "reproduce") as replay:
+        with ExitStack() as stack:
+            replay = self._patch_reproduce(stack)
             self.assertFalse(admission._measurement_eligibility(self.item())[0])
         replay.assert_not_called()
 
@@ -23,13 +38,16 @@ class NativeGateTests(unittest.TestCase):
         from oracle_grounded import native_gate
         env = {"SF_ORACLE_RUST_BIN": "/explicit/runtime"}
         item = self.item()
-        with mock.patch.object(native_gate, "runtime_environ", return_value=env):
-            with mock.patch.object(record, "reproduce", return_value=("reproduced", "digest")) as replay:
-                with native_gate.runtime_gate("/explicit/runtime"):
-                    self.assertEqual(admission._measurement_eligibility(item), (True, ()))
-                    self.assertEqual(admission._measurement_eligibility(item), (True, ()))
-                self.assertEqual(replay.call_count, 2)
-                replay.assert_called_with(item, environ=env)
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(native_gate, "runtime_environ", return_value=env))
+            replay = self._patch_reproduce(
+                stack, return_value=("reproduced", "digest")
+            )
+            with native_gate.runtime_gate("/explicit/runtime"):
+                self.assertEqual(admission._measurement_eligibility(item), (True, ()))
+                self.assertEqual(admission._measurement_eligibility(item), (True, ()))
+            self.assertEqual(replay.call_count, 2)
+            replay.assert_called_with(item, environ=env)
         self.assertIsNone(native_gate.replay_environ())
 
     def test_scope_survives_nested_default_and_resets_after_exception(self):
@@ -50,12 +68,15 @@ class NativeGateTests(unittest.TestCase):
 
     def test_non_native_and_wrong_family_never_use_explicit_gate(self):
         from oracle_grounded import native_gate
-        with mock.patch.object(native_gate, "runtime_environ", return_value={}):
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(native_gate, "runtime_environ", return_value={})
+            )
+            replay = self._patch_reproduce(stack)
             with native_gate.runtime_gate("/explicit/runtime"):
-                with mock.patch.object(record, "reproduce") as replay:
-                    for item in (self.item("unknown"), self.item(family="unrelated")):
-                        self.assertFalse(admission._measurement_eligibility(item)[0])
-                replay.assert_not_called()
+                for item in (self.item("unknown"), self.item(family="unrelated")):
+                    self.assertFalse(admission._measurement_eligibility(item)[0])
+            replay.assert_not_called()
 
     def test_replay_mismatch_and_unavailability_block_admission(self):
         from oracle_grounded import native_gate
@@ -64,7 +85,8 @@ class NativeGateTests(unittest.TestCase):
                 for status in ("mismatch", "unavailable", "invalid"):
                     with self.subTest(status=status):
                         item = self.item()
-                        with mock.patch.object(record, "reproduce", return_value=(status, "reason")):
+                        with ExitStack() as stack:
+                            self._patch_reproduce(stack, return_value=(status, "reason"))
                             with self.assertRaises(admission.OracleAdmissionError):
                                 admission._measurement_eligibility(item)
 
