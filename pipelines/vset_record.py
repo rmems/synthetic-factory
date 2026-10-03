@@ -21,6 +21,8 @@ if __package__:  # pragma: no cover - package-child import path
         SCHEMA_VERSION,
         VSetValidationError,
         _check_actor,
+        _is_sha256,
+        _mapping_or_empty,
         content_hash,
         nonfinite_error,
         normalize_identity,
@@ -48,6 +50,8 @@ else:
         SCHEMA_VERSION,
         VSetValidationError,
         _check_actor,
+        _is_sha256,
+        _mapping_or_empty,
         content_hash,
         nonfinite_error,
         normalize_identity,
@@ -82,7 +86,16 @@ def validate_record(
         errors.extend(_curation_errors(record, record["curation"]))
     if isinstance(record.get("environment"), dict):
         errors.extend(_environment_errors(record["environment"]))
-    errors.extend(_release_errors(record.get("release"), registry_path, require_registry_sha))
+    errors.extend(_release_errors(record.get("release"), registry_path))
+    if require_registry_sha and not _is_sha256(
+        _mapping_or_empty(record.get("release")).get("factory_registry_sha256")
+    ):
+        errors.append(
+            VSetValidationError(
+                ERR_RELEASE_CONTRACT_MISMATCH,
+                "release.factory_registry_sha256 is required",
+            )
+        )
     if kind is not None:
         errors.extend(payload_errors(kind, record.get("payload")))
     errors.extend(_training_view_errors(record.get("training_view")))

@@ -28,7 +28,6 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_check import (
         _certifier_errors,
         _self_certify_kind_errors,
-        validated_oracle_independence_errors,
     )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -48,7 +47,6 @@ else:
     from vset_oracle_check import (
         _certifier_errors,
         _self_certify_kind_errors,
-        validated_oracle_independence_errors,
     )
 
 
@@ -146,29 +144,33 @@ def _entry_curation_errors(where: str, entry: Mapping[str, Any]) -> list[VSetVal
             )
         )
     errors.extend(_entry_reason_errors(where, curation))
-    reasons = curation.get("reason_codes")
-    measured_without_reason = (
-        _is_invalid_or_impossible(entry)
-        and decision == "measure"
-        and (not isinstance(reasons, list) or not reasons)
-    )
-    if measured_without_reason:
-        errors.append(
-            VSetValidationError(
-                "vset.invalid_outcome_dropped",
-                f"{where} invalid/impossible tasks must remain measure outcomes",
-            )
-        )
-    if _is_invalid_or_impossible(entry) and decision != "measure":
-        errors.append(
-            VSetValidationError(
-                "vset.invalid_outcome_dropped",
-                f"{where} invalid/impossible tasks must remain measure outcomes",
-            )
-        )
+    errors.extend(_entry_outcome_errors(where, entry, decision))
     if decision == "accept":
         errors.extend(_entry_accept_errors(where, entry))
     return errors
+
+
+def _measured_without_reason(entry: Mapping[str, Any], decision: Any) -> bool:
+    reasons = _mapping_or_empty(entry.get("curation")).get("reason_codes")
+    if decision != "measure":
+        return False
+    if not _is_invalid_or_impossible(entry):
+        return False
+    return not isinstance(reasons, list) or not reasons
+
+
+def _entry_outcome_errors(
+    where: str, entry: Mapping[str, Any], decision: Any
+) -> list[VSetValidationError]:
+    invalid = _is_invalid_or_impossible(entry)
+    if _measured_without_reason(entry, decision) or (invalid and decision != "measure"):
+        return [
+            VSetValidationError(
+                "vset.invalid_outcome_dropped",
+                f"{where} invalid/impossible tasks must remain measure outcomes",
+            )
+        ]
+    return []
 
 
 def _entry_accept_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:

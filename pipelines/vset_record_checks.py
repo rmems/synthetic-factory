@@ -160,7 +160,6 @@ def _environment_errors(environment: dict[str, Any]) -> list[VSetValidationError
 def _release_errors(
     release: Any,
     registry_path: Path | None,
-    require_registry_sha: bool,
 ) -> list[VSetValidationError]:
     pin = registry_pin(registry_path)
     if not isinstance(release, dict):
@@ -195,7 +194,7 @@ def _stamped_registry_errors(
     release: dict[str, Any], pin: dict[str, str]
 ) -> list[VSetValidationError]:
     stamped = release.get("factory_registry_sha256")
-    if stamped is None:
+    if stamped is None or stamped != pin["sha256"]:
         return [
             VSetValidationError(
                 ERR_RELEASE_CONTRACT_MISMATCH,

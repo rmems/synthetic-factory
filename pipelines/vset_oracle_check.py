@@ -21,7 +21,6 @@ if __package__:  # pragma: no cover - package-child import path
         _is_nonempty,
         _is_sha256,
         _mapping_or_empty,
-        _normalized_identity_text,
         normalize_identity,
 )
 else:
@@ -39,7 +38,6 @@ else:
         _is_nonempty,
         _is_sha256,
         _mapping_or_empty,
-        _normalized_identity_text,
         normalize_identity,
 )
 
@@ -125,7 +123,7 @@ def _solver_upgrade_errors(
 def _validated_oracle_errors(
     record: Mapping[str, Any], oracle: Mapping[str, Any], kind: Any
 ) -> list[VSetValidationError]:
-    solver: Mapping[str, Any] = _mapping_or_empty(record.get("solver"))
+    solver = dict(_mapping_or_empty(record.get("solver")))
     author: Mapping[str, Any] = _mapping_or_empty(record.get("task_author"))
     reviewer = record.get("reviewer")
     errors: list[VSetValidationError] = []

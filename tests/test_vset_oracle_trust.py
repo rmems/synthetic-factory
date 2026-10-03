@@ -7,7 +7,6 @@ and a forged result hash must not become validated evidence.
 
 from __future__ import annotations
 
-import json
 import shutil
 import sys
 import tempfile
@@ -50,7 +49,7 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 "": "empty",
                 ".": "directory",
                 "src": "directory",
-                "/tmp/abs.py": "absolute",
+                "/var/abs.py": "absolute",
                 "../escape.py": "..",
             }
             for relative in cases:

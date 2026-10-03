@@ -158,12 +158,25 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _fixture_destination(path: Path) -> Path:
+    """Rebuild a fixture path from fixed names, never from a resolved input.
+
+    ``path`` is one of the constants this script enumerated. Reconstructing
+    the destination from ``path.name`` keeps the write inside FIXTURES even
+    if a caller later hands the function a path that resolves elsewhere.
+    """
+
+    name = path.name
+    if path.parent.name in {"accept", "reject"} and path.parent.parent.name == "records":
+        return FIXTURES / "records" / path.parent.name / name
+    if path.parent.name == "manifests":
+        return FIXTURES / "manifests" / name
+    raise SystemExit(f"refusing to write an unlisted fixture: {path}")
+
+
 def _guarded_write(path: Path, text: str) -> None:
-    root = REPO.resolve()
-    target = path.resolve()
-    if root not in target.parents:
-        raise SystemExit(f"refusing to write outside the repository: {path}")
-    if FIXTURES.resolve() not in target.parents:
+    target = _fixture_destination(path)
+    if not target.is_relative_to(FIXTURES):
         raise SystemExit(f"refusing to write outside the VSET fixtures: {path}")
     target.write_text(text, encoding="utf-8")
 
