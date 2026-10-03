@@ -248,9 +248,12 @@ def _is_sha256(value: Any) -> bool:
 
 
 def _mapping_or_empty(value: Any) -> dict[str, Any]:
+    copied: dict[str, Any] = {}
     if not isinstance(value, Mapping):
-        return {}
-    return dict(value.items())
+        return copied
+    for key, item in value.items():
+        copied[str(key)] = item
+    return copied
 
 
 def _pick(mapping: dict[str, Any], keys: Iterable[str]) -> dict[str, Any]:

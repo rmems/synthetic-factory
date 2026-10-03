@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -166,7 +166,7 @@ def _pack_binding_errors(
         return [load_error]
     pack_id = pack_meta.get("pack_id")
     env = _mapping_or_empty(record.get("environment"))
-    oracle: dict[str, Any] = _mapping_or_empty(record.get("oracle"))
+    oracle: Mapping[str, Any] = _mapping_or_empty(record.get("oracle"))
     errors = _pack_id_errors(pack_id, env, oracle)
     if isinstance(pack_id, str) or (pack_dir / "tasks").is_dir():
         manifest = _task_manifest(pack_dir, env.get("task_id"))
@@ -186,11 +186,11 @@ def validate_record_with_oracle(
     )
     if not isinstance(record, dict):
         return errors, None
-    oracle: dict[str, Any] = dict(_mapping_or_empty(record.get("oracle")))
+    oracle: Mapping[str, Any] = _mapping_or_empty(record.get("oracle"))
     status = oracle.get("status")
     if status not in {"provisional", "validated"}:
         return errors, None
-    paths_error = _oracle_path_list_error(oracle)
+    paths_error = _oracle_path_list_error(cast(Mapping[str, Any], oracle))
     if paths_error is not None:
         errors.append(paths_error)
         return errors, None
@@ -205,7 +205,9 @@ def validate_record_with_oracle(
     except VSetValidationError as exc:
         errors.append(exc)
         return errors, None
-    errors.extend(_execution_match_errors(record, oracle, execution, status))
+    errors.extend(
+        _execution_match_errors(record, cast(Mapping[str, Any], oracle), execution, status)
+    )
     return errors, execution
 
 
