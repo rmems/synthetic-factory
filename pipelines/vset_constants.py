@@ -275,19 +275,22 @@ def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
 
 
 def _reject_bad_sha256(actor: dict[str, Any], role: str, field: str) -> None:
-    if not _is_sha256(actor.get(field)):
-        raise VSetValidationError(
-            ERR_ACTOR_FIELDS_INVALID,
-            f"{role}.{field} must be sha256:<64 hex>",
-        )
+    _reject_unless(_is_sha256(actor.get(field)), role, field, "sha256:<64 hex>")
 
 
 def _reject_bad_nonempty(actor: dict[str, Any], role: str, field: str) -> None:
-    if not _is_nonempty(actor.get(field)):
-        raise VSetValidationError(
-            ERR_ACTOR_FIELDS_INVALID,
-            f"{role}.{field} must be a non-empty normalized string",
-        )
+    _reject_unless(
+        _is_nonempty(actor.get(field)), role, field, "a non-empty normalized string"
+    )
+
+
+def _reject_unless(ok: bool, role: str, field: str, expected: str) -> None:
+    if ok:
+        return
+    raise VSetValidationError(
+        ERR_ACTOR_FIELDS_INVALID,
+        f"{role}.{field} must be {expected}",
+    )
 
 
 def _require_actor_optionals(

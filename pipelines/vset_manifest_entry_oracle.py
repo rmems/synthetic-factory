@@ -101,7 +101,7 @@ def _entry_oracle_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValid
     return errors
 
 
-def _is_invalid_or_impossible(entry: Mapping[str, Any]) -> bool:
+def is_invalid_or_impossible(entry: Mapping[str, Any]) -> bool:
     if not isinstance(entry, Mapping):
         return False
     oracle = _mapping_or_empty(entry.get("oracle"))
@@ -154,7 +154,7 @@ def _measured_without_reason(entry: Mapping[str, Any], decision: Any) -> bool:
     reasons = _mapping_or_empty(entry.get("curation")).get("reason_codes")
     if decision != "measure":
         return False
-    if not _is_invalid_or_impossible(entry):
+    if not is_invalid_or_impossible(entry):
         return False
     return not isinstance(reasons, list) or not reasons
 
@@ -162,7 +162,7 @@ def _measured_without_reason(entry: Mapping[str, Any], decision: Any) -> bool:
 def _outcome_dropped(entry: Mapping[str, Any], decision: Any) -> bool:
     if _measured_without_reason(entry, decision):
         return True
-    if not _is_invalid_or_impossible(entry):
+    if not is_invalid_or_impossible(entry):
         return False
     return decision != "measure"
 

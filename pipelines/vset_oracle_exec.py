@@ -31,7 +31,7 @@ if __package__:  # pragma: no cover - package-child import path
         _sha256_text,
         pack_snapshot_hash,
 )
-    from .vset_patch import apply_patch
+    from .vset_patch import apply_patch, _illegal_work_relative
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_exec"
@@ -44,7 +44,7 @@ else:
         _sha256_text,
         pack_snapshot_hash,
 )
-    from vset_patch import apply_patch
+    from vset_patch import apply_patch, _illegal_work_relative
 
 _CAPTURE_LIMIT = 4000
 
@@ -79,13 +79,6 @@ class _OracleResult(unittest.TestResult):
         self.rows.append({"id": test.id(), "status": "unexpectedSuccess"})
 
 
-def _illegal_work_relative(relative: Any) -> bool:
-    if not isinstance(relative, str) or not relative.strip():
-        return True
-    candidate = Path(relative)
-    return candidate.is_absolute() or ".." in candidate.parts
-
-
 def _escapes_work(work: Path, dest: Path) -> bool:
     root = work.resolve()
     return dest != root and root not in dest.parents
@@ -114,7 +107,7 @@ def _restore_oracle_file(pack_dir: Path, work: Path, relative: str) -> None:
         shutil.copyfile(source, dest)
 
 
-def _load_tests(
+def load_tests(
     work: Path, pack_dir: Path | str, relative: str | None = None
 ) -> unittest.TestSuite:
     if relative is None:
@@ -206,7 +199,7 @@ def _pop_pack_path(inserted: list[str]) -> None:
 def _execute_suite(work: Path, pack_dir: Path, relatives: Iterable[str]) -> _OracleResult:
     suite = unittest.TestSuite()
     for relative in relatives:
-        suite.addTests(_load_tests(work, pack_dir, relative))
+        suite.addTests(load_tests(work, pack_dir, relative))
     result = _OracleResult()
     cwd = os.getcwd()
     try:
@@ -332,7 +325,7 @@ def run_oracle(
         }
 
 
-def _execution_result_hash(execution: Mapping[str, Any]) -> str:
+def execution_result_hash(execution: Mapping[str, Any]) -> str:
     hidden = execution["hidden"]
     if hidden is None:
         return execution["reference"]["result_hash"]

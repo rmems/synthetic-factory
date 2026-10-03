@@ -36,8 +36,15 @@ def _patch_path_shape_illegal(candidate: Path) -> bool:
     return not candidate.parts
 
 
-def _illegal_patch_path(relative: Any) -> bool:
+def _illegal_work_relative(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
+        return True
+    candidate = Path(relative)
+    return candidate.is_absolute() or ".." in candidate.parts
+
+
+def _illegal_patch_path(relative: Any) -> bool:
+    if _illegal_work_relative(relative):
         return True
     candidate = Path(relative)
     if _patch_path_shape_illegal(candidate):

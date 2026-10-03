@@ -39,6 +39,7 @@ else:
 
 import vset_constants as _vset_constants
 import vset_manifest as _vset_manifest
+import vset_manifest_entry_oracle as _vset_manifest_entry
 import vset_oracle as _vset_oracle
 import vset_oracle_exec as _vset_oracle_exec
 import vset_patch as _vset_patch
@@ -55,13 +56,13 @@ iter_record_paths = _vset_constants.iter_record_paths
 pack_snapshot_hash = _vset_constants.pack_snapshot_hash
 registry_pin = _vset_constants.registry_pin
 summarize = _vset_constants.summarize
-_is_invalid_or_impossible = _vset_manifest._is_invalid_or_impossible
+_is_invalid_or_impossible = _vset_manifest_entry.is_invalid_or_impossible
 manifest_body_hash = _vset_manifest.manifest_body_hash
 manifest_entry_from_record = _vset_manifest.manifest_entry_from_record
 validate_manifest = _vset_manifest.validate_manifest
 validate_record_with_oracle = _vset_oracle.validate_record_with_oracle
-_execution_result_hash = _vset_oracle_exec._execution_result_hash
-_load_tests = _vset_oracle_exec._load_tests
+_execution_result_hash = _vset_oracle_exec.execution_result_hash
+_load_tests = _vset_oracle_exec.load_tests
 run_oracle = _vset_oracle_exec.run_oracle
 apply_patch = _vset_patch.apply_patch
 record_patch = _vset_patch.record_patch
@@ -209,12 +210,17 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
 _MANIFEST_OPTION_ERROR = "--manifest does not accept --oracle/--pack"
 
 
-def _manifest_option_error(args: argparse.Namespace) -> str | None:
-    if args.manifest and args.oracle:
-        return _MANIFEST_OPTION_ERROR
-    if args.manifest and args.pack:
-        return _MANIFEST_OPTION_ERROR
+def _flag_conflict(left: bool, right: bool, message: str) -> str | None:
+    if left and right:
+        return message
     return None
+
+
+def _manifest_option_error(args: argparse.Namespace) -> str | None:
+    oracle = _flag_conflict(args.manifest, args.oracle, _MANIFEST_OPTION_ERROR)
+    if oracle is not None:
+        return oracle
+    return _flag_conflict(args.manifest, bool(args.pack), _MANIFEST_OPTION_ERROR)
 
 
 def _pack_option_error(args: argparse.Namespace) -> str | None:

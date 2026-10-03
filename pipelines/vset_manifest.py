@@ -29,7 +29,7 @@ if __package__:  # pragma: no cover - package-child import path
 )
     from .vset_manifest_entries import manifest_entry_errors
     from .vset_record_checks import nonfinite_error
-    from .vset_manifest_entry_oracle import _is_invalid_or_impossible
+    from .vset_manifest_entry_oracle import is_invalid_or_impossible as _is_invalid_or_impossible
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_manifest"
@@ -52,7 +52,7 @@ else:
 )
     from vset_manifest_entries import manifest_entry_errors
     from vset_record_checks import nonfinite_error
-    from vset_manifest_entry_oracle import _is_invalid_or_impossible
+    from vset_manifest_entry_oracle import is_invalid_or_impossible as _is_invalid_or_impossible
 
 
 def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:

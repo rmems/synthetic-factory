@@ -10,7 +10,7 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_check")
-    from .vset_oracle_exec import _execution_result_hash
+    from .vset_oracle_exec import execution_result_hash as _execution_result_hash
     from .vset_constants import (
         ERR_ORACLE_EXECUTION_MISMATCH,
         ERR_ORACLE_SELF_CERTIFIED,
@@ -27,7 +27,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_check"
     )
-    from vset_oracle_exec import _execution_result_hash
+    from vset_oracle_exec import execution_result_hash as _execution_result_hash
     from vset_constants import (
         ERR_ORACLE_EXECUTION_MISMATCH,
         ERR_ORACLE_SELF_CERTIFIED,
