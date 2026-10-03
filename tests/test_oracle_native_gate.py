@@ -18,11 +18,13 @@ def _record_twins():
 
 
 class NativeGateTests(unittest.TestCase):
-    def item(self, profile="axon-stream-v1", family="spike-encoder-equivalence-pairs"):
+    @staticmethod
+    def item(profile="axon-stream-v1", family="spike-encoder-equivalence-pairs"):
         return {"family": family, "scenario": {"profile": profile},
                 "oracle": {"implementation": "named-runtime"}}
 
-    def _patch_reproduce(self, stack, **kwargs):
+    @staticmethod
+    def _patch_reproduce(stack, **kwargs):
         replay = mock.Mock(**kwargs)
         for module in _record_twins():
             stack.enter_context(mock.patch.object(module, "reproduce", replay))
@@ -56,14 +58,15 @@ class NativeGateTests(unittest.TestCase):
         failure = ValueError("simulated failure")
 
         def fail_inside_nested_scope():
-            with native_gate.runtime_gate("/explicit/runtime"):
-                with native_gate.runtime_gate(None):
-                    self.assertEqual(native_gate.replay_environ(), env)
-                    raise failure
+            with native_gate.runtime_gate("/explicit/runtime"), native_gate.runtime_gate(None):
+                self.assertEqual(native_gate.replay_environ(), env)
+                raise failure
 
-        with mock.patch.object(native_gate, "runtime_environ", return_value=env):
-            with self.assertRaisesRegex(ValueError, "simulated failure"):
-                fail_inside_nested_scope()
+        with (
+            mock.patch.object(native_gate, "runtime_environ", return_value=env),
+            self.assertRaisesRegex(ValueError, "simulated failure"),
+        ):
+            fail_inside_nested_scope()
         self.assertIsNone(native_gate.replay_environ())
 
     def test_non_native_and_wrong_family_never_use_explicit_gate(self):
@@ -80,15 +83,17 @@ class NativeGateTests(unittest.TestCase):
 
     def test_replay_mismatch_and_unavailability_block_admission(self):
         from oracle_grounded import native_gate
-        with mock.patch.object(native_gate, "runtime_environ", return_value={}):
-            with native_gate.runtime_gate("/explicit/runtime"):
-                for status in ("mismatch", "unavailable", "invalid"):
-                    with self.subTest(status=status):
-                        item = self.item()
-                        with ExitStack() as stack:
-                            self._patch_reproduce(stack, return_value=(status, "reason"))
-                            with self.assertRaises(admission.OracleAdmissionError):
-                                admission._measurement_eligibility(item)
+        with (
+            mock.patch.object(native_gate, "runtime_environ", return_value={}),
+            native_gate.runtime_gate("/explicit/runtime"),
+        ):
+            for status in ("mismatch", "unavailable", "invalid"):
+                with self.subTest(status=status):
+                    item = self.item()
+                    with ExitStack() as stack:
+                        self._patch_reproduce(stack, return_value=(status, "reason"))
+                        with self.assertRaises(admission.OracleAdmissionError):
+                            admission._measurement_eligibility(item)
 
     def test_entrypoint_parsers_accept_explicit_executable(self):
         import compose_curated
@@ -138,15 +143,14 @@ class NativeGateTests(unittest.TestCase):
         import export_hf
         import oracle_validate
         for command in (compose_curated.main, export_hf.main, oracle_validate.main):
-            with self.subTest(command=command.__module__):
-                with tempfile.TemporaryDirectory() as source:
-                    arguments = [source]
-                    if command is not oracle_validate.main:
-                        arguments.append(str(Path(source) / "out"))
-                    arguments += ["--oracle-rust-bin", str(Path(source) / "missing")]
-                    with contextlib.redirect_stderr(io.StringIO()) as errors:
-                        self.assertEqual(command(arguments), 2)
-                    self.assertIn("executable", errors.getvalue())
+            with self.subTest(command=command.__module__), tempfile.TemporaryDirectory() as source:
+                arguments = [source]
+                if command is not oracle_validate.main:
+                    arguments.append(str(Path(source) / "out"))
+                arguments += ["--oracle-rust-bin", str(Path(source) / "missing")]
+                with contextlib.redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(command(arguments), 2)
+                self.assertIn("executable", errors.getvalue())
 
     def test_validator_refuses_ambient_native_runtime_and_replays_reference_locally(self):
         from collections import Counter
