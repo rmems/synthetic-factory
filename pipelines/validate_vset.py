@@ -238,10 +238,6 @@ def _usage_error(args: argparse.Namespace) -> str | None:
     }.get((bool(args.oracle), bool(args.pack)))
     if mismatch is not None:
         return mismatch
-    # Manifest mode has no oracle execution path: accepting --oracle/--pack
-    # here would read as if the manifest's claims were run. --oracle without
-    # --pack is already rejected above, so --pack is the only extra flag to
-    # refuse here.
     return None
 
 

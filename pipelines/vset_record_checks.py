@@ -180,7 +180,7 @@ def _release_errors(
                 "release.manifest_hash must be sha256:<64 hex>",
             )
         )
-    errors.extend(_stamped_registry_errors(release, pin, require_registry_sha))
+    errors.extend(_stamped_registry_errors(release, pin))
     if pin["schema_version"] != REGISTRY_SCHEMA_VERSION:
         errors.append(
             VSetValidationError(
@@ -192,7 +192,7 @@ def _release_errors(
 
 
 def _stamped_registry_errors(
-    release: dict[str, Any], pin: dict[str, str], require_registry_sha: bool
+    release: dict[str, Any], pin: dict[str, str]
 ) -> list[VSetValidationError]:
     stamped = release.get("factory_registry_sha256")
     if stamped is None:
