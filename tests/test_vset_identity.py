@@ -30,7 +30,8 @@ class ActorIdentityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.record = _load(ACCEPT / "review-remediation-validated.json")
 
-    def _codes(self, record: dict) -> list[str]:
+    @staticmethod
+    def _codes(record: dict) -> list[str]:
         return _codes(vset.validate_record(record))
 
     def test_case_variant_author_is_not_a_distinct_solver(self) -> None:

@@ -161,7 +161,7 @@ def _owner_state_emits(owner_provenance: Any, state: Mapping, canonical: Mapping
         return False
     if owner_provenance.get("kind") != canonical.get("kind"):
         return False
-    if not _identity_json._canonical_json_equal(
+    if not _identity_json.canonical_json_equal(
         owner_provenance.get("claimed"), canonical.get("claimed")
     ):
         return False
@@ -180,7 +180,7 @@ def _emitted_state(target: _EmittedTarget, where: str) -> Mapping[str, Any]:
 
 def _require_state_emission(target: _EmittedTarget, where: str) -> None:
     state = _emitted_state(target, where)
-    if not _identity_json._canonical_json_equal(
+    if not _identity_json.canonical_json_equal(
         state.get("provenance"), target.canonical
     ):
         _fail(IdentityTreeError(
@@ -200,7 +200,7 @@ def _require_shape_canonical(target: _EmittedTarget, kind: str, where: str) -> N
         _fail(IdentityTreeError(
             f"{where}.canonical does not match the shape contract"
         ))
-    if not _identity_json._canonical_json_equal(target.canonical, expected):
+    if not _identity_json.canonical_json_equal(target.canonical, expected):
         _fail(IdentityTreeError(
             f"{where}.canonical does not match the shape contract"
         ))
@@ -214,7 +214,7 @@ def _require_aggregate_canonical(
             f"{where}.canonical does not match nested provenance"
         ))
     aggregate = _evidence.aggregate_owner_provenance(target.record, check.owner_paths)
-    if not _identity_json._canonical_json_equal(target.canonical, aggregate):
+    if not _identity_json.canonical_json_equal(target.canonical, aggregate):
         _fail(IdentityTreeError(
             f"{where}.canonical does not match nested provenance"
         ))
@@ -233,17 +233,16 @@ def _require_emitted_basis(
 def _require_owner_emission(
     target: _EmittedTarget, check: ProvenanceCheck, where: str
 ) -> None:
-    if not _identity_json._canonical_json_equal(
+    if not _identity_json.canonical_json_equal(
         target.owner.get("provenance"), target.canonical
     ):
         _fail(IdentityTreeError(
             f"{where}.canonical does not match emitted owner provenance"
         ))
-    if "basis" in target.canonical:
-        if target.canonical.get("basis") != target.basis:
-            _fail(IdentityTreeError(
-                f"{where}.basis does not match canonical provenance"
-            ))
+    if "basis" in target.canonical and target.canonical.get("basis") != target.basis:
+        _fail(IdentityTreeError(
+            f"{where}.basis does not match canonical provenance"
+        ))
     _require_emitted_basis(target, check, where)
 
 

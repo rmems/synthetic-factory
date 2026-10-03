@@ -55,7 +55,7 @@ class EpisodeOptions(NamedTuple):
 
 class _StepCheck(NamedTuple):
     where: str
-    index: int
+    step_index: int
     options: EpisodeOptions
     hooks: EpisodeHooks
 
@@ -98,7 +98,7 @@ def _missing_decision_basis(step, forbid_hidden_thought):
 
 def _episode_step_errors(step, check):
     """Validate one episode step object, including the staged tool-turn gate."""
-    label = f"{check.where} step {check.index}"
+    label = f"{check.where} step {check.step_index}"
     if not isinstance(step, dict):
         return [f"{label}: must be an object"]
     errors = [

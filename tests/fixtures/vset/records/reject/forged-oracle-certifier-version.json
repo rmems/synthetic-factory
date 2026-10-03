@@ -49,7 +49,7 @@
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:3477b16e02fa2499123d568bb859aafe10119f4773d8b56961612808f9f761c1",
-    "factory_registry_sha256": "sha256:87adf97d95d350658b504dd7d2b2c39d7e62f50eb5a3a1579a485e5eee45b43d"
+    "factory_registry_sha256": "sha256:196e636fcbf07d80013fded6562d72f2ea353f172dd6f7cbae07bd3639d716a8"
   },
   "payload": {
     "task_specification": "Add Counter.sub(delta) that subtracts delta and returns the new value.",

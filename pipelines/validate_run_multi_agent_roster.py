@@ -16,7 +16,7 @@ else:
 class RosterState(NamedTuple):
     roles: set
     mandates: set
-    count: int
+    agent_count: int
     where: str
     factory_staging: bool
 
@@ -87,7 +87,7 @@ def _roster_distinctness_errors(state):
         )
     if not state.factory_staging:
         return errors
-    if len(state.mandates) != state.count:
+    if len(state.mandates) != state.agent_count:
         errors.append(f"{state.where}: agents must declare distinct mandates")
     return errors
 

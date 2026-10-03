@@ -18,7 +18,7 @@ import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any, Mapping, NoReturn, TypeGuard, cast
+from typing import Any, Mapping, NoReturn, TypeGuard
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -174,7 +174,8 @@ def _resolved_source_digest(source, canonical_source: str, original: str | None,
             original is not None
             and deps.classify_kind(source.record) in PRESERVED_KINDS
         )
-        original = cast(str, original) if preserve_source else canonical_source
+        if original is None or not preserve_source:
+            original = canonical_source
         digest = deps.sha256_bytes(original.encode("utf-8"))
         basis = "source-json-line-sha256" if preserve_source else "canonical-json-sha256"
         return digest, basis, original
@@ -184,13 +185,15 @@ def _resolved_source_digest(source, canonical_source: str, original: str | None,
     return digest, "source-json-line-sha256", original
 
 
-def _is_valid_source_line(line: object) -> TypeGuard[int]:
+def is_valid_source_line(line: object) -> TypeGuard[int]:
     if isinstance(line, bool):
         return False
     if not isinstance(line, int):
         return False
     return line >= 1
 
+
+_is_valid_source_line = is_valid_source_line
 
 def source_identity(source: SourceRecord, deps) -> SourceIdentity:
     if not _is_valid_source_line(source.source_line):
@@ -292,23 +295,23 @@ def pointer(base: str, key: str) -> str:
     return f"/{escaped}" if base == "/" else f"{base}/{escaped}"
 
 
-def _pointer_step(value: Any, raw_part: str, pointer: str) -> Any:
+def _pointer_step(value: Any, raw_part: str, pointer_path: str) -> Any:
     part = raw_part.replace("~1", "/").replace("~0", "~")
     if not isinstance(value, Mapping):
-        _fail(IdentityTreeError(f"owner_path does not exist: {pointer}"))
+        _fail(IdentityTreeError(f"owner_path does not exist: {pointer_path}"))
     if part not in value:
-        _fail(IdentityTreeError(f"owner_path does not exist: {pointer}"))
+        _fail(IdentityTreeError(f"owner_path does not exist: {pointer_path}"))
     return value[part]
 
 
-def pointer_value(value: Any, pointer: str) -> Any:
-    if pointer == "/":
+def pointer_value(value: Any, pointer_path: str) -> Any:
+    if pointer_path == "/":
         return value
-    if not isinstance(pointer, str) or not pointer.startswith("/"):
-        _fail(IdentityTreeError(f"invalid owner_path: {pointer!r}"))
+    if not isinstance(pointer_path, str) or not pointer_path.startswith("/"):
+        _fail(IdentityTreeError(f"invalid owner_path: {pointer_path!r}"))
     current = value
-    for raw_part in pointer[1:].split("/"):
-        current = _pointer_step(current, raw_part, pointer)
+    for raw_part in pointer_path[1:].split("/"):
+        current = _pointer_step(current, raw_part, pointer_path)
     return current
 
 

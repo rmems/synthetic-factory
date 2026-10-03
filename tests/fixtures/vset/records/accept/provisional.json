@@ -44,7 +44,7 @@
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:6a5b7a01801c44547fdc7ee765302ddb47bf3de69ae7e6e3fa44e2e0f1d1838c",
-    "factory_registry_sha256": "sha256:87adf97d95d350658b504dd7d2b2c39d7e62f50eb5a3a1579a485e5eee45b43d"
+    "factory_registry_sha256": "sha256:196e636fcbf07d80013fded6562d72f2ea353f172dd6f7cbae07bd3639d716a8"
   },
   "payload": {
     "task_specification": "Add Counter.sub(delta). Hidden tests are not yet independently confirmed.",
