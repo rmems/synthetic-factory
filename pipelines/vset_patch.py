@@ -32,7 +32,11 @@ def _illegal_patch_path(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
         return True
     candidate = Path(relative)
-    return candidate.is_absolute() or ".." in candidate.parts or not candidate.parts
+    if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
+        return True
+    # Candidate patches may only rewrite application source. Suite trees,
+    # pack metadata, and root-level modules are oracle-owned.
+    return candidate.parts[0] != "src"
 
 
 def _patch_path_key(relative: str) -> str:

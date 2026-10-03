@@ -70,6 +70,14 @@ class _OracleResult(unittest.TestResult):
         super().addSkip(test, reason)
         self.rows.append({"id": test.id(), "status": "SKIP"})
 
+    def addExpectedFailure(self, test: unittest.TestCase, err: Any) -> None:
+        super().addExpectedFailure(test, err)
+        self.rows.append({"id": test.id(), "status": "expectedFailure"})
+
+    def addUnexpectedSuccess(self, test: unittest.TestCase) -> None:
+        super().addUnexpectedSuccess(test)
+        self.rows.append({"id": test.id(), "status": "unexpectedSuccess"})
+
 
 def _illegal_work_relative(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
@@ -162,11 +170,18 @@ def _suite_ok(result: _OracleResult) -> bool:
 
 
 def _push_pack_path(work: Path) -> list[str]:
+    """Expose ``src/`` only.
+
+    A root-level module of the same name as a package under ``src/`` must
+    not shadow the hashed application code. The worktree is the process
+    cwd, so relative file reads still resolve there.
+    """
+
     inserted: list[str] = []
-    for entry in (str(work / "src"), str(work)):
-        if entry not in sys.path:
-            sys.path.insert(0, entry)
-            inserted.append(entry)
+    entry = str(work / "src")
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
+        inserted.append(entry)
     return inserted
 
 
