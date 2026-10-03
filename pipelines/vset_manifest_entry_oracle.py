@@ -25,7 +25,11 @@ if __package__:  # pragma: no cover - package-child import path
         _mapping_or_empty,
         reason_codes_error,
 )
-    from .vset_oracle_check import validated_oracle_independence_errors
+    from .vset_oracle_check import (
+        _certifier_errors,
+        _self_certify_kind_errors,
+        validated_oracle_independence_errors,
+    )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_manifest_entry_oracle"
@@ -41,7 +45,11 @@ else:
         _mapping_or_empty,
         reason_codes_error,
 )
-    from vset_oracle_check import validated_oracle_independence_errors
+    from vset_oracle_check import (
+        _certifier_errors,
+        _self_certify_kind_errors,
+        validated_oracle_independence_errors,
+    )
 
 
 def _entry_oracle_status_errors(
@@ -70,7 +78,16 @@ def _entry_validated_oracle_errors(
         )
     solver: Mapping[str, Any] = _mapping_or_empty(entry.get("solver"))
     author: Mapping[str, Any] = _mapping_or_empty(entry.get("task_author"))
-    errors.extend(validated_oracle_independence_errors(oracle, solver, author))
+    reviewer = entry.get("reviewer")
+    errors.extend(_self_certify_kind_errors(oracle.get("kind")))
+    errors.extend(
+        _certifier_errors(
+            oracle.get("certifier"),
+            solver,
+            author,
+            reviewer if isinstance(reviewer, Mapping) else None,
+        )
+    )
     return errors
 
 

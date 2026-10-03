@@ -22,6 +22,7 @@ if __package__:  # pragma: no cover - package-child import path
         _is_sha256,
         _mapping_or_empty,
         _normalized_identity_text,
+        normalize_identity,
 )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -39,6 +40,7 @@ else:
         _is_sha256,
         _mapping_or_empty,
         _normalized_identity_text,
+        normalize_identity,
 )
 
 
@@ -125,14 +127,23 @@ def _validated_oracle_errors(
 ) -> list[VSetValidationError]:
     solver: Mapping[str, Any] = _mapping_or_empty(record.get("solver"))
     author: Mapping[str, Any] = _mapping_or_empty(record.get("task_author"))
+    reviewer = record.get("reviewer")
     errors: list[VSetValidationError] = []
-    errors.extend(validated_oracle_independence_errors(oracle, solver, author))
+    errors.extend(
+        _certifier_errors(
+            oracle.get("certifier"),
+            solver,
+            author,
+            reviewer if isinstance(reviewer, Mapping) else None,
+        )
+    )
+    errors.extend(_self_certify_kind_errors(oracle.get("kind")))
     errors.extend(_validated_evidence_errors(oracle))
     errors.extend(_solver_upgrade_errors(oracle, solver, kind))
     return errors
 
 
-_CERTIFIER_ROLE_ALIASES = frozenset({"solver", "task_author"})
+_CERTIFIER_ROLE_ALIASES = frozenset({"solver", "task_author", "task-author", "reviewer"})
 _ACTOR_IDENTITY_FIELDS = ("model", "version", "run_id", "tool_policy", "prompt_hash")
 
 
@@ -146,15 +157,19 @@ def _actor_identity_strings(actor: Mapping[str, Any]) -> frozenset[str]:
 
 
 def _certifier_is_actor(
-    certifier: str, solver: Mapping[str, Any], author: Mapping[str, Any]
+    certifier: str,
+    solver: Mapping[str, Any],
+    author: Mapping[str, Any],
+    reviewer: Mapping[str, Any] | None = None,
 ) -> bool:
-    normalized = _normalized_identity_text(certifier)
-    if normalized in _CERTIFIER_ROLE_ALIASES or certifier.casefold() in _CERTIFIER_ROLE_ALIASES:
+    normalized = normalize_identity(certifier)
+    if not normalized or normalized in _CERTIFIER_ROLE_ALIASES:
         return True
-    forbidden = {
-        _normalized_identity_text(value)
-        for value in _actor_identity_strings(solver) | _actor_identity_strings(author)
-    }
+    actors = _actor_identity_strings(solver) | _actor_identity_strings(author)
+    if isinstance(reviewer, Mapping):
+        actors |= _actor_identity_strings(reviewer)
+    forbidden = {normalize_identity(value) for value in actors}
+    forbidden.discard("")
     return normalized in forbidden
 
 
@@ -168,12 +183,17 @@ def validated_oracle_independence_errors(
     """
 
     errors = _self_certify_kind_errors(oracle.get("kind"))
-    errors.extend(_certifier_errors(oracle.get("certifier"), solver, author))
+    errors.extend(
+        _certifier_errors(oracle.get("certifier"), solver, author, reviewer=None)
+    )
     return errors
 
 
 def _certifier_errors(
-    certifier: Any, solver: Mapping[str, Any], author: Mapping[str, Any]
+    certifier: Any,
+    solver: Mapping[str, Any],
+    author: Mapping[str, Any],
+    reviewer: Mapping[str, Any] | None = None,
 ) -> list[VSetValidationError]:
     if not _is_nonempty(certifier):
         return [
@@ -182,7 +202,7 @@ def _certifier_errors(
                 "validated oracle requires an independent certifier",
             )
         ]
-    if not _certifier_is_actor(certifier, solver, author):
+    if not _certifier_is_actor(certifier, solver, author, reviewer):
         return []
     return [
         VSetValidationError(

@@ -27,6 +27,7 @@ if __package__:  # pragma: no cover - package-child import path
         _check_actor,
         _is_sha256,
         nonfinite_error,
+        normalize_identity,
 )
     from .vset_manifest_entry_oracle import (
         _entry_curation_errors,
@@ -49,6 +50,7 @@ else:
         _check_actor,
         _is_sha256,
         nonfinite_error,
+        normalize_identity,
 )
     from vset_manifest_entry_oracle import (
         _entry_curation_errors,
@@ -100,6 +102,14 @@ def _entry_role_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidat
     ]
 
 
+def _entry_actor_key(actor: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        normalize_identity(actor.get("model")),
+        normalize_identity(actor.get("version")),
+        normalize_identity(actor.get("run_id")),
+    )
+
+
 def _entry_actor_pair_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:
     if "task_author" not in entry or "solver" not in entry:
         return []
@@ -108,7 +118,10 @@ def _entry_actor_pair_errors(where: str, entry: Mapping[str, Any]) -> list[VSetV
         solver = _check_actor(entry["solver"], f"{where}.solver", require_tool_policy=True)
     except VSetValidationError as exc:
         return [exc]
-    if author["run_id"] == solver["run_id"]:
+    same_run = normalize_identity(author.get("run_id")) == normalize_identity(
+        solver.get("run_id")
+    )
+    if same_run or _entry_actor_key(author) == _entry_actor_key(solver):
         return [
             VSetValidationError(
                 "vset.actors_conflated",

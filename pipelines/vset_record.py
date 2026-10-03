@@ -21,6 +21,7 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _check_actor,
         nonfinite_error,
+        normalize_identity,
 )
     from .vset_oracle_check import oracle_errors
     from .vset_record_checks import (
@@ -45,6 +46,7 @@ else:
         VSetValidationError,
         _check_actor,
         nonfinite_error,
+        normalize_identity,
 )
     from vset_oracle_check import oracle_errors
     from vset_record_checks import (
@@ -161,17 +163,32 @@ def _try_check_actor(
         return None, [exc]
 
 
+def _actor_key(actor: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        normalize_identity(actor.get("model")),
+        normalize_identity(actor.get("version")),
+        normalize_identity(actor.get("run_id")),
+    )
+
+
 def _author_solver_conflated(
     author: dict[str, Any] | None, solver: dict[str, Any] | None
 ) -> list[VSetValidationError]:
     if author is None or solver is None:
         return []
-    if author["run_id"] != solver["run_id"]:
+    if normalize_identity(author.get("run_id")) == normalize_identity(solver.get("run_id")):
+        return [
+            VSetValidationError(
+                "vset.actors_conflated",
+                "task_author.run_id and solver.run_id must remain distinct",
+            )
+        ]
+    if _actor_key(author) != _actor_key(solver):
         return []
     return [
         VSetValidationError(
             "vset.actors_conflated",
-            "task_author.run_id and solver.run_id must remain distinct",
+            "task_author and solver must remain distinct on model, version, and run_id",
         )
     ]
 
@@ -181,30 +198,60 @@ def _actor_graph_errors(record: dict[str, Any], kind: str | None) -> list[VSetVa
     solver, solver_errors = _try_check_actor(record, "solver", require_tool_policy=True)
     errors.extend(solver_errors)
     errors.extend(_author_solver_conflated(author, solver))
-    errors.extend(_reviewer_errors(record.get("reviewer", None), kind))
+    reviewer, reviewer_errors = _reviewer_actor(record.get("reviewer", None), kind)
+    errors.extend(reviewer_errors)
+    errors.extend(_reviewer_distinct_errors(reviewer, author, solver))
     return errors
 
 
-def _reviewer_errors(reviewer: Any, kind: str | None) -> list[VSetValidationError]:
-    if kind in REVIEW_REQUIRED_KINDS:
-        if not isinstance(reviewer, dict):
-            return [
-                VSetValidationError(
-                    "vset.reviewer_required",
-                    "review_remediation_v1 requires an explicit reviewer object",
-                )
-            ]
-        return _checked_actor(reviewer, "reviewer")
+def _reviewer_actor(
+    reviewer: Any, kind: str | None
+) -> tuple[dict[str, Any] | None, list[VSetValidationError]]:
+    if kind in REVIEW_REQUIRED_KINDS and not isinstance(reviewer, dict):
+        return None, [
+            VSetValidationError(
+                "vset.reviewer_required",
+                "review_remediation_v1 requires an explicit reviewer object",
+            )
+        ]
     if reviewer is None:
-        return []
+        return None, []
     if not isinstance(reviewer, dict):
-        return [
+        return None, [
             VSetValidationError(
                 ERR_ACTOR_FIELDS_INVALID,
                 "reviewer must be an object when present",
             )
         ]
-    return _checked_actor(reviewer, "reviewer")
+    try:
+        return _check_actor(reviewer, "reviewer"), []
+    except VSetValidationError as exc:
+        return None, [exc]
+
+
+def _reviewer_distinct_errors(
+    reviewer: dict[str, Any] | None,
+    author: dict[str, Any] | None,
+    solver: dict[str, Any] | None,
+) -> list[VSetValidationError]:
+    if reviewer is None:
+        return []
+    key = _actor_key(reviewer)
+    if author is not None and key == _actor_key(author):
+        return [
+            VSetValidationError(
+                "vset.actors_conflated",
+                "reviewer must not be the task_author",
+            )
+        ]
+    if solver is not None and key == _actor_key(solver):
+        return [
+            VSetValidationError(
+                "vset.actors_conflated",
+                "reviewer must not be the solver",
+            )
+        ]
+    return []
 
 
 def _checked_actor(value: Any, role: str) -> list[VSetValidationError]:

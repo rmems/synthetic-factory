@@ -12,6 +12,7 @@ import json
 import math
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -259,7 +260,7 @@ def _require_object(value: Any, where: str) -> dict[str, Any]:
 
 def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
     for field in ("model", "version", "run_id"):
-        if not _is_nonempty(actor.get(field)):
+        if not normalize_identity(actor.get(field)):
             raise VSetValidationError(
                 ERR_ACTOR_FIELDS_INVALID,
                 f"{role}.{field} must be a non-empty normalized string",
@@ -320,8 +321,92 @@ def _check_actor(
     return actor
 
 
+_INVISIBLE_CHARS = frozenset(
+    {
+        "\u00ad",
+        "\u034f",
+        "\u061c",
+        "\u180e",
+        "\u200b",
+        "\u200c",
+        "\u200d",
+        "\u200e",
+        "\u200f",
+        "\u202a",
+        "\u202b",
+        "\u202c",
+        "\u202d",
+        "\u202e",
+        "\u2060",
+        "\u2066",
+        "\u2067",
+        "\u2068",
+        "\u2069",
+        "\ufeff",
+    }
+)
+_IDENTITY_SENTINELS = frozenset(
+    {"null", "none", "unknown", "n/a", "na", "-", "0", "tbd", "placeholder"}
+)
+# High-value Greek/Cyrillic lookalikes. Not a full confusables table.
+_CONFUSABLE_ASCII = str.maketrans(
+    {
+        "а": "a",
+        "ɑ": "a",
+        "α": "a",
+        "в": "b",
+        "β": "b",
+        "с": "c",
+        "ϲ": "c",
+        "е": "e",
+        "ε": "e",
+        "һ": "h",
+        "н": "h",
+        "і": "i",
+        "ι": "i",
+        "ј": "j",
+        "к": "k",
+        "κ": "k",
+        "м": "m",
+        "μ": "m",
+        "о": "o",
+        "ο": "o",
+        "р": "p",
+        "ρ": "p",
+        "ѕ": "s",
+        "т": "t",
+        "τ": "t",
+        "у": "y",
+        "υ": "y",
+        "ν": "v",
+        "х": "x",
+        "χ": "x",
+        "ӏ": "l",
+    }
+)
+
+
+def normalize_identity(value: Any) -> str:
+    """Fold an actor token so lookalike spellings compare equal.
+
+    NFKC, invisible-character stripping, casefold, and a basic confusable
+    fold. Empty and sentinel results are not identities.
+    """
+
+    if not isinstance(value, str):
+        return ""
+    folded = unicodedata.normalize("NFKC", value)
+    folded = "".join(char for char in folded if char not in _INVISIBLE_CHARS)
+    folded = folded.casefold().translate(_CONFUSABLE_ASCII)
+    folded = re.sub(r"\s+", "", folded)
+    if not folded or folded in _IDENTITY_SENTINELS:
+        return ""
+    return folded
+
+
 def _normalized_identity_text(value: str) -> str:
-    return value.lower().replace("_", "-")
+    folded = normalize_identity(value)
+    return folded.replace("_", "-") if folded else value.lower().replace("_", "-")
 
 
 def _contains_prometheus_marker(value: Any) -> bool:
