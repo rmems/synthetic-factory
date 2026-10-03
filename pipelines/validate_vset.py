@@ -80,16 +80,20 @@ _source_kind_errors = source_kind_errors
 
 # Public surface: tests and factory pipelines import these through
 # ``import validate_vset as vset``; keep them re-exported here.
-__all__ = (
+_CONTRACT_EXPORTS = (
     "IDENTITY_UNRESOLVED_PROVENANCE", "MANIFEST_ROLES", "VSetValidationError",
-    "iter_record_paths", "load_json", "pack_snapshot_hash",
-    "registry_pin", "summarize", "manifest_body_hash",
-    "manifest_entry_from_record", "validate_manifest", "_is_invalid_or_impossible",
-    "_execution_result_hash", "_load_tests", "apply_patch",
-    "record_patch", "run_oracle", "validate_record_with_oracle",
-    "oracle_errors", "validate_record", "payload_errors",
-    "source_kind_errors", "parse_args", "main",
+    "iter_record_paths", "load_json", "pack_snapshot_hash", "registry_pin", "summarize",
 )
+_VALIDATION_EXPORTS = (
+    "manifest_body_hash", "manifest_entry_from_record", "validate_manifest",
+    "_is_invalid_or_impossible", "oracle_errors", "validate_record",
+    "payload_errors", "source_kind_errors",
+)
+_ORACLE_EXPORTS = (
+    "_execution_result_hash", "_load_tests", "apply_patch", "record_patch",
+    "run_oracle", "validate_record_with_oracle",
+)
+__all__ = _CONTRACT_EXPORTS + _VALIDATION_EXPORTS + _ORACLE_EXPORTS + ("parse_args", "main")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -19,12 +19,15 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_constants")
-    from .curate_identity import FACTORY_REGISTRY_PATH, load_registry
+    from . import curate_identity as _identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_constants"
     )
-    from curate_identity import FACTORY_REGISTRY_PATH, load_registry
+    import curate_identity as _identity
+
+FACTORY_REGISTRY_PATH = _identity.FACTORY_REGISTRY_PATH
+load_registry = _identity.load_registry
 
 SCHEMA_VERSION = "vset-record-v1"
 ACTOR_PROVENANCE_VERSION = "actor-provenance-v1"

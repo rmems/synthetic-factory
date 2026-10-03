@@ -15,18 +15,16 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_patch")
-    from .vset_constants import (
-        ERR_PAYLOAD_INVALID,
-        VSetValidationError,
-    )
+    from . import vset_constants as _constants
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_patch"
     )
-    from vset_constants import (
-        ERR_PAYLOAD_INVALID,
-        VSetValidationError,
-    )
+    import vset_constants as _constants
+
+ERR_PAYLOAD_INVALID = _constants.ERR_PAYLOAD_INVALID
+VSetValidationError = _constants.VSetValidationError
+
 
 def illegal_work_relative(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
