@@ -433,40 +433,6 @@ def _contains_prometheus_marker(value: Any) -> bool:
     return False
 
 
-def _reject_non_finite_constant(token: str) -> None:
-    raise json.JSONDecodeError(f"non-finite constant {token}", token, 0)
-
-
-def load_json(path: Path) -> Any:
-    """Strict JSON: bare ``NaN``/``Infinity`` constants are rejected at load."""
-
-    return json.loads(
-        path.read_text(encoding="utf-8"), parse_constant=_reject_non_finite_constant
-    )
-
-
-def _nonfinite_children(value: Any, where: str) -> list[tuple[Any, str]]:
-    if isinstance(value, Mapping):
-        return [(item, f"{where}.{key}") for key, item in value.items()]
-    if isinstance(value, (list, tuple)):
-        return [(item, f"{where}[{index}]") for index, item in enumerate(value)]
-    return []
-
-
-def nonfinite_error(value: Any, where: str = "document") -> VSetValidationError | None:
-    """Report NaN/Infinity handed to a validator by a direct API caller."""
-
-    if isinstance(value, float) and not math.isfinite(value):
-        return VSetValidationError(
-            ERR_PAYLOAD_INVALID, f"{where} contains a non-finite number"
-        )
-    for child, label in _nonfinite_children(value, where):
-        found = nonfinite_error(child, label)
-        if found is not None:
-            return found
-    return None
-
-
 def _reason_token_invalid(item: Any) -> bool:
     return not isinstance(item, str) or not _REASON.fullmatch(item)
 

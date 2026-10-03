@@ -24,11 +24,11 @@ if __package__:  # pragma: no cover - package-child import path
         _is_sha256,
         _mapping_or_empty,
         content_hash,
-        nonfinite_error,
         normalize_identity,
 )
     from .vset_oracle_check import oracle_errors
     from .vset_record_checks import (
+        nonfinite_error,
         _curation_errors,
         _environment_errors,
         _release_errors,
@@ -53,11 +53,11 @@ else:
         _is_sha256,
         _mapping_or_empty,
         content_hash,
-        nonfinite_error,
         normalize_identity,
 )
     from vset_oracle_check import oracle_errors
     from vset_record_checks import (
+        nonfinite_error,
         _curation_errors,
         _environment_errors,
         _release_errors,

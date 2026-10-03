@@ -186,9 +186,10 @@ def _guarded_write(path: Path, text: str) -> None:
 
 
 def _rewrite(wanted: dict[Path, str], stale: list[Path]) -> None:
-    for path in stale:
+    allowed = {path for path in wanted if path in set(stale)}
+    for path in sorted(allowed):
         _guarded_write(path, wanted[path])
-    _report(stale, "rewrote")
+    _report(sorted(allowed), "rewrote")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -8,9 +8,11 @@ bytes, and the training view mirrors the record's own verdicts.
 
 from __future__ import annotations
 
+import json
+import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -21,6 +23,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_constants import (
         CURATION_DECISIONS,
         ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
         ERR_RELEASE_CONTRACT_MISMATCH,
         IDENTITY_UNRESOLVED_PROVENANCE,
         VSetValidationError,
@@ -39,6 +42,7 @@ else:
     from vset_constants import (
         CURATION_DECISIONS,
         ERR_ACTOR_FIELDS_INVALID,
+        ERR_PAYLOAD_INVALID,
         ERR_RELEASE_CONTRACT_MISMATCH,
         IDENTITY_UNRESOLVED_PROVENANCE,
         VSetValidationError,
@@ -48,6 +52,40 @@ else:
         reason_codes_error,
         registry_pin,
 )
+
+
+def _reject_non_finite_constant(token: str) -> None:
+    raise json.JSONDecodeError(f"non-finite constant {token}", token, 0)
+
+
+def load_json(path: Path) -> Any:
+    """Strict JSON: bare ``NaN``/``Infinity`` constants are rejected at load."""
+
+    return json.loads(
+        path.read_text(encoding="utf-8"), parse_constant=_reject_non_finite_constant
+    )
+
+
+def _nonfinite_children(value: Any, where: str) -> list[tuple[Any, str]]:
+    if isinstance(value, Mapping):
+        return [(item, f"{where}.{key}") for key, item in value.items()]
+    if isinstance(value, (list, tuple)):
+        return [(item, f"{where}[{index}]") for index, item in enumerate(value)]
+    return []
+
+
+def nonfinite_error(value: Any, where: str = "document") -> VSetValidationError | None:
+    """Report NaN/Infinity handed to a validator by a direct API caller."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        return VSetValidationError(
+            ERR_PAYLOAD_INVALID, f"{where} contains a non-finite number"
+        )
+    for child, label in _nonfinite_children(value, where):
+        found = nonfinite_error(child, label)
+        if found is not None:
+            return found
+    return None
 
 
 def _curation_errors(

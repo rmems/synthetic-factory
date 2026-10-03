@@ -26,9 +26,9 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _check_actor,
         _is_sha256,
-        nonfinite_error,
         normalize_identity,
 )
+    from .vset_record_checks import nonfinite_error
     from .vset_manifest_entry_oracle import (
         _entry_curation_errors,
         _entry_oracle_errors,
@@ -49,9 +49,9 @@ else:
         VSetValidationError,
         _check_actor,
         _is_sha256,
-        nonfinite_error,
         normalize_identity,
 )
+    from vset_record_checks import nonfinite_error
     from vset_manifest_entry_oracle import (
         _entry_curation_errors,
         _entry_oracle_errors,

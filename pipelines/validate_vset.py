@@ -38,7 +38,6 @@ if __package__:  # pragma: no cover - package-child import path
         MANIFEST_ROLES,
         VSetValidationError,
         iter_record_paths,
-        load_json,
         pack_snapshot_hash,
         registry_pin,
         summarize,
@@ -57,6 +56,7 @@ if __package__:  # pragma: no cover - package-child import path
     )
     from .vset_patch import apply_patch, record_patch
     from .vset_oracle_check import oracle_errors
+    from .vset_record_checks import load_json
     from .vset_record import validate_record
     from .vset_source import payload_errors, source_kind_errors
 else:
@@ -69,7 +69,6 @@ else:
         MANIFEST_ROLES,
         VSetValidationError,
         iter_record_paths,
-        load_json,
         pack_snapshot_hash,
         registry_pin,
         summarize,
@@ -88,6 +87,7 @@ else:
     )
     from vset_patch import apply_patch, record_patch
     from vset_oracle_check import oracle_errors
+    from vset_record_checks import load_json
     from vset_record import validate_record
     from vset_source import payload_errors, source_kind_errors
 
@@ -226,11 +226,14 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
     return 1 if failed else 0
 
 
+_MANIFEST_OPTION_ERROR = "--manifest does not accept --oracle/--pack"
+
+
 def _manifest_option_error(args: argparse.Namespace) -> str | None:
     if args.manifest and args.oracle:
-        return "--manifest does not accept --oracle/--pack"
+        return _MANIFEST_OPTION_ERROR
     if args.manifest and args.pack:
-        return "--manifest does not accept --oracle/--pack"
+        return _MANIFEST_OPTION_ERROR
     return None
 
 
