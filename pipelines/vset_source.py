@@ -40,7 +40,7 @@ else:
 def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
     errors: list[VSetValidationError] = []
     source_kind = record.get("source_kind")
-    if source_kind not in SOURCE_KINDS:
+    if not isinstance(source_kind, str) or source_kind not in SOURCE_KINDS:
         errors.append(
             VSetValidationError(
                 "vset.source_kind_invalid",
@@ -54,7 +54,7 @@ def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
         errors.extend(_synthetic_masquerade_errors(record, env))
     if source_kind == "real_public_engineering":
         pack_id = env.get("repo_pack_id")
-        if isinstance(pack_id, str) and pack_id.startswith(SYNTHETIC_PACK_PREFIX):
+        if isinstance(pack_id, str) and pack_id.casefold().startswith(SYNTHETIC_PACK_PREFIX):
             errors.append(
                 VSetValidationError(
                     ERR_SOURCE_KIND_MASQUERADE,

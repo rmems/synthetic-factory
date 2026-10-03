@@ -158,6 +158,22 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _guarded_write(path: Path, text: str) -> None:
+    root = REPO.resolve()
+    target = path.resolve()
+    if root not in target.parents:
+        raise SystemExit(f"refusing to write outside the repository: {path}")
+    if FIXTURES.resolve() not in target.parents:
+        raise SystemExit(f"refusing to write outside the VSET fixtures: {path}")
+    target.write_text(text, encoding="utf-8")
+
+
+def _rewrite(wanted: dict[Path, str], stale: list[Path]) -> None:
+    for path in stale:
+        _guarded_write(path, wanted[path])
+    _report(stale, "rewrote")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     wanted = _refreshed()
@@ -168,19 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         _report(stale, "stale")
         return 1
-    # Every writable fixture sits at a fixed depth under FIXTURES by
-    # construction (records/<verdict>/<name>.json, manifests/<name>.json), so
-    # re-rooting the stale path's tail components under FIXTURES writes the
-    # same file while keeping the destination pinned to the fixture tree.
-    root = REPO.resolve()
-    for path in stale:
-        target = path.resolve()
-        if root not in target.parents and target != root:
-            raise SystemExit(f"refusing to write outside the repository: {path}")
-        if FIXTURES.resolve() not in target.parents:
-            raise SystemExit(f"refusing to write outside the VSET fixtures: {path}")
-        target.write_text(wanted[path], encoding="utf-8")
-    _report(stale, "rewrote")
+    _rewrite(wanted, stale)
     return 0
 
 

@@ -28,11 +28,19 @@ else:
         VSetValidationError,
     )
 
+def _patch_path_shape_illegal(candidate: Path) -> bool:
+    if candidate.is_absolute():
+        return True
+    if ".." in candidate.parts:
+        return True
+    return not candidate.parts
+
+
 def _illegal_patch_path(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
         return True
     candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
+    if _patch_path_shape_illegal(candidate):
         return True
     # Candidate patches may only rewrite application source. Suite trees,
     # pack metadata, and root-level modules are oracle-owned.

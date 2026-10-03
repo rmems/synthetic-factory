@@ -128,9 +128,9 @@ def normalized_key_name(value: Any) -> str:
     """Normalize JSON keys across case, separators, camel-case, and lookalikes."""
     text = unicodedata.normalize("NFKC", str(value))
     text = "".join(char for char in text if unicodedata.category(char) != "Cf")
-    text = text.translate(_KEY_CONFUSABLES)
     separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", text)
-    return re.sub(r"[^a-z0-9]+", "_", separated.casefold()).strip("_")
+    separated = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", separated)
+    return re.sub(r"[^a-z0-9]+", "_", separated.casefold().translate(_KEY_CONFUSABLES)).strip("_")
 
 
 def is_hidden_reasoning_key(key: Any) -> bool:

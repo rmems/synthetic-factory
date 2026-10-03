@@ -169,6 +169,18 @@ def _suite_ok(result: _OracleResult) -> bool:
     return bool(result.rows) and all(row["status"] == "ok" for row in result.rows)
 
 
+def _drop_preloaded_pack_modules(work: Path) -> None:
+    """Drop cached modules that would shadow the pack's ``src/`` tree."""
+
+    src = work / "src"
+    if not src.is_dir():
+        return
+    names = {path.stem for path in src.glob("*.py")}
+    names |= {path.name for path in src.iterdir() if path.is_dir()}
+    for name in names:
+        sys.modules.pop(name, None)
+
+
 def _push_pack_path(work: Path) -> list[str]:
     """Expose ``src/`` only.
 
@@ -223,6 +235,7 @@ def _run_modules(
     work: Path, pack_dir: Path, relatives: Iterable[str]
 ) -> dict[str, Any]:
     snapshot = sys.modules.copy()
+    _drop_preloaded_pack_modules(work)
     inserted = _push_pack_path(work)
     captured = io.StringIO()
     try:

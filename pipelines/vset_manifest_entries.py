@@ -131,6 +131,30 @@ def _entry_actor_pair_errors(where: str, entry: Mapping[str, Any]) -> list[VSetV
     return []
 
 
+def _reviewer_matches(reviewer: Mapping[str, Any], other: Any) -> bool:
+    if not isinstance(other, Mapping):
+        return False
+    return _entry_actor_key(reviewer) == _entry_actor_key(other)
+
+
+def _reviewer_conflated(where: str, entry: Mapping[str, Any], reviewer: Mapping[str, Any]) -> list[VSetValidationError]:
+    if _reviewer_matches(reviewer, entry.get("task_author")):
+        return [
+            VSetValidationError(
+                "vset.actors_conflated",
+                f"{where} reviewer must not be the task_author",
+            )
+        ]
+    if _reviewer_matches(reviewer, entry.get("solver")):
+        return [
+            VSetValidationError(
+                "vset.actors_conflated",
+                f"{where} reviewer must not be the solver",
+            )
+        ]
+    return []
+
+
 def _entry_reviewer_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:
     reviewer = entry.get("reviewer")
     if entry.get("record_kind") in REVIEW_REQUIRED_KINDS and not isinstance(reviewer, dict):
@@ -143,10 +167,10 @@ def _entry_reviewer_errors(where: str, entry: Mapping[str, Any]) -> list[VSetVal
     if reviewer is None:
         return []
     try:
-        _check_actor(reviewer, f"{where}.reviewer")
+        checked = _check_actor(reviewer, f"{where}.reviewer")
     except VSetValidationError as exc:
         return [exc]
-    return []
+    return _reviewer_conflated(where, entry, checked)
 
 
 def _entry_environment_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:

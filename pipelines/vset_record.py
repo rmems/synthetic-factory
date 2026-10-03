@@ -86,6 +86,11 @@ def validate_record(
     if kind is not None:
         errors.extend(payload_errors(kind, record.get("payload")))
     errors.extend(_training_view_errors(record.get("training_view")))
+    trace = record.get("trace", None)
+    if "trace" in record and not isinstance(trace, dict):
+        errors.append(
+            VSetValidationError(ERR_PAYLOAD_INVALID, "trace must be an object when present")
+        )
     errors.extend(_content_hash_errors(record))
     return errors
 
@@ -176,19 +181,18 @@ def _actor_key(actor: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _same_run(author: dict[str, Any], solver: dict[str, Any]) -> bool:
+    return normalize_identity(author.get("run_id")) == normalize_identity(solver.get("run_id"))
+
+
 def _author_solver_conflated(
     author: dict[str, Any] | None, solver: dict[str, Any] | None
 ) -> list[VSetValidationError]:
     if author is None or solver is None:
         return []
-    if normalize_identity(author.get("run_id")) == normalize_identity(solver.get("run_id")):
-        return [
-            VSetValidationError(
-                "vset.actors_conflated",
-                "task_author.run_id and solver.run_id must remain distinct",
-            )
-        ]
-    if _actor_key(author) != _actor_key(solver):
+    same_run = _same_run(author, solver)
+    same_actor = _actor_key(author) == _actor_key(solver)
+    if not same_run and not same_actor:
         return []
     return [
         VSetValidationError(
@@ -259,15 +263,23 @@ def _reviewer_distinct_errors(
     return []
 
 
+def _text_field(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _summary_field(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    return _text_field(value.get("summary"))
+
+
 def _prompt_source(payload: dict[str, Any]) -> str | None:
     for key in ("task_specification", "review_finding", "failure_evidence"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-        if isinstance(value, dict):
-            summary = value.get("summary")
-            if isinstance(summary, str) and summary.strip():
-                return summary
+        found = _text_field(payload.get(key)) or _summary_field(payload.get(key))
+        if found is not None:
+            return found
     return None
 
 
@@ -280,7 +292,14 @@ def _content_hash_errors(record: dict[str, Any]) -> list[VSetValidationError]:
         return []
     stamped = author.get("prompt_hash")
     source = _prompt_source(payload)
-    if not isinstance(stamped, str) or source is None:
+    if source is None:
+        return [
+            VSetValidationError(
+                ERR_RELEASE_CONTRACT_MISMATCH,
+                "task_author.prompt_hash requires declared task text",
+            )
+        ]
+    if not isinstance(stamped, str):
         return []
     if stamped == content_hash(source):
         return []

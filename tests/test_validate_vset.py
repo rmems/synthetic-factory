@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -80,23 +81,30 @@ class FailClosedHygieneTests(unittest.TestCase):
             self.assertFalse(skipped["reference"]["ok"])
 
     def test_oracle_cli_forwards_require_registry_sha(self) -> None:
-        path = ACCEPT / "issue-patch-validated.json"
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            code = vset.main(
-                [
-                    "--oracle",
-                    "--pack",
-                    str(PACK),
-                    "--require-registry-sha",
-                    str(path),
-                ]
-            )
+        # A release object must carry the registry pin whether or not the
+        # flag is set. The accepted fixture is pinned, so this uses a copy
+        # that drops the pin and proves the CLI still fails closed.
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["release"].pop("factory_registry_sha256", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unpinned.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = vset.main(
+                    [
+                        "--oracle",
+                        "--pack",
+                        str(PACK),
+                        "--require-registry-sha",
+                        str(path),
+                    ]
+                )
         self.assertEqual(code, 1)
         self.assertIn("vset.release_contract_mismatch", stderr.getvalue())
         errors, _execution = vset.validate_record_with_oracle(
-            _load(path), PACK, require_registry_sha=True
+            record, PACK, require_registry_sha=True
         )
         self.assertIn("vset.release_contract_mismatch", _codes(errors))
 

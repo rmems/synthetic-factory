@@ -146,6 +146,19 @@ def _entry_curation_errors(where: str, entry: Mapping[str, Any]) -> list[VSetVal
             )
         )
     errors.extend(_entry_reason_errors(where, curation))
+    reasons = curation.get("reason_codes")
+    measured_without_reason = (
+        _is_invalid_or_impossible(entry)
+        and decision == "measure"
+        and (not isinstance(reasons, list) or not reasons)
+    )
+    if measured_without_reason:
+        errors.append(
+            VSetValidationError(
+                "vset.invalid_outcome_dropped",
+                f"{where} invalid/impossible tasks must remain measure outcomes",
+            )
+        )
     if _is_invalid_or_impossible(entry) and decision != "measure":
         errors.append(
             VSetValidationError(

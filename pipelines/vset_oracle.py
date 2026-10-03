@@ -81,8 +81,10 @@ def _task_manifest(pack_dir: Path, task_id: Any) -> Mapping[str, Any] | None:
 def _oracle_decl_mismatch(
     declared: Mapping[str, Any], oracle: Mapping[str, Any], field: str
 ) -> bool:
-    if field not in declared or field not in oracle:
+    if field not in declared:
         return False
+    if field not in oracle:
+        return True
     return oracle[field] != declared[field]
 
 
