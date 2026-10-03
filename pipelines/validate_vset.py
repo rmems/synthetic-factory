@@ -217,18 +217,22 @@ def _flag_conflict(left: bool, right: bool, message: str) -> str | None:
 
 
 def _manifest_option_error(args: argparse.Namespace) -> str | None:
-    oracle = _flag_conflict(args.manifest, args.oracle, _MANIFEST_OPTION_ERROR)
-    if oracle is not None:
-        return oracle
-    return _flag_conflict(args.manifest, bool(args.pack), _MANIFEST_OPTION_ERROR)
+    return _flag_conflict(
+        args.manifest, bool(args.oracle or args.pack), _MANIFEST_OPTION_ERROR
+    )
+
+
+def _missing_pair(present: bool, missing: bool, message: str) -> str | None:
+    if present and missing:
+        return message
+    return None
 
 
 def _pack_option_error(args: argparse.Namespace) -> str | None:
-    if args.oracle and not args.pack:
-        return "--oracle requires --pack"
-    if args.pack and not args.oracle:
-        return "--pack requires --oracle"
-    return None
+    needs_pack = _missing_pair(args.oracle, not args.pack, "--oracle requires --pack")
+    if needs_pack is not None:
+        return needs_pack
+    return _missing_pair(bool(args.pack), not args.oracle, "--pack requires --oracle")
 
 
 def _usage_error(args: argparse.Namespace) -> str | None:

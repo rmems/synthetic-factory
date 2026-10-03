@@ -166,7 +166,7 @@ def _pack_binding_errors(
         return [load_error]
     pack_id = pack_meta.get("pack_id")
     env = _mapping_or_empty(record.get("environment"))
-    oracle = _mapping_or_empty(record.get("oracle"))
+    oracle: dict[str, Any] = _mapping_or_empty(record.get("oracle"))
     errors = _pack_id_errors(pack_id, env, oracle)
     if isinstance(pack_id, str) or (pack_dir / "tasks").is_dir():
         manifest = _task_manifest(pack_dir, env.get("task_id"))
@@ -186,7 +186,7 @@ def validate_record_with_oracle(
     )
     if not isinstance(record, dict):
         return errors, None
-    oracle = dict(_mapping_or_empty(record.get("oracle")))
+    oracle: dict[str, Any] = dict(_mapping_or_empty(record.get("oracle")))
     status = oracle.get("status")
     if status not in {"provisional", "validated"}:
         return errors, None

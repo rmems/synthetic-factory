@@ -123,7 +123,7 @@ def _solver_upgrade_errors(
 def _validated_oracle_errors(
     record: Mapping[str, Any], oracle: Mapping[str, Any], kind: Any
 ) -> list[VSetValidationError]:
-    solver = dict(_mapping_or_empty(record.get("solver")))
+    solver: dict[str, Any] = dict(_mapping_or_empty(record.get("solver")))
     author: Mapping[str, Any] = _mapping_or_empty(record.get("task_author"))
     reviewer = record.get("reviewer")
     errors: list[VSetValidationError] = []
