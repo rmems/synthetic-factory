@@ -6,7 +6,7 @@
   "task_author": {
     "model": "fixture-author",
     "version": "vset-pilot-0",
-    "prompt_hash": "sha256:30dd0fe3a7f999cadbb6ce618da5d37228b2b87732eb60e4a232c5a4ba44c2ba",
+    "prompt_hash": "sha256:d40fe5845a84818d715003c782d346678c759e4df6e818a56df1425bf6493c55",
     "run_id": "author-run-recover-none"
   },
   "solver": {
@@ -47,7 +47,8 @@
   "release": {
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
-    "manifest_hash": "sha256:96982ed58da770686bfe98b6f32a89f09f5c9068d939a68a0e77915ae262edf7"
+    "manifest_hash": "sha256:96982ed58da770686bfe98b6f32a89f09f5c9068d939a68a0e77915ae262edf7",
+    "factory_registry_sha256": "sha256:87adf97d95d350658b504dd7d2b2c39d7e62f50eb5a3a1579a485e5eee45b43d"
   },
   "payload": {
     "failed_state": {

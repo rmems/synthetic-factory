@@ -176,6 +176,14 @@ def _sha256_text(payload: str) -> str:
     return _sha256_bytes(payload.encode("utf-8"))
 
 
+def content_hash(value: Any) -> str:
+    """Hash the exact UTF-8 bytes of a declared content string."""
+
+    if not isinstance(value, str):
+        return ""
+    return _sha256_text(value)
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(
         value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")

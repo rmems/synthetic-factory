@@ -180,7 +180,7 @@ def _manifest_header_errors(
                 f"factory_contract_version must be {pin['schema_version']}",
             )
         )
-    if manifest.get("factory_registry_sha256") != pin["sha256"]:
+    if not manifest.get("factory_registry_sha256") or manifest.get("factory_registry_sha256") != pin["sha256"]:
         errors.append(
             VSetValidationError(
                 ERR_RELEASE_CONTRACT_MISMATCH,

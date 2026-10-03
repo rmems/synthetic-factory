@@ -188,7 +188,7 @@ def _entry_release_pin_errors(
                 f"{where}.release.factory_contract_version must match the registry pin",
             )
         )
-    if release.get("factory_registry_sha256") not in {None, pin["sha256"]}:
+    if release.get("factory_registry_sha256") != pin["sha256"]:
         errors.append(
             VSetValidationError(
                 ERR_RELEASE_CONTRACT_MISMATCH,

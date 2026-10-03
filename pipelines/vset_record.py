@@ -14,12 +14,14 @@ if __package__:  # pragma: no cover - package-child import path
         ACTOR_PROVENANCE_VERSION,
         ERR_ACTOR_FIELDS_INVALID,
         ERR_PAYLOAD_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         RECORD_KINDS,
         RECORD_TOP_LEVEL_KEYS,
         REVIEW_REQUIRED_KINDS,
         SCHEMA_VERSION,
         VSetValidationError,
         _check_actor,
+        content_hash,
         nonfinite_error,
         normalize_identity,
 )
@@ -39,12 +41,14 @@ else:
         ACTOR_PROVENANCE_VERSION,
         ERR_ACTOR_FIELDS_INVALID,
         ERR_PAYLOAD_INVALID,
+        ERR_RELEASE_CONTRACT_MISMATCH,
         RECORD_KINDS,
         RECORD_TOP_LEVEL_KEYS,
         REVIEW_REQUIRED_KINDS,
         SCHEMA_VERSION,
         VSetValidationError,
         _check_actor,
+        content_hash,
         nonfinite_error,
         normalize_identity,
 )
@@ -82,6 +86,7 @@ def validate_record(
     if kind is not None:
         errors.extend(payload_errors(kind, record.get("payload")))
     errors.extend(_training_view_errors(record.get("training_view")))
+    errors.extend(_content_hash_errors(record))
     return errors
 
 
@@ -252,6 +257,39 @@ def _reviewer_distinct_errors(
             )
         ]
     return []
+
+
+def _prompt_source(payload: dict[str, Any]) -> str | None:
+    for key in ("task_specification", "review_finding", "failure_evidence"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+        if isinstance(value, dict):
+            summary = value.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                return summary
+    return None
+
+
+def _content_hash_errors(record: dict[str, Any]) -> list[VSetValidationError]:
+    """Bind ``prompt_hash`` to the declared task text for this record kind."""
+
+    author = record.get("task_author")
+    payload = record.get("payload")
+    if not isinstance(author, dict) or not isinstance(payload, dict):
+        return []
+    stamped = author.get("prompt_hash")
+    source = _prompt_source(payload)
+    if not isinstance(stamped, str) or source is None:
+        return []
+    if stamped == content_hash(source):
+        return []
+    return [
+        VSetValidationError(
+            ERR_RELEASE_CONTRACT_MISMATCH,
+            "task_author.prompt_hash must match the declared task text",
+        )
+    ]
 
 
 def _checked_actor(value: Any, role: str) -> list[VSetValidationError]:

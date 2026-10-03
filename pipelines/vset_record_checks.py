@@ -193,8 +193,13 @@ def _stamped_registry_errors(
     release: dict[str, Any], pin: dict[str, str], require_registry_sha: bool
 ) -> list[VSetValidationError]:
     stamped = release.get("factory_registry_sha256")
-    if stamped is None and not require_registry_sha:
-        return []
+    if stamped is None:
+        return [
+            VSetValidationError(
+                ERR_RELEASE_CONTRACT_MISMATCH,
+                "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
+            )
+        ]
     if stamped == pin["sha256"]:
         return []
     return [
@@ -205,6 +210,33 @@ def _stamped_registry_errors(
     ]
 
 
+_TRAINING_VIEW_LEAKS = frozenset(
+    {
+        "hidden_tests",
+        "hidden_suite",
+        "reference_tests",
+        "reference_suite",
+        "oracle",
+        "payload",
+        "patch",
+        "solver",
+        "solver_run_id",
+    }
+)
+
+
+def _training_view_key(key: Any) -> str:
+    text = str(key)
+    separated = "".join(
+        f"_{char.lower()}" if char.isupper() else char for char in text
+    )
+    return separated.replace("-", "_").casefold()
+
+
+def _training_view_leaks(training_view: dict[str, Any]) -> bool:
+    return any(_training_view_key(key) in _TRAINING_VIEW_LEAKS for key in training_view)
+
+
 def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
     if not isinstance(training_view, dict):
         return [
@@ -213,11 +245,11 @@ def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
                 "training_view is required and must be an object",
             )
         ]
-    if contains_hidden_reasoning_key(training_view):
+    if contains_hidden_reasoning_key(training_view) or _training_view_leaks(training_view):
         return [
             VSetValidationError(
                 "vset.hidden_reasoning_in_training_view",
-                "training_view must not contain thought / internal_reasoning*",
+                "training_view must not carry hidden suites, oracle, payload, patch, or solver",
             )
         ]
     return []

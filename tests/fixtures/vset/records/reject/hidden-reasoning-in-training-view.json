@@ -6,7 +6,7 @@
   "task_author": {
     "model": "fixture-author",
     "version": "vset-pilot-0",
-    "prompt_hash": "sha256:573a6eb1f609119e623ef9ffab34e439bb9b0e4e876c50cde090602c0c525df0",
+    "prompt_hash": "sha256:94a183909cef308a608fb1f402f22440cc7646595d86b01986bf4056ea0dd77e",
     "run_id": "author-run-hidden-view"
   },
   "solver": {
@@ -33,7 +33,8 @@
   "release": {
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
-    "manifest_hash": "sha256:3477b16e02fa2499123d568bb859aafe10119f4773d8b56961612808f9f761c1"
+    "manifest_hash": "sha256:3477b16e02fa2499123d568bb859aafe10119f4773d8b56961612808f9f761c1",
+    "factory_registry_sha256": "sha256:87adf97d95d350658b504dd7d2b2c39d7e62f50eb5a3a1579a485e5eee45b43d"
   },
   "payload": {
     "task_specification": "Add Counter.sub(delta).",

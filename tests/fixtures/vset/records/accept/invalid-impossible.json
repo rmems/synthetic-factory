@@ -6,7 +6,7 @@
   "task_author": {
     "model": "fixture-author",
     "version": "vset-pilot-0",
-    "prompt_hash": "sha256:30dd0fe3a7f999cadbb6ce618da5d37228b2b87732eb60e4a232c5a4ba44c2ba",
+    "prompt_hash": "sha256:02971101edf2294162c59e6ba99c276bde8fc17c51da22a798fd89af283e7295",
     "run_id": "author-run-impossible"
   },
   "solver": {
@@ -39,7 +39,8 @@
   "release": {
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
-    "manifest_hash": "sha256:e5b8e5ff691ae48b94343b00df7aa560d720dae905871d192cbb6242a36d61ba"
+    "manifest_hash": "sha256:e5b8e5ff691ae48b94343b00df7aa560d720dae905871d192cbb6242a36d61ba",
+    "factory_registry_sha256": "sha256:87adf97d95d350658b504dd7d2b2c39d7e62f50eb5a3a1579a485e5eee45b43d"
   },
   "payload": {
     "task_specification": "Implement Counter.decides_halts(fn) as a total function that decides whether an arbitrary Python callable would halt.",
