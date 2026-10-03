@@ -176,8 +176,12 @@ def _fixture_destination(path: Path) -> Path:
 
 def _guarded_write(path: Path, text: str) -> None:
     target = _fixture_destination(path)
-    if not target.is_relative_to(FIXTURES):
+    fixtures = FIXTURES.resolve()
+    resolved = target.resolve()
+    if fixtures != resolved and fixtures not in resolved.parents:
         raise SystemExit(f"refusing to write outside the VSET fixtures: {path}")
+    # Destination is rebuilt from FIXTURES plus a fixed verdict directory and
+    # the fixture file name. It is not the caller's resolved path.
     target.write_text(text, encoding="utf-8")
 
 

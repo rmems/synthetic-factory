@@ -232,11 +232,15 @@ def _training_view_key(key: Any) -> str:
     return normalize_identity(separated).replace("-", "_")
 
 
+def _mapping_leaks(value: dict[str, Any]) -> bool:
+    if any(_training_view_key(key) in _TRAINING_VIEW_LEAKS for key in value):
+        return True
+    return any(_training_view_leaks(item) for item in value.values())
+
+
 def _training_view_leaks(value: Any) -> bool:
     if isinstance(value, dict):
-        if any(_training_view_key(key) in _TRAINING_VIEW_LEAKS for key in value):
-            return True
-        return any(_training_view_leaks(item) for item in value.values())
+        return _mapping_leaks(value)
     if isinstance(value, list):
         return any(_training_view_leaks(item) for item in value)
     return False

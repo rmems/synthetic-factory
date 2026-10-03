@@ -87,25 +87,37 @@ def validate_record(
     if isinstance(record.get("environment"), dict):
         errors.extend(_environment_errors(record["environment"]))
     errors.extend(_release_errors(record.get("release"), registry_path))
-    if require_registry_sha and not _is_sha256(
-        _mapping_or_empty(record.get("release")).get("factory_registry_sha256")
-    ):
-        errors.append(
-            VSetValidationError(
-                ERR_RELEASE_CONTRACT_MISMATCH,
-                "release.factory_registry_sha256 is required",
-            )
-        )
+    errors.extend(_registry_flag_errors(record, require_registry_sha))
     if kind is not None:
         errors.extend(payload_errors(kind, record.get("payload")))
     errors.extend(_training_view_errors(record.get("training_view")))
-    trace = record.get("trace", None)
-    if "trace" in record and not isinstance(trace, dict):
-        errors.append(
-            VSetValidationError(ERR_PAYLOAD_INVALID, "trace must be an object when present")
-        )
+    errors.extend(_trace_errors(record))
     errors.extend(_content_hash_errors(record))
     return errors
+
+
+def _registry_flag_errors(
+    record: dict[str, Any], require_registry_sha: bool
+) -> list[VSetValidationError]:
+    if not require_registry_sha:
+        return []
+    stamped = _mapping_or_empty(record.get("release")).get("factory_registry_sha256")
+    if _is_sha256(stamped):
+        return []
+    return [
+        VSetValidationError(
+            ERR_RELEASE_CONTRACT_MISMATCH,
+            "release.factory_registry_sha256 is required",
+        )
+    ]
+
+
+def _trace_errors(record: dict[str, Any]) -> list[VSetValidationError]:
+    if "trace" not in record or isinstance(record.get("trace"), dict):
+        return []
+    return [
+        VSetValidationError(ERR_PAYLOAD_INVALID, "trace must be an object when present")
+    ]
 
 
 def _record_head_errors(

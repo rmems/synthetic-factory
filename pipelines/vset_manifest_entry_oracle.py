@@ -159,18 +159,25 @@ def _measured_without_reason(entry: Mapping[str, Any], decision: Any) -> bool:
     return not isinstance(reasons, list) or not reasons
 
 
+def _outcome_dropped(entry: Mapping[str, Any], decision: Any) -> bool:
+    if _measured_without_reason(entry, decision):
+        return True
+    if not _is_invalid_or_impossible(entry):
+        return False
+    return decision != "measure"
+
+
 def _entry_outcome_errors(
     where: str, entry: Mapping[str, Any], decision: Any
 ) -> list[VSetValidationError]:
-    invalid = _is_invalid_or_impossible(entry)
-    if _measured_without_reason(entry, decision) or (invalid and decision != "measure"):
-        return [
-            VSetValidationError(
-                "vset.invalid_outcome_dropped",
-                f"{where} invalid/impossible tasks must remain measure outcomes",
-            )
-        ]
-    return []
+    if not _outcome_dropped(entry, decision):
+        return []
+    return [
+        VSetValidationError(
+            "vset.invalid_outcome_dropped",
+            f"{where} invalid/impossible tasks must remain measure outcomes",
+        )
+    ]
 
 
 def _entry_accept_errors(where: str, entry: Mapping[str, Any]) -> list[VSetValidationError]:

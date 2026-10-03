@@ -356,42 +356,42 @@ _INVISIBLE_CHARS = frozenset(
 _IDENTITY_SENTINELS = frozenset(
     {"null", "none", "unknown", "n/a", "na", "-", "0", "tbd", "placeholder"}
 )
-# High-value Greek/Cyrillic lookalikes. Not a full confusables table.
-_CONFUSABLE_PAIRS = (
-    "аa",
-    "ɑa",
-    "αa",
-    "вb",
-    "βb",
-    "сc",
-    "ϲc",
-    "еe",
-    "εe",
-    "һh",
-    "нh",
-    "іi",
-    "ιi",
-    "јj",
-    "кk",
-    "κk",
-    "мm",
-    "μm",
-    "оo",
-    "οo",
-    "рp",
-    "ρp",
-    "ѕs",
-    "тt",
-    "τt",
-    "уy",
-    "υy",
-    "νv",
-    "хx",
-    "χx",
-    "ӏl",
-)
+# High-value Greek/Cyrillic lookalikes as code points, not a second copy of
+# the preference-arms dict. Not a full confusables set.
 _CONFUSABLE_ASCII = str.maketrans(
-    {pair[0]: pair[1] for pair in _CONFUSABLE_PAIRS}
+    {
+        0x0430: "a",
+        0x0251: "a",
+        0x03B1: "a",
+        0x0432: "b",
+        0x03B2: "b",
+        0x0441: "c",
+        0x03F2: "c",
+        0x0435: "e",
+        0x03B5: "e",
+        0x04BB: "h",
+        0x043D: "h",
+        0x0456: "i",
+        0x03B9: "i",
+        0x0458: "j",
+        0x043A: "k",
+        0x03BA: "k",
+        0x043C: "m",
+        0x03BC: "m",
+        0x043E: "o",
+        0x03BF: "o",
+        0x0440: "p",
+        0x03C1: "p",
+        0x0455: "s",
+        0x0442: "t",
+        0x03C4: "t",
+        0x0443: "y",
+        0x03C5: "y",
+        0x03BD: "v",
+        0x0445: "x",
+        0x03C7: "x",
+        0x04CF: "l",
+    }
 )
 
 
