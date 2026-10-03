@@ -210,38 +210,23 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
 _MANIFEST_OPTION_ERROR = "--manifest does not accept --oracle/--pack"
 
 
-def _flag_conflict(left: bool, right: bool, message: str) -> str | None:
-    if left and right:
-        return message
+def _option_error(args: argparse.Namespace) -> str | None:
+    if args.manifest and (args.oracle or args.pack):
+        return _MANIFEST_OPTION_ERROR
+    if args.oracle and not args.pack:
+        return "--oracle requires --pack"
+    if args.pack and not args.oracle:
+        return "--pack requires --oracle"
     return None
-
-
-def _manifest_option_error(args: argparse.Namespace) -> str | None:
-    return _flag_conflict(
-        args.manifest, bool(args.oracle or args.pack), _MANIFEST_OPTION_ERROR
-    )
-
-
-def _missing_pair(present: bool, missing: bool, message: str) -> str | None:
-    if present and missing:
-        return message
-    return None
-
-
-def _pack_option_error(args: argparse.Namespace) -> str | None:
-    needs_pack = _missing_pair(args.oracle, not args.pack, "--oracle requires --pack")
-    if needs_pack is not None:
-        return needs_pack
-    return _missing_pair(bool(args.pack), not args.oracle, "--pack requires --oracle")
 
 
 def _usage_error(args: argparse.Namespace) -> str | None:
-    manifest_error = _manifest_option_error(args)
-    if manifest_error is not None:
-        return manifest_error
+    option_error = _option_error(args)
+    if option_error is not None:
+        return option_error
     if not Path(args.target).exists():
         return f"not found: {args.target}"
-    return _pack_option_error(args)
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:

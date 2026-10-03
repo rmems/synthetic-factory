@@ -248,9 +248,9 @@ def _is_sha256(value: Any) -> bool:
 
 
 def _mapping_or_empty(value: Any) -> dict[str, Any]:
-    if isinstance(value, Mapping):
-        return {key: item for key, item in value.items()}
-    return {}
+    if not isinstance(value, Mapping):
+        return {}
+    return dict(value.items())
 
 
 def _pick(mapping: dict[str, Any], keys: Iterable[str]) -> dict[str, Any]:
@@ -276,19 +276,13 @@ def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
             )
 
 
-def _reject_bad_sha256(actor: dict[str, Any], role: str, field: str) -> None:
-    _reject_unless(_is_sha256(actor.get(field)), role, field, "sha256:<64 hex>")
-
-
-def _reject_bad_nonempty(actor: dict[str, Any], role: str, field: str) -> None:
-    _reject_unless(
-        _is_nonempty(actor.get(field)), role, field, "a non-empty normalized string"
-    )
-
-
-def _reject_unless(ok: bool, role: str, field: str, expected: str) -> None:
-    if ok:
+def _reject_field(actor: dict[str, Any], role: str, field: str, kind: str) -> None:
+    value = actor.get(field)
+    if kind == "sha256" and _is_sha256(value):
         return
+    if kind == "text" and _is_nonempty(value):
+        return
+    expected = "sha256:<64 hex>" if kind == "sha256" else "a non-empty normalized string"
     raise VSetValidationError(
         ERR_ACTOR_FIELDS_INVALID,
         f"{role}.{field} must be {expected}",
@@ -303,13 +297,13 @@ def _require_actor_optionals(
     require_tool_policy: bool,
 ) -> None:
     if require_prompt_hash:
-        _reject_bad_sha256(actor, role, "prompt_hash")
+        _reject_field(actor, role, "prompt_hash", "sha256")
     if require_tool_policy:
-        _reject_bad_nonempty(actor, role, "tool_policy")
+        _reject_field(actor, role, "tool_policy", "text")
     if "prompt_hash" in actor:
-        _reject_bad_sha256(actor, role, "prompt_hash")
+        _reject_field(actor, role, "prompt_hash", "sha256")
     if "tool_policy" in actor:
-        _reject_bad_nonempty(actor, role, "tool_policy")
+        _reject_field(actor, role, "tool_policy", "text")
 
 
 def _check_actor(
