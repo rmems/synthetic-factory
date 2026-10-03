@@ -210,18 +210,40 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
 _MANIFEST_OPTION_ERROR = "--manifest does not accept --oracle/--pack"
 
 
+def _manifest_option_message(args: argparse.Namespace) -> str | None:
+    if not args.manifest:
+        return None
+    extra = args.oracle
+    if args.pack:
+        extra = True
+    if not extra:
+        return None
+    return _MANIFEST_OPTION_ERROR
+
+
+def _oracle_needs_pack(args: argparse.Namespace) -> str | None:
+    if args.pack:
+        return None
+    return "--oracle requires --pack"
+
+
+def _pack_needs_oracle(args: argparse.Namespace) -> str | None:
+    if not args.pack:
+        return None
+    return "--pack requires --oracle"
+
+
+def _oracle_pack_message(args: argparse.Namespace) -> str | None:
+    if args.oracle:
+        return _oracle_needs_pack(args)
+    return _pack_needs_oracle(args)
+
+
 def _option_error(args: argparse.Namespace) -> str | None:
-    manifest_with_oracle = args.manifest and args.oracle
-    manifest_with_pack = args.manifest and args.pack
-    if manifest_with_oracle or manifest_with_pack:
-        return _MANIFEST_OPTION_ERROR
-    oracle_without_pack = args.oracle and not args.pack
-    if oracle_without_pack:
-        return "--oracle requires --pack"
-    pack_without_oracle = args.pack and not args.oracle
-    if pack_without_oracle:
-        return "--pack requires --oracle"
-    return None
+    message = _manifest_option_message(args)
+    if message is not None:
+        return message
+    return _oracle_pack_message(args)
 
 
 def _usage_error(args: argparse.Namespace) -> str | None:
