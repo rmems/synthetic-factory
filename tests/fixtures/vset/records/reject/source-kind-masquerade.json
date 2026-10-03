@@ -1,0 +1,55 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "issue_patch_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:e499adce8852ec386738eac73f3b19706aab668068e71efddd2477065131a06f",
+    "run_id": "author-run-masquerade"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-masquerade"
+  },
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "status": "provisional",
+    "certifier": "vset_oracle"
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "measure",
+    "reason_codes": []
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:084bbe13c618843f1caa99aa0f3105041e2fb56caddaeecd85b98818383c8b17",
+    "task_id": "vset-counter-v1.add-sub",
+    "repo_pack_id": "vset-counter-v1",
+    "prometheus_lineage": "rmems/operation-prometheus#55",
+    "claimed_source_kind": "real_public_engineering",
+    "source_family": "PROMETHEUS_REAL"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.4",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:f06148164aa50b97e69294f941d53a0ce314589f45382e882ab18167a9437aa6",
+    "factory_registry_sha256": "sha256:196e636fcbf07d80013fded6562d72f2ea353f172dd6f7cbae07bd3639d716a8"
+  },
+  "payload": {
+    "task_specification": "Synthetic task claiming Prometheus real identity.",
+    "patch": {
+      "files": {
+        "src/counter.py": "unchanged"
+      }
+    },
+    "validation_evidence": {},
+    "outcome": "rejected"
+  },
+  "training_view": {
+    "note": "synthetic must not masquerade as Prometheus real_public_engineering"
+  }
+}

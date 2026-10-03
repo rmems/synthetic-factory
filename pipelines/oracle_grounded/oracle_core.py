@@ -24,7 +24,7 @@ IMPLEMENTATION_SOURCES = source_snapshot.SOURCE_NAMES
 MODULE_PATH = "pipelines/oracle_grounded"
 
 _IMPLEMENTATION_SNAPSHOT = source_snapshot.loaded_snapshot(__package__)
-_SOURCE_COMMIT_CACHE = {}
+_SOURCE_COMMIT_CACHE: dict[tuple[str, str], str | None] = {}
 RUNTIME_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 SOURCE_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 

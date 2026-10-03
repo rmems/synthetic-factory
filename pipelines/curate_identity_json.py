@@ -102,11 +102,13 @@ def sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def _canonical_json_equal(left: Any, right: Any) -> bool:
+def canonical_json_equal(left: Any, right: Any) -> bool:
     """Compare JSON values without Python's bool/int/float equivalence."""
 
     return canonical_json(left) == canonical_json(right)
 
+
+_canonical_json_equal = canonical_json_equal
 
 def _require_canonical_json_equal(actual: Any, expected: Any, where: str) -> None:
     try:
@@ -172,6 +174,9 @@ def _reject_training_ready_true(value: Any, path: str = "$") -> None:
     if isinstance(value, list):
         for index, item in enumerate(value):
             _reject_training_ready_true(item, f"{path}[{index}]")
+
+
+strict_json_loads = _strict_json_loads
 
 
 if __package__:

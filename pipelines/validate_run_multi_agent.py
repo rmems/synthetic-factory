@@ -31,7 +31,7 @@ REQUIRED_KEYS = (
 
 
 class _TurnCheck(NamedTuple):
-    index: int
+    turn_index: int
     where: str
     roles: set
     factory_staging: bool
@@ -102,7 +102,7 @@ def _staged_tool_turn_errors(turn, label, check):
 
 def _transcript_turn_errors(turn, check):
     """Validate one transcript turn and return (errors, participating_role)."""
-    label = f"{check.where}: transcript[{check.index}]"
+    label = f"{check.where}: transcript[{check.turn_index}]"
     if not isinstance(turn, dict):
         return [f"{label} must be an object"], None
     speaker_errors, participating = _speaker_errors(turn, label, check.roles)

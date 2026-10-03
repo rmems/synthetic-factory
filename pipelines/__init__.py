@@ -333,6 +333,18 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "validate_run_preference_context",
     "validate_run_routes",
     "validate_run_cli",
+    "vset_constants",
+    "vset_source",
+    "vset_oracle_check",
+    "vset_patch",
+    "vset_record",
+    "vset_record_checks",
+    "vset_oracle",
+    "vset_oracle_exec",
+    "vset_manifest_entries",
+    "vset_manifest_entry_oracle",
+    "vset_manifest",
+    "validate_vset",
 ))
 
 
@@ -441,7 +453,7 @@ if _direct_encoding is not None:
     exact_json_encoding = _direct_encoding
     sys.modules[f"{__name__}.exact_json_encoding"] = exact_json_encoding
 else:
-    from . import exact_json_encoding as exact_json_encoding
+    from . import exact_json_encoding
 
     sys.modules.setdefault("exact_json_encoding", exact_json_encoding)
 
@@ -458,7 +470,7 @@ if _direct_exact_json is not None:
     exact_json = _direct_exact_json
     sys.modules[f"{__name__}.exact_json"] = exact_json
 else:
-    from . import exact_json as exact_json
+    from . import exact_json
 
     sys.modules.setdefault("exact_json", exact_json)
 
