@@ -37,18 +37,18 @@ if [[ -d "${CARGO_BIN}" ]]; then
   if [[ ! -f /etc/profile.d/cursor-cargo.sh ]]; then
     sudo tee /etc/profile.d/cursor-cargo.sh >/dev/null <<'EOF'
 # Cursor synthetic-factory cloud install: rustup on PATH for login shells.
-if [[ -d "${HOME}/.cargo/bin" ]]; then
+if [ -d "${HOME}/.cargo/bin" ]; then
   export PATH="${HOME}/.cargo/bin:${PATH}"
 fi
 EOF
     sudo chmod 644 /etc/profile.d/cursor-cargo.sh
   fi
-  for tool in cargo rustc rustup rustfmt clippy-driver; do
+  for tool in cargo rustc rustup rustfmt clippy-driver cargo-fmt cargo-clippy; do
     src="${CARGO_BIN}/${tool}"
     dst="/usr/local/bin/${tool}"
     [[ -x "${src}" ]] || continue
     if [[ -e "${dst}" ]]; then
-      if [[ -L "${dst}" ]] && [[ "$(readlink -f "${dst}")" == "$(readlink -f "${src}")" ]]; then
+      if [[ -L "${dst}" ]] && [[ "$(readlink -f "${dst}")" = "$(readlink -f "${src}")" ]]; then
         continue
       fi
       continue
