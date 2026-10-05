@@ -366,7 +366,7 @@ def _parse_report(
         return PhaseReport(
             cv.PHASE_HARNESS_ERROR, False, (), (), {"limits_applied": False},
             f"{cv.FINDING_SANDBOX_UNAVAILABLE}: resource limits not attested")
-    attested_environment = {"limits_applied": True} if limits is True else {}
+    attested_environment: dict[str, Any] = {"limits_applied": True} if limits is True else {}
     if require_landlock:
         token = _landlock_attested(stdout)
         if not landlock_applied(token):

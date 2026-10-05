@@ -17,7 +17,7 @@ else:
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "schemas/parity-source-policy-v1.json"
 # Reviewed together with the producer closure; update only after combined source freeze.
-POLICY_SHA256 = "536a5a7a51c6ee9ac333f0d506b8e5733d0ca062ed1ac9a27293ae3caa613bdc"
+POLICY_SHA256 = "0713c67b4611b84948bf3500006f64a89db9e6caeb8a9ec4a184e0ef67829e6b"
 KINDS = frozenset({"hardware_parity", "nir_equivalence"})
 FACTORIES = frozenset({"hardware-parity-spike-trajectories", "nir-cross-runtime-equivalence"})
 
@@ -31,7 +31,7 @@ def load_policy(path=POLICY_PATH):
         payload = Path(path).read_bytes()
         if hashlib.sha256(payload).hexdigest() != POLICY_SHA256:
             raise ParityPolicyError("parity policy differs from independently reviewed bytes")
-        return _json._strict_json_loads(payload.decode("utf-8"))
+        return _json.strict_json_loads(payload.decode("utf-8"))
     except (OSError, ValueError, RecursionError) as exc:
         raise ParityPolicyError(f"parity policy unreadable or invalid: {exc}") from exc
 

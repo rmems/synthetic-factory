@@ -1,0 +1,10 @@
+{
+  "task_id": "vset-counter-v1.impossible-halting",
+  "record_kind": "issue_patch_v1",
+  "specification": "Implement Counter.decides_halts(fn) as a total function that returns True if and only if an arbitrary Python callable fn would halt. This task is impossible.",
+  "oracle": {
+    "kind": "human_adjudication",
+    "status": "invalid",
+    "reason_codes": ["vset.impossible_task"]
+  }
+}

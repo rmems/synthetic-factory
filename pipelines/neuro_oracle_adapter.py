@@ -80,7 +80,7 @@ class OracleAdapter:
     """
 
     name = "abstract"
-    execution_target = None
+    execution_target: str | None = None
     runtime_class = "abstract"
 
     def availability(self):

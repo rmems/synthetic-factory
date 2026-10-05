@@ -19,7 +19,7 @@ import copy
 import re
 import sys
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, NoReturn
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -40,13 +40,13 @@ SourceRecord = _sources.SourceRecord
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _fail(error: IdentityTreeError) -> None:
+def _fail(error: IdentityTreeError) -> NoReturn:
     """Raise ``error``; one raise site keeps fail-closed checks branch-light."""
 
     raise error
 
 
-def _fail_chained(error: IdentityTreeError, cause: BaseException) -> None:
+def _fail_chained(error: IdentityTreeError, cause: BaseException) -> NoReturn:
     """Raise ``error`` from ``cause`` for the single chained raise site."""
 
     raise error from cause
@@ -75,7 +75,7 @@ def _manifest_source_path(source_meta: Mapping[str, Any], where: str) -> str:
 
 def _manifest_source_line(source_meta: Mapping[str, Any], where: str) -> int:
     source_line = source_meta.get("line")
-    if not _sources._is_valid_source_line(source_line):
+    if not _sources.is_valid_source_line(source_line):
         _fail(IdentityTreeError(f"{where}.line must be positive"))
     return source_line
 
@@ -91,7 +91,7 @@ def _manifest_source_digest(source_meta: Mapping[str, Any], where: str) -> str:
 
 def _manifest_hash_basis(source_meta: Mapping[str, Any], where: str) -> str:
     hash_basis = source_meta.get("hash_basis")
-    if hash_basis not in {"canonical-json-sha256", "source-json-line-sha256"}:
+    if not isinstance(hash_basis, str) or hash_basis not in {"canonical-json-sha256", "source-json-line-sha256"}:
         _fail(IdentityTreeError(f"{where}.hash_basis is invalid"))
     return hash_basis
 
@@ -261,7 +261,7 @@ def validate_provenance_original(
         _fail(IdentityTreeError(
             f"{where}.original does not resolve to its canonical provenance"
         ))
-    if not _identity_json._canonical_json_equal(
+    if not _identity_json.canonical_json_equal(
         resolved_claimed, canonical.get("claimed")
     ):
         _fail(IdentityTreeError(
@@ -288,7 +288,7 @@ def _nested_owner_provenances(
 
 def _aggregate_claimed(claims: list[Any]) -> Any:
     equal_claims = all(
-        _identity_json._canonical_json_equal(item, claims[0]) for item in claims
+        _identity_json.canonical_json_equal(item, claims[0]) for item in claims
     )
     return claims[0] if equal_claims else claims
 

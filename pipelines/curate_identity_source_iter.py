@@ -17,7 +17,7 @@ import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, NoReturn
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -46,13 +46,13 @@ IdentityCurationError = _identity_json.IdentityCurationError
 SourceRecord = _sources.SourceRecord
 
 
-def _fail(error: IdentityCurationError) -> None:
+def _fail(error: IdentityCurationError) -> NoReturn:
     """Raise ``error``; one raise site keeps fail-closed checks branch-light."""
 
     raise error
 
 
-def _fail_chained(error: IdentityCurationError, cause: BaseException) -> None:
+def _fail_chained(error: IdentityCurationError, cause: BaseException) -> NoReturn:
     """Raise ``error`` from ``cause`` for the single chained raise site."""
 
     raise error from cause

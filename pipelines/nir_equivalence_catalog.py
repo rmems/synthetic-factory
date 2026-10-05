@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+from typing import Any
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -89,7 +90,7 @@ def _two_channel_lif_graph(name, weight, tau, threshold):
     }
 
 
-GRAPH_SPECS = (
+GRAPH_SPECS: tuple[dict[str, Any], ...] = (
     {
         "id": "nir-feedforward-threshold",
         "name": "stateless feed-forward threshold",

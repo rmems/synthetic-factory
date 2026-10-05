@@ -1,5 +1,10 @@
 # Provenance
 
+This file is the identity-lane remap (`state.sim_or_real` →
+`provenance.kind`). `identity.unresolved_provenance` means that remap
+could not run. It is not the #154 actor graph; missing task_author /
+solver / reviewer / oracle stay `vset.*` codes on actor-provenance-v1.
+
 Cleaned records carry `provenance.kind`. Allowed values:
 
 `designed` | `simulated` | `hil` | `unknown`
