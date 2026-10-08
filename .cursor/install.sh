@@ -47,10 +47,8 @@ EOF
     src="${CARGO_BIN}/${tool}"
     dst="/usr/local/bin/${tool}"
     [[ -x "${src}" ]] || continue
+    # Never replace an existing name, including a dangling symlink.
     if [[ -e "${dst}" || -L "${dst}" ]]; then
-      if [[ -L "${dst}" ]] && [[ "$(readlink -f "${dst}")" = "$(readlink -f "${src}")" ]]; then
-        continue
-      fi
       continue
     fi
     sudo ln -sf "${src}" "${dst}"
