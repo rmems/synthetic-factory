@@ -47,7 +47,7 @@ EOF
     src="${CARGO_BIN}/${tool}"
     dst="/usr/local/bin/${tool}"
     [[ -x "${src}" ]] || continue
-    if [[ -e "${dst}" ]]; then
+    if [[ -e "${dst}" || -L "${dst}" ]]; then
       if [[ -L "${dst}" ]] && [[ "$(readlink -f "${dst}")" = "$(readlink -f "${src}")" ]]; then
         continue
       fi
