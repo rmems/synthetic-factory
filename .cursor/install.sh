@@ -34,3 +34,25 @@ cargo +1.98.1 test --locked -p sf-oracle
 cargo +1.98.1 build --locked -p sf-oracle
 export SF_ORACLE_RUST_BIN="${PWD}/target/debug/sf-oracle"
 .venv/bin/python -m unittest discover -s tests -p 'test_oracle_rust_end_to_end.py' -q
+
+# Expose the tools to later shells. Exports above last only for this script, and
+# Builds keep disk state only, so link the entry points into /usr/local/bin (on
+# every default PATH) and add the directories to login shells via /etc/profile.d.
+tool_dirs=("${HOME}/.cargo/bin" "${PWD}/.venv/bin")
+# shellcheck disable=SC2016 # $PATH must expand when the profile is sourced, not now.
+printf 'export PATH=%q:$PATH\n' "$(IFS=:; echo "${tool_dirs[*]}")" |
+  sudo tee /etc/profile.d/cursor-env-synthetic-factory.sh >/dev/null
+for dir in "${tool_dirs[@]}"; do
+  [ -d "${dir}" ] || continue
+  for tool in "${dir}"/*; do
+    name="${tool##*/}"
+    case "${name}" in
+      python* | pip* | activate* | deactivate | Activate.ps1) continue ;;
+    esac
+    dest="/usr/local/bin/${name}"
+    # Don't shadow a base-image command with the same name.
+    if [ -f "${tool}" ] && [ -x "${tool}" ] && [ ! -e "${dest}" ] && [ ! -L "${dest}" ]; then
+      sudo ln -s "${tool}" "${dest}"
+    fi
+  done
+done
