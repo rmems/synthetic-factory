@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Idempotent Cloud Agent install: compile the tree and run the operator smoke check.
-# Full unittest discovery (~5k tests, 30-40 min) belongs in GitHub Actions, not here.
+# Idempotent Cloud Agent install: prefetch dependencies and compile the tree.
+# Lint, unit tests, and operator smoke belong in GitHub Actions, not the snapshot build.
 set -euo pipefail
 
 python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 14) else 1)' \
@@ -12,9 +12,8 @@ export TMPDIR="${TMPDIR:-/tmp}"
 
 python3 -m venv .venv
 .venv/bin/python -m compileall -q pipelines tests .claude/skills/run-synthetic-factory/driver.py
-.venv/bin/python .claude/skills/run-synthetic-factory/driver.py smoke
 
-# Rust sf-oracle (same toolchain and gates as .github/workflows/python.yml).
+# Rust sf-oracle: prefetch and compile only (toolchain 1.98.1, same as CI).
 export CC=gcc
 export CXX=g++
 if ! command -v rustup >/dev/null 2>&1; then
@@ -28,9 +27,30 @@ rustup toolchain install 1.98.1 \
   --component clippy
 rustup default 1.98.1
 cargo +1.98.1 fetch --locked
-cargo +1.98.1 fmt --all --check
-cargo +1.98.1 clippy --locked --all-targets -- -D warnings
-cargo +1.98.1 test --locked -p sf-oracle
 cargo +1.98.1 build --locked -p sf-oracle
+cargo +1.98.1 test --no-run --locked -p sf-oracle
 export SF_ORACLE_RUST_BIN="${PWD}/target/debug/sf-oracle"
-.venv/bin/python -m unittest discover -s tests -p 'test_oracle_rust_end_to_end.py' -q
+
+# Login shells and non-interactive steps should find rustup without sourcing ~/.cargo/env.
+CARGO_BIN="${HOME}/.cargo/bin"
+if [[ -d "${CARGO_BIN}" ]]; then
+  if [[ ! -f /etc/profile.d/cursor-cargo.sh ]]; then
+    sudo tee /etc/profile.d/cursor-cargo.sh >/dev/null <<'EOF'
+# Cursor synthetic-factory cloud install: rustup on PATH for login shells.
+if [ -d "${HOME}/.cargo/bin" ]; then
+  export PATH="${HOME}/.cargo/bin:${PATH}"
+fi
+EOF
+    sudo chmod 644 /etc/profile.d/cursor-cargo.sh
+  fi
+  for tool in cargo rustc rustup rustfmt clippy-driver cargo-fmt cargo-clippy; do
+    src="${CARGO_BIN}/${tool}"
+    dst="/usr/local/bin/${tool}"
+    [[ -x "${src}" ]] || continue
+    # Never replace an existing name, including a dangling symlink.
+    if [[ -e "${dst}" || -L "${dst}" ]]; then
+      continue
+    fi
+    sudo ln -sf "${src}" "${dst}"
+  done
+fi
