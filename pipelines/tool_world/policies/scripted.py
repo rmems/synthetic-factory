@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,21 +113,40 @@ def _mangle(action: pk.Action) -> pk.Action:
     )
 
 
+def _unchanged(actions: list[pk.Action]) -> list[pk.Action]:
+    return actions
+
+
+def _without_verification(actions: list[pk.Action]) -> list[pk.Action]:
+    return [action for action in actions if not action.verification]
+
+
+def _without_confirmation(actions: list[pk.Action]) -> list[pk.Action]:
+    return [action for action in actions if not action.confirmation]
+
+
+def _mistyped_first(actions: list[pk.Action]) -> list[pk.Action]:
+    """The gold plan behind one attempt whose first argument has the wrong type."""
+    return [_mangle(actions[0]), *actions]
+
+
+# variant -> the edit it makes to the gold plan before the first step
+_PLAN_EDITS: Mapping[str, Callable[[list[pk.Action]], list[pk.Action]]] = {
+    cv.VARIANT_GOLD: _unchanged,
+    cv.PERTURBATION_SKIP_VERIFICATION: _without_verification,
+    cv.PERTURBATION_SKIP_CONFIRMATION: _without_confirmation,
+    cv.PERTURBATION_WRONG_ARG_TYPE: _mistyped_first,
+    cv.PERTURBATION_GIVE_UP: _unchanged,
+}
+
+
 def _plan(task: pk.Task, variant: str) -> list[tuple[str, pk.Action]]:
     cv.refuse_when(
         variant != cv.VARIANT_GOLD and variant not in task.perturbations,
         cv.FINDING_TASK_FIELD_INVALID,
         f"task {task.task_id} does not declare perturbation {variant!r}",
     )
-    actions = list(task.gold)
-    if variant == cv.PERTURBATION_SKIP_VERIFICATION:
-        actions = [action for action in actions if not action.verification]
-    if variant == cv.PERTURBATION_SKIP_CONFIRMATION:
-        actions = [action for action in actions if not action.confirmation]
-    plan = [(cv.DB_PLAN, action) for action in actions]
-    if variant == cv.PERTURBATION_WRONG_ARG_TYPE:
-        plan.insert(0, (cv.DB_PLAN, _mangle(actions[0])))
-    return plan
+    return [(cv.DB_PLAN, action) for action in _PLAN_EDITS[variant](list(task.gold))]
 
 
 def _fault_for(text: str, task: pk.Task) -> Any:

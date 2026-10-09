@@ -51,26 +51,43 @@ def _type_matches(expected: str, value: Any) -> bool:
     return checks[expected](value)
 
 
-def check_schema(schema: Any, where: str = "schema") -> list[str]:
-    """Findings about a schema that uses keywords outside the subset."""
-    if not isinstance(schema, Mapping):
-        return [f"{where}: schema must be an object"]
+def _keyword_findings(schema: Mapping[str, Any], where: str) -> list[str]:
     findings = [
         f"{where}: unsupported keyword {key!r}" for key in schema if key not in SUPPORTED_KEYWORDS
     ]
     declared = schema.get("type")
     if declared is not None and declared not in _TYPES:
         findings.append(f"{where}: unsupported type {declared!r}")
-    properties = schema.get("properties")
-    if properties is not None:
-        if not isinstance(properties, Mapping):
-            findings.append(f"{where}: properties must be an object")
-        else:
-            for name, child in properties.items():
-                findings.extend(check_schema(child, f"{where}.{name}"))
-    if "items" in schema:
-        findings.extend(check_schema(schema["items"], f"{where}.items"))
     return findings
+
+
+def _properties_findings(properties: Any, where: str) -> list[str]:
+    """Findings of every property schema, in document order; absent properties are fine."""
+    if properties is None:
+        return []
+    if not isinstance(properties, Mapping):
+        return [f"{where}: properties must be an object"]
+    findings = []
+    for name, child in properties.items():
+        findings.extend(check_schema(child, f"{where}.{name}"))
+    return findings
+
+
+def _items_findings(schema: Mapping[str, Any], where: str) -> list[str]:
+    if "items" not in schema:
+        return []
+    return check_schema(schema["items"], f"{where}.items")
+
+
+def check_schema(schema: Any, where: str = "schema") -> list[str]:
+    """Findings about a schema that uses keywords outside the subset."""
+    if not isinstance(schema, Mapping):
+        return [f"{where}: schema must be an object"]
+    return (
+        _keyword_findings(schema, where)
+        + _properties_findings(schema.get("properties"), where)
+        + _items_findings(schema, where)
+    )
 
 
 def _enum_findings(schema: Mapping[str, Any], value: Any, where: str) -> list[str]:

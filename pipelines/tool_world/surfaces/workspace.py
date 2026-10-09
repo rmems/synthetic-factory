@@ -3,11 +3,11 @@
 
 Files live in memory, seeded from the pack's ``files/`` members; nothing
 touches the host filesystem. ``run_tests`` evaluates a declared suite's cases
-against the current tree, so an edit changes the outcome and the outcome is
-computed, never scripted. Declared suites and the faults that name this surface
-are checked when the environment is built: a malformed suite, or a fault whose
-symptom no observation could show, is a coded refusal at load, not a surprise
-at run time.
+against the current tree (``workspace_suites``), so an edit changes the outcome
+and the outcome is computed, never scripted. Declared suites and the faults
+that name this surface are checked when the environment is built: a malformed
+suite, or a fault whose symptom no observation could show, is a coded refusal
+at load, not a surprise at run time.
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from .. import vocabulary as cv
-from .._contract import bind_import_twin, sha256_bytes
+from .._contract import bind_import_twin
 from .base import Surface, ToolSpec, error_text
+from .workspace_suites import check_suite, evaluate_suite
 
 __all__ = ["WorkspaceSurface"]
 
@@ -27,29 +28,131 @@ FAULT_FLAKY_TEST = "flaky_test"
 FAULT_TRUNCATED = "truncated_output"
 _TRUNCATE_AT = 160
 _MAX_MATCHES = 40
-_TIMEOUT_FAILURE = "ETIMEDOUT after 30s (environment)"
-_CHECK_FIELDS: Mapping[str, tuple[str, ...]] = {
-    "file_exists": ("path",),
-    "file_contains": ("path", "text"),
-    "file_not_contains": ("path", "text"),
-    "file_sha256": ("path", "sha256"),
-}
+_STRING: Mapping[str, Any] = {"type": "string"}
 
 
-def _string(name: str, description: str = "") -> dict[str, Any]:
-    row: dict[str, Any] = {"type": "string"}
-    if description:
-        row["description"] = description
-    return row
-
-
-def _schema(required: tuple[str, ...], properties: Mapping[str, Any]) -> dict[str, Any]:
+def _schema(
+    required: tuple[str, ...], properties: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
+    """A fresh object schema; no row is shared with the table, so a holder may keep it."""
     return {
         "type": "object",
         "required": list(required),
-        "properties": dict(properties),
+        "properties": {name: dict(row) for name, row in properties.items()},
         "additionalProperties": False,
     }
+
+
+# Each tool as (name, description, required, properties, irreversible); ``tools`` binds the surface.
+_TOOL_ROWS: tuple[tuple[str, str, tuple[str, ...], Mapping[str, Mapping[str, Any]], bool], ...] = (
+    (
+        "read_file",
+        "Read a file. Optional offset/limit page through long files.",
+        ("path",),
+        {
+            "path": _STRING,
+            "offset": {"type": "integer", "minimum": 0},
+            "limit": {"type": "integer", "minimum": 1},
+        },
+        False,
+    ),
+    (
+        "write_file",
+        "Create or replace a file with the given content.",
+        ("path", "content"),
+        {"path": _STRING, "content": _STRING},
+        False,
+    ),
+    (
+        "edit_file",
+        "Replace the unique occurrence of old with new in a file.",
+        ("path", "old", "new"),
+        {"path": _STRING, "old": _STRING, "new": _STRING},
+        False,
+    ),
+    (
+        "search",
+        "Regex search over the tree, optionally under one path.",
+        ("pattern",),
+        {"pattern": _STRING, "path": _STRING},
+        False,
+    ),
+    ("list_dir", "List the entries under a directory.", (), {"path": _STRING}, False),
+    (
+        "run_tests",
+        "Run a declared test suite against the current tree.",
+        ("suite",),
+        {"suite": _STRING},
+        False,
+    ),
+    (
+        "delete_file",
+        "Delete a file. Irreversible: confirm first.",
+        ("path",),
+        {"path": _STRING},
+        True,
+    ),
+)
+
+
+# --- the fault firing on one call ------------------------------------------
+
+
+def _kind_of(fault: Any) -> str | None:
+    """The kind of the fault scheduled on this call, or None when none fires."""
+    return None if fault is None else fault.spec.kind
+
+
+def _truncates(fault: Any, limit: Any) -> bool:
+    """A truncation fault shows on an unpaged read; paging with a limit is how a reader recovers."""
+    return _kind_of(fault) == FAULT_TRUNCATED and limit is None
+
+
+def _flaky_case(fault: Any) -> str | None:
+    """The case a flaky-test fault times out on this run, or None when no such fault fires."""
+    return fault.spec.params.get("case") if _kind_of(fault) == FAULT_FLAKY_TEST else None
+
+
+# --- tree helpers ----------------------------------------------------------
+
+
+def _parents_of(paths: Iterable[str]) -> set[str]:
+    """Every directory on the way to each path, as a real file system would keep them."""
+    parents: set[str] = set()
+    for path in paths:
+        parts = path.split("/")[:-1]
+        parents.update("/".join(parts[: depth + 1]) for depth in range(len(parts)))
+    return parents
+
+
+def _child_entry(rest: str) -> str:
+    """The first segment of a path relative to a directory, with a slash when more follows."""
+    head, slash, _tail = rest.partition("/")
+    return head + slash
+
+
+def _missing(name: str, entries: set[str], dirs: set[str]) -> bool:
+    """A named directory with no entries that no write ever created; the root always exists."""
+    if not name or entries:
+        return False
+    return name not in dirs
+
+
+def _grep(pattern: re.Pattern[str], path: str, text: str) -> list[str]:
+    """``path:line: text`` for every line the pattern matches, in file order."""
+    return [
+        f"{path}:{number}: {line}"
+        for number, line in enumerate(text.splitlines(), 1)
+        if pattern.search(line)
+    ]
+
+
+def _match_report(matches: list[str]) -> str:
+    """The first ``_MAX_MATCHES`` hits, with a count of what the cap hid."""
+    shown = matches[:_MAX_MATCHES]
+    hidden = len(matches) - len(shown)
+    tail = f"\n[{hidden} more matches]" if hidden else ""
+    return f"{len(matches)} matches:\n" + "\n".join(shown) + tail
 
 
 class WorkspaceSurface(Surface):
@@ -64,68 +167,21 @@ class WorkspaceSurface(Surface):
         self.test_runs: list[dict[str, Any]] = []
         self.verification_events: list[int] = []
         for name, spec in self.suites.items():
-            _check_suite(name, spec, f"{pack.pack_id}/tests/{name}.json")
+            check_suite(name, spec, f"{pack.pack_id}/tests/{name}.json")
         for spec in task.faults:
             if spec.surface == self.NAME:
                 self.check_fault(spec)
 
     def tools(self) -> tuple[ToolSpec, ...]:
-        return (
+        return tuple(
             ToolSpec(
-                "read_file",
+                name,
                 self.NAME,
-                "Read a file. Optional offset/limit page through long files.",
-                _schema(
-                    ("path",),
-                    {
-                        "path": _string("path"),
-                        "offset": {"type": "integer", "minimum": 0},
-                        "limit": {"type": "integer", "minimum": 1},
-                    },
-                ),
-            ),
-            ToolSpec(
-                "write_file",
-                self.NAME,
-                "Create or replace a file with the given content.",
-                _schema(
-                    ("path", "content"), {"path": _string("path"), "content": _string("content")}
-                ),
-            ),
-            ToolSpec(
-                "edit_file",
-                self.NAME,
-                "Replace the unique occurrence of old with new in a file.",
-                _schema(
-                    ("path", "old", "new"),
-                    {"path": _string("path"), "old": _string("old"), "new": _string("new")},
-                ),
-            ),
-            ToolSpec(
-                "search",
-                self.NAME,
-                "Regex search over the tree, optionally under one path.",
-                _schema(("pattern",), {"pattern": _string("pattern"), "path": _string("path")}),
-            ),
-            ToolSpec(
-                "list_dir",
-                self.NAME,
-                "List the entries under a directory.",
-                _schema((), {"path": _string("path")}),
-            ),
-            ToolSpec(
-                "run_tests",
-                self.NAME,
-                "Run a declared test suite against the current tree.",
-                _schema(("suite",), {"suite": _string("suite")}),
-            ),
-            ToolSpec(
-                "delete_file",
-                self.NAME,
-                "Delete a file. Irreversible: confirm first.",
-                _schema(("path",), {"path": _string("path")}),
-                irreversible=True,
-            ),
+                description,
+                _schema(required, properties),
+                irreversible=irreversible,
+            )
+            for name, description, required, properties, irreversible in _TOOL_ROWS
         )
 
     # --- declared faults ---------------------------------------------------
@@ -182,11 +238,19 @@ class WorkspaceSurface(Surface):
     # --- execution -----------------------------------------------------------
 
     def execute(self, name: str, args: Mapping[str, Any], fault: Any) -> str:
-        if fault is not None and fault.spec.kind == FAULT_TRANSIENT:
+        if _kind_of(fault) == FAULT_TRANSIENT:
             target = args.get("path", args.get("suite", ""))
             return error_text(f"EAGAIN temporary failure on {name} {target}; retry")
-        handler = getattr(self, f"_{name}")
-        return handler(args, fault)
+        handlers = {
+            "read_file": lambda: self._read_file(args, fault),
+            "write_file": lambda: self._write_file(args),
+            "edit_file": lambda: self._edit_file(args),
+            "search": lambda: self._search(args),
+            "list_dir": lambda: self._list_dir(args),
+            "run_tests": lambda: self._run_tests(args, fault),
+            "delete_file": lambda: self._delete_file(args),
+        }
+        return handlers[name]()
 
     def _read_file(self, args: Mapping[str, Any], fault: Any) -> str:
         path = args["path"]
@@ -195,7 +259,7 @@ class WorkspaceSurface(Surface):
         self.verification_events.append(len(self.env.events) + 1)
         text = self.files[path]
         offset, limit = args.get("offset", 0), args.get("limit")
-        if fault is not None and fault.spec.kind == FAULT_TRUNCATED and limit is None:
+        if _truncates(fault, limit):
             head = text[:_TRUNCATE_AT]
             return (
                 f"{path} ({len(text)} chars):\n{head}\n"
@@ -204,12 +268,12 @@ class WorkspaceSurface(Surface):
         window = text[offset:] if limit is None else text[offset : offset + limit]
         return f"{path} ({len(text)} chars, offset {offset}):\n{window}"
 
-    def _write_file(self, args: Mapping[str, Any], fault: Any) -> str:
+    def _write_file(self, args: Mapping[str, Any]) -> str:
         self.files[args["path"]] = args["content"]
         self.dirs |= _parents_of((args["path"],))
         return f"wrote {args['path']} ({len(args['content'])} chars)"
 
-    def _edit_file(self, args: Mapping[str, Any], fault: Any) -> str:
+    def _edit_file(self, args: Mapping[str, Any]) -> str:
         path = args["path"]
         if path not in self.files:
             return error_text(f"ENOENT no such file: {path}")
@@ -225,64 +289,46 @@ class WorkspaceSurface(Surface):
             f"edited {path}: replaced 1 occurrence ({len(args['old'])} -> {len(args['new'])} chars)"
         )
 
-    def _search(self, args: Mapping[str, Any], fault: Any) -> str:
+    def _search(self, args: Mapping[str, Any]) -> str:
         try:
             pattern = re.compile(args["pattern"])
         except re.error as exc:
             return error_text(f"invalid regex: {exc}")
         prefix = args.get("path", "")
-        matches = []
+        matches: list[str] = []
         for path in sorted(self.files):
-            if not path.startswith(prefix):
-                continue
-            for number, line in enumerate(self.files[path].splitlines(), 1):
-                if pattern.search(line):
-                    matches.append(f"{path}:{number}: {line}")
+            if path.startswith(prefix):
+                matches.extend(_grep(pattern, path, self.files[path]))
         if not matches:
             return f"no matches for {args['pattern']!r}"
-        shown = matches[:_MAX_MATCHES]
-        tail = (
-            ""
-            if len(matches) <= _MAX_MATCHES
-            else f"\n[{len(matches) - _MAX_MATCHES} more matches]"
-        )
-        return f"{len(matches)} matches:\n" + "\n".join(shown) + tail
+        return _match_report(matches)
 
-    def _list_dir(self, args: Mapping[str, Any], fault: Any) -> str:
+    def _list_dir(self, args: Mapping[str, Any]) -> str:
         """Entries of a directory; one that exists but is empty lists as empty, not ENOENT."""
         name = args.get("path", "").rstrip("/")
         prefix = f"{name}/" if name else ""
         entries = self._entries_under(prefix)
-        if name and not entries and name not in self.dirs:
+        if _missing(name, entries, self.dirs):
             return error_text(f"ENOENT no such directory: {prefix}")
         return f"{prefix or '.'}:\n" + ("\n".join(sorted(entries)) or "(empty)")
 
     def _entries_under(self, prefix: str) -> set[str]:
         """Immediate children of ``prefix``; subdirectories carry a trailing slash."""
-        entries = set()
-        for path in self.files:
-            if path.startswith(prefix):
-                rest = path[len(prefix) :]
-                entries.add(rest.split("/", 1)[0] + ("/" if "/" in rest else ""))
-        return entries
+        below = (path[len(prefix) :] for path in self.files if path.startswith(prefix))
+        return {_child_entry(rest) for rest in below}
 
     def _run_tests(self, args: Mapping[str, Any], fault: Any) -> str:
         suite = args["suite"]
         if suite not in self.suites:
             return error_text(f"unknown suite {suite!r}; declared: {sorted(self.suites)}")
         self.verification_events.append(len(self.env.events) + 1)
-        flaky = (
-            fault.spec.params.get("case")
-            if fault is not None and fault.spec.kind == FAULT_FLAKY_TEST
-            else None
-        )
-        result = self.suite_result(suite, flaky_case=flaky)
+        result = self.suite_result(suite, flaky_case=_flaky_case(fault))
         self.test_runs.append({"suite": suite, "failed": result["failed"]})
         lines = [f"{suite}: {result['passed']} passed, {result['failed']} failed"]
         lines.extend(result["failures"])
         return "\n".join(lines)
 
-    def _delete_file(self, args: Mapping[str, Any], fault: Any) -> str:
+    def _delete_file(self, args: Mapping[str, Any]) -> str:
         path = args["path"]
         if path not in self.files:
             return error_text(f"ENOENT no such file: {path}")
@@ -300,22 +346,7 @@ class WorkspaceSurface(Surface):
             f"suite {suite!r} is not declared by the pack; a tests/{suite}.json member must "
             f"declare a cases list; known: {sorted(self.suites)}",
         )
-        failures = []
-        for case in spec["cases"]:
-            if case["id"] == flaky_case:
-                message: str | None = _TIMEOUT_FAILURE
-            else:
-                message = self._case_failure(case["check"])
-            if message is not None:
-                failures.append(f"FAIL {case['id']}: {message}")
-        passed = len(spec["cases"]) - len(failures)
-        return {"passed": passed, "failed": len(failures), "failures": failures}
-
-    def _case_failure(self, check: Mapping[str, Any]) -> str | None:
-        text = self.files.get(check["path"])
-        if text is None:
-            return f"{check['path']} does not exist"
-        return _CHECKS[check["kind"]](text, check)
+        return evaluate_suite(self.files, spec, flaky_case)
 
     def state_view(self) -> Any:
         return {
@@ -323,77 +354,6 @@ class WorkspaceSurface(Surface):
             "dirs": sorted(self.dirs),
             "test_runs": list(self.test_runs),
         }
-
-
-def _parents_of(paths: Iterable[str]) -> set[str]:
-    """Every directory on the way to each path, as a real file system would keep them."""
-    parents: set[str] = set()
-    for path in paths:
-        parts = path.split("/")[:-1]
-        parents.update("/".join(parts[: depth + 1]) for depth in range(len(parts)))
-    return parents
-
-
-def _contains(text: str, check: Mapping[str, Any]) -> str | None:
-    return None if check["text"] in text else f"{check['path']} lacks {check['text']!r}"
-
-
-def _not_contains(text: str, check: Mapping[str, Any]) -> str | None:
-    if check["text"] not in text:
-        return None
-    return f"{check['path']} still contains {check['text']!r}"
-
-
-def _sha256_matches(text: str, check: Mapping[str, Any]) -> str | None:
-    if sha256_bytes(text.encode("utf-8")) == check["sha256"]:
-        return None
-    return f"{check['path']} content differs"
-
-
-_CHECKS = {
-    "file_exists": lambda text, check: None,
-    "file_contains": _contains,
-    "file_not_contains": _not_contains,
-    "file_sha256": _sha256_matches,
-}
-
-
-def _check_case(case: Any, where: str) -> str:
-    """Refuse a case the suite evaluator could not run; return its id."""
-    cv.refuse_when(
-        not isinstance(case, Mapping) or not isinstance(case.get("id"), str) or not case["id"],
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: a case must be an object with a nonempty string id",
-    )
-    check = case.get("check")
-    cv.refuse_when(
-        not isinstance(check, Mapping) or check.get("kind") not in _CHECK_FIELDS,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: case {case['id']!r} needs a check whose kind is one of {list(_CHECK_FIELDS)}",
-    )
-    fields = _CHECK_FIELDS[check["kind"]]
-    cv.refuse_when(
-        set(check) != {"kind", *fields} or any(not isinstance(check[key], str) for key in fields),
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: a {check['kind']} check carries exactly the string fields {list(fields)}",
-    )
-    return case["id"]
-
-
-def _check_suite(name: str, spec: Any, where: str) -> None:
-    """Refuse a declared suite at load so ``suite_result`` never meets an unexpected shape."""
-    cv.refuse_when(
-        not isinstance(spec, Mapping)
-        or spec.get("suite") != name
-        or not isinstance(spec.get("cases"), list)
-        or not spec["cases"],
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: a suite must declare suite == {name!r} and a nonempty cases list",
-    )
-    ids = [_check_case(case, f"{where}.cases[{index}]") for index, case in enumerate(spec["cases"])]
-    cv.refuse_when(
-        len(set(ids)) != len(ids), cv.FINDING_PACK_FIELD_INVALID, f"{where}: duplicate case ids"
-    )
 
 
 bind_import_twin(__name__)

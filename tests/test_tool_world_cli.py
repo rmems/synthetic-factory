@@ -2,8 +2,10 @@
 """The tool-world CLI in-process: exit codes, ``--json`` shapes, coded refusals on stderr.
 
 Every command runs against a private catalog of the committed
-``counter-workspace`` pack in a temporary directory; one subprocess case
-proves the ``pipelines/tool_world_cli.py`` entry point still dispatches.
+``counter-workspace`` pack in a temporary directory; one case runs the
+``pipelines/tool_world_cli.py`` entry point as ``__main__`` in a fresh
+interpreter, where nothing of the repository is importable until the script
+bootstraps ``pipelines/`` itself, to prove it still dispatches.
 """
 
 from __future__ import annotations
@@ -12,7 +14,6 @@ import contextlib
 import io
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import tool_world_import_probe as probe
 import tool_world_test_support as support
 from tool_world import cli, generate
 from tool_world import vocabulary as cv
@@ -28,7 +30,6 @@ from tool_world._contract import sha256_bytes
 PACK = "counter-workspace"
 ADD_SUB = "counter.add-sub"
 FACTORY = "tool-world-workspace-factory"
-ENTRY = support.PIPELINES / "tool_world_cli.py"
 
 
 def invoke(argv: list[str]) -> tuple[int, str, str]:
@@ -36,6 +37,12 @@ def invoke(argv: list[str]) -> tuple[int, str, str]:
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = cli.run(argv)
     return code, out.getvalue(), err.getvalue()
+
+
+def run_entry_point(argv: list[str]) -> tuple[int | None, str, str]:
+    """``(exit code, stdout, stderr)`` of the entry point run as ``__main__`` in a fresh process."""
+    done = probe.in_fresh_interpreter(probe.run_entry, argv)
+    return done["code"], done["stdout"], done["stderr"]
 
 
 def rewrite_candidates(run_dir: Path, payload: bytes) -> None:
@@ -362,31 +369,14 @@ class Usage(CliCase):
                 invoke(argv)
             self.assertEqual(caught.exception.code, 2)
 
-    def test_the_entry_point_dispatches_in_a_subprocess(self):
-        argv = [
-            sys.executable,
-            str(ENTRY),
-            "tools",
-            "--catalog",
-            self.catalog,
-            "--pack",
-            PACK,
-            "--task",
-        ]
-        done = subprocess.run(
-            argv + [ADD_SUB, "--json"],
-            capture_output=True,
-            text=True,
-            cwd=support.REPO,
-            check=False,
-        )
-        self.assertEqual((done.returncode, done.stderr), (0, ""))
-        self.assertEqual(json.loads(done.stdout)["task_id"], ADD_SUB)
-        refused = subprocess.run(
-            argv + ["counter.nope"], capture_output=True, text=True, cwd=support.REPO, check=False
-        )
-        self.assertEqual((refused.returncode, refused.stdout), (2, ""))
-        self.assertTrue(refused.stderr.startswith(f"{cv.FINDING_TASK_NOT_FOUND}: "), refused.stderr)
+    def test_the_entry_point_dispatches_in_a_fresh_interpreter(self):
+        argv = ["tools", "--catalog", self.catalog, "--pack", PACK, "--task"]
+        code, stdout, stderr = run_entry_point([*argv, ADD_SUB, "--json"])
+        self.assertEqual((code, stderr), (0, ""))
+        self.assertEqual(json.loads(stdout)["task_id"], ADD_SUB)
+        code, stdout, stderr = run_entry_point([*argv, "counter.nope"])
+        self.assertEqual((code, stdout), (2, ""))
+        self.assertTrue(stderr.startswith(f"{cv.FINDING_TASK_NOT_FOUND}: "), stderr)
 
 
 if __name__ == "__main__":

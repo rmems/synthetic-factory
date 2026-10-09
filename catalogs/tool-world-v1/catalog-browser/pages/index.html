@@ -1,11 +1,12 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head><title>Parts catalog</title></head>
 <body>
 <h1>Parts catalog</h1>
 <p>Prices are listed in EUR per unit.</p>
 <form id="search" action="/search">
-<label>Search the catalog</label>
-<input type="search" name="q" placeholder="Search parts" required>
+<label for="q">Search the catalog</label>
+<input id="q" type="search" name="q" placeholder="Search parts" required>
 <button type="submit">Run search</button>
 </form>
 <p><a href="/items">All items</a></p>

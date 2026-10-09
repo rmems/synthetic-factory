@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The delegation surface: scripted workers an orchestrator spawns, briefs, and awaits.
 
-Workers are pack members with reliability profiles. The environment authors
-every worker, so it knows the ground truth of each report: whether a "done"
-claim is backed by the effects the worker actually applied to the workspace.
-Verification before merge is therefore observable in the event log.
+Workers are pack members with reliability profiles (``delegation_workers``).
+The environment authors every worker, so it knows the ground truth of each
+report: whether a "done" claim is backed by the effects the worker actually
+applied to the workspace. Verification before merge is therefore observable
+in the event log.
 
 Everything a profile or a task fault can get wrong is refused when the
 environment is built, never mid-episode: a profile is shape-checked, a
@@ -22,40 +23,12 @@ from typing import Any
 from .. import vocabulary as cv
 from .._contract import bind_import_twin
 from .base import Surface, ToolSpec, error_text
+from .delegation_workers import FAULT_KINDS, PROFILE_DEFAULT, apply_effects, check_worker
 
 __all__ = ["DelegationSurface"]
 
-PROFILE_DEFAULT = "default"
-FAULT_LATE = "late"
-FAULT_PARTIAL = "partial"
-FAULT_WRONG_CLAIM = "wrong_claim"
-FAULT_CONFLICTING = "conflicting"
-FAULT_QUESTION = "question"
-_FAULT_KINDS = frozenset(
-    {FAULT_LATE, FAULT_PARTIAL, FAULT_WRONG_CLAIM, FAULT_CONFLICTING, FAULT_QUESTION}
-)
-_PROFILE_NAMES = frozenset({PROFILE_DEFAULT, *_FAULT_KINDS})
 _ACTION_SPAWN = "spawn"
 _ACTIONS = (_ACTION_SPAWN, "await", "send", "cancel", "list")
-_PROFILE_TEXT_KEYS = ("report", "claim", "question")
-_PROFILE_KEYS = frozenset({"awaits_needed", "effects", *_PROFILE_TEXT_KEYS})
-_EFFECT_CONTENT = "content"
-
-
-def _write_effect(files: dict[str, str], effect: Mapping[str, Any]) -> None:
-    files[effect["write"]] = effect[_EFFECT_CONTENT]
-
-
-def _append_effect(files: dict[str, str], effect: Mapping[str, Any]) -> None:
-    files[effect["append"]] = files.get(effect["append"], "") + effect[_EFFECT_CONTENT]
-
-
-def _delete_effect(files: dict[str, str], effect: Mapping[str, Any]) -> None:
-    files.pop(effect["delete"], None)
-
-
-# A worker profile's effect names exactly one of these ops with the path it touches.
-_EFFECT_OPS = {"write": _write_effect, "append": _append_effect, "delete": _delete_effect}
 _CLAIM_DONE = "done"
 # The workspace tools a claim is verified by; the workspace counts the qualifying calls.
 _TOOL_RUN_TESTS = "run_tests"
@@ -107,85 +80,6 @@ class _Agent:
         }
 
 
-# --- load-time checks of worker members ------------------------------------
-
-
-def _check_effect(where: str, effect: Any) -> None:
-    ops = [op for op in _EFFECT_OPS if op in effect] if isinstance(effect, Mapping) else []
-    cv.refuse_when(
-        len(ops) != 1 or not isinstance(effect[ops[0]], str) or not effect[ops[0]],
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: must be an object with exactly one of {list(_EFFECT_OPS)} naming a path",
-    )
-    op = ops[0]
-    cv.refuse_when(
-        (op != "delete") != isinstance(effect.get(_EFFECT_CONTENT), str),
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: write and append need a string {_EFFECT_CONTENT}; delete takes none",
-    )
-    stray = sorted(set(effect) - {op, _EFFECT_CONTENT})
-    cv.refuse_when(bool(stray), cv.FINDING_PACK_FIELD_INVALID, f"{where}: unknown keys {stray}")
-
-
-def _check_profile(where: str, name: str, profile: Any) -> None:
-    cv.refuse_first(
-        (
-            (
-                name not in _PROFILE_NAMES,
-                cv.FINDING_PACK_FIELD_INVALID,
-                (
-                    f"{where}: profile names must be {PROFILE_DEFAULT!r} or a fault kind "
-                    f"{sorted(_FAULT_KINDS)}"
-                ),
-            ),
-            (
-                not isinstance(profile, Mapping),
-                cv.FINDING_PACK_FIELD_INVALID,
-                f"{where}: must be an object",
-            ),
-        )
-    )
-    stray = sorted(set(profile) - _PROFILE_KEYS)
-    cv.refuse_when(bool(stray), cv.FINDING_PACK_FIELD_INVALID, f"{where}: unknown keys {stray}")
-    awaits = profile.get("awaits_needed", 1)
-    cv.refuse_when(
-        not cv.is_genuine_int(awaits) or awaits < 1,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: awaits_needed must be an integer >= 1",
-    )
-    for key in _PROFILE_TEXT_KEYS:
-        cv.refuse_when(
-            key in profile and not isinstance(profile[key], str),
-            cv.FINDING_PACK_FIELD_INVALID,
-            f"{where}: {key} must be a string",
-        )
-    effects = profile.get("effects", [])
-    cv.refuse_when(
-        not isinstance(effects, list),
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: effects must be a list",
-    )
-    for index, effect in enumerate(effects):
-        _check_effect(f"{where}.effects[{index}]", effect)
-
-
-def _check_worker(role: str, spec: Any) -> None:
-    where = f"worker {role}"
-    profiles = spec.get("profiles") if isinstance(spec, Mapping) else None
-    cv.refuse_when(
-        not isinstance(profiles, Mapping) or PROFILE_DEFAULT not in profiles,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where} must declare a default profile",
-    )
-    cv.refuse_when(
-        spec.get("role") != role,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: role field {spec.get('role')!r} must equal the member name {role!r}",
-    )
-    for name, profile in profiles.items():
-        _check_profile(f"{where} profile {name}", name, profile)
-
-
 # --- verification evidence read from the event log ------------------------
 
 
@@ -204,7 +98,7 @@ def _verifies(tool_call: Mapping[str, Any], scope: tuple[str, ...]) -> bool:
 
 class DelegationSurface(Surface):
     NAME = cv.SURFACE_DELEGATION
-    FAULT_KINDS = _FAULT_KINDS
+    FAULT_KINDS = FAULT_KINDS
 
     def __init__(self, pack: Any, task: Any, env: Any) -> None:
         super().__init__(pack, task, env)
@@ -219,7 +113,7 @@ class DelegationSurface(Surface):
             f"task {task.task_id}: delegation needs the workspace surface for worker effects",
         )
         for role, spec in pack.workers.items():
-            _check_worker(role, spec)
+            check_worker(role, spec)
         for spec in task.faults:
             if spec.surface == self.NAME:
                 self._check_fault(spec)
@@ -294,9 +188,12 @@ class DelegationSurface(Surface):
             return error_text(
                 f"unknown agent_id {args.get('agent_id')!r}; known: {sorted(self.agents)}"
             )
-        return {"await": self._await, "send": self._send, "cancel": self._cancel}[action](
-            agent, args
-        )
+        handlers = {
+            "await": lambda: self._await(agent),
+            "send": lambda: self._send(agent, args),
+            "cancel": lambda: self._cancel(agent),
+        }
+        return handlers[action]()
 
     # --- actions -----------------------------------------------------------
 
@@ -320,7 +217,7 @@ class DelegationSurface(Surface):
         scope = ", ".join(agent.scope) if agent.scope else "(unscoped)"
         return f"spawned {agent_id} as {role}; scope: {scope}; brief acknowledged"
 
-    def _await(self, agent: _Agent, args: Mapping[str, Any]) -> str:
+    def _await(self, agent: _Agent) -> str:
         if agent.status in ("cancelled", "done"):
             return self._settled(agent)
         question = agent.profile.get("question")
@@ -350,15 +247,11 @@ class DelegationSurface(Surface):
             self.claims.append((agent.agent_id, agent.done_at))
         if not agent.effects_applied:
             agent.effects_applied = True
-            self._apply_effects(agent.profile.get("effects") or [])
+            files = self.env.surface(cv.SURFACE_WORKSPACE).files
+            apply_effects(files, agent.profile.get("effects") or [])
 
-    def _apply_effects(self, effects: list[Mapping[str, Any]]) -> None:
-        files = self.env.surface(cv.SURFACE_WORKSPACE).files
-        for effect in effects:
-            op = next(key for key in _EFFECT_OPS if key in effect)
-            _EFFECT_OPS[op](files, effect)
-
-    def _send(self, agent: _Agent, args: Mapping[str, Any]) -> str:
+    @staticmethod
+    def _send(agent: _Agent, args: Mapping[str, Any]) -> str:
         message = args.get("message")
         if not message:
             return error_text("send needs message")
@@ -368,7 +261,8 @@ class DelegationSurface(Surface):
             return f"{agent.agent_id} acknowledged the answer and resumed"
         return f"{agent.agent_id} acknowledged: {message}"
 
-    def _cancel(self, agent: _Agent, args: Mapping[str, Any]) -> str:
+    @staticmethod
+    def _cancel(agent: _Agent) -> str:
         agent.status = "cancelled"
         return f"cancelled {agent.agent_id}"
 

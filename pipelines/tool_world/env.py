@@ -183,25 +183,12 @@ class Environment:
             f"task {self.task.task_id} allows {self.task.max_steps} steps",
         )
         cv.refuse_when(
-            not isinstance(tool_call, Mapping)
-            or not isinstance(tool_call.get("name"), str)
-            or not isinstance(tool_call.get("args"), Mapping),
+            not _is_tool_call(tool_call),
             cv.FINDING_TOOL_CALL_MALFORMED,
             "tool_call must carry a string name and an object args",
         )
         name, args = tool_call["name"], dict(tool_call["args"])
-        fault_id = None
-        spec = self._tools.get(name)
-        if spec is None:
-            text = error_text(f"unknown tool {name!r}; available: {sorted(self._tools)}")
-        else:
-            problems = _validate(spec, args)
-            if problems:
-                text = error_text(f"invalid arguments for {name}: " + "; ".join(problems))
-            else:
-                fault = self._fault_engine.check(name, args)
-                fault_id = fault.fault_id if fault is not None else None
-                text = self._execute(spec, args, fault)
+        text, fault_id = self._dispatch(name, args)
         bounded, truncated = bound_observation(text)
         full_sha256 = sha256_bytes(text.encode("utf-8"))
         self._events.append(
@@ -217,6 +204,22 @@ class Environment:
         return Observation(bounded, full_sha256, truncated, fault_id)
 
     _last_text = ""
+
+    def _dispatch(self, name: str, args: Mapping[str, Any]) -> tuple[str, str | None]:
+        """The observation text and the fault that fired on this call.
+
+        An unknown tool and invalid arguments are errors that fire nothing; a
+        valid call consults the schedule before the owning surface runs it.
+        """
+        spec = self._tools.get(name)
+        if spec is None:
+            return error_text(f"unknown tool {name!r}; available: {sorted(self._tools)}"), None
+        problems = _validate(spec, args)
+        if problems:
+            return error_text(f"invalid arguments for {name}: " + "; ".join(problems)), None
+        fault = self._fault_engine.check(name, args)
+        fault_id = fault.fault_id if fault is not None else None
+        return self._execute(spec, args, fault), fault_id
 
     def _execute(self, spec: ToolSpec, args: Mapping[str, Any], fault: Any) -> str:
         if spec.name == cv.TOOL_REPORT:
@@ -266,6 +269,15 @@ class Environment:
             "hidden": hidden,
             "success": all(public.values()) and all(hidden.values()),
         }
+
+
+def _is_tool_call(value: Any) -> bool:
+    """An object carrying a string ``name`` and an object ``args``."""
+    return (
+        isinstance(value, Mapping)
+        and isinstance(value.get("name"), str)
+        and isinstance(value.get("args"), Mapping)
+    )
 
 
 def _validate(spec: ToolSpec, args: Mapping[str, Any]) -> list[str]:

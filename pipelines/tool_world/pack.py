@@ -12,7 +12,6 @@ everything the loader can check is refused here rather than mid-run.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,9 +34,12 @@ Action = faults.Action
 action_from_row = faults.action_from_row
 
 PACK_FILENAME = "PACK.json"
+SITE_FILENAME = "site.json"
 _MEMBER_DIRS = ("files", "tests", "servers", "pages", "workers", "tasks")
-_PACK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_TASK_ID = re.compile(r"^[a-z0-9]+(?:[-.][a-z0-9]+)*$")
+_LICENSE_FIELDS = ("spdx", "source", "authorship")
+_SLUG_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
+_PACK_ID_SEPARATORS = "-"
+_TASK_ID_SEPARATORS = "-."
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,62 @@ def pack_digest(directory: Path) -> str:
                 f"{path.relative_to(directory).as_posix()}:{sha256_bytes(path.read_bytes())}"
             )
     return sha256_bytes("\n".join(rows).encode("utf-8"))
+
+
+# --- shapes the loader checks ------------------------------------------------
+
+
+def _is_nonempty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _is_slug_run(part: str) -> bool:
+    return bool(part) and set(part) <= _SLUG_CHARS
+
+
+def _is_slug(value: str, separators: str) -> bool:
+    """``[a-z0-9]+`` runs joined by single separators: none leading, trailing, or doubled.
+
+    The language of ``^[a-z0-9]+(?:[<separators>][a-z0-9]+)*$``, decided by
+    splitting on the separators rather than by a backtracking regex.
+    """
+    for separator in separators[1:]:
+        value = value.replace(separator, separators[0])
+    return all(_is_slug_run(part) for part in value.split(separators[0]))
+
+
+def _is_pack_id(value: Any, directory_name: str) -> bool:
+    return (
+        isinstance(value, str) and _is_slug(value, _PACK_ID_SEPARATORS) and value == directory_name
+    )
+
+
+def _is_surface_list(value: Any) -> bool:
+    """A nonempty list drawn from the surface vocabulary."""
+    return isinstance(value, list) and bool(value) and all(item in cv.SURFACES for item in value)
+
+
+def _is_license_evidence(value: Any) -> bool:
+    """License evidence names its SPDX id, its source, and its authorship, each nonempty."""
+    return isinstance(value, Mapping) and all(
+        _is_nonempty_str(value.get(key)) for key in _LICENSE_FIELDS
+    )
+
+
+def _is_check(value: Any) -> bool:
+    """A suite check is an object naming its kind; the workspace surface owns the kinds."""
+    return isinstance(value, Mapping) and isinstance(value.get("kind"), str)
+
+
+def _is_case(case: Any) -> bool:
+    return (
+        isinstance(case, Mapping)
+        and _is_nonempty_str(case.get("id"))
+        and _is_check(case.get("check"))
+    )
+
+
+# --- members -------------------------------------------------------------------
 
 
 def _read_text(path: Path, where: str) -> str:
@@ -146,6 +204,9 @@ def _file_members(directory: Path, where: str) -> dict[str, str]:
     return members
 
 
+# --- task rows -----------------------------------------------------------------
+
+
 def _require_str(row: Mapping[str, Any], key: str, where: str) -> str:
     value = row.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -181,15 +242,11 @@ def _predicates(
 
 def _surfaces(row: Mapping[str, Any], where: str, allowed: tuple[str, ...]) -> tuple[str, ...]:
     surfaces = row.get("surfaces")
-    if (
-        not isinstance(surfaces, list)
-        or not surfaces
-        or any(item not in cv.SURFACES for item in surfaces)
-    ):
-        cv.refuse(
-            cv.FINDING_TASK_FIELD_INVALID,
-            f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
-        )
+    cv.refuse_when(
+        not _is_surface_list(surfaces),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
+    )
     cv.refuse_when(
         any(item not in allowed for item in surfaces),
         cv.FINDING_TASK_FIELD_INVALID,
@@ -201,7 +258,7 @@ def _surfaces(row: Mapping[str, Any], where: str, allowed: tuple[str, ...]) -> t
 def _task_id(raw: Mapping[str, Any], where: str) -> str:
     task_id = _require_str(raw, "task_id", where)
     cv.refuse_when(
-        not _TASK_ID.match(task_id),
+        not _is_slug(task_id, _TASK_ID_SEPARATORS),
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: task_id {task_id!r} is malformed",
     )
@@ -292,13 +349,12 @@ def _task(raw: Any, where: str, pack_surfaces: tuple[str, ...]) -> Task:
     )
 
 
+# --- suites --------------------------------------------------------------------
+
+
 def _check_case(case: Any, where: str) -> None:
     cv.refuse_when(
-        not isinstance(case, Mapping)
-        or not isinstance(case.get("id"), str)
-        or not case["id"]
-        or not isinstance(case.get("check"), Mapping)
-        or not isinstance(case["check"].get("kind"), str),
+        not _is_case(case),
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: a case must be an object with a string id and a check carrying a kind",
     )
@@ -317,6 +373,37 @@ def _check_suites(suites: Mapping[str, Any], where: str) -> None:
             _check_case(case, f"{label}.cases[{index}]")
 
 
+# --- PACK.json -----------------------------------------------------------------
+
+
+def _pack_id(header: Mapping[str, Any], directory: Path, where: str) -> str:
+    pack_id = header.get("pack_id")
+    cv.refuse_when(
+        not _is_pack_id(pack_id, directory.name),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: pack_id must be a slug equal to the directory name",
+    )
+    return pack_id
+
+
+def _check_license(header: Mapping[str, Any], where: str) -> None:
+    cv.refuse_when(
+        not _is_license_evidence(header.get("license")),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: license must carry spdx, source, and authorship strings",
+    )
+
+
+def _declared_surfaces(header: Mapping[str, Any], where: str) -> tuple[str, ...]:
+    surfaces = header.get("surfaces")
+    cv.refuse_when(
+        not _is_surface_list(surfaces),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
+    )
+    return tuple(surfaces)
+
+
 def _header(directory: Path) -> tuple[Mapping[str, Any], str, tuple[str, ...]]:
     where = f"{directory.name}/{PACK_FILENAME}"
     header = _read_json(directory / PACK_FILENAME, where)
@@ -330,41 +417,19 @@ def _header(directory: Path) -> tuple[Mapping[str, Any], str, tuple[str, ...]]:
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: format must be {cv.PACK_FORMAT}",
     )
-    pack_id = header.get("pack_id")
-    cv.refuse_when(
-        not isinstance(pack_id, str) or not _PACK_ID.match(pack_id) or pack_id != directory.name,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: pack_id must be a slug equal to the directory name",
-    )
-    license_evidence = header.get("license")
-    cv.refuse_when(
-        not isinstance(license_evidence, Mapping)
-        or not all(
-            isinstance(license_evidence.get(key), str) and license_evidence[key]
-            for key in ("spdx", "source", "authorship")
-        ),
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: license must carry spdx, source, and authorship strings",
-    )
-    surfaces = header.get("surfaces")
-    cv.refuse_when(
-        not isinstance(surfaces, list)
-        or not surfaces
-        or any(item not in cv.SURFACES for item in surfaces),
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
-    )
-    return header, pack_id, tuple(surfaces)
+    pack_id = _pack_id(header, directory, where)
+    _check_license(header, where)
+    return header, pack_id, _declared_surfaces(header, where)
 
 
 def _site(directory: Path, pack_id: str) -> tuple[Mapping[str, Any] | None, dict[str, str]]:
     pages = _file_members(directory / "pages", f"{pack_id}/pages")
-    if "site.json" not in pages:
+    if SITE_FILENAME not in pages:
         return None, pages
-    where = f"{pack_id}/pages/site.json"
-    site = _read_json(directory / "pages" / "site.json", where)
+    where = f"{pack_id}/pages/{SITE_FILENAME}"
+    site = _read_json(directory / "pages" / SITE_FILENAME, where)
     _refuse_hidden_keys(site, where, cv.FINDING_PACK_MEMBER_INVALID)
-    return site, {name: text for name, text in pages.items() if name != "site.json"}
+    return site, {name: text for name, text in pages.items() if name != SITE_FILENAME}
 
 
 def _tasks(directory: Path, pack_id: str, surfaces: tuple[str, ...]) -> tuple[Task, ...]:

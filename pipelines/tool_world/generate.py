@@ -63,8 +63,8 @@ class Draw:
         return rng.seed_from_label(run_seed, label)
 
 
-def _check_request(request: RunRequest) -> RunRequest:
-    """The request with ``produced_at`` resolved, or a refusal naming the first bad field."""
+def _check_request(request: RunRequest) -> str:
+    """The resolved ``produced_at`` of a valid request, or a refusal naming the first bad field."""
     cv.check_seed(request.seed)
     cv.refuse_first(
         (
@@ -102,7 +102,7 @@ def _check_request(request: RunRequest) -> RunRequest:
         cv.FINDING_PRODUCED_AT_NOT_A_TIMESTAMP,
         f"produced_at must be ISO-8601 UTC, got {cv.shown(produced_at)}",
     )
-    return replace(request, produced_at=produced_at)
+    return produced_at
 
 
 def generate_record(draw: Draw, run_seed: int, run: records.RunContext) -> dict[str, Any]:
@@ -209,7 +209,7 @@ def _summary(header: Mapping[str, Any], rows: list[dict[str, Any]], payload: str
 
 def run(request: RunRequest) -> dict[str, Any]:
     """Draw ``count`` tasks and write their records into ``out_dir``."""
-    request = _check_request(request)
+    request = replace(request, produced_at=_check_request(request))
     catalog = cat.load_catalog(request.catalog_dir)
     tasks = list(catalog.tasks(request.factory))
     cv.refuse_when(

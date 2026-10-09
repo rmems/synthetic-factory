@@ -5,19 +5,31 @@ Every module of ``pipelines/tool_world/`` (the surfaces and policies
 subpackages included) must resolve to one object whether it is imported as
 ``tool_world.x`` with ``pipelines/`` on ``sys.path`` or as
 ``pipelines.tool_world.x`` from the repository root, whichever form loads
-first. ``run_form`` is executed in a spawned interpreter by
-``test_tool_world_imports``.
+first. Each form names every module in literal import statements, so no
+import takes a computed name; ``MODULES`` is the list those statements must
+match. ``run_form`` and ``run_entry`` are executed in a spawned interpreter
+(``in_fresh_interpreter``) by ``test_tool_world_imports`` and
+``test_tool_world_cli``: each first forgets every repository module and path
+entry the parent handed down, so what the operator entry point bootstraps on
+its own is what the probe sees.
 """
 
 from __future__ import annotations
 
-import importlib
+import contextlib
+import io
+import multiprocessing
+import runpy
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
+ENTRY = PIPELINES / "tool_world_cli.py"
 PACKAGE = "tool_world"
 MODULES = (
     "_contract",
@@ -35,10 +47,17 @@ MODULES = (
     "surfaces",
     "surfaces.base",
     "surfaces.workspace",
+    "surfaces.workspace_suites",
     "surfaces.mcp",
+    "surfaces.mcp_servers",
     "surfaces.browser",
     "surfaces.browser_dom",
+    "surfaces.browser_dom_a11y",
+    "surfaces.browser_dom_tree",
+    "surfaces.browser_effects",
+    "surfaces.browser_site",
     "surfaces.delegation",
+    "surfaces.delegation_workers",
     "policies",
     "policies.scripted",
 )
@@ -48,6 +67,13 @@ def spellings(name: str) -> tuple[str, str]:
     """``(flat, packaged)`` import names of one module; ``""`` names the package itself."""
     suffix = f".{name}" if name else ""
     return f"{PACKAGE}{suffix}", f"pipelines.{PACKAGE}{suffix}"
+
+
+def in_fresh_interpreter(target, *args: Any) -> Any:
+    """Run ``target(*args)`` in a spawned interpreter and return its result."""
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
+        return pool.submit(target, *args).result(timeout=120)
 
 
 def _forget_repository_modules() -> None:
@@ -60,20 +86,196 @@ def _forget_repository_modules() -> None:
     ]
 
 
-def _import_all(root: str) -> Any:
-    for name in MODULES:
-        importlib.import_module(f"{root}.{name}")
-    return importlib.import_module(f"{root}.cli")
+def _put_first(directory: Path) -> None:
+    """Put ``directory`` at the front of ``sys.path`` unless it is already listed."""
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
 
 
-def _cli_form() -> Any:
-    sys.path.insert(0, str(PIPELINES))
-    return _import_all(PACKAGE)
+def _relative(module: ModuleType) -> str:
+    """The module's name below the package: ``""`` for the package, ``surfaces.mcp`` for a child."""
+    _above, _package, below = module.__name__.partition(PACKAGE)
+    return below.removeprefix(".")
 
 
-def _package_form() -> Any:
-    sys.path.insert(0, str(REPO))
-    return _import_all(f"pipelines.{PACKAGE}")
+def _index(*modules: ModuleType) -> dict[str, ModuleType]:
+    return {_relative(module): module for module in modules}
+
+
+def _flat_top() -> tuple[ModuleType, ...]:
+    import tool_world
+    from tool_world import (
+        _contract,
+        catalog,
+        cli,
+        env,
+        faults,
+        generate,
+        pack,
+        policies,
+        predicates,
+        records,
+        replay,
+        schema_lite,
+        surfaces,
+        vocabulary,
+    )
+
+    return (
+        tool_world,
+        _contract,
+        catalog,
+        cli,
+        env,
+        faults,
+        generate,
+        pack,
+        policies,
+        predicates,
+        records,
+        replay,
+        schema_lite,
+        surfaces,
+        vocabulary,
+    )
+
+
+def _flat_surfaces() -> tuple[ModuleType, ...]:
+    from tool_world.surfaces import (
+        base,
+        browser,
+        browser_dom,
+        browser_dom_a11y,
+        browser_dom_tree,
+        browser_effects,
+        browser_site,
+        delegation,
+        delegation_workers,
+        mcp,
+        mcp_servers,
+        workspace,
+        workspace_suites,
+    )
+
+    return (
+        base,
+        browser,
+        browser_dom,
+        browser_dom_a11y,
+        browser_dom_tree,
+        browser_effects,
+        browser_site,
+        delegation,
+        delegation_workers,
+        mcp,
+        mcp_servers,
+        workspace,
+        workspace_suites,
+    )
+
+
+def _flat_policies() -> tuple[ModuleType, ...]:
+    from tool_world.policies import scripted
+
+    return (scripted,)
+
+
+def import_flat() -> dict[str, ModuleType]:
+    """Import every module as ``tool_world.x`` with ``pipelines/`` first on ``sys.path``."""
+    _put_first(PIPELINES)
+    return _index(*_flat_top(), *_flat_surfaces(), *_flat_policies())
+
+
+def _packaged_top() -> tuple[ModuleType, ...]:
+    from pipelines import tool_world
+    from pipelines.tool_world import (
+        _contract,
+        catalog,
+        cli,
+        env,
+        faults,
+        generate,
+        pack,
+        policies,
+        predicates,
+        records,
+        replay,
+        schema_lite,
+        surfaces,
+        vocabulary,
+    )
+
+    return (
+        tool_world,
+        _contract,
+        catalog,
+        cli,
+        env,
+        faults,
+        generate,
+        pack,
+        policies,
+        predicates,
+        records,
+        replay,
+        schema_lite,
+        surfaces,
+        vocabulary,
+    )
+
+
+def _packaged_surfaces() -> tuple[ModuleType, ...]:
+    from pipelines.tool_world.surfaces import (
+        base,
+        browser,
+        browser_dom,
+        browser_dom_a11y,
+        browser_dom_tree,
+        browser_effects,
+        browser_site,
+        delegation,
+        delegation_workers,
+        mcp,
+        mcp_servers,
+        workspace,
+        workspace_suites,
+    )
+
+    return (
+        base,
+        browser,
+        browser_dom,
+        browser_dom_a11y,
+        browser_dom_tree,
+        browser_effects,
+        browser_site,
+        delegation,
+        delegation_workers,
+        mcp,
+        mcp_servers,
+        workspace,
+        workspace_suites,
+    )
+
+
+def _packaged_policies() -> tuple[ModuleType, ...]:
+    from pipelines.tool_world.policies import scripted
+
+    return (scripted,)
+
+
+def import_packaged() -> dict[str, ModuleType]:
+    """Import every module as ``pipelines.tool_world.x`` with the repository root first."""
+    _put_first(REPO)
+    return _index(*_packaged_top(), *_packaged_surfaces(), *_packaged_policies())
+
+
+LOADERS = {"cli": import_flat, "package": import_packaged}
+
+
+def drift(loaded: dict[str, ModuleType]) -> list[str]:
+    """Names on only one side of ``MODULES`` and what a form imported (the package aside)."""
+    return sorted(set(MODULES) ^ (set(loaded) - {""}))
 
 
 def _split() -> list[str]:
@@ -85,17 +287,41 @@ def _split() -> list[str]:
     return split
 
 
-def run_form(form: str) -> dict[str, Any]:
-    _forget_repository_modules()
-    if form == "cli":
-        return {"family": _cli_form().cv.FAMILY}
-    if form == "package":
-        return {"family": _package_form().cv.FAMILY}
-    first, _then, second = form.partition("_then_")
-    loaders = {"cli": _cli_form, "package": _package_form}
-    one, two = loaders[first](), loaders[second]()
+def _paired_report(one: dict[str, ModuleType], two: dict[str, ModuleType]) -> dict[str, Any]:
     return {
-        "one_object": one is two,
-        "one_refusal_class": one.cv.ToolWorldRefusal is two.cv.ToolWorldRefusal,
+        "one_object": all(one.get(name) is two.get(name) for name in {*one, *two}),
+        "one_refusal_class": one["cli"].cv.ToolWorldRefusal is two["cli"].cv.ToolWorldRefusal,
         "split_modules": _split(),
     }
+
+
+def run_form(form: str) -> dict[str, Any]:
+    """Load ``form`` ("cli", "package", or "<first>_then_<second>") and report what it bound."""
+    _forget_repository_modules()
+    if form in LOADERS:
+        loaded = LOADERS[form]()
+        return {"family": loaded["cli"].cv.FAMILY, "drift": drift(loaded)}
+    first, _then, second = form.partition("_then_")
+    return _paired_report(LOADERS[first](), LOADERS[second]())
+
+
+def run_entry(argv: list[str]) -> dict[str, Any]:
+    """Run ``pipelines/tool_world_cli.py`` as ``__main__`` with ``argv`` and capture its exit.
+
+    Nothing of the repository is importable beforehand, so the script's own
+    ``sys.path`` bootstrap is what resolves ``tool_world``; the exit code is
+    ``None`` when the script returns without calling ``sys.exit``.
+    """
+    _forget_repository_modules()
+    out, err = io.StringIO(), io.StringIO()
+    code = None
+    with (
+        mock.patch.object(sys, "argv", [str(ENTRY), *argv]),
+        contextlib.redirect_stdout(out),
+        contextlib.redirect_stderr(err),
+    ):
+        try:
+            runpy.run_path(str(ENTRY), run_name="__main__")
+        except SystemExit as stop:
+            code = stop.code
+    return {"code": code, "stdout": out.getvalue(), "stderr": err.getvalue()}

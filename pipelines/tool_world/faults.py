@@ -239,6 +239,11 @@ def _selector_matches(selector: Mapping[str, Any], args: Mapping[str, Any]) -> b
     return all(_lookup(args, key) == value for key, value in selector.items())
 
 
+def _targets(spec: FaultSpec, tool: str, args: Mapping[str, Any]) -> bool:
+    """The fault attaches to this call: its tool by name and its selector by argument."""
+    return spec.tool == tool and _selector_matches(spec.selector, args)
+
+
 class FaultEngine:
     """Count matching calls and hand back the fault that fires on this one, if any."""
 
@@ -258,14 +263,18 @@ class FaultEngine:
     def armed_ids(self) -> tuple[str, ...]:
         return tuple(entry.fault_id for entry in self._scheduled if entry.armed)
 
+    def _reached(self, entry: ScheduledFault) -> bool:
+        """An armed fault fires on the call that brings its counter to its occurrence."""
+        return entry.armed and self._counts[entry.fault_id] == entry.occurrence
+
     def check(self, tool: str, args: Mapping[str, Any]) -> ScheduledFault | None:
         """Advance every matching counter; return the first armed fault reaching its occurrence."""
         firing = None
         for entry in self._scheduled:
-            if entry.spec.tool != tool or not _selector_matches(entry.spec.selector, args):
+            if not _targets(entry.spec, tool, args):
                 continue
             self._counts[entry.fault_id] += 1
-            if firing is None and entry.armed and self._counts[entry.fault_id] == entry.occurrence:
+            if firing is None and self._reached(entry):
                 firing = entry
         if firing is not None:
             self._fired.append(firing.fault_id)

@@ -126,11 +126,18 @@ pipelines/tool_world/
                        minimum/maximum, items); the only arg validator
   predicates.py        closed vocabulary of goal predicates (hidden + public)
   surfaces/base.py        ToolSpec and the surface protocol
-  surfaces/workspace.py   files, search, anchored edits, declared test suites
+  surfaces/workspace.py   files, search, anchored edits, run_tests over declared suites
+  surfaces/workspace_suites.py   declared-suite shape checks and evaluation
   surfaces/mcp.py         simulated JSON-RPC 2.0 servers (section 6.2)
+  surfaces/mcp_servers.py        server member shape checks, session state and tool behaviors
   surfaces/browser_dom.py html.parser DOM and the accessibility snapshot
+  surfaces/browser_dom_tree.py   Node tree, html.parser builder, structural queries
+  surfaces/browser_dom_a11y.py   roles, accessible names, refs, snapshot, find
   surfaces/browser.py     static-site browser over that DOM (6.3)
+  surfaces/browser_site.py       site.json shape checks, page lookup, redirects, drift
+  surfaces/browser_effects.py    click effects by role and declared data-effect
   surfaces/delegation.py  scripted worker registry and mailbox (6.4)
+  surfaces/delegation_workers.py worker profile checks and effects
   policies/scripted.py    gold + perturbed scripted solvers
   policies/model.py       (M6) model-channel solver loop (structured JSON actions)
   records.py           record assembly with the episode training view (section 8)
@@ -142,7 +149,7 @@ pipelines/tool_world_cli.py   thin entry point, like code_repair_cli.py
 schemas/tool-world-source-policy-v1.json
 catalogs/tool-world-v1/<pack>/PACK.json + files/ + tools/ + tasks/ + pages/ + workers/
 tests/fixtures/tool-world-run/{candidates.jsonl,RUN.json,NOTES.md}   byte-reproduced by the test
-tests/test_tool_world_*.py                                 one module per package module
+tests/test_tool_world_*.py                                 one module per concern
 ```
 
 Size guidance, following `docs/mill-support-p4-design.md` and CodeScene:

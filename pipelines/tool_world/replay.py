@@ -242,21 +242,38 @@ def _expected(
     }
 
 
-def _diff(expected: Any, actual: Mapping[str, Any], path: str) -> list[str]:
-    """Leaf-wise disagreements between a derived block and the record, by dotted path."""
-    if path in _PINNED_MESSAGES or not isinstance(expected, Mapping):
-        if expected == actual:
-            return []
-        return [_PINNED_MESSAGES.get(path, f"{path} differs from the replayed value")]
+def _compared_whole(expected: Any, path: str) -> bool:
+    """A pinned path is compared as one value, as is anything that is not an object."""
+    return path in _PINNED_MESSAGES or not isinstance(expected, Mapping)
+
+
+def _leaf_mismatch(expected: Any, actual: Any, path: str) -> list[str]:
+    if expected == actual:
+        return []
+    return [_PINNED_MESSAGES.get(path, f"{path} differs from the replayed value")]
+
+
+def _child_path(path: str, key: str) -> str:
+    return f"{path}.{key}" if path else key
+
+
+def _mapping_mismatches(expected: Mapping[str, Any], actual: Any, path: str) -> list[str]:
     cv.refuse_when(
         not isinstance(actual, Mapping), cv.FINDING_RECORD_MALFORMED, f"{path} must be an object"
     )
     mismatches = []
     for key, value in expected.items():
-        child = f"{path}.{key}" if path else key
+        child = _child_path(path, key)
         cv.refuse_when(key not in actual, cv.FINDING_RECORD_MALFORMED, f"record lacks {child}")
         mismatches.extend(_diff(value, actual[key], child))
     return mismatches
+
+
+def _diff(expected: Any, actual: Any, path: str) -> list[str]:
+    """Leaf-wise disagreements between a derived block and the record, by dotted path."""
+    if _compared_whole(expected, path):
+        return _leaf_mismatch(expected, actual, path)
+    return _mapping_mismatches(expected, actual, path)
 
 
 def _scripted_mismatches(record: Mapping[str, Any], env: Any, facts: _SolverFacts) -> list[str]:
