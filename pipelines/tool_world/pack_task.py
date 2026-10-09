@@ -23,6 +23,9 @@ __all__ = ["Task", "is_slug", "parse_task", "surface_list"]
 
 _SLUG_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _TASK_ID_SEPARATORS = "-."
+# Named here so the ``faults`` field below does not shadow the module inside the class body.
+Action = faults.Action
+FaultSpec = faults.FaultSpec
 
 
 @dataclass(frozen=True)
@@ -36,8 +39,8 @@ class Task:
     max_steps: int
     public_predicates: tuple[tuple[str, Mapping[str, Any]], ...]
     hidden_predicates: tuple[tuple[str, Mapping[str, Any]], ...]
-    gold: tuple[faults.Action, ...]
-    faults: tuple[faults.FaultSpec, ...]
+    gold: tuple[Action, ...]
+    faults: tuple[FaultSpec, ...]
     perturbations: tuple[str, ...]
     spec_sha256: str
 
@@ -57,7 +60,7 @@ def is_slug(value: str, separators: str) -> bool:
     return all(_is_slug_run(part) for part in value.split(separators[0]))
 
 
-def _issurface_list(value: Any) -> TypeGuard[list[str]]:
+def _is_surface_list(value: Any) -> TypeGuard[list[str]]:
     """A nonempty list drawn from the surface vocabulary."""
     return isinstance(value, list) and bool(value) and all(item in cv.SURFACES for item in value)
 
@@ -99,7 +102,7 @@ def _predicates(
 
 def surface_list(value: Any, code: str, where: str) -> list[str]:
     """``value`` as a nonempty list of known surfaces, or a refusal under ``code``."""
-    if _issurface_list(value):
+    if _is_surface_list(value):
         return value
     raise cv.ToolWorldRefusal(
         code, f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}"
@@ -149,7 +152,7 @@ def _max_steps(raw: Mapping[str, Any], where: str) -> int:
     )
 
 
-def _gold(raw: Mapping[str, Any], where: str) -> tuple[faults.Action, ...]:
+def _gold(raw: Mapping[str, Any], where: str) -> tuple[Action, ...]:
     rows = raw.get("gold")
     if not isinstance(rows, list) or not rows:
         raise cv.ToolWorldRefusal(
@@ -160,7 +163,7 @@ def _gold(raw: Mapping[str, Any], where: str) -> tuple[faults.Action, ...]:
     )
 
 
-def _faults(raw: Mapping[str, Any], where: str) -> tuple[faults.FaultSpec, ...]:
+def _faults(raw: Mapping[str, Any], where: str) -> tuple[FaultSpec, ...]:
     rows = raw.get("faults", [])
     cv.refuse_when(
         not isinstance(rows, list), cv.FINDING_TASK_FIELD_INVALID, f"{where}: faults must be a list"
