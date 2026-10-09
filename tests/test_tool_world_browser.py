@@ -218,6 +218,11 @@ class BrowserSurfaceTests(unittest.TestCase):
             surface.submit_form(form).splitlines()[0],
             f"url: {ORIGIN}/login?user=ann&remember=yes&scope=all&note=",
         )
+        remember.attrs["value"] = ""
+        self.assertEqual(
+            surface.submit_form(form).splitlines()[0],
+            f"url: {ORIGIN}/login?user=ann&remember=&scope=all&note=",
+        )
 
     def test_extract_logs_the_element_text(self):
         env = quiet_env(PRICE)

@@ -43,14 +43,19 @@ class _RepetitionScan:
     def __init__(self, skeleton: str) -> None:
         self.skeleton = skeleton
         self.groups: list[bool] = []  # per open group: whether it holds a quantifier or alternation
-        self.nested = False
 
     def run(self) -> bool:
         """Whether a quantified group holds a quantifier or alternation."""
-        for index, char in enumerate(self.skeleton):
-            _HANDLERS.get(char, _RepetitionScan.atom)(self, index)
-            if self.nested:
-                return True
+        return any(self.step(index, char) for index, char in enumerate(self.skeleton))
+
+    def step(self, index: int, char: str) -> bool:
+        """Read one skeleton character; True when it closes a quantified group holding repetition."""
+        if char == "(":
+            self.groups.append(False)
+            return False
+        if char == ")":
+            return self.close_group(index)
+        self.mark(char == "|" or self.quantifier_at(index))
         return False
 
     def quantifier_at(self, index: int) -> bool:
@@ -61,27 +66,12 @@ class _RepetitionScan:
         if holds and self.groups:
             self.groups[-1] = True
 
-    def open_group(self, index: int) -> None:
-        self.groups.append(False)
-
-    def close_group(self, index: int) -> None:
+    def close_group(self, index: int) -> bool:
+        """Pop the group closing at ``index``; True when it is quantified and holds repetition."""
         inner = self.groups.pop() if self.groups else False
         quantified = self.quantifier_at(index + 1)
-        self.nested = inner and quantified
         self.mark(inner or quantified)
-
-    def alternation(self, index: int) -> None:
-        self.mark(True)
-
-    def atom(self, index: int) -> None:
-        self.mark(self.quantifier_at(index))
-
-
-_HANDLERS = {
-    "(": _RepetitionScan.open_group,
-    ")": _RepetitionScan.close_group,
-    "|": _RepetitionScan.alternation,
-}
+        return inner and quantified
 
 
 def nests_repetition(pattern: str) -> bool:

@@ -149,7 +149,8 @@ def _notes(summary: dict[str, Any], rows: list[dict[str, Any]]) -> str:
             f"success={row['success']} decision={row['decision']} "
             f"faults_fired={row['faults_fired']}"
         )
-    return "\n".join(lines) + "\n"
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _row(record: dict[str, Any], task: Any, variant: str) -> dict[str, Any]:

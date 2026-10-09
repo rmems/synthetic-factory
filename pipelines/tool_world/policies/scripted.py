@@ -167,37 +167,66 @@ def _recovery(fault: Any, action: pk.Action) -> list[tuple[str, pk.Action]]:
     return steps
 
 
+class _Episode:
+    """One scripted run in progress: the plan queue, captures, steps, and how it ended."""
+
+    def __init__(self, env: Any, variant: str) -> None:
+        self.env = env
+        self.task = env.task
+        self.variant = variant
+        self.queue = _plan(env.task, variant)
+        self.captures: dict[str, str] = {}
+        self.steps: list[Step] = []
+        self.recovered = 0
+        self.gave_up = False
+
+    def record(self, basis: str, call: Any, observation: Any) -> None:
+        self.steps.append(
+            Step(len(self.steps) + 1, basis, call, observation.text, observation.fault_id)
+        )
+
+    def advance(self) -> bool:
+        """Take the next planned step; False once the policy has given up."""
+        prefix, action = self.queue.pop(0)
+        call = substitute(action.tool_call, self.captures)
+        observation = self.env.step(call)
+        self.record(decision_basis(prefix, action.intent), call, observation)
+        fault = _fault_for(observation.text, self.task)
+        if fault is None:
+            _capture(action, observation.text, self.captures)
+        elif self.variant == cv.PERTURBATION_GIVE_UP:
+            self.give_up(fault)
+        else:
+            self.recovered += 1
+            self.queue[:0] = _recovery(fault, action)
+        return not self.gave_up
+
+    def give_up(self, fault: Any) -> None:
+        """Stop at the first fault, reporting the give-up text unless the budget ended the run."""
+        self.gave_up = True
+        if self.env.done:
+            return
+        report = {"name": cv.TOOL_REPORT, "args": {"value": _GIVE_UP_TEXT}}
+        basis = decision_basis(
+            cv.DB_OBSERVATION, f"the tool call failed with {fault.marker!r}; stop here"
+        )
+        self.record(basis, report, self.env.step(report))
+
+    def pending(self) -> bool:
+        """Whether a planned step is still due: the queue is not empty and the budget holds."""
+        return bool(self.queue) and not self.env.done
+
+    def trajectory(self) -> Trajectory:
+        return Trajectory(self.variant, tuple(self.steps), self.gave_up, self.recovered)
+
+
 def run(env: Any, variant: str = cv.VARIANT_GOLD) -> Trajectory:
     """Drive ``env`` with the task's plan until it ends, gives up, or exhausts its budget."""
-    task = env.task
-    queue = _plan(task, variant)
-    captures: dict[str, str] = {}
-    steps: list[Step] = []
-    recovered = 0
-    gave_up = False
-    while queue and not env.done:
-        prefix, action = queue.pop(0)
-        call = substitute(action.tool_call, captures)
-        basis = decision_basis(prefix, action.intent)
-        observation = env.step(call)
-        steps.append(Step(len(steps) + 1, basis, call, observation.text, observation.fault_id))
-        fault = _fault_for(observation.text, task)
-        if fault is None:
-            _capture(action, observation.text, captures)
-            continue
-        if variant == cv.PERTURBATION_GIVE_UP:
-            gave_up = True
-            if not env.done:
-                report = {"name": cv.TOOL_REPORT, "args": {"value": _GIVE_UP_TEXT}}
-                final = env.step(report)
-                basis = decision_basis(
-                    cv.DB_OBSERVATION, f"the tool call failed with {fault.marker!r}; stop here"
-                )
-                steps.append(Step(len(steps) + 1, basis, report, final.text, final.fault_id))
-            break
-        recovered += 1
-        queue = _recovery(fault, action) + queue
-    return Trajectory(variant, tuple(steps), gave_up, recovered)
+    episode = _Episode(env, variant)
+    going = True
+    while going and episode.pending():
+        going = episode.advance()
+    return episode.trajectory()
 
 
 bind_import_twin(__name__)

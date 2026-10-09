@@ -61,11 +61,11 @@ def _key_of(behavior: Mapping[str, Any], arguments: Mapping[str, Any]) -> str:
     return str(arguments.get(behavior.get("key_arg", "key")))
 
 
-def _echo(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _echo(_server: Server, _behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
     return canonical_text(arguments), False
 
 
-def _lookup(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _lookup(_server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
     key, table = _key_of(behavior, arguments), behavior.get("table", {})
     if key in table:
         return table[key], False
@@ -85,11 +85,11 @@ def _get(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, An
     return f"nothing stored under {key!r}", True
 
 
-def _list_items(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _list_items(_server: Server, behavior: Mapping[str, Any], _arguments: Mapping[str, Any]):
     return "\n".join(behavior.get("items", [])), False
 
 
-def _fail(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _fail(_server: Server, behavior: Mapping[str, Any], _arguments: Mapping[str, Any]):
     return behavior.get("message", "tool failed"), True
 
 

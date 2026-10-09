@@ -265,7 +265,7 @@ def _targets(spec: FaultSpec, tool: str, args: Mapping[str, Any]) -> bool:
     return spec.tool == tool and _selector_matches(spec.selector, args)
 
 
-def always_shows(spec: FaultSpec) -> bool:
+def always_shows(_spec: FaultSpec) -> bool:
     """The default word on whether a call could show a fault's symptom: it could."""
     return True
 

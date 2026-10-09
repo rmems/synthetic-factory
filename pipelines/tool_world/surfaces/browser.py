@@ -168,7 +168,7 @@ class BrowserSurface(Surface):
 
     # --- actions -------------------------------------------------------------
 
-    def _snapshot(self, args: Mapping[str, Any]) -> str:
+    def _snapshot(self, _args: Mapping[str, Any]) -> str:
         return self.page_text()
 
     def _find(self, args: Mapping[str, Any]) -> str:
@@ -246,15 +246,18 @@ class BrowserSurface(Surface):
     def _value_of(self, field: dom.Node) -> str:
         """What the field submits: the typed text, else the value its author gave it.
 
-        A checkbox submits its declared value, or ``on`` when it declares none,
-        and only while it is checked (``_submits``), as a browser would.
+        A checkbox submits its declared value, even an empty one, or ``on``
+        when it declares none, and only while it is checked (``_submits``).
         """
         if _is_checkbox(field):
-            return field.attrs.get("value") or "on"
+            return field.attrs.get("value", "on")
         return self.fields.get(field.attrs["name"], field.attrs.get("value", ""))
 
     def _lacks_required(self, field: dom.Node) -> bool:
-        return "required" in field.attrs and not (_submits(field) and self._value_of(field))
+        """A required checkbox must be checked; any other required field must carry a value."""
+        if "required" not in field.attrs:
+            return False
+        return not _submits(field) if _is_checkbox(field) else not self._value_of(field)
 
     def _extract(self, args: Mapping[str, Any]) -> str:
         node, problem = self._node(args)
@@ -264,7 +267,7 @@ class BrowserSurface(Surface):
         self.extracted.append(text)
         return f"extracted: {text}"
 
-    def _back(self, args: Mapping[str, Any]) -> str:
+    def _back(self, _args: Mapping[str, Any]) -> str:
         if not self.history:
             return error_text("no earlier page in history")
         path, html = self.site.resolve(self.site.path_of(self.history.pop()) or "/", missing=False)

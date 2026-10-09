@@ -37,7 +37,7 @@ def _follow_link(surface: Host, node: dom.Node) -> str:
     return surface.follow(node.attrs["href"])
 
 
-def _toggle_checkbox(surface: Host, node: dom.Node) -> str:
+def _toggle_checkbox(_surface: Host, node: dom.Node) -> str:
     if "checked" in node.attrs:
         del node.attrs["checked"]
     else:
@@ -57,11 +57,11 @@ def _press(surface: Host, node: dom.Node) -> str:
     return handler(surface, node, target)
 
 
-def _navigate(surface: Host, node: dom.Node, target: str) -> str:
+def _navigate(surface: Host, _node: dom.Node, target: str) -> str:
     return surface.follow(target)
 
 
-def _dismiss(surface: Host, node: dom.Node, target: str) -> str:
+def _dismiss(surface: Host, _node: dom.Node, target: str) -> str:
     dialog = surface.root.find_id(target)
     if dialog is not None:
         dialog.remove()
@@ -79,7 +79,7 @@ def _toggle(surface: Host, node: dom.Node, target: str) -> str:
     return f"toggled {target}: {element.attrs['data-state']}"
 
 
-def _next(surface: Host, node: dom.Node, target: str) -> str:
+def _next(surface: Host, _node: dom.Node, _target: str) -> str:
     link = dom.next_link(surface.root)
     if link is None:
         return error_text("no next page")
