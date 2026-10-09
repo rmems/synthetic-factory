@@ -1,7 +1,7 @@
 {
   "accepted": 12,
   "candidate_only": true,
-  "candidates_sha256": "62a77a90f431d7265ccdad2229318804c07de00f1fdb05f4d57ef003e9d29d65",
+  "candidates_sha256": "1dd798e67ab75a01e17dc0ebf7799f66b3ebe0d34448d4637edbb196ba8d8d88",
   "catalog_id": "tool-world-v1",
   "catalog_sha256": "b7c793de2f6837cae392d5284766d89c898a694ce0998f4c19f2c7982319b54c",
   "count": 12,
@@ -358,8 +358,48 @@
     {
       "decision": "accept",
       "factory": "tool-world-mcp-factory",
+      "faults_fired": 2,
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-6648296872506062294-00035",
+      "steps": 17,
+      "success": true,
+      "task_id": "tickets.block-on-sync",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
       "faults_fired": 1,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-10162401356082353516-00035",
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-3240783439568938475-00036",
+      "steps": 8,
+      "success": false,
+      "task_id": "tickets.block-on-sync",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-8726468978256585105-00037",
+      "steps": 14,
+      "success": false,
+      "task_id": "tickets.block-on-sync",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-17578197336211316042-00038",
+      "steps": 15,
+      "success": true,
+      "task_id": "tickets.block-on-sync",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-10162388161942814984-00039",
       "steps": 9,
       "success": true,
       "task_id": "calendar.book-followup",
@@ -369,7 +409,7 @@
       "decision": "measure",
       "factory": "tool-world-mcp-factory",
       "faults_fired": 1,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-15512051792476288661-00036",
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-15507266717873865280-00040",
       "steps": 6,
       "success": false,
       "task_id": "calendar.book-followup",
@@ -379,7 +419,7 @@
       "decision": "measure",
       "factory": "tool-world-mcp-factory",
       "faults_fired": 1,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-2923174450525859443-00037",
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-2924161811967144206-00041",
       "steps": 8,
       "success": false,
       "task_id": "calendar.book-followup",
@@ -388,51 +428,11 @@
     {
       "decision": "measure",
       "factory": "tool-world-mcp-factory",
-      "faults_fired": 1,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-9099066265432383212-00038",
-      "steps": 10,
-      "success": true,
-      "task_id": "calendar.book-followup",
-      "variant": "wrong_arg_type"
-    },
-    {
-      "decision": "accept",
-      "factory": "tool-world-mcp-factory",
       "faults_fired": 2,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-6648283678366523506-00039",
+      "id": "twd-29787a1d91a4856f-a342bbdd95948653-9096255913713336405-00042",
       "steps": 15,
       "success": true,
-      "task_id": "tickets.block-on-sync",
-      "variant": "gold"
-    },
-    {
-      "decision": "measure",
-      "factory": "tool-world-mcp-factory",
-      "faults_fired": 0,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-3247543237054041782-00040",
-      "steps": 13,
-      "success": true,
-      "task_id": "tickets.block-on-sync",
-      "variant": "give_up_on_fault"
-    },
-    {
-      "decision": "measure",
-      "factory": "tool-world-mcp-factory",
-      "faults_fired": 1,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-8723678417738330444-00041",
-      "steps": 14,
-      "success": false,
-      "task_id": "tickets.block-on-sync",
-      "variant": "skip_verification"
-    },
-    {
-      "decision": "measure",
-      "factory": "tool-world-mcp-factory",
-      "faults_fired": 2,
-      "id": "twd-29787a1d91a4856f-a342bbdd95948653-17579041761140933411-00042",
-      "steps": 18,
-      "success": true,
-      "task_id": "tickets.block-on-sync",
+      "task_id": "calendar.book-followup",
       "variant": "wrong_arg_type"
     }
   ],

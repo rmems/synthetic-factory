@@ -361,10 +361,11 @@ def replay_run(run_dir: Path, catalog: Any, record_id: str | None = None) -> dic
 
     The run must have been generated from the loaded catalog: a RUN.json pinned to
     another catalog digest is refused before any record is replayed, and so is one
-    whose rows name records its own header does not draw from that catalog.
+    whose rows or candidates are not what its own header draws from that catalog.
     """
     run_dir = Path(run_dir)
-    selected = _selected(load_records(run_dir), record_id)
+    loaded = load_records(run_dir)
+    selected = _selected(loaded, record_id)
     summary = run_summary(run_dir)
     pinned = summary.get("catalog_sha256")
     cv.refuse_when(
@@ -372,7 +373,7 @@ def replay_run(run_dir: Path, catalog: Any, record_id: str | None = None) -> dic
         cv.FINDING_RUN_SHA_MISMATCH,
         f"{RUN_FILENAME} was generated from catalog {pinned}, loaded {catalog.catalog_sha256}",
     )
-    check_drawn(summary, catalog)
+    check_drawn(summary, loaded, catalog)
     results = [replay_record(record, catalog).row() for record in selected]
     return {
         "run_dir": str(run_dir),

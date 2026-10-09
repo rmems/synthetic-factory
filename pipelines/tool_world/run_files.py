@@ -106,7 +106,7 @@ def _inventory(summary: Mapping[str, Any]) -> list[str]:
     return ids
 
 
-def _first_disagreement(found: list[Any], expected: list[str]) -> int:
+def _first_disagreement(found: list[Any], expected: list[Any]) -> int:
     """The 1-based position where two id lists first differ, or the one past the shorter list."""
     for number, (one, two) in enumerate(zip(found, expected, strict=False), 1):
         if one != two:
@@ -125,15 +125,45 @@ def _check_inventory(loaded: list[Mapping[str, Any]], inventory: list[str]) -> N
         )
 
 
-def check_drawn(summary: Mapping[str, Any], catalog: Any) -> None:
-    """RUN.json's rows name exactly the records its own header draws from the catalog."""
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _claimed(record: Mapping[str, Any]) -> tuple[Any, ...]:
+    """The id, pack, task, variant and seed a candidate claims to replay from, as a draw lists them."""
+    bound = _mapping(record.get("environment"))
+    meta = _mapping(_mapping(record.get("training_view")).get("meta"))
+    return (
+        record.get("id"),
+        bound.get("pack_id"),
+        bound.get("task_id"),
+        meta.get("variant"),
+        bound.get("seed"),
+    )
+
+
+def check_drawn(summary: Mapping[str, Any], loaded: list[Mapping[str, Any]], catalog: Any) -> None:
+    """RUN.json's rows and the candidates are exactly what the header draws from the catalog.
+
+    The rows must name the drawn ids in order, and each candidate must replay
+    from the pack, task, variant and seed drawn at its position: an id alone
+    proves only the pack, policy, seed and draw number it was minted from.
+    """
+    drawn = generate.expected_records(catalog, summary)
     named = _inventory(summary)
-    drawn = generate.expected_ids(catalog, summary)
-    if named != drawn:
+    ids = [record.record_id for record in drawn]
+    if named != ids:
         raise cv.ToolWorldRefusal(
             cv.FINDING_RUN_INVENTORY_MISMATCH,
-            f"{RUN_FILENAME} row {_first_disagreement(named, drawn)} does not name the record "
-            f"its header draws there ({len(named)} named, {len(drawn)} drawn)",
+            f"{RUN_FILENAME} row {_first_disagreement(named, ids)} does not name the record "
+            f"its header draws there ({len(named)} named, {len(ids)} drawn)",
+        )
+    claimed = [_claimed(record) for record in loaded]
+    if claimed != drawn:
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_RUN_INVENTORY_MISMATCH,
+            f"{CANDIDATES_FILENAME} record {_first_disagreement(claimed, drawn)} does not replay "
+            "from the pack, task, variant and seed its header draws there",
         )
 
 

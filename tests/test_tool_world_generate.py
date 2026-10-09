@@ -19,6 +19,7 @@ from tool_world_record_support import FACTORY, PACK, RunSandbox, read_candidates
 
 # The support modules go first: they put pipelines/ on sys.path for the imports below.
 # isort: split
+from tool_world import catalog as catalog_mod
 from tool_world import generate, records
 from tool_world import vocabulary as cv
 from tool_world._contract import load_strict_json, sha256_bytes
@@ -89,14 +90,47 @@ class GenerateRun(unittest.TestCase):
 
     def test_the_header_redraws_the_inventory(self):
         summary = generate.run(self.box.request())
-        named = [row["id"] for row in summary["rows"]]
-        self.assertEqual(generate.expected_ids(self.box.catalog, summary), named)
-        with refusal(self, cv.FINDING_COUNT_OUT_OF_DOMAIN, "count must be an integer"):
-            generate.expected_ids(self.box.catalog, {**summary, "count": "2"})
-        with refusal(self, cv.FINDING_SEED_INVALID, "seed must be an integer"):
-            generate.expected_ids(self.box.catalog, {**summary, "seed": None})
-        with refusal(self, cv.FINDING_RUN_FILE_INVALID, "policy_sha256 must be a string"):
-            generate.expected_ids(self.box.catalog, {**summary, "policy_sha256": None})
+        drawn = generate.expected_records(self.box.catalog, summary)
+        self.assertEqual([d.record_id for d in drawn], [row["id"] for row in summary["rows"]])
+        self.assertEqual(
+            [(d.task_id, d.variant) for d in drawn],
+            [(row["task_id"], row["variant"]) for row in summary["rows"]],
+        )
+        for record, expected in zip(read_candidates(self.root / "run"), drawn, strict=True):
+            self.assertEqual(record["environment"]["seed"], expected.seed)
+            self.assertEqual(record["environment"]["pack_id"], expected.pack_id)
+
+    def test_a_header_outside_the_draw_domain_is_refused(self):
+        summary = generate.run(self.box.request())
+        rewrites = (
+            ({"count": "2"}, cv.FINDING_COUNT_OUT_OF_DOMAIN, "count must be an integer"),
+            ({"seed": None}, cv.FINDING_SEED_INVALID, "seed must be an integer"),
+            (
+                {"policy_sha256": None},
+                cv.FINDING_RUN_FILE_INVALID,
+                "policy_sha256 must be a string",
+            ),
+        )
+        for fields, code, needle in rewrites:
+            with self.subTest(label=next(iter(fields))), refusal(self, code, needle):
+                generate.expected_records(self.box.catalog, {**summary, **fields})
+
+    def test_the_draw_ignores_the_order_of_the_catalog_packs_array(self):
+        spec = generate.DrawSpec(seed=1, count=3, factory=None, variants="all")
+        drawn = []
+        for label, order in (("ab", (PACK, "tickets-mcp")), ("ba", ("tickets-mcp", PACK))):
+            loaded = catalog_mod.load_catalog(support.private_catalog(self.root / label, order))
+            drawn.append(
+                (
+                    loaded.catalog_sha256,
+                    [
+                        (d.pack.pack_id, d.task.task_id, d.variant)
+                        for d in generate.draws(loaded, spec)
+                    ],
+                )
+            )
+        self.assertEqual(drawn[0], drawn[1])
+        self.assertEqual(len({pack for _, pairs in drawn for pack, _, _ in pairs}), 2)
 
     def test_one_record_is_reproducible_without_the_batch(self):
         summary = generate.run(self.box.request())

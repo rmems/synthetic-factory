@@ -519,10 +519,13 @@ Mirror `docs/code-repair-admission.md` exactly:
    digests, seed, solver identity, attempted / accepted / rejected counts).
 2. **Replay** every candidate from a pristine pack copy, after binding
    `candidates.jsonl` to `RUN.json`'s digest and ordered row inventory, and
-   that inventory to the record ids the header's own draw produces from the
-   catalog, so a run cannot shed, reorder or substitute records and still
-   pass (the rows' other fields are reporting, not evidence); store the
-   replay digest in `oracle.result_hash`. Natural rejections (predicate false,
+   both to what the header's own draw produces from the catalog (the drawn
+   ids in order, and per position the pack, task, variant and seed each
+   candidate must replay from; the draw universe is sorted by pack and task
+   id, so the catalog's unpinned array order cannot move it), so a run
+   cannot shed, reorder or substitute records and still pass (the rows'
+   other fields are reporting, not evidence); store the replay digest in
+   `oracle.result_hash`. Natural rejections (predicate false,
    budget exhausted, schema error never recovered) are kept as evidence in a
    `tool-world-input-rNN.json` capture, outside the training JSONL, as
    `code-repair-input-rNN.json` does.

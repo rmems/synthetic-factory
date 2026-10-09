@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import catalog as cat
 from . import env as environment
@@ -28,9 +28,10 @@ __all__ = [
     "RUN_FILENAME",
     "Draw",
     "DrawSpec",
+    "Drawn",
     "RunRequest",
     "draws",
-    "expected_ids",
+    "expected_records",
     "generate_record",
     "run",
 ]
@@ -102,6 +103,16 @@ class RunRequest:
         return DrawSpec(self.seed, self.count, self.factory, self.variants)
 
 
+class Drawn(NamedTuple):
+    """What the record at one draw position must carry: its id and the binding it replays from."""
+
+    record_id: str
+    pack_id: str
+    task_id: str
+    variant: str
+    seed: int
+
+
 @dataclass(frozen=True)
 class Draw:
     """One drawn task under one variant, numbered by its place among the run's records."""
@@ -115,6 +126,12 @@ class Draw:
         """The record's own seed, so one record is reproducible without the batch."""
         label = f"{self.pack.pack_id}:{self.task.task_id}:{self.variant}:{self.index}"
         return rng.seed_from_label(run_seed, label)
+
+    def drawn(self, run_seed: int, policy: str) -> Drawn:
+        """The identity a record of this draw carries under the scripted policy ``policy``."""
+        seed = self.seed(run_seed)
+        identifier = records.record_id(self.pack.pack_sha256, policy, seed, self.index)
+        return Drawn(identifier, self.pack.pack_id, self.task.task_id, self.variant, seed)
 
 
 def _check_request(request: RunRequest) -> str:
@@ -201,8 +218,13 @@ def _row(record: dict[str, Any], task: Any, variant: str) -> dict[str, Any]:
 
 
 def draws(catalog: cat.Catalog, spec: DrawSpec) -> list[Draw]:
-    """The run's records in order: ``count`` tasks drawn under ``seed``, each under its variants."""
-    tasks = list(catalog.tasks(spec.factory))
+    """The run's records in order: ``count`` tasks drawn under ``seed``, each under its variants.
+
+    The universe is every ``(pack, task)`` pair in pack-id then task-id order,
+    so the order of the catalog's ``packs`` array, which its digest does not
+    pin, cannot change a draw.
+    """
+    tasks = sorted(catalog.tasks(spec.factory), key=lambda pair: (pair[0].pack_id, pair[1].task_id))
     cv.refuse_when(
         spec.count > len(tasks),
         cv.FINDING_COUNT_OUT_OF_DOMAIN,
@@ -215,11 +237,12 @@ def draws(catalog: cat.Catalog, spec: DrawSpec) -> list[Draw]:
     return drawn
 
 
-def expected_ids(catalog: cat.Catalog, header: Mapping[str, Any]) -> list[str]:
-    """The record ids a run with this header draws, in order: what its RUN.json rows must name.
+def expected_records(catalog: cat.Catalog, header: Mapping[str, Any]) -> list[Drawn]:
+    """What a run with this header draws, in order: the ids its RUN.json rows must name and the
+    pack, task, variant and seed each candidate must replay from.
 
     Only the header's seed, count, factory, variants and policy digest are
-    read; the ids are re-derived from the catalog the way ``run`` numbers them,
+    read; the draw is re-derived from the catalog the way ``run`` numbers it,
     so a manifest cannot name records its own draw never produced.
     """
     spec = DrawSpec.from_header(header)
@@ -229,10 +252,7 @@ def expected_ids(catalog: cat.Catalog, header: Mapping[str, Any]) -> list[str]:
             cv.FINDING_RUN_FILE_INVALID,
             f"{RUN_FILENAME} policy_sha256 must be a string, got {cv.shown(policy)}",
         )
-    return [
-        records.record_id(draw.pack.pack_sha256, policy, draw.seed(spec.seed), draw.index)
-        for draw in draws(catalog, spec)
-    ]
+    return [draw.drawn(spec.seed, policy) for draw in draws(catalog, spec)]
 
 
 def _records_for(

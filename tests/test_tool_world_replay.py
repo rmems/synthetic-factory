@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from tool_world_pack_support import COMMITTED_TASKS
 from tool_world_record_support import (
     HEX64,
     RunSandbox,
@@ -35,8 +36,10 @@ from tool_world_tamper_support import (
 
 # The support modules go first: they put pipelines/ on sys.path for the imports below.
 # isort: split
+from tool_world import env as env_mod
 from tool_world import generate, records, replay
 from tool_world import vocabulary as cv
+from tool_world.policies import scripted
 
 
 class ReplayAgreement(unittest.TestCase):
@@ -239,11 +242,34 @@ class ReplayAgreement(unittest.TestCase):
                 replay.replay_run(self.run_dir, self.catalog)
         resign_run(self.run_dir, self.candidates)
         rewrite_run(self.run_dir, lambda s: s.update(rows=rows, records=len(rows), count=1))
-        drawn = len(generate.expected_ids(self.catalog, {**self.summary, "count": 1}))
+        drawn = len(generate.expected_records(self.catalog, {**self.summary, "count": 1}))
         with refusal(
             self, cv.FINDING_RUN_INVENTORY_MISMATCH, f"({len(rows)} named, {drawn} drawn)"
         ):
             replay.replay_run(self.run_dir, self.catalog)
+
+    def test_a_candidate_minted_under_the_drawn_id_for_another_task_or_variant_is_refused(self):
+        first = self.candidates[0]
+        bound = first["environment"]
+        pack = self.catalog.pack(bound["pack_id"])
+        other_task = next(task for task in COMMITTED_TASKS if task != bound["task_id"])
+        context = records.RunContext(
+            self.catalog.catalog_sha256, self.summary["run_id"], scripted.policy_sha256()
+        )
+        substitutes = (
+            ("another task", other_task, first["training_view"]["meta"]["variant"]),
+            ("another variant", bound["task_id"], pack.task(bound["task_id"]).perturbations[0]),
+        )
+        for label, task_id, variant in substitutes:
+            env = env_mod.Environment(pack, pack.task(task_id), bound["seed"])
+            substitute = records.build_record(env, scripted.run(env, variant), context, 1)
+            self.assertEqual(substitute["id"], first["id"])
+            resign_run(self.run_dir, [substitute, *self.candidates[1:]])
+            with (
+                self.subTest(label=label),
+                refusal(self, cv.FINDING_RUN_INVENTORY_MISMATCH, "record 1 does not replay from"),
+            ):
+                replay.replay_run(self.run_dir, self.catalog)
 
     def test_a_tampered_record_fails_only_itself(self):
         tampered = copy.deepcopy(self.candidates)
