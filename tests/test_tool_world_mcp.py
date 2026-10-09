@@ -36,6 +36,35 @@ class PackTests(unittest.TestCase):
         self.assertEqual(drifted["set_status"]["inputSchema"]["required"], ["ticket_id", "status"])
         self.assertEqual({task.factory for task in self.pack.tasks}, {FACTORY})
 
+    def test_every_value_a_gold_plan_stores_is_checked_by_a_server_value_predicate(self):
+        for task in self.pack.tasks:
+            declared = {
+                (p["server"], p["key"], p["value"])
+                for name, p in task.hidden_predicates
+                if name == "server_value"
+            }
+            for stored in self._stored_values(task):
+                with self.subTest(task=task.task_id, stored=stored):
+                    self.assertIn(stored, declared)
+
+    def _stored_values(self, task) -> list[tuple[str, str, str]]:
+        """``(server, key, value)`` for every ``set`` tool a gold plan calls."""
+        stored = []
+        for action in task.gold:
+            args = action.tool_call["args"]
+            if action.tool_call["name"] != "mcp" or args.get("method") != "tools/call":
+                continue
+            params = args["params"]
+            tools = {row["name"]: row for row in self.pack.servers[args["server"]]["tools"]}
+            behavior = tools[params["name"]].get("behavior", {})
+            if behavior.get("kind") != "set":
+                continue
+            arguments = params["arguments"]
+            key = str(arguments[behavior.get("key_arg", "key")])
+            value = str(arguments[behavior.get("value_arg", "value")])
+            stored.append((args["server"], key, value))
+        return stored
+
     def test_license_block_is_the_counter_workspace_block_verbatim(self):
         self.assertEqual(self.pack.license, support.load_pack("counter-workspace").license)
 
@@ -146,7 +175,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_invalid_cursors_are_invalid_params(self):
         handshake(self.env, "tickets")
-        for cursor in ("page-2", "cursor-x", 2):
+        for cursor in ("page-2", "cursor-x", 2, "cursor-", "cursor-\u00b2", "cursor-" + "9" * 12):
             with self.subTest(cursor=cursor):
                 response = rpc(self.env, "tickets", "tools/list", {"cursor": cursor})
                 self.assertEqual(response["error"]["code"], -32602)

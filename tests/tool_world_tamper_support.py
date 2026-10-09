@@ -130,6 +130,21 @@ TRAINING_VIEW_TAMPERINGS = (
     ),
     ("meta seed", set_in("training_view", "meta", "seed")(5), "training_view.meta.seed differs"),
     (
+        "meta generator",
+        set_in("training_view", "meta", "generator")("other-generator"),
+        "training_view.meta.generator differs",
+    ),
+    (
+        "meta generator_version",
+        set_in("training_view", "meta", "generator_version")("9.9"),
+        "training_view.meta.generator_version differs",
+    ),
+    (
+        "meta generator_kind",
+        set_in("training_view", "meta", "generator_kind")("hosted"),
+        "training_view.meta.generator_kind differs",
+    ),
+    (
         "training_view id",
         set_in("training_view", "id")("twd-other-00001"),
         "training_view.id differs",

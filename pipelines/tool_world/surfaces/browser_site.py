@@ -55,6 +55,11 @@ def check_site(pack: Any) -> None:
             cv.FINDING_PACK_FIELD_INVALID,
             f"{where}: {key} must map strings to strings",
         )
+    cv.refuse_when(
+        not site.get("pages"),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: pages must be a nonempty table",
+    )
     check_members(site, pack.pages, where)
     check_redirects(site, where)
 

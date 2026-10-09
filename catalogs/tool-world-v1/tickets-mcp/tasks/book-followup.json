@@ -13,7 +13,9 @@
     {"name": "resource_read", "params": {"server": "calendar", "uri": "calendar://hours"}},
     {"name": "tool_called", "params": {"server": "calendar", "tool": "list_events"}},
     {"name": "tool_called", "params": {"server": "calendar", "tool": "book_slot"}},
-    {"name": "tool_called", "params": {"server": "calendar", "tool": "get_slot"}}
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "get_slot"}},
+    {"name": "server_value",
+     "params": {"server": "calendar", "key": "2026-10-12T15:00", "value": "design review follow-up"}}
   ],
   "gold": [
     {"intent": "initialize the calendar session first; the result names the server and the protocol version every later call relies on",

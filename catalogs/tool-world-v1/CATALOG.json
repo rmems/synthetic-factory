@@ -28,7 +28,7 @@
     },
     {
       "pack_id": "tickets-mcp",
-      "pack_sha256": "d2bb968be24ee096a0b8401987ba3b24cfaf641493e4009de109f5ffd04b058b",
+      "pack_sha256": "29787a1d91a4856f38f23427fdf454bbd136f1f1192a77221661fa43a5ffc681",
       "surfaces": [
         "mcp"
       ]

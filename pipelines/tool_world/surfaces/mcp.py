@@ -46,12 +46,20 @@ _ERR_RESOURCE_NOT_FOUND = -32002
 _CURSOR_PREFIX = "cursor-"
 
 
+_CURSOR_DIGITS = 9
+
+
+def _is_ascii_offset(text: str) -> bool:
+    """Only plain decimal digits, bounded, so ``int`` can neither reject nor overflow it."""
+    return 0 < len(text) <= _CURSOR_DIGITS and all("0" <= char <= "9" for char in text)
+
+
 def _cursor_start(cursor: Any) -> int | None:
     """The page offset a cursor names, or None when it is not one the server issued."""
-    if isinstance(cursor, str) and cursor.startswith(_CURSOR_PREFIX):
-        offset = cursor[len(_CURSOR_PREFIX) :]
-        return int(offset) if offset.isdigit() else None
-    return None
+    if not isinstance(cursor, str) or not cursor.startswith(_CURSOR_PREFIX):
+        return None
+    offset = cursor[len(_CURSOR_PREFIX) :]
+    return int(offset) if _is_ascii_offset(offset) else None
 
 
 class McpSurface(Surface):
@@ -291,6 +299,11 @@ class McpSurface(Surface):
         )
 
     # --- predicates --------------------------------------------------------
+
+    def stored_value(self, server_name: str, key: str) -> str | None:
+        """The value a ``set`` tool stored under ``key``, or None when nothing is stored there."""
+        server = self.servers.get(server_name)
+        return None if server is None else server.store.get(key)
 
     def listed_before_first_call(self, server_name: str) -> bool:
         server = self.servers.get(server_name)

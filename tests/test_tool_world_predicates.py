@@ -46,6 +46,7 @@ FOREIGN_PARAMS = {
     "resource_read": {"server": "s", "uri": "u"},
     "tool_called": {"server": "s", "tool": "t"},
     "listed_before_call": {"server": "s"},
+    "server_value": {"server": "s", "key": "k", "value": "v"},
     "url_is": {"url": "u"},
     "extracted_equals": {"value": "v"},
     "form_submitted": {"form": "f"},

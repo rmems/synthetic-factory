@@ -28,7 +28,18 @@ __all__ = ["ReplayResult", "load_records", "replay_record", "replay_run"]
 
 CANDIDATES_FILENAME = "candidates.jsonl"
 RUN_FILENAME = "RUN.json"
-_META_DERIVED = ("factory", "kind", "family", "surface", "variant", "seed", "designed")
+_META_DERIVED = (
+    "factory",
+    "generator",
+    "generator_version",
+    "generator_kind",
+    "kind",
+    "family",
+    "surface",
+    "variant",
+    "seed",
+    "designed",
+)
 _PINNED_MESSAGES = {
     "oracle.result_hash": "oracle.result_hash differs from the replay digest",
     "payload.final_state_digest": "final state digest differs",
@@ -338,7 +349,9 @@ def _run_summary(run_dir: Path) -> Mapping[str, Any]:
     try:
         summary = load_strict_json(run_file.read_text(encoding="utf-8"))
     except ValueError as exc:
-        cv.refuse(cv.FINDING_RUN_FILE_INVALID, f"{RUN_FILENAME} is not strict JSON ({exc})")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_RUN_FILE_INVALID, f"{RUN_FILENAME} is not strict JSON ({exc})"
+        ) from exc
     cv.refuse_when(
         not isinstance(summary, Mapping),
         cv.FINDING_RUN_FILE_INVALID,
@@ -368,7 +381,9 @@ def _parse_record(line: str, number: int) -> Mapping[str, Any]:
     try:
         record = load_strict_json(line)
     except ValueError as exc:
-        cv.refuse(cv.FINDING_RECORD_MALFORMED, f"line {number} is not strict JSON ({exc})")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_RECORD_MALFORMED, f"line {number} is not strict JSON ({exc})"
+        ) from exc
     cv.refuse_when(
         not isinstance(record, Mapping),
         cv.FINDING_RECORD_MALFORMED,

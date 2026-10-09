@@ -108,10 +108,10 @@ def _captures(row: Mapping[str, Any], where: str) -> dict[str, str]:
         try:
             compiled = re.compile(pattern)
         except re.error as exc:
-            cv.refuse(
+            raise cv.ToolWorldRefusal(
                 cv.FINDING_TASK_FIELD_INVALID,
                 f"{where}: capture {name!r} is not a valid regex ({exc})",
-            )
+            ) from exc
         cv.refuse_when(
             compiled.groups == 0,
             cv.FINDING_TASK_FIELD_INVALID,
@@ -141,9 +141,30 @@ def action_from_row(row: Any, where: str) -> Action:
         intent=_require_str(row, "intent", where),
         tool_call={"name": tool_call["name"], "args": dict(tool_call["args"])},
         captures=_captures(row, where),
-        verification=bool(row.get("verification", False)),
-        confirmation=bool(row.get("confirmation", False)),
+        verification=_flag(row, "verification", False, where),
+        confirmation=_flag(row, "confirmation", False, where),
     )
+
+
+def _flag(row: Mapping[str, Any], key: str, default: bool, where: str) -> bool:
+    """A declared boolean, never a coerced truthy value such as the string "false"."""
+    value = row.get(key, default)
+    cv.refuse_when(
+        not isinstance(value, bool),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: {key} must be a boolean",
+    )
+    return value
+
+
+def _params(row: Mapping[str, Any], where: str) -> dict[str, Any]:
+    params = row.get("params", {})
+    cv.refuse_when(
+        not isinstance(params, Mapping),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: params must be an object",
+    )
+    return dict(params)
 
 
 def _occurrences(row: Mapping[str, Any], where: str) -> tuple[int, int, int]:
@@ -205,10 +226,10 @@ def fault_spec_from_row(row: Any, where: str) -> FaultSpec:
         min_occurrence=low,
         max_occurrence=high,
         probability_percent=percent,
-        params=dict(row.get("params") or {}),
+        params=_params(row, where),
         marker=_require(row, "marker", str, where),
         recovery=_recovery(row, where),
-        retry=bool(row.get("retry", True)),
+        retry=_flag(row, "retry", True, where),
     )
 
 

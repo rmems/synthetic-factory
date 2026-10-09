@@ -6,8 +6,9 @@ subpackages included) must resolve to one object whether it is imported as
 ``tool_world.x`` with ``pipelines/`` on ``sys.path`` or as
 ``pipelines.tool_world.x`` from the repository root, whichever form loads
 first. Each form names every module in literal import statements, so no
-import takes a computed name; ``MODULES`` is the list those statements must
-match. ``run_form`` and ``run_entry`` are executed in a spawned interpreter
+import takes a computed name; ``MODULES`` is discovered from the package
+directory, so a module file the statements omit is reported as drift.
+``run_form`` and ``run_entry`` are executed in a spawned interpreter
 (``in_fresh_interpreter``) by ``test_tool_world_imports`` and
 ``test_tool_world_cli``: each first forgets every repository module and path
 entry the parent handed down, so what the operator entry point bootstraps on
@@ -31,36 +32,24 @@ REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 ENTRY = PIPELINES / "tool_world_cli.py"
 PACKAGE = "tool_world"
-MODULES = (
-    "_contract",
-    "vocabulary",
-    "schema_lite",
-    "faults",
-    "pack",
-    "catalog",
-    "env",
-    "predicates",
-    "records",
-    "replay",
-    "generate",
-    "cli",
-    "surfaces",
-    "surfaces.base",
-    "surfaces.workspace",
-    "surfaces.workspace_suites",
-    "surfaces.mcp",
-    "surfaces.mcp_servers",
-    "surfaces.browser",
-    "surfaces.browser_dom",
-    "surfaces.browser_dom_a11y",
-    "surfaces.browser_dom_tree",
-    "surfaces.browser_effects",
-    "surfaces.browser_site",
-    "surfaces.delegation",
-    "surfaces.delegation_workers",
-    "policies",
-    "policies.scripted",
-)
+
+
+def _discovered() -> tuple[str, ...]:
+    """Every module file under the package, named below it: ``""`` is the package itself."""
+    package = PIPELINES / PACKAGE
+    names = []
+    for path in sorted(package.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        parts = list(path.relative_to(package).with_suffix("").parts)
+        if parts[-1] == "__init__":
+            parts.pop()
+        if parts:
+            names.append(".".join(parts))
+    return tuple(names)
+
+
+MODULES = _discovered()
 
 
 def spellings(name: str) -> tuple[str, str]:

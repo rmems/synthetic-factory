@@ -14,7 +14,10 @@
     {"name": "tool_called", "params": {"server": "tickets", "tool": "set_status"}},
     {"name": "tool_called", "params": {"server": "tickets", "tool": "get_status"}},
     {"name": "tool_called", "params": {"server": "calendar", "tool": "book_slot"}},
-    {"name": "tool_called", "params": {"server": "calendar", "tool": "get_slot"}}
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "get_slot"}},
+    {"name": "server_value", "params": {"server": "tickets", "key": "T-102", "value": "blocked"}},
+    {"name": "server_value",
+     "params": {"server": "calendar", "key": "2026-10-12T11:00", "value": "CI runner sync"}}
   ],
   "gold": [
     {"intent": "initialize the tickets session; its result reports the protocol version and capabilities to expect",

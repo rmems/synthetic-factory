@@ -27,7 +27,7 @@ from tests.tool_world_mcp_support import (
     tool_names,
 )
 
-from tool_world import generate, records, replay
+from tool_world import generate, predicates, records, replay
 from tool_world.policies import scripted
 
 
@@ -181,6 +181,37 @@ class PredicateTests(unittest.TestCase):
         )
         self.assertIn("tool_called:server=tickets,tool=set_status", verdict["hidden"])
         self.assertIn("resource_read:server=tickets,uri=tickets://policy", verdict["hidden"])
+        self.assertTrue(
+            verdict["hidden"]["server_value:key=T-104,server=tickets,value=in_progress"]
+        )
+
+    def test_server_value_checks_what_a_set_tool_actually_stored(self):
+        env = plain_env(TRIAGE)
+        handshake(env, "tickets")
+        wanted = {"server": "tickets", "key": "T-104", "value": "in_progress"}
+        self.assertIsNone(env.surface("mcp").stored_value("tickets", "T-104"))
+        self.assertFalse(predicates.evaluate("server_value", wanted, env))
+        call_tool(env, "tickets", "set_status", {"id": "T-104", "status": "closed"})
+        self.assertEqual(env.surface("mcp").stored_value("tickets", "T-104"), "closed")
+        self.assertFalse(predicates.evaluate("server_value", wanted, env))
+        call_tool(env, "tickets", "set_status", {"id": "T-104", "status": "in_progress"})
+        self.assertTrue(predicates.evaluate("server_value", wanted, env))
+        self.assertIsNone(env.surface("mcp").stored_value("nope", "T-104"))
+
+    def test_a_wrong_change_fails_the_verdict_even_when_every_tool_ran(self):
+        env = plain_env(TRIAGE)
+        handshake(env, "tickets")
+        rpc(env, "tickets", "resources/read", {"uri": "tickets://policy"})
+        call_tool(env, "tickets", "get_ticket", {"id": "T-104"})
+        call_tool(env, "tickets", "set_status", {"id": "T-104", "status": "closed"})
+        call_tool(env, "tickets", "get_status", {"id": "T-104"})
+        env.step({"name": "report_result", "args": {"value": "T-104 in_progress"}})
+        verdict = env.verdict()
+        self.assertTrue(verdict["hidden"]["tool_called:server=tickets,tool=set_status"])
+        self.assertFalse(
+            verdict["hidden"]["server_value:key=T-104,server=tickets,value=in_progress"]
+        )
+        self.assertFalse(verdict["success"])
 
 
 class DeterminismTests(unittest.TestCase):

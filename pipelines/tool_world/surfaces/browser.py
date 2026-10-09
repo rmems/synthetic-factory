@@ -159,7 +159,8 @@ class BrowserSurface(Surface):
     def reindex(self) -> None:
         """Refresh the ref map; refs are never reused across pages or DOM revisions."""
         self.refs = dom.assign_refs(self.root, self.next_ref)
-        self.next_ref = max((int(ref[1:]) for ref in self.refs), default=self.next_ref - 1) + 1
+        highest = max((int(ref[1:]) for ref in self.refs), default=0)
+        self.next_ref = max(self.next_ref, highest + 1)
 
     def page_text(self) -> str:
         """The observation of the open page: its url, its title, and the snapshot."""

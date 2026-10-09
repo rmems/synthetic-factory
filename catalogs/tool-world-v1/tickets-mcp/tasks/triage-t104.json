@@ -13,7 +13,8 @@
     {"name": "resource_read", "params": {"server": "tickets", "uri": "tickets://policy"}},
     {"name": "tool_called", "params": {"server": "tickets", "tool": "get_ticket"}},
     {"name": "tool_called", "params": {"server": "tickets", "tool": "set_status"}},
-    {"name": "tool_called", "params": {"server": "tickets", "tool": "get_status"}}
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "get_status"}},
+    {"name": "server_value", "params": {"server": "tickets", "key": "T-104", "value": "in_progress"}}
   ],
   "gold": [
     {"intent": "open the session with initialize so the server reports its protocol version and capabilities before any other request",

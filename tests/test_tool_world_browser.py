@@ -125,6 +125,20 @@ class BrowserSurfaceTests(unittest.TestCase):
         link = ref_in(browse(env, action="find", role="link", name="All items"))
         self.assertTrue(browse(env, action="click", ref=link).startswith(f"url: {ORIGIN}/items\n"))
 
+    def test_a_dismissed_dialog_never_lends_its_refs_to_later_elements(self):
+        env = firing_env(SEARCH, "consent-overlay", "/")
+        browse(env, action="navigate", url="/")
+        accept = ref_in(browse(env, action="find", role="button", name="Accept cookies"))
+        browse(env, action="click", ref=accept)
+        surface = env.surface(cv.SURFACE_BROWSER)
+        self.assertGreater(surface.next_ref, int(accept[1:]), "the counter never moves back")
+        browse(env, action="navigate", url="/items")
+        self.assertNotIn(accept, surface.refs)
+        self.assertEqual(
+            browse(env, action="click", ref=accept),
+            f"error: stale or unknown ref {accept}; take a new snapshot",
+        )
+
     def test_type_then_submit_honors_the_required_field(self):
         env = quiet_env(SEARCH)
         surface = env.surface(cv.SURFACE_BROWSER)

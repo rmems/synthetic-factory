@@ -28,6 +28,12 @@ BAD_FAULT_ROWS = (
     (fault_row(min_occurrence=0), "1 <= min <= max"),
     (fault_row(probability_percent=101), "[0, 100]"),
     (fault_row(selector=[]), "selector must be an object"),
+    (fault_row(params="abc"), "params must be an object"),
+    (fault_row(retry="false"), "retry must be a boolean"),
+    (
+        fault_row(recovery=[RECOVERY_ROW | {"verification": "yes"}]),
+        "t.recovery[0]: verification must be a boolean",
+    ),
     (fault_row(recovery={}), "recovery must be a list of actions"),
     (fault_row(recovery=["x"]), "recovery must be a list of actions"),
     (

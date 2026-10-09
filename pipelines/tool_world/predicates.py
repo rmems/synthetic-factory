@@ -160,6 +160,15 @@ def _tool_called(env: Any, params: Mapping[str, Any]) -> bool:
     return (server, tool) in env.surface(cv.SURFACE_MCP).successful_calls
 
 
+@_predicate("server_value", cv.SURFACE_MCP, server=str, key=str, value=str)
+def _server_value(env: Any, params: Mapping[str, Any]) -> bool:
+    """What a ``set`` tool actually stored, not merely that it was called."""
+    server = _param(params, "server", "server_value")
+    key = _param(params, "key", "server_value")
+    value = _param(params, "value", "server_value")
+    return env.surface(cv.SURFACE_MCP).stored_value(server, key) == value
+
+
 @_predicate("listed_before_call", cv.SURFACE_MCP, server=str)
 def _listed_before_call(env: Any, params: Mapping[str, Any]) -> bool:
     server = _param(params, "server", "listed_before_call")

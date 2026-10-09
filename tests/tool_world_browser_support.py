@@ -73,6 +73,8 @@ CONSENT = (
 OVERLAY_SITE = {**SITE, "overlays": {"consent": CONSENT}}
 BAD_SITES = {
     "pages value list": ({"origin": ORIGIN, "pages": {"/": ["page.html"]}}, "pages must map"),
+    "pages missing": ({"origin": ORIGIN}, "pages must be a nonempty table"),
+    "pages empty": ({"origin": ORIGIN, "pages": {}}, "pages must be a nonempty table"),
     "not_found list": ({**SITE, "not_found": ["x"]}, "not_found must name"),
     "redirects list": ({**SITE, "redirects": ["/a"]}, "redirects must map"),
     "redirect value int": ({**SITE, "redirects": {"/a": 5}}, "redirects must map"),

@@ -62,9 +62,9 @@ def _header(directory: Path) -> Mapping[str, Any]:
     try:
         header = load_strict_json(path.read_text(encoding="utf-8"))
     except ValueError as exc:
-        cv.refuse(
+        raise cv.ToolWorldRefusal(
             cv.FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON ({exc})"
-        )
+        ) from exc
     cv.refuse_when(
         not isinstance(header, Mapping),
         cv.FINDING_CATALOG_FIELD_INVALID,

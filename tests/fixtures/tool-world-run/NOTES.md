@@ -1,6 +1,6 @@
 # tool-world NOTES
 
-Run seed 20261009, catalog tool-world-v1 (b02d02de26aa1d17), policy f8bab452f97238d8.
+Run seed 20261009, catalog tool-world-v1 (44a709acc73947fc), policy f8bab452f97238d8.
 
 Every observation below was computed by the environment and replays from (pack, seed, actions).
 
@@ -11,10 +11,10 @@ Every observation below was computed by the environment and replays from (pack, 
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-4636366756584287782-00004`: counter.add-sub [gold] steps=7 success=True decision=accept faults_fired=2
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-7921779844560407709-00005`: counter.add-sub [give_up_on_fault] steps=2 success=False decision=measure faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-2191370395314634301-00006`: counter.add-sub [wrong_arg_type] steps=8 success=True decision=measure faults_fired=2
-- `twd-d2bb968be24ee096-f8bab452f97238d8-8354115466682237392-00007`: tickets.triage-t104 [gold] steps=13 success=True decision=accept faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-4661157667303530085-00008`: tickets.triage-t104 [give_up_on_fault] steps=4 success=False decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-9333274787809279823-00009`: tickets.triage-t104 [skip_verification] steps=12 success=False decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-1486115611031745627-00010`: tickets.triage-t104 [wrong_arg_type] steps=15 success=True decision=measure faults_fired=2
+- `twd-29787a1d91a4856f-f8bab452f97238d8-8354115466682237392-00007`: tickets.triage-t104 [gold] steps=13 success=True decision=accept faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-4661157667303530085-00008`: tickets.triage-t104 [give_up_on_fault] steps=4 success=False decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-9333274787809279823-00009`: tickets.triage-t104 [skip_verification] steps=12 success=False decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-1486115611031745627-00010`: tickets.triage-t104 [wrong_arg_type] steps=15 success=True decision=measure faults_fired=2
 - `twd-437246edf1009dfd-f8bab452f97238d8-10662017237056655722-00011`: release.ship-feature [gold] steps=14 success=True decision=accept faults_fired=2
 - `twd-437246edf1009dfd-f8bab452f97238d8-212850859068694886-00012`: release.ship-feature [skip_verification] steps=8 success=False decision=measure faults_fired=1
 - `twd-437246edf1009dfd-f8bab452f97238d8-7093084298888744456-00013`: release.ship-feature [give_up_on_fault] steps=8 success=False decision=measure faults_fired=1
@@ -29,9 +29,9 @@ Every observation below was computed by the environment and replays from (pack, 
 - `twd-7badff6f586e7640-f8bab452f97238d8-10937801234231787211-00022`: catalog.price-of-hb08 [give_up_on_fault] steps=3 success=False decision=measure faults_fired=1
 - `twd-7badff6f586e7640-f8bab452f97238d8-10779004993890787363-00023`: catalog.price-of-hb08 [skip_verification] steps=9 success=False decision=measure faults_fired=1
 - `twd-7badff6f586e7640-f8bab452f97238d8-8850008855686645182-00024`: catalog.price-of-hb08 [wrong_arg_type] steps=15 success=True decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-17829293057719635737-00025`: tickets.find-csv-ticket [gold] steps=9 success=True decision=accept faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-495137713562216784-00026`: tickets.find-csv-ticket [give_up_on_fault] steps=8 success=False decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-4104013457829230776-00027`: tickets.find-csv-ticket [wrong_arg_type] steps=10 success=True decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-17829293057719635737-00025`: tickets.find-csv-ticket [gold] steps=9 success=True decision=accept faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-495137713562216784-00026`: tickets.find-csv-ticket [give_up_on_fault] steps=8 success=False decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-4104013457829230776-00027`: tickets.find-csv-ticket [wrong_arg_type] steps=10 success=True decision=measure faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-4632141591689420615-00028`: counter.delete-stale-lock [gold] steps=7 success=True decision=accept faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-7275084698834951269-00029`: counter.delete-stale-lock [skip_confirmation] steps=6 success=False decision=measure faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-13256588302507403934-00030`: counter.delete-stale-lock [give_up_on_fault] steps=2 success=False decision=measure faults_fired=1
@@ -39,11 +39,11 @@ Every observation below was computed by the environment and replays from (pack, 
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-8981022345229530692-00032`: counter.document-timeout [give_up_on_fault] steps=4 success=False decision=measure faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-15291729475430604232-00033`: counter.document-timeout [skip_verification] steps=5 success=True decision=measure faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-12328338712049461221-00034`: counter.document-timeout [wrong_arg_type] steps=8 success=True decision=measure faults_fired=2
-- `twd-d2bb968be24ee096-f8bab452f97238d8-10162401356082353516-00035`: calendar.book-followup [gold] steps=9 success=True decision=accept faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-15512051792476288661-00036`: calendar.book-followup [give_up_on_fault] steps=6 success=False decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-2923174450525859443-00037`: calendar.book-followup [skip_verification] steps=8 success=False decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-9099066265432383212-00038`: calendar.book-followup [wrong_arg_type] steps=10 success=True decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-6648283678366523506-00039`: tickets.block-on-sync [gold] steps=15 success=True decision=accept faults_fired=2
-- `twd-d2bb968be24ee096-f8bab452f97238d8-3247543237054041782-00040`: tickets.block-on-sync [give_up_on_fault] steps=13 success=True decision=measure faults_fired=0
-- `twd-d2bb968be24ee096-f8bab452f97238d8-8723678417738330444-00041`: tickets.block-on-sync [skip_verification] steps=14 success=False decision=measure faults_fired=1
-- `twd-d2bb968be24ee096-f8bab452f97238d8-17579041761140933411-00042`: tickets.block-on-sync [wrong_arg_type] steps=18 success=True decision=measure faults_fired=2
+- `twd-29787a1d91a4856f-f8bab452f97238d8-10162401356082353516-00035`: calendar.book-followup [gold] steps=9 success=True decision=accept faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-15512051792476288661-00036`: calendar.book-followup [give_up_on_fault] steps=6 success=False decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-2923174450525859443-00037`: calendar.book-followup [skip_verification] steps=8 success=False decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-9099066265432383212-00038`: calendar.book-followup [wrong_arg_type] steps=10 success=True decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-6648283678366523506-00039`: tickets.block-on-sync [gold] steps=15 success=True decision=accept faults_fired=2
+- `twd-29787a1d91a4856f-f8bab452f97238d8-3247543237054041782-00040`: tickets.block-on-sync [give_up_on_fault] steps=13 success=True decision=measure faults_fired=0
+- `twd-29787a1d91a4856f-f8bab452f97238d8-8723678417738330444-00041`: tickets.block-on-sync [skip_verification] steps=14 success=False decision=measure faults_fired=1
+- `twd-29787a1d91a4856f-f8bab452f97238d8-17579041761140933411-00042`: tickets.block-on-sync [wrong_arg_type] steps=18 success=True decision=measure faults_fired=2
