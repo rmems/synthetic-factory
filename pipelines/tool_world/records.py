@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from . import vocabulary as cv
 from ._contract import (
@@ -42,6 +42,17 @@ __all__ = [
 ]
 
 _GAVE_UP_TEXT = "Failed: gave up after the first fault instead of recovering"
+
+
+class _SolverEvidence(Protocol):
+    """What the solver reports about its own run: a finished trajectory, or the facts replay
+    copies from a record before re-deriving everything else."""
+
+    @property
+    def gave_up(self) -> bool: ...
+
+    @property
+    def faults_recovered(self) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -188,8 +199,9 @@ def environment(env: Any, catalog_sha256: str) -> dict[str, Any]:
 
 
 def payload(
-    env: Any, trajectory: Any, verdict: Mapping[str, Any], replay_digest: str
+    env: Any, evidence: _SolverEvidence, verdict: Mapping[str, Any], replay_digest: str
 ) -> dict[str, Any]:
+    """The actions, state and verdict the environment produced, plus the solver's own evidence."""
     engine = env.fault_engine
     success = bool(verdict["success"])
     return {
@@ -201,8 +213,8 @@ def payload(
             "replay_digest": replay_digest,
             "faults_armed": list(engine.armed_ids()),
             "faults_fired": list(engine.fired),
-            "faults_recovered": trajectory.faults_recovered,
-            "gave_up": trajectory.gave_up,
+            "faults_recovered": evidence.faults_recovered,
+            "gave_up": evidence.gave_up,
         },
         "outcome": cv.OUTCOME_SUCCESS if success else cv.OUTCOME_FAILURE,
     }
