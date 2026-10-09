@@ -110,7 +110,7 @@ class CatalogCheck(CliCase):
         (pack,) = payload["packs"]
         self.assertEqual((pack["pack_id"], pack["surfaces"]), (PACK, ["workspace"]))
         self.assertIn(ADD_SUB, pack["tasks"])
-        self.assertEqual(set(pack["license"]) >= {"spdx", "source", "authorship"}, True)
+        self.assertGreaterEqual(set(pack["license"]), {"spdx", "source", "authorship"})
 
     def test_plain_output_is_still_one_object(self):
         code, stdout, _stderr = invoke(["catalog-check", "--catalog", self.catalog])

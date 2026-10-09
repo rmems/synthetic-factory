@@ -5,8 +5,10 @@ Every module of ``pipelines/tool_world/`` (the surfaces and policies
 subpackages included) must resolve to one object whether it is imported as
 ``tool_world.x`` with ``pipelines/`` on ``sys.path`` or as
 ``pipelines.tool_world.x`` from the repository root, whichever form loads
-first. ``MODULES`` is discovered from the package directory, so a new
-module file is probed without being listed anywhere. ``run_form`` and
+first. Each form imports the ``cli`` entry module by one literal statement
+and the package loads behind it; ``MODULES`` is discovered from the package
+directory, so a module file that import leaves unloaded is reported, and a
+new file is probed without being listed anywhere. ``run_form`` and
 ``run_entry`` are executed in a spawned interpreter
 (``in_fresh_interpreter``) by ``test_tool_world_imports`` and
 ``test_tool_world_cli``: each first forgets every repository module and path
@@ -17,7 +19,6 @@ its own is what the probe sees.
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 import multiprocessing
 import runpy
@@ -91,23 +92,32 @@ def _index(*modules: ModuleType) -> dict[str, ModuleType]:
     return {_relative(module): module for module in modules}
 
 
-def _import_all(prefix: str) -> dict[str, ModuleType]:
-    """The package at ``prefix`` and every module under it, keyed by the name below the package."""
-    modules = [importlib.import_module(prefix)]
-    modules.extend(importlib.import_module(f"{prefix}.{name}") for name in MODULES)
-    return _index(*modules)
+def _loaded_behind(entry: ModuleType) -> dict[str, ModuleType]:
+    """The package ``entry`` belongs to and every module of it now loaded, keyed below the package."""
+    prefix = entry.__name__.rpartition(".")[0]
+    return _index(
+        *(
+            module
+            for name, module in sys.modules.items()
+            if isinstance(module, ModuleType) and (name == prefix or name.startswith(f"{prefix}."))
+        )
+    )
 
 
 def import_flat() -> dict[str, ModuleType]:
-    """Import every module as ``tool_world.x`` with ``pipelines/`` first on ``sys.path``."""
+    """Import the package as ``tool_world`` with ``pipelines/`` first on ``sys.path``."""
     _put_first(PIPELINES)
-    return _import_all(PACKAGE)
+    from tool_world import cli
+
+    return _loaded_behind(cli)
 
 
 def import_packaged() -> dict[str, ModuleType]:
-    """Import every module as ``pipelines.tool_world.x`` with the repository root first."""
+    """Import the package as ``pipelines.tool_world`` with the repository root first."""
     _put_first(REPO)
-    return _import_all(f"pipelines.{PACKAGE}")
+    from pipelines.tool_world import cli
+
+    return _loaded_behind(cli)
 
 
 LOADERS = {"cli": import_flat, "package": import_packaged}

@@ -23,7 +23,8 @@ __all__ = ["MAX_MATCHES", "MAX_PATTERN_CHARS", "nests_repetition", "pattern_prob
 MAX_MATCHES = 40
 MAX_PATTERN_CHARS = 200
 # An escape or a character class is one atom to the repetition scan; a group prefix is dropped.
-_OPAQUE_RE = re.compile(r"\\.|\[\^?\]?(?:\\.|[^\]])*\]", re.DOTALL)
+# Inside a class, an escape and a plain char are disjoint, so this regex itself runs in linear time.
+_OPAQUE_RE = re.compile(r"\\.|\[\^?\]?(?:\\.|[^\\\]])*\]", re.DOTALL)
 _GROUP_PREFIX_RE = re.compile(r"\(\?(?:P<\w+>|P=\w+|<\w+>|<[=!]|[=!:]|[aiLmsux-]+:?)")
 _QUANTIFIER_RE = re.compile(r"[*+?]|\{(?:\d+(?:,\d*)?|,\d+)\}")
 

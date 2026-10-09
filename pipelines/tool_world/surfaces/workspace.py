@@ -13,7 +13,7 @@ at load, not a surprise at run time.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from .. import vocabulary as cv
@@ -104,8 +104,13 @@ def _kind_of(fault: Any) -> str | None:
 
 
 def _truncates(fault: Any) -> bool:
-    """A truncation fault reached this read; ``fault_shows`` keeps it off every paged read."""
+    """A truncation fault reached this read; ``SHOWS_ON`` keeps it off every paged read."""
     return _kind_of(fault) == FAULT_TRUNCATED
+
+
+def _unpaged(args: Mapping[str, Any]) -> bool:
+    """A truncation shows only on an unpaged read: paging with a limit is how a reader recovers."""
+    return args.get("limit") is None
 
 
 def _flaky_case(fault: Any) -> str | None:
@@ -141,6 +146,7 @@ def _missing(name: str, entries: set[str], dirs: set[str]) -> bool:
 class WorkspaceSurface(Surface):
     NAME = cv.SURFACE_WORKSPACE
     FAULT_KINDS = frozenset({FAULT_TRANSIENT, FAULT_FLAKY_TEST, FAULT_TRUNCATED})
+    SHOWS_ON: Mapping[str, Callable[[Mapping[str, Any]], bool]] = {FAULT_TRUNCATED: _unpaged}
 
     def __init__(self, pack: Any, task: Any, env: Any) -> None:
         super().__init__(pack, task, env)
@@ -217,10 +223,6 @@ class WorkspaceSurface(Surface):
 
     def _case_ids(self, suite: str) -> list[str]:
         return [case["id"] for case in self.suites[suite]["cases"]]
-
-    def fault_shows(self, spec: Any, args: Mapping[str, Any]) -> bool:
-        """A truncation shows only on an unpaged read: paging with a limit is how a reader recovers."""
-        return spec.kind != FAULT_TRUNCATED or args.get("limit") is None
 
     # --- execution -----------------------------------------------------------
 

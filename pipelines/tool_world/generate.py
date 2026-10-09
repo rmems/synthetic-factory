@@ -47,6 +47,10 @@ class RunRequest:
     variants: str = "all"
     produced_at: str | None = None
 
+    def checked(self) -> RunRequest:
+        """This request with ``produced_at`` resolved, or a refusal naming the first bad field."""
+        return replace(self, produced_at=_check_request(self))
+
 
 @dataclass(frozen=True)
 class Draw:
@@ -209,7 +213,7 @@ def _summary(header: Mapping[str, Any], rows: list[dict[str, Any]], payload: str
 
 def run(request: RunRequest) -> dict[str, Any]:
     """Draw ``count`` tasks and write their records into ``out_dir``."""
-    request = replace(request, produced_at=_check_request(request))
+    request = request.checked()
     catalog = cat.load_catalog(request.catalog_dir)
     tasks = list(catalog.tasks(request.factory))
     cv.refuse_when(

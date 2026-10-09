@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +54,9 @@ class Surface:
 
     NAME = ""
     FAULT_KINDS: frozenset[str] = frozenset()
+    # Fault kinds whose symptom only some calls can show, each by a predicate over the call's
+    # arguments; a kind absent here shows on every call its selector matches.
+    SHOWS_ON: Mapping[str, Callable[[Mapping[str, Any]], bool]] = {}
 
     def __init__(self, pack: Any, task: Any, env: Any) -> None:
         self.pack = pack
@@ -71,7 +74,8 @@ class Surface:
 
     def fault_shows(self, spec: Any, args: Mapping[str, Any]) -> bool:
         """Whether a call with ``args`` could show the fault's symptom; one that could not is skipped."""
-        return True
+        shows = self.SHOWS_ON.get(spec.kind)
+        return shows is None or shows(args)
 
     def check_fault_kind(self, kind: str) -> None:
         cv.refuse_when(
