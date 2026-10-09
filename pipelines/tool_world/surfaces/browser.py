@@ -23,6 +23,11 @@ from .base import Surface, ToolSpec, error_text
 
 __all__ = ["BrowserSurface"]
 
+
+class _ActionProblem(Exception):
+    """An action that cannot proceed on the open page; its text is the error observation."""
+
+
 FAULT_OVERLAY = "overlay"
 FAULT_SELECTOR_DRIFT = "selector_drift"
 FAULT_NOT_FOUND = "not_found"
@@ -50,7 +55,7 @@ class BrowserSurface(Surface):
                 self.check_fault(spec)
         self.url = ""
         self.history: list[str] = []
-        self.root: dom.Node | None = None
+        self.root: dom.Node = dom.parse_html("")
         self.refs: dict[str, dom.Node] = {}
         self.next_ref = 1
         self.fields: dict[str, str] = {}
@@ -104,7 +109,7 @@ class BrowserSurface(Surface):
         params = fault.spec.params if fault is not None else {}
         if action == "navigate":
             return self._navigate(args, kind, params)
-        if self.root is None:
+        if not self.url:
             return error_text("no page is open; navigate first")
         handlers = {
             "snapshot": self._snapshot,
@@ -115,7 +120,10 @@ class BrowserSurface(Surface):
             "extract": self._extract,
             "back": self._back,
         }
-        return handlers[action](args)
+        try:
+            return handlers[action](args)
+        except _ActionProblem as problem:
+            return error_text(str(problem))
 
     # --- navigation ----------------------------------------------------------
 
@@ -178,24 +186,23 @@ class BrowserSurface(Surface):
             return f"no elements match role={role!r} name={name!r}"
         return "\n".join(lines)
 
-    def _node(self, args: Mapping[str, Any]) -> tuple[dom.Node | None, str | None]:
+    def _node(self, args: Mapping[str, Any]) -> dom.Node:
+        """The element ``args`` names by a live ref, unless a dialog blocks it."""
         ref = args.get("ref")
         if not isinstance(ref, str) or not ref:
-            return None, error_text("this action needs ref")
+            raise _ActionProblem("this action needs ref")
         node = self.refs.get(ref)
         if node is None:
-            return None, error_text(f"stale or unknown ref {ref}; take a new snapshot")
+            raise _ActionProblem(f"stale or unknown ref {ref}; take a new snapshot")
         blocking = dom.blocking_dialog(self.root, node)
         if blocking is not None:
             name = dom.name_of(blocking, "dialog")
-            return None, error_text(f"action blocked by dialog '{name}'; dismiss it first")
-        return node, None
+            raise _ActionProblem(f"action blocked by dialog '{name}'; dismiss it first")
+        return node
 
     def _click(self, args: Mapping[str, Any]) -> str:
-        node, problem = self._node(args)
-        if problem is not None:
-            return problem
-        role = dom.role_of(node)
+        node = self._node(args)
+        role = dom.role_of(node) or ""
         handler = _CLICKS.get(role)
         if handler is None:
             return error_text(f"ref {node.ref} ({role}) is not clickable")
@@ -204,9 +211,7 @@ class BrowserSurface(Surface):
     # --- forms, extraction, history -----------------------------------------
 
     def _type(self, args: Mapping[str, Any]) -> str:
-        node, problem = self._node(args)
-        if problem is not None:
-            return problem
+        node = self._node(args)
         if dom.role_of(node) != "textbox":
             return error_text(f"ref {node.ref} is not a textbox")
         text = args.get("text")
@@ -218,10 +223,7 @@ class BrowserSurface(Surface):
         return f'typed into textbox "{dom.name_of(node, "textbox")}": {text}'
 
     def _submit(self, args: Mapping[str, Any]) -> str:
-        node, problem = self._node(args)
-        if problem is not None:
-            return problem
-        return self.submit_form(dom.enclosing_form(node))
+        return self.submit_form(dom.enclosing_form(self._node(args)))
 
     def submit_form(self, form: dom.Node | None) -> str:
         """Submit ``form`` with the typed values: its action url carries them as the query."""
@@ -260,10 +262,8 @@ class BrowserSurface(Surface):
         return not _submits(field) if _is_checkbox(field) else not self._value_of(field)
 
     def _extract(self, args: Mapping[str, Any]) -> str:
-        node, problem = self._node(args)
-        if problem is not None:
-            return problem
-        text = dom.name_of(node, dom.role_of(node))
+        node = self._node(args)
+        text = dom.name_of(node, dom.role_of(node) or "")
         self.extracted.append(text)
         return f"extracted: {text}"
 

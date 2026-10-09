@@ -109,11 +109,11 @@ def behave(
     """Run one validated call against its declared behavior: ``(text, isError)``."""
     kind = behavior.get("kind", "echo")
     handler = _BEHAVIORS.get(kind)
-    cv.refuse_when(
-        handler is None,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"tool behavior kind {kind!r} is not one of {sorted(_BEHAVIORS)}",
-    )
+    if handler is None:
+        cv.refuse(
+            cv.FINDING_PACK_FIELD_INVALID,
+            f"tool behavior kind {kind!r} is not one of {sorted(_BEHAVIORS)}",
+        )
     return handler(server, behavior, arguments)
 
 

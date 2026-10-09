@@ -88,11 +88,11 @@ def substitute(value: Any, captures: Mapping[str, str]) -> Any:
 def _capture(action: pk.Action, text: str, captures: dict[str, str]) -> None:
     for name, pattern in action.captures.items():
         match = re.search(pattern, text)
-        cv.refuse_when(
-            match is None or not match.groups(),
-            cv.FINDING_CAPTURE_FAILED,
-            f"capture {name!r} ({pattern!r}) found nothing in the observation",
-        )
+        if match is None or not match.groups():
+            cv.refuse(
+                cv.FINDING_CAPTURE_FAILED,
+                f"capture {name!r} ({pattern!r}) found nothing in the observation",
+            )
         captures[name] = match.group(1)
 
 

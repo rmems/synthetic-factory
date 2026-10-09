@@ -124,12 +124,12 @@ class Environment:
     def _check_fault_target(self, spec: Any) -> None:
         """A fault names a registered tool of its own surface and selector keys that tool takes."""
         tool = self._tools.get(spec.tool)
-        cv.refuse_when(
-            tool is None or tool.surface != spec.surface,
-            cv.FINDING_FAULT_UNKNOWN,
-            f"fault {spec.fault_id} names tool {spec.tool!r}, which the {spec.surface} surface "
-            "does not register",
-        )
+        if tool is None or tool.surface != spec.surface:
+            cv.refuse(
+                cv.FINDING_FAULT_UNKNOWN,
+                f"fault {spec.fault_id} names tool {spec.tool!r}, which the {spec.surface} "
+                "surface does not register",
+            )
         properties = tool.input_schema.get("properties") or {}
         stray = sorted(key for key in spec.selector if key.split(".", 1)[0] not in properties)
         cv.refuse_when(

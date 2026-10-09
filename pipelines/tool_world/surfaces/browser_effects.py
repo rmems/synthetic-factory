@@ -22,7 +22,7 @@ __all__ = ["CLICKS", "EFFECTS", "Host"]
 class Host(Protocol):
     """The surface a click acts on: its open DOM and the moves an effect may make."""
 
-    root: dom.Node | None
+    root: dom.Node
 
     def follow(self, url: str) -> str: ...
 

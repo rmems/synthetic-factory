@@ -250,7 +250,7 @@ class McpSurface(Surface):
             server.first_call_at = len(self.env.events) + 1
         text, is_error = self._behave(server, tool.get("behavior", {}), arguments)
         if not is_error:
-            self.successful_calls.add((server.name, name))
+            self.successful_calls.add((server.name, tool["name"]))
         return self._result({"content": [{"type": "text", "text": text}], "isError": is_error})
 
     # The declared behavior runs through the class seam, so a caller can reach it here.

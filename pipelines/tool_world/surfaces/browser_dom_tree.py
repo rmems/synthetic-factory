@@ -85,11 +85,18 @@ class _TreeBuilder(HTMLParser):
             self.current = node
 
     def handle_endtag(self, tag: str) -> None:
-        node = self.current
-        while node is not self.root and node.tag != tag:
-            node = node.parent
-        if node is not self.root:
+        node = self._open_element(tag)
+        if node is not None and node.parent is not None:
             self.current = node.parent
+
+    def _open_element(self, tag: str) -> Node | None:
+        """The nearest open element with ``tag`` below the root, or None when none is open."""
+        for node in (self.current, *self.current.ancestors()):
+            if node is self.root:
+                return None
+            if node.tag == tag:
+                return node
+        return None
 
     def handle_data(self, data: str) -> None:
         if data.strip():

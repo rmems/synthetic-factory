@@ -200,6 +200,8 @@ def find(refs: Mapping[str, Node], role: str | None, name: str | None) -> list[s
     lines = []
     for ref, node in refs.items():
         node_role = role_of(node)
+        if node_role is None:
+            continue
         node_name = name_of(node, node_role)
         if _matches(node_role, node_name, role, needle):
             lines.append(_entry(node_role, node_name, ref))

@@ -84,11 +84,11 @@ def _content_fits(op: str, effect: Mapping[str, Any]) -> bool:
 
 def _check_effect(where: str, effect: Any) -> None:
     op = _effect_op(effect)
-    cv.refuse_when(
-        op is None,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: must be an object with exactly one of {list(_EFFECT_OPS)} naming a path",
-    )
+    if op is None:
+        cv.refuse(
+            cv.FINDING_PACK_FIELD_INVALID,
+            f"{where}: must be an object with exactly one of {list(_EFFECT_OPS)} naming a path",
+        )
     cv.refuse_when(
         not _content_fits(op, effect),
         cv.FINDING_PACK_FIELD_INVALID,
@@ -144,11 +144,8 @@ def check_worker(role: str, spec: Any) -> None:
     """Refuse a worker member whose profiles the surface could not play exactly as written."""
     where = f"worker {role}"
     profiles = spec.get("profiles") if isinstance(spec, Mapping) else None
-    cv.refuse_when(
-        not isinstance(profiles, Mapping) or PROFILE_DEFAULT not in profiles,
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where} must declare a default profile",
-    )
+    if not isinstance(profiles, Mapping) or PROFILE_DEFAULT not in profiles:
+        cv.refuse(cv.FINDING_PACK_FIELD_INVALID, f"{where} must declare a default profile")
     cv.refuse_when(
         spec.get("role") != role,
         cv.FINDING_PACK_FIELD_INVALID,
