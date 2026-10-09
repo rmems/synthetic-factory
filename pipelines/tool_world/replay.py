@@ -374,7 +374,9 @@ def _candidate_lines(run_dir: Path, summary: Mapping[str, Any]) -> list[str]:
     try:
         return payload.decode("utf-8").splitlines()
     except UnicodeDecodeError as exc:
-        cv.refuse(cv.FINDING_RECORD_MALFORMED, f"{CANDIDATES_FILENAME} is not UTF-8 ({exc.reason})")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_RECORD_MALFORMED, f"{CANDIDATES_FILENAME} is not UTF-8 ({exc.reason})"
+        )
 
 
 def _parse_record(line: str, number: int) -> Mapping[str, Any]:

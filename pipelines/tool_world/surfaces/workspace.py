@@ -319,7 +319,7 @@ class WorkspaceSurface(Surface):
         """Evaluate every case of a declared suite against the current tree."""
         spec = self.suites.get(suite)
         if spec is None:
-            cv.refuse(
+            raise cv.ToolWorldRefusal(
                 cv.FINDING_PACK_FIELD_INVALID,
                 f"suite {suite!r} is not declared by the pack; a tests/{suite}.json member must "
                 f"declare a cases list; known: {sorted(self.suites)}",

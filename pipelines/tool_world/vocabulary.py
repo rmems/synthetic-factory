@@ -167,7 +167,7 @@ def is_genuine_int(value: object) -> TypeGuard[int]:
 
 def check_seed(seed: object) -> None:
     if not is_genuine_int(seed):
-        refuse(FINDING_SEED_INVALID, f"seed must be an integer, got {shown(seed)}")
+        raise ToolWorldRefusal(FINDING_SEED_INVALID, f"seed must be an integer, got {shown(seed)}")
     refuse_when(
         not 0 <= seed <= MAX_SEED,
         FINDING_SEED_INVALID,

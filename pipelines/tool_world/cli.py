@@ -120,7 +120,7 @@ def _render(args: argparse.Namespace) -> int:
     for record in replay.load_records(args.run_dir):
         if record.get("id") == args.record_id:
             return _print(record, args.json)
-    cv.refuse(
+    raise cv.ToolWorldRefusal(
         cv.FINDING_RECORD_NOT_FOUND,
         f"record {args.record_id} is not in {args.run_dir / replay.CANDIDATES_FILENAME}",
     )

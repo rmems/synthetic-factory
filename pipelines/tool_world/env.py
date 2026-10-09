@@ -125,7 +125,7 @@ class Environment:
         """A fault names a registered tool of its own surface and selector keys that tool takes."""
         tool = self._tools.get(spec.tool)
         if tool is None or tool.surface != spec.surface:
-            cv.refuse(
+            raise cv.ToolWorldRefusal(
                 cv.FINDING_FAULT_UNKNOWN,
                 f"fault {spec.fault_id} names tool {spec.tool!r}, which the {spec.surface} "
                 "surface does not register",

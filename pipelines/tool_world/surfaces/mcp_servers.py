@@ -110,7 +110,7 @@ def behave(
     kind = behavior.get("kind", "echo")
     handler = _BEHAVIORS.get(kind)
     if handler is None:
-        cv.refuse(
+        raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_FIELD_INVALID,
             f"tool behavior kind {kind!r} is not one of {sorted(_BEHAVIORS)}",
         )

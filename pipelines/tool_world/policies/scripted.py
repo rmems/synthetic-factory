@@ -89,7 +89,7 @@ def _capture(action: pk.Action, text: str, captures: dict[str, str]) -> None:
     for name, pattern in action.captures.items():
         match = re.search(pattern, text)
         if match is None or not match.groups():
-            cv.refuse(
+            raise cv.ToolWorldRefusal(
                 cv.FINDING_CAPTURE_FAILED,
                 f"capture {name!r} ({pattern!r}) found nothing in the observation",
             )

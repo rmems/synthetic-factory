@@ -11,7 +11,7 @@ record is reproducible without the batch. The run never writes under
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +49,7 @@ class RunRequest:
 
     def checked(self) -> RunRequest:
         """This request with ``produced_at`` resolved, or a refusal naming the first bad field."""
-        return replace(self, produced_at=_check_request(self))
+        return RunRequest(**{**asdict(self), "produced_at": _check_request(self)})
 
 
 @dataclass(frozen=True)

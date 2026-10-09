@@ -85,7 +85,7 @@ def _content_fits(op: str, effect: Mapping[str, Any]) -> bool:
 def _check_effect(where: str, effect: Any) -> None:
     op = _effect_op(effect)
     if op is None:
-        cv.refuse(
+        raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_FIELD_INVALID,
             f"{where}: must be an object with exactly one of {list(_EFFECT_OPS)} naming a path",
         )
@@ -145,7 +145,9 @@ def check_worker(role: str, spec: Any) -> None:
     where = f"worker {role}"
     profiles = spec.get("profiles") if isinstance(spec, Mapping) else None
     if not isinstance(profiles, Mapping) or PROFILE_DEFAULT not in profiles:
-        cv.refuse(cv.FINDING_PACK_FIELD_INVALID, f"{where} must declare a default profile")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_PACK_FIELD_INVALID, f"{where} must declare a default profile"
+        )
     cv.refuse_when(
         spec.get("role") != role,
         cv.FINDING_PACK_FIELD_INVALID,

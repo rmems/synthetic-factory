@@ -78,7 +78,9 @@ class Pack:
         for task in self.tasks:
             if task.task_id == task_id:
                 return task
-        cv.refuse(cv.FINDING_TASK_NOT_FOUND, f"task {task_id!r} is not in pack {self.pack_id}")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_TASK_NOT_FOUND, f"task {task_id!r} is not in pack {self.pack_id}"
+        )
 
 
 def pack_digest(directory: Path) -> str:
@@ -161,7 +163,7 @@ def _read_text(path: Path, where: str) -> str:
     try:
         return payload.decode("utf-8")
     except UnicodeDecodeError as exc:
-        cv.refuse(
+        raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_MEMBER_INVALID, f"{where}: {path.name} is not UTF-8 ({exc.reason})"
         )
 
@@ -171,7 +173,7 @@ def _read_json(path: Path, where: str) -> Any:
     try:
         return load_strict_json(text)
     except ValueError as exc:
-        cv.refuse(
+        raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_MEMBER_INVALID, f"{where}: {path.name} is not strict JSON ({exc})"
         )
 
@@ -210,7 +212,9 @@ def _file_members(directory: Path, where: str) -> dict[str, str]:
 def _require_str(row: Mapping[str, Any], key: str, where: str) -> str:
     value = row.get(key)
     if not isinstance(value, str) or not value.strip():
-        cv.refuse(cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a nonempty string")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a nonempty string"
+        )
     return value
 
 
@@ -244,7 +248,9 @@ def _surface_list(value: Any, code: str, where: str) -> list[str]:
     """``value`` as a nonempty list of known surfaces, or a refusal under ``code``."""
     if _is_surface_list(value):
         return value
-    cv.refuse(code, f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}")
+    raise cv.ToolWorldRefusal(
+        code, f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}"
+    )
 
 
 def _surfaces(row: Mapping[str, Any], where: str, allowed: tuple[str, ...]) -> tuple[str, ...]:
@@ -284,7 +290,7 @@ def _max_steps(raw: Mapping[str, Any], where: str) -> int:
     max_steps = raw.get("max_steps")
     if cv.is_genuine_int(max_steps) and 1 <= max_steps <= cv.MAX_STEPS_CEILING:
         return max_steps
-    cv.refuse(
+    raise cv.ToolWorldRefusal(
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: max_steps must be an integer in [1, {cv.MAX_STEPS_CEILING}]",
     )
@@ -293,7 +299,9 @@ def _max_steps(raw: Mapping[str, Any], where: str) -> int:
 def _gold(raw: Mapping[str, Any], where: str) -> tuple[Action, ...]:
     rows = raw.get("gold")
     if not isinstance(rows, list) or not rows:
-        cv.refuse(cv.FINDING_TASK_FIELD_INVALID, f"{where}: gold must be a nonempty list")
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_TASK_FIELD_INVALID, f"{where}: gold must be a nonempty list"
+        )
     return tuple(action_from_row(row, f"{where}.gold[{index}]") for index, row in enumerate(rows))
 
 
@@ -379,7 +387,7 @@ def _pack_id(header: Mapping[str, Any], directory: Path, where: str) -> str:
     pack_id = header.get("pack_id")
     if isinstance(pack_id, str) and _is_pack_id(pack_id, directory.name):
         return pack_id
-    cv.refuse(
+    raise cv.ToolWorldRefusal(
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: pack_id must be a slug equal to the directory name",
     )

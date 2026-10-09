@@ -36,7 +36,7 @@ class Catalog:
         for member in self.packs:
             if member.pack_id == pack_id:
                 return member
-        cv.refuse(
+        raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_FILE_MISSING, f"pack {pack_id!r} is not in catalog {self.catalog_id}"
         )
 

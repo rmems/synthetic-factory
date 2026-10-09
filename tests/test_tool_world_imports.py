@@ -39,7 +39,8 @@ class InProcess(unittest.TestCase):
 
     def test_every_module_is_one_object_under_both_spellings(self):
         flat, packaged = probe.import_flat(), probe.import_packaged()
-        self.assertEqual((set(flat), set(packaged)), ({"", *probe.MODULES},) * 2)
+        self.assertEqual(set(flat), {"", *probe.MODULES})
+        self.assertEqual(set(packaged), set(flat))
         for name in ("", *probe.MODULES):
             flat_name, packaged_name = probe.spellings(name)
             with self.subTest(module=flat_name):
