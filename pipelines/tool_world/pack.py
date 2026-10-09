@@ -148,11 +148,8 @@ def _file_members(directory: Path, where: str) -> dict[str, str]:
 
 def _require_str(row: Mapping[str, Any], key: str, where: str) -> str:
     value = row.get(key)
-    cv.refuse_when(
-        not isinstance(value, str) or not value.strip(),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: {key} must be a nonempty string",
-    )
+    if not isinstance(value, str) or not value.strip():
+        cv.refuse(cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a nonempty string")
     return value
 
 
@@ -184,13 +181,15 @@ def _predicates(
 
 def _surfaces(row: Mapping[str, Any], where: str, allowed: tuple[str, ...]) -> tuple[str, ...]:
     surfaces = row.get("surfaces")
-    cv.refuse_when(
+    if (
         not isinstance(surfaces, list)
         or not surfaces
-        or any(item not in cv.SURFACES for item in surfaces),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
-    )
+        or any(item not in cv.SURFACES for item in surfaces)
+    ):
+        cv.refuse(
+            cv.FINDING_TASK_FIELD_INVALID,
+            f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
+        )
     cv.refuse_when(
         any(item not in allowed for item in surfaces),
         cv.FINDING_TASK_FIELD_INVALID,
