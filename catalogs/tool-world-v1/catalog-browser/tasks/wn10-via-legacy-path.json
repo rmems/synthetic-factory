@@ -1,0 +1,63 @@
+{
+  "task_id": "catalog.wn10-via-legacy-path",
+  "title": "price SKU WN-10 through the legacy catalog path and confirm the pager end",
+  "goal": "Open the legacy /catalog path, which redirects to the parts list, extract the price cell of SKU WN-10 from page 1, open page 2 directly to confirm the pager ends there, return to page 1 with back, and report the price.",
+  "surfaces": ["browser"],
+  "max_steps": 16,
+  "public_predicates": [
+    {"name": "value_reported", "params": {"value": "0.45"}}
+  ],
+  "hidden_predicates": [
+    {"name": "extracted_equals", "params": {"value": "0.45"}},
+    {"name": "url_is", "params": {"url": "https://parts.example/items"}},
+    {"name": "max_steps", "params": {"n": 14}}
+  ],
+  "gold": [
+    {"intent": "load the legacy catalog path and read where its redirect lands",
+     "tool_call": {"name": "browser", "args": {"action": "navigate", "url": "/catalog"}}},
+    {"intent": "page 1 of the parts list is shown; find the WN-10 row to read its price",
+     "tool_call": {"name": "browser", "args": {"action": "find", "role": "row", "name": "WN-10"}},
+     "captures": {"price": "WN-10 ([0-9.]+)\""}},
+    {"intent": "the row text showed the price; find the cell holding exactly that text",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "text", "name": {"$capture": "price"}}},
+     "captures": {"cell": "\\[ref=(e\\d+)\\]"}},
+    {"intent": "extract the price cell so the value is logged as evidence",
+     "tool_call": {"name": "browser", "args": {"action": "extract", "ref": {"$capture": "cell"}}}},
+    {"intent": "the page 1 snapshot showed a pager; load page 2 directly to inspect where it ends",
+     "tool_call": {"name": "browser", "args": {"action": "navigate", "url": "/items?page=2"}}},
+    {"intent": "page 2 says it is the last page; verify no Next page link exists before stopping",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "link", "name": "Next page"}}},
+    {"intent": "the pager ended; go back to page 1 where the extracted price was read",
+     "tool_call": {"name": "browser", "args": {"action": "back"}}},
+    {"intent": "the extracted price is logged and page 1 is shown again; report the result",
+     "tool_call": {"name": "report_result", "args": {"value": {"$capture": "price"}}}}
+  ],
+  "faults": [
+    {"id": "legacy-redirect-loop", "surface": "browser", "kind": "redirect_loop", "tool": "browser",
+     "selector": {"action": "navigate", "url": "/catalog"}, "occurrence": 1,
+     "probability_percent": 100, "marker": "redirect loop detected",
+     "recovery": [
+       {"intent": "the legacy path loops; load the canonical parts list path the goal names",
+        "tool_call": {"name": "browser", "args": {"action": "navigate", "url": "/items"}}}
+     ],
+     "retry": false},
+    {"id": "page-two-not-found", "surface": "browser", "kind": "not_found", "tool": "browser",
+     "selector": {"action": "navigate", "url": "/items?page=2"}, "occurrence": 1,
+     "probability_percent": 50, "marker": "Page not found",
+     "recovery": [
+       {"intent": "the typed page-2 address returned Page not found; go back to the listing",
+        "tool_call": {"name": "browser", "args": {"action": "back"}}},
+       {"intent": "the listing shows its pager; find the Next page link rather than typing a url",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "find", "role": "link", "name": "Next page"}},
+        "captures": {"next_link": "\\[ref=(e\\d+)\\]"}},
+       {"intent": "the pager link ref is in the find result; click it to reach page 2",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "click", "ref": {"$capture": "next_link"}}}}
+     ],
+     "retry": false}
+  ],
+  "perturbations": ["give_up_on_fault", "wrong_arg_type"]
+}

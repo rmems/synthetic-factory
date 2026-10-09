@@ -294,6 +294,7 @@ outside `outputs/raw/`.
 python3 pipelines/tool_world_cli.py catalog-check --json
 python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
 python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json   # exit 1 on any disagreement
+python3 pipelines/tool_world_cli.py catalog-check --write-pins --json          # re-pin after a reviewed pack edit
 ```
 
 ### Curation integration and promotion gate

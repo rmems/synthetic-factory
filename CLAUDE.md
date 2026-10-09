@@ -237,5 +237,8 @@ python3 pipelines/tool_world_cli.py catalog-check --json
 python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
 python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json
 python3 -m unittest discover -s tests -p 'test_tool_world_*.py' -q
+# After an intentional pack edit: re-pin in place, then regenerate the byte-reproduced
+# fixture with the command in tests/test_tool_world_fixture.py
+python3 pipelines/tool_world_cli.py catalog-check --write-pins --json
 ```
 

@@ -1,0 +1,59 @@
+{
+  "task_id": "calendar.book-followup",
+  "title": "book the design review follow-up on the calendar server",
+  "goal": "On the calendar MCP server, book 2026-10-12T15:00 for the design review follow-up: initialize the session, discover the tools, read the booking hours resource, check the events already on 2026-10-12, book the slot, read it back to verify, then report the slot as booked.",
+  "surfaces": ["mcp"],
+  "max_steps": 18,
+  "public_predicates": [
+    {"name": "value_reported", "params": {"value": "2026-10-12T15:00 booked"}},
+    {"name": "max_steps", "params": {"n": 16}}
+  ],
+  "hidden_predicates": [
+    {"name": "listed_before_call", "params": {"server": "calendar"}},
+    {"name": "resource_read", "params": {"server": "calendar", "uri": "calendar://hours"}},
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "list_events"}},
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "book_slot"}},
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "get_slot"}}
+  ],
+  "gold": [
+    {"intent": "initialize the calendar session first; the result names the server and the protocol version every later call relies on",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "initialize",
+      "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+    {"intent": "the handshake needs notifications/initialized after a successful initialize; send it before any tool call",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "notifications/initialized", "params": {}}}},
+    {"intent": "list the calendar tools and read their inputSchema; one page without a nextCursor means the listing is complete",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/list", "params": {}}}},
+    {"intent": "read the booking hours resource so the requested slot is checked against the written requirement",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "resources/read", "params": {"uri": "calendar://hours"}}}},
+    {"intent": "list the events on 2026-10-12 to verify nothing is booked at 15:00 before booking it",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/call", "params": {"name": "list_events", "arguments": {"date": "2026-10-12"}}}}},
+    {"intent": "the event list shows nothing at 15:00 and the hours allow it; book the slot with the slot and title arguments the schema names",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/call", "params": {"name": "book_slot", "arguments": {"slot": "2026-10-12T15:00", "title": "design review follow-up"}}}}},
+    {"intent": "book_slot reported stored; read the slot back with get_slot to verify the server holds the booking",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/call", "params": {"name": "get_slot", "arguments": {"slot": "2026-10-12T15:00"}}}},
+     "verification": true},
+    {"intent": "the read-back shows the follow-up title under the slot; report the booking the goal asked for",
+     "tool_call": {"name": "report_result", "args": {"value": "2026-10-12T15:00 booked"}}}
+  ],
+  "faults": [
+    {"id": "events-rate-limited", "surface": "mcp", "kind": "rate_limited", "tool": "mcp",
+     "selector": {"server": "calendar", "method": "tools/call", "params.name": "list_events"},
+     "occurrence": 1, "probability_percent": 100, "marker": "rate limited", "recovery": [], "retry": true},
+    {"id": "restart-on-readback", "surface": "mcp", "kind": "server_restart", "tool": "mcp",
+     "selector": {"server": "calendar", "method": "tools/call", "params.name": "get_slot"},
+     "occurrence": 1, "probability_percent": 60, "marker": "server restarted",
+     "recovery": [
+       {"intent": "the read-back failed with -32603: the server restarted and the session is gone; initialize again",
+        "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "initialize",
+         "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+       {"intent": "the session is re-established; send notifications/initialized before any further request",
+        "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "notifications/initialized", "params": {}}}},
+       {"intent": "a restart may change the tool set; list the tools again and read the schema before calling one",
+        "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/list", "params": {}}}},
+       {"intent": "a restart drops session state, so the booking stored before it is gone; book the slot again, then verify",
+        "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/call", "params": {"name": "book_slot", "arguments": {"slot": "2026-10-12T15:00", "title": "design review follow-up"}}}}}
+     ],
+     "retry": true}
+  ],
+  "perturbations": ["give_up_on_fault", "skip_verification", "wrong_arg_type"]
+}

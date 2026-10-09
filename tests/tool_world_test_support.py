@@ -71,7 +71,9 @@ def private_catalog(root: Path, pack_ids: tuple[str, ...]) -> Path:
         "family": cv.FAMILY,
         "packs": rows,
     }
-    (root / catalog_mod.CATALOG_FILENAME).write_text(json.dumps(header, indent=2) + "\n", encoding="utf-8")
+    (root / catalog_mod.CATALOG_FILENAME).write_text(
+        json.dumps(header, indent=2) + "\n", encoding="utf-8"
+    )
     return root
 
 

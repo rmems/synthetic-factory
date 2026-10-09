@@ -80,39 +80,68 @@ def _enum_findings(schema: Mapping[str, Any], value: Any, where: str) -> list[st
     return [f"{where}: must be one of {list(allowed)!r}"]
 
 
+def _is_number(value: Any) -> bool:
+    return _is_int(value) or isinstance(value, float)
+
+
+def _is_str(value: Any) -> bool:
+    return isinstance(value, str)
+
+
+# (keyword, the values it bounds, how a value breaks it, the finding it yields)
+_BOUNDS = (
+    ("minimum", _is_number, lambda value, bound: value < bound, "must be at least {}"),
+    ("maximum", _is_number, lambda value, bound: value > bound, "must be at most {}"),
+    (
+        "minLength",
+        _is_str,
+        lambda value, bound: len(value) < bound,
+        "must be at least {} characters",
+    ),
+)
+
+
 def _bounds_findings(schema: Mapping[str, Any], value: Any, where: str) -> list[str]:
+    return [
+        f"{where}: {message.format(schema[keyword])}"
+        for keyword, applies, broken, message in _BOUNDS
+        if keyword in schema and applies(value) and broken(value, schema[keyword])
+    ]
+
+
+def _missing_findings(schema: Mapping[str, Any], value: Mapping[str, Any], where: str) -> list[str]:
+    return [
+        f"{where}: missing required property {name!r}"
+        for name in schema.get("required") or ()
+        if name not in value
+    ]
+
+
+def _unexpected_findings(
+    schema: Mapping[str, Any], value: Mapping[str, Any], where: str
+) -> list[str]:
+    if schema.get("additionalProperties") is not False:
+        return []
+    properties = schema.get("properties") or {}
+    return [f"{where}: unexpected property {name!r}" for name in value if name not in properties]
+
+
+def _property_findings(
+    schema: Mapping[str, Any], value: Mapping[str, Any], where: str
+) -> list[str]:
     findings = []
-    if (
-        "minimum" in schema
-        and (_is_int(value) or isinstance(value, float))
-        and value < schema["minimum"]
-    ):
-        findings.append(f"{where}: must be at least {schema['minimum']}")
-    if (
-        "maximum" in schema
-        and (_is_int(value) or isinstance(value, float))
-        and value > schema["maximum"]
-    ):
-        findings.append(f"{where}: must be at most {schema['maximum']}")
-    if "minLength" in schema and isinstance(value, str) and len(value) < schema["minLength"]:
-        findings.append(f"{where}: must be at least {schema['minLength']} characters")
+    for name, child in (schema.get("properties") or {}).items():
+        if name in value:
+            findings.extend(validate_args(child, value[name], f"{where}.{name}"))
     return findings
 
 
 def _object_findings(schema: Mapping[str, Any], value: Mapping[str, Any], where: str) -> list[str]:
-    findings = []
-    properties = schema.get("properties") or {}
-    for name in schema.get("required") or ():
-        if name not in value:
-            findings.append(f"{where}: missing required property {name!r}")
-    if schema.get("additionalProperties") is False:
-        for name in value:
-            if name not in properties:
-                findings.append(f"{where}: unexpected property {name!r}")
-    for name, child in properties.items():
-        if name in value:
-            findings.extend(validate_args(child, value[name], f"{where}.{name}"))
-    return findings
+    return (
+        _missing_findings(schema, value, where)
+        + _unexpected_findings(schema, value, where)
+        + _property_findings(schema, value, where)
+    )
 
 
 def _array_findings(schema: Mapping[str, Any], value: Sequence[Any], where: str) -> list[str]:

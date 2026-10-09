@@ -10,6 +10,7 @@ from by taking a new snapshot.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -30,6 +31,70 @@ _NOT_FOUND_HTML = (
     "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1>"
     "<p>The page does not exist.</p></body></html>"
 )
+_ORIGIN_RE = re.compile(r"^[a-z][a-z0-9+.-]*://[^/?#]+$")
+_SITE_TABLES = ("pages", "redirects", "overlays", "drift")
+_MAX_REDIRECT_HOPS = 3
+
+
+def _is_text_table(value: Any) -> bool:
+    return isinstance(value, Mapping) and all(
+        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+    )
+
+
+def _check_site(pack: Any) -> None:
+    """Refuse a ``pages/site.json`` the surface could not serve exactly as written."""
+    site, where = pack.site, f"pack {pack.pack_id}"
+    cv.refuse_when(
+        not isinstance(site, Mapping),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: needs pages/site.json with origin and pages",
+    )
+    origin = site.get("origin")
+    cv.refuse_when(
+        not isinstance(origin, str) or _ORIGIN_RE.match(origin) is None,
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: origin must be scheme://host with no path",
+    )
+    for key in _SITE_TABLES:
+        cv.refuse_when(
+            not _is_text_table(site.get(key, {})),
+            cv.FINDING_PACK_FIELD_INVALID,
+            f"{where}: {key} must map strings to strings",
+        )
+    _check_members(site, pack.pages, where)
+    _check_redirects(site, where)
+
+
+def _check_members(site: Mapping[str, Any], pages: Mapping[str, str], where: str) -> None:
+    not_found = site.get("not_found")
+    cv.refuse_when(
+        not_found is not None and not isinstance(not_found, str),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: not_found must name a page member",
+    )
+    members = list(site["pages"].values()) + ([] if not_found is None else [not_found])
+    missing = sorted(member for member in members if member not in pages)
+    cv.refuse_when(
+        bool(missing),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: site names missing page members {missing}",
+    )
+
+
+def _check_redirects(site: Mapping[str, Any], where: str) -> None:
+    redirects = site.get("redirects", {})
+    pages = site["pages"]
+    dangling = sorted(
+        target
+        for target in redirects.values()
+        if target not in redirects and target not in pages and target.partition("?")[0] not in pages
+    )
+    cv.refuse_when(
+        bool(dangling),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: redirects lead to undeclared paths {dangling}",
+    )
 
 
 class BrowserSurface(Surface):
@@ -40,16 +105,15 @@ class BrowserSurface(Surface):
 
     def __init__(self, pack: Any, task: Any, env: Any) -> None:
         super().__init__(pack, task, env)
-        site = pack.site
-        cv.refuse_when(
-            not isinstance(site, Mapping)
-            or not isinstance(site.get("origin"), str)
-            or not isinstance(site.get("pages"), Mapping),
-            cv.FINDING_PACK_FIELD_INVALID,
-            f"pack {pack.pack_id} needs pages/site.json with origin and pages",
-        )
-        self.site = site
-        self.origin = site["origin"].rstrip("/")
+        _check_site(pack)
+        self.site = pack.site
+        self.origin = self.site["origin"]
+        self.redirects = dict(self.site.get("redirects", {}))
+        self.overlays = dict(self.site.get("overlays", {}))
+        self.drift = dict(self.site.get("drift", {}))
+        for spec in task.faults:
+            if spec.surface == self.NAME:
+                self.check_fault(spec)
         self.url = ""
         self.history: list[str] = []
         self.root: dom.Node | None = None
@@ -58,6 +122,23 @@ class BrowserSurface(Surface):
         self.extracted: list[str] = []
         self.submitted: set[str] = set()
         self.visited: list[str] = []
+
+    def check_fault(self, spec: Any) -> None:
+        """Refuse a declared fault this surface could not turn into a symptom."""
+        self.check_fault_kind(spec.kind)
+        cv.refuse_when(
+            spec.selector.get("action") != "navigate",
+            cv.FINDING_TASK_FIELD_INVALID,
+            f"fault {spec.fault_id}: browser faults fire on navigate, so the selector "
+            "must pin action to navigate",
+        )
+        overlay = spec.params.get("overlay")
+        cv.refuse_when(
+            spec.kind == FAULT_OVERLAY
+            and (not isinstance(overlay, str) or overlay not in self.overlays),
+            cv.FINDING_TASK_FIELD_INVALID,
+            f"fault {spec.fault_id}: params.overlay must name one of {sorted(self.overlays)}",
+        )
 
     def tools(self) -> tuple[ToolSpec, ...]:
         return (
@@ -122,22 +203,22 @@ class BrowserSurface(Surface):
         if path is None:
             return error_text(f"navigation blocked: {url} is outside {self.origin}")
         if kind == FAULT_REDIRECT_LOOP:
-            return error_text(f"redirect loop detected after 3 hops while loading {path}")
-        redirects = self.site.get("redirects") or {}
-        hops = 0
-        while path in redirects and hops < 3:
-            path, hops = redirects[path], hops + 1
-        html = None if kind == FAULT_NOT_FOUND else self._page_html(path)
-        if html is None:
-            html = self.pack.pages.get(self.site.get("not_found", ""), _NOT_FOUND_HTML)
-        if kind == FAULT_SELECTOR_DRIFT:
-            for old, new in (self.site.get("drift") or {}).items():
-                html = html.replace(old, new)
+            return error_text(
+                f"redirect loop detected after {_MAX_REDIRECT_HOPS} hops while loading {path}"
+            )
+        path, html = self._resolve(path, missing=kind == FAULT_NOT_FOUND)
+        self._load(path, self._drifted(html) if kind == FAULT_SELECTOR_DRIFT else html)
         if kind == FAULT_OVERLAY:
-            overlay = (self.site.get("overlays") or {}).get(params.get("overlay", ""), "")
-            html = html.replace("<body>", "<body>" + overlay, 1)
-        self._load(path, html)
+            self._inject_overlay(params["overlay"])
         return self._page_text()
+
+    def _resolve(self, path: str, *, missing: bool) -> tuple[str, str]:
+        """Follow the declared redirect hops; the page html, or the not-found page."""
+        hops = 0
+        while path in self.redirects and hops < _MAX_REDIRECT_HOPS:
+            path, hops = self.redirects[path], hops + 1
+        html = None if missing else self._page_html(path)
+        return path, self._not_found_html() if html is None else html
 
     def _page_html(self, path: str) -> str | None:
         pages = self.site["pages"]
@@ -145,12 +226,24 @@ class BrowserSurface(Surface):
         member = pages.get(path) or pages.get(bare)
         if member is None:
             return None
-        html = self.pack.pages.get(member)
-        if html is None:
-            return None
+        html = self.pack.pages[member]
         for key, value in parse_qsl(query, keep_blank_values=True):
             html = html.replace("{{" + key + "}}", value)
         return html
+
+    def _not_found_html(self) -> str:
+        """The pack's declared not-found page, or the built-in one."""
+        member = self.site.get("not_found")
+        return _NOT_FOUND_HTML if member is None else self.pack.pages[member]
+
+    def _drifted(self, html: str) -> str:
+        for old, new in self.drift.items():
+            html = html.replace(old, new)
+        return html
+
+    def _inject_overlay(self, name: str) -> None:
+        dom.prepend_to_body(self.root, dom.parse_html(self.overlays[name]))
+        self._reindex()
 
     def _load(self, path: str, html: str) -> None:
         if self.url:
@@ -207,46 +300,64 @@ class BrowserSurface(Surface):
         if problem is not None:
             return problem
         role = dom.role_of(node)
-        if role == "link":
-            return self._navigate({"url": node.attrs["href"]}, None, {})
-        if role == "checkbox":
-            if "checked" in node.attrs:
-                del node.attrs["checked"]
-            else:
-                node.attrs["checked"] = ""
-            return f'toggled checkbox "{dom.name_of(node, role)}": {"checked" if "checked" in node.attrs else "unchecked"}'
-        if role == "button":
-            return self._press(node)
-        return error_text(f"ref {node.ref} ({role}) is not clickable")
+        handler = _CLICKS.get(role)
+        if handler is None:
+            return error_text(f"ref {node.ref} ({role}) is not clickable")
+        return handler(self, node)
+
+    def _follow_link(self, node: dom.Node) -> str:
+        return self._navigate({"url": node.attrs["href"]}, None, {})
+
+    @staticmethod
+    def _toggle_checkbox(node: dom.Node) -> str:
+        if "checked" in node.attrs:
+            del node.attrs["checked"]
+        else:
+            node.attrs["checked"] = ""
+        state = "checked" if "checked" in node.attrs else "unchecked"
+        return f'toggled checkbox "{dom.name_of(node, "checkbox")}": {state}'
+
+    # --- declared button effects ---------------------------------------------
 
     def _press(self, node: dom.Node) -> str:
-        effect = node.attrs.get("data-effect", "")
-        label = dom.name_of(node, "button")
-        kind, _, target = effect.partition(":")
-        if kind == "navigate":
-            return self._navigate({"url": target}, None, {})
-        if kind == "dismiss":
-            dialog = self.root.find_id(target)
-            if dialog is not None:
-                dialog.remove()
-            self._reindex()
-            return f"dismissed dialog '{target}'\n{self._page_text()}"
-        if kind == "toggle":
-            element = self.root.find_id(target)
-            if element is None:
-                return error_text(f'button "{label}" targets missing element {target}')
-            element.attrs["data-state"] = "off" if element.attrs.get("data-state") == "on" else "on"
-            self._reindex()
-            return f"toggled {target}: {element.attrs['data-state']}"
-        if kind == "next":
-            link = dom.next_link(self.root)
-            if link is None:
-                return error_text("no next page")
-            return self._navigate({"url": link.attrs["href"]}, None, {})
-        if kind == "submit" or node.attrs.get("type") == "submit":
-            form = self.root.find_id(target) if target else dom.enclosing_form(node)
-            return self._submit_form(form)
-        return error_text(f'button "{label}" has no declared effect')
+        kind, _, target = node.attrs.get("data-effect", "").partition(":")
+        if kind not in _EFFECTS and node.attrs.get("type") == "submit":
+            kind = "submit"
+        handler = _EFFECTS.get(kind)
+        if handler is None:
+            return error_text(f'button "{dom.name_of(node, "button")}" has no declared effect')
+        return handler(self, node, target)
+
+    def _effect_navigate(self, node: dom.Node, target: str) -> str:
+        return self._navigate({"url": target}, None, {})
+
+    def _effect_dismiss(self, node: dom.Node, target: str) -> str:
+        dialog = self.root.find_id(target)
+        if dialog is not None:
+            dialog.remove()
+        self._reindex()
+        return f"dismissed dialog '{target}'\n{self._page_text()}"
+
+    def _effect_toggle(self, node: dom.Node, target: str) -> str:
+        element = self.root.find_id(target)
+        if element is None:
+            label = dom.name_of(node, "button")
+            return error_text(f'button "{label}" targets missing element {target}')
+        element.attrs["data-state"] = "off" if element.attrs.get("data-state") == "on" else "on"
+        self._reindex()
+        return f"toggled {target}: {element.attrs['data-state']}"
+
+    def _effect_next(self, node: dom.Node, target: str) -> str:
+        link = dom.next_link(self.root)
+        if link is None:
+            return error_text("no next page")
+        return self._navigate({"url": link.attrs["href"]}, None, {})
+
+    def _effect_submit(self, node: dom.Node, target: str) -> str:
+        form = self.root.find_id(target) if target else dom.enclosing_form(node)
+        return self._submit_form(form)
+
+    # --- forms, extraction, history -----------------------------------------
 
     def _type(self, args: Mapping[str, Any]) -> str:
         node, problem = self._node(args)
@@ -296,12 +407,9 @@ class BrowserSurface(Surface):
     def _back(self, args: Mapping[str, Any]) -> str:
         if not self.history:
             return error_text("no earlier page in history")
-        previous = self.history.pop()
-        path = self._path_of(previous) or "/"
-        html = self._page_html(path) or _NOT_FOUND_HTML
+        path, html = self._resolve(self._path_of(self.history.pop()) or "/", missing=False)
         self.url = ""
         self._load(path, html)
-        self.history.pop()
         return self._page_text()
 
     def state_view(self) -> Any:
@@ -312,6 +420,20 @@ class BrowserSurface(Surface):
             "submitted": sorted(self.submitted),
             "fields": dict(sorted(self.fields.items())),
         }
+
+
+_CLICKS = {
+    "link": BrowserSurface._follow_link,
+    "checkbox": lambda surface, node: surface._toggle_checkbox(node),
+    "button": BrowserSurface._press,
+}
+_EFFECTS = {
+    "navigate": BrowserSurface._effect_navigate,
+    "dismiss": BrowserSurface._effect_dismiss,
+    "toggle": BrowserSurface._effect_toggle,
+    "next": BrowserSurface._effect_next,
+    "submit": BrowserSurface._effect_submit,
+}
 
 
 bind_import_twin(__name__)

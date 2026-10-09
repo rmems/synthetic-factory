@@ -1,0 +1,250 @@
+{
+  "task_id": "release.smoke-and-notes",
+  "title": "land the smoke test and the changelog entry, answering and cancelling delegates as needed",
+  "goal": "Get the smoke and docs suites passing: delegate the changelog entry to a scribe and the smoke test to a tester, answer a tester question if one comes, cancel a delegate that does not finish, verify both suites, and report the result.",
+  "surfaces": [
+    "delegation",
+    "workspace"
+  ],
+  "max_steps": 18,
+  "public_predicates": [
+    {
+      "name": "value_reported",
+      "params": {
+        "value": "smoke and docs suites pass"
+      }
+    }
+  ],
+  "hidden_predicates": [
+    {
+      "name": "tests_pass",
+      "params": {
+        "suite": "smoke"
+      }
+    },
+    {
+      "name": "tests_pass",
+      "params": {
+        "suite": "docs"
+      }
+    },
+    {
+      "name": "verified_before_merge",
+      "params": {}
+    },
+    {
+      "name": "no_agents_pending",
+      "params": {}
+    },
+    {
+      "name": "max_agents",
+      "params": {
+        "n": 2
+      }
+    },
+    {
+      "name": "file_contains",
+      "params": {
+        "path": "CHANGELOG.md",
+        "text": "feature()"
+      }
+    },
+    {
+      "name": "max_steps",
+      "params": {
+        "n": 16
+      }
+    }
+  ],
+  "gold": [
+    {
+      "intent": "read the release checklist so each brief carries the requirement its suite checks",
+      "tool_call": {
+        "name": "read_file",
+        "args": {
+          "path": "docs/RELEASE.md"
+        }
+      }
+    },
+    {
+      "intent": "the checklist names the changelog requirement; brief a scribe scoped to CHANGELOG.md",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "spawn",
+          "role": "scribe",
+          "brief": "Add a ## 1.2.0 section to CHANGELOG.md that mentions feature(); the docs cases of the suite check the heading and the mention",
+          "scope": [
+            "CHANGELOG.md"
+          ]
+        }
+      },
+      "captures": {
+        "scribe": "spawned (w\\d+) as scribe"
+      }
+    },
+    {
+      "intent": "the checklist names the smoke test requirement; brief a tester scoped to tests/test_feature.py",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "spawn",
+          "role": "tester",
+          "brief": "Write tests/test_feature.py asserting feature() == \"release-ready\" as the checklist states; the smoke suite checks that assertion",
+          "scope": [
+            "tests/test_feature.py"
+          ]
+        }
+      },
+      "captures": {
+        "tester": "spawned (w\\d+) as tester"
+      }
+    },
+    {
+      "intent": "both delegates acknowledged their briefs; await the scribe's report first",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "await",
+          "agent_id": {
+            "$capture": "scribe"
+          }
+        }
+      }
+    },
+    {
+      "intent": "the changelog is settled; await the tester's report",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "await",
+          "agent_id": {
+            "$capture": "tester"
+          }
+        }
+      }
+    },
+    {
+      "intent": "the tester reported done; run the smoke suite to verify the claim against the tree",
+      "tool_call": {
+        "name": "run_tests",
+        "args": {
+          "suite": "smoke"
+        }
+      },
+      "verification": true
+    },
+    {
+      "intent": "the smoke suite passed; run the docs suite to verify the changelog entry too",
+      "tool_call": {
+        "name": "run_tests",
+        "args": {
+          "suite": "docs"
+        }
+      },
+      "verification": true
+    },
+    {
+      "intent": "both suites passed; list the agents to show none is still working or waiting on a question",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "list"
+        }
+      }
+    },
+    {
+      "intent": "the listing shows no delegate working and both suites verified; report the result",
+      "tool_call": {
+        "name": "report_result",
+        "args": {
+          "value": "smoke and docs suites pass"
+        }
+      }
+    }
+  ],
+  "faults": [
+    {
+      "id": "scribe-runaway",
+      "surface": "delegation",
+      "kind": "late",
+      "tool": "agent",
+      "selector": {
+        "action": "spawn",
+        "role": "scribe"
+      },
+      "occurrence": 1,
+      "probability_percent": 100,
+      "marker": "pending (still working on",
+      "recovery": [
+        {
+          "intent": "the await shows the scribe still working and the release window is short; cancel the runaway delegate",
+          "tool_call": {
+            "name": "agent",
+            "args": {
+              "action": "cancel",
+              "agent_id": {
+                "$capture": "scribe"
+              }
+            }
+          }
+        },
+        {
+          "intent": "the cancel is acknowledged; read CHANGELOG.md to anchor the 1.2.0 entry on its heading",
+          "tool_call": {
+            "name": "read_file",
+            "args": {
+              "path": "CHANGELOG.md"
+            }
+          }
+        },
+        {
+          "intent": "the read shows the 1.1.0 section right under the heading; insert the 1.2.0 section the requirement names above it",
+          "tool_call": {
+            "name": "edit_file",
+            "args": {
+              "path": "CHANGELOG.md",
+              "old": "# Changelog\n\n## 1.1.0",
+              "new": "# Changelog\n\n## 1.2.0\n\n- Add feature() in src/feature.py, the readiness probe the release checklist requires.\n\n## 1.1.0"
+            }
+          }
+        }
+      ],
+      "retry": false
+    },
+    {
+      "id": "tester-question",
+      "surface": "delegation",
+      "kind": "question",
+      "tool": "agent",
+      "selector": {
+        "action": "spawn",
+        "role": "tester"
+      },
+      "occurrence": 1,
+      "probability_percent": 100,
+      "marker": " asks: ",
+      "recovery": [
+        {
+          "intent": "the tester's report asks which module to import from; answer from the checklist, which names src/feature.py",
+          "tool_call": {
+            "name": "agent",
+            "args": {
+              "action": "send",
+              "agent_id": {
+                "$capture": "tester"
+              },
+              "message": "Import it from src.feature: the implementer owns src/feature.py and the checklist names that module"
+            }
+          }
+        }
+      ],
+      "retry": true
+    }
+  ],
+  "perturbations": [
+    "skip_verification",
+    "give_up_on_fault",
+    "wrong_arg_type"
+  ]
+}

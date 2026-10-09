@@ -1,0 +1,68 @@
+{
+  "task_id": "tickets.triage-t104",
+  "title": "triage ticket T-104 on the tickets server",
+  "goal": "Triage ticket T-104 on the tickets MCP server: initialize the session, discover its tools, read the triage policy resource and the triage prompt, read the ticket, set its status as the policy directs, read the status back, then report the ticket id and its new status.",
+  "surfaces": ["mcp"],
+  "max_steps": 20,
+  "public_predicates": [
+    {"name": "value_reported", "params": {"value": "T-104 in_progress"}},
+    {"name": "max_steps", "params": {"n": 18}}
+  ],
+  "hidden_predicates": [
+    {"name": "listed_before_call", "params": {"server": "tickets"}},
+    {"name": "resource_read", "params": {"server": "tickets", "uri": "tickets://policy"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "get_ticket"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "set_status"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "get_status"}}
+  ],
+  "gold": [
+    {"intent": "open the session with initialize so the server reports its protocol version and capabilities before any other request",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "initialize",
+      "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+    {"intent": "the initialize result named the server and its protocol version; send notifications/initialized to finish the handshake the protocol requires",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "notifications/initialized", "params": {}}}},
+    {"intent": "list the first page of tools and read each inputSchema before calling anything; the result may end with a nextCursor",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {}}},
+     "captures": {"cursor": "\"nextCursor\":\"(cursor-[0-9]+)\""}},
+    {"intent": "the first page ended with a nextCursor; request the second page with that cursor so no tool or schema is missed",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {"cursor": {"$capture": "cursor"}}}}},
+    {"intent": "read the triage policy resource so the status decision follows the written requirement instead of a guess",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "resources/read", "params": {"uri": "tickets://policy"}}}},
+    {"intent": "fetch the triage prompt for T-104 to see the steps the server's own workflow lays out for this goal",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "prompts/get", "params": {"name": "triage", "arguments": {"ticket_id": "T-104"}}}}},
+    {"intent": "the prompt says to read the ticket first; call get_ticket with the id argument the listed schema requires",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "get_ticket", "arguments": {"id": "T-104"}}}}},
+    {"intent": "the ticket note records a reproduction, so the policy moves it to in_progress; call set_status with the arguments the listed schema names",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "set_status", "arguments": {"id": "T-104", "status": "in_progress"}}}}},
+    {"intent": "set_status returned without isError; read the status back with get_status to verify the server stored it",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "get_status", "arguments": {"id": "T-104"}}}},
+     "verification": true},
+    {"intent": "the read-back shows in_progress; report the ticket id and status the goal asked for",
+     "tool_call": {"name": "report_result", "args": {"value": "T-104 in_progress"}}}
+  ],
+  "faults": [
+    {"id": "empty-first-page", "surface": "mcp", "kind": "empty_first_page", "tool": "mcp",
+     "selector": {"server": "tickets", "method": "tools/list", "params.cursor": null},
+     "occurrence": 1, "probability_percent": 60, "marker": "\"tools\":[]",
+     "recovery": [
+       {"intent": "the first page listed no tools yet carried a nextCursor; follow the cursor instead of treating the empty page as the whole tool result",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {"cursor": "cursor-0"}}},
+        "captures": {"cursor": "\"nextCursor\":\"(cursor-[0-9]+)\""}}
+     ],
+     "retry": false},
+    {"id": "set-status-drift", "surface": "mcp", "kind": "schema_drift", "tool": "mcp",
+     "selector": {"server": "tickets", "method": "tools/call", "params.name": "set_status"},
+     "occurrence": 1, "probability_percent": 100, "marker": "notifications/tools/list_changed",
+     "recovery": [
+       {"intent": "the server sent notifications/tools/list_changed and answered -32602; re-list the tools from the first page to read the current schema",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {}}},
+        "captures": {"cursor": "\"nextCursor\":\"(cursor-[0-9]+)\""}},
+       {"intent": "the refreshed first page ended with a nextCursor; read the second page, where set_status is listed",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {"cursor": {"$capture": "cursor"}}}}},
+       {"intent": "the refreshed schema names the ticket by ticket_id instead of id; call set_status again with the renamed argument",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "set_status", "arguments": {"ticket_id": "T-104", "status": "in_progress"}}}}}
+     ],
+     "retry": false}
+  ],
+  "perturbations": ["give_up_on_fault", "skip_verification", "wrong_arg_type"]
+}

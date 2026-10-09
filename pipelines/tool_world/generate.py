@@ -10,7 +10,8 @@ record is reproducible without the batch. The run never writes under
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ __all__ = [
     "CANDIDATES_FILENAME",
     "NOTES_FILENAME",
     "RUN_FILENAME",
+    "Draw",
     "RunRequest",
     "generate_record",
     "run",
@@ -46,7 +48,23 @@ class RunRequest:
     produced_at: str | None = None
 
 
-def _check_request(request: RunRequest) -> str:
+@dataclass(frozen=True)
+class Draw:
+    """One drawn task under one variant, numbered by its place among the run's records."""
+
+    pack: Any
+    task: Any
+    variant: str
+    index: int
+
+    def seed(self, run_seed: int) -> int:
+        """The record's own seed, so one record is reproducible without the batch."""
+        label = f"{self.pack.pack_id}:{self.task.task_id}:{self.variant}:{self.index}"
+        return rng.seed_from_label(run_seed, label)
+
+
+def _check_request(request: RunRequest) -> RunRequest:
+    """The request with ``produced_at`` resolved, or a refusal naming the first bad field."""
     cv.check_seed(request.seed)
     cv.refuse_first(
         (
@@ -84,35 +102,14 @@ def _check_request(request: RunRequest) -> str:
         cv.FINDING_PRODUCED_AT_NOT_A_TIMESTAMP,
         f"produced_at must be ISO-8601 UTC, got {cv.shown(produced_at)}",
     )
-    return produced_at
+    return replace(request, produced_at=produced_at)
 
 
-def record_seed(run_seed: int, pack_id: str, task_id: str, variant: str, draw: int) -> int:
-    return rng.seed_from_label(run_seed, f"{pack_id}:{task_id}:{variant}:{draw}")
-
-
-def generate_record(
-    catalog: cat.Catalog,
-    pack: Any,
-    task: Any,
-    *,
-    seed: int,
-    variant: str,
-    run_id: str,
-    policy: str,
-    draw: int,
-) -> dict[str, Any]:
-    """One record: a fresh environment, the scripted solver, the assembled record."""
-    env = environment.Environment(pack, task, seed)
-    trajectory = scripted.run(env, variant)
-    return records.build_record(
-        env,
-        trajectory,
-        catalog_sha256=catalog.catalog_sha256,
-        run_id=run_id,
-        policy=policy,
-        draw=draw,
-    )
+def generate_record(draw: Draw, run_seed: int, run: records.RunContext) -> dict[str, Any]:
+    """One record: a fresh environment under the draw's seed, the scripted solver, the record."""
+    env = environment.Environment(draw.pack, draw.task, draw.seed(run_seed))
+    trajectory = scripted.run(env, draw.variant)
+    return records.build_record(env, trajectory, run, draw.index)
 
 
 def _variants(task: Any, variants: str) -> tuple[str, ...]:
@@ -135,76 +132,71 @@ def _notes(summary: dict[str, Any], rows: list[dict[str, Any]]) -> str:
             f"({summary['catalog_sha256'][:16]}), policy {summary['policy_sha256'][:16]}."
         ),
         "",
-        "Every observation below was computed by the environment and replays from (pack, seed, actions).",
+        (
+            "Every observation below was computed by the environment and replays from "
+            "(pack, seed, actions)."
+        ),
         "",
         "## Records",
     ]
     for row in rows:
         lines.append(
             f"- `{row['id']}`: {row['task_id']} [{row['variant']}] steps={row['steps']} "
-            f"success={row['success']} decision={row['decision']} faults_fired={row['faults_fired']}"
+            f"success={row['success']} decision={row['decision']} "
+            f"faults_fired={row['faults_fired']}"
         )
     return "\n".join(lines) + "\n"
 
 
-def run(request: RunRequest) -> dict[str, Any]:
-    """Draw ``count`` tasks and write their records into ``out_dir``."""
-    produced_at = _check_request(request)
-    catalog = cat.load_catalog(request.catalog_dir)
-    tasks = list(catalog.tasks(request.factory))
-    cv.refuse_when(
-        request.count > len(tasks),
-        cv.FINDING_COUNT_OUT_OF_DOMAIN,
-        f"count {request.count} exceeds the {len(tasks)} tasks the catalog offers for this factory",
-    )
-    drawn = rng.DrawStream(request.seed).sample(tasks, request.count)
-    policy = scripted.policy_sha256()
-    run_id = f"twd-run-{request.seed}-{catalog.catalog_sha256[:12]}"
+def _row(record: dict[str, Any], task: Any, variant: str) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "task_id": task.task_id,
+        "factory": task.factory,
+        "variant": variant,
+        "steps": len(record["training_view"]["steps"]),
+        "success": record["training_view"]["reward"]["success"],
+        "decision": record["curation"]["decision"],
+        "faults_fired": len(record["payload"]["execution_evidence"]["faults_fired"]),
+    }
+
+
+def _records_for(
+    drawn: list[tuple[Any, Any]], request: RunRequest, run: records.RunContext
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """One record per drawn task and variant; the draw index numbers them in order."""
     lines: list[str] = []
     rows: list[dict[str, Any]] = []
-    draw = 0
     for pack, task in drawn:
         for variant in _variants(task, request.variants):
-            draw += 1
-            seed = record_seed(request.seed, pack.pack_id, task.task_id, variant, draw)
-            record = generate_record(
-                catalog,
-                pack,
-                task,
-                seed=seed,
-                variant=variant,
-                run_id=run_id,
-                policy=policy,
-                draw=draw,
-            )
+            draw = Draw(pack, task, variant, len(rows) + 1)
+            record = generate_record(draw, request.seed, run)
             lines.append(dumps_exact_json(record, ensure_ascii=True))
-            rows.append(
-                {
-                    "id": record["id"],
-                    "task_id": task.task_id,
-                    "factory": task.factory,
-                    "variant": variant,
-                    "steps": len(record["training_view"]["steps"]),
-                    "success": record["training_view"]["reward"]["success"],
-                    "decision": record["curation"]["decision"],
-                    "faults_fired": len(record["payload"]["execution_evidence"]["faults_fired"]),
-                }
-            )
-    payload = "\n".join(lines) + "\n"
-    summary = {
+            rows.append(_row(record, task, variant))
+    return lines, rows
+
+
+def _header(request: RunRequest, catalog: cat.Catalog, run: records.RunContext) -> dict[str, Any]:
+    return {
         "format": cv.RUN_FORMAT,
         "family": cv.FAMILY,
-        "run_id": run_id,
+        "run_id": run.run_id,
         "generator": cv.GENERATOR_NAME,
         "generator_version": cv.GENERATOR_VERSION,
-        "policy_sha256": policy,
+        "policy_sha256": run.policy,
         "catalog_id": catalog.catalog_id,
         "catalog_sha256": catalog.catalog_sha256,
         "seed": request.seed,
         "count": request.count,
         "factory": request.factory,
         "variants": request.variants,
-        "produced_at": produced_at,
+        "produced_at": request.produced_at,
+    }
+
+
+def _summary(header: Mapping[str, Any], rows: list[dict[str, Any]], payload: str) -> dict[str, Any]:
+    return {
+        **header,
         "records": len(rows),
         "accepted": sum(1 for row in rows if row["decision"] == cv.DECISION_ACCEPT),
         "measured": sum(1 for row in rows if row["decision"] == cv.DECISION_MEASURE),
@@ -213,6 +205,27 @@ def run(request: RunRequest) -> dict[str, Any]:
         "self_certified_training_ready": False,
         "rows": rows,
     }
+
+
+def run(request: RunRequest) -> dict[str, Any]:
+    """Draw ``count`` tasks and write their records into ``out_dir``."""
+    request = _check_request(request)
+    catalog = cat.load_catalog(request.catalog_dir)
+    tasks = list(catalog.tasks(request.factory))
+    cv.refuse_when(
+        request.count > len(tasks),
+        cv.FINDING_COUNT_OUT_OF_DOMAIN,
+        f"count {request.count} exceeds the {len(tasks)} tasks the catalog offers for this factory",
+    )
+    drawn = rng.DrawStream(request.seed).sample(tasks, request.count)
+    context = records.RunContext(
+        catalog_sha256=catalog.catalog_sha256,
+        run_id=f"twd-run-{request.seed}-{catalog.catalog_sha256[:12]}",
+        policy=scripted.policy_sha256(),
+    )
+    lines, rows = _records_for(drawn, request, context)
+    payload = "\n".join(lines) + "\n"
+    summary = _summary(_header(request, catalog, context), rows, payload)
     request.out_dir.mkdir(parents=True)
     _write_new(request.out_dir / CANDIDATES_FILENAME, payload)
     _write_new(request.out_dir / RUN_FILENAME, dumps_exact_json(summary, indent=2) + "\n")

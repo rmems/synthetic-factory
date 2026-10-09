@@ -1,0 +1,29 @@
+{
+  "suite": "feature",
+  "cases": [
+    {
+      "id": "feature_defined",
+      "check": {
+        "kind": "file_contains",
+        "path": "src/feature.py",
+        "text": "def feature():"
+      }
+    },
+    {
+      "id": "feature_returns",
+      "check": {
+        "kind": "file_contains",
+        "path": "src/feature.py",
+        "text": "return \"release-ready\""
+      }
+    },
+    {
+      "id": "version_bumped",
+      "check": {
+        "kind": "file_contains",
+        "path": "src/app.py",
+        "text": "VERSION = \"1.2.0\""
+      }
+    }
+  ]
+}

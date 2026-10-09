@@ -63,7 +63,7 @@ def decision_basis(prefix: str, intent: str) -> str:
         f"decision_basis exceeds {cv.MAX_DECISION_BASIS} chars: {basis[:60]!r}",
     )
     cv.refuse_when(
-        OBSERVABLE_BASIS_RE.search(basis) is None,
+        OBSERVABLE_BASIS_RE.search(intent) is None,
         cv.FINDING_DECISION_BASIS_INVALID,
         f"decision_basis cites no observable evidence: {basis!r}",
     )
@@ -134,11 +134,8 @@ def _fault_for(text: str, task: pk.Task) -> Any:
     return next((spec for spec in task.faults if spec.marker in text), None)
 
 
-def _recovery(fault: Any, action: pk.Action, where: str) -> list[tuple[str, pk.Action]]:
-    steps = [
-        (cv.DB_OBSERVATION, pk.action_from_row(row, f"{where}.recovery[{index}]"))
-        for index, row in enumerate(fault.recovery)
-    ]
+def _recovery(fault: Any, action: pk.Action) -> list[tuple[str, pk.Action]]:
+    steps = [(cv.DB_OBSERVATION, recovery) for recovery in fault.recovery]
     if fault.retry:
         retry = pk.Action(
             intent=f"the observation reported {fault.marker!r}; retry the interrupted tool call",
@@ -180,7 +177,7 @@ def run(env: Any, variant: str = cv.VARIANT_GOLD) -> Trajectory:
                 steps.append(Step(len(steps) + 1, basis, report, final.text, final.fault_id))
             break
         recovered += 1
-        queue = _recovery(fault, action, f"{task.task_id}/{fault.fault_id}") + queue
+        queue = _recovery(fault, action) + queue
     return Trajectory(variant, tuple(steps), gave_up, recovered)
 
 

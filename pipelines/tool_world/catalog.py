@@ -16,9 +16,9 @@ from typing import Any
 
 from . import pack as pk
 from . import vocabulary as cv
-from ._contract import bind_import_twin, load_strict_json, sha256_canonical
+from ._contract import bind_import_twin, dumps_exact_json, load_strict_json, sha256_canonical
 
-__all__ = ["DEFAULT_CATALOG", "Catalog", "catalog_digest", "load_catalog"]
+__all__ = ["DEFAULT_CATALOG", "Catalog", "catalog_digest", "load_catalog", "write_pins"]
 
 CATALOG_FILENAME = "CATALOG.json"
 _REPO = Path(__file__).resolve().parents[2]
@@ -97,6 +97,16 @@ def _header(directory: Path) -> Mapping[str, Any]:
     return header
 
 
+def _row_pack(directory: Path, row: Any, where: str) -> pk.Pack:
+    """The pack a catalog row names, loaded from its current bytes."""
+    cv.refuse_when(
+        not isinstance(row, Mapping) or not isinstance(row.get("pack_id"), str),
+        cv.FINDING_CATALOG_FIELD_INVALID,
+        f"{where}: must carry a pack_id string",
+    )
+    return pk.load_pack(directory / row["pack_id"])
+
+
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load every pinned pack; a pack whose bytes drifted from its pin is refused."""
     directory = Path(directory) if directory is not None else DEFAULT_CATALOG
@@ -104,18 +114,17 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     packs = []
     for index, row in enumerate(header["packs"]):
         where = f"packs[{index}]"
+        member = _row_pack(directory, row, where)
         cv.refuse_when(
-            not isinstance(row, Mapping)
-            or not isinstance(row.get("pack_id"), str)
-            or not isinstance(row.get("pack_sha256"), str),
+            not isinstance(row.get("pack_sha256"), str),
             cv.FINDING_CATALOG_FIELD_INVALID,
-            f"{where}: must carry pack_id and pack_sha256 strings",
+            f"{where}: must carry a pack_sha256 string",
         )
-        member = pk.load_pack(directory / row["pack_id"])
         cv.refuse_when(
             member.pack_sha256 != row["pack_sha256"],
             cv.FINDING_PACK_SHA_MISMATCH,
-            f"{where}: pack {member.pack_id} digest {member.pack_sha256} is not the pinned {row['pack_sha256']}",
+            f"{where}: pack {member.pack_id} digest {member.pack_sha256} "
+            f"is not the pinned {row['pack_sha256']}",
         )
         packs.append(member)
     ids = [member.pack_id for member in packs]
@@ -128,6 +137,26 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         packs=tuple(packs),
         catalog_sha256=catalog_digest(tuple(packs)),
     )
+
+
+def write_pins(directory: Path | None = None) -> Catalog:
+    """Re-pin every pack the header names from its current bytes, then load the catalog.
+
+    The one tool-world writer that refreshes a file in place: ``CATALOG.json`` is
+    the index of reviewed pack digests, refreshed like ``NEXT_ROUND.json`` after an
+    intentional pack edit. Rows keep their order and prose; only ``surfaces`` and
+    ``pack_sha256`` are rewritten, and the result must load like any other catalog.
+    """
+    directory = Path(directory) if directory is not None else DEFAULT_CATALOG
+    header = dict(_header(directory))
+    rows = []
+    for index, row in enumerate(header["packs"]):
+        member = _row_pack(directory, row, f"packs[{index}]")
+        rows.append({**row, "surfaces": list(member.surfaces), "pack_sha256": member.pack_sha256})
+    header["packs"] = rows
+    path = directory / CATALOG_FILENAME
+    path.write_text(dumps_exact_json(header, indent=2) + "\n", encoding="utf-8", newline="")
+    return load_catalog(directory)
 
 
 bind_import_twin(__name__)

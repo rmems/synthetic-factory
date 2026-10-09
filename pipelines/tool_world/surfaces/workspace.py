@@ -4,7 +4,10 @@
 Files live in memory, seeded from the pack's ``files/`` members; nothing
 touches the host filesystem. ``run_tests`` evaluates a declared suite's cases
 against the current tree, so an edit changes the outcome and the outcome is
-computed, never scripted.
+computed, never scripted. Declared suites and the faults that name this surface
+are checked when the environment is built: a malformed suite, or a fault whose
+symptom no observation could show, is a coded refusal at load, not a surprise
+at run time.
 """
 
 from __future__ import annotations
@@ -24,6 +27,13 @@ FAULT_FLAKY_TEST = "flaky_test"
 FAULT_TRUNCATED = "truncated_output"
 _TRUNCATE_AT = 160
 _MAX_MATCHES = 40
+_TIMEOUT_FAILURE = "ETIMEDOUT after 30s (environment)"
+_CHECK_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "file_exists": ("path",),
+    "file_contains": ("path", "text"),
+    "file_not_contains": ("path", "text"),
+    "file_sha256": ("path", "sha256"),
+}
 
 
 def _string(name: str, description: str = "") -> dict[str, Any]:
@@ -52,6 +62,11 @@ class WorkspaceSurface(Surface):
         self.suites: Mapping[str, Any] = pack.tests
         self.test_runs: list[dict[str, Any]] = []
         self.verification_events: list[int] = []
+        for name, spec in self.suites.items():
+            _check_suite(name, spec, f"{pack.pack_id}/tests/{name}.json")
+        for spec in task.faults:
+            if spec.surface == self.NAME:
+                self.check_fault(spec)
 
     def tools(self) -> tuple[ToolSpec, ...]:
         return (
@@ -112,13 +127,63 @@ class WorkspaceSurface(Surface):
             ),
         )
 
+    # --- declared faults ---------------------------------------------------
+
+    def check_fault(self, spec: Any) -> None:
+        """Refuse a fault whose symptom no observation of this surface could show."""
+        self.check_fault_kind(spec.kind)
+        registered = {tool.name for tool in self.tools()}
+        cv.refuse_when(
+            spec.tool not in registered,
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id} names tool {spec.tool!r}, which the {self.NAME} surface "
+            f"does not register; known: {sorted(registered)}",
+        )
+        cv.refuse_when(
+            spec.kind == FAULT_TRUNCATED and spec.tool != "read_file",
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id}: {FAULT_TRUNCATED} only shows on read_file",
+        )
+        if spec.kind == FAULT_FLAKY_TEST:
+            self._check_flaky_fault(spec)
+
+    def _check_flaky_fault(self, spec: Any) -> None:
+        cv.refuse_when(
+            spec.tool != "run_tests",
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id}: {FAULT_FLAKY_TEST} only shows on run_tests",
+        )
+        case = spec.params.get("case")
+        cv.refuse_when(
+            not isinstance(case, str),
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id}: {FAULT_FLAKY_TEST} needs params.case naming a case id",
+        )
+        picked = spec.selector.get("suite")
+        cv.refuse_when(
+            picked is not None and (not isinstance(picked, str) or picked not in self.suites),
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id}: selector names suite {picked!r}, which the pack does not "
+            f"declare; known: {sorted(self.suites)}",
+        )
+        suites = sorted(self.suites) if picked is None else [picked]
+        lacking = [name for name in suites if case not in self._case_ids(name)]
+        cv.refuse_when(
+            bool(lacking),
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id}: case {case!r} is not in suite(s) {lacking}, so the "
+            "fault could fire without a symptom",
+        )
+
+    def _case_ids(self, suite: str) -> list[str]:
+        return [case["id"] for case in self.suites[suite]["cases"]]
+
     # --- execution -----------------------------------------------------------
 
     def execute(self, name: str, args: Mapping[str, Any], fault: Any) -> str:
         if fault is not None and fault.spec.kind == FAULT_TRANSIENT:
-            return error_text(
-                f"EAGAIN temporary failure on {name} {args.get('path', args.get('suite', ''))}; retry"
-            )
+            target = args.get("path", args.get("suite", ""))
+            return error_text(f"EAGAIN temporary failure on {name} {target}; retry")
         handler = getattr(self, f"_{name}")
         return handler(args, fault)
 
@@ -131,7 +196,10 @@ class WorkspaceSurface(Surface):
         offset, limit = args.get("offset", 0), args.get("limit")
         if fault is not None and fault.spec.kind == FAULT_TRUNCATED and limit is None:
             head = text[:_TRUNCATE_AT]
-            return f"{path} ({len(text)} chars):\n{head}\n[output truncated at {_TRUNCATE_AT} chars; read again with offset]"
+            return (
+                f"{path} ({len(text)} chars):\n{head}\n"
+                f"[output truncated at {_TRUNCATE_AT} chars; read again with offset]"
+            )
         window = text[offset:] if limit is None else text[offset : offset + limit]
         return f"{path} ({len(text)} chars, offset {offset}):\n{window}"
 
@@ -219,48 +287,92 @@ class WorkspaceSurface(Surface):
         """Evaluate every case of a declared suite against the current tree."""
         spec = self.suites.get(suite)
         cv.refuse_when(
-            not isinstance(spec, Mapping) or not isinstance(spec.get("cases"), list),
+            spec is None,
             cv.FINDING_PACK_FIELD_INVALID,
-            f"suite {suite!r} must declare a cases list",
+            f"suite {suite!r} is not declared by the pack; a tests/{suite}.json member must "
+            f"declare a cases list; known: {sorted(self.suites)}",
         )
         failures = []
         for case in spec["cases"]:
-            case_id = case.get("id", "?")
-            if case_id == flaky_case:
-                failures.append(f"FAIL {case_id}: ETIMEDOUT after 30s (environment)")
-                continue
-            message = self._case_failure(case)
+            if case["id"] == flaky_case:
+                message: str | None = _TIMEOUT_FAILURE
+            else:
+                message = self._case_failure(case["check"])
             if message is not None:
-                failures.append(f"FAIL {case_id}: {message}")
+                failures.append(f"FAIL {case['id']}: {message}")
         passed = len(spec["cases"]) - len(failures)
         return {"passed": passed, "failed": len(failures), "failures": failures}
 
-    def _case_failure(self, case: Mapping[str, Any]) -> str | None:
-        check = case.get("check") or {}
-        kind, path = check.get("kind"), check.get("path", "")
-        text = self.files.get(path)
-        if kind == "file_exists":
-            return None if text is not None else f"{path} does not exist"
+    def _case_failure(self, check: Mapping[str, Any]) -> str | None:
+        text = self.files.get(check["path"])
         if text is None:
-            return f"{path} does not exist"
-        if kind == "file_contains":
-            return None if check.get("text", "") in text else f"{path} lacks {check.get('text')!r}"
-        if kind == "file_not_contains":
-            return (
-                None
-                if check.get("text", "") not in text
-                else f"{path} still contains {check.get('text')!r}"
-            )
-        if kind == "file_sha256":
-            return (
-                None
-                if sha256_bytes(text.encode("utf-8")) == check.get("sha256")
-                else f"{path} content differs"
-            )
-        cv.refuse(cv.FINDING_PACK_FIELD_INVALID, f"unknown test check kind {kind!r}")
+            return f"{check['path']} does not exist"
+        return _CHECKS[check["kind"]](text, check)
 
     def state_view(self) -> Any:
         return {"files": dict(sorted(self.files.items())), "test_runs": list(self.test_runs)}
+
+
+def _contains(text: str, check: Mapping[str, Any]) -> str | None:
+    return None if check["text"] in text else f"{check['path']} lacks {check['text']!r}"
+
+
+def _not_contains(text: str, check: Mapping[str, Any]) -> str | None:
+    if check["text"] not in text:
+        return None
+    return f"{check['path']} still contains {check['text']!r}"
+
+
+def _sha256_matches(text: str, check: Mapping[str, Any]) -> str | None:
+    if sha256_bytes(text.encode("utf-8")) == check["sha256"]:
+        return None
+    return f"{check['path']} content differs"
+
+
+_CHECKS = {
+    "file_exists": lambda text, check: None,
+    "file_contains": _contains,
+    "file_not_contains": _not_contains,
+    "file_sha256": _sha256_matches,
+}
+
+
+def _check_case(case: Any, where: str) -> str:
+    """Refuse a case the suite evaluator could not run; return its id."""
+    cv.refuse_when(
+        not isinstance(case, Mapping) or not isinstance(case.get("id"), str) or not case["id"],
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: a case must be an object with a nonempty string id",
+    )
+    check = case.get("check")
+    cv.refuse_when(
+        not isinstance(check, Mapping) or check.get("kind") not in _CHECK_FIELDS,
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: case {case['id']!r} needs a check whose kind is one of {list(_CHECK_FIELDS)}",
+    )
+    fields = _CHECK_FIELDS[check["kind"]]
+    cv.refuse_when(
+        set(check) != {"kind", *fields} or any(not isinstance(check[key], str) for key in fields),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: a {check['kind']} check carries exactly the string fields {list(fields)}",
+    )
+    return case["id"]
+
+
+def _check_suite(name: str, spec: Any, where: str) -> None:
+    """Refuse a declared suite at load so ``suite_result`` never meets an unexpected shape."""
+    cv.refuse_when(
+        not isinstance(spec, Mapping)
+        or spec.get("suite") != name
+        or not isinstance(spec.get("cases"), list)
+        or not spec["cases"],
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: a suite must declare suite == {name!r} and a nonempty cases list",
+    )
+    ids = [_check_case(case, f"{where}.cases[{index}]") for index, case in enumerate(spec["cases"])]
+    cv.refuse_when(
+        len(set(ids)) != len(ids), cv.FINDING_PACK_FIELD_INVALID, f"{where}: duplicate case ids"
+    )
 
 
 bind_import_twin(__name__)

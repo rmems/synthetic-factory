@@ -22,6 +22,7 @@ if __name__.startswith("pipelines."):
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
     from ..validate_run import check_episode
     from ..validate_run_episode_turns import OBSERVABLE_BASIS_RE
+    from ..validate_run_outcomes import terminal_outcome_agrees
 else:
     from curate_coding import contains_hidden_reasoning_key
     from exact_json import ExactJSONFloat, dumps_exact_json
@@ -31,6 +32,7 @@ else:
     from tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
     from validate_run import check_episode
     from validate_run_episode_turns import OBSERVABLE_BASIS_RE
+    from validate_run_outcomes import terminal_outcome_agrees
 
 __all__ = [
     "OBSERVABLE_BASIS_RE",
@@ -47,6 +49,7 @@ __all__ = [
     "rng",
     "sha256_bytes",
     "sha256_canonical",
+    "terminal_outcome_agrees",
 ]
 
 

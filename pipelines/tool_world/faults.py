@@ -7,10 +7,15 @@ when an earlier one is disarmed, and replay re-derives the identical schedule
 from the identical seed. Firing is a function of the call history alone: the
 ``n``-th call matching a fault's selector fires it, whoever the solver is. A
 selector key may be dotted (``params.name``) to reach into nested arguments.
+
+The scripted ``Action`` (a plan step or a recovery step) is parsed here too,
+because a fault's recovery is a tuple of them and must be parsed at load, not
+on the seeds where the fault happens to fire; ``pack`` re-exports it.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -18,7 +23,26 @@ from typing import Any
 from . import vocabulary as cv
 from ._contract import bind_import_twin, rng
 
-__all__ = ["FaultEngine", "FaultSpec", "ScheduledFault", "fault_spec_from_row", "schedule_faults"]
+__all__ = [
+    "Action",
+    "FaultEngine",
+    "FaultSpec",
+    "ScheduledFault",
+    "action_from_row",
+    "fault_spec_from_row",
+    "schedule_faults",
+]
+
+
+@dataclass(frozen=True)
+class Action:
+    """One scripted step: the intent the basis cites and the call the solver makes."""
+
+    intent: str
+    tool_call: Mapping[str, Any]
+    captures: Mapping[str, str]
+    verification: bool
+    confirmation: bool
 
 
 @dataclass(frozen=True)
@@ -36,7 +60,7 @@ class FaultSpec:
     probability_percent: int
     params: Mapping[str, Any]
     marker: str
-    recovery: tuple[Mapping[str, Any], ...]
+    recovery: tuple[Action, ...]
     retry: bool
 
 
@@ -61,13 +85,68 @@ def _require(row: Mapping[str, Any], key: str, kind: type, where: str) -> Any:
     return value
 
 
-def fault_spec_from_row(row: Any, where: str) -> FaultSpec:
+def _require_str(row: Mapping[str, Any], key: str, where: str) -> str:
+    value = row.get(key)
+    cv.refuse_when(
+        not isinstance(value, str) or not value.strip(),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: {key} must be a nonempty string",
+    )
+    return value
+
+
+def _captures(row: Mapping[str, Any], where: str) -> dict[str, str]:
+    """Capture regexes, each compiled at load and required to expose one group."""
+    captures = row.get("captures", {})
+    cv.refuse_when(
+        not isinstance(captures, Mapping)
+        or any(not isinstance(item, str) for item in captures.values()),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: captures must map names to regex strings",
+    )
+    for name, pattern in captures.items():
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            cv.refuse(
+                cv.FINDING_TASK_FIELD_INVALID,
+                f"{where}: capture {name!r} is not a valid regex ({exc})",
+            )
+        cv.refuse_when(
+            compiled.groups == 0,
+            cv.FINDING_TASK_FIELD_INVALID,
+            f"{where}: capture {name!r} needs a capturing group",
+        )
+    return dict(captures)
+
+
+def action_from_row(row: Any, where: str) -> Action:
+    """Parse one plan or recovery action row; an already-parsed ``Action`` passes through."""
+    if isinstance(row, Action):
+        return row
     cv.refuse_when(
         not isinstance(row, Mapping),
         cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: fault must be an object",
+        f"{where}: action must be an object",
     )
-    fault_id = _require(row, "id", str, where)
+    tool_call = row.get("tool_call")
+    cv.refuse_when(
+        not isinstance(tool_call, Mapping)
+        or not isinstance(tool_call.get("name"), str)
+        or not isinstance(tool_call.get("args"), Mapping),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: tool_call must carry a string name and an object args",
+    )
+    return Action(
+        intent=_require_str(row, "intent", where),
+        tool_call={"name": tool_call["name"], "args": dict(tool_call["args"])},
+        captures=_captures(row, where),
+        verification=bool(row.get("verification", False)),
+        confirmation=bool(row.get("confirmation", False)),
+    )
+
+
+def _occurrences(row: Mapping[str, Any], where: str) -> tuple[int, int, int]:
     occurrence = row.get("occurrence", 1)
     cv.refuse_when(
         not cv.is_genuine_int(occurrence) or occurrence < 0,
@@ -81,6 +160,29 @@ def fault_spec_from_row(row: Any, where: str) -> FaultSpec:
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: min_occurrence/max_occurrence must satisfy 1 <= min <= max",
     )
+    return occurrence, low, high
+
+
+def _recovery(row: Mapping[str, Any], where: str) -> tuple[Action, ...]:
+    recovery = row.get("recovery", [])
+    cv.refuse_when(
+        not isinstance(recovery, list) or any(not isinstance(item, Mapping) for item in recovery),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: recovery must be a list of actions",
+    )
+    return tuple(
+        action_from_row(item, f"{where}.recovery[{index}]") for index, item in enumerate(recovery)
+    )
+
+
+def fault_spec_from_row(row: Any, where: str) -> FaultSpec:
+    cv.refuse_when(
+        not isinstance(row, Mapping),
+        cv.FINDING_TASK_FIELD_INVALID,
+        f"{where}: fault must be an object",
+    )
+    fault_id = _require(row, "id", str, where)
+    occurrence, low, high = _occurrences(row, where)
     percent = row.get("probability_percent", 100)
     cv.refuse_when(
         not cv.is_genuine_int(percent) or not 0 <= percent <= 100,
@@ -92,12 +194,6 @@ def fault_spec_from_row(row: Any, where: str) -> FaultSpec:
         not isinstance(selector, Mapping),
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: selector must be an object",
-    )
-    recovery = row.get("recovery", [])
-    cv.refuse_when(
-        not isinstance(recovery, list) or any(not isinstance(item, Mapping) for item in recovery),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: recovery must be a list of actions",
     )
     return FaultSpec(
         fault_id=fault_id,
@@ -111,7 +207,7 @@ def fault_spec_from_row(row: Any, where: str) -> FaultSpec:
         probability_percent=percent,
         params=dict(row.get("params") or {}),
         marker=_require(row, "marker", str, where),
-        recovery=tuple(dict(item) for item in recovery),
+        recovery=_recovery(row, where),
         retry=bool(row.get("retry", True)),
     )
 

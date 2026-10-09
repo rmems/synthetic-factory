@@ -18,7 +18,7 @@ from . import catalog as cat
 from . import env as environment
 from . import generate, replay
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, envelope, load_strict_json
+from ._contract import bind_import_twin, dumps_exact_json, envelope
 
 __all__ = ["build_parser", "run"]
 
@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = commands.add_parser("catalog-check", help="load the pinned world-pack catalog")
     check.add_argument("--catalog", type=Path, default=None)
+    check.add_argument(
+        "--write-pins",
+        action="store_true",
+        help="re-pin every pack from its current bytes in CATALOG.json before loading",
+    )
     check.add_argument("--json", action="store_true")
 
     gen = commands.add_parser("generate", help="seeded records into a new run directory")
@@ -68,7 +73,7 @@ def _print(payload: dict[str, Any], as_json: bool) -> int:
 
 
 def _catalog_check(args: argparse.Namespace) -> int:
-    loaded = cat.load_catalog(args.catalog)
+    loaded = cat.write_pins(args.catalog) if args.write_pins else cat.load_catalog(args.catalog)
     return _print(
         {
             "catalog_id": loaded.catalog_id,
@@ -110,19 +115,13 @@ def _replay(args: argparse.Namespace) -> int:
 
 
 def _render(args: argparse.Namespace) -> int:
-    candidates = args.run_dir / generate.CANDIDATES_FILENAME
-    cv.refuse_when(
-        not candidates.is_file(),
-        cv.FINDING_RUN_FILE_MISSING,
-        f"missing {generate.CANDIDATES_FILENAME}",
-    )
-    for line in candidates.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        record = load_strict_json(line)
-        if isinstance(record, dict) and record.get("id") == args.record_id:
+    for record in replay.load_records(args.run_dir):
+        if record.get("id") == args.record_id:
             return _print(record, args.json)
-    cv.refuse(cv.FINDING_RECORD_NOT_FOUND, f"record {args.record_id} is not in {candidates}")
+    cv.refuse(
+        cv.FINDING_RECORD_NOT_FOUND,
+        f"record {args.record_id} is not in {args.run_dir / replay.CANDIDATES_FILENAME}",
+    )
 
 
 def _tools(args: argparse.Namespace) -> int:

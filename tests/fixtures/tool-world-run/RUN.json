@@ -1,0 +1,443 @@
+{
+  "accepted": 12,
+  "candidate_only": true,
+  "candidates_sha256": "e14d122f8a86252a416566c583d619c30c46cf876da9b6cbd37ce75d34a834cf",
+  "catalog_id": "tool-world-v1",
+  "catalog_sha256": "ebc7b9d022d0fb9085cac5e270a243f58ee9b6f03a1e8d2a3b2265718014d1e0",
+  "count": 12,
+  "factory": null,
+  "family": "tool-world",
+  "format": "tool-world-run/1",
+  "generator": "tool-world-scripted-policy",
+  "generator_version": "1.0.0",
+  "measured": 30,
+  "policy_sha256": "fe7453bbe4d5b670be07a80fd7227f1518920c3992e035405f643f722eb69bf6",
+  "produced_at": "2026-10-09T00:00:00Z",
+  "records": 42,
+  "rows": [
+    {
+      "decision": "accept",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-7873782444899305193-00001",
+      "steps": 9,
+      "success": true,
+      "task_id": "catalog.wn10-via-legacy-path",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-4805137040486937864-00002",
+      "steps": 2,
+      "success": false,
+      "task_id": "catalog.wn10-via-legacy-path",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 2,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-9927362618194874434-00003",
+      "steps": 13,
+      "success": true,
+      "task_id": "catalog.wn10-via-legacy-path",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 2,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-4636366756584287782-00004",
+      "steps": 7,
+      "success": true,
+      "task_id": "counter.add-sub",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-7921779844560407709-00005",
+      "steps": 2,
+      "success": false,
+      "task_id": "counter.add-sub",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 2,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-2191370395314634301-00006",
+      "steps": 8,
+      "success": true,
+      "task_id": "counter.add-sub",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-8354115466682237392-00007",
+      "steps": 13,
+      "success": true,
+      "task_id": "tickets.triage-t104",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-4661157667303530085-00008",
+      "steps": 4,
+      "success": false,
+      "task_id": "tickets.triage-t104",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-9333274787809279823-00009",
+      "steps": 12,
+      "success": false,
+      "task_id": "tickets.triage-t104",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 2,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-1486115611031745627-00010",
+      "steps": 15,
+      "success": true,
+      "task_id": "tickets.triage-t104",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-delegation-factory",
+      "faults_fired": 2,
+      "id": "twd-437246edf1009dfd-fe7453bbe4d5b670-10662017237056655722-00011",
+      "steps": 14,
+      "success": true,
+      "task_id": "release.ship-feature",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-delegation-factory",
+      "faults_fired": 1,
+      "id": "twd-437246edf1009dfd-fe7453bbe4d5b670-212850859068694886-00012",
+      "steps": 8,
+      "success": false,
+      "task_id": "release.ship-feature",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-delegation-factory",
+      "faults_fired": 1,
+      "id": "twd-437246edf1009dfd-fe7453bbe4d5b670-7093084298888744456-00013",
+      "steps": 8,
+      "success": false,
+      "task_id": "release.ship-feature",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-delegation-factory",
+      "faults_fired": 2,
+      "id": "twd-437246edf1009dfd-fe7453bbe4d5b670-1457100321542719190-00014",
+      "steps": 15,
+      "success": true,
+      "task_id": "release.ship-feature",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-16355277530299115723-00015",
+      "steps": 9,
+      "success": true,
+      "task_id": "catalog.search-bolt",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-10704597584191817590-00016",
+      "steps": 3,
+      "success": false,
+      "task_id": "catalog.search-bolt",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-11816770014843320342-00017",
+      "steps": 6,
+      "success": false,
+      "task_id": "catalog.search-bolt",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 0,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-10082716406328121383-00018",
+      "steps": 8,
+      "success": true,
+      "task_id": "catalog.search-bolt",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-11186857271473731671-00019",
+      "steps": 6,
+      "success": true,
+      "task_id": "counter.rename-config-key",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-3984839226483314059-00020",
+      "steps": 5,
+      "success": false,
+      "task_id": "counter.rename-config-key",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-11621931505478191398-00021",
+      "steps": 11,
+      "success": true,
+      "task_id": "catalog.price-of-hb08",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-10937801234231787211-00022",
+      "steps": 3,
+      "success": false,
+      "task_id": "catalog.price-of-hb08",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-10779004993890787363-00023",
+      "steps": 9,
+      "success": false,
+      "task_id": "catalog.price-of-hb08",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-browser-factory",
+      "faults_fired": 1,
+      "id": "twd-9dad3b06e83c5a4f-fe7453bbe4d5b670-8850008855686645182-00024",
+      "steps": 15,
+      "success": true,
+      "task_id": "catalog.price-of-hb08",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-17829293057719635737-00025",
+      "steps": 9,
+      "success": true,
+      "task_id": "tickets.find-csv-ticket",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-495137713562216784-00026",
+      "steps": 8,
+      "success": false,
+      "task_id": "tickets.find-csv-ticket",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-4104013457829230776-00027",
+      "steps": 10,
+      "success": true,
+      "task_id": "tickets.find-csv-ticket",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-4632141591689420615-00028",
+      "steps": 7,
+      "success": true,
+      "task_id": "counter.delete-stale-lock",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-7275084698834951269-00029",
+      "steps": 6,
+      "success": false,
+      "task_id": "counter.delete-stale-lock",
+      "variant": "skip_confirmation"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-13256588302507403934-00030",
+      "steps": 2,
+      "success": false,
+      "task_id": "counter.delete-stale-lock",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 2,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-6104511305053519733-00031",
+      "steps": 7,
+      "success": true,
+      "task_id": "counter.document-timeout",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-8981022345229530692-00032",
+      "steps": 4,
+      "success": false,
+      "task_id": "counter.document-timeout",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 1,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-15291729475430604232-00033",
+      "steps": 5,
+      "success": true,
+      "task_id": "counter.document-timeout",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-workspace-factory",
+      "faults_fired": 2,
+      "id": "twd-3a1621cf0c42a16c-fe7453bbe4d5b670-12328338712049461221-00034",
+      "steps": 8,
+      "success": true,
+      "task_id": "counter.document-timeout",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-10162401356082353516-00035",
+      "steps": 9,
+      "success": true,
+      "task_id": "calendar.book-followup",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-15512051792476288661-00036",
+      "steps": 6,
+      "success": false,
+      "task_id": "calendar.book-followup",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-2923174450525859443-00037",
+      "steps": 8,
+      "success": false,
+      "task_id": "calendar.book-followup",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-9099066265432383212-00038",
+      "steps": 10,
+      "success": true,
+      "task_id": "calendar.book-followup",
+      "variant": "wrong_arg_type"
+    },
+    {
+      "decision": "accept",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 2,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-6648283678366523506-00039",
+      "steps": 15,
+      "success": true,
+      "task_id": "tickets.block-on-sync",
+      "variant": "gold"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 0,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-3247543237054041782-00040",
+      "steps": 13,
+      "success": true,
+      "task_id": "tickets.block-on-sync",
+      "variant": "give_up_on_fault"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 1,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-8723678417738330444-00041",
+      "steps": 14,
+      "success": false,
+      "task_id": "tickets.block-on-sync",
+      "variant": "skip_verification"
+    },
+    {
+      "decision": "measure",
+      "factory": "tool-world-mcp-factory",
+      "faults_fired": 2,
+      "id": "twd-d2bb968be24ee096-fe7453bbe4d5b670-17579041761140933411-00042",
+      "steps": 18,
+      "success": true,
+      "task_id": "tickets.block-on-sync",
+      "variant": "wrong_arg_type"
+    }
+  ],
+  "run_id": "twd-run-20261009-ebc7b9d022d0",
+  "seed": 20261009,
+  "self_certified_training_ready": false,
+  "variants": "all"
+}

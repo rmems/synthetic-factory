@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from . import faults, predicates, surfaces
+from . import faults, predicates, schema_lite, surfaces
 from . import vocabulary as cv
 from ._contract import bind_import_twin, rng, sha256_bytes, sha256_canonical
 from .surfaces.base import ToolSpec, error_text
@@ -101,7 +101,8 @@ class Environment:
             cv.refuse_when(
                 spec.surface not in self._surfaces,
                 cv.FINDING_FAULT_UNKNOWN,
-                f"fault {spec.fault_id} names surface {spec.surface!r}, which the task does not use",
+                f"fault {spec.fault_id} names surface {spec.surface!r}, "
+                "which the task does not use",
             )
             self._surfaces[spec.surface].check_fault_kind(spec.kind)
         self._tools: dict[str, ToolSpec] = {spec.name: spec for spec in _CORE_TOOLS}
@@ -113,10 +114,30 @@ class Environment:
                     f"duplicate tool {spec.name!r}",
                 )
                 self._tools[spec.name] = spec
+        for spec in task.faults:
+            self._check_fault_target(spec)
         self._events: list[Event] = []
         self.reported: str | None = None
         self._confirmations: list[str] = []
         self.unconfirmed_irreversible = 0
+
+    def _check_fault_target(self, spec: Any) -> None:
+        """A fault names a registered tool of its own surface and selector keys that tool takes."""
+        tool = self._tools.get(spec.tool)
+        cv.refuse_when(
+            tool is None or tool.surface != spec.surface,
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id} names tool {spec.tool!r}, which the {spec.surface} surface "
+            "does not register",
+        )
+        properties = tool.input_schema.get("properties") or {}
+        stray = sorted(key for key in spec.selector if key.split(".", 1)[0] not in properties)
+        cv.refuse_when(
+            bool(stray),
+            cv.FINDING_FAULT_UNKNOWN,
+            f"fault {spec.fault_id}: selector keys {stray} are not arguments of {spec.tool}; "
+            f"known: {sorted(properties)}",
+        )
 
     # --- introspection -----------------------------------------------------
 
@@ -204,12 +225,16 @@ class Environment:
         if spec.name == cv.TOOL_CONFIRM:
             self._confirmations.append(args["action"])
             return f"confirmed: {args['action']}"
-        if spec.irreversible:
-            if spec.name in self._confirmations:
-                self._confirmations.remove(spec.name)
-            else:
-                self.unconfirmed_irreversible += 1
+        if spec.irreversible and not _unperformed(fault):
+            self._account_irreversible(spec.name)
         return self._surfaces[spec.surface].execute(spec.name, args, fault)
+
+    def _account_irreversible(self, name: str) -> None:
+        """One pending confirmation naming the tool covers one performed irreversible call."""
+        if name in self._confirmations:
+            self._confirmations.remove(name)
+        else:
+            self.unconfirmed_irreversible += 1
 
     # --- digests and verdicts ----------------------------------------------
 
@@ -226,8 +251,9 @@ class Environment:
         )
 
     def replay_digest(self) -> str:
+        """sha256 over the canonical ``(n, tool_call, observation_sha256, fault_id)`` sequence."""
         rows = [
-            [event.n, event.tool_call["name"], event.observation_sha256, event.fault_id]
+            [event.n, event.row()["tool_call"], event.observation_sha256, event.fault_id]
             for event in self._events
         ]
         return sha256_canonical(rows)
@@ -243,9 +269,12 @@ class Environment:
 
 
 def _validate(spec: ToolSpec, args: Mapping[str, Any]) -> list[str]:
-    from . import schema_lite
-
     return schema_lite.validate_args(spec.input_schema, args)
+
+
+def _unperformed(fault: Any) -> bool:
+    """A transient fault stops the call before the tool runs; a confirmation waits for the retry."""
+    return fault is not None and fault.spec.kind == cv.FAULT_KIND_TRANSIENT
 
 
 bind_import_twin(__name__)

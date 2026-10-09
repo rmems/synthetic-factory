@@ -1,0 +1,79 @@
+{
+  "task_id": "tickets.block-on-sync",
+  "title": "block ticket T-102 on a CI runner sync booked across two servers",
+  "goal": "Ticket T-102, the nightly build failure, waits on the CI runner owners. Using both MCP servers, book 2026-10-12T11:00 on the calendar as 'CI runner sync' and set T-102 to blocked on the tickets server; initialize and discover the tools of each server separately, read both values back to verify, then report the ticket status and the booked slot.",
+  "surfaces": ["mcp"],
+  "max_steps": 24,
+  "public_predicates": [
+    {"name": "value_reported", "params": {"value": "T-102 blocked; 2026-10-12T11:00 booked"}},
+    {"name": "max_steps", "params": {"n": 20}}
+  ],
+  "hidden_predicates": [
+    {"name": "listed_before_call", "params": {"server": "tickets"}},
+    {"name": "listed_before_call", "params": {"server": "calendar"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "set_status"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "get_status"}},
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "book_slot"}},
+    {"name": "tool_called", "params": {"server": "calendar", "tool": "get_slot"}}
+  ],
+  "gold": [
+    {"intent": "initialize the tickets session; its result reports the protocol version and capabilities to expect",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "initialize",
+      "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+    {"intent": "initialize succeeded on tickets; send notifications/initialized so that server accepts every later request",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "notifications/initialized", "params": {}}}},
+    {"intent": "list the tickets tools and read the first page of schema entries; a nextCursor would mean more pages",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {}}},
+     "captures": {"cursor": "\"nextCursor\":\"(cursor-[0-9]+)\""}},
+    {"intent": "the tickets listing continues at the captured cursor; read the second page so the set_status and get_status schema entries are known",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {"cursor": {"$capture": "cursor"}}}}},
+    {"intent": "the calendar server is a separate session; initialize it too and check its result names calendar, not tickets",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "initialize",
+      "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+    {"intent": "the calendar initialize result arrived; send notifications/initialized to the calendar server as well",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "notifications/initialized", "params": {}}}},
+    {"intent": "list the calendar tools on their own server and read their schema before booking anything",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/list", "params": {}}}},
+    {"intent": "read ticket T-102 on the tickets server to confirm it is the nightly build failure the goal names",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "get_ticket", "arguments": {"id": "T-102"}}}}},
+    {"intent": "the ticket note says it fails only on the CI runner; book the CI runner sync on the calendar server with the slot and title the schema names",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/call", "params": {"name": "book_slot", "arguments": {"slot": "2026-10-12T11:00", "title": "CI runner sync"}}}}},
+    {"intent": "the booking tool result reported stored; set T-102 to blocked on the tickets server because the ticket now waits on the sync",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "set_status", "arguments": {"id": "T-102", "status": "blocked"}}}}},
+    {"intent": "read the calendar slot back to verify the sync booking is held by the calendar server",
+     "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/call", "params": {"name": "get_slot", "arguments": {"slot": "2026-10-12T11:00"}}}},
+     "verification": true},
+    {"intent": "read the ticket status back on the tickets server to verify blocked was stored",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "get_status", "arguments": {"id": "T-102"}}}},
+     "verification": true},
+    {"intent": "both read-backs show the expected values; report the ticket status and the booked slot",
+     "tool_call": {"name": "report_result", "args": {"value": "T-102 blocked; 2026-10-12T11:00 booked"}}}
+  ],
+  "faults": [
+    {"id": "calendar-empty-first-page", "surface": "mcp", "kind": "empty_first_page", "tool": "mcp",
+     "selector": {"server": "calendar", "method": "tools/list", "params.cursor": null},
+     "occurrence": 1, "probability_percent": 50, "marker": "\"tools\":[]",
+     "recovery": [
+       {"intent": "the calendar's first page listed no tools but gave nextCursor cursor-0; follow the cursor to read the real page",
+        "tool_call": {"name": "mcp", "args": {"server": "calendar", "method": "tools/list", "params": {"cursor": "cursor-0"}}}}
+     ],
+     "retry": false},
+    {"id": "book-rate-limited", "surface": "mcp", "kind": "rate_limited", "tool": "mcp",
+     "selector": {"server": "calendar", "method": "tools/call", "params.name": "book_slot"},
+     "occurrence": 1, "probability_percent": 50, "marker": "rate limited", "recovery": [], "retry": true},
+    {"id": "set-status-drift", "surface": "mcp", "kind": "schema_drift", "tool": "mcp",
+     "selector": {"server": "tickets", "method": "tools/call", "params.name": "set_status"},
+     "occurrence": 1, "probability_percent": 50, "marker": "notifications/tools/list_changed",
+     "recovery": [
+       {"intent": "tickets sent notifications/tools/list_changed and answered -32602; re-list its tools from the first page to read the current schema",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {}}},
+        "captures": {"cursor": "\"nextCursor\":\"(cursor-[0-9]+)\""}},
+       {"intent": "the refreshed first page ended with a nextCursor; read the second page, where set_status is listed",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {"cursor": {"$capture": "cursor"}}}}},
+       {"intent": "the refreshed schema names the ticket by ticket_id instead of id; call set_status again with the renamed argument",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "set_status", "arguments": {"ticket_id": "T-102", "status": "blocked"}}}}}
+     ],
+     "retry": false}
+  ],
+  "perturbations": ["give_up_on_fault", "skip_verification", "wrong_arg_type"]
+}

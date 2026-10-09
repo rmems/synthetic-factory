@@ -1,15 +1,37 @@
 {
-  "catalog_id": "tool-world-v1",
-  "format": "tool-world-catalog/1",
-  "family": "tool-world",
   "authorship": "project-authored world packs; never derived from Grok-session mill catalogs (#173)",
+  "catalog_id": "tool-world-v1",
+  "family": "tool-world",
+  "format": "tool-world-catalog/1",
   "packs": [
     {
+      "pack_id": "catalog-browser",
+      "pack_sha256": "9dad3b06e83c5a4f68edd82170d7120bc1f2657283ce12270bad252e175fe801",
+      "surfaces": [
+        "browser"
+      ]
+    },
+    {
       "pack_id": "counter-workspace",
+      "pack_sha256": "3a1621cf0c42a16c184a4f2d16d92ee4c42c8b11a258d9542a478eba3b71daf1",
       "surfaces": [
         "workspace"
-      ],
-      "pack_sha256": "1edc575bccde7ae50825452521f5f327a85ae48f64c5612a8e22af8627e06118"
+      ]
+    },
+    {
+      "pack_id": "release-delegation",
+      "pack_sha256": "437246edf1009dfddb319a450fa2056f01ff4d1e751e4c25e8ac798d36f08426",
+      "surfaces": [
+        "delegation",
+        "workspace"
+      ]
+    },
+    {
+      "pack_id": "tickets-mcp",
+      "pack_sha256": "d2bb968be24ee096a0b8401987ba3b24cfaf641493e4009de109f5ffd04b058b",
+      "surfaces": [
+        "mcp"
+      ]
     }
   ]
 }

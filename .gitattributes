@@ -22,3 +22,4 @@ catalogs/tool-world-v1/** text eol=lf
 pipelines/tool_world/**/*.py text eol=lf
 tests/fixtures/tool-world-run/**/*.jsonl text eol=lf
 tests/fixtures/tool-world-run/**/*.json text eol=lf
+tests/fixtures/tool-world-run/**/*.md text eol=lf

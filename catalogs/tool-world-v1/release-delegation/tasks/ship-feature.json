@@ -1,0 +1,217 @@
+{
+  "task_id": "release.ship-feature",
+  "title": "ship feature() through an implementer and a scribe, verifying before the report",
+  "goal": "Deliver the 1.2.0 release: delegate src/feature.py plus the VERSION bump to an implementer and the changelog entry to a scribe, verify their claims against the release suite, and report the result once it passes.",
+  "surfaces": [
+    "delegation",
+    "workspace"
+  ],
+  "max_steps": 18,
+  "public_predicates": [
+    {
+      "name": "value_reported",
+      "params": {
+        "value": "release suite passes"
+      }
+    }
+  ],
+  "hidden_predicates": [
+    {
+      "name": "tests_pass",
+      "params": {
+        "suite": "release"
+      }
+    },
+    {
+      "name": "verified_before_merge",
+      "params": {}
+    },
+    {
+      "name": "no_agents_pending",
+      "params": {}
+    },
+    {
+      "name": "max_agents",
+      "params": {
+        "n": 2
+      }
+    },
+    {
+      "name": "file_contains",
+      "params": {
+        "path": "CHANGELOG.md",
+        "text": "feature()"
+      }
+    },
+    {
+      "name": "max_steps",
+      "params": {
+        "n": 16
+      }
+    }
+  ],
+  "gold": [
+    {
+      "intent": "read the release checklist first so each brief carries the requirement the release suite checks",
+      "tool_call": {
+        "name": "read_file",
+        "args": {
+          "path": "docs/RELEASE.md"
+        }
+      }
+    },
+    {
+      "intent": "run the release suite before delegating so the failing cases show what the release still lacks",
+      "tool_call": {
+        "name": "run_tests",
+        "args": {
+          "suite": "release"
+        }
+      }
+    },
+    {
+      "intent": "the suite failed on src/feature.py and the VERSION; brief an implementer scoped to those two files",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "spawn",
+          "role": "implementer",
+          "brief": "Create src/feature.py defining feature() that returns \"release-ready\" and bump VERSION in src/app.py to 1.2.0; the feature cases of the suite check both files",
+          "scope": [
+            "src/feature.py",
+            "src/app.py"
+          ]
+        }
+      },
+      "captures": {
+        "implementer": "spawned (w\\d+) as implementer"
+      }
+    },
+    {
+      "intent": "the suite also failed the changelog cases; brief a scribe scoped to CHANGELOG.md only",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "spawn",
+          "role": "scribe",
+          "brief": "Add a ## 1.2.0 section to CHANGELOG.md that mentions feature(); the docs cases of the suite check the heading and the mention",
+          "scope": [
+            "CHANGELOG.md"
+          ]
+        }
+      },
+      "captures": {
+        "scribe": "spawned (w\\d+) as scribe"
+      }
+    },
+    {
+      "intent": "both delegates are working; await the implementer's report before touching the suite",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "await",
+          "agent_id": {
+            "$capture": "implementer"
+          }
+        }
+      }
+    },
+    {
+      "intent": "the implementer reported done; await the scribe's report so every claim is in before verifying",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "await",
+          "agent_id": {
+            "$capture": "scribe"
+          }
+        }
+      }
+    },
+    {
+      "intent": "both reports claim done; run the release suite to verify the claims against the tree",
+      "tool_call": {
+        "name": "run_tests",
+        "args": {
+          "suite": "release"
+        }
+      },
+      "verification": true
+    },
+    {
+      "intent": "the suite passed; list the agents to show none is still working before the result",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "list"
+        }
+      }
+    },
+    {
+      "intent": "the listing shows both delegates done and the suite verified; report the result",
+      "tool_call": {
+        "name": "report_result",
+        "args": {
+          "value": "release suite passes"
+        }
+      }
+    }
+  ],
+  "faults": [
+    {
+      "id": "implementer-late",
+      "surface": "delegation",
+      "kind": "late",
+      "tool": "agent",
+      "selector": {
+        "action": "spawn",
+        "role": "implementer"
+      },
+      "occurrence": 1,
+      "probability_percent": 50,
+      "marker": "pending (still working on",
+      "recovery": [],
+      "retry": true
+    },
+    {
+      "id": "scribe-clobbers-feature",
+      "surface": "delegation",
+      "kind": "conflicting",
+      "tool": "agent",
+      "selector": {
+        "action": "spawn",
+        "role": "scribe"
+      },
+      "occurrence": 1,
+      "probability_percent": 100,
+      "marker": "feature_returns: src/feature.py lacks",
+      "recovery": [
+        {
+          "intent": "the suite failed feature_returns after the scribe reported done; read src/feature.py to inspect what changed",
+          "tool_call": {
+            "name": "read_file",
+            "args": {
+              "path": "src/feature.py"
+            }
+          }
+        },
+        {
+          "intent": "the read shows the scribe's placeholder stub overwrote the implementer's file; restore feature() as the requirement states",
+          "tool_call": {
+            "name": "write_file",
+            "args": {
+              "path": "src/feature.py",
+              "content": "\"\"\"The 1.2.0 feature: the readiness probe the release checklist requires.\"\"\"\n\n\ndef feature():\n    return \"release-ready\"\n"
+            }
+          }
+        }
+      ],
+      "retry": true
+    }
+  ],
+  "perturbations": [
+    "skip_verification",
+    "give_up_on_fault",
+    "wrong_arg_type"
+  ]
+}

@@ -97,50 +97,69 @@ def parse_html(html: str) -> Node:
     return builder.root
 
 
+_ROLE_BY_TAG = {
+    "button": "button",
+    "textarea": "textbox",
+    "form": "form",
+    "tr": "row",
+    **dict.fromkeys(_HEADINGS, "heading"),
+}
+_ROLE_BY_INPUT_TYPE = {
+    **dict.fromkeys(_TEXTBOX_TYPES, "textbox"),
+    "checkbox": "checkbox",
+    "submit": "button",
+}
+
+
+def _link_role(node: Node) -> str | None:
+    return "link" if "href" in node.attrs else None
+
+
+def _input_role(node: Node) -> str | None:
+    return _ROLE_BY_INPUT_TYPE.get(node.attrs.get("type", "text"))
+
+
+def _text_role(node: Node) -> str | None:
+    return "text" if node.direct_text() else None
+
+
+def _tag_role(node: Node) -> str | None:
+    return _ROLE_BY_TAG.get(node.tag)
+
+
+_ROLE_RESOLVERS = {"a": _link_role, "input": _input_role, **dict.fromkeys(_TEXT_TAGS, _text_role)}
+
+
 def role_of(node: Node) -> str | None:
     """The accessibility role an element is snapshotted under, or None for plain containers."""
-    tag, attrs = node.tag, node.attrs
-    if attrs.get("role") == "dialog":
+    if node.attrs.get("role") == "dialog":
         return "dialog"
-    if tag == "a" and "href" in attrs:
-        return "link"
-    if tag == "button":
-        return "button"
-    if tag == "input":
-        kind = attrs.get("type", "text")
-        if kind in _TEXTBOX_TYPES:
-            return "textbox"
-        if kind == "checkbox":
-            return "checkbox"
-        if kind == "submit":
-            return "button"
-        return None
-    if tag == "textarea":
-        return "textbox"
-    if tag == "form":
-        return "form"
-    if tag in _HEADINGS:
-        return "heading"
-    if tag == "tr":
-        return "row"
-    if tag in _TEXT_TAGS and node.direct_text():
-        return "text"
-    return None
+    return _ROLE_RESOLVERS.get(node.tag, _tag_role)(node)
+
+
+def _label_or_id(node: Node) -> str:
+    return node.attrs.get("aria-label") or node.attrs.get("id", "")
+
+
+def _field_name(node: Node) -> str:
+    attrs = node.attrs
+    return attrs.get("aria-label") or attrs.get("placeholder") or attrs.get("name", "")
+
+
+_NAME_BY_ROLE = {
+    "dialog": _label_or_id,
+    "form": _label_or_id,
+    "textbox": _field_name,
+    "checkbox": _field_name,
+    "text": Node.direct_text,
+}
 
 
 def name_of(node: Node, role: str) -> str:
-    attrs = node.attrs
-    if role == "dialog":
-        return attrs.get("aria-label") or attrs.get("id", "")
-    if role == "form":
-        return attrs.get("aria-label") or attrs.get("id", "")
-    if role in ("textbox", "checkbox"):
-        return attrs.get("aria-label") or attrs.get("placeholder") or attrs.get("name", "")
+    """The accessible name: a label, placeholder, id, value, or the element's text."""
     if role == "button" and node.tag == "input":
-        return attrs.get("value", "")
-    if role == "text":
-        return node.direct_text()
-    return node.text()
+        return node.attrs.get("value", "")
+    return _NAME_BY_ROLE.get(role, Node.text)(node)
 
 
 def _state_of(node: Node, role: str) -> str:
@@ -187,7 +206,7 @@ def _snapshot_into(node: Node, lines: list[str], depth: int) -> None:
         lines.append(f'{"  " * depth}- {role} "{name}" [ref={child.ref}]{_state_of(child, role)}')
         if role in ("dialog", "form"):
             _snapshot_into(child, lines, depth + 1)
-        elif role not in ("text", "row", "heading", "link", "button"):
+        elif role not in ("row", "heading", "link", "button"):
             _snapshot_into(child, lines, depth)
 
 
@@ -203,6 +222,21 @@ def enclosing_form(node: Node) -> Node | None:
 
 def inside(node: Node, container: Node) -> bool:
     return node is container or any(ancestor is container for ancestor in node.ancestors())
+
+
+def body_of(root: Node) -> Node:
+    """The body element, or the document itself when the page declares none."""
+    return next((node for node in root.walk() if node.tag == "body"), root)
+
+
+def prepend_to_body(root: Node, fragment: Node) -> None:
+    """Move a parsed fragment's children to the front of the body, keeping their order."""
+    body = body_of(root)
+    for child in fragment.children:
+        if isinstance(child, Node):
+            child.parent = body
+    body.children[:0] = fragment.children
+    fragment.children = []
 
 
 def title_of(root: Node) -> str:
