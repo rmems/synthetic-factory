@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import faults, predicates, records
 from . import vocabulary as cv
@@ -120,7 +120,7 @@ def _is_pack_id(value: Any, directory_name: str) -> bool:
     )
 
 
-def _is_surface_list(value: Any) -> bool:
+def _is_surface_list(value: Any) -> TypeGuard[list[str]]:
     """A nonempty list drawn from the surface vocabulary."""
     return isinstance(value, list) and bool(value) and all(item in cv.SURFACES for item in value)
 
@@ -240,13 +240,15 @@ def _predicates(
     return tuple(parsed)
 
 
+def _surface_list(value: Any, code: str, where: str) -> list[str]:
+    """``value`` as a nonempty list of known surfaces, or a refusal under ``code``."""
+    if _is_surface_list(value):
+        return value
+    cv.refuse(code, f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}")
+
+
 def _surfaces(row: Mapping[str, Any], where: str, allowed: tuple[str, ...]) -> tuple[str, ...]:
-    surfaces = row.get("surfaces")
-    cv.refuse_when(
-        not _is_surface_list(surfaces),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
-    )
+    surfaces = _surface_list(row.get("surfaces"), cv.FINDING_TASK_FIELD_INVALID, where)
     cv.refuse_when(
         any(item not in allowed for item in surfaces),
         cv.FINDING_TASK_FIELD_INVALID,
@@ -280,21 +282,18 @@ def _title(raw: Mapping[str, Any], where: str) -> str:
 
 def _max_steps(raw: Mapping[str, Any], where: str) -> int:
     max_steps = raw.get("max_steps")
-    cv.refuse_when(
-        not cv.is_genuine_int(max_steps) or not 1 <= max_steps <= cv.MAX_STEPS_CEILING,
+    if cv.is_genuine_int(max_steps) and 1 <= max_steps <= cv.MAX_STEPS_CEILING:
+        return max_steps
+    cv.refuse(
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: max_steps must be an integer in [1, {cv.MAX_STEPS_CEILING}]",
     )
-    return max_steps
 
 
 def _gold(raw: Mapping[str, Any], where: str) -> tuple[Action, ...]:
     rows = raw.get("gold")
-    cv.refuse_when(
-        not isinstance(rows, list) or not rows,
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: gold must be a nonempty list",
-    )
+    if not isinstance(rows, list) or not rows:
+        cv.refuse(cv.FINDING_TASK_FIELD_INVALID, f"{where}: gold must be a nonempty list")
     return tuple(action_from_row(row, f"{where}.gold[{index}]") for index, row in enumerate(rows))
 
 
@@ -378,12 +377,12 @@ def _check_suites(suites: Mapping[str, Any], where: str) -> None:
 
 def _pack_id(header: Mapping[str, Any], directory: Path, where: str) -> str:
     pack_id = header.get("pack_id")
-    cv.refuse_when(
-        not _is_pack_id(pack_id, directory.name),
+    if isinstance(pack_id, str) and _is_pack_id(pack_id, directory.name):
+        return pack_id
+    cv.refuse(
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: pack_id must be a slug equal to the directory name",
     )
-    return pack_id
 
 
 def _check_license(header: Mapping[str, Any], where: str) -> None:
@@ -395,13 +394,7 @@ def _check_license(header: Mapping[str, Any], where: str) -> None:
 
 
 def _declared_surfaces(header: Mapping[str, Any], where: str) -> tuple[str, ...]:
-    surfaces = header.get("surfaces")
-    cv.refuse_when(
-        not _is_surface_list(surfaces),
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}",
-    )
-    return tuple(surfaces)
+    return tuple(_surface_list(header.get("surfaces"), cv.FINDING_PACK_FIELD_INVALID, where))
 
 
 def _header(directory: Path) -> tuple[Mapping[str, Any], str, tuple[str, ...]]:

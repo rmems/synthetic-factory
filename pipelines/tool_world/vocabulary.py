@@ -7,6 +7,8 @@ and tool names are declared here so no shared pipeline needs a literal.
 
 from __future__ import annotations
 
+from typing import TypeGuard
+
 from ._contract import bind_import_twin, refusals, rng
 
 FAMILY = "tool-world"
@@ -159,16 +161,13 @@ refuse, refuse_when, refuse_first = refusals.helpers(ToolWorldRefusal)
 shown = refusals.shown
 
 
-def is_genuine_int(value: object) -> bool:
+def is_genuine_int(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
 def check_seed(seed: object) -> None:
-    refuse_when(
-        not is_genuine_int(seed),
-        FINDING_SEED_INVALID,
-        f"seed must be an integer, got {shown(seed)}",
-    )
+    if not is_genuine_int(seed):
+        refuse(FINDING_SEED_INVALID, f"seed must be an integer, got {shown(seed)}")
     refuse_when(
         not 0 <= seed <= MAX_SEED,
         FINDING_SEED_INVALID,

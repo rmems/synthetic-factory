@@ -87,12 +87,9 @@ def _require(row: Mapping[str, Any], key: str, kind: type, where: str) -> Any:
 
 def _require_str(row: Mapping[str, Any], key: str, where: str) -> str:
     value = row.get(key)
-    cv.refuse_when(
-        not isinstance(value, str) or not value.strip(),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: {key} must be a nonempty string",
-    )
-    return value
+    if isinstance(value, str) and value.strip():
+        return value
+    cv.refuse(cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a nonempty string")
 
 
 def _captures(row: Mapping[str, Any], where: str) -> dict[str, str]:

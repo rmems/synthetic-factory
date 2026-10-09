@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _print(payload: dict[str, Any], as_json: bool) -> int:
+def _print(payload: Mapping[str, Any], as_json: bool) -> int:
     if as_json:
         sys.stdout.write(dumps_exact_json(payload, indent=2) + "\n")
     else:

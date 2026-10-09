@@ -109,11 +109,11 @@ def _check_request(request: RunRequest) -> str:
     return produced_at
 
 
-def generate_record(draw: Draw, run_seed: int, run: records.RunContext) -> dict[str, Any]:
+def generate_record(draw: Draw, run_seed: int, context: records.RunContext) -> dict[str, Any]:
     """One record: a fresh environment under the draw's seed, the scripted solver, the record."""
     env = environment.Environment(draw.pack, draw.task, draw.seed(run_seed))
     trajectory = scripted.run(env, draw.variant)
-    return records.build_record(env, trajectory, run, draw.index)
+    return records.build_record(env, trajectory, context, draw.index)
 
 
 def _variants(task: Any, variants: str) -> tuple[str, ...]:
@@ -167,7 +167,7 @@ def _row(record: dict[str, Any], task: Any, variant: str) -> dict[str, Any]:
 
 
 def _records_for(
-    drawn: list[tuple[Any, Any]], request: RunRequest, run: records.RunContext
+    drawn: list[tuple[Any, Any]], request: RunRequest, context: records.RunContext
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """One record per drawn task and variant; the draw index numbers them in order."""
     lines: list[str] = []
@@ -175,20 +175,22 @@ def _records_for(
     for pack, task in drawn:
         for variant in _variants(task, request.variants):
             draw = Draw(pack, task, variant, len(rows) + 1)
-            record = generate_record(draw, request.seed, run)
+            record = generate_record(draw, request.seed, context)
             lines.append(dumps_exact_json(record, ensure_ascii=True))
             rows.append(_row(record, task, variant))
     return lines, rows
 
 
-def _header(request: RunRequest, catalog: cat.Catalog, run: records.RunContext) -> dict[str, Any]:
+def _header(
+    request: RunRequest, catalog: cat.Catalog, context: records.RunContext
+) -> dict[str, Any]:
     return {
         "format": cv.RUN_FORMAT,
         "family": cv.FAMILY,
-        "run_id": run.run_id,
+        "run_id": context.run_id,
         "generator": cv.GENERATOR_NAME,
         "generator_version": cv.GENERATOR_VERSION,
-        "policy_sha256": run.policy,
+        "policy_sha256": context.policy,
         "catalog_id": catalog.catalog_id,
         "catalog_sha256": catalog.catalog_sha256,
         "seed": request.seed,

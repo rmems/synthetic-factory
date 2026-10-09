@@ -403,10 +403,10 @@ def load_records(run_dir: Path) -> list[Mapping[str, Any]]:
     return [_parse_record(line, number) for number, line in enumerate(lines, 1) if line.strip()]
 
 
-def _selected(records: list[Mapping[str, Any]], record_id: str | None) -> list[Mapping[str, Any]]:
+def _selected(rows: list[Mapping[str, Any]], record_id: str | None) -> list[Mapping[str, Any]]:
     if record_id is None:
-        return records
-    chosen = [record for record in records if record.get("id") == record_id]
+        return rows
+    chosen = [record for record in rows if record.get("id") == record_id]
     cv.refuse_when(not chosen, cv.FINDING_RECORD_NOT_FOUND, f"record {record_id} is not in the run")
     return chosen
 
@@ -418,14 +418,14 @@ def replay_run(run_dir: Path, catalog: Any, record_id: str | None = None) -> dic
     another catalog digest is refused before any record is replayed.
     """
     run_dir = Path(run_dir)
-    records = _selected(load_records(run_dir), record_id)
+    selected = _selected(load_records(run_dir), record_id)
     pinned = _run_summary(run_dir).get("catalog_sha256")
     cv.refuse_when(
         pinned != catalog.catalog_sha256,
         cv.FINDING_RUN_SHA_MISMATCH,
         f"{RUN_FILENAME} was generated from catalog {pinned}, loaded {catalog.catalog_sha256}",
     )
-    results = [replay_record(record, catalog).row() for record in records]
+    results = [replay_record(record, catalog).row() for record in selected]
     return {
         "run_dir": str(run_dir),
         "record_id": record_id,

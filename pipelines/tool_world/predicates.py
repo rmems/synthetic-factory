@@ -79,8 +79,8 @@ def check_declaration(
         f"{where}: unknown predicate {name!r}",
     )
     surface, declared = _REGISTRY[name].surface, _REGISTRY[name].params
-    problems = [_problem(params, key, kind, name) for key, kind in declared.items()]
-    problems = [problem for problem in problems if problem is not None]
+    found = (_problem(params, key, kind, name) for key, kind in declared.items())
+    problems = [problem for problem in found if problem is not None]
     stray = sorted(set(params) - set(declared))
     if stray:
         problems.append(f"predicate {name} does not take {stray}")
