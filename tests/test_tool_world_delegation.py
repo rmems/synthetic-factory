@@ -178,6 +178,7 @@ class LoadRefusalTests(unittest.TestCase):
             (worker(dict(done, effects=[{"write": "a", "content": 5}])), "need a string content"),
             (worker(dict(done, effects=[{"append": "a"}])), "need a string content"),
             (worker(dict(done, effects=[{"delete": "a", "content": ""}])), "delete takes none"),
+            (worker(dict(done, effects=[{"delete": "a", "content": None}])), "delete takes none"),
             (worker(dict(done, effects=[{"write": "a", "content": "", "mode": 1}])), "['mode']"),
             (
                 {"role": "implementer", "profiles": {"default": done, "sleepy": done}},

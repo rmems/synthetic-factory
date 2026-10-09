@@ -6,7 +6,7 @@
   "packs": [
     {
       "pack_id": "catalog-browser",
-      "pack_sha256": "7badff6f586e7640b6bbf3da453ceacf412706b5a4132391c94b69f77bde909c",
+      "pack_sha256": "2c53704d178af27caac5ae3a736c4286892ca54cbed3b6e67ed42550c948723b",
       "surfaces": [
         "browser"
       ]

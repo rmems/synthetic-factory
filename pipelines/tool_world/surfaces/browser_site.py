@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from html import escape as escape_html
 from typing import Any
 from urllib.parse import SplitResult, parse_qsl, urlsplit
 
@@ -137,14 +138,18 @@ class Site:
         return path, self.not_found_html() if html is None else html
 
     def page_html(self, path: str) -> str | None:
-        """The page at ``path`` with its ``{{key}}`` placeholders filled from the query, or None."""
+        """The page at ``path`` with its ``{{key}}`` placeholders filled from the query, or None.
+
+        A query value is text, never markup: it is escaped before it lands in
+        the page, so a query cannot add elements to the DOM the agent sees.
+        """
         bare, _, query = path.partition("?")
         member = self.paths.get(path) or self.paths.get(bare)
         if member is None:
             return None
         html = self.members[member]
         for key, value in parse_qsl(query, keep_blank_values=True):
-            html = html.replace("{{" + key + "}}", value)
+            html = html.replace("{{" + key + "}}", escape_html(value))
         return html
 
     def not_found_html(self) -> str:

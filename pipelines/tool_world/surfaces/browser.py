@@ -233,16 +233,28 @@ class BrowserSurface(Surface):
         if missing is not None:
             return error_text(f"form '{form_id}' requires field '{missing.attrs['name']}'")
         self.submitted.add(form_id)
-        values = [(field.attrs["name"], self._value_of(field)) for field in fields]
         action = form.attrs.get("action", self.site.path_of(self.url) or "/")
-        return self.follow(f"{action}?{urlencode(values)}" if values else action)
+        return self.follow(self._submission_url(action, fields))
+
+    def _submission_url(self, action: str, fields: list[dom.Node]) -> str:
+        """The action url carrying the submitting fields as its query, when there are any."""
+        values = [
+            (field.attrs["name"], self._value_of(field)) for field in fields if _submits(field)
+        ]
+        return f"{action}?{urlencode(values)}" if values else action
 
     def _value_of(self, field: dom.Node) -> str:
-        """What the field submits: the typed text, else the value its author gave it."""
+        """What the field submits: the typed text, else the value its author gave it.
+
+        A checkbox submits its declared value, or ``on`` when it declares none,
+        and only while it is checked (``_submits``), as a browser would.
+        """
+        if _is_checkbox(field):
+            return field.attrs.get("value") or "on"
         return self.fields.get(field.attrs["name"], field.attrs.get("value", ""))
 
     def _lacks_required(self, field: dom.Node) -> bool:
-        return "required" in field.attrs and not self._value_of(field)
+        return "required" in field.attrs and not (_submits(field) and self._value_of(field))
 
     def _extract(self, args: Mapping[str, Any]) -> str:
         node, problem = self._node(args)
@@ -268,6 +280,15 @@ class BrowserSurface(Surface):
             "submitted": sorted(self.submitted),
             "fields": dict(sorted(self.fields.items())),
         }
+
+
+def _is_checkbox(field: dom.Node) -> bool:
+    return field.attrs.get("type") == "checkbox"
+
+
+def _submits(field: dom.Node) -> bool:
+    """Whether a form field takes part in the submission: a checkbox only while checked."""
+    return not _is_checkbox(field) or "checked" in field.attrs
 
 
 bind_import_twin(__name__)

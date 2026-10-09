@@ -82,7 +82,12 @@ class PackTests(unittest.TestCase):
     def test_malformed_server_members_are_refused_at_load(self):
         good = self.pack.servers["tickets"]
         bad_schema = [{"name": "t", "inputSchema": {"type": "object", "pattern": "x"}}]
+        twice = {key: good[key] * 2 for key in ("tools", "resources", "prompts")}
         cases = (
+            ({**good, "tools": twice["tools"]}, "tools: duplicate name values"),
+            ({**good, "drifted_tools": twice["tools"]}, "drifted_tools: duplicate name values"),
+            ({**good, "resources": twice["resources"]}, "resources: duplicate uri values"),
+            ({**good, "prompts": twice["prompts"]}, "prompts: duplicate name values"),
             ({**good, "name": "other"}, "name equals its file stem"),
             ({**good, "page_size": 0}, "page_size"),
             ({**good, "page_size": None}, "page_size"),
@@ -111,6 +116,8 @@ class PackTests(unittest.TestCase):
             ({"behavior": "lookup"}, "behavior: must be an object whose kind"),
             ({"behavior": None}, "behavior: must be an object whose kind"),
             ({"behavior": {**lookup, "kind": "lookp"}}, "whose kind is one of"),
+            ({"behavior": {**lookup, "kind": ["lookup"]}}, "whose kind is one of"),
+            ({"behavior": {**lookup, "kind": None}}, "whose kind is one of"),
             ({"behavior": {**lookup, "table": ["T-104"]}}, "table: must map strings"),
             ({"behavior": {**lookup, "table": "T-104 open"}}, "table: must map strings"),
             ({"behavior": {**lookup, "table": {"T-104": 7}}}, "table: must map strings"),

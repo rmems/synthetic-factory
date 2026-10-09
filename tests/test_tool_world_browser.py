@@ -11,6 +11,7 @@ from tool_world_browser_support import (
     BAD_SITES,
     EFFECTS_PAGE,
     END_PAGE,
+    FORM_PAGE,
     LEGACY,
     ORIGIN,
     OVERLAY_SITE,
@@ -42,7 +43,7 @@ class BrowserSurfaceTests(unittest.TestCase):
     def test_navigate_reports_url_title_and_snapshot(self):
         text = browse(quiet_env(SEARCH), action="navigate", url="/")
         self.assertTrue(text.startswith(f"url: {ORIGIN}/\ntitle: Parts catalog\n"))
-        for line in ('- form "search"', '  - textbox "Search parts"', '- link "All items"'):
+        for line in ('- form "search"', '  - textbox "Search the catalog"', '- link "All items"'):
             self.assertIn(line, text)
 
     def test_actions_need_a_page_and_navigation_stays_inside_the_origin(self):
@@ -143,14 +144,14 @@ class BrowserSurfaceTests(unittest.TestCase):
         env = quiet_env(SEARCH)
         surface = env.surface(cv.SURFACE_BROWSER)
         browse(env, action="navigate", url="/")
-        box = ref_in(browse(env, action="find", role="textbox", name="Search parts"))
+        box = ref_in(browse(env, action="find", role="textbox", name="Search the catalog"))
         self.assertEqual(
             browse(env, action="submit", ref=box), "error: form 'search' requires field 'q'"
         )
         self.assertEqual(surface.state_view()["submitted"], [])
         self.assertEqual(
             browse(env, action="type", ref=box, text="bolt"),
-            'typed into textbox "Search parts": bolt',
+            'typed into textbox "Search the catalog": bolt',
         )
         self.assertEqual(surface.state_view()["fields"], {"q": "bolt"})
         self.assertIn("[value='bolt']", browse(env, action="snapshot"))
@@ -181,6 +182,42 @@ class BrowserSurfaceTests(unittest.TestCase):
         text = browse(quiet_env(SEARCH), action="navigate", url="/search?q=washer")
         self.assertIn('- heading "Results for washer" [ref=e2]', text)
         self.assertIn('- text "Showing parts whose name contains washer."', text)
+
+    def test_a_query_value_is_text_in_the_page_never_markup(self):
+        env = quiet_env(SEARCH)
+        text = browse(
+            env, action="navigate", url="/search?q=%3Ca+href%3D%22%2Fitems%22%3Ex%3C%2Fa%3E"
+        )
+        self.assertIn('- heading "Results for <a href="/items">x</a>" [ref=e2]', text)
+        self.assertEqual(
+            browse(env, action="find", role="link"),
+            '- link "Back to the catalog" [ref=e4]',
+        )
+
+    def test_a_checkbox_is_submitted_only_while_checked(self):
+        surface = stub_surface(pages={"page.html": FORM_PAGE, "end.html": END_PAGE})
+        surface.execute("browser", {"action": "navigate", "url": "/"}, None)
+        form = surface.root.find_id("login")
+        self.assertEqual(
+            surface.submit_form(form).splitlines()[0],
+            f"url: {ORIGIN}/login?user=ann&remember=on&scope=all&note=",
+        )
+        remember = next(
+            field for field in dom.form_inputs(form) if field.attrs["name"] == "remember"
+        )
+        del remember.attrs["checked"]
+        self.assertEqual(
+            surface.submit_form(form).splitlines()[0],
+            f"url: {ORIGIN}/login?user=ann&scope=all&note=",
+        )
+        remember.attrs["required"] = ""
+        self.assertEqual(surface.submit_form(form), "error: form 'login' requires field 'remember'")
+        remember.attrs["checked"] = ""
+        remember.attrs["value"] = "yes"
+        self.assertEqual(
+            surface.submit_form(form).splitlines()[0],
+            f"url: {ORIGIN}/login?user=ann&remember=yes&scope=all&note=",
+        )
 
     def test_extract_logs_the_element_text(self):
         env = quiet_env(PRICE)

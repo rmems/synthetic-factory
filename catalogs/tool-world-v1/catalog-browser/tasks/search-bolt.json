@@ -18,7 +18,8 @@
      "tool_call": {"name": "browser", "args": {"action": "navigate", "url": "/"}}},
     {"intent": "the snapshot showed a search form; find its textbox by role and name",
      "tool_call": {"name": "browser",
-                   "args": {"action": "find", "role": "textbox", "name": "Search parts"}},
+                   "args": {"action": "find", "role": "textbox",
+                            "name": "Search the catalog"}},
      "captures": {"box": "\\[ref=(e\\d+)\\]"}},
     {"intent": "the find result gave the textbox ref; type the query into that textbox",
      "tool_call": {"name": "browser",
@@ -52,7 +53,7 @@
      "retry": false},
     {"id": "search-box-drift", "surface": "browser", "kind": "selector_drift", "tool": "browser",
      "selector": {"action": "navigate", "url": "/"}, "occurrence": 1, "probability_percent": 50,
-     "marker": "no elements match role='textbox' name='Search parts'",
+     "marker": "no elements match role='textbox' name='Search the catalog'",
      "recovery": [
        {"intent": "the textbox name drifted since the plan was written; list textboxes by role",
         "tool_call": {"name": "browser", "args": {"action": "find", "role": "textbox"}},

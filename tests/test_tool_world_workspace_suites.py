@@ -114,6 +114,8 @@ class RunTestsTests(unittest.TestCase):
             ("case without id", suite({"check": ok["check"]}), "nonempty string id"),
             ("check a string", suite({"id": "a", "check": "file_exists"}), "needs a check"),
             ("unknown kind", checked({"kind": "file_size", "path": LOCK}), "kind is one of"),
+            ("kind a list", checked({"kind": ["file_exists"], "path": LOCK}), "kind is one of"),
+            ("kind absent", checked({"path": LOCK}), "kind is one of"),
             ("text an int", checked({"kind": "file_contains", "path": LOCK, "text": 5}), "'text'"),
             ("path an int", checked({"kind": "file_exists", "path": 5}), "string fields ['path']"),
             ("stray field", checked({"kind": "file_exists", "path": LOCK, "text": "x"}), "exactly"),

@@ -75,6 +75,13 @@ def _effect_op(effect: Any) -> str | None:
     return op if isinstance(path, str) and path else None
 
 
+def _content_fits(op: str, effect: Mapping[str, Any]) -> bool:
+    """Write and append carry a string content; a delete carries no content key at all."""
+    if op == "delete":
+        return _EFFECT_CONTENT not in effect
+    return isinstance(effect.get(_EFFECT_CONTENT), str)
+
+
 def _check_effect(where: str, effect: Any) -> None:
     op = _effect_op(effect)
     cv.refuse_when(
@@ -83,7 +90,7 @@ def _check_effect(where: str, effect: Any) -> None:
         f"{where}: must be an object with exactly one of {list(_EFFECT_OPS)} naming a path",
     )
     cv.refuse_when(
-        (op != "delete") != isinstance(effect.get(_EFFECT_CONTENT), str),
+        not _content_fits(op, effect),
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: write and append need a string {_EFFECT_CONTENT}; delete takes none",
     )

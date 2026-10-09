@@ -95,8 +95,9 @@ def _check_case(case: Any, where: str) -> str:
         f"{where}: a case must be an object with a nonempty string id",
     )
     check = case.get("check")
+    kind = check.get("kind") if isinstance(check, Mapping) else None
     cv.refuse_when(
-        not isinstance(check, Mapping) or check.get("kind") not in _CHECK_FIELDS,
+        not isinstance(kind, str) or kind not in _CHECK_FIELDS,
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: case {case['id']!r} needs a check whose kind is one of {list(_CHECK_FIELDS)}",
     )

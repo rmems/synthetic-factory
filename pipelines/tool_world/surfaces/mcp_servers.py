@@ -12,7 +12,8 @@ declared behavior kinds, returning the text and whether it is an error.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from .. import schema_lite
@@ -131,12 +132,27 @@ def _is_text_entry(row: Any, key: str) -> bool:
     )
 
 
+def _duplicates(values: Iterable[str]) -> list[str]:
+    return sorted(value for value, count in Counter(values).items() if count > 1)
+
+
+def _check_unique(names: Iterable[str], key: str, where: str) -> None:
+    """Refuse a member list in which two entries answer to one ``key``."""
+    repeated = _duplicates(names)
+    cv.refuse_when(
+        bool(repeated),
+        cv.FINDING_PACK_FIELD_INVALID,
+        f"{where}: duplicate {key} values {repeated}",
+    )
+
+
 def _check_rows(rows: Any, key: str, where: str) -> None:
     cv.refuse_when(
         not isinstance(rows, list) or any(not _is_text_entry(row, key) for row in rows),
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: every entry must be an object with a string {key!r} and a string 'text'",
     )
+    _check_unique((row[key] for row in rows), key, where)
 
 
 def _check_input_schema(schema: Any, where: str) -> None:
@@ -150,8 +166,9 @@ def _check_input_schema(schema: Any, where: str) -> None:
 
 
 def _check_behavior(behavior: Any, where: str) -> None:
+    kind = behavior.get("kind", "echo") if isinstance(behavior, Mapping) else None
     cv.refuse_when(
-        not isinstance(behavior, Mapping) or behavior.get("kind", "echo") not in _BEHAVIORS,
+        not isinstance(kind, str) or kind not in _BEHAVIORS,
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: must be an object whose kind is one of {sorted(_BEHAVIORS)}",
     )
@@ -187,6 +204,7 @@ def _check_tools(rows: Any, where: str) -> None:
         )
         _check_input_schema(row.get("inputSchema"), f"{label}.inputSchema")
         _check_behavior(row.get("behavior", {}), f"{label}.behavior")
+    _check_unique((row["name"] for row in rows), "name", where)
 
 
 def check_server_spec(name: str, spec: Any) -> None:

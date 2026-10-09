@@ -1,13 +1,13 @@
 # tool-world NOTES
 
-Run seed 20261009, catalog tool-world-v1 (44a709acc73947fc), policy f8bab452f97238d8.
+Run seed 20261009, catalog tool-world-v1 (b7c793de2f6837ca), policy f8bab452f97238d8.
 
 Every observation below was computed by the environment and replays from (pack, seed, actions).
 
 ## Records
-- `twd-7badff6f586e7640-f8bab452f97238d8-7873782444899305193-00001`: catalog.wn10-via-legacy-path [gold] steps=9 success=True decision=accept faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-4805137040486937864-00002`: catalog.wn10-via-legacy-path [give_up_on_fault] steps=2 success=False decision=measure faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-9927362618194874434-00003`: catalog.wn10-via-legacy-path [wrong_arg_type] steps=13 success=True decision=measure faults_fired=2
+- `twd-2c53704d178af27c-f8bab452f97238d8-7873782444899305193-00001`: catalog.wn10-via-legacy-path [gold] steps=9 success=True decision=accept faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-4805137040486937864-00002`: catalog.wn10-via-legacy-path [give_up_on_fault] steps=2 success=False decision=measure faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-9927362618194874434-00003`: catalog.wn10-via-legacy-path [wrong_arg_type] steps=13 success=True decision=measure faults_fired=2
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-4636366756584287782-00004`: counter.add-sub [gold] steps=7 success=True decision=accept faults_fired=2
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-7921779844560407709-00005`: counter.add-sub [give_up_on_fault] steps=2 success=False decision=measure faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-2191370395314634301-00006`: counter.add-sub [wrong_arg_type] steps=8 success=True decision=measure faults_fired=2
@@ -19,16 +19,16 @@ Every observation below was computed by the environment and replays from (pack, 
 - `twd-437246edf1009dfd-f8bab452f97238d8-212850859068694886-00012`: release.ship-feature [skip_verification] steps=8 success=False decision=measure faults_fired=1
 - `twd-437246edf1009dfd-f8bab452f97238d8-7093084298888744456-00013`: release.ship-feature [give_up_on_fault] steps=8 success=False decision=measure faults_fired=1
 - `twd-437246edf1009dfd-f8bab452f97238d8-1457100321542719190-00014`: release.ship-feature [wrong_arg_type] steps=15 success=True decision=measure faults_fired=2
-- `twd-7badff6f586e7640-f8bab452f97238d8-16355277530299115723-00015`: catalog.search-bolt [gold] steps=9 success=True decision=accept faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-10704597584191817590-00016`: catalog.search-bolt [give_up_on_fault] steps=3 success=False decision=measure faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-11816770014843320342-00017`: catalog.search-bolt [skip_verification] steps=6 success=False decision=measure faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-10082716406328121383-00018`: catalog.search-bolt [wrong_arg_type] steps=8 success=True decision=measure faults_fired=0
+- `twd-2c53704d178af27c-f8bab452f97238d8-16355277530299115723-00015`: catalog.search-bolt [gold] steps=9 success=True decision=accept faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-10704597584191817590-00016`: catalog.search-bolt [give_up_on_fault] steps=3 success=False decision=measure faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-11816770014843320342-00017`: catalog.search-bolt [skip_verification] steps=6 success=False decision=measure faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-10082716406328121383-00018`: catalog.search-bolt [wrong_arg_type] steps=8 success=True decision=measure faults_fired=0
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-11186857271473731671-00019`: counter.rename-config-key [gold] steps=6 success=True decision=accept faults_fired=1
 - `twd-3a1621cf0c42a16c-f8bab452f97238d8-3984839226483314059-00020`: counter.rename-config-key [give_up_on_fault] steps=5 success=False decision=measure faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-11621931505478191398-00021`: catalog.price-of-hb08 [gold] steps=11 success=True decision=accept faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-10937801234231787211-00022`: catalog.price-of-hb08 [give_up_on_fault] steps=3 success=False decision=measure faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-10779004993890787363-00023`: catalog.price-of-hb08 [skip_verification] steps=9 success=False decision=measure faults_fired=1
-- `twd-7badff6f586e7640-f8bab452f97238d8-8850008855686645182-00024`: catalog.price-of-hb08 [wrong_arg_type] steps=15 success=True decision=measure faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-11621931505478191398-00021`: catalog.price-of-hb08 [gold] steps=11 success=True decision=accept faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-10937801234231787211-00022`: catalog.price-of-hb08 [give_up_on_fault] steps=3 success=False decision=measure faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-10779004993890787363-00023`: catalog.price-of-hb08 [skip_verification] steps=9 success=False decision=measure faults_fired=1
+- `twd-2c53704d178af27c-f8bab452f97238d8-8850008855686645182-00024`: catalog.price-of-hb08 [wrong_arg_type] steps=15 success=True decision=measure faults_fired=1
 - `twd-29787a1d91a4856f-f8bab452f97238d8-17829293057719635737-00025`: tickets.find-csv-ticket [gold] steps=9 success=True decision=accept faults_fired=1
 - `twd-29787a1d91a4856f-f8bab452f97238d8-495137713562216784-00026`: tickets.find-csv-ticket [give_up_on_fault] steps=8 success=False decision=measure faults_fired=1
 - `twd-29787a1d91a4856f-f8bab452f97238d8-4104013457829230776-00027`: tickets.find-csv-ticket [wrong_arg_type] steps=10 success=True decision=measure faults_fired=1

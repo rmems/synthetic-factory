@@ -74,6 +74,22 @@ class DomTests(unittest.TestCase):
             ],
         )
 
+    def test_a_label_names_its_field_before_the_placeholder(self):
+        root = dom.parse_html(
+            '<html><body><form id="f">'
+            '<label for="a">Email address</label><input id="a" name="email" placeholder="you@x">'
+            '<label>Nickname <input name="nick" placeholder="nick"></label>'
+            '<label for="c">Ignored</label><input id="c" name="c" aria-label="Spoken">'
+            '<label for="d">Dangling</label><input id="e" name="e" placeholder="Typed">'
+            '<label><input type="checkbox" name="tos"> I agree</label>'
+            "</form></body></html>"
+        )
+        fields = [node for node in root.walk() if node.tag == "input"]
+        self.assertEqual(
+            [dom.name_of(node, dom.role_of(node)) for node in fields],
+            ["Email address", "Nickname", "Spoken", "Typed", "I agree"],
+        )
+
     def test_refs_number_snapshotted_elements_in_document_order(self):
         refs = dom.assign_refs(self.root)
         self.assertEqual(list(refs), [f"e{n}" for n in range(1, 14)])

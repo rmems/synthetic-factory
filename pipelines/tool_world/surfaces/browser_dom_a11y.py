@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .._contract import bind_import_twin
-from .browser_dom_tree import Node
+from .browser_dom_tree import Node, inside
 
 __all__ = ["assign_refs", "find", "name_of", "role_of", "snapshot"]
 
@@ -69,9 +69,32 @@ def _label_or_id(node: Node) -> str:
     return node.attrs.get("aria-label") or node.attrs.get("id", "")
 
 
+def _root_of(node: Node) -> Node:
+    return next((ancestor for ancestor in node.ancestors() if ancestor.parent is None), node)
+
+
+def _labels_field(label: Node, field: Node) -> bool:
+    """Whether ``label`` names ``field``: it wraps the field, or its ``for`` is the field's id."""
+    identifier = field.attrs.get("id")
+    return inside(field, label) or (bool(identifier) and label.attrs.get("for") == identifier)
+
+
+def _label_text(node: Node) -> str:
+    """The text of the first label in the document that names the field, else ''."""
+    labels = (item for item in _root_of(node).walk() if item.tag == "label")
+    label = next((item for item in labels if _labels_field(item, node)), None)
+    return "" if label is None else label.text()
+
+
 def _field_name(node: Node) -> str:
+    """aria-label, then the field's label, then its placeholder, then its name."""
     attrs = node.attrs
-    return attrs.get("aria-label") or attrs.get("placeholder") or attrs.get("name", "")
+    return (
+        attrs.get("aria-label")
+        or _label_text(node)
+        or attrs.get("placeholder")
+        or attrs.get("name", "")
+    )
 
 
 _NAME_BY_ROLE = {
@@ -84,7 +107,7 @@ _NAME_BY_ROLE = {
 
 
 def name_of(node: Node, role: str) -> str:
-    """The accessible name: a label, placeholder, id, value, or the element's text."""
+    """The accessible name: an aria-label, label, placeholder, id, value, or the text."""
     if role == "button" and node.tag == "input":
         return node.attrs.get("value", "")
     return _NAME_BY_ROLE.get(role, Node.text)(node)
