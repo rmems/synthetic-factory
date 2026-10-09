@@ -21,13 +21,18 @@ from typing import Any
 from . import env as environment
 from . import records
 from . import vocabulary as cv
-from ._contract import bind_import_twin, load_strict_json, sha256_bytes
+from ._contract import bind_import_twin
 from .policies import scripted
+from .run_files import CANDIDATES_FILENAME, RUN_FILENAME, check_drawn, load_records, run_summary
 
-__all__ = ["ReplayResult", "load_records", "replay_record", "replay_run"]
-
-CANDIDATES_FILENAME = "candidates.jsonl"
-RUN_FILENAME = "RUN.json"
+__all__ = [
+    "CANDIDATES_FILENAME",
+    "RUN_FILENAME",
+    "ReplayResult",
+    "load_records",
+    "replay_record",
+    "replay_run",
+]
 _META_DERIVED = (
     "factory",
     "generator",
@@ -343,68 +348,6 @@ def replay_record(record: Mapping[str, Any], catalog: Any) -> ReplayResult:
     )
 
 
-def _run_summary(run_dir: Path) -> Mapping[str, Any]:
-    run_file = run_dir / RUN_FILENAME
-    cv.refuse_when(not run_file.is_file(), cv.FINDING_RUN_FILE_MISSING, f"missing {RUN_FILENAME}")
-    try:
-        summary = load_strict_json(run_file.read_text(encoding="utf-8"))
-    except ValueError as exc:
-        raise cv.ToolWorldRefusal(
-            cv.FINDING_RUN_FILE_INVALID, f"{RUN_FILENAME} is not strict JSON ({exc})"
-        ) from exc
-    cv.refuse_when(
-        not isinstance(summary, Mapping),
-        cv.FINDING_RUN_FILE_INVALID,
-        f"{RUN_FILENAME} must be an object",
-    )
-    return summary
-
-
-def _candidate_lines(run_dir: Path, summary: Mapping[str, Any]) -> list[str]:
-    candidates = run_dir / CANDIDATES_FILENAME
-    cv.refuse_when(
-        not candidates.is_file(), cv.FINDING_RUN_FILE_MISSING, f"missing {CANDIDATES_FILENAME}"
-    )
-    payload = candidates.read_bytes()
-    cv.refuse_when(
-        summary.get("candidates_sha256") != sha256_bytes(payload),
-        cv.FINDING_RUN_SHA_MISMATCH,
-        f"{CANDIDATES_FILENAME} bytes do not match RUN.json candidates_sha256",
-    )
-    try:
-        return payload.decode("utf-8").splitlines()
-    except UnicodeDecodeError as exc:
-        raise cv.ToolWorldRefusal(
-            cv.FINDING_RECORD_MALFORMED, f"{CANDIDATES_FILENAME} is not UTF-8 ({exc.reason})"
-        )
-
-
-def _parse_record(line: str, number: int) -> Mapping[str, Any]:
-    try:
-        record = load_strict_json(line)
-    except ValueError as exc:
-        raise cv.ToolWorldRefusal(
-            cv.FINDING_RECORD_MALFORMED, f"line {number} is not strict JSON ({exc})"
-        ) from exc
-    cv.refuse_when(
-        not isinstance(record, Mapping),
-        cv.FINDING_RECORD_MALFORMED,
-        f"line {number} is not an object",
-    )
-    return record
-
-
-def load_records(run_dir: Path) -> list[Mapping[str, Any]]:
-    """Every candidate of a run whose bytes RUN.json vouches for; any corruption is a refusal."""
-    run_dir = Path(run_dir)
-    candidates = run_dir / CANDIDATES_FILENAME
-    cv.refuse_when(
-        not candidates.is_file(), cv.FINDING_RUN_FILE_MISSING, f"missing {CANDIDATES_FILENAME}"
-    )
-    lines = _candidate_lines(run_dir, _run_summary(run_dir))
-    return [_parse_record(line, number) for number, line in enumerate(lines, 1) if line.strip()]
-
-
 def _selected(rows: list[Mapping[str, Any]], record_id: str | None) -> list[Mapping[str, Any]]:
     if record_id is None:
         return rows
@@ -417,16 +360,19 @@ def replay_run(run_dir: Path, catalog: Any, record_id: str | None = None) -> dic
     """Replay every candidate of a run, or the one named; it passes only when every record agrees.
 
     The run must have been generated from the loaded catalog: a RUN.json pinned to
-    another catalog digest is refused before any record is replayed.
+    another catalog digest is refused before any record is replayed, and so is one
+    whose rows name records its own header does not draw from that catalog.
     """
     run_dir = Path(run_dir)
     selected = _selected(load_records(run_dir), record_id)
-    pinned = _run_summary(run_dir).get("catalog_sha256")
+    summary = run_summary(run_dir)
+    pinned = summary.get("catalog_sha256")
     cv.refuse_when(
         pinned != catalog.catalog_sha256,
         cv.FINDING_RUN_SHA_MISMATCH,
         f"{RUN_FILENAME} was generated from catalog {pinned}, loaded {catalog.catalog_sha256}",
     )
+    check_drawn(summary, catalog)
     results = [replay_record(record, catalog).row() for record in selected]
     return {
         "run_dir": str(run_dir),

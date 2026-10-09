@@ -143,6 +143,7 @@ pipelines/tool_world/
   policies/model.py       (M6) model-channel solver loop (structured JSON actions)
   records.py           record assembly with the episode training view (section 8)
   replay.py            fresh replay + verdict; the oracle every gate calls
+  run_files.py         RUN.json + candidates.jsonl: digest, row inventory, header-draw binding
   publication.py       (M1) transaction publish with mandatory replay, like
                        code_repair.publication
   cli.py               catalog-check | generate | replay | render | tools
@@ -516,8 +517,12 @@ Mirror `docs/code-repair-admission.md` exactly:
    (`raw_tree_guard`, `rename_noreplace`, `operator_paths`): `candidates.jsonl`
    plus `RUN.json` (`tool-world-run/1`, `candidates_sha256`, pack and policy
    digests, seed, solver identity, attempted / accepted / rejected counts).
-2. **Replay** every candidate from a pristine pack copy; store the replay
-   digest in `oracle.result_hash`. Natural rejections (predicate false,
+2. **Replay** every candidate from a pristine pack copy, after binding
+   `candidates.jsonl` to `RUN.json`'s digest and ordered row inventory, and
+   that inventory to the record ids the header's own draw produces from the
+   catalog, so a run cannot shed, reorder or substitute records and still
+   pass (the rows' other fields are reporting, not evidence); store the
+   replay digest in `oracle.result_hash`. Natural rejections (predicate false,
    budget exhausted, schema error never recovered) are kept as evidence in a
    `tool-world-input-rNN.json` capture, outside the training JSONL, as
    `code-repair-input-rNN.json` does.

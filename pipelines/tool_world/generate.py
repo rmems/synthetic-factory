@@ -27,7 +27,10 @@ __all__ = [
     "NOTES_FILENAME",
     "RUN_FILENAME",
     "Draw",
+    "DrawSpec",
     "RunRequest",
+    "draws",
+    "expected_ids",
     "generate_record",
     "run",
 ]
@@ -35,6 +38,49 @@ __all__ = [
 CANDIDATES_FILENAME = "candidates.jsonl"
 RUN_FILENAME = "RUN.json"
 NOTES_FILENAME = "NOTES.md"
+
+
+_DRAW_FIELDS = ("seed", "count", "factory", "variants")
+
+
+@dataclass(frozen=True)
+class DrawSpec:
+    """The fields a run's draw depends on, as a request or a RUN.json header supplies them."""
+
+    seed: int
+    count: int
+    factory: str | None
+    variants: str
+
+    @classmethod
+    def from_header(cls, header: Mapping[str, Any]) -> DrawSpec:
+        """The draw a RUN.json header describes, checked the way a request's is."""
+        fields: dict[str, Any] = {name: header.get(name) for name in _DRAW_FIELDS}
+        return cls(**fields).checked()
+
+    def checked(self) -> DrawSpec:
+        """This spec once every field lies in its domain, or a refusal naming the first outside."""
+        cv.check_seed(self.seed)
+        cv.refuse_first(
+            (
+                (
+                    not cv.is_genuine_int(self.count) or not 1 <= self.count <= cv.MAX_COUNT,
+                    cv.FINDING_COUNT_OUT_OF_DOMAIN,
+                    f"count must be an integer in [1, {cv.MAX_COUNT}], got {cv.shown(self.count)}",
+                ),
+                (
+                    self.variants not in ("gold", "all"),
+                    cv.FINDING_COUNT_OUT_OF_DOMAIN,
+                    f"variants must be gold or all, got {cv.shown(self.variants)}",
+                ),
+                (
+                    self.factory is not None and self.factory not in cv.FACTORY_BY_SURFACE.values(),
+                    cv.FINDING_SURFACE_UNKNOWN,
+                    f"unknown factory {cv.shown(self.factory)}",
+                ),
+            )
+        )
+        return self
 
 
 @dataclass(frozen=True)
@@ -50,6 +96,10 @@ class RunRequest:
     def checked(self) -> RunRequest:
         """This request with ``produced_at`` resolved, or a refusal naming the first bad field."""
         return RunRequest(**{**asdict(self), "produced_at": _check_request(self)})
+
+    def draw(self) -> DrawSpec:
+        """The draw this request asks for."""
+        return DrawSpec(self.seed, self.count, self.factory, self.variants)
 
 
 @dataclass(frozen=True)
@@ -69,25 +119,9 @@ class Draw:
 
 def _check_request(request: RunRequest) -> str:
     """The resolved ``produced_at`` of a valid request, or a refusal naming the first bad field."""
-    cv.check_seed(request.seed)
+    request.draw().checked()
     cv.refuse_first(
         (
-            (
-                not cv.is_genuine_int(request.count) or not 1 <= request.count <= cv.MAX_COUNT,
-                cv.FINDING_COUNT_OUT_OF_DOMAIN,
-                f"count must be an integer in [1, {cv.MAX_COUNT}], got {cv.shown(request.count)}",
-            ),
-            (
-                request.variants not in ("gold", "all"),
-                cv.FINDING_COUNT_OUT_OF_DOMAIN,
-                f"variants must be gold or all, got {cv.shown(request.variants)}",
-            ),
-            (
-                request.factory is not None
-                and request.factory not in cv.FACTORY_BY_SURFACE.values(),
-                cv.FINDING_SURFACE_UNKNOWN,
-                f"unknown factory {cv.shown(request.factory)}",
-            ),
             (
                 request.out_dir.exists(),
                 cv.FINDING_DESTINATION_EXISTS,
@@ -119,7 +153,7 @@ def generate_record(draw: Draw, run_seed: int, context: records.RunContext) -> d
 def _variants(task: Any, variants: str) -> tuple[str, ...]:
     if variants == "gold":
         return (cv.VARIANT_GOLD,)
-    return (cv.VARIANT_GOLD, *task.perturbations)
+    return cv.VARIANT_GOLD, *task.perturbations
 
 
 def _write_new(path: Path, text: str) -> None:
@@ -166,18 +200,51 @@ def _row(record: dict[str, Any], task: Any, variant: str) -> dict[str, Any]:
     }
 
 
+def draws(catalog: cat.Catalog, spec: DrawSpec) -> list[Draw]:
+    """The run's records in order: ``count`` tasks drawn under ``seed``, each under its variants."""
+    tasks = list(catalog.tasks(spec.factory))
+    cv.refuse_when(
+        spec.count > len(tasks),
+        cv.FINDING_COUNT_OUT_OF_DOMAIN,
+        f"count {spec.count} exceeds the {len(tasks)} tasks the catalog offers for this factory",
+    )
+    drawn: list[Draw] = []
+    for pack, task in rng.DrawStream(spec.seed).sample(tasks, spec.count):
+        for variant in _variants(task, spec.variants):
+            drawn.append(Draw(pack, task, variant, len(drawn) + 1))
+    return drawn
+
+
+def expected_ids(catalog: cat.Catalog, header: Mapping[str, Any]) -> list[str]:
+    """The record ids a run with this header draws, in order: what its RUN.json rows must name.
+
+    Only the header's seed, count, factory, variants and policy digest are
+    read; the ids are re-derived from the catalog the way ``run`` numbers them,
+    so a manifest cannot name records its own draw never produced.
+    """
+    spec = DrawSpec.from_header(header)
+    policy = header.get("policy_sha256")
+    if not isinstance(policy, str):
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_RUN_FILE_INVALID,
+            f"{RUN_FILENAME} policy_sha256 must be a string, got {cv.shown(policy)}",
+        )
+    return [
+        records.record_id(draw.pack.pack_sha256, policy, draw.seed(spec.seed), draw.index)
+        for draw in draws(catalog, spec)
+    ]
+
+
 def _records_for(
-    drawn: list[tuple[Any, Any]], request: RunRequest, context: records.RunContext
+    drawn: list[Draw], run_seed: int, context: records.RunContext
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """One record per drawn task and variant; the draw index numbers them in order."""
+    """One record per draw, in draw order."""
     lines: list[str] = []
     rows: list[dict[str, Any]] = []
-    for pack, task in drawn:
-        for variant in _variants(task, request.variants):
-            draw = Draw(pack, task, variant, len(rows) + 1)
-            record = generate_record(draw, request.seed, context)
-            lines.append(dumps_exact_json(record, ensure_ascii=True))
-            rows.append(_row(record, task, variant))
+    for draw in drawn:
+        record = generate_record(draw, run_seed, context)
+        lines.append(dumps_exact_json(record, ensure_ascii=True))
+        rows.append(_row(record, draw.task, draw.variant))
     return lines, rows
 
 
@@ -218,19 +285,13 @@ def run(request: RunRequest) -> dict[str, Any]:
     """Draw ``count`` tasks and write their records into ``out_dir``."""
     request = request.checked()
     catalog = cat.load_catalog(request.catalog_dir)
-    tasks = list(catalog.tasks(request.factory))
-    cv.refuse_when(
-        request.count > len(tasks),
-        cv.FINDING_COUNT_OUT_OF_DOMAIN,
-        f"count {request.count} exceeds the {len(tasks)} tasks the catalog offers for this factory",
-    )
-    drawn = rng.DrawStream(request.seed).sample(tasks, request.count)
+    drawn = draws(catalog, request.draw())
     context = records.RunContext(
         catalog_sha256=catalog.catalog_sha256,
         run_id=f"twd-run-{request.seed}-{catalog.catalog_sha256[:12]}",
         policy=scripted.policy_sha256(),
     )
-    lines, rows = _records_for(drawn, request, context)
+    lines, rows = _records_for(drawn, request.seed, context)
     payload = "\n".join(lines) + "\n"
     summary = _summary(_header(request, catalog, context), rows, payload)
     request.out_dir.mkdir(parents=True)

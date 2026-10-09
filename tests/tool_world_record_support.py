@@ -86,13 +86,19 @@ def read_candidates(run_dir: Path) -> list[dict]:
     return [load_strict_json(line) for line in lines if line.strip()]
 
 
+def rewrite_run(run_dir: Path, mutate) -> None:
+    """Load RUN.json, apply ``mutate`` to the summary in place, and write it back."""
+    run_file = run_dir / generate.RUN_FILENAME
+    summary = json.loads(run_file.read_text(encoding="utf-8"))
+    mutate(summary)
+    run_file.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+
+
 def resign_bytes(run_dir: Path, payload: bytes) -> None:
     """Write raw candidate bytes and keep RUN.json's digest consistent with them."""
     (run_dir / generate.CANDIDATES_FILENAME).write_bytes(payload)
-    run_file = run_dir / generate.RUN_FILENAME
-    summary = json.loads(run_file.read_text(encoding="utf-8"))
-    summary["candidates_sha256"] = sha256_bytes(payload)
-    run_file.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    digest = sha256_bytes(payload)
+    rewrite_run(run_dir, lambda summary: summary.update(candidates_sha256=digest))
 
 
 def resign_run(run_dir: Path, candidates: list[dict]) -> None:

@@ -87,6 +87,17 @@ class GenerateRun(unittest.TestCase):
         for record in read_candidates(self.root / "run"):
             self.assertEqual(record["training_view"]["meta"]["variant"], "gold")
 
+    def test_the_header_redraws_the_inventory(self):
+        summary = generate.run(self.box.request())
+        named = [row["id"] for row in summary["rows"]]
+        self.assertEqual(generate.expected_ids(self.box.catalog, summary), named)
+        with refusal(self, cv.FINDING_COUNT_OUT_OF_DOMAIN, "count must be an integer"):
+            generate.expected_ids(self.box.catalog, {**summary, "count": "2"})
+        with refusal(self, cv.FINDING_SEED_INVALID, "seed must be an integer"):
+            generate.expected_ids(self.box.catalog, {**summary, "seed": None})
+        with refusal(self, cv.FINDING_RUN_FILE_INVALID, "policy_sha256 must be a string"):
+            generate.expected_ids(self.box.catalog, {**summary, "policy_sha256": None})
+
     def test_one_record_is_reproducible_without_the_batch(self):
         summary = generate.run(self.box.request())
         first = read_candidates(self.root / "run")[0]

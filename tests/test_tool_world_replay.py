@@ -22,6 +22,7 @@ from tool_world_record_support import (
     refusal,
     resign_bytes,
     resign_run,
+    rewrite_run,
 )
 from tool_world_tamper_support import (
     EVIDENCE_TAMPERINGS,
@@ -168,6 +169,80 @@ class ReplayAgreement(unittest.TestCase):
             replay.replay_run(self.run_dir, self.catalog)
         candidates.unlink()
         with refusal(self, cv.FINDING_RUN_FILE_MISSING, "missing candidates.jsonl"):
+            replay.replay_run(self.run_dir, self.catalog)
+
+    def test_candidates_must_be_the_records_run_json_names(self):
+        rewrites = (
+            ("dropped", self.candidates[:-1], "record 5 is not the record RUN.json names there"),
+            ("emptied", [], "record 1 is not the record RUN.json names there (0 held, 5 named)"),
+            ("reordered", list(reversed(self.candidates)), "record 1 is not the record"),
+            ("duplicated", [self.candidates[0]] * 5, "record 2 is not the record"),
+        )
+        for label, candidates, needle in rewrites:
+            resign_run(self.run_dir, candidates)
+            with (
+                self.subTest(label=label),
+                refusal(self, cv.FINDING_RUN_INVENTORY_MISMATCH, needle),
+            ):
+                replay.replay_run(self.run_dir, self.catalog)
+
+    def test_a_candidate_without_an_id_fails_the_inventory(self):
+        nameless = copy.deepcopy(self.candidates)
+        del nameless[0]["id"]
+        resign_run(self.run_dir, nameless)
+        with refusal(self, cv.FINDING_RUN_INVENTORY_MISMATCH, "record 1 is not the record"):
+            replay.load_records(self.run_dir)
+
+    def test_run_json_must_name_its_records(self):
+        rows = self.summary["rows"]
+        unnamed = {key: value for key, value in rows[0].items() if key != "id"}
+        rewrites = (
+            ("no rows", {"rows": [], "records": 0}, "names no records"),
+            ("miscounted rows", {"records": len(rows) + 1}, "records must count its rows: 6 for 5"),
+            ("records a bool", {"records": True}, "records must count its rows: True for 5"),
+            ("rows not a list", {"rows": {}}, "rows must be a list of objects"),
+            ("row not an object", {"rows": ["x", *rows[1:]]}, "rows must be a list of objects"),
+            ("row id not a string", {"rows": [{**rows[0], "id": 7}, *rows[1:]]}, "string id"),
+            ("row lacking an id", {"rows": [unnamed, *rows[1:]]}, "string id"),
+        )
+        run_file = self.run_dir / generate.RUN_FILENAME
+        original = run_file.read_bytes()
+        for label, fields, needle in rewrites:
+            run_file.write_bytes(original)
+            rewrite_run(self.run_dir, lambda summary, fields=fields: summary.update(fields))
+            with self.subTest(label=label), refusal(self, cv.FINDING_RUN_FILE_INVALID, needle):
+                replay.load_records(self.run_dir)
+
+    def test_a_run_naming_no_records_cannot_pass_vacuously(self):
+        resign_bytes(self.run_dir, b"")
+        rewrite_run(self.run_dir, lambda summary: summary.update(rows=[], records=0))
+        with refusal(self, cv.FINDING_RUN_FILE_INVALID, "names no records"):
+            replay.replay_run(self.run_dir, self.catalog)
+
+    def test_run_json_rows_must_name_the_records_the_header_draws(self):
+        rows = self.summary["rows"]
+        forgeries = (
+            ("shed", self.candidates[:-1], rows[:-1], "row 5 does not name"),
+            ("reordered", self.candidates[::-1], rows[::-1], "row 1 does not name"),
+            ("duplicated", [self.candidates[0]] * 5, [rows[0]] * 5, "row 2 does not name"),
+            ("drawn over", self.candidates * 2, rows * 2, "row 6 does not name"),
+        )
+        for label, candidates, named, needle in forgeries:
+            resign_run(self.run_dir, candidates)
+            rewrite_run(
+                self.run_dir, lambda s, named=named: s.update(rows=named, records=len(named))
+            )
+            with (
+                self.subTest(label=label),
+                refusal(self, cv.FINDING_RUN_INVENTORY_MISMATCH, needle),
+            ):
+                replay.replay_run(self.run_dir, self.catalog)
+        resign_run(self.run_dir, self.candidates)
+        rewrite_run(self.run_dir, lambda s: s.update(rows=rows, records=len(rows), count=1))
+        drawn = len(generate.expected_ids(self.catalog, {**self.summary, "count": 1}))
+        with refusal(
+            self, cv.FINDING_RUN_INVENTORY_MISMATCH, f"({len(rows)} named, {drawn} drawn)"
+        ):
             replay.replay_run(self.run_dir, self.catalog)
 
     def test_a_tampered_record_fails_only_itself(self):
