@@ -252,7 +252,7 @@ class ReplayAgreement(unittest.TestCase):
         first = self.candidates[0]
         bound = first["environment"]
         pack = self.catalog.pack(bound["pack_id"])
-        other_task = next(task for task in COMMITTED_TASKS if task != bound["task_id"])
+        other_task = sorted(set(COMMITTED_TASKS) - {bound["task_id"]})[0]
         context = records.RunContext(
             self.catalog.catalog_sha256, self.summary["run_id"], scripted.policy_sha256()
         )
