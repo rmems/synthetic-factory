@@ -167,6 +167,9 @@ class GenerateRun(unittest.TestCase):
         (self.root / "run").mkdir()
         with refusal(self, cv.FINDING_DESTINATION_EXISTS, "already exists"):
             generate.run(self.box.request())
+        (self.root / "taken").write_text("not a directory\n", encoding="utf-8")
+        with refusal(self, cv.FINDING_DESTINATION_EXISTS, "already exists"):
+            generate.run(self.box.request(out_dir=self.root / "taken"))
         raw = self.root / "outputs" / "raw" / "run"
         with refusal(self, cv.FINDING_DESTINATION_UNDER_RAW, "raw tree"):
             generate.run(self.box.request(out_dir=raw))

@@ -51,8 +51,8 @@ class DecisionBasis(unittest.TestCase):
         basis = scripted.decision_basis("Observation", "the tool output showed one lock")
         self.assertEqual(basis, "Observation: the tool output showed one lock")
         self.assertRegex(basis, OBSERVABLE_BASIS_RE)
-        longest = "read " + "x" * (cv.MAX_DECISION_BASIS - len("Plan: read "))
-        self.assertEqual(len(scripted.decision_basis("Plan", longest)), cv.MAX_DECISION_BASIS)
+        longest = "read " + "x" * (cv.MAX_DECISION_BASIS_CHARS - len("Plan: read "))
+        self.assertEqual(len(scripted.decision_basis("Plan", longest)), cv.MAX_DECISION_BASIS_CHARS)
 
     def test_the_intent_itself_must_cite_evidence_because_every_prefix_is_a_basis_word(self):
         for prefix in cv.DB_PREFIXES:
@@ -65,8 +65,8 @@ class DecisionBasis(unittest.TestCase):
         cases = (
             (
                 "Plan",
-                "read " + "x" * cv.MAX_DECISION_BASIS,
-                f"exceeds {cv.MAX_DECISION_BASIS} chars",
+                "read " + "x" * cv.MAX_DECISION_BASIS_CHARS,
+                f"exceeds {cv.MAX_DECISION_BASIS_CHARS} chars",
             ),
             ("Guess", "read the file", "unknown basis prefix 'Guess'"),
         )
@@ -180,7 +180,7 @@ class Perturbations(unittest.TestCase):
                 )
                 for step in trajectory.steps:
                     self.assertRegex(step.decision_basis, OBSERVABLE_BASIS_RE)
-                    self.assertLessEqual(len(step.decision_basis), cv.MAX_DECISION_BASIS)
+                    self.assertLessEqual(len(step.decision_basis), cv.MAX_DECISION_BASIS_CHARS)
 
     def test_wrong_arg_type_sends_a_mistyped_first_argument_then_the_gold_plan(self):
         env, trajectory, record = episode(ADD_SUB, variant="wrong_arg_type")
@@ -249,7 +249,8 @@ class Perturbations(unittest.TestCase):
         self.assertTrue(env.done)
         self.assertEqual(
             record["training_view"]["outcome"],
-            "Failed: gave up after the first fault instead of recovering",
+            f"Failed: {env.task.title}; gave up after the first fault instead of recovering, "
+            "so the goal failed",
         )
 
     def test_an_undeclared_variant_is_refused(self):

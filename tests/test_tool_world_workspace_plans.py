@@ -261,7 +261,8 @@ class PerturbationTests(unittest.TestCase):
         record = build_record(env, gave_up, draw=3)
         self.assertEqual(
             record["training_view"]["outcome"],
-            "Failed: gave up after the first fault instead of recovering",
+            f"Failed: {env.task.title}; gave up after the first fault instead of recovering, "
+            "so the goal failed",
         )
         self.assertTrue(record["payload"]["execution_evidence"]["gave_up"])
         self.assertEqual(

@@ -209,7 +209,9 @@ class Environment:
         """The observation text and the fault that fired on this call.
 
         An unknown tool and invalid arguments are errors that fire nothing; a
-        valid call consults the schedule before the owning surface runs it.
+        valid call consults the schedule before the owning surface runs it. A
+        fault names only a tool its surface registers (refused at load otherwise),
+        so a core tool never has a fault to consult a surface about.
         """
         spec = self._tools.get(name)
         if spec is None:
@@ -217,9 +219,8 @@ class Environment:
         problems = _validate(spec, args)
         if problems:
             return error_text(f"invalid arguments for {name}: " + "; ".join(problems)), None
-        surface = self._surfaces.get(spec.surface)
         fault = self._fault_engine.check(
-            name, args, lambda row: surface is None or surface.fault_shows(row, args)
+            name, args, lambda row: self._surfaces[spec.surface].fault_shows(row, args)
         )
         fault_id = fault.fault_id if fault is not None else None
         return self._execute(spec, args, fault), fault_id

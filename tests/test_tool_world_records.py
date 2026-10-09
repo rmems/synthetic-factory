@@ -202,11 +202,12 @@ class RecordShape(unittest.TestCase):
         self.assertEqual(trajectory.variant, "skip_verification")
 
     def test_the_give_up_record_names_the_abandoned_recovery(self):
-        _env, trajectory, record = episode(ADD_SUB, variant="give_up_on_fault")
+        env, trajectory, record = episode(ADD_SUB, variant="give_up_on_fault")
         self.assertTrue(trajectory.gave_up)
         self.assertEqual(
             record["training_view"]["outcome"],
-            "Failed: gave up after the first fault instead of recovering",
+            f"Failed: {env.task.title}; gave up after the first fault instead of recovering, "
+            "so the goal failed",
         )
         self.assertIs(record["training_view"]["reward"]["success"], False)
         self.assertTrue(record["payload"]["execution_evidence"]["gave_up"])

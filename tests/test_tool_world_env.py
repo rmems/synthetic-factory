@@ -55,6 +55,10 @@ class EnvironmentConstruction(unittest.TestCase):
             env_mod.Environment(pack, pack.task(ADD_SUB), True)
         with refusal(self, cv.FINDING_SURFACE_UNKNOWN, "unknown surface 'shell'"):
             plain_env(ADD_SUB, surfaces=("shell",))
+        with refusal(
+            self, cv.FINDING_FAULT_UNKNOWN, "which the workspace surface does not register"
+        ):
+            plain_env(ADD_SUB, faults=(spec(tool="report"),))
         with refusal(self, cv.FINDING_FAULT_UNKNOWN, "which the task does not use"):
             plain_env(ADD_SUB, faults=(spec(surface="mcp", tool="mcp"),))
         with refusal(self, cv.FINDING_FAULT_UNKNOWN, "no fault kind 'meteor'"):

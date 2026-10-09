@@ -58,9 +58,9 @@ def decision_basis(prefix: str, intent: str) -> str:
         f"unknown basis prefix {prefix!r}",
     )
     cv.refuse_when(
-        len(basis) > cv.MAX_DECISION_BASIS,
+        len(basis) > cv.MAX_DECISION_BASIS_CHARS,
         cv.FINDING_DECISION_BASIS_INVALID,
-        f"decision_basis exceeds {cv.MAX_DECISION_BASIS} chars: {basis[:60]!r}",
+        f"decision_basis exceeds {cv.MAX_DECISION_BASIS_CHARS} chars: {basis[:60]!r}",
     )
     cv.refuse_when(
         OBSERVABLE_BASIS_RE.search(intent) is None,

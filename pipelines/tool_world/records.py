@@ -41,8 +41,6 @@ __all__ = [
     "training_view",
 ]
 
-_GAVE_UP_TEXT = "Failed: gave up after the first fault instead of recovering"
-
 
 class _SolverEvidence(Protocol):
     """What the solver reports about its own run: a finished trajectory, or the facts replay
@@ -73,7 +71,7 @@ def outcome_text(title: str, success: bool, gave_up: bool) -> str:
     if success:
         return f"Succeeded: {title}"
     if gave_up:
-        return _GAVE_UP_TEXT
+        return f"Failed: {title}; gave up after the first fault instead of recovering, so the goal failed"
     return f"Failed: {title}; a goal predicate failed"
 
 

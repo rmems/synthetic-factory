@@ -80,7 +80,7 @@ class PackTests(unittest.TestCase):
             for action in actions:
                 with self.subTest(task=task.task_id, intent=action.intent[:40]):
                     basis = scripted.decision_basis(cv.DB_PLAN, action.intent)
-                    self.assertLessEqual(len(basis), cv.MAX_DECISION_BASIS)
+                    self.assertLessEqual(len(basis), cv.MAX_DECISION_BASIS_CHARS)
 
     def test_committed_fault_rows_carry_their_tools_params_and_recoveries(self):
         rows = {spec.fault_id: spec for task in self.pack.tasks for spec in task.faults}
