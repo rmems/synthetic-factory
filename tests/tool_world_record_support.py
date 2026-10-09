@@ -101,12 +101,12 @@ def resign_run(run_dir: Path, candidates: list[dict]) -> None:
     resign_bytes(run_dir, payload.encode("utf-8"))
 
 
-class RunCase(unittest.TestCase):
+class RunSandbox:
     """A private catalog holding the workspace pack, and run requests into its temporary root."""
 
-    def setUp(self):
+    def __init__(self, case: unittest.TestCase) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="tool-world-replay-"))
-        self.addCleanup(shutil.rmtree, self.root, True)
+        case.addCleanup(shutil.rmtree, self.root, True)
         self.catalog_dir = support.private_catalog(self.root / "catalog", (PACK,))
         self.catalog = catalog_mod.load_catalog(self.catalog_dir)
 

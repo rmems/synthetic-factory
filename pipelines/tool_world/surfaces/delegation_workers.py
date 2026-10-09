@@ -56,8 +56,9 @@ _EFFECT_OPS = {"write": _write_effect, "append": _append_effect, "delete": _dele
 def apply_effects(files: dict[str, str], effects: Iterable[Mapping[str, Any]]) -> None:
     """Apply a checked profile's effects to a workspace tree, in declared order."""
     for effect in effects:
-        op = next(op for op in _EFFECT_OPS if op in effect)
-        _EFFECT_OPS[op](files, effect)
+        op = _effect_op(effect)
+        if op is not None:
+            _EFFECT_OPS[op](files, effect)
 
 
 # --- load-time checks of worker members ------------------------------------

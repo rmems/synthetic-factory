@@ -111,8 +111,9 @@ class CatalogBrowserPackTests(unittest.TestCase):
             verdict = env.verdict()
             self.assertFalse(verdict["success"])
             extracted = next(
-                value for key, value in verdict["hidden"].items() if "extracted" in key
+                (value for key, value in verdict["hidden"].items() if "extracted" in key), None
             )
+            self.assertIsNotNone(extracted)
             self.assertFalse(extracted)
 
     def test_wrong_arg_type_is_a_schema_error_the_gold_recovers_from(self):

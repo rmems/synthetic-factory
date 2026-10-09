@@ -24,7 +24,8 @@ class DomTests(unittest.TestCase):
         self.assertEqual(
             (self.root.tag, form.tag, form.attrs["action"]), ("document", "form", "/login")
         )
-        textarea = next(node for node in self.root.walk() if node.tag == "textarea")
+        textarea = next((node for node in self.root.walk() if node.tag == "textarea"), None)
+        self.assertIsNotNone(textarea)
         self.assertIs(textarea.parent, form)
         panel = self.root.find_id("panel")
         self.assertEqual((panel.text(), panel.direct_text()), ("Panel text More", "Panel text"))
@@ -119,7 +120,8 @@ class DomTests(unittest.TestCase):
 
     def test_dialogs_forms_and_pager_helpers(self):
         form = self.root.find_id("login")
-        textarea = next(node for node in self.root.walk() if node.tag == "textarea")
+        textarea = next((node for node in self.root.walk() if node.tag == "textarea"), None)
+        self.assertIsNotNone(textarea)
         self.assertEqual([node.attrs["id"] for node in dom.dialogs(self.root)], ["notice"])
         self.assertIs(dom.enclosing_form(textarea), form)
         self.assertIs(dom.enclosing_form(form), form)

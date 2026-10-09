@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tool_world_record_support import (
     HEX64,
-    RunCase,
+    RunSandbox,
     read_candidates,
     refusal,
     resign_bytes,
@@ -38,11 +38,14 @@ from tool_world import generate, records, replay
 from tool_world import vocabulary as cv
 
 
-class ReplayAgreement(RunCase):
+class ReplayAgreement(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.box = RunSandbox(self)
+        self.root = self.box.root
+        self.catalog_dir = self.box.catalog_dir
+        self.catalog = self.box.catalog
         self.run_dir = self.root / "run"
-        self.summary = generate.run(self.request())
+        self.summary = generate.run(self.box.request())
         self.candidates = read_candidates(self.run_dir)
 
     def assert_each_tampering_is_a_mismatch(self, cases) -> None:
@@ -92,10 +95,14 @@ class ReplayAgreement(RunCase):
 
     def test_a_consistent_relabel_of_a_perturbed_record_is_caught_by_rerunning_the_policy(self):
         perturbed = next(
-            record
-            for record in self.candidates
-            if record["training_view"]["meta"]["variant"] != cv.VARIANT_GOLD
+            (
+                record
+                for record in self.candidates
+                if record["training_view"]["meta"]["variant"] != cv.VARIANT_GOLD
+            ),
+            None,
         )
+        self.assertIsNotNone(perturbed)
         relabelled = copy.deepcopy(perturbed)
         success = relabelled["training_view"]["reward"]["success"]
         relabelled["training_view"]["meta"]["variant"] = cv.VARIANT_GOLD

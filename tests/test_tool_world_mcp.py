@@ -137,7 +137,7 @@ class PackTests(unittest.TestCase):
                 server_env(TRIAGE, "tickets", {**good, "tools": tools})
 
     def test_a_server_without_page_size_lists_every_tool_on_one_page(self):
-        spec = {key: value for key, value in self.pack.servers["tickets"].items()}
+        spec = dict(self.pack.servers["tickets"])
         del spec["page_size"]
         env = server_env(TRIAGE, "tickets", spec)
         handshake(env, "tickets")

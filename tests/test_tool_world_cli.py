@@ -64,10 +64,13 @@ def tamper_first_record(run_dir: Path, mutate) -> None:
     rewrite_candidates(run_dir, ("\n".join(lines) + "\n").encode("utf-8"))
 
 
-class CliCase(unittest.TestCase):
-    def setUp(self):
+class CliSandbox:
+    """A temporary root and a private catalog that one test drives the CLI against."""
+
+    def __init__(self, case: unittest.TestCase) -> None:
+        self.case = case
         self.root = Path(tempfile.mkdtemp(prefix="tool-world-cli-"))
-        self.addCleanup(shutil.rmtree, self.root, True)
+        case.addCleanup(shutil.rmtree, self.root, True)
         self.catalog = str(support.private_catalog(self.root / "catalog", (PACK,)))
 
     def generate_run(self, name: str = "run", count: int = 2) -> tuple[Path, dict]:
@@ -90,19 +93,22 @@ class CliCase(unittest.TestCase):
                 "--json",
             ]
         )
-        self.assertEqual((code, stderr), (0, ""))
+        self.case.assertEqual((code, stderr), (0, ""))
         return out, json.loads(stdout)
 
     def assert_refused(self, argv: list[str], code: str) -> None:
         exit_code, stdout, stderr = invoke(argv)
-        self.assertEqual((exit_code, stdout), (2, ""), stderr)
-        self.assertTrue(stderr.startswith(f"{code}: "), stderr)
-        self.assertEqual(stderr.count("\n"), 1)
+        self.case.assertEqual((exit_code, stdout), (2, ""), stderr)
+        self.case.assertTrue(stderr.startswith(f"{code}: "), stderr)
+        self.case.assertEqual(stderr.count("\n"), 1)
 
 
-class CatalogCheck(CliCase):
+class CatalogCheck(unittest.TestCase):
+    def setUp(self):
+        self.cli = CliSandbox(self)
+
     def test_json_reports_every_pinned_pack(self):
-        code, stdout, stderr = invoke(["catalog-check", "--catalog", self.catalog, "--json"])
+        code, stdout, stderr = invoke(["catalog-check", "--catalog", self.cli.catalog, "--json"])
         self.assertEqual((code, stderr), (0, ""))
         payload = json.loads(stdout)
         self.assertEqual(payload["catalog_id"], "tool-world-test")
@@ -113,22 +119,22 @@ class CatalogCheck(CliCase):
         self.assertGreaterEqual(set(pack["license"]), {"spdx", "source", "authorship"})
 
     def test_plain_output_is_still_one_object(self):
-        code, stdout, _stderr = invoke(["catalog-check", "--catalog", self.catalog])
+        code, stdout, _stderr = invoke(["catalog-check", "--catalog", self.cli.catalog])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout)["catalog_id"], "tool-world-test")
 
     def test_write_pins_refreshes_a_drifted_pin_in_place_and_keeps_the_row_prose(self):
-        header = Path(self.catalog) / "CATALOG.json"
+        header = Path(self.cli.catalog) / "CATALOG.json"
         rows = json.loads(header.read_text(encoding="utf-8"))
         rows["packs"][0]["note"] = "reviewed"
         header.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
-        readme = Path(self.catalog) / PACK / "files" / "README.md"
+        readme = Path(self.cli.catalog) / PACK / "files" / "README.md"
         readme.write_text(readme.read_text(encoding="utf-8") + "drift\n", encoding="utf-8")
-        self.assert_refused(
-            ["catalog-check", "--catalog", self.catalog], cv.FINDING_PACK_SHA_MISMATCH
+        self.cli.assert_refused(
+            ["catalog-check", "--catalog", self.cli.catalog], cv.FINDING_PACK_SHA_MISMATCH
         )
         code, stdout, stderr = invoke(
-            ["catalog-check", "--catalog", self.catalog, "--write-pins", "--json"]
+            ["catalog-check", "--catalog", self.cli.catalog, "--write-pins", "--json"]
         )
         self.assertEqual((code, stderr), (0, ""))
         (pinned,) = json.loads(stdout)["packs"]
@@ -142,39 +148,42 @@ class CatalogCheck(CliCase):
                 "surfaces": ["workspace"],
             },
         )
-        code, _stdout, stderr = invoke(["catalog-check", "--catalog", self.catalog])
+        code, _stdout, stderr = invoke(["catalog-check", "--catalog", self.cli.catalog])
         self.assertEqual((code, stderr), (0, ""))
         rows["packs"] = [{"pack_id": "absent"}]
         header.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
-        self.assert_refused(
-            ["catalog-check", "--catalog", self.catalog, "--write-pins"],
+        self.cli.assert_refused(
+            ["catalog-check", "--catalog", self.cli.catalog, "--write-pins"],
             cv.FINDING_PACK_FILE_MISSING,
         )
 
     def test_a_missing_catalog_is_a_coded_refusal_with_exit_two(self):
-        self.assert_refused(
-            ["catalog-check", "--catalog", str(self.root / "absent")],
+        self.cli.assert_refused(
+            ["catalog-check", "--catalog", str(self.cli.root / "absent")],
             cv.FINDING_CATALOG_FILE_MISSING,
         )
-        self.assert_refused(
-            ["catalog-check", "--catalog", str(self.root / "absent"), "--json"],
+        self.cli.assert_refused(
+            ["catalog-check", "--catalog", str(self.cli.root / "absent"), "--json"],
             cv.FINDING_CATALOG_FILE_MISSING,
         )
 
 
-class Generate(CliCase):
+class Generate(unittest.TestCase):
+    def setUp(self):
+        self.cli = CliSandbox(self)
+
     def test_generate_writes_a_run_then_refuses_the_same_destination(self):
-        out, payload = self.generate_run()
+        out, payload = self.cli.generate_run()
         self.assertEqual(payload["format"], cv.RUN_FORMAT)
         self.assertEqual(payload["records"], len(payload["rows"]))
         self.assertGreater(payload["accepted"], 0)
         for name in (generate.CANDIDATES_FILENAME, generate.RUN_FILENAME, generate.NOTES_FILENAME):
             self.assertTrue((out / name).is_file(), name)
-        self.assert_refused(
+        self.cli.assert_refused(
             [
                 "generate",
                 "--catalog",
-                self.catalog,
+                self.cli.catalog,
                 "--seed",
                 "1",
                 "--count",
@@ -186,12 +195,12 @@ class Generate(CliCase):
         )
 
     def test_generate_refuses_a_destination_under_the_raw_tree(self):
-        raw = self.root / "outputs" / "raw" / "run"
-        self.assert_refused(
+        raw = self.cli.root / "outputs" / "raw" / "run"
+        self.cli.assert_refused(
             [
                 "generate",
                 "--catalog",
-                self.catalog,
+                self.cli.catalog,
                 "--seed",
                 "1",
                 "--count",
@@ -204,7 +213,7 @@ class Generate(CliCase):
         self.assertFalse(raw.exists())
 
     def test_domain_refusals(self):
-        base = ["generate", "--catalog", self.catalog, "--out", str(self.root / "run")]
+        base = ["generate", "--catalog", self.cli.catalog, "--out", str(self.cli.root / "run")]
         cases = (
             (["--seed", "-1", "--count", "1"], cv.FINDING_SEED_INVALID),
             (["--seed", "1", "--count", "0"], cv.FINDING_COUNT_OUT_OF_DOMAIN),
@@ -216,14 +225,17 @@ class Generate(CliCase):
         )
         for extra, code in cases:
             with self.subTest(code=code):
-                self.assert_refused(base + extra, code)
-        self.assertFalse((self.root / "run").exists())
+                self.cli.assert_refused(base + extra, code)
+        self.assertFalse((self.cli.root / "run").exists())
 
 
-class Replay(CliCase):
+class Replay(unittest.TestCase):
+    def setUp(self):
+        self.cli = CliSandbox(self)
+
     def test_a_clean_run_replays_with_exit_zero(self):
-        out, payload = self.generate_run()
-        code, stdout, stderr = invoke(["replay", str(out), "--catalog", self.catalog, "--json"])
+        out, payload = self.cli.generate_run()
+        code, stdout, stderr = invoke(["replay", str(out), "--catalog", self.cli.catalog, "--json"])
         self.assertEqual((code, stderr), (0, ""))
         report = json.loads(stdout)
         self.assertEqual((report["passed"], report["agreeing"]), (True, payload["records"]))
@@ -232,10 +244,10 @@ class Replay(CliCase):
         )
 
     def test_record_replays_one_record_and_refuses_an_unknown_id(self):
-        out, payload = self.generate_run()
+        out, payload = self.cli.generate_run()
         chosen = payload["rows"][-1]["id"]
         code, stdout, stderr = invoke(
-            ["replay", str(out), "--catalog", self.catalog, "--record", chosen, "--json"]
+            ["replay", str(out), "--catalog", self.cli.catalog, "--record", chosen, "--json"]
         )
         self.assertEqual((code, stderr), (0, ""))
         report = json.loads(stdout)
@@ -243,32 +255,32 @@ class Replay(CliCase):
             (report["record_id"], report["records"], report["passed"]), (chosen, 1, True)
         )
         self.assertEqual(report["results"][0]["id"], chosen)
-        self.assert_refused(
-            ["replay", str(out), "--catalog", self.catalog, "--record", "twd-nope"],
+        self.cli.assert_refused(
+            ["replay", str(out), "--catalog", self.cli.catalog, "--record", "twd-nope"],
             cv.FINDING_RECORD_NOT_FOUND,
         )
 
     def test_the_stored_oracle_command_names_the_replay_interface(self):
-        out, _payload = self.generate_run()
+        out, _payload = self.cli.generate_run()
         first = json.loads((out / generate.CANDIDATES_FILENAME).read_text().splitlines()[0])
         command = first["oracle"]["command"].replace("<run_dir>", str(out)).split()
         self.assertEqual(command[:2], ["python3", "pipelines/tool_world_cli.py"])
-        code, stdout, stderr = invoke([*command[2:], "--catalog", self.catalog, "--json"])
+        code, stdout, stderr = invoke([*command[2:], "--catalog", self.cli.catalog, "--json"])
         self.assertEqual((code, stderr), (0, ""))
         self.assertEqual(json.loads(stdout)["record_id"], first["id"])
 
     def test_a_run_from_another_catalog_is_refused_before_replay(self):
-        out, _payload = self.generate_run()
+        out, _payload = self.cli.generate_run()
         run_file = out / generate.RUN_FILENAME
         summary = json.loads(run_file.read_text(encoding="utf-8"))
         summary["catalog_sha256"] = "0" * 64
         run_file.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-        self.assert_refused(
-            ["replay", str(out), "--catalog", self.catalog], cv.FINDING_RUN_SHA_MISMATCH
+        self.cli.assert_refused(
+            ["replay", str(out), "--catalog", self.cli.catalog], cv.FINDING_RUN_SHA_MISMATCH
         )
 
     def test_a_tampered_record_exits_one_with_the_mismatch_reported(self):
-        out, payload = self.generate_run()
+        out, payload = self.cli.generate_run()
 
         def flip(record):
             record["training_view"]["reward"]["success"] = not record["training_view"]["reward"][
@@ -276,7 +288,7 @@ class Replay(CliCase):
             ]
 
         tamper_first_record(out, flip)
-        code, stdout, stderr = invoke(["replay", str(out), "--catalog", self.catalog, "--json"])
+        code, stdout, stderr = invoke(["replay", str(out), "--catalog", self.cli.catalog, "--json"])
         self.assertEqual((code, stderr), (1, ""))
         report = json.loads(stdout)
         self.assertEqual((report["passed"], report["agreeing"]), (False, payload["records"] - 1))
@@ -285,36 +297,39 @@ class Replay(CliCase):
         )
 
     def test_corrupt_run_files_are_coded_refusals_not_tracebacks(self):
-        out, _payload = self.generate_run()
-        replay_argv = ["replay", str(out), "--catalog", self.catalog, "--json"]
+        out, _payload = self.cli.generate_run()
+        replay_argv = ["replay", str(out), "--catalog", self.cli.catalog, "--json"]
         original = (out / generate.CANDIDATES_FILENAME).read_bytes()
         rest = original.splitlines()[1:]
         rewrite_candidates(out, b"\n".join([b"{not json", *rest]) + b"\n")
-        self.assert_refused(replay_argv, cv.FINDING_RECORD_MALFORMED)
-        self.assert_refused(["render", str(out), "twd-any"], cv.FINDING_RECORD_MALFORMED)
+        self.cli.assert_refused(replay_argv, cv.FINDING_RECORD_MALFORMED)
+        self.cli.assert_refused(["render", str(out), "twd-any"], cv.FINDING_RECORD_MALFORMED)
         rewrite_candidates(out, original + b"\xff")
-        self.assert_refused(replay_argv, cv.FINDING_RECORD_MALFORMED)
+        self.cli.assert_refused(replay_argv, cv.FINDING_RECORD_MALFORMED)
         rewrite_candidates(out, original)
         (out / generate.RUN_FILENAME).write_text('{"format": 1, "format": 2}', encoding="utf-8")
-        self.assert_refused(replay_argv, cv.FINDING_RUN_FILE_INVALID)
-        self.assert_refused(["render", str(out), "twd-any"], cv.FINDING_RUN_FILE_INVALID)
+        self.cli.assert_refused(replay_argv, cv.FINDING_RUN_FILE_INVALID)
+        self.cli.assert_refused(["render", str(out), "twd-any"], cv.FINDING_RUN_FILE_INVALID)
 
     def test_candidates_that_drifted_from_the_run_digest_are_refused(self):
-        out, _payload = self.generate_run()
+        out, _payload = self.cli.generate_run()
         candidates = out / generate.CANDIDATES_FILENAME
         candidates.write_bytes(candidates.read_bytes() + b"\n")
-        self.assert_refused(
-            ["replay", str(out), "--catalog", self.catalog], cv.FINDING_RUN_SHA_MISMATCH
+        self.cli.assert_refused(
+            ["replay", str(out), "--catalog", self.cli.catalog], cv.FINDING_RUN_SHA_MISMATCH
         )
-        self.assert_refused(
-            ["replay", str(self.root / "absent"), "--catalog", self.catalog],
+        self.cli.assert_refused(
+            ["replay", str(self.cli.root / "absent"), "--catalog", self.cli.catalog],
             cv.FINDING_RUN_FILE_MISSING,
         )
 
 
-class Render(CliCase):
+class Render(unittest.TestCase):
+    def setUp(self):
+        self.cli = CliSandbox(self)
+
     def test_render_prints_the_named_record(self):
-        out, payload = self.generate_run()
+        out, payload = self.cli.generate_run()
         wanted = payload["rows"][1]["id"]
         code, stdout, stderr = invoke(["render", str(out), wanted, "--json"])
         self.assertEqual((code, stderr), (0, ""))
@@ -325,17 +340,20 @@ class Render(CliCase):
         self.assertEqual((code, json.loads(stdout)["id"]), (0, wanted))
 
     def test_render_refuses_an_unknown_record_or_run(self):
-        out, _payload = self.generate_run()
-        self.assert_refused(["render", str(out), "twd-missing"], cv.FINDING_RECORD_NOT_FOUND)
-        self.assert_refused(
-            ["render", str(self.root / "absent"), "twd-missing"], cv.FINDING_RUN_FILE_MISSING
+        out, _payload = self.cli.generate_run()
+        self.cli.assert_refused(["render", str(out), "twd-missing"], cv.FINDING_RECORD_NOT_FOUND)
+        self.cli.assert_refused(
+            ["render", str(self.cli.root / "absent"), "twd-missing"], cv.FINDING_RUN_FILE_MISSING
         )
 
 
-class Tools(CliCase):
+class Tools(unittest.TestCase):
+    def setUp(self):
+        self.cli = CliSandbox(self)
+
     def test_tools_lists_the_core_and_surface_tools_of_a_task(self):
         code, stdout, stderr = invoke(
-            ["tools", "--catalog", self.catalog, "--pack", PACK, "--task", ADD_SUB, "--json"]
+            ["tools", "--catalog", self.cli.catalog, "--pack", PACK, "--task", ADD_SUB, "--json"]
         )
         self.assertEqual((code, stderr), (0, ""))
         payload = json.loads(stdout)
@@ -347,17 +365,20 @@ class Tools(CliCase):
         self.assertEqual(by_name["run_tests"]["input_schema"]["required"], ["suite"])
 
     def test_tools_refuses_an_unknown_pack_or_task(self):
-        self.assert_refused(
-            ["tools", "--catalog", self.catalog, "--pack", PACK, "--task", "counter.nope"],
+        self.cli.assert_refused(
+            ["tools", "--catalog", self.cli.catalog, "--pack", PACK, "--task", "counter.nope"],
             cv.FINDING_TASK_NOT_FOUND,
         )
-        self.assert_refused(
-            ["tools", "--catalog", self.catalog, "--pack", "nope", "--task", ADD_SUB],
+        self.cli.assert_refused(
+            ["tools", "--catalog", self.cli.catalog, "--pack", "nope", "--task", ADD_SUB],
             cv.FINDING_PACK_FILE_MISSING,
         )
 
 
-class Usage(CliCase):
+class Usage(unittest.TestCase):
+    def setUp(self):
+        self.cli = CliSandbox(self)
+
     def test_argparse_usage_errors_exit_two(self):
         for argv in (
             [],
@@ -370,7 +391,7 @@ class Usage(CliCase):
             self.assertEqual(caught.exception.code, 2)
 
     def test_the_entry_point_dispatches_in_a_fresh_interpreter(self):
-        argv = ["tools", "--catalog", self.catalog, "--pack", PACK, "--task"]
+        argv = ["tools", "--catalog", self.cli.catalog, "--pack", PACK, "--task"]
         code, stdout, stderr = run_entry_point([*argv, ADD_SUB, "--json"])
         self.assertEqual((code, stderr), (0, ""))
         self.assertEqual(json.loads(stdout)["task_id"], ADD_SUB)

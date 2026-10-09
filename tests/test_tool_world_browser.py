@@ -203,8 +203,9 @@ class BrowserSurfaceTests(unittest.TestCase):
             f"url: {ORIGIN}/login?user=ann&remember=on&scope=all&note=",
         )
         remember = next(
-            field for field in dom.form_inputs(form) if field.attrs["name"] == "remember"
+            (field for field in dom.form_inputs(form) if field.attrs["name"] == "remember"), None
         )
+        self.assertIsNotNone(remember)
         del remember.attrs["checked"]
         self.assertEqual(
             surface.submit_form(form).splitlines()[0],

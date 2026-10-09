@@ -2,7 +2,7 @@
 """Shared helpers for the tool-world core test modules.
 
 The committed ``counter-workspace`` pack's constants, fault rows and specs,
-an environment with its fault menu removed, and a test case that copies the
+an environment with its fault menu removed, and a sandbox that copies the
 pack into a temporary directory so a test can corrupt it without reading or
 editing the committed catalog pins.
 """
@@ -92,19 +92,21 @@ def drop_key(key):
     return mutate
 
 
-class PackCase(unittest.TestCase):
-    """A temporary root the committed pack is copied into, one copy per corruption."""
+def sandbox(case: unittest.TestCase, prefix: str = "tool-world-core-") -> Path:
+    """A temporary root removed when ``case`` finishes; packs are copied into it to be corrupted."""
+    root = Path(tempfile.mkdtemp(prefix=prefix))
+    case.addCleanup(shutil.rmtree, root, True)
+    return root
 
-    def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="tool-world-core-"))
-        self.addCleanup(shutil.rmtree, self.root, True)
 
-    def copy_pack(self, name: str = PACK) -> Path:
-        destination = Path(tempfile.mkdtemp(dir=self.root)) / name
-        shutil.copytree(support.CATALOG_DIR / PACK, destination)
-        return destination
+def copy_pack(root: Path, name: str = PACK) -> Path:
+    """A fresh copy of the committed pack under ``root``, one copy per corruption."""
+    destination = Path(tempfile.mkdtemp(dir=root)) / name
+    shutil.copytree(support.CATALOG_DIR / PACK, destination)
+    return destination
 
-    def corrupted(self, mutate) -> Path:
-        directory = self.copy_pack()
-        mutate(directory)
-        return directory
+
+def corrupted(root: Path, mutate) -> Path:
+    directory = copy_pack(root)
+    mutate(directory)
+    return directory

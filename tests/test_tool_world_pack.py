@@ -20,11 +20,13 @@ from tool_world_pack_support import (
     COMMITTED_TASKS,
     FACTORY,
     PACK,
-    PackCase,
     call,
+    copy_pack,
+    corrupted,
     drop_key,
     refusal,
     rewrite_json,
+    sandbox,
     set_key,
 )
 
@@ -341,7 +343,10 @@ PACK_CORRUPTIONS = (
 )
 
 
-class LoadPack(PackCase):
+class LoadPack(unittest.TestCase):
+    def setUp(self):
+        self.root = sandbox(self)
+
     def test_the_committed_pack_loads_with_its_members(self):
         pack = support.load_pack(PACK)
         self.assertEqual((pack.pack_id, pack.surfaces), (PACK, ("workspace",)))
@@ -383,17 +388,17 @@ class LoadPack(PackCase):
         with refusal(self, cv.FINDING_PACK_FILE_MISSING, "missing pack directory"):
             pack_mod.load_pack(self.root / "absent")
         with refusal(self, cv.FINDING_PACK_FIELD_INVALID, "equal to the directory name"):
-            pack_mod.load_pack(self.copy_pack("other-name"))
+            pack_mod.load_pack(copy_pack(self.root, "other-name"))
 
     def test_every_corruption_is_a_coded_refusal(self):
         for label, mutate, code, needle in PACK_CORRUPTIONS:
             with self.subTest(label=label), refusal(self, code, needle):
-                pack_mod.load_pack(self.corrupted(mutate))
+                pack_mod.load_pack(corrupted(self.root, mutate))
 
     def test_pack_digest_is_stable_across_locations_and_sensitive_to_every_byte(self):
         committed = support.load_pack(PACK)
         self.assertEqual(committed.pack_sha256, pack_mod.pack_digest(support.CATALOG_DIR / PACK))
-        copied = self.copy_pack()
+        copied = copy_pack(self.root)
         self.assertEqual(pack_mod.load_pack(copied).pack_sha256, committed.pack_sha256)
         readme = copied / "files" / "README.md"
         readme.write_text(readme.read_text(encoding="utf-8") + "\n", encoding="utf-8")

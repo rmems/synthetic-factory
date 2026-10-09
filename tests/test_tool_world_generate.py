@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import tool_world_test_support as support
-from tool_world_record_support import FACTORY, PACK, RunCase, read_candidates, refusal
+from tool_world_record_support import FACTORY, PACK, RunSandbox, read_candidates, refusal
 
 # The support modules go first: they put pipelines/ on sys.path for the imports below.
 # isort: split
@@ -29,10 +29,16 @@ ROW_KEYS = frozenset(
 )
 
 
-class GenerateRun(RunCase):
+class GenerateRun(unittest.TestCase):
+    def setUp(self):
+        self.box = RunSandbox(self)
+        self.root = self.box.root
+        self.catalog_dir = self.box.catalog_dir
+        self.catalog = self.box.catalog
+
     def test_two_runs_with_one_seed_are_byte_identical(self):
-        first = generate.run(self.request(out_dir=self.root / "a"))
-        second = generate.run(self.request(out_dir=self.root / "b"))
+        first = generate.run(self.box.request(out_dir=self.root / "a"))
+        second = generate.run(self.box.request(out_dir=self.root / "b"))
         self.assertEqual(first, second)
         for name in (generate.CANDIDATES_FILENAME, generate.RUN_FILENAME, generate.NOTES_FILENAME):
             with self.subTest(file=name):
@@ -44,7 +50,7 @@ class GenerateRun(RunCase):
         )
 
     def test_the_summary_describes_a_candidate_only_run(self):
-        summary = generate.run(self.request())
+        summary = generate.run(self.box.request())
         candidates = (self.root / "run" / generate.CANDIDATES_FILENAME).read_bytes()
         self.assertEqual(
             (
@@ -71,7 +77,7 @@ class GenerateRun(RunCase):
             self.assertEqual(set(row), ROW_KEYS)
 
     def test_gold_only_runs_accept_every_record(self):
-        summary = generate.run(self.request(variants="gold", count=3))
+        summary = generate.run(self.box.request(variants="gold", count=3))
         self.assertEqual(summary["records"], 3)
         for row in summary["rows"]:
             with self.subTest(task=row["task_id"]):
@@ -82,7 +88,7 @@ class GenerateRun(RunCase):
             self.assertEqual(record["training_view"]["meta"]["variant"], "gold")
 
     def test_one_record_is_reproducible_without_the_batch(self):
-        summary = generate.run(self.request())
+        summary = generate.run(self.box.request())
         first = read_candidates(self.root / "run")[0]
         row = summary["rows"][0]
         pack = self.catalog.pack(PACK)
@@ -109,16 +115,16 @@ class GenerateRun(RunCase):
         )
         for overrides, code in cases:
             with self.subTest(overrides=overrides), refusal(self, code):
-                generate.run(self.request(**overrides))
+                generate.run(self.box.request(**overrides))
         self.assertFalse((self.root / "run").exists())
 
     def test_destinations_that_exist_or_alias_the_raw_tree_are_refused(self):
         (self.root / "run").mkdir()
         with refusal(self, cv.FINDING_DESTINATION_EXISTS, "already exists"):
-            generate.run(self.request())
+            generate.run(self.box.request())
         raw = self.root / "outputs" / "raw" / "run"
         with refusal(self, cv.FINDING_DESTINATION_UNDER_RAW, "raw tree"):
-            generate.run(self.request(out_dir=raw))
+            generate.run(self.box.request(out_dir=raw))
         self.assertFalse(raw.exists())
 
 

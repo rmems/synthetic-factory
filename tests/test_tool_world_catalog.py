@@ -19,9 +19,9 @@ from tool_world_pack_support import (
     COMMITTED_TASKS,
     FACTORY,
     PACK,
-    PackCase,
     refusal,
     rewrite_json,
+    sandbox,
     set_key,
 )
 
@@ -41,9 +41,9 @@ CATALOG_CORRUPTIONS = (
 )
 
 
-class LoadCatalog(PackCase):
+class LoadCatalog(unittest.TestCase):
     def setUp(self):
-        super().setUp()
+        self.root = sandbox(self)
         self.catalog_dir = support.private_catalog(self.root / "catalog", (PACK,))
         self.header = self.catalog_dir / catalog_mod.CATALOG_FILENAME
 
