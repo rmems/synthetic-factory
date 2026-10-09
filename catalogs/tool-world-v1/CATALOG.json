@@ -1,0 +1,15 @@
+{
+  "catalog_id": "tool-world-v1",
+  "format": "tool-world-catalog/1",
+  "family": "tool-world",
+  "authorship": "project-authored world packs; never derived from Grok-session mill catalogs (#173)",
+  "packs": [
+    {
+      "pack_id": "counter-workspace",
+      "surfaces": [
+        "workspace"
+      ],
+      "pack_sha256": "1edc575bccde7ae50825452521f5f327a85ae48f64c5612a8e22af8627e06118"
+    }
+  ]
+}

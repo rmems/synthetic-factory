@@ -221,3 +221,21 @@ python3 pipelines/neuro_oracle.py
 python3 pipelines/nir_equivalence.py availability
 ```
 
+## Tool-world families
+
+`pipelines/tool_world/` is the deterministic tool-use environment behind the
+`tool-world-*` families (design: `docs/tool-world-families-design.md`, #422).
+Observations are computed by the environment, never authored; a record
+replays from `(pack, seed, actions)` and `tool_world_cli.py replay` is the
+oracle. World packs live under `catalogs/tool-world-v1/` and are pinned by
+digest in its `CATALOG.json`; editing a pack byte requires re-pinning. The
+first slice is generator side only: no registry row, sealed policy, or shared
+validator change, and nothing writes under `outputs/raw/`.
+
+```bash
+python3 pipelines/tool_world_cli.py catalog-check --json
+python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
+python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json
+python3 -m unittest discover -s tests -p 'test_tool_world_*.py' -q
+```
+
