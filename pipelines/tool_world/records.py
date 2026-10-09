@@ -152,7 +152,7 @@ def oracle(pack: Any, identifier: str, replay_digest: str, success: bool) -> dic
         "kind": cv.ORACLE_KIND,
         "status": "validated",
         "repo_commit": pack.pack_sha256,
-        "command": f"python3 pipelines/tool_world_cli.py replay --record {identifier}",
+        "command": f"python3 pipelines/tool_world_cli.py replay <run_dir> --record {identifier}",
         "result_hash": f"sha256:{replay_digest}",
         "certifier": cv.ORACLE_CERTIFIER,
         "signals": [

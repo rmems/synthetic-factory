@@ -172,15 +172,24 @@ def _state_of(node: Node, role: str) -> str:
     return ""
 
 
-def assign_refs(root: Node) -> dict[str, Node]:
-    """Number every snapshotted element in document order; returns the ref map."""
+def assign_refs(root: Node, start: int = 1) -> dict[str, Node]:
+    """The ref map of every snapshotted element, numbering new ones from ``start``.
+
+    An element keeps its ref for as long as it is in the document and a number
+    is never reused, so a ref from an earlier page or an earlier DOM revision
+    is reported stale rather than resolving to a different element.
+    """
     refs: dict[str, Node] = {}
+    number = start
     for node in root.walk():
-        node.ref = None
         role = role_of(node)
-        if role is not None and not (role == "row" and _row_inside_header(node)):
-            node.ref = f"e{len(refs) + 1}"
-            refs[node.ref] = node
+        if role is None or (role == "row" and _row_inside_header(node)):
+            node.ref = None
+            continue
+        if node.ref is None:
+            node.ref = f"e{number}"
+            number += 1
+        refs[node.ref] = node
     return refs
 
 

@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     rep = commands.add_parser("replay", help="freshly replay every record of a run")
     rep.add_argument("run_dir", type=Path)
     rep.add_argument("--catalog", type=Path, default=None)
+    rep.add_argument("--record", default=None, help="replay only the record with this id")
     rep.add_argument("--json", action="store_true")
 
     render = commands.add_parser("render", help="print one record from a run")
@@ -109,7 +110,7 @@ def _generate(args: argparse.Namespace) -> int:
 
 
 def _replay(args: argparse.Namespace) -> int:
-    summary = replay.replay_run(args.run_dir, cat.load_catalog(args.catalog))
+    summary = replay.replay_run(args.run_dir, cat.load_catalog(args.catalog), args.record)
     _print(summary, args.json)
     return 0 if summary["passed"] else 1
 

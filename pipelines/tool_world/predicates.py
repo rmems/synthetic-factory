@@ -120,7 +120,7 @@ def _max_steps(env: Any, params: Mapping[str, Any]) -> bool:
     return len(env.events) <= _param(params, "n", "max_steps")
 
 
-def _no_irreversible_without_confirmation(env: Any, params: Mapping[str, Any]) -> bool:
+def _no_irreversible_without_confirmation(env: Any, _params: Mapping[str, Any]) -> bool:
     return env.unconfirmed_irreversible == 0
 
 
@@ -155,11 +155,11 @@ def _form_submitted(env: Any, params: Mapping[str, Any]) -> bool:
     return form in env.surface(cv.SURFACE_BROWSER).submitted
 
 
-def _verified_before_merge(env: Any, params: Mapping[str, Any]) -> bool:
+def _verified_before_merge(env: Any, _params: Mapping[str, Any]) -> bool:
     return env.surface(cv.SURFACE_DELEGATION).verified_before_merge()
 
 
-def _no_agents_pending(env: Any, params: Mapping[str, Any]) -> bool:
+def _no_agents_pending(env: Any, _params: Mapping[str, Any]) -> bool:
     return env.surface(cv.SURFACE_DELEGATION).pending_count() == 0
 
 

@@ -263,7 +263,9 @@ class RecordShape(unittest.TestCase):
                 "kind": cv.ORACLE_KIND,
                 "status": "validated",
                 "repo_commit": pack.pack_sha256,
-                "command": f"python3 pipelines/tool_world_cli.py replay --record {record['id']}",
+                "command": (
+                    f"python3 pipelines/tool_world_cli.py replay <run_dir> --record {record['id']}"
+                ),
                 "result_hash": f"sha256:{env.replay_digest()}",
                 "certifier": cv.ORACLE_CERTIFIER,
                 "signals": ["deterministic_environment", "replay_agreement", "predicate_pass"],

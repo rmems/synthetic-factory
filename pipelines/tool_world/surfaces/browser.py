@@ -118,6 +118,7 @@ class BrowserSurface(Surface):
         self.history: list[str] = []
         self.root: dom.Node | None = None
         self.refs: dict[str, dom.Node] = {}
+        self.next_ref = 1
         self.fields: dict[str, str] = {}
         self.extracted: list[str] = []
         self.submitted: set[str] = set()
@@ -255,7 +256,9 @@ class BrowserSurface(Surface):
         self._reindex()
 
     def _reindex(self) -> None:
-        self.refs = dom.assign_refs(self.root)
+        """Refresh the ref map; refs are never reused across pages or DOM revisions."""
+        self.refs = dom.assign_refs(self.root, self.next_ref)
+        self.next_ref = max((int(ref[1:]) for ref in self.refs), default=self.next_ref - 1) + 1
 
     def _page_text(self) -> str:
         return f"url: {self.url}\ntitle: {dom.title_of(self.root)}\n{dom.snapshot(self.root)}"

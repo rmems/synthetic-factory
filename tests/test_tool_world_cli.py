@@ -224,6 +224,42 @@ class Replay(CliCase):
             [row["id"] for row in report["results"]], [row["id"] for row in payload["rows"]]
         )
 
+    def test_record_replays_one_record_and_refuses_an_unknown_id(self):
+        out, payload = self.generate_run()
+        chosen = payload["rows"][-1]["id"]
+        code, stdout, stderr = invoke(
+            ["replay", str(out), "--catalog", self.catalog, "--record", chosen, "--json"]
+        )
+        self.assertEqual((code, stderr), (0, ""))
+        report = json.loads(stdout)
+        self.assertEqual(
+            (report["record_id"], report["records"], report["passed"]), (chosen, 1, True)
+        )
+        self.assertEqual(report["results"][0]["id"], chosen)
+        self.assert_refused(
+            ["replay", str(out), "--catalog", self.catalog, "--record", "twd-nope"],
+            cv.FINDING_RECORD_NOT_FOUND,
+        )
+
+    def test_the_stored_oracle_command_names_the_replay_interface(self):
+        out, _payload = self.generate_run()
+        first = json.loads((out / generate.CANDIDATES_FILENAME).read_text().splitlines()[0])
+        command = first["oracle"]["command"].replace("<run_dir>", str(out)).split()
+        self.assertEqual(command[:2], ["python3", "pipelines/tool_world_cli.py"])
+        code, stdout, stderr = invoke([*command[2:], "--catalog", self.catalog, "--json"])
+        self.assertEqual((code, stderr), (0, ""))
+        self.assertEqual(json.loads(stdout)["record_id"], first["id"])
+
+    def test_a_run_from_another_catalog_is_refused_before_replay(self):
+        out, _payload = self.generate_run()
+        run_file = out / generate.RUN_FILENAME
+        summary = json.loads(run_file.read_text(encoding="utf-8"))
+        summary["catalog_sha256"] = "0" * 64
+        run_file.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        self.assert_refused(
+            ["replay", str(out), "--catalog", self.catalog], cv.FINDING_RUN_SHA_MISMATCH
+        )
+
     def test_a_tampered_record_exits_one_with_the_mismatch_reported(self):
         out, payload = self.generate_run()
 

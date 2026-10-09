@@ -313,6 +313,17 @@ class SearchAndListTests(unittest.TestCase):
     def test_list_dir_missing_directory_is_enoent(self):
         text = step(self.env, "list_dir", path="docs")
         self.assertEqual(text, "error: ENOENT no such directory: docs/")
+
+    def test_a_directory_that_lost_its_only_file_lists_as_empty_not_missing(self):
+        step(self.env, "confirm_action", action="delete_file")
+        self.assertEqual(
+            step(self.env, "delete_file", path="locks/stale.lock"), "deleted locks/stale.lock"
+        )
+        self.assertEqual(step(self.env, "list_dir", path="locks"), "locks/:\n(empty)")
+        self.assertEqual(step(self.env, "list_dir", path="locks/"), "locks/:\n(empty)")
+        self.assertEqual(step(self.env, "write_file", path="a/b/c.txt", content="x")[:5], "wrote")
+        self.assertEqual(step(self.env, "list_dir", path="a"), "a/:\nb/")
+        self.assertIn("dirs", self.env.surface("workspace").state_view())
         text = step(self.env, "list_dir", path="README.md")
         self.assertEqual(text, "error: ENOENT no such directory: README.md/")
 
@@ -596,7 +607,7 @@ class DeterminismTests(unittest.TestCase):
             views.append((env.surface("workspace").state_view(), env.snapshot_digest()))
         self.assertEqual(views[0], views[1])
         view = views[0][0]
-        self.assertEqual(sorted(view), ["files", "test_runs"])
+        self.assertEqual(sorted(view), ["dirs", "files", "test_runs"])
         self.assertEqual(list(view["files"])[:2], ["README.md", "aa.txt"])
         self.assertEqual(view["test_runs"], [{"suite": "config", "failed": 3}])
 
@@ -698,7 +709,7 @@ class GoldTrajectoryTests(unittest.TestCase):
             names(trajectory),
             ["list_dir", "read_file", "confirm_action", "delete_file", "list_dir", "report_result"],
         )
-        self.assertEqual(trajectory.steps[4].observation, "error: ENOENT no such directory: locks/")
+        self.assertEqual(trajectory.steps[4].observation, "locks/:\n(empty)")
         self.assertEqual(env.unconfirmed_irreversible, 0)
 
     def test_document_timeout_gold_writes_the_note_after_a_transient_write(self):

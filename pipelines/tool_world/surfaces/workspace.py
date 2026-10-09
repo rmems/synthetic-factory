@@ -13,7 +13,7 @@ at run time.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from .. import vocabulary as cv
@@ -59,6 +59,7 @@ class WorkspaceSurface(Surface):
     def __init__(self, pack: Any, task: Any, env: Any) -> None:
         super().__init__(pack, task, env)
         self.files: dict[str, str] = dict(pack.files)
+        self.dirs: set[str] = _parents_of(self.files)
         self.suites: Mapping[str, Any] = pack.tests
         self.test_runs: list[dict[str, Any]] = []
         self.verification_events: list[int] = []
@@ -205,6 +206,7 @@ class WorkspaceSurface(Surface):
 
     def _write_file(self, args: Mapping[str, Any], fault: Any) -> str:
         self.files[args["path"]] = args["content"]
+        self.dirs |= _parents_of((args["path"],))
         return f"wrote {args['path']} ({len(args['content'])} chars)"
 
     def _edit_file(self, args: Mapping[str, Any], fault: Any) -> str:
@@ -247,16 +249,22 @@ class WorkspaceSurface(Surface):
         return f"{len(matches)} matches:\n" + "\n".join(shown) + tail
 
     def _list_dir(self, args: Mapping[str, Any], fault: Any) -> str:
-        prefix = args.get("path", "").rstrip("/")
-        prefix = f"{prefix}/" if prefix else ""
+        """Entries of a directory; one that exists but is empty lists as empty, not ENOENT."""
+        name = args.get("path", "").rstrip("/")
+        prefix = f"{name}/" if name else ""
+        entries = self._entries_under(prefix)
+        if name and not entries and name not in self.dirs:
+            return error_text(f"ENOENT no such directory: {prefix}")
+        return f"{prefix or '.'}:\n" + ("\n".join(sorted(entries)) or "(empty)")
+
+    def _entries_under(self, prefix: str) -> set[str]:
+        """Immediate children of ``prefix``; subdirectories carry a trailing slash."""
         entries = set()
         for path in self.files:
             if path.startswith(prefix):
                 rest = path[len(prefix) :]
                 entries.add(rest.split("/", 1)[0] + ("/" if "/" in rest else ""))
-        if not entries:
-            return error_text(f"ENOENT no such directory: {prefix or '.'}")
-        return f"{prefix or '.'}:\n" + "\n".join(sorted(entries))
+        return entries
 
     def _run_tests(self, args: Mapping[str, Any], fault: Any) -> str:
         suite = args["suite"]
@@ -310,7 +318,20 @@ class WorkspaceSurface(Surface):
         return _CHECKS[check["kind"]](text, check)
 
     def state_view(self) -> Any:
-        return {"files": dict(sorted(self.files.items())), "test_runs": list(self.test_runs)}
+        return {
+            "files": dict(sorted(self.files.items())),
+            "dirs": sorted(self.dirs),
+            "test_runs": list(self.test_runs),
+        }
+
+
+def _parents_of(paths: Iterable[str]) -> set[str]:
+    """Every directory on the way to each path, as a real file system would keep them."""
+    parents: set[str] = set()
+    for path in paths:
+        parts = path.split("/")[:-1]
+        parents.update("/".join(parts[: depth + 1]) for depth in range(len(parts)))
+    return parents
 
 
 def _contains(text: str, check: Mapping[str, Any]) -> str | None:

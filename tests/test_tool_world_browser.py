@@ -139,6 +139,10 @@ def browse(env, **args):
     return env.step({"name": cv.TOOL_BROWSER, "args": args}).text
 
 
+def without_refs(text: str) -> str:
+    return re.sub(r"\[ref=e\d+\]", "[ref]", text)
+
+
 def ref_in(text):
     match = REF_RE.search(text)
     if match is None:
@@ -428,7 +432,9 @@ class BrowserSurfaceTests(unittest.TestCase):
         first = browse(env, action="navigate", url="/missing")
         self.assertIn("title: Page not found\n", first)
         browse(env, action="navigate", url="/")
-        self.assertEqual(browse(env, action="back"), first)
+        again = browse(env, action="back")
+        self.assertEqual(without_refs(again), without_refs(first))
+        self.assertNotEqual(again, first, "refs are never reused across page loads")
 
     def test_back_walks_the_history_one_page_at_a_time(self):
         env = quiet_env(PRICE)
@@ -585,11 +591,13 @@ class SiteAndFaultCheckTests(unittest.TestCase):
             lines[2:5],
             [
                 '- text "Effects" [ref=e1]',
-                '- dialog "Cookie consent" [ref=e2]',
-                '  - button "Accept" [ref=e3]',
+                '- dialog "Cookie consent" [ref=e11]',
+                '  - button "Accept" [ref=e12]',
             ],
         )
-        self.assertEqual(lines[5], '- heading "Effects" [ref=e4]')
+        self.assertEqual(
+            lines[5], '- heading "Effects" [ref=e2]', "existing refs survive an insert"
+        )
         body = dom.body_of(surface.root)
         self.assertEqual(body.attrs, {"class": "x", "data-page": "effects"})
         self.assertIs(body.children[0].parent, body)

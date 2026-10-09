@@ -371,11 +371,32 @@ def load_records(run_dir: Path) -> list[Mapping[str, Any]]:
     return [_parse_record(line, number) for number, line in enumerate(lines, 1) if line.strip()]
 
 
-def replay_run(run_dir: Path, catalog: Any) -> dict[str, Any]:
-    """Replay every candidate of a run; the run passes only when every record agrees."""
-    results = [replay_record(record, catalog).row() for record in load_records(Path(run_dir))]
+def _selected(records: list[Mapping[str, Any]], record_id: str | None) -> list[Mapping[str, Any]]:
+    if record_id is None:
+        return records
+    chosen = [record for record in records if record.get("id") == record_id]
+    cv.refuse_when(not chosen, cv.FINDING_RECORD_NOT_FOUND, f"record {record_id} is not in the run")
+    return chosen
+
+
+def replay_run(run_dir: Path, catalog: Any, record_id: str | None = None) -> dict[str, Any]:
+    """Replay every candidate of a run, or the one named; it passes only when every record agrees.
+
+    The run must have been generated from the loaded catalog: a RUN.json pinned to
+    another catalog digest is refused before any record is replayed.
+    """
+    run_dir = Path(run_dir)
+    records = _selected(load_records(run_dir), record_id)
+    pinned = _run_summary(run_dir).get("catalog_sha256")
+    cv.refuse_when(
+        pinned != catalog.catalog_sha256,
+        cv.FINDING_RUN_SHA_MISMATCH,
+        f"{RUN_FILENAME} was generated from catalog {pinned}, loaded {catalog.catalog_sha256}",
+    )
+    results = [replay_record(record, catalog).row() for record in records]
     return {
         "run_dir": str(run_dir),
+        "record_id": record_id,
         "records": len(results),
         "agreeing": sum(1 for row in results if row["agreement"]),
         "passed": all(row["agreement"] for row in results),
