@@ -173,6 +173,16 @@ def _variants(task: Any, variants: str) -> tuple[str, ...]:
     return cv.VARIANT_GOLD, *task.perturbations
 
 
+def _reserve(out_dir: Path) -> None:
+    """Create the run directory as the reservation: losing that race is the existing-destination refusal."""
+    try:
+        out_dir.mkdir(parents=True)
+    except FileExistsError as exc:
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_DESTINATION_EXISTS, f"destination already exists: {out_dir}"
+        ) from exc
+
+
 def _write_new(path: Path, text: str) -> None:
     cv.refuse_when(path.exists(), cv.FINDING_DESTINATION_EXISTS, f"already exists: {path}")
     path.write_text(text, encoding="utf-8", newline="")
@@ -314,7 +324,7 @@ def run(request: RunRequest) -> dict[str, Any]:
     lines, rows = _records_for(drawn, request.seed, context)
     payload = "\n".join(lines) + "\n"
     summary = _summary(_header(request, catalog, context), rows, payload)
-    request.out_dir.mkdir(parents=True)
+    _reserve(request.out_dir)
     _write_new(request.out_dir / CANDIDATES_FILENAME, payload)
     _write_new(request.out_dir / RUN_FILENAME, dumps_exact_json(summary, indent=2) + "\n")
     _write_new(request.out_dir / NOTES_FILENAME, _notes(summary, rows))

@@ -118,7 +118,9 @@ pipelines/tool_world/
   vocabulary.py        identities, limits, finding codes, the coded refusal type
   faults.py            seeded fault schedule and the call-counting fault engine
   pack.py              world-pack loader: PACK.json identity, member digest,
-                       task specs, license evidence and attestation
+                       license evidence and attestation; members must be directories
+  pack_task.py         one task member: id named by its file, surfaces, title,
+                       plan, faults, predicates
   catalog.py           CATALOG.json pins; a drifted pack digest is refused
   env.py               Environment: state, event log, step(), snapshot digest,
                        seeded fault stream, irreversibility flags

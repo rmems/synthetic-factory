@@ -11,6 +11,7 @@ import dataclasses
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -162,6 +163,21 @@ class GenerateRun(unittest.TestCase):
             with self.subTest(overrides=overrides), refusal(self, code):
                 generate.run(self.box.request(**overrides))
         self.assertFalse((self.root / "run").exists())
+
+    def test_losing_the_destination_race_is_the_existing_destination_refusal(self):
+        request = self.box.request()
+        load_catalog = catalog_mod.load_catalog
+
+        def load_and_take_the_destination(directory):
+            request.out_dir.mkdir(parents=True)
+            return load_catalog(directory)
+
+        with (
+            mock.patch.object(generate.cat, "load_catalog", load_and_take_the_destination),
+            refusal(self, cv.FINDING_DESTINATION_EXISTS, "already exists"),
+        ):
+            generate.run(request)
+        self.assertEqual(list(request.out_dir.iterdir()), [])
 
     def test_destinations_that_exist_or_alias_the_raw_tree_are_refused(self):
         (self.root / "run").mkdir()

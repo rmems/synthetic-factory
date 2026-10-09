@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from .. import vocabulary as cv
@@ -56,7 +57,7 @@ class Surface:
     FAULT_KINDS: frozenset[str] = frozenset()
     # Fault kinds whose symptom only some calls can show, each by a predicate over the call's
     # arguments; a kind absent here shows on every call its selector matches.
-    SHOWS_ON: Mapping[str, Callable[[Mapping[str, Any]], bool]] = {}
+    SHOWS_ON: Mapping[str, Callable[[Mapping[str, Any]], bool]] = MappingProxyType({})
 
     def __init__(self, pack: Any, task: Any, env: Any) -> None:
         self.pack = pack

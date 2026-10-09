@@ -4,9 +4,11 @@
 Each server is a pack member that ``mcp_servers`` checks at load, so a
 request can never meet a shape the surface cannot serve: a malformed member
 refuses the pack, a malformed request earns a coded JSON-RPC error.
-Responses are canonical JSON-RPC envelopes; a pending
-``notifications/tools/list_changed`` is delivered on the line before the
-next response, as a transport would deliver it.
+Responses are canonical JSON-RPC envelopes. A notification is delivered on
+its own line before the first response after it arises, as a transport would
+interleave it: the ``notifications/tools/list_changed`` a drift fault raises
+precedes that very call's response, and one a server queued between calls
+precedes the next call's.
 """
 
 from __future__ import annotations

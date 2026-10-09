@@ -15,18 +15,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any
 
-from . import faults, predicates, records
+from . import faults
 from . import vocabulary as cv
 from ._contract import (
     bind_import_twin,
     contains_hidden_reasoning_key,
     load_strict_json,
     sha256_bytes,
-    sha256_canonical,
-    terminal_outcome_agrees,
 )
+from .pack_task import Task, is_slug, parse_task, surface_list
 
 __all__ = ["Action", "Pack", "Task", "action_from_row", "load_pack", "pack_digest"]
 
@@ -37,26 +36,7 @@ PACK_FILENAME = "PACK.json"
 SITE_FILENAME = "site.json"
 _MEMBER_DIRS = ("files", "tests", "servers", "pages", "workers", "tasks")
 _LICENSE_FIELDS = ("spdx", "source", "authorship")
-_SLUG_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _PACK_ID_SEPARATORS = "-"
-_TASK_ID_SEPARATORS = "-."
-
-
-@dataclass(frozen=True)
-class Task:
-    task_id: str
-    factory: str
-    surface: str
-    surfaces: tuple[str, ...]
-    title: str
-    goal: str
-    max_steps: int
-    public_predicates: tuple[tuple[str, Mapping[str, Any]], ...]
-    hidden_predicates: tuple[tuple[str, Mapping[str, Any]], ...]
-    gold: tuple[Action, ...]
-    faults: tuple[faults.FaultSpec, ...]
-    perturbations: tuple[str, ...]
-    spec_sha256: str
 
 
 @dataclass(frozen=True)
@@ -101,30 +81,10 @@ def _is_nonempty_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value)
 
 
-def _is_slug_run(part: str) -> bool:
-    return bool(part) and set(part) <= _SLUG_CHARS
-
-
-def _is_slug(value: str, separators: str) -> bool:
-    """``[a-z0-9]+`` runs joined by single separators: none leading, trailing, or doubled.
-
-    The language of ``^[a-z0-9]+(?:[<separators>][a-z0-9]+)*$``, decided by
-    splitting on the separators rather than by a backtracking regex.
-    """
-    for separator in separators[1:]:
-        value = value.replace(separator, separators[0])
-    return all(_is_slug_run(part) for part in value.split(separators[0]))
-
-
 def _is_pack_id(value: Any, directory_name: str) -> bool:
     return (
-        isinstance(value, str) and _is_slug(value, _PACK_ID_SEPARATORS) and value == directory_name
+        isinstance(value, str) and is_slug(value, _PACK_ID_SEPARATORS) and value == directory_name
     )
-
-
-def _is_surface_list(value: Any) -> TypeGuard[list[str]]:
-    """A nonempty list drawn from the surface vocabulary."""
-    return isinstance(value, list) and bool(value) and all(item in cv.SURFACES for item in value)
 
 
 def _is_license_evidence(value: Any) -> bool:
@@ -206,156 +166,6 @@ def _file_members(directory: Path, where: str) -> dict[str, str]:
     return members
 
 
-# --- task rows -----------------------------------------------------------------
-
-
-def _require_str(row: Mapping[str, Any], key: str, where: str) -> str:
-    value = row.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise cv.ToolWorldRefusal(
-            cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a nonempty string"
-        )
-    return value
-
-
-def _predicates(
-    rows: Any, where: str, surfaces: tuple[str, ...]
-) -> tuple[tuple[str, Mapping[str, Any]], ...]:
-    cv.refuse_when(
-        not isinstance(rows, list), cv.FINDING_TASK_FIELD_INVALID, f"{where}: must be a list"
-    )
-    parsed = []
-    for index, row in enumerate(rows):
-        label = f"{where}[{index}]"
-        cv.refuse_when(
-            not isinstance(row, Mapping),
-            cv.FINDING_TASK_FIELD_INVALID,
-            f"{label}: must be an object",
-        )
-        name = _require_str(row, "name", label)
-        params = row.get("params", {})
-        cv.refuse_when(
-            not isinstance(params, Mapping),
-            cv.FINDING_TASK_FIELD_INVALID,
-            f"{label}: params must be an object",
-        )
-        predicates.check_declaration(name, params, surfaces, label)
-        parsed.append((name, dict(params)))
-    return tuple(parsed)
-
-
-def _surface_list(value: Any, code: str, where: str) -> list[str]:
-    """``value`` as a nonempty list of known surfaces, or a refusal under ``code``."""
-    if _is_surface_list(value):
-        return value
-    raise cv.ToolWorldRefusal(
-        code, f"{where}: surfaces must be a nonempty list drawn from {list(cv.SURFACES)}"
-    )
-
-
-def _surfaces(row: Mapping[str, Any], where: str, allowed: tuple[str, ...]) -> tuple[str, ...]:
-    surfaces = _surface_list(row.get("surfaces"), cv.FINDING_TASK_FIELD_INVALID, where)
-    cv.refuse_when(
-        any(item not in allowed for item in surfaces),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: surfaces {surfaces} are not all declared by the pack ({list(allowed)})",
-    )
-    return tuple(surfaces)
-
-
-def _task_id(raw: Mapping[str, Any], where: str) -> str:
-    task_id = _require_str(raw, "task_id", where)
-    cv.refuse_when(
-        not _is_slug(task_id, _TASK_ID_SEPARATORS),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: task_id {task_id!r} is malformed",
-    )
-    return task_id
-
-
-def _title(raw: Mapping[str, Any], where: str) -> str:
-    """The title ends the outcome prose, so it must read as the verdict under both verdicts."""
-    title = _require_str(raw, "title", where)
-    for success in (True, False):
-        text = records.outcome_text(title, success, False)
-        cv.refuse_when(
-            not terminal_outcome_agrees(text, success),
-            cv.FINDING_TASK_FIELD_INVALID,
-            f"{where}: title {title!r} contradicts the verdict in the outcome text {text!r}",
-        )
-    return title
-
-
-def _max_steps(raw: Mapping[str, Any], where: str) -> int:
-    max_steps = raw.get("max_steps")
-    if cv.is_genuine_int(max_steps) and 1 <= max_steps <= cv.MAX_STEPS_CEILING:
-        return max_steps
-    raise cv.ToolWorldRefusal(
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: max_steps must be an integer in [1, {cv.MAX_STEPS_CEILING}]",
-    )
-
-
-def _gold(raw: Mapping[str, Any], where: str) -> tuple[Action, ...]:
-    rows = raw.get("gold")
-    if not isinstance(rows, list) or not rows:
-        raise cv.ToolWorldRefusal(
-            cv.FINDING_TASK_FIELD_INVALID, f"{where}: gold must be a nonempty list"
-        )
-    return tuple(action_from_row(row, f"{where}.gold[{index}]") for index, row in enumerate(rows))
-
-
-def _faults(raw: Mapping[str, Any], where: str) -> tuple[faults.FaultSpec, ...]:
-    rows = raw.get("faults", [])
-    cv.refuse_when(
-        not isinstance(rows, list), cv.FINDING_TASK_FIELD_INVALID, f"{where}: faults must be a list"
-    )
-    return tuple(
-        faults.fault_spec_from_row(row, f"{where}.faults[{index}]")
-        for index, row in enumerate(rows)
-    )
-
-
-def _perturbations(raw: Mapping[str, Any], where: str) -> tuple[str, ...]:
-    perturbations = raw.get("perturbations", [])
-    cv.refuse_when(
-        not isinstance(perturbations, list)
-        or any(item not in cv.PERTURBATIONS for item in perturbations),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: perturbations must be drawn from {list(cv.PERTURBATIONS)}",
-    )
-    return tuple(perturbations)
-
-
-def _task(raw: Any, where: str, pack_surfaces: tuple[str, ...]) -> Task:
-    cv.refuse_when(
-        not isinstance(raw, Mapping),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: task must be an object",
-    )
-    task_id = _task_id(raw, where)
-    surfaces = _surfaces(raw, where, pack_surfaces)
-    return Task(
-        task_id=task_id,
-        factory=cv.FACTORY_BY_SURFACE[surfaces[0]],
-        surface=surfaces[0],
-        surfaces=surfaces,
-        title=_title(raw, where),
-        goal=_require_str(raw, "goal", where),
-        max_steps=_max_steps(raw, where),
-        public_predicates=_predicates(
-            raw.get("public_predicates", []), f"{where}.public_predicates", surfaces
-        ),
-        hidden_predicates=_predicates(
-            raw.get("hidden_predicates", []), f"{where}.hidden_predicates", surfaces
-        ),
-        gold=_gold(raw, where),
-        faults=_faults(raw, where),
-        perturbations=_perturbations(raw, where),
-        spec_sha256=sha256_canonical(raw),
-    )
-
-
 # --- suites --------------------------------------------------------------------
 
 
@@ -402,7 +212,7 @@ def _check_license(header: Mapping[str, Any], where: str) -> None:
 
 
 def _declared_surfaces(header: Mapping[str, Any], where: str) -> tuple[str, ...]:
-    return tuple(_surface_list(header.get("surfaces"), cv.FINDING_PACK_FIELD_INVALID, where))
+    return tuple(surface_list(header.get("surfaces"), cv.FINDING_PACK_FIELD_INVALID, where))
 
 
 def _header(directory: Path) -> tuple[Mapping[str, Any], str, tuple[str, ...]]:
@@ -434,18 +244,44 @@ def _site(directory: Path, pack_id: str) -> tuple[Mapping[str, Any] | None, dict
 
 
 def _tasks(directory: Path, pack_id: str, surfaces: tuple[str, ...]) -> tuple[Task, ...]:
+    """Every task member, each named by its file the way the pack is named by its directory."""
     rows = _json_members(directory / "tasks", f"{pack_id}/tasks")
-    tasks = tuple(
-        _task(row, f"{pack_id}/tasks/{name}.json", surfaces) for name, row in rows.items()
-    )
+    tasks = []
+    for name, row in rows.items():
+        where = f"{pack_id}/tasks/{name}.json"
+        task = parse_task(row, where, surfaces)
+        cv.refuse_when(
+            task.task_id.rpartition(".")[2] != name,
+            cv.FINDING_TASK_FIELD_INVALID,
+            f"{where}: task_id {task.task_id!r} must end in the file stem",
+        )
+        tasks.append(task)
     cv.refuse_when(
         not tasks, cv.FINDING_PACK_FIELD_INVALID, f"{pack_id}: a pack needs at least one task"
     )
-    ids = [task.task_id for task in tasks]
-    cv.refuse_when(
-        len(set(ids)) != len(ids), cv.FINDING_TASK_FIELD_INVALID, f"{pack_id}: duplicate task ids"
+    return tuple(tasks)
+
+
+def _check_members(directory: Path, pack_id: str) -> None:
+    """Besides the header, only the known member names may appear, and each is a directory."""
+    stray, files = [], []
+    for path in sorted(directory.iterdir()):
+        if path.name == PACK_FILENAME:
+            continue
+        if path.name not in _MEMBER_DIRS:
+            stray.append(path.name)
+        elif not path.is_dir():
+            files.append(path.name)
+    cv.refuse_first(
+        (
+            (bool(stray), cv.FINDING_PACK_MEMBER_INVALID, f"{pack_id}: unexpected members {stray}"),
+            (
+                bool(files),
+                cv.FINDING_PACK_MEMBER_INVALID,
+                f"{pack_id}: members must be directories, not files: {files}",
+            ),
+        )
     )
-    return tasks
 
 
 def load_pack(directory: Path) -> Pack:
@@ -457,14 +293,7 @@ def load_pack(directory: Path) -> Pack:
         f"missing pack directory {directory.name}",
     )
     header, pack_id, surfaces = _header(directory)
-    stray = sorted(
-        path.name
-        for path in directory.iterdir()
-        if path.name != PACK_FILENAME and path.name not in _MEMBER_DIRS
-    )
-    cv.refuse_when(
-        bool(stray), cv.FINDING_PACK_MEMBER_INVALID, f"{pack_id}: unexpected members {stray}"
-    )
+    _check_members(directory, pack_id)
     site, pages = _site(directory, pack_id)
     tests = _json_members(directory / "tests", f"{pack_id}/tests")
     _check_suites(tests, f"{pack_id}/tests")

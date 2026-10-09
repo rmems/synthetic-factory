@@ -113,6 +113,12 @@ PACK_CORRUPTIONS = (
         "unexpected members ['notes.txt']",
     ),
     (
+        "member that is a file",
+        lambda d: (d / "workers").write_text("x"),
+        cv.FINDING_PACK_MEMBER_INVALID,
+        "members must be directories, not files: ['workers']",
+    ),
+    (
         "non-UTF-8 member",
         lambda d: (d / "files" / "blob.bin").write_bytes(b"\xff\xfe\x00"),
         cv.FINDING_PACK_MEMBER_INVALID,
@@ -239,10 +245,10 @@ PACK_CORRUPTIONS = (
         "perturbations must be drawn from",
     ),
     (
-        "duplicate task ids",
+        "task file stem differs from the task id",
         lambda d: shutil.copy(d / "tasks" / "add-sub.json", d / "tasks" / "add-sub-again.json"),
         cv.FINDING_TASK_FIELD_INVALID,
-        "duplicate task ids",
+        "must end in the file stem",
     ),
     (
         "no tasks",
