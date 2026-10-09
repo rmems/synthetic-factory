@@ -149,6 +149,14 @@ class FaultEngineCounting(unittest.TestCase):
         self.assertEqual(engine.fired, ("first", "third"))
         self.assertEqual(engine.armed_ids(), ("first", "second", "third"))
 
+    def test_a_call_that_could_show_nothing_neither_counts_nor_fires(self):
+        engine = faults_mod.FaultEngine((armed(spec(id="cut"), 1),))
+        hidden = engine.check("run_tests", {"suite": "unit"}, lambda row: row.fault_id != "cut")
+        self.assertIsNone(hidden)
+        self.assertEqual(engine.fired, ())
+        self.assertEqual(engine.check("run_tests", {"suite": "unit"}).fault_id, "cut")
+        self.assertTrue(faults_mod.always_shows(spec(id="any")))
+
     def test_a_disarmed_fault_counts_but_never_fires(self):
         entry = faults_mod.ScheduledFault(spec(id="off"), False, 1)
         engine = faults_mod.FaultEngine((entry, armed(spec(id="on"), 2)))

@@ -16,7 +16,7 @@ on the seeds where the fault happens to fire; ``pack`` re-exports it.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -265,6 +265,11 @@ def _targets(spec: FaultSpec, tool: str, args: Mapping[str, Any]) -> bool:
     return spec.tool == tool and _selector_matches(spec.selector, args)
 
 
+def always_shows(spec: FaultSpec) -> bool:
+    """The default word on whether a call could show a fault's symptom: it could."""
+    return True
+
+
 class FaultEngine:
     """Count matching calls and hand back the fault that fires on this one, if any."""
 
@@ -288,11 +293,21 @@ class FaultEngine:
         """An armed fault fires on the call that brings its counter to its occurrence."""
         return entry.armed and self._counts[entry.fault_id] == entry.occurrence
 
-    def check(self, tool: str, args: Mapping[str, Any]) -> ScheduledFault | None:
-        """Advance every matching counter; return the first armed fault reaching its occurrence."""
+    def check(
+        self,
+        tool: str,
+        args: Mapping[str, Any],
+        shows: Callable[[FaultSpec], bool] = always_shows,
+    ) -> ScheduledFault | None:
+        """Advance every matching counter; return the first armed fault reaching its occurrence.
+
+        ``shows`` is the owning surface's word on whether this call could show a
+        fault's symptom at all. A call that could not neither counts nor fires,
+        so a fault is never recorded as fired without a visible symptom.
+        """
         firing = None
         for entry in self._scheduled:
-            if not _targets(entry.spec, tool, args):
+            if not _targets(entry.spec, tool, args) or not shows(entry.spec):
                 continue
             self._counts[entry.fault_id] += 1
             if firing is None and self._reached(entry):

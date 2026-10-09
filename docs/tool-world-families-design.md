@@ -128,6 +128,7 @@ pipelines/tool_world/
   surfaces/base.py        ToolSpec and the surface protocol
   surfaces/workspace.py   files, search, anchored edits, run_tests over declared suites
   surfaces/workspace_suites.py   declared-suite shape checks and evaluation
+  surfaces/workspace_search.py   search tool: pattern bound (no clock), grep, capped report
   surfaces/mcp.py         simulated JSON-RPC 2.0 servers (section 6.2)
   surfaces/mcp_servers.py        server member shape checks, session state and tool behaviors
   surfaces/browser_dom.py html.parser DOM and the accessibility snapshot

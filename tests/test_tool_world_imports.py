@@ -39,7 +39,7 @@ class InProcess(unittest.TestCase):
 
     def test_every_module_is_one_object_under_both_spellings(self):
         flat, packaged = probe.import_flat(), probe.import_packaged()
-        self.assertEqual((probe.drift(flat), probe.drift(packaged)), ([], []))
+        self.assertEqual(set(flat), {"", *probe.MODULES})
         for name in ("", *probe.MODULES):
             flat_name, packaged_name = probe.spellings(name)
             with self.subTest(module=flat_name):
@@ -65,8 +65,8 @@ class FreshInterpreter(unittest.TestCase):
         return probe.in_fresh_interpreter(probe.run_form, form)
 
     def test_each_form_alone(self):
-        self.assertEqual(self.fresh("cli"), {"family": support.cv.FAMILY, "drift": []})
-        self.assertEqual(self.fresh("package"), {"family": support.cv.FAMILY, "drift": []})
+        self.assertEqual(self.fresh("cli"), {"family": support.cv.FAMILY})
+        self.assertEqual(self.fresh("package"), {"family": support.cv.FAMILY})
 
     def test_both_orders_bind_one_object_and_one_refusal_class(self):
         for form in ("cli_then_package", "package_then_cli"):

@@ -217,7 +217,10 @@ class Environment:
         problems = _validate(spec, args)
         if problems:
             return error_text(f"invalid arguments for {name}: " + "; ".join(problems)), None
-        fault = self._fault_engine.check(name, args)
+        surface = self._surfaces.get(spec.surface)
+        fault = self._fault_engine.check(
+            name, args, lambda row: surface is None or surface.fault_shows(row, args)
+        )
         fault_id = fault.fault_id if fault is not None else None
         return self._execute(spec, args, fault), fault_id
 

@@ -2,8 +2,9 @@
 """The workspace surface: a virtual file tree, search, anchored edits, declared tests.
 
 Files live in memory, seeded from the pack's ``files/`` members; nothing
-touches the host filesystem. ``run_tests`` evaluates a declared suite's cases
-against the current tree (``workspace_suites``), so an edit changes the outcome
+touches the host filesystem. ``search`` is a regex over the tree bounded by
+the pattern's shape (``workspace_search``). ``run_tests`` evaluates a declared
+suite's cases against the current tree (``workspace_suites``), so an edit changes the outcome
 and the outcome is computed, never scripted. Declared suites and the faults
 that name this surface are checked when the environment is built: a malformed
 suite, or a fault whose symptom no observation could show, is a coded refusal
@@ -12,13 +13,13 @@ at load, not a surprise at run time.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from .. import vocabulary as cv
 from .._contract import bind_import_twin
 from .base import Surface, ToolSpec, error_text
+from .workspace_search import search_tree
 from .workspace_suites import check_suite, evaluate_suite
 
 __all__ = ["WorkspaceSurface"]
@@ -27,7 +28,6 @@ FAULT_TRANSIENT = "transient_error"
 FAULT_FLAKY_TEST = "flaky_test"
 FAULT_TRUNCATED = "truncated_output"
 _TRUNCATE_AT = 160
-_MAX_MATCHES = 40
 _STRING: Mapping[str, Any] = {"type": "string"}
 
 
@@ -103,9 +103,9 @@ def _kind_of(fault: Any) -> str | None:
     return None if fault is None else fault.spec.kind
 
 
-def _truncates(fault: Any, limit: Any) -> bool:
-    """A truncation fault shows on an unpaged read; paging with a limit is how a reader recovers."""
-    return _kind_of(fault) == FAULT_TRUNCATED and limit is None
+def _truncates(fault: Any) -> bool:
+    """A truncation fault reached this read; ``fault_shows`` keeps it off every paged read."""
+    return _kind_of(fault) == FAULT_TRUNCATED
 
 
 def _flaky_case(fault: Any) -> str | None:
@@ -136,23 +136,6 @@ def _missing(name: str, entries: set[str], dirs: set[str]) -> bool:
     if not name or entries:
         return False
     return name not in dirs
-
-
-def _grep(pattern: re.Pattern[str], path: str, text: str) -> list[str]:
-    """``path:line: text`` for every line the pattern matches, in file order."""
-    return [
-        f"{path}:{number}: {line}"
-        for number, line in enumerate(text.splitlines(), 1)
-        if pattern.search(line)
-    ]
-
-
-def _match_report(matches: list[str]) -> str:
-    """The first ``_MAX_MATCHES`` hits, with a count of what the cap hid."""
-    shown = matches[:_MAX_MATCHES]
-    hidden = len(matches) - len(shown)
-    tail = f"\n[{hidden} more matches]" if hidden else ""
-    return f"{len(matches)} matches:\n" + "\n".join(shown) + tail
 
 
 class WorkspaceSurface(Surface):
@@ -235,6 +218,10 @@ class WorkspaceSurface(Surface):
     def _case_ids(self, suite: str) -> list[str]:
         return [case["id"] for case in self.suites[suite]["cases"]]
 
+    def fault_shows(self, spec: Any, args: Mapping[str, Any]) -> bool:
+        """A truncation shows only on an unpaged read: paging with a limit is how a reader recovers."""
+        return spec.kind != FAULT_TRUNCATED or args.get("limit") is None
+
     # --- execution -----------------------------------------------------------
 
     def execute(self, name: str, args: Mapping[str, Any], fault: Any) -> str:
@@ -259,7 +246,7 @@ class WorkspaceSurface(Surface):
         self.verification_events.append(len(self.env.events) + 1)
         text = self.files[path]
         offset, limit = args.get("offset", 0), args.get("limit")
-        if _truncates(fault, limit):
+        if _truncates(fault):
             head = text[:_TRUNCATE_AT]
             return (
                 f"{path} ({len(text)} chars):\n{head}\n"
@@ -290,18 +277,7 @@ class WorkspaceSurface(Surface):
         )
 
     def _search(self, args: Mapping[str, Any]) -> str:
-        try:
-            pattern = re.compile(args["pattern"])
-        except re.error as exc:
-            return error_text(f"invalid regex: {exc}")
-        prefix = args.get("path", "")
-        matches: list[str] = []
-        for path in sorted(self.files):
-            if path.startswith(prefix):
-                matches.extend(_grep(pattern, path, self.files[path]))
-        if not matches:
-            return f"no matches for {args['pattern']!r}"
-        return _match_report(matches)
+        return search_tree(args["pattern"], self.files, args.get("path", ""))
 
     def _list_dir(self, args: Mapping[str, Any]) -> str:
         """Entries of a directory; one that exists but is empty lists as empty, not ENOENT."""

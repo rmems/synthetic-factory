@@ -11,7 +11,7 @@ next response, as a transport would deliver it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from .. import schema_lite
@@ -60,6 +60,22 @@ def _cursor_start(cursor: Any) -> int | None:
         return None
     offset = cursor[len(_CURSOR_PREFIX) :]
     return int(offset) if _is_ascii_offset(offset) else None
+
+
+def _public_resource(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "uri": row["uri"],
+        "name": row.get("name", row["uri"]),
+        "mimeType": row.get("mimeType", "text/plain"),
+    }
+
+
+def _public_prompt(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "name": row["name"],
+        "description": row.get("description", ""),
+        "arguments": row.get("arguments", []),
+    }
 
 
 class McpSurface(Surface):
@@ -150,9 +166,9 @@ class McpSurface(Surface):
             "notifications/initialized": lambda: self._client_ready(server, method),
             "tools/list": lambda: self._tools_list(server, params, kind),
             "tools/call": lambda: self._tools_call(server, params),
-            "resources/list": lambda: self._resources_list(server),
+            "resources/list": lambda: self._members(server, "resources", _public_resource),
             "resources/read": lambda: self._resources_read(server, params),
-            "prompts/list": lambda: self._prompts_list(server),
+            "prompts/list": lambda: self._members(server, "prompts", _public_prompt),
             "prompts/get": lambda: self._prompts_get(server, params),
         }
         handler = handlers.get(method)
@@ -240,16 +256,9 @@ class McpSurface(Surface):
     # The declared behavior runs through the class seam, so a caller can reach it here.
     _behave = staticmethod(behave)
 
-    def _resources_list(self, server: Server) -> dict[str, Any]:
-        rows = [
-            {
-                "uri": row["uri"],
-                "name": row.get("name", row["uri"]),
-                "mimeType": row.get("mimeType", "text/plain"),
-            }
-            for row in server.spec.get("resources", [])
-        ]
-        return self._result({"resources": rows})
+    def _members(self, server: Server, key: str, public: Callable[[Any], Any]) -> dict[str, Any]:
+        """The server's ``key`` member list, each row in its public shape, as a result."""
+        return self._result({key: [public(row) for row in server.spec.get(key, [])]})
 
     def _resources_read(self, server: Server, params: Mapping[str, Any]) -> dict[str, Any]:
         uri = params.get("uri")
@@ -268,17 +277,6 @@ class McpSurface(Surface):
                 ]
             }
         )
-
-    def _prompts_list(self, server: Server) -> dict[str, Any]:
-        rows = [
-            {
-                "name": row["name"],
-                "description": row.get("description", ""),
-                "arguments": row.get("arguments", []),
-            }
-            for row in server.spec.get("prompts", [])
-        ]
-        return self._result({"prompts": rows})
 
     def _prompts_get(self, server: Server, params: Mapping[str, Any]) -> dict[str, Any]:
         name = params.get("name")

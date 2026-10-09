@@ -29,6 +29,7 @@ from tool_world_workspace_support import (
 from tool_world._contract import contains_hidden_reasoning_key
 from tool_world.policies import scripted
 from tool_world.surfaces import workspace as workspace_mod
+from tool_world.surfaces import workspace_search
 
 
 class PackTests(unittest.TestCase):
@@ -196,6 +197,25 @@ class SearchAndListTests(unittest.TestCase):
         text = step(self.env, "search", pattern="max_(")
         self.assertTrue(text.startswith("error: invalid regex: "), text)
 
+    def test_search_refuses_a_pattern_shaped_to_backtrack_without_bound(self):
+        nested = ("(a+)+$", "(a|aa)*b", "((x*)y){2,}", "(\\d+|\\w+)+:", "(?:a?)+", "(a{2,}b)*")
+        for pattern in nested:
+            with self.subTest(pattern=pattern):
+                text = step(self.env, "search", pattern=pattern)
+                self.assertTrue(text.startswith("error: regex nests repetition"), text)
+        cap = workspace_search.MAX_PATTERN_CHARS
+        self.assertEqual(
+            step(self.env, "search", pattern="a" * (cap + 1)),
+            f"error: regex longer than {cap} chars",
+        )
+
+    def test_search_accepts_repetition_that_is_not_nested(self):
+        env = plain_env(RENAME)
+        for pattern in ("(ab)+c", "[(+]+", "\\(a+\\)+", "a{2,3}(b|c)", "(?:re)*tries", "(a+){"):
+            with self.subTest(pattern=pattern):
+                text = step(env, "search", pattern=pattern)
+                self.assertFalse(text.startswith("error"), text)
+
     def test_search_path_prefix_limits_the_tree(self):
         text = step(self.env, "search", pattern="max_retries", path="config")
         self.assertEqual(text, "1 matches:\nconfig/settings.toml:3: max_retries = 3")
@@ -203,7 +223,7 @@ class SearchAndListTests(unittest.TestCase):
         self.assertEqual(text, "no matches for 'max_retries'")
 
     def test_search_caps_the_listed_matches(self):
-        cap = workspace_mod._MAX_MATCHES
+        cap = workspace_search.MAX_MATCHES
         content = "".join(f"needle {number}\n" for number in range(cap + 3))
         step(self.env, "write_file", path="big.txt", content=content)
         lines = step(self.env, "search", pattern="^needle").splitlines()

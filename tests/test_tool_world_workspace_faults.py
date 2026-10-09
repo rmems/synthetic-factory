@@ -87,11 +87,18 @@ class FaultTests(unittest.TestCase):
         recovered = step(env, "read_file", path=COUNTER, offset=0, limit=4000)
         self.assertEqual(recovered, f"{COUNTER} ({len(content)} chars, offset 0):\n{content}")
 
-    def test_truncated_output_leaves_a_bounded_read_alone(self):
+    def test_a_bounded_read_neither_counts_nor_fires_the_truncation(self):
         env = fault_env("truncated_output", "read_file", {"path": COUNTER})
         content = env.surface("workspace").files[COUNTER]
-        text = step(env, "read_file", path=COUNTER, limit=20)
-        self.assertEqual(text, f"{COUNTER} ({len(content)} chars, offset 0):\n{content[:20]}")
+        bounded = env.step(call("read_file", path=COUNTER, limit=20))
+        self.assertEqual(
+            bounded.text, f"{COUNTER} ({len(content)} chars, offset 0):\n{content[:20]}"
+        )
+        self.assertIsNone(bounded.fault_id)
+        self.assertEqual(env.fault_engine.fired, ())
+        cut = env.step(call("read_file", path=COUNTER))
+        self.assertEqual(cut.fault_id, "test-truncated_output")
+        self.assertTrue(cut.text.endswith(TRUNCATED_TAIL), cut.text)
 
     def test_a_schema_invalid_call_neither_counts_nor_fires(self):
         env = fault_env("transient_error", "run_tests", {"suite": "unit"})

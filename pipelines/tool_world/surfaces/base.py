@@ -69,6 +69,10 @@ class Surface:
     def state_view(self) -> Any:
         raise NotImplementedError
 
+    def fault_shows(self, spec: Any, args: Mapping[str, Any]) -> bool:
+        """Whether a call with ``args`` could show the fault's symptom; one that could not is skipped."""
+        return True
+
     def check_fault_kind(self, kind: str) -> None:
         cv.refuse_when(
             kind not in self.FAULT_KINDS,
