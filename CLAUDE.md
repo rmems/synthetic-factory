@@ -207,6 +207,29 @@ do not add markdown TODO lists.
 Cursor Cloud agents build from `.cursor/environment.json` + `.cursor/Dockerfile`;
 do not COPY the repo into the image and do not treat `outputs/raw/` as scratch.
 
+## Pull request hygiene
+
+Every PR and issue is wired the way the repository's existing ones are, not
+just opened. When creating or finishing a PR, check all of these, and verify
+each write with a fresh read rather than trusting the exit code:
+
+- **Relationships.** Sub-issues and blocked-by links are set natively on
+  issues (`sub_issue_write`, `gh issue edit --add-blocked-by`) and summarised in
+  a `## Relationships` section; a PR that resolves an issue carries a real
+  `Closes #<n>` line in its body (a partial slice says `Part of #<n>` instead).
+  PRs have no native sub-issue or blocked-by relationship; say so rather than
+  hunting for a flag.
+- **Assignee, labels, milestone.** Assign the person who asked for the work,
+  mirror the linked issue's topical and `priority:` / `status:` labels from the
+  existing vocabulary (a size bot's label is not a substitute), and set the
+  issue's milestone. The GitHub MCP tools cannot set these on a PR; use REST
+  (`gh api -X PATCH repos/<o>/<r>/issues/<n>`, `.../issues/<n>/labels`).
+  GraphQL is unavailable from cloud sessions, so Projects v2 cannot be checked
+  from one; say that plainly instead of reporting "no project".
+- **Commit trailers.** The attribution trailers go on every commit, including
+  the first one on a new branch; confirm with `git log -1 --format=%B` before
+  pushing.
+
 ## Parity oracles
 
 The `hardware-parity-spike-trajectories` and `nir-cross-runtime-equivalence`
