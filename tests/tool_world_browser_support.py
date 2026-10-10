@@ -65,14 +65,17 @@ END_PAGE = """<html><head><title>End</title></head><body>
 </body></html>"""
 
 
-SITE = {"origin": ORIGIN, "pages": {"/": "page.html", "/end": "end.html"}}
+PAGE_FILE = "page.html"
+END_FILE = "end.html"
+ORIGIN_NEEDLE = "origin must be"
+SITE = {"origin": ORIGIN, "pages": {"/": PAGE_FILE, "/end": END_FILE}}
 CONSENT = (
     '<div role="dialog" aria-label="Cookie consent" id="consent">'
     '<button data-effect="dismiss:consent">Accept</button></div>'
 )
 OVERLAY_SITE = {**SITE, "overlays": {"consent": CONSENT}}
 BAD_SITES = {
-    "pages value list": ({"origin": ORIGIN, "pages": {"/": ["page.html"]}}, "pages must map"),
+    "pages value list": ({"origin": ORIGIN, "pages": {"/": [PAGE_FILE]}}, "pages must map"),
     "pages missing": ({"origin": ORIGIN}, "pages must be a nonempty table"),
     "pages empty": ({"origin": ORIGIN, "pages": {}}, "pages must be a nonempty table"),
     "not_found list": ({**SITE, "not_found": ["x"]}, "not_found must name"),
@@ -85,17 +88,22 @@ BAD_SITES = {
     "missing member": ({**SITE, "pages": {"/": "nope.html"}}, "missing page members ['nope.html']"),
     "not_found missing": ({**SITE, "not_found": "nope.html"}, "missing page members"),
     "redirect to missing": ({**SITE, "redirects": {"/a": "/zz"}}, "undeclared paths ['/zz']"),
-    "origin bare": ({**SITE, "origin": "parts"}, "origin must be"),
-    "origin with path": ({**SITE, "origin": f"{ORIGIN}/x"}, "origin must be"),
-    "origin int": ({**SITE, "origin": 5}, "origin must be"),
+    "origin bare": ({**SITE, "origin": "parts"}, ORIGIN_NEEDLE),
+    "origin with path": ({**SITE, "origin": f"{ORIGIN}/x"}, ORIGIN_NEEDLE),
+    "origin int": ({**SITE, "origin": 5}, ORIGIN_NEEDLE),
 }
+
+
+def site_pages(page):
+    """The two-member page table every stub site serves: ``page`` at "/", the end page at "/end"."""
+    return {PAGE_FILE: page, END_FILE: END_PAGE}
 
 
 class StubPack:
     def __init__(self, site=None, pages=None):
         self.pack_id = "stub"
         self.site = SITE if site is None else site
-        self.pages = {"page.html": EFFECTS_PAGE, "end.html": END_PAGE} if pages is None else pages
+        self.pages = site_pages(EFFECTS_PAGE) if pages is None else pages
 
 
 class StubTask:

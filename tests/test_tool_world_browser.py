@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tool_world_browser_support import (
     BAD_SITES,
     EFFECTS_PAGE,
-    END_PAGE,
     FORM_PAGE,
     LEGACY,
     ORIGIN,
@@ -28,6 +27,7 @@ from tool_world_browser_support import (
     quiet_env,
     ref_in,
     scheduled,
+    site_pages,
     stub_surface,
     without_refs,
 )
@@ -196,7 +196,7 @@ class BrowserSurfaceTests(unittest.TestCase):
         )
 
     def test_a_checkbox_is_submitted_only_while_checked(self):
-        surface = stub_surface(pages={"page.html": FORM_PAGE, "end.html": END_PAGE})
+        surface = stub_surface(pages=site_pages(FORM_PAGE))
         surface.execute("browser", {"action": "navigate", "url": "/"}, None)
         form = surface.root.find_id("login")
         self.assertEqual(
@@ -393,7 +393,7 @@ class SiteAndFaultCheckTests(unittest.TestCase):
 
     def test_overlay_is_inserted_into_the_dom_whatever_the_body_tag_carries(self):
         page = EFFECTS_PAGE.replace("<body>", '<body class="x" data-page="effects">')
-        pages = {"page.html": page, "end.html": END_PAGE}
+        pages = site_pages(page)
         surface = stub_surface(OVERLAY_SITE, pages, [fault_spec()])
         text = surface.execute(
             "browser", {"action": "navigate", "url": "/"}, scheduled(fault_spec())
