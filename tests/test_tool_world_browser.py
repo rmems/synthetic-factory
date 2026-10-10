@@ -37,6 +37,7 @@ from tool_world_test_support import cv, make_env, refusal
 # isort: split
 from tool_world.surfaces import browser as browser_mod
 from tool_world.surfaces import browser_dom as dom
+from tool_world.surfaces import browser_dom_tree as tree
 
 
 class BrowserSurfaceTests(unittest.TestCase):
@@ -409,7 +410,7 @@ class SiteAndFaultCheckTests(unittest.TestCase):
         self.assertEqual(
             lines[5], '- heading "Effects" [ref=e2]', "existing refs survive an insert"
         )
-        body = dom.body_of(surface.root)
+        body = tree.body_of(surface.root)
         self.assertEqual(body.attrs, {"class": "x", "data-page": "effects"})
         self.assertIs(body.children[0].parent, body)
         self.assertEqual(

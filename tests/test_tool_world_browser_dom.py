@@ -10,9 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tool_world_browser_support import FORM_PAGE, PACK, roles_of
 from tool_world_test_support import load_pack
 
-# The support modules go first: they put pipelines/ on sys.path for the import below.
+# The support modules go first: they put pipelines/ on sys.path for the imports below.
 # isort: split
 from tool_world.surfaces import browser_dom as dom
+from tool_world.surfaces import browser_dom_tree as tree
 
 
 class DomTests(unittest.TestCase):
@@ -97,7 +98,7 @@ class DomTests(unittest.TestCase):
         self.assertEqual(refs["e3"].attrs["id"], "notice")
         refs["e3"].remove()
         self.assertEqual(len(dom.assign_refs(self.root)), 10)
-        self.assertEqual(dom.dialogs(self.root), [])
+        self.assertEqual(tree.dialogs(self.root), [])
 
     def test_header_rows_get_no_ref_but_their_cells_do(self):
         root = dom.parse_html(load_pack(PACK).pages["items-1.html"])
@@ -122,12 +123,12 @@ class DomTests(unittest.TestCase):
         form = self.root.find_id("login")
         textarea = next((node for node in self.root.walk() if node.tag == "textarea"), None)
         self.assertIsNotNone(textarea)
-        self.assertEqual([node.attrs["id"] for node in dom.dialogs(self.root)], ["notice"])
+        self.assertEqual([node.attrs["id"] for node in tree.dialogs(self.root)], ["notice"])
         self.assertIs(dom.enclosing_form(textarea), form)
         self.assertIs(dom.enclosing_form(form), form)
         self.assertIsNone(dom.enclosing_form(self.root.find_id("panel")))
-        self.assertTrue(dom.inside(textarea, form))
-        self.assertFalse(dom.inside(form, textarea))
+        self.assertTrue(tree.inside(textarea, form))
+        self.assertFalse(tree.inside(form, textarea))
         self.assertEqual(
             [field.attrs["name"] for field in dom.form_inputs(form)],
             ["user", "remember", "scope", "note"],

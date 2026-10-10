@@ -36,7 +36,6 @@ else:
 
 __all__ = [
     "OBSERVABLE_BASIS_RE",
-    "ExactJSONFloat",
     "bind_import_twin",
     "canonical_bytes",
     "check_episode",
