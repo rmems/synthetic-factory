@@ -1,0 +1,37 @@
+{
+  "authorship": "project-authored world packs; never derived from Grok-session mill catalogs (#173)",
+  "catalog_id": "tool-world-v1",
+  "family": "tool-world",
+  "format": "tool-world-catalog/1",
+  "packs": [
+    {
+      "pack_id": "catalog-browser",
+      "pack_sha256": "2c53704d178af27caac5ae3a736c4286892ca54cbed3b6e67ed42550c948723b",
+      "surfaces": [
+        "browser"
+      ]
+    },
+    {
+      "pack_id": "counter-workspace",
+      "pack_sha256": "3a1621cf0c42a16c184a4f2d16d92ee4c42c8b11a258d9542a478eba3b71daf1",
+      "surfaces": [
+        "workspace"
+      ]
+    },
+    {
+      "pack_id": "release-delegation",
+      "pack_sha256": "437246edf1009dfddb319a450fa2056f01ff4d1e751e4c25e8ac798d36f08426",
+      "surfaces": [
+        "delegation",
+        "workspace"
+      ]
+    },
+    {
+      "pack_id": "tickets-mcp",
+      "pack_sha256": "29787a1d91a4856f38f23427fdf454bbd136f1f1192a77221661fa43a5ffc681",
+      "surfaces": [
+        "mcp"
+      ]
+    }
+  ]
+}

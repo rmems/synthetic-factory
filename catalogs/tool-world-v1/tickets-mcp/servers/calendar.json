@@ -1,0 +1,53 @@
+{
+  "name": "calendar",
+  "version": "0.9.2",
+  "protocol_version": "2025-06-18",
+  "page_size": 4,
+  "tools": [
+    {
+      "name": "list_events",
+      "description": "List the events booked on one day, one per line as start, duration, and title.",
+      "inputSchema": {"type": "object", "required": ["date"],
+        "properties": {"date": {"type": "string", "minLength": 10, "description": "ISO date such as 2026-10-12"}},
+        "additionalProperties": false},
+      "behavior": {"kind": "list_items", "items": [
+        "2026-10-12T10:00 30m standup",
+        "2026-10-12T13:00 60m design review",
+        "2026-10-12T16:30 30m retro prep"
+      ]}
+    },
+    {
+      "name": "book_slot",
+      "description": "Book a slot (an ISO date-time on a half-hour boundary) under a title for this session.",
+      "inputSchema": {"type": "object", "required": ["slot", "title"],
+        "properties": {"slot": {"type": "string", "minLength": 16, "description": "ISO date-time such as 2026-10-12T15:00"},
+                       "title": {"type": "string", "minLength": 1}},
+        "additionalProperties": false},
+      "behavior": {"kind": "set", "key_arg": "slot", "value_arg": "title"}
+    },
+    {
+      "name": "get_slot",
+      "description": "Read the title booked under a slot in this session.",
+      "inputSchema": {"type": "object", "required": ["slot"],
+        "properties": {"slot": {"type": "string", "minLength": 16}},
+        "additionalProperties": false},
+      "behavior": {"kind": "get", "key_arg": "slot"}
+    }
+  ],
+  "resources": [
+    {
+      "uri": "calendar://hours",
+      "name": "booking hours",
+      "mimeType": "text/plain",
+      "text": "Bookings are accepted on weekdays between 09:00 and 17:00, on half-hour boundaries, and must not overlap an event already on the day.\n"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "schedule",
+      "description": "Find a free slot on a day for a titled meeting.",
+      "arguments": [{"name": "date", "required": true}, {"name": "title", "required": true}],
+      "text": "List the events on {{date}}, pick a free slot inside the booking hours, book it as {{title}}, and read the slot back."
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "format": "tool-world-pack/1",
+  "pack_id": "tickets-mcp",
+  "surfaces": [
+    "mcp"
+  ],
+  "license": {
+    "spdx": "Apache-2.0",
+    "source": "project-authored",
+    "authorship": "authored as repository content by Claude Code (Anthropic) under the maintainers' direction, session https://claude.ai/code/session_01GYCNA1Mdh7XeCtLvpdg3Uf; not derived from any published corpus, model-generated dataset, or Grok-session mill catalog",
+    "attestation": "catalog authorship is disclosed above; admission to project_training_policy: allowed is a separate reviewed decision (docs/tool-world-families-design.md section 9)"
+  },
+  "notes": "Two simulated MCP servers for assistance work: a tickets queue (paginated tool list, a policy resource, a triage prompt, and a drifted schema that renames set_status's id argument) and a calendar (events and bookings). The MCP surface's first pack."
+}

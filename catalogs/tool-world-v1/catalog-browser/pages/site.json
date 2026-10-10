@@ -1,0 +1,21 @@
+{
+  "origin": "https://parts.example",
+  "pages": {
+    "/": "index.html",
+    "/items": "items-1.html",
+    "/items?page=2": "items-2.html",
+    "/search": "results.html"
+  },
+  "not_found": "not-found.html",
+  "redirects": {
+    "/catalog": "/items",
+    "/parts": "/catalog"
+  },
+  "overlays": {
+    "consent": "<div role=\"dialog\" aria-label=\"Cookie consent\" id=\"consent\"><p>This site stores a consent cookie.</p><button data-effect=\"dismiss:consent\">Accept cookies</button></div>"
+  },
+  "drift": {
+    "All items": "Browse the item list",
+    "Search the catalog": "Find a part"
+  }
+}

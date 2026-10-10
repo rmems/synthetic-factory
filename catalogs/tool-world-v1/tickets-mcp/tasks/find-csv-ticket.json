@@ -1,0 +1,53 @@
+{
+  "task_id": "tickets.find-csv-ticket",
+  "title": "find the CSV export ticket when the quoted id does not resolve",
+  "goal": "A teammate asked for the state of the CSV export ticket and quoted its id as T-103. On the tickets MCP server, initialize the session, discover the tools, look the quoted id up, and when it does not resolve find the right ticket from the queue listing; then report the ticket's id and state.",
+  "surfaces": ["mcp"],
+  "max_steps": 16,
+  "public_predicates": [
+    {"name": "value_reported", "params": {"value": "T-104 open"}},
+    {"name": "max_steps", "params": {"n": 14}}
+  ],
+  "hidden_predicates": [
+    {"name": "listed_before_call", "params": {"server": "tickets"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "list_tickets"}},
+    {"name": "tool_called", "params": {"server": "tickets", "tool": "get_ticket"}}
+  ],
+  "gold": [
+    {"intent": "start with initialize: the goal needs a live session before any tools/call, and the result shows the protocol version",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "initialize",
+      "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+    {"intent": "initialize succeeded; acknowledge with notifications/initialized so the server treats the client as ready for every later request",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "notifications/initialized", "params": {}}}},
+    {"intent": "list the tools before calling any; the first page shows get_ticket's schema and whether a nextCursor follows",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {}}},
+     "captures": {"cursor": "\"nextCursor\":\"(cursor-[0-9]+)\""}},
+    {"intent": "the listing is paginated; read the remaining page so no tool and no schema is missed",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/list", "params": {"cursor": {"$capture": "cursor"}}}}},
+    {"intent": "look up the quoted id T-103 exactly as the request gave it; the tool result will show whether it resolves",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "get_ticket", "arguments": {"id": "T-103"}}}}},
+    {"intent": "the tool result came back with isError true and no entry for T-103: a lookup miss, not a transport error; list the queue to find the CSV export ticket",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "list_tickets", "arguments": {}}}}},
+    {"intent": "the listing shows the CSV export ticket as T-104, not T-103; read that ticket to confirm its title and state",
+     "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "tools/call", "params": {"name": "get_ticket", "arguments": {"id": "T-104"}}}}},
+    {"intent": "the ticket result confirms T-104 is the CSV export ticket and its state is open; report the id and state",
+     "tool_call": {"name": "report_result", "args": {"value": "T-104 open"}}}
+  ],
+  "faults": [
+    {"id": "list-rate-limited", "surface": "mcp", "kind": "rate_limited", "tool": "mcp",
+     "selector": {"server": "tickets", "method": "tools/call", "params.name": "list_tickets"},
+     "occurrence": 1, "probability_percent": 70, "marker": "rate limited", "recovery": [], "retry": true},
+    {"id": "restart-before-lookup", "surface": "mcp", "kind": "server_restart", "tool": "mcp",
+     "selector": {"server": "tickets", "method": "tools/call", "params.arguments.id": "T-104"},
+     "occurrence": 1, "probability_percent": 50, "marker": "server restarted",
+     "recovery": [
+       {"intent": "the error says the server restarted and the session was lost; initialize again before repeating the request",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "initialize",
+         "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "tool-world", "version": "1.0.0"}}}}},
+       {"intent": "the new session is initialized; send notifications/initialized so the retried request is accepted",
+        "tool_call": {"name": "mcp", "args": {"server": "tickets", "method": "notifications/initialized", "params": {}}}}
+     ],
+     "retry": true}
+  ],
+  "perturbations": ["give_up_on_fault", "wrong_arg_type"]
+}

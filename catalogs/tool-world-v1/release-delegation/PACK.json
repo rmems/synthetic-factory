@@ -1,0 +1,15 @@
+{
+  "format": "tool-world-pack/1",
+  "pack_id": "release-delegation",
+  "surfaces": [
+    "delegation",
+    "workspace"
+  ],
+  "license": {
+    "spdx": "Apache-2.0",
+    "source": "project-authored",
+    "authorship": "authored as repository content by Claude Code (Anthropic) under the maintainers' direction, session https://claude.ai/code/session_01GYCNA1Mdh7XeCtLvpdg3Uf; not derived from any published corpus, model-generated dataset, or Grok-session mill catalog",
+    "attestation": "catalog authorship is disclosed above; admission to project_training_policy: allowed is a separate reviewed decision (docs/tool-world-families-design.md section 9)"
+  },
+  "notes": "A small 1.2.0 release: an implementer, a tester, and a scribe with scripted reliability profiles (late, partial, wrong claim, conflicting edit, question), declared feature, docs, smoke, and release suites, and an orchestrator that must verify every claim before reporting. The delegation surface's first pack."
+}

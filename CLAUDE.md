@@ -207,6 +207,29 @@ do not add markdown TODO lists.
 Cursor Cloud agents build from `.cursor/environment.json` + `.cursor/Dockerfile`;
 do not COPY the repo into the image and do not treat `outputs/raw/` as scratch.
 
+## Pull request hygiene
+
+Every PR and issue is wired the way the repository's existing ones are, not
+just opened. When creating or finishing a PR, check all of these, and verify
+each write with a fresh read rather than trusting the exit code:
+
+- **Relationships.** Sub-issues and blocked-by links are set natively on
+  issues (`sub_issue_write`, `gh issue edit --add-blocked-by`) and summarised in
+  a `## Relationships` section; a PR that resolves an issue carries a real
+  `Closes #<n>` line in its body (a partial slice says `Part of #<n>` instead).
+  PRs have no native sub-issue or blocked-by relationship; say so rather than
+  hunting for a flag.
+- **Assignee, labels, milestone.** Assign the person who asked for the work,
+  mirror the linked issue's topical and `priority:` / `status:` labels from the
+  existing vocabulary (a size bot's label is not a substitute), and set the
+  issue's milestone. The GitHub MCP tools cannot set these on a PR; use REST
+  (`gh api -X PATCH repos/<o>/<r>/issues/<n>`, `.../issues/<n>/labels`).
+  GraphQL is unavailable from cloud sessions, so Projects v2 cannot be checked
+  from one; say that plainly instead of reporting "no project".
+- **Commit trailers.** The attribution trailers go on every commit, including
+  the first one on a new branch; confirm with `git log -1 --format=%B` before
+  pushing.
+
 ## Parity oracles
 
 The `hardware-parity-spike-trajectories` and `nir-cross-runtime-equivalence`
@@ -219,5 +242,26 @@ fallback that produces a plausible result in their place. See
 ```bash
 python3 pipelines/neuro_oracle.py
 python3 pipelines/nir_equivalence.py availability
+```
+
+## Tool-world families
+
+`pipelines/tool_world/` is the deterministic tool-use environment behind the
+`tool-world-*` families (design: `docs/tool-world-families-design.md`, #422).
+Observations are computed by the environment rather than authored (the only
+authored text is a pack's own page, file and worker content); a record replays
+from `(pack, seed, actions)` and `tool_world_cli.py replay` is the oracle. World packs live under `catalogs/tool-world-v1/` and are pinned by
+digest in its `CATALOG.json`; editing a pack byte requires re-pinning. The
+first slice is generator side only: no registry row, sealed policy, or shared
+validator change, and nothing writes under `outputs/raw/`.
+
+```bash
+python3 pipelines/tool_world_cli.py catalog-check --json
+python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
+python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json
+python3 -m unittest discover -s tests -p 'test_tool_world_*.py' -q
+# After an intentional pack edit: re-pin in place, then regenerate the byte-reproduced
+# fixture with the command in tests/test_tool_world_fixture.py
+python3 pipelines/tool_world_cli.py catalog-check --write-pins --json
 ```
 

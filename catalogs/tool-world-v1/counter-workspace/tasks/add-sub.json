@@ -1,0 +1,35 @@
+{
+  "task_id": "counter.add-sub",
+  "title": "add Counter.sub so the unit suite passes",
+  "goal": "Add Counter.sub(delta) to src/counter.py so that the declared unit suite passes, then report the result.",
+  "surfaces": ["workspace"],
+  "max_steps": 12,
+  "public_predicates": [{"name": "value_reported", "params": {"value": "unit suite passes"}}],
+  "hidden_predicates": [
+    {"name": "tests_pass", "params": {"suite": "unit"}},
+    {"name": "file_contains", "params": {"path": "src/counter.py", "text": "def sub(self, delta):"}}
+  ],
+  "gold": [
+    {"intent": "run the unit suite first so the failing tests name what is missing",
+     "tool_call": {"name": "run_tests", "args": {"suite": "unit"}}},
+    {"intent": "the test output named src/counter.py; read the file before editing it",
+     "tool_call": {"name": "read_file", "args": {"path": "src/counter.py"}}},
+    {"intent": "insert sub after add, anchoring the edit on the get definition the read showed",
+     "tool_call": {"name": "edit_file", "args": {"path": "src/counter.py", "old": "    def get(self):",
+      "new": "    def sub(self, delta):\n        self._value -= int(delta)\n        return self._value\n\n    def get(self):"}}},
+    {"intent": "re-run the unit suite to verify the edit made the failing tests pass",
+     "tool_call": {"name": "run_tests", "args": {"suite": "unit"}}, "verification": true},
+    {"intent": "the tests pass; report the result the goal asked for",
+     "tool_call": {"name": "report_result", "args": {"value": "unit suite passes"}}}
+  ],
+  "faults": [
+    {"id": "transient-tests", "surface": "workspace", "kind": "transient_error", "tool": "run_tests",
+     "occurrence": 1, "probability_percent": 100, "marker": "EAGAIN temporary failure", "recovery": [], "retry": true},
+    {"id": "truncated-read", "surface": "workspace", "kind": "truncated_output", "tool": "read_file",
+     "occurrence": 1, "probability_percent": 100, "marker": "output truncated",
+     "recovery": [{"intent": "the read was truncated; read the file again with an explicit offset and limit",
+                   "tool_call": {"name": "read_file", "args": {"path": "src/counter.py", "offset": 0, "limit": 4000}}}],
+     "retry": false}
+  ],
+  "perturbations": ["give_up_on_fault", "wrong_arg_type"]
+}

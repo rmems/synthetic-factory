@@ -1,0 +1,4 @@
+[service]
+name = "counter"
+max_retries = 3
+timeout_s = 5

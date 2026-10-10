@@ -1,0 +1,28 @@
+{
+  "suite": "docs",
+  "cases": [
+    {
+      "id": "note_exists",
+      "check": {
+        "kind": "file_exists",
+        "path": "docs/settings.md"
+      }
+    },
+    {
+      "id": "note_names_value",
+      "check": {
+        "kind": "file_contains",
+        "path": "docs/settings.md",
+        "text": "timeout_s = 5"
+      }
+    },
+    {
+      "id": "note_links_config",
+      "check": {
+        "kind": "file_contains",
+        "path": "docs/settings.md",
+        "text": "config/settings.toml"
+      }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "task_id": "counter.document-timeout",
+  "title": "write docs/settings.md documenting timeout_s",
+  "goal": "Write docs/settings.md documenting the timeout_s setting with the value config/settings.toml carries so the docs suite passes, then report the result.",
+  "surfaces": [
+    "workspace"
+  ],
+  "max_steps": 12,
+  "public_predicates": [
+    {
+      "name": "value_reported",
+      "params": {
+        "value": "docs suite passes"
+      }
+    },
+    {
+      "name": "max_steps",
+      "params": {
+        "n": 9
+      }
+    }
+  ],
+  "hidden_predicates": [
+    {
+      "name": "tests_pass",
+      "params": {
+        "suite": "docs"
+      }
+    },
+    {
+      "name": "file_exists",
+      "params": {
+        "path": "docs/settings.md"
+      }
+    }
+  ],
+  "gold": [
+    {
+      "intent": "search the config tree for timeout_s so the documented value is read from the file, not guessed",
+      "tool_call": {
+        "name": "search",
+        "args": {
+          "pattern": "timeout_s",
+          "path": "config"
+        }
+      }
+    },
+    {
+      "intent": "the search found timeout_s = 5 in config/settings.toml; list docs/ to check whether a settings note already exists",
+      "tool_call": {
+        "name": "list_dir",
+        "args": {
+          "path": "docs"
+        }
+      }
+    },
+    {
+      "intent": "the listing reported ENOENT, so no docs tree exists yet; write the settings note with the value the search showed",
+      "tool_call": {
+        "name": "write_file",
+        "args": {
+          "path": "docs/settings.md",
+          "content": "# settings\n\nEvery request is bounded by `timeout_s = 5` seconds, set in `config/settings.toml`.\n"
+        }
+      }
+    },
+    {
+      "intent": "run the docs suite to verify the note names the setting, its value, and the config file before reporting",
+      "tool_call": {
+        "name": "run_tests",
+        "args": {
+          "suite": "docs"
+        }
+      },
+      "verification": true
+    },
+    {
+      "intent": "the docs suite passed; report the result the goal asked for",
+      "tool_call": {
+        "name": "report_result",
+        "args": {
+          "value": "docs suite passes"
+        }
+      }
+    }
+  ],
+  "faults": [
+    {
+      "id": "transient-write",
+      "surface": "workspace",
+      "kind": "transient_error",
+      "tool": "write_file",
+      "selector": {
+        "path": "docs/settings.md"
+      },
+      "occurrence": 1,
+      "probability_percent": 100,
+      "marker": "EAGAIN temporary failure",
+      "recovery": [],
+      "retry": true
+    },
+    {
+      "id": "flaky-note-test",
+      "surface": "workspace",
+      "kind": "flaky_test",
+      "tool": "run_tests",
+      "selector": {
+        "suite": "docs"
+      },
+      "occurrence": 1,
+      "probability_percent": 100,
+      "params": {
+        "case": "note_names_value"
+      },
+      "marker": "ETIMEDOUT",
+      "recovery": [],
+      "retry": true
+    }
+  ],
+  "perturbations": [
+    "give_up_on_fault",
+    "skip_verification",
+    "wrong_arg_type"
+  ]
+}

@@ -17,3 +17,9 @@ Cargo.lock text eol=lf
 rust/sf-oracle/Cargo.toml text eol=lf
 rust/sf-oracle/build.rs text eol=lf
 rust/sf-oracle/src/*.rs text eol=lf
+# Tool-world pack digests and the fixture run hash these bytes; keep LF on every checkout.
+catalogs/tool-world-v1/** text eol=lf
+pipelines/tool_world/**/*.py text eol=lf
+tests/fixtures/tool-world-run/**/*.jsonl text eol=lf
+tests/fixtures/tool-world-run/**/*.json text eol=lf
+tests/fixtures/tool-world-run/**/*.md text eol=lf

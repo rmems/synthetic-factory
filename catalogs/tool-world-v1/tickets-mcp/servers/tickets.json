@@ -1,0 +1,104 @@
+{
+  "name": "tickets",
+  "version": "1.4.0",
+  "protocol_version": "2025-06-18",
+  "page_size": 2,
+  "tools": [
+    {
+      "name": "list_tickets",
+      "description": "List the tickets in the engineering queue, one per line as id, state, and title.",
+      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "behavior": {"kind": "list_items", "items": [
+        "T-101 open: login page returns 500 after the 2026-10-07 deploy",
+        "T-102 open: nightly build fails in test_cache_eviction",
+        "T-104 open: CSV export drops the header row"
+      ]}
+    },
+    {
+      "name": "get_ticket",
+      "description": "Read one ticket by id: title, reporter, state, and the latest note.",
+      "inputSchema": {"type": "object", "required": ["id"],
+        "properties": {"id": {"type": "string", "minLength": 1, "description": "ticket id such as T-101"}},
+        "additionalProperties": false},
+      "behavior": {"kind": "lookup", "key_arg": "id", "table": {
+        "T-101": "T-101 | login page returns 500 after the 2026-10-07 deploy | reporter: priya | state: open | note: the stack trace points at session_store.py",
+        "T-102": "T-102 | nightly build fails in test_cache_eviction | reporter: ola | state: open | note: passes locally, fails only on the CI runner",
+        "T-104": "T-104 | CSV export drops the header row | reporter: dana | state: open | note: reproduced with export --format csv on the sample dataset"
+      }}
+    },
+    {
+      "name": "set_status",
+      "description": "Set the workflow status of a ticket for this session.",
+      "inputSchema": {"type": "object", "required": ["id", "status"],
+        "properties": {"id": {"type": "string", "minLength": 1},
+                       "status": {"type": "string", "enum": ["open", "in_progress", "blocked", "closed"]}},
+        "additionalProperties": false},
+      "behavior": {"kind": "set", "key_arg": "id", "value_arg": "status"}
+    },
+    {
+      "name": "get_status",
+      "description": "Read back the workflow status set for a ticket in this session.",
+      "inputSchema": {"type": "object", "required": ["id"],
+        "properties": {"id": {"type": "string", "minLength": 1}},
+        "additionalProperties": false},
+      "behavior": {"kind": "get", "key_arg": "id"}
+    }
+  ],
+  "drifted_tools": [
+    {
+      "name": "list_tickets",
+      "description": "List the tickets in the engineering queue, one per line as id, state, and title.",
+      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "behavior": {"kind": "list_items", "items": [
+        "T-101 open: login page returns 500 after the 2026-10-07 deploy",
+        "T-102 open: nightly build fails in test_cache_eviction",
+        "T-104 open: CSV export drops the header row"
+      ]}
+    },
+    {
+      "name": "get_ticket",
+      "description": "Read one ticket by id: title, reporter, state, and the latest note.",
+      "inputSchema": {"type": "object", "required": ["id"],
+        "properties": {"id": {"type": "string", "minLength": 1, "description": "ticket id such as T-101"}},
+        "additionalProperties": false},
+      "behavior": {"kind": "lookup", "key_arg": "id", "table": {
+        "T-101": "T-101 | login page returns 500 after the 2026-10-07 deploy | reporter: priya | state: open | note: the stack trace points at session_store.py",
+        "T-102": "T-102 | nightly build fails in test_cache_eviction | reporter: ola | state: open | note: passes locally, fails only on the CI runner",
+        "T-104": "T-104 | CSV export drops the header row | reporter: dana | state: open | note: reproduced with export --format csv on the sample dataset"
+      }}
+    },
+    {
+      "name": "set_status",
+      "description": "Set the workflow status of a ticket for this session (1.5.0: the ticket is named by ticket_id).",
+      "inputSchema": {"type": "object", "required": ["ticket_id", "status"],
+        "properties": {"ticket_id": {"type": "string", "minLength": 1},
+                       "status": {"type": "string", "enum": ["open", "in_progress", "blocked", "closed"]}},
+        "additionalProperties": false},
+      "behavior": {"kind": "set", "key_arg": "ticket_id", "value_arg": "status"}
+    },
+    {
+      "name": "get_status",
+      "description": "Read back the workflow status set for a ticket in this session.",
+      "inputSchema": {"type": "object", "required": ["id"],
+        "properties": {"id": {"type": "string", "minLength": 1}},
+        "additionalProperties": false},
+      "behavior": {"kind": "get", "key_arg": "id"}
+    }
+  ],
+  "resources": [
+    {
+      "uri": "tickets://policy",
+      "name": "triage policy",
+      "mimeType": "text/markdown",
+      "text": "# Triage policy\n\n1. Read a ticket before changing it.\n2. A ticket whose note records a reproduction moves to in_progress; one without a reproduction stays open.\n3. A ticket that waits on another team is set blocked, and its note names the blocker.\n4. Only a verified fix closes a ticket.\n"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "triage",
+      "description": "Triage one ticket against the policy resource.",
+      "arguments": [{"name": "ticket_id", "description": "the ticket to triage", "required": true}],
+      "text": "Triage ticket {{ticket_id}}: read it with get_ticket, apply tickets://policy, set its status with set_status, and read the status back with get_status before reporting."
+    }
+  ]
+}

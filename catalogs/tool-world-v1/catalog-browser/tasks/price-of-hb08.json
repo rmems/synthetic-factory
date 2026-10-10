@@ -1,0 +1,77 @@
+{
+  "task_id": "catalog.price-of-hb08",
+  "title": "report the price of SKU HB-08 from the parts list",
+  "goal": "Starting at the catalog index, open the All items table, page through it until SKU HB-08 is listed, extract that row's price cell, and report the price.",
+  "surfaces": ["browser"],
+  "max_steps": 20,
+  "public_predicates": [
+    {"name": "value_reported", "params": {"value": "1.25"}}
+  ],
+  "hidden_predicates": [
+    {"name": "extracted_equals", "params": {"value": "1.25"}},
+    {"name": "url_is", "params": {"url": "https://parts.example/items?page=2"}},
+    {"name": "max_steps", "params": {"n": 18}}
+  ],
+  "gold": [
+    {"intent": "open the catalog index and read the snapshot to locate the items link",
+     "tool_call": {"name": "browser", "args": {"action": "navigate", "url": "/"}}},
+    {"intent": "the snapshot showed an All items link; find it by role and name to read its ref",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "link", "name": "All items"}},
+     "captures": {"items_link": "\\[ref=(e\\d+)\\]"}},
+    {"intent": "the find result gave the link ref; click it to open the parts list",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "click", "ref": {"$capture": "items_link"}}}},
+    {"intent": "page 1 loaded; inspect it for a row naming SKU HB-08 before paging further",
+     "tool_call": {"name": "browser", "args": {"action": "find", "role": "row", "name": "HB-08"}}},
+    {"intent": "no row on page 1 matched and the snapshot showed a Next page link; find that link",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "link", "name": "Next page"}},
+     "captures": {"next_link": "\\[ref=(e\\d+)\\]"}},
+    {"intent": "the pager link ref is in the find result; click it to load page 2",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "click", "ref": {"$capture": "next_link"}}}},
+    {"intent": "page 2 loaded; find the HB-08 row and read its price from the row text",
+     "tool_call": {"name": "browser", "args": {"action": "find", "role": "row", "name": "HB-08"}},
+     "captures": {"price": "HB-08 ([0-9.]+)\""}},
+    {"intent": "the row text showed the price; find the cell holding exactly that text",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "text", "name": {"$capture": "price"}}},
+     "captures": {"cell": "\\[ref=(e\\d+)\\]"}, "verification": true},
+    {"intent": "extract the price cell so the value is logged as evidence",
+     "tool_call": {"name": "browser", "args": {"action": "extract", "ref": {"$capture": "cell"}}},
+     "verification": true},
+    {"intent": "the extracted cell matches the row price; report the result",
+     "tool_call": {"name": "report_result", "args": {"value": {"$capture": "price"}}}}
+  ],
+  "faults": [
+    {"id": "items-link-drift", "surface": "browser", "kind": "selector_drift", "tool": "browser",
+     "selector": {"action": "navigate", "url": "/"}, "occurrence": 1, "probability_percent": 50,
+     "marker": "no elements match role='link' name='All items'",
+     "recovery": [
+       {"intent": "the find result showed no All items link; search links by role for 'item'",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "find", "role": "link", "name": "item"}},
+        "captures": {"items_link": "\\[ref=(e\\d+)\\]"}}
+     ],
+     "retry": false},
+    {"id": "consent-blocks-click", "surface": "browser", "kind": "overlay", "tool": "browser",
+     "selector": {"action": "navigate", "url": "/"}, "occurrence": 1, "probability_percent": 50,
+     "params": {"overlay": "consent"}, "marker": "action blocked by dialog 'Cookie consent'",
+     "recovery": [
+       {"intent": "the click error names a consent dialog; find its accept button",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "find", "role": "button", "name": "Accept cookies"}},
+        "captures": {"accept": "\\[ref=(e\\d+)\\]"}},
+       {"intent": "the find result named the accept button; click it to dismiss the dialog",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "click", "ref": {"$capture": "accept"}}}},
+       {"intent": "dismissing the dialog reassigned refs; find the items link again, then retry",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "find", "role": "link", "name": "item"}},
+        "captures": {"items_link": "\\[ref=(e\\d+)\\]"}}
+     ],
+     "retry": true}
+  ],
+  "perturbations": ["give_up_on_fault", "skip_verification", "wrong_arg_type"]
+}
