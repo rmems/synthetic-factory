@@ -132,10 +132,12 @@ def _const_eval(node: ast.AST) -> Any:
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.List):
-        return list(map(_const_eval, node.elts))
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return (
+            list(map(_const_eval, node.elts))
+            if isinstance(node, ast.List)
+            else tuple(_const_eval(item) for item in node.elts)
+        )
     literal = _literal_dict_parts(node)
     if literal is not None:
         return dict(zip(map(_const_eval, literal[0]), map(_const_eval, literal[1])))
@@ -189,9 +191,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -413,11 +418,8 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise SafRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    rows = [row for row in factories if isinstance(row, dict)]
+    return {row["path_id"] for row in rows if isinstance(row.get("path_id"), str)}
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

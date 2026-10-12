@@ -226,6 +226,11 @@ class PairShapeRefusals(unittest.TestCase):
             (FINDING_SOURCE_NOT_PARSEABLE, "pair source is not a constant (Name)"),
         )
 
+    def test_an_annotated_base_counts_like_a_plain_one(self):
+        source = TINY_SOURCE.replace("BASE = 7", "BASE: int = 9")
+        rows = catalog.plants_from_source(source, mill_id="saf_r0001", source="m.py")
+        self.assertEqual(rows[0]["base_round"], 9)
+
     def test_pairs_must_be_a_nonempty_list_of_complete_objects(self):
         self.assertEqual(
             self.extract("PAIRS = []\n"), (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list")
