@@ -302,8 +302,25 @@ _K8S_ROW = """K8S = [
 class IacShapeScanTests(unittest.TestCase):
     """Each module-level scan returns None for a source that breaks its shape."""
 
-    def scan(self, finder, source):
+    @staticmethod
+    def scan(finder, source):
         return finder(ast.parse(source))
+
+    def test_600_deep_plus_and_minus_chains_resolve_as_constants(self):
+        with self.assertRaisesRegex(ValueError, "has no extractable IAC catalog assignment"):
+            extract_mill_catalog(
+                "X = " + " + ".join(['"a"'] * 601), path="experiments/iac-mill-r1.py"
+            )
+        deep = "CATALOG_FIRST = " + "-" * 600 + "659"
+        chained = _SUC_FAIL_SNIPPET.replace("CATALOG_FIRST = 659", deep)
+        chained += "GEN = " + " + ".join(['"g"'] * 600) + "\n"
+        extracted = extract_mill_catalog(chained, path="experiments/iac-mill-r659.py")
+        self.assertEqual((extracted["catalog_first"], extracted["generator"]), (659, "g" * 600))
+
+    def test_fstring_constants_resolve_and_other_operators_do_not(self):
+        source = _SUC_FAIL_SNIPPET + 'X = 1\nGEN = f"iac-{X}"\nCATALOG_FIRST = +5\n'
+        extracted = extract_mill_catalog(source, path="experiments/iac-mill-r659.py")
+        self.assertEqual((extracted["generator"], extracted["catalog_first"]), ("iac-1", 659))
 
     def test_r609_rebuild_refuses_every_out_of_order_or_foreign_edit(self):
         drop_line = '_DROP_SUCCESS = {"drop-me"}\n'
