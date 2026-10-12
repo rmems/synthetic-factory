@@ -126,7 +126,9 @@ def _replayed_identity_stage(source) -> dict:
         source.record, stages,
         SourceCoordinates(source.source_path, source.source_line, source.source_sha256),
     )
-    (identity,) = stages
+    if len(stages) != 1:
+        raise ValueError("composed identity source does not replay to one identity stage")
+    identity = stages[0]
     if identity["action"] != ACTION_RETAINED:
         raise ValueError("composed identity source does not replay to retention")
     expected = identity["detail"]
