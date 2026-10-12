@@ -375,10 +375,11 @@ class GeneratePairs(unittest.TestCase):
             generate.GenerateRequest(FIXTURE, self.root / "named", mill_id="msd_r0001")
         )
         self.assertEqual(named["records_sha256"], summary["records_sha256"])
+        mill_round = generate.GenerateRequest(
+            FIXTURE, self.root / "r", mill_id="msd_r0001", round=2
+        )
         with self.assertRaises(MsdRefusal) as caught:
-            generate.run(
-                generate.GenerateRequest(FIXTURE, self.root / "r", mill_id="msd_r0001", round=2)
-            )
+            generate.run(mill_round)
         self.assertEqual(caught.exception.message, "round applies only with plant_id")
 
     def test_existing_destination_is_refused(self):

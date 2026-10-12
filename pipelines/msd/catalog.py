@@ -18,7 +18,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -245,15 +245,11 @@ def _call_kwargs(node: ast.AST, where: str) -> dict[str, Any]:
 def _plant_call_keywords(node: ast.AST) -> list[tuple[str, ast.expr]] | None:
     """``(name, value)`` keywords of a keyword-only ``P(...)``/``dict(...)`` call, else None."""
 
-    if (
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id not in PLANT_CALLS
-        or node.args
-    ):
-        return None
-    named = [(kw.arg, kw.value) for kw in node.keywords if kw.arg is not None]
-    return named if len(named) == len(node.keywords) else None
+    match node:
+        case ast.Call(func=ast.Name(id=name)) if name in PLANT_CALLS and not node.args:
+            named = [(kw.arg, kw.value) for kw in node.keywords if kw.arg is not None]
+            return named if len(named) == len(node.keywords) else None
+    return None
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -261,12 +257,8 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.value is not None
-    ):
-        return node.target.id, node.value
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 
@@ -514,9 +506,15 @@ def _checked_identity_and_round(
     if plant_id != expected:
         raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
     base_round = row.get("base_round")
-    if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
+    if not _is_plain_int(base_round) or base_round < 1:
         raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
     return plant_id, base_round
+
+
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
@@ -576,11 +574,8 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise MsdRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        path_id
-        for row in factories
-        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str)
-    }
+    path_ids = (row.get("path_id") if isinstance(row, dict) else None for row in factories)
+    return {path_id for path_id in path_ids if isinstance(path_id, str)}
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
