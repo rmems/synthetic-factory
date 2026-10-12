@@ -37,47 +37,47 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
     bound = env or {}
-    for node_type, resolve in _LITERAL_RESOLVERS:
-        if isinstance(node, node_type):
-            return resolve(node, bound)
-    return UNSET
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return bound[node.id] if node.id in bound else UNSET
+    return _negative_or_ordered_value(node, bound)
 
 
-def _constant(node: ast.Constant, env: Mapping[str, Any]) -> Any:
-    return node.value
+def _negative_or_ordered_value(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Negated numbers, tuples, and lists."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = literal_value(node.operand, bound)
+        return -inner if isinstance(inner, (int, float)) else UNSET
+    if isinstance(node, ast.Tuple):
+        return _sequence(node.elts, bound, tuple)
+    if isinstance(node, ast.List):
+        return _sequence(node.elts, bound, list)
+    return _set_mapping_or_fstring_value(node, bound)
 
 
-def _bound_name(node: ast.Name, env: Mapping[str, Any]) -> Any:
-    return env.get(node.id, UNSET)
+def _set_mapping_or_fstring_value(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Sets, dicts, and constant f-strings."""
+
+    if isinstance(node, ast.Set):
+        values = _sequence(node.elts, bound, list)
+        return set(values) if values is not UNSET else UNSET
+    if isinstance(node, ast.Dict):
+        return _mapping(node, bound)
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string(node, bound)
+    return _concatenated_value(node, bound)
 
 
-def _negated_number(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.op, ast.USub):
-        return UNSET
-    inner = literal_value(node.operand, env)
-    return -inner if isinstance(inner, (int, float)) else UNSET
+def _concatenated_value(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """``str + str`` of two literals; anything else is ``UNSET``."""
 
-
-def _tuple(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
-    return _sequence(node.elts, env, tuple)
-
-
-def _list(node: ast.List, env: Mapping[str, Any]) -> Any:
-    return _sequence(node.elts, env, list)
-
-
-def _set(node: ast.Set, env: Mapping[str, Any]) -> Any:
-    values = _sequence(node.elts, env, list)
-    return set(values) if values is not UNSET else UNSET
-
-
-def _concatenated_strings(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.op, ast.Add):
-        return UNSET
-    left = literal_value(node.left, env)
-    right = literal_value(node.right, env)
-    if isinstance(left, str) and isinstance(right, str):
-        return left + right
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = literal_value(node.left, bound)
+        right = literal_value(node.right, bound)
+        if isinstance(left, str) and isinstance(right, str):
+            return left + right
     return UNSET
 
 
@@ -119,20 +119,6 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
     return "".join(parts)
 
 
-# Checked in this order; the first matching node type decides the value.
-_LITERAL_RESOLVERS = (
-    (ast.Constant, _constant),
-    (ast.Name, _bound_name),
-    (ast.UnaryOp, _negated_number),
-    (ast.Tuple, _tuple),
-    (ast.List, _list),
-    (ast.Set, _set),
-    (ast.Dict, _mapping),
-    (ast.JoinedStr, _joined_string),
-    (ast.BinOp, _concatenated_strings),
-)
-
-
 def call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return node.func.id
@@ -142,10 +128,16 @@ def call_name(node: ast.AST) -> str | None:
 def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
     """Keyword arguments of a ``Name(...)`` call when every value is a literal."""
 
-    if call_name(node) is None:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return None
     if node.args or any(keyword.arg is None for keyword in node.keywords):
         return None
+    return _literal_keywords(node, env)
+
+
+def _literal_keywords(node: ast.Call, env: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Every keyword value as a literal, or None as soon as one is not."""
+
     out: dict[str, Any] = {}
     for keyword in node.keywords:
         value = literal_value(keyword.value, env)

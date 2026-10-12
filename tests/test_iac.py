@@ -29,6 +29,10 @@ from iac.catalog_extract import (  # noqa: E402
     SHAPE_LEFTOVER,
     SHAPE_LITERAL,
     SHAPE_SUC_FAIL,
+    _k8s_cli_tables,
+    _keep_extend,
+    _leftover_pair_list,
+    _rebuild_literal_pairs,
     catalog_document,
     catalog_json_path,
     dumps_catalog,
@@ -285,6 +289,78 @@ class IacSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.mills["iac-mill-r683"].n_keep, 9)
         self.assertEqual(CATALOG.mills["iac-mill-r777"].n_rows, 355)
         self.assertFalse(CATALOG.mills["iac-mill-r1514"].pairs)
+
+
+_K8S_ROW = """K8S = [
+    ("argocd-app-vs-old", "agate", "argocd", "Argo CD Application",
+     "Application", "application", "argoproj.io", "agate",
+     "argocd-old", "argocd-jobs-old", "argocd", "spec", "fail"),
+]
+"""
+
+
+class IacShapeScanTests(unittest.TestCase):
+    """Each module-level scan returns None for a source that breaks its shape."""
+
+    def scan(self, finder, source):
+        return finder(ast.parse(source))
+
+    def test_r609_rebuild_refuses_every_out_of_order_or_foreign_edit(self):
+        drop_line = '_DROP_SUCCESS = {"drop-me"}\n'
+        filter_line = 'PAIRS = [pair for pair in PAIRS if pair[0]["slug"] not in _DROP_SUCCESS]\n'
+        swap = _R609_SNIPPET.replace
+        edits = {
+            "filter before the drop set": swap(drop_line, ""),
+            "filter over another list": swap("for pair in PAIRS if", "for pair in KEEP if"),
+            "filter without a test": swap(filter_line, "PAIRS = [pair for pair in PAIRS]\n"),
+            "drop list, not set": swap(drop_line, '_DROP_SUCCESS = ["drop-me"]\n'),
+            "extend by expression": swap("PAIRS.extend(_EXTRA)", "PAIRS.extend(_EXTRA + [])"),
+            "extend by unknown list": swap("PAIRS.extend(_EXTRA)", "PAIRS.extend(_EXTRA2)"),
+            "no filter": swap(filter_line, ""),
+            "everything dropped": swap('"keep-a"', '"drop-me"').replace("PAIRS.extend(_EXTRA)", ""),
+        }
+        for label, source in edits.items():
+            with self.subTest(label):
+                self.assertIsNone(self.scan(_rebuild_literal_pairs, source))
+
+    def test_leftover_pairs_need_both_literal_slugs(self):
+        for call in ('leftover_pair(s="xp-a", g="oxbow")', "leftover_pair(s=slug, fs=fail)"):
+            with self.subTest(call=call):
+                self.assertIsNone(self.scan(_leftover_pair_list, f"PAIRS = [{call}]\n"))
+
+    def test_keep_extend_counts_every_extra_suc_fail_list(self):
+        source = (
+            'KEEP = {"keep-b", "keep-a"}\nPAIRS = []\n'
+            '_EXTRA = [(_suc(slug="x-ok"), _fail(slug="x-fail", handoff=True))]\n'
+            '_EXTRA_LATE = [(_suc(slug="y-ok"), _fail(slug="y-fail"))]\n'
+        )
+        record = self.scan(_keep_extend, source)
+        self.assertEqual((record["n_keep"], record["n_extra"], record["n_rows"]), (2, 2, 4))
+        self.assertEqual(record["keep_slugs"], ["keep-a", "keep-b"])
+        self.assertEqual((record["first_slug"], record["last_slug"]), ("x-ok", "y-ok"))
+        for broken in (
+            source.replace('(_suc(slug="y-ok"), _fail(slug="y-fail"))', '("y-ok", "y-fail")'),
+            source.split("_EXTRA =")[0],
+            source.replace('{"keep-b", "keep-a"}', "{1, 2}"),
+        ):
+            with self.subTest(broken=broken):
+                self.assertIsNone(self.scan(_keep_extend, broken))
+
+    def test_k8s_rows_pair_with_file_pair_cli_rows_only(self):
+        cli = 'CLI = [file_pair(s="lima-vs-old", g="cuckoo")]\n'
+        record = self.scan(_k8s_cli_tables, _K8S_ROW + cli)
+        self.assertEqual(record["n_rows"], 2)
+        self.assertEqual(record["pairs"][1]["fail_slug"], "lima-old-leftover")
+        self.assertEqual(record["pairs"][1]["fail_plant"], "cuckoo-jobs")
+        for source in (
+            _K8S_ROW + 'CLI = [file_pair(g="cuckoo")]\n',
+            _K8S_ROW + 'CLI = [file_pair(s="lima-vs-old"), tool_pair(s="x")]\n',
+            _K8S_ROW,
+            'CLI_SPEC = [{"s": "lima-vs-old"}]\n',
+            "K8S = []\n",
+        ):
+            with self.subTest(source=source):
+                self.assertIsNone(self.scan(_k8s_cli_tables, source))
 
 
 class IacArchiveBExtractTests(unittest.TestCase):

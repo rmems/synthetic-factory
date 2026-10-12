@@ -406,8 +406,10 @@ class _K8sCliScan:
         if name == "CLI_SPEC" and value is not None:
             self.cli_spec = _nonempty_literal_list(value)
             return self.cli_spec is not None
-        if name == "CLI" and _is_file_pair_list(value):
-            return self._assign_cli_rows(value.elts)
+        if name == "CLI":
+            elts = _file_pair_elts(value)
+            if elts is not None:
+                return self._assign_cli_rows(elts)
         return True
 
     def _assign_cli_rows(self, elts: list[ast.expr]) -> bool:
@@ -436,10 +438,14 @@ def _nonempty_literal_list(value: ast.AST) -> list[Any] | None:
     return resolved
 
 
-def _is_file_pair_list(value: ast.AST | None) -> bool:
+def _file_pair_elts(value: ast.AST | None) -> list[ast.expr] | None:
+    """The elements of a non-empty list made only of ``file_pair(...)`` calls."""
+
     if not isinstance(value, ast.List) or not value.elts:
-        return False
-    return all(call_name(elt) == "file_pair" for elt in value.elts)
+        return None
+    if not all(call_name(elt) == "file_pair" for elt in value.elts):
+        return None
+    return value.elts
 
 
 def _file_pair_identity(node: ast.AST) -> dict[str, Any] | None:
