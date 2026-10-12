@@ -41,6 +41,11 @@ def _pair_row(line: str, index: int, name: str) -> dict[str, Any]:
     if extra_nested:
         raise ValueError(f"{ctx} nests dest objects: {extra_nested}")
     require_exact_keys(row, PAIR_ROW_KEYS, ctx)
+    _require_pair_owner(row, ctx)
+    return {key: row[key] for key in PAIR_ROW_KEYS}
+
+
+def _require_pair_owner(row: Mapping[str, Any], ctx: str) -> None:
     mill_id = row["mill_id"]
     dest = row["dest"]
     if not isinstance(mill_id, str) or not mill_id:
@@ -49,4 +54,3 @@ def _pair_row(line: str, index: int, name: str) -> dict[str, Any]:
         raise ValueError(f"{ctx} dest must be a non-empty string")
     if mill_id == FIRST_SLICE_MILL_ID:
         raise ValueError(f"{ctx} must omit the r801 first slice")
-    return {key: row[key] for key in PAIR_ROW_KEYS}

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared compact-JSONL framing and row checks for the EVH identity loaders.
 
 Each loader keeps its own error wording; these helpers take the wording (or

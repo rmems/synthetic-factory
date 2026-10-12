@@ -59,7 +59,7 @@ def _constant(node: ast.Constant, env: Mapping[str, Any]) -> Any:
 
 
 def _name(node: ast.Name, env: Mapping[str, Any]) -> Any:
-    return env[node.id] if node.id in env else UNSET
+    return env.get(node.id, UNSET)
 
 
 def _unary(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
