@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from ._contract import (
@@ -57,15 +58,57 @@ def _episode_id(round_n: int, slug: str) -> str:
     return f"{FAMILY_PREFIX}-r{round_n:02d}-{slug}"
 
 
-def _success_investigation_steps(plant: Mapping[str, Any], src: str, cfg: str, test: str) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class _Investigation:
+    """What the success and handoff investigations (steps 1-5) differ in."""
+
+    short: Any
+    test_fn: Any
+    failure: str
+    test_body: str
+    grep: str
+    flag: str
+
+
+def _success_investigation(plant: Mapping[str, Any]) -> _Investigation:
+    idf, naive = plant["idf"], plant["naive"]
+    return _Investigation(
+        short=plant["short"],
+        test_fn=plant["test_ok"],
+        failure=f"leftover leftover leftover stretched {naive}; {idf} unbounded",
+        test_body=f"    t = tune(True)\n    assert t.get({idf!r}) and {naive!r} not in t\n",
+        grep=f"{idf}|{naive}",
+        flag="lag",
+    )
+
+
+def _handoff_investigation(plant: Mapping[str, Any]) -> _Investigation:
+    naive = plant["naive"]
+    return _Investigation(
+        short=plant["dshort"],
+        test_fn=plant["test_fail"],
+        failure=(
+            f"leftover leftover leftover slept {naive}; "
+            f"drop {plant['dropk']} is not a leftover leftover leftover bind"
+        ),
+        test_body=f"    assert {naive!r} not in tune(True)\n",
+        grep=f"{naive}|{plant['dropk']}",
+        flag="blocked",
+    )
+
+
+def _investigation_steps(
+    plant: Mapping[str, Any], paths: tuple[str, str, str], case: _Investigation
+) -> list[dict[str, Any]]:
     """Steps 1-5: list, reproduce, read the test, grep, read the source."""
 
-    idf, naive = plant["idf"], plant["naive"]
+    src, cfg, test = paths
+    naive, flag = plant["naive"], case.flag
     return [
         gen._step(
             1,
-            _db("Plan", f"list src {plant['short']} and tests before touching conversion or config."),
-            gen._bash(f"ls -la src {plant['short']} tests | head -40"),
+            _db("Plan", f"list src {case.short} and tests before touching conversion or config."),
+            gen._bash(f"ls -la src {case.short} tests | head -40"),
             f"{src} {cfg}\n{test}",
             f"Tree shows {src} plus tests. Run the named failing target next.",
         ),
@@ -73,28 +116,28 @@ def _success_investigation_steps(plant: Mapping[str, Any], src: str, cfg: str, t
             2,
             _db("Observation", f"listing named the test files. Run `{test} -q --tb=short` to capture the failure."),
             gen._pytest(f"{test} -q --tb=short"),
-            f"{test}::{plant['test_ok']} FAILED\nE   AssertionError: leftover leftover leftover stretched {naive}; {idf} unbounded",
-            f"Failure is at {test}::{plant['test_ok']}. Read that test before a one-line fix.",
+            f"{test}::{case.test_fn} FAILED\nE   AssertionError: {case.failure}",
+            f"Failure is at {test}::{case.test_fn}. Read that test before a one-line fix.",
         ),
         gen._step(
             3,
-            _db("Observation", f"{test}::{plant['test_ok']} is red. Read {test} around the assertion."),
+            _db("Observation", f"{test}::{case.test_fn} is red. Read {test} around the assertion."),
             gen._read(test),
-            f"def {plant['test_ok']}():\n    t = tune(True)\n    assert t.get({idf!r}) and {naive!r} not in t\n",
+            f"def {case.test_fn}():\n{case.test_body}",
             "Test contract is visible. Search implementation symbols next.",
         ),
         gen._step(
             4,
             _db("Observation", "test file imported the production helper. Grep those symbols."),
-            gen._bash(f"rg -n '{idf}|{naive}|leftover' src {plant['short']} tests"),
-            f"{src}:2: return {{{naive!r}: 5}} if lag else {{}}",
+            gen._bash(f"rg -n '{case.grep}|leftover' src {case.short} tests"),
+            f"{src}:2: return {{{naive!r}: 5}} if {flag} else {{}}",
             f"Grep hit {src}. Read it before editing the first match.",
         ),
         gen._step(
             5,
             _db("Observation", f"grep listed {src}. Read it before any patch."),
             gen._read(src),
-            f"def tune(lag):\n    return {{{naive!r}: 5}} if lag else {{}}\n",
+            f"def tune({flag}):\n    return {{{naive!r}: 5}} if {flag} else {{}}\n",
             "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
         ),
     ]
@@ -203,49 +246,6 @@ def _success_close_steps(plant: Mapping[str, Any], src: str, test: str) -> list[
             gen._bash("git diff --stat | head -n 40"),
             f"diffstat for {plant['slug']}: {src} | 9 ++++++---. No other modified paths.",
             "Diff is the review artifact. No further edits.",
-        ),
-    ]
-
-
-def _handoff_investigation_steps(plant: Mapping[str, Any], src: str, cfg: str, test: str) -> list[dict[str, Any]]:
-    """Steps 1-5: list, reproduce, read the test, grep, read the source."""
-
-    naive = plant["naive"]
-    return [
-        gen._step(
-            1,
-            _db("Plan", f"list src {plant['dshort']} and tests before touching conversion or config."),
-            gen._bash(f"ls -la src {plant['dshort']} tests | head -40"),
-            f"{src} {cfg}\n{test}",
-            f"Tree shows {src} plus tests. Run the named failing target next.",
-        ),
-        gen._step(
-            2,
-            _db("Observation", f"listing named the test files. Run `{test} -q --tb=short` to capture the failure."),
-            gen._pytest(f"{test} -q --tb=short"),
-            f"{test}::{plant['test_fail']} FAILED\nE   AssertionError: leftover leftover leftover slept {naive}; drop {plant['dropk']} is not a leftover leftover leftover bind",
-            f"Failure is at {test}::{plant['test_fail']}. Read that test before a one-line fix.",
-        ),
-        gen._step(
-            3,
-            _db("Observation", f"{test}::{plant['test_fail']} is red. Read {test} around the assertion."),
-            gen._read(test),
-            f"def {plant['test_fail']}():\n    assert {naive!r} not in tune(True)\n",
-            "Test contract is visible. Search implementation symbols next.",
-        ),
-        gen._step(
-            4,
-            _db("Observation", "test file imported the production helper. Grep those symbols."),
-            gen._bash(f"rg -n '{naive}|{plant['dropk']}|leftover' src {plant['dshort']} tests"),
-            f"{src}:2: return {{{naive!r}: 5}} if blocked else {{}}",
-            f"Grep hit {src}. Read it before editing the first match.",
-        ),
-        gen._step(
-            5,
-            _db("Observation", f"grep listed {src}. Read it before any patch."),
-            gen._read(src),
-            f"def tune(blocked):\n    return {{{naive!r}: 5}} if blocked else {{}}\n",
-            "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
         ),
     ]
 
@@ -371,7 +371,7 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     test = f"tests/test_{plant['mod']}.py"
     idf, evf, naive = plant["idf"], plant["evf"], plant["naive"]
     steps = [
-        *_success_investigation_steps(plant, src, cfg, test),
+        *_investigation_steps(plant, (src, cfg, test), _success_investigation(plant)),
         *_success_docs_steps(plant),
         *_success_patch_steps(plant, src, test),
         *_success_close_steps(plant, src, test),
@@ -410,7 +410,7 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     idf, *_ = plant["idf"], plant["evf"], plant["naive"]
     ticket = str(plant["ticket"])
     steps = [
-        *_handoff_investigation_steps(plant, src, cfg, test),
+        *_investigation_steps(plant, (src, cfg, test), _handoff_investigation(plant)),
         *_handoff_docs_steps(plant, ticket),
         *_handoff_patch_steps(plant, src, test, ticket),
         *_handoff_close_steps(plant, src, test, ticket),
