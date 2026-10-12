@@ -8,14 +8,11 @@ record is refused when it carries a banned key or ``sim_or_real: real``.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from ._contract import (
-    BANNED_KEYS,
     FACTORY,
     FAMILY_PREFIX,
-    FINDING_BANNED,
     FINDING_USAGE,
     GENERATOR,
     HANDOFF_STEPS,
@@ -23,9 +20,8 @@ from ._contract import (
     bind_import_twin,
     refuse_when,
 )
+from ._steps import BASIS_LIMIT, BASIS_PREFIXES, Scene, bash, edit, episode_record, read
 
-BASIS_PREFIXES = ("Plan:", "Observation:", "Reflection:", "Tool call:")
-BASIS_LIMIT = 240
 _LINT_SUMMARY = "Summary: 3 resources found, 0 errors.\n"
 _LINT_BLIND_SPOT = "# kubeconform does not evaluate this dataplane leftover.\n"
 
@@ -38,127 +34,28 @@ __all__ = [
 ]
 
 
-def _clip(text: str) -> str:
-    compact = " ".join(str(text).split())
-    if len(compact) <= BASIS_LIMIT:
-        return compact
-    return compact[: BASIS_LIMIT - 1].rstrip() + "…"
-
-
-def _step(
-    n: int,
-    basis: str,
-    tool_call: dict[str, Any],
-    observation: str,
-    reflection: str,
-) -> dict[str, Any]:
-    clipped = _clip(basis)
-    refuse_when(
-        not clipped.startswith(BASIS_PREFIXES),
-        FINDING_USAGE,
-        f"step {n} decision_basis prefix: {basis!r}",
-    )
-    refuse_when(not observation.strip() or not reflection.strip(), FINDING_USAGE, f"step {n} empty")
-    return {
-        "n": n,
-        "decision_basis": clipped,
-        "tool_call": tool_call,
-        "observation": observation,
-        "reflection": reflection,
-    }
-
-
-def _bash(n: int, basis: str, cmd: str, obs: str, reflection: str) -> dict[str, Any]:
-    return _step(n, basis, {"name": "bash", "args": {"command": cmd}}, obs, reflection)
-
-
-def _read(n: int, basis: str, path: str, obs: str, reflection: str) -> dict[str, Any]:
-    return _step(n, basis, {"name": "read", "args": {"path": path}}, obs, reflection)
-
-
-def _edit(n: int, basis: str, args: dict[str, str], obs: str, reflection: str) -> dict[str, Any]:
-    """``args`` is the edit tool's own ``{"path", "old", "new"}`` argument mapping."""
-
-    return _step(n, basis, {"name": "edit", "args": args}, obs, reflection)
-
-
-def _assert_clean(obj: Any, path: str = "") -> None:
-    if isinstance(obj, dict):
-        _assert_clean_mapping(obj, path)
-        return
-    if isinstance(obj, list):
-        for index, item in enumerate(obj):
-            _assert_clean(item, f"{path}[{index}]")
-
-
-def _assert_clean_mapping(obj: Mapping[str, Any], path: str) -> None:
-    for key, val in obj.items():
-        refuse_when(key in BANNED_KEYS, FINDING_BANNED, f"banned key {key} at {path}")
-        refuse_when(
-            key == "sim_or_real" and val == "real",
-            FINDING_BANNED,
-            f"sim_or_real real at {path}",
-        )
-        _assert_clean(val, f"{path}.{key}")
-
-
-def _episode(
-    episode: Mapping[str, Any], *, round_n: int, mill_id: str, plant_id: str
-) -> dict[str, Any]:
-    """``episode`` carries the record's own fields in order: id, goal, plan, steps,
-    outcome, reward. Provenance ``meta`` is appended from the plant and round."""
-
-    record = {
-        **episode,
-        "reward": dict(episode["reward"]),
-        "meta": {
-            "catalog_id": "kcl-plants-v1",
-            "designed": True,
-            "factory": FACTORY,
-            "generator": GENERATOR,
-            "kind": "episode",
-            "mill_id": mill_id,
-            "plant_id": plant_id,
-            "round": round_n,
-        },
-    }
-    _assert_clean(record)
-    return record
-
-
-@dataclass(frozen=True)
-class _Scene:
-    """The live names one episode's commands and observations interpolate."""
-
-    ns: str
-    app: str
-    chart: str
-    rs: str
-    field: str
-
-
 def _values_template_lint(
-    spec: Mapping[str, str], scene: _Scene, summary: str
+    spec: Mapping[str, str], scene: Scene, summary: str
 ) -> list[dict[str, Any]]:
     """Steps 3-5 of both episodes: read values, read the template, kubeconform clean."""
 
     app, ns = scene.app, scene.ns
     return [
-        _read(
+        read(
             3,
             "Observation: live fail matches ticket. Read values.yaml.",
             f"charts/{app}/values.yaml",
             spec["values_fail"],
             "Values match the failing live object. Template next.",
         ),
-        _read(
+        read(
             4,
             "Observation: values fail-open. Read deployment/related template.",
             f"charts/{app}/templates/deployment.yaml",
             spec["tpl"],
             "Template emits the failing field. kubeconform next.",
         ),
-        _bash(
+        bash(
             5,
             "Observation: template emits fail field. helm template + kubeconform.",
             f"helm template {app} charts/{app} -n {ns} | kubeconform -strict -summary",
@@ -168,10 +65,10 @@ def _values_template_lint(
     ]
 
 
-def _success_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+def _success_triage(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any]]:
     ns, app, rs, field = scene.ns, scene.app, scene.rs, scene.field
     return [
-        _bash(
+        bash(
             1,
             f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {scene.chart} "
             f"({field} leftover). List po.",
@@ -180,7 +77,7 @@ def _success_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, An
             f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 9\ndeploy/{app} 0/2\n",
             "0/2. Logs next.",
         ),
-        _bash(
+        bash(
             2,
             f"Observation: 9 restarts. Logs and describe ({field} leftover).",
             f"kubectl -n {ns} logs {app}-{rs}-a --tail=12; "
@@ -192,11 +89,11 @@ def _success_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, An
 
 
 def _success_wrong_hide(
-    spec: Mapping[str, str], scene: _Scene, hide: tuple[str, str]
+    spec: Mapping[str, str], scene: Scene, hide: tuple[str, str]
 ) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     return [
-        _bash(
+        bash(
             6,
             "Observation: kubeconform 0. helm upgrade --wait current values.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 90s 2>&1 | tail -n 12",
@@ -204,7 +101,7 @@ def _success_wrong_hide(
             f"CrashLoopBackOff {spec['log']}\n",
             "Clean plan, failed apply. First wrong fix next.",
         ),
-        _edit(
+        edit(
             7,
             "Observation: --wait failed. Apply the wrong first hide.",
             {
@@ -215,7 +112,7 @@ def _success_wrong_hide(
             f"patched {spec['hide_name']} (wrong knob; {field} still {spec['fail_val']})",
             "Hide is not the contract. Confirm then plan-change.",
         ),
-        _bash(
+        bash(
             8,
             "Observation: hide patched. helm upgrade --wait.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 2m 2>&1 | tail -n 8",
@@ -226,11 +123,11 @@ def _success_wrong_hide(
 
 
 def _success_plan_change(
-    spec: Mapping[str, str], scene: _Scene, hide_new: str
+    spec: Mapping[str, str], scene: Scene, hide_new: str
 ) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     return [
-        _edit(
+        edit(
             9,
             f"Reflection: {field} {spec['fix_val']} is the contract. Undo {spec['hide_name']}.",
             {
@@ -241,14 +138,14 @@ def _success_plan_change(
             f"patched {field} {spec['fix_val']}; hide undone",
             "Apply without --force.",
         ),
-        _bash(
+        bash(
             10,
             "Observation: real fix patched. helm upgrade --wait no --force.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 3m 2>&1 | tail -n 8",
             f'Release "{app}" upgraded. REVISION: 5\nwaiting for 2 pods... done\n',
             "Revision 5 Ready. Confirm live spec.",
         ),
-        _bash(
+        bash(
             11,
             "Observation: --wait passed. Confirm the live contract.",
             f"kubectl -n {ns} get deploy,{app} -o yaml | rg '{field}|{spec['fix_val']}' | head",
@@ -259,18 +156,18 @@ def _success_plan_change(
 
 
 def _success_verify(
-    spec: Mapping[str, str], scene: _Scene, pytest_lines: str
+    spec: Mapping[str, str], scene: Scene, pytest_lines: str
 ) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     return [
-        _bash(
+        bash(
             12,
             "Observation: live contract ok. pytest chart fixtures.",
             f"pytest tests/test_{app.replace('-', '_')}.py -q --tb=short",
             f"......\n6 passed in 0.32s\n# {pytest_lines}\n",
             "6/6. Patch CI.md.",
         ),
-        _edit(
+        edit(
             13,
             "Observation: 6/6. Patch CI.md so the hide cannot return.",
             {
@@ -281,7 +178,7 @@ def _success_verify(
             "patched CI.md",
             "CI records the contract.",
         ),
-        _bash(
+        bash(
             14,
             "Observation: CI.md updated. helm history.",
             f"helm -n {ns} history {app} | tail -n 4",
@@ -290,14 +187,14 @@ def _success_verify(
             f"5 deployed {field} {spec['fix_val']}\n",
             "History shows the hide then the fix.",
         ),
-        _bash(
+        bash(
             15,
             "Observation: rev 5 deployed. logs confirm.",
             f"kubectl -n {ns} logs deploy/{app} --tail=3",
             f"level=info msg=\"peer via {field}={spec['fix_val']}\"\n",
             "App healthy.",
         ),
-        _bash(
+        bash(
             16,
             "Observation: logs ok. get po.",
             f"kubectl -n {ns} get po -l app={app}",
@@ -328,7 +225,7 @@ def build_success(
     mill_id: str,
     plant_id: str,
 ) -> dict[str, Any]:
-    scene = _Scene(
+    scene = Scene(
         ns=spec["plant"], app=spec["app"], chart=spec["chart"], rs=spec["rs"], field=spec["field"]
     )
     ns, app, field = scene.ns, scene.app, scene.field
@@ -343,7 +240,7 @@ def build_success(
         *_success_verify(spec, scene, pytest_lines),
     ]
     refuse_when(len(steps) != SUCCESS_STEPS, FINDING_USAGE, f"{eid} want {SUCCESS_STEPS} steps")
-    return _episode(
+    return episode_record(
         {
             "id": eid,
             "goal": (
@@ -372,10 +269,10 @@ def build_success(
     )
 
 
-def _handoff_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+def _handoff_triage(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any]]:
     ns, app, chart, rs, field = scene.ns, scene.app, scene.chart, scene.rs, scene.field
     return [
-        _bash(
+        bash(
             1,
             f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {chart} leftover. "
             "List po, chart.",
@@ -386,7 +283,7 @@ def _handoff_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, An
             f"{field}={spec['fail_val']}\n",
             "0/2 crashloop. Describe next.",
         ),
-        _bash(
+        bash(
             2,
             "Observation: crashloop. Logs and describe.",
             f"kubectl -n {ns} logs {app}-{rs}-a --tail=16; "
@@ -398,11 +295,11 @@ def _handoff_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, An
 
 
 def _handoff_forced_apply(
-    spec: Mapping[str, str], scene: _Scene, values_hide: str
+    spec: Mapping[str, str], scene: Scene, values_hide: str
 ) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     return [
-        _bash(
+        bash(
             6,
             "Observation: kubeconform 0. helm upgrade --wait current values.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 90s 2>&1 | tail -n 12",
@@ -410,7 +307,7 @@ def _handoff_forced_apply(
             f"CrashLoopBackOff {field} leftover\n",
             "Clean plan, failed apply. Ticket says helm --force.",
         ),
-        _edit(
+        edit(
             7,
             "Observation: --wait failed. Apply the wrong first hide and --force.",
             {
@@ -421,7 +318,7 @@ def _handoff_forced_apply(
             "patched the hide; applying with --force as the ticket asked",
             "--force is the wrong applicator.",
         ),
-        _bash(
+        bash(
             8,
             "Observation: hide patched. helm upgrade --force --wait.",
             f"helm upgrade {app} charts/{app} -n {ns} --force --wait --timeout 90s 2>&1 | tail -n 16",
@@ -434,11 +331,11 @@ def _handoff_forced_apply(
     ]
 
 
-def _handoff_forbid_force(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+def _handoff_forbid_force(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     node = ns.split("-")[0]
     return [
-        _edit(
+        edit(
             9,
             f"Reflection: leftover is n2 {field} {spec['fail_val']}. "
             f"Keep git {spec['fix_val']}; do not --force.",
@@ -451,7 +348,7 @@ def _handoff_forbid_force(spec: Mapping[str, str], scene: _Scene) -> list[dict[s
             "patched CI.md forbid --force; git now holds the real fix",
             "Git is tight. Cluster mixed.",
         ),
-        _bash(
+        bash(
             10,
             "Observation: CI forbids --force. helm upgrade --wait no --force.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 2m 2>&1 | tail -n 12",
@@ -462,11 +359,11 @@ def _handoff_forbid_force(spec: Mapping[str, str], scene: _Scene) -> list[dict[s
     ]
 
 
-def _handoff_leftover_n2(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+def _handoff_leftover_n2(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     node = ns.split("-")[0]
     return [
-        _bash(
+        bash(
             11,
             "Observation: mixed live vs git. Diff pods.",
             f"kubectl -n {ns} get po {app}-5e1-a {app}-5e1-b -o wide; echo '---MIX---'",
@@ -477,7 +374,7 @@ def _handoff_leftover_n2(spec: Mapping[str, str], scene: _Scene) -> list[dict[st
             f"{app}-5e1-b node/{node}-n2\n",
             "Git is correct. leftover is n2.",
         ),
-        _bash(
+        bash(
             12,
             "Observation: leftover n2. kubectl apply --server-side helm manifest.",
             f"helm -n {ns} get manifest {app} | kubectl apply --server-side "
@@ -486,7 +383,7 @@ def _handoff_leftover_n2(spec: Mapping[str, str], scene: _Scene) -> list[dict[st
             f"# pod/{app}-5e1-b still old hash; SSA does not delete leftover RS\n",
             "SSA updated spec. leftover pod remains.",
         ),
-        _bash(
+        bash(
             13,
             "Observation: SSA spec good. rollout status.",
             f"kubectl -n {ns} rollout status deploy/{app} --timeout=45s; "
@@ -498,11 +395,11 @@ def _handoff_leftover_n2(spec: Mapping[str, str], scene: _Scene) -> list[dict[st
     ]
 
 
-def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+def _handoff_partial(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any]]:
     ns, app, field = scene.ns, scene.app, scene.field
     node = ns.split("-")[0]
     return [
-        _bash(
+        bash(
             14,
             "Observation: 1/2 Ready. pytest + handoff; do not --force n2.",
             f"pytest tests/test_{app.replace('-', '_')}.py -q --tb=short",
@@ -510,7 +407,7 @@ def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, A
             f"# {spec['pytest_fail']}\n# test_no_force PASSED\n",
             "Tests 2/3. Handoff leftover to platform.",
         ),
-        _edit(
+        edit(
             15,
             "Observation: tests 2/3. Write HANDOFF.md.",
             {
@@ -521,7 +418,7 @@ def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, A
             "wrote HANDOFF.md",
             "Handoff recorded.",
         ),
-        _bash(
+        bash(
             16,
             "Observation: HANDOFF.md written. kubectl get snapshot; do not delete leftover pod.",
             f"kubectl -n {ns} get po -l app={app} -o wide",
@@ -529,14 +426,14 @@ def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, A
             f"{app}-5e1-b leftover node/{node}-n2\n",
             "n2 leftover. Do not steal by deleting.",
         ),
-        _bash(
+        bash(
             17,
             "Observation: mixed nodes. helm get values as evidence git is fixed.",
             f"helm -n {ns} get values {app}",
             f"{field}: {spec['fix_val']}\n",
             "Git is the contract. live leftover is n2.",
         ),
-        _bash(
+        bash(
             18,
             "Observation: git fixed. get po 1/2 as the residual.",
             f"kubectl -n {ns} get po -l app={app}",
@@ -546,7 +443,7 @@ def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, A
     ]
 
 
-def _handoff_steps(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+def _handoff_steps(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any]]:
     values_hide = spec["values_fail"] + spec["hide_new"]
     return [
         *_handoff_triage(spec, scene),
@@ -565,7 +462,7 @@ def build_handoff(
     mill_id: str,
     plant_id: str,
 ) -> dict[str, Any]:
-    scene = _Scene(
+    scene = Scene(
         ns=spec["plant"],
         app=spec["app"].replace("-api", "-svc"),
         chart=spec["chart"],
@@ -576,7 +473,7 @@ def build_handoff(
     eid = f"{FAMILY_PREFIX}-r{round_n}-{spec['slug']}-n2-handoff"
     steps = _handoff_steps(spec, scene)
     refuse_when(len(steps) != HANDOFF_STEPS, FINDING_USAGE, f"{eid} want {HANDOFF_STEPS} steps")
-    return _episode(
+    return episode_record(
         {
             "id": eid,
             "goal": f"{app} in designed plant {ns} leftover n2 still {spec['n2']}. Do not --force.",

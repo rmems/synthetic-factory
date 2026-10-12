@@ -21,6 +21,7 @@ FIXTURE = REPO / "tests" / "fixtures" / "kcl"
 PACKAGE_FILES = (
     "__init__.py",
     "_contract.py",
+    "_steps.py",
     "catalog.py",
     "cli.py",
     "episode.py",
