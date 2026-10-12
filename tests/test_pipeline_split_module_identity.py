@@ -20,6 +20,7 @@ else:
 
 
 NEW_SPLIT_MODULES = (
+    "card_notes",
     "mill_script_inventory_schema",
     "mill_script_inventory_families",
     "mill_script_inventory_git",
