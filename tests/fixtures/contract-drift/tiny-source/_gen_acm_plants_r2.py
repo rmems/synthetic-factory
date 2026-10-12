@@ -7,8 +7,8 @@ from typing import ClassVar
 
 SPEC = "https://spec.example/oas"
 
-def P(a, b, field, old, new, code, f1, o1, f2, o2):
-    return (a, b, field, old, new, code, f1, o1, f2, o2)
+def P(*row):
+    return row
 
 
 class _G:

@@ -140,6 +140,12 @@ def run_form(form: str) -> dict[str, Any]:
             "twin_bound": sys.modules.get(FLAT_NAME) is pkg,
             "phantoms": _phantom_outcomes(PACKAGED_NAME),
         }
+    return _two_form_report(form)
+
+
+def _two_form_report(form: str) -> dict[str, Any]:
+    """``<first>_then_<second>``: load both forms in that order and report one object graph."""
+
     first, _sep, second = form.partition("_then_")
     loaders = {"cli": _cli_form, "package": _package_form}
     one, two = loaders[first](), loaders[second]()
