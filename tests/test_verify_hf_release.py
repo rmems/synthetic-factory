@@ -606,32 +606,34 @@ class ParquetFooterReaderTests(unittest.TestCase):
         )
 
 
+def run_cli(argv: list[str], ok: bool) -> tuple[int, list[str]]:
+    """Run the verifier CLI with every repository check stubbed; return exit code and repos."""
+    calls: list[str] = []
+
+    def fake(repo: str, *, timeout: float) -> verify_hf_release.CheckResult:
+        calls.append(repo)
+        return verify_hf_release.CheckResult(repo, () if ok else ("bad card",))
+
+    with (
+        mock.patch.object(verify_hf_release, "verify_repository", side_effect=fake),
+        mock.patch("sys.stdout", new_callable=io.StringIO),
+        mock.patch("sys.stderr", new_callable=io.StringIO),
+    ):
+        code = verify_hf_release.main(argv)
+    return code, calls
+
+
 class VerifierCliTests(unittest.TestCase):
-    def run_main(self, argv: list[str], ok: bool) -> tuple[int, list[str]]:
-        calls: list[str] = []
-
-        def fake(repo: str, *, timeout: float) -> verify_hf_release.CheckResult:
-            calls.append(repo)
-            return verify_hf_release.CheckResult(repo, () if ok else ("bad card",))
-
-        with (
-            mock.patch.object(verify_hf_release, "verify_repository", side_effect=fake),
-            mock.patch("sys.stdout", new_callable=io.StringIO),
-            mock.patch("sys.stderr", new_callable=io.StringIO),
-        ):
-            code = verify_hf_release.main(argv)
-        return code, calls
-
     def test_default_run_covers_only_releases_that_pass_today(self) -> None:
         # The code-repair card still overclaims on the Hub (#420), so it is checked on
         # request until its card-only fix merges; the default run must stay green.
-        code, calls = self.run_main([], ok=True)
+        code, calls = run_cli([], ok=True)
         self.assertEqual(code, 0)
         self.assertEqual(calls, list(verify_hf_release.DATASET_REPOS))
         self.assertNotIn(CODE_REPAIR_REPO, verify_hf_release.DEFAULT_REPOS)
 
     def test_code_repair_release_can_be_selected_and_fails_the_run(self) -> None:
-        code, calls = self.run_main(["--repo", CODE_REPAIR_REPO], ok=False)
+        code, calls = run_cli(["--repo", CODE_REPAIR_REPO], ok=False)
         self.assertEqual((code, calls), (1, [CODE_REPAIR_REPO]))
 
 
