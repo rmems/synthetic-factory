@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from ._contract import (
     BANNED_KEYS,
@@ -27,6 +27,7 @@ BASIS_LIMIT = 240
 __all__ = [
     "BASIS_LIMIT",
     "BASIS_PREFIXES",
+    "Observed",
     "Scene",
     "assert_clean",
     "bash",
@@ -45,13 +46,15 @@ def clip(text: str) -> str:
     return compact[: BASIS_LIMIT - 1].rstrip() + "…"
 
 
-def step(
-    n: int,
-    basis: str,
-    tool_call: dict[str, Any],
-    observation: str,
-    reflection: str,
-) -> dict[str, Any]:
+class Observed(NamedTuple):
+    """What a step's tool call returned and the agent's conclusion from it."""
+
+    observation: str
+    reflection: str
+
+
+def step(n: int, basis: str, tool_call: dict[str, Any], observed: Observed) -> dict[str, Any]:
+    observation, reflection = observed
     clipped = clip(basis)
     refuse_when(
         not clipped.startswith(BASIS_PREFIXES),
@@ -68,18 +71,18 @@ def step(
     }
 
 
-def bash(n: int, basis: str, cmd: str, obs: str, reflection: str) -> dict[str, Any]:
-    return step(n, basis, {"name": "bash", "args": {"command": cmd}}, obs, reflection)
+def bash(n: int, basis: str, cmd: str, observed: Observed) -> dict[str, Any]:
+    return step(n, basis, {"name": "bash", "args": {"command": cmd}}, observed)
 
 
-def read(n: int, basis: str, path: str, obs: str, reflection: str) -> dict[str, Any]:
-    return step(n, basis, {"name": "read", "args": {"path": path}}, obs, reflection)
+def read(n: int, basis: str, path: str, observed: Observed) -> dict[str, Any]:
+    return step(n, basis, {"name": "read", "args": {"path": path}}, observed)
 
 
-def edit(n: int, basis: str, args: dict[str, str], obs: str, reflection: str) -> dict[str, Any]:
+def edit(n: int, basis: str, args: dict[str, str], observed: Observed) -> dict[str, Any]:
     """``args`` is the edit tool's own ``{"path", "old", "new"}`` argument mapping."""
 
-    return step(n, basis, {"name": "edit", "args": args}, obs, reflection)
+    return step(n, basis, {"name": "edit", "args": args}, observed)
 
 
 def assert_clean(obj: Any, path: str = "") -> None:

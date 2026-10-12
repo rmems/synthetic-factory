@@ -20,7 +20,7 @@ from ._contract import (
     bind_import_twin,
     refuse_when,
 )
-from ._steps import BASIS_LIMIT, BASIS_PREFIXES, Scene, bash, edit, episode_record, read
+from ._steps import BASIS_LIMIT, BASIS_PREFIXES, Observed, Scene, bash, edit, episode_record, read
 
 _LINT_SUMMARY = "Summary: 3 resources found, 0 errors.\n"
 _LINT_BLIND_SPOT = "# kubeconform does not evaluate this dataplane leftover.\n"
@@ -45,22 +45,19 @@ def _values_template_lint(
             3,
             "Observation: live fail matches ticket. Read values.yaml.",
             f"charts/{app}/values.yaml",
-            spec["values_fail"],
-            "Values match the failing live object. Template next.",
+            Observed(spec["values_fail"], "Values match the failing live object. Template next."),
         ),
         read(
             4,
             "Observation: values fail-open. Read deployment/related template.",
             f"charts/{app}/templates/deployment.yaml",
-            spec["tpl"],
-            "Template emits the failing field. kubeconform next.",
+            Observed(spec["tpl"], "Template emits the failing field. kubeconform next."),
         ),
         bash(
             5,
             "Observation: template emits fail field. helm template + kubeconform.",
             f"helm template {app} charts/{app} -n {ns} | kubeconform -strict -summary",
-            summary,
-            "Plan clean. Apply --wait.",
+            Observed(summary, "Plan clean. Apply --wait."),
         ),
     ]
 
@@ -73,17 +70,21 @@ def _success_triage(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any
             f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {scene.chart} "
             f"({field} leftover). List po.",
             f"kubectl -n {ns} get po,deploy -l app={app}",
-            f"pod/{app}-{rs}-a 0/1 CrashLoopBackOff 9\n"
-            f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 9\ndeploy/{app} 0/2\n",
-            "0/2. Logs next.",
+            Observed(
+                f"pod/{app}-{rs}-a 0/1 CrashLoopBackOff 9\n"
+                f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 9\ndeploy/{app} 0/2\n",
+                "0/2. Logs next.",
+            ),
         ),
         bash(
             2,
             f"Observation: 9 restarts. Logs and describe ({field} leftover).",
             f"kubectl -n {ns} logs {app}-{rs}-a --tail=12; "
             f"kubectl -n {ns} describe po {app}-{rs}-a | tail -n 24",
-            f"{field}={spec['fail_val']}\n{spec['log']}\n",
-            "Root cause visible. Read values.",
+            Observed(
+                f"{field}={spec['fail_val']}\n{spec['log']}\n",
+                "Root cause visible. Read values.",
+            ),
         ),
     ]
 
@@ -97,9 +98,11 @@ def _success_wrong_hide(
             6,
             "Observation: kubeconform 0. helm upgrade --wait current values.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 90s 2>&1 | tail -n 12",
-            "Error: UPGRADE FAILED: timed out waiting for the condition\n"
-            f"CrashLoopBackOff {spec['log']}\n",
-            "Clean plan, failed apply. First wrong fix next.",
+            Observed(
+                "Error: UPGRADE FAILED: timed out waiting for the condition\n"
+                f"CrashLoopBackOff {spec['log']}\n",
+                "Clean plan, failed apply. First wrong fix next.",
+            ),
         ),
         edit(
             7,
@@ -109,15 +112,19 @@ def _success_wrong_hide(
                 "old": hide[0],
                 "new": hide[1],
             },
-            f"patched {spec['hide_name']} (wrong knob; {field} still {spec['fail_val']})",
-            "Hide is not the contract. Confirm then plan-change.",
+            Observed(
+                f"patched {spec['hide_name']} (wrong knob; {field} still {spec['fail_val']})",
+                "Hide is not the contract. Confirm then plan-change.",
+            ),
         ),
         bash(
             8,
             "Observation: hide patched. helm upgrade --wait.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 2m 2>&1 | tail -n 8",
-            f'Release "{app}" upgraded. REVISION: 4\nwaiting... done\n',
-            "Ready via hide. Wrong terminal. Plan change is the real fix.",
+            Observed(
+                f'Release "{app}" upgraded. REVISION: 4\nwaiting... done\n',
+                "Ready via hide. Wrong terminal. Plan change is the real fix.",
+            ),
         ),
     ]
 
@@ -135,22 +142,22 @@ def _success_plan_change(
                 "old": hide_new,
                 "new": spec["values_fix"],
             },
-            f"patched {field} {spec['fix_val']}; hide undone",
-            "Apply without --force.",
+            Observed(f"patched {field} {spec['fix_val']}; hide undone", "Apply without --force."),
         ),
         bash(
             10,
             "Observation: real fix patched. helm upgrade --wait no --force.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 3m 2>&1 | tail -n 8",
-            f'Release "{app}" upgraded. REVISION: 5\nwaiting for 2 pods... done\n',
-            "Revision 5 Ready. Confirm live spec.",
+            Observed(
+                f'Release "{app}" upgraded. REVISION: 5\nwaiting for 2 pods... done\n',
+                "Revision 5 Ready. Confirm live spec.",
+            ),
         ),
         bash(
             11,
             "Observation: --wait passed. Confirm the live contract.",
             f"kubectl -n {ns} get deploy,{app} -o yaml | rg '{field}|{spec['fix_val']}' | head",
-            f"{spec['live_ok']}\n",
-            "Contract holds. pytest.",
+            Observed(f"{spec['live_ok']}\n", "Contract holds. pytest."),
         ),
     ]
 
@@ -164,8 +171,7 @@ def _success_verify(
             12,
             "Observation: live contract ok. pytest chart fixtures.",
             f"pytest tests/test_{app.replace('-', '_')}.py -q --tb=short",
-            f"......\n6 passed in 0.32s\n# {pytest_lines}\n",
-            "6/6. Patch CI.md.",
+            Observed(f"......\n6 passed in 0.32s\n# {pytest_lines}\n", "6/6. Patch CI.md."),
         ),
         edit(
             13,
@@ -175,31 +181,30 @@ def _success_verify(
                 "old": f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n",
                 "new": f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n{spec['ci']}\n",
             },
-            "patched CI.md",
-            "CI records the contract.",
+            Observed("patched CI.md", "CI records the contract."),
         ),
         bash(
             14,
             "Observation: CI.md updated. helm history.",
             f"helm -n {ns} history {app} | tail -n 4",
-            f"3 superseded {field} {spec['fail_val']}\n"
-            f"4 superseded {spec['hide_name']} hide\n"
-            f"5 deployed {field} {spec['fix_val']}\n",
-            "History shows the hide then the fix.",
+            Observed(
+                f"3 superseded {field} {spec['fail_val']}\n"
+                f"4 superseded {spec['hide_name']} hide\n"
+                f"5 deployed {field} {spec['fix_val']}\n",
+                "History shows the hide then the fix.",
+            ),
         ),
         bash(
             15,
             "Observation: rev 5 deployed. logs confirm.",
             f"kubectl -n {ns} logs deploy/{app} --tail=3",
-            f"level=info msg=\"peer via {field}={spec['fix_val']}\"\n",
-            "App healthy.",
+            Observed(f"level=info msg=\"peer via {field}={spec['fix_val']}\"\n", "App healthy."),
         ),
         bash(
             16,
             "Observation: logs ok. get po.",
             f"kubectl -n {ns} get po -l app={app}",
-            f"{app}-8a2-a 1/1 Running 0\n{app}-8a2-b 1/1 Running 0\n",
-            "Done.",
+            Observed(f"{app}-8a2-a 1/1 Running 0\n{app}-8a2-b 1/1 Running 0\n", "Done."),
         ),
     ]
 
@@ -277,19 +282,20 @@ def _handoff_triage(spec: Mapping[str, str], scene: Scene) -> list[dict[str, Any
             f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {chart} leftover. "
             "List po, chart.",
             f"kubectl -n {ns} get po,deploy -l app={app}; helm -n {ns} list | rg {app}",
-            f"pod/{app}-{rs}-a 0/1 CrashLoopBackOff 10\n"
-            f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 10\n"
-            f"deploy/{app} 0/2\n{app} {app}-{chart} deployed\n"
-            f"{field}={spec['fail_val']}\n",
-            "0/2 crashloop. Describe next.",
+            Observed(
+                f"pod/{app}-{rs}-a 0/1 CrashLoopBackOff 10\n"
+                f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 10\n"
+                f"deploy/{app} 0/2\n{app} {app}-{chart} deployed\n"
+                f"{field}={spec['fail_val']}\n",
+                "0/2 crashloop. Describe next.",
+            ),
         ),
         bash(
             2,
             "Observation: crashloop. Logs and describe.",
             f"kubectl -n {ns} logs {app}-{rs}-a --tail=16; "
             f"kubectl -n {ns} describe po {app}-{rs}-a | tail -n 20",
-            f"{spec['log']}\n",
-            "Root cause visible. Read values.",
+            Observed(f"{spec['log']}\n", "Root cause visible. Read values."),
         ),
     ]
 
@@ -303,9 +309,11 @@ def _handoff_forced_apply(
             6,
             "Observation: kubeconform 0. helm upgrade --wait current values.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 90s 2>&1 | tail -n 12",
-            "Error: UPGRADE FAILED: timed out waiting for the condition\n"
-            f"CrashLoopBackOff {field} leftover\n",
-            "Clean plan, failed apply. Ticket says helm --force.",
+            Observed(
+                "Error: UPGRADE FAILED: timed out waiting for the condition\n"
+                f"CrashLoopBackOff {field} leftover\n",
+                "Clean plan, failed apply. Ticket says helm --force.",
+            ),
         ),
         edit(
             7,
@@ -315,18 +323,22 @@ def _handoff_forced_apply(
                 "old": spec["values_fail"],
                 "new": values_hide,
             },
-            "patched the hide; applying with --force as the ticket asked",
-            "--force is the wrong applicator.",
+            Observed(
+                "patched the hide; applying with --force as the ticket asked",
+                "--force is the wrong applicator.",
+            ),
         ),
         bash(
             8,
             "Observation: hide patched. helm upgrade --force --wait.",
             f"helm upgrade {app} charts/{app} -n {ns} --force --wait --timeout 90s 2>&1 | tail -n 16",
-            "upgrade.go:401: --force used, deleting/recreating resources\n"
-            "Error: UPGRADE FAILED: timed out waiting for the condition\n"
-            f"pod/{app}-5e1-a 1/1 Running {field}={spec['fix_val']}\n"
-            f"pod/{app}-5e1-b 0/1 CrashLoopBackOff {field}={spec['fail_val']}  # leftover n2\n",
-            "--force mixed replicas. Do not --force again.",
+            Observed(
+                "upgrade.go:401: --force used, deleting/recreating resources\n"
+                "Error: UPGRADE FAILED: timed out waiting for the condition\n"
+                f"pod/{app}-5e1-a 1/1 Running {field}={spec['fix_val']}\n"
+                f"pod/{app}-5e1-b 0/1 CrashLoopBackOff {field}={spec['fail_val']}  # leftover n2\n",
+                "--force mixed replicas. Do not --force again.",
+            ),
         ),
     ]
 
@@ -345,16 +357,20 @@ def _handoff_forbid_force(spec: Mapping[str, str], scene: Scene) -> list[dict[st
                 "new": f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n"
                 "# Never --force: three-way keeps live leftovers.\n",
             },
-            "patched CI.md forbid --force; git now holds the real fix",
-            "Git is tight. Cluster mixed.",
+            Observed(
+                "patched CI.md forbid --force; git now holds the real fix",
+                "Git is tight. Cluster mixed.",
+            ),
         ),
         bash(
             10,
             "Observation: CI forbids --force. helm upgrade --wait no --force.",
             f"helm upgrade {app} charts/{app} -n {ns} --wait --timeout 2m 2>&1 | tail -n 12",
-            "Error: UPGRADE FAILED: timed out waiting for the condition\n"
-            f"deploy spec matches git; pod/{app}-5e1-b leftover on {node}-n2\n",
-            "Helm three-way did not replace the leftover replica.",
+            Observed(
+                "Error: UPGRADE FAILED: timed out waiting for the condition\n"
+                f"deploy spec matches git; pod/{app}-5e1-b leftover on {node}-n2\n",
+                "Helm three-way did not replace the leftover replica.",
+            ),
         ),
     ]
 
@@ -367,30 +383,36 @@ def _handoff_leftover_n2(spec: Mapping[str, str], scene: Scene) -> list[dict[str
             11,
             "Observation: mixed live vs git. Diff pods.",
             f"kubectl -n {ns} get po {app}-5e1-a {app}-5e1-b -o wide; echo '---MIX---'",
-            f"{app}-5e1-a {field}={spec['fix_val']}\n"
-            f"{app}-5e1-b {field}={spec['fail_val']}\n"
-            "---MIX---\n"
-            f"{app}-5e1-a node/{node}-n1\n"
-            f"{app}-5e1-b node/{node}-n2\n",
-            "Git is correct. leftover is n2.",
+            Observed(
+                f"{app}-5e1-a {field}={spec['fix_val']}\n"
+                f"{app}-5e1-b {field}={spec['fail_val']}\n"
+                "---MIX---\n"
+                f"{app}-5e1-a node/{node}-n1\n"
+                f"{app}-5e1-b node/{node}-n2\n",
+                "Git is correct. leftover is n2.",
+            ),
         ),
         bash(
             12,
             "Observation: leftover n2. kubectl apply --server-side helm manifest.",
             f"helm -n {ns} get manifest {app} | kubectl apply --server-side "
             f"--force-conflicts -n {ns} -f - | tail -n 8",
-            f"deployment.apps/{app} serverside-applied\n"
-            f"# pod/{app}-5e1-b still old hash; SSA does not delete leftover RS\n",
-            "SSA updated spec. leftover pod remains.",
+            Observed(
+                f"deployment.apps/{app} serverside-applied\n"
+                f"# pod/{app}-5e1-b still old hash; SSA does not delete leftover RS\n",
+                "SSA updated spec. leftover pod remains.",
+            ),
         ),
         bash(
             13,
             "Observation: SSA spec good. rollout status.",
             f"kubectl -n {ns} rollout status deploy/{app} --timeout=45s; "
             f"kubectl -n {ns} get po -l app={app}",
-            f"error: timed out waiting for the condition\n"
-            f"{app}-5e1-a 1/1 Running 0\n{app}-5e1-b leftover\n",
-            "1/2 Ready. leftover is the teaching residual.",
+            Observed(
+                f"error: timed out waiting for the condition\n"
+                f"{app}-5e1-a 1/1 Running 0\n{app}-5e1-b leftover\n",
+                "1/2 Ready. leftover is the teaching residual.",
+            ),
         ),
     ]
 
@@ -403,9 +425,11 @@ def _handoff_partial(spec: Mapping[str, str], scene: Scene) -> list[dict[str, An
             14,
             "Observation: 1/2 Ready. pytest + handoff; do not --force n2.",
             f"pytest tests/test_{app.replace('-', '_')}.py -q --tb=short",
-            f".F.\n2 passed, 1 failed in 0.30s\n# {spec['tmpl_test']} PASSED\n"
-            f"# {spec['pytest_fail']}\n# test_no_force PASSED\n",
-            "Tests 2/3. Handoff leftover to platform.",
+            Observed(
+                f".F.\n2 passed, 1 failed in 0.30s\n# {spec['tmpl_test']} PASSED\n"
+                f"# {spec['pytest_fail']}\n# test_no_force PASSED\n",
+                "Tests 2/3. Handoff leftover to platform.",
+            ),
         ),
         edit(
             15,
@@ -415,30 +439,32 @@ def _handoff_partial(spec: Mapping[str, str], scene: Scene) -> list[dict[str, An
                 "old": "",
                 "new": spec["handoff"] + "\n",
             },
-            "wrote HANDOFF.md",
-            "Handoff recorded.",
+            Observed("wrote HANDOFF.md", "Handoff recorded."),
         ),
         bash(
             16,
             "Observation: HANDOFF.md written. kubectl get snapshot; do not delete leftover pod.",
             f"kubectl -n {ns} get po -l app={app} -o wide",
-            f"{app}-5e1-a 1/1 Running node/{node}-n1\n"
-            f"{app}-5e1-b leftover node/{node}-n2\n",
-            "n2 leftover. Do not steal by deleting.",
+            Observed(
+                f"{app}-5e1-a 1/1 Running node/{node}-n1\n"
+                f"{app}-5e1-b leftover node/{node}-n2\n",
+                "n2 leftover. Do not steal by deleting.",
+            ),
         ),
         bash(
             17,
             "Observation: mixed nodes. helm get values as evidence git is fixed.",
             f"helm -n {ns} get values {app}",
-            f"{field}: {spec['fix_val']}\n",
-            "Git is the contract. live leftover is n2.",
+            Observed(f"{field}: {spec['fix_val']}\n", "Git is the contract. live leftover is n2."),
         ),
         bash(
             18,
             "Observation: git fixed. get po 1/2 as the residual.",
             f"kubectl -n {ns} get po -l app={app}",
-            f"{app}-5e1-a 1/1 Running\n{app}-5e1-b leftover\n",
-            "PARTIAL. Stop. Handoff leftover RS.",
+            Observed(
+                f"{app}-5e1-a 1/1 Running\n{app}-5e1-b leftover\n",
+                "PARTIAL. Stop. Handoff leftover RS.",
+            ),
         ),
     ]
 
