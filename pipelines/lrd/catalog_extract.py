@@ -399,6 +399,8 @@ def _source_filename(source: str) -> str:
 
 
 def refuse_hopper_source(source: str) -> None:
+    """Refuse dpr-lrd hoppers. They stay with dpr; this package never execs them."""
+
     name = _source_filename(source)
     hopper = any(marker in name for marker in HOPPER_NAME_MARKERS)
     refuse_when(
