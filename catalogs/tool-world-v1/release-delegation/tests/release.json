@@ -1,0 +1,45 @@
+{
+  "suite": "release",
+  "cases": [
+    {
+      "id": "feature_defined",
+      "check": {
+        "kind": "file_contains",
+        "path": "src/feature.py",
+        "text": "def feature():"
+      }
+    },
+    {
+      "id": "feature_returns",
+      "check": {
+        "kind": "file_contains",
+        "path": "src/feature.py",
+        "text": "return \"release-ready\""
+      }
+    },
+    {
+      "id": "version_bumped",
+      "check": {
+        "kind": "file_contains",
+        "path": "src/app.py",
+        "text": "VERSION = \"1.2.0\""
+      }
+    },
+    {
+      "id": "changelog_section",
+      "check": {
+        "kind": "file_contains",
+        "path": "CHANGELOG.md",
+        "text": "## 1.2.0"
+      }
+    },
+    {
+      "id": "changelog_mentions_feature",
+      "check": {
+        "kind": "file_contains",
+        "path": "CHANGELOG.md",
+        "text": "feature()"
+      }
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "role": "implementer",
+  "description": "Writes application code inside the files its scope names and reports a claim.",
+  "profiles": {
+    "default": {
+      "awaits_needed": 1,
+      "report": "implemented feature() in src/feature.py and bumped VERSION to 1.2.0 in src/app.py",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "src/feature.py",
+          "content": "\"\"\"The 1.2.0 feature: the readiness probe the release checklist requires.\"\"\"\n\n\ndef feature():\n    return \"release-ready\"\n"
+        },
+        {
+          "write": "src/app.py",
+          "content": "\"\"\"Application entry point: the version string and the public surface.\"\"\"\n\nVERSION = \"1.2.0\"\n\n\ndef version():\n    return VERSION\n"
+        }
+      ]
+    },
+    "late": {
+      "awaits_needed": 3,
+      "report": "implemented feature() in src/feature.py and bumped VERSION to 1.2.0 in src/app.py",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "src/feature.py",
+          "content": "\"\"\"The 1.2.0 feature: the readiness probe the release checklist requires.\"\"\"\n\n\ndef feature():\n    return \"release-ready\"\n"
+        },
+        {
+          "write": "src/app.py",
+          "content": "\"\"\"Application entry point: the version string and the public surface.\"\"\"\n\nVERSION = \"1.2.0\"\n\n\ndef version():\n    return VERSION\n"
+        }
+      ]
+    },
+    "wrong_claim": {
+      "awaits_needed": 1,
+      "report": "implemented feature() in src/feature.py and bumped VERSION to 1.2.0 in src/app.py",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "src/feature.py",
+          "content": "\"\"\"The 1.2.0 feature: the readiness probe the release checklist requires.\"\"\"\n\n\ndef feature_flag():\n    return \"release-ready\"\n"
+        }
+      ]
+    },
+    "partial": {
+      "awaits_needed": 1,
+      "report": "wrote feature() in src/feature.py; did not touch VERSION in src/app.py",
+      "claim": "partial",
+      "effects": [
+        {
+          "write": "src/feature.py",
+          "content": "\"\"\"The 1.2.0 feature: the readiness probe the release checklist requires.\"\"\"\n\n\ndef feature():\n    return \"release-ready\"\n"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "suite": "smoke",
+  "cases": [
+    {
+      "id": "smoke_test_present",
+      "check": {
+        "kind": "file_exists",
+        "path": "tests/test_feature.py"
+      }
+    },
+    {
+      "id": "smoke_test_asserts_feature",
+      "check": {
+        "kind": "file_contains",
+        "path": "tests/test_feature.py",
+        "text": "assert feature() == \"release-ready\""
+      }
+    }
+  ]
+}

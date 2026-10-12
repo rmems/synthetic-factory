@@ -1,0 +1,40 @@
+{
+  "role": "tester",
+  "description": "Writes the smoke test under tests/ and may ask one question before starting.",
+  "profiles": {
+    "default": {
+      "awaits_needed": 1,
+      "report": "added tests/test_feature.py asserting feature() == \"release-ready\"",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "tests/test_feature.py",
+          "content": "from src.feature import feature\n\n\ndef test_feature_is_release_ready():\n    assert feature() == \"release-ready\"\n"
+        }
+      ]
+    },
+    "late": {
+      "awaits_needed": 2,
+      "report": "added tests/test_feature.py asserting feature() == \"release-ready\"",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "tests/test_feature.py",
+          "content": "from src.feature import feature\n\n\ndef test_feature_is_release_ready():\n    assert feature() == \"release-ready\"\n"
+        }
+      ]
+    },
+    "question": {
+      "question": "Should the smoke test import feature from src.feature or from src.app?",
+      "awaits_needed": 1,
+      "report": "added tests/test_feature.py asserting feature() == \"release-ready\"",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "tests/test_feature.py",
+          "content": "from src.feature import feature\n\n\ndef test_feature_is_release_ready():\n    assert feature() == \"release-ready\"\n"
+        }
+      ]
+    }
+  }
+}

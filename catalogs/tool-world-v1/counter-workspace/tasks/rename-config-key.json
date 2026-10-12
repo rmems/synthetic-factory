@@ -1,0 +1,33 @@
+{
+  "task_id": "counter.rename-config-key",
+  "title": "rename max_retries to retry_limit in config and docs",
+  "goal": "Rename the max_retries setting to retry_limit in config/settings.toml and README.md so the config suite passes, then report the result.",
+  "surfaces": ["workspace"],
+  "max_steps": 12,
+  "public_predicates": [{"name": "value_reported", "params": {"value": "config suite passes"}}],
+  "hidden_predicates": [
+    {"name": "tests_pass", "params": {"suite": "config"}},
+    {"name": "file_contains", "params": {"path": "README.md", "text": "`retry_limit`"}},
+    {"name": "file_sha256", "params": {"path": "config/settings.toml",
+     "sha256": "eab60e54266f6a91d9e7b5f038a26ffcf435980403e599ebc7626932a8c95310"}}
+  ],
+  "gold": [
+    {"intent": "search every file for max_retries so no occurrence is missed before editing",
+     "tool_call": {"name": "search", "args": {"pattern": "max_retries"}}},
+    {"intent": "the search result listed config/settings.toml; edit the key there using the matched line as the anchor",
+     "tool_call": {"name": "edit_file", "args": {"path": "config/settings.toml", "old": "max_retries = 3", "new": "retry_limit = 3"}}},
+    {"intent": "the search result also listed README.md; edit the documented name using the matched text as the anchor",
+     "tool_call": {"name": "edit_file", "args": {"path": "README.md", "old": "`max_retries`", "new": "`retry_limit`"}}},
+    {"intent": "run the config suite to verify both edits before reporting",
+     "tool_call": {"name": "run_tests", "args": {"suite": "config"}}, "verification": true},
+    {"intent": "the tests pass; report the result the goal asked for",
+     "tool_call": {"name": "report_result", "args": {"value": "config suite passes"}}}
+  ],
+  "faults": [
+    {"id": "flaky-docs-test", "surface": "workspace", "kind": "flaky_test", "tool": "run_tests",
+     "selector": {"suite": "config"}, "occurrence": 1, "probability_percent": 100,
+     "params": {"case": "docs_updated"},
+     "marker": "ETIMEDOUT", "recovery": [], "retry": true}
+  ],
+  "perturbations": ["give_up_on_fault"]
+}

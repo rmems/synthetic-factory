@@ -1,0 +1,65 @@
+{
+  "task_id": "catalog.search-bolt",
+  "title": "search the parts catalog for bolt",
+  "goal": "From the catalog index, type bolt into the search box and submit the search form, verify the results heading names bolt, then report the result.",
+  "surfaces": ["browser"],
+  "max_steps": 14,
+  "public_predicates": [
+    {"name": "form_submitted", "params": {"form": "search"}},
+    {"name": "value_reported", "params": {"value": "search submitted for bolt"}}
+  ],
+  "hidden_predicates": [
+    {"name": "url_is", "params": {"url": "https://parts.example/search?q=bolt"}},
+    {"name": "extracted_equals", "params": {"value": "Results for bolt"}},
+    {"name": "max_steps", "params": {"n": 12}}
+  ],
+  "gold": [
+    {"intent": "open the catalog index and read its snapshot before touching the search form",
+     "tool_call": {"name": "browser", "args": {"action": "navigate", "url": "/"}}},
+    {"intent": "the snapshot showed a search form; find its textbox by role and name",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "textbox",
+                            "name": "Search the catalog"}},
+     "captures": {"box": "\\[ref=(e\\d+)\\]"}},
+    {"intent": "the find result gave the textbox ref; type the query into that textbox",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "type", "ref": {"$capture": "box"}, "text": "bolt"}}},
+    {"intent": "the tool output confirmed the typed value; submit the textbox's form",
+     "tool_call": {"name": "browser", "args": {"action": "submit", "ref": {"$capture": "box"}}}},
+    {"intent": "the results page loaded; find its heading to verify it names the submitted query",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "find", "role": "heading", "name": "Results for"}},
+     "captures": {"heading": "\\[ref=(e\\d+)\\]"}, "verification": true},
+    {"intent": "extract the heading text so the verified query is logged as evidence",
+     "tool_call": {"name": "browser",
+                   "args": {"action": "extract", "ref": {"$capture": "heading"}}},
+     "verification": true},
+    {"intent": "the extracted heading reads Results for bolt; report the result",
+     "tool_call": {"name": "report_result", "args": {"value": "search submitted for bolt"}}}
+  ],
+  "faults": [
+    {"id": "consent-overlay", "surface": "browser", "kind": "overlay", "tool": "browser",
+     "selector": {"action": "navigate", "url": "/"}, "occurrence": 1, "probability_percent": 50,
+     "params": {"overlay": "consent"}, "marker": "dialog \"Cookie consent\"",
+     "recovery": [
+       {"intent": "the snapshot shows a consent dialog that blocks clicks; find its accept button",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "find", "role": "button", "name": "Accept cookies"}},
+        "captures": {"accept": "\\[ref=(e\\d+)\\]"}},
+       {"intent": "the find result named the accept button ref; click it to dismiss the dialog",
+        "tool_call": {"name": "browser",
+                      "args": {"action": "click", "ref": {"$capture": "accept"}}}}
+     ],
+     "retry": false},
+    {"id": "search-box-drift", "surface": "browser", "kind": "selector_drift", "tool": "browser",
+     "selector": {"action": "navigate", "url": "/"}, "occurrence": 1, "probability_percent": 50,
+     "marker": "no elements match role='textbox' name='Search the catalog'",
+     "recovery": [
+       {"intent": "the textbox name drifted since the plan was written; list textboxes by role",
+        "tool_call": {"name": "browser", "args": {"action": "find", "role": "textbox"}},
+        "captures": {"box": "\\[ref=(e\\d+)\\]"}}
+     ],
+     "retry": false}
+  ],
+  "perturbations": ["give_up_on_fault", "skip_verification", "wrong_arg_type"]
+}

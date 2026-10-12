@@ -145,7 +145,7 @@ same unit tests and operator smoke check.
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
 - `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`) and mill-script inventory (`MILL-SCRIPT-INVENTORY.json`). Identity authority is the registry (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a registry row and its exact `(generator, generator_version)` provider/channel assignment to `_REVIEWED_GENERATOR_RIGHTS` in `pipelines/curate_identity.py` (defined in `pipelines/curate_identity_registry_rows.py`); both reviews are required. Model-channel rows must also match `schemas/model-channel-source-policy-v1.json` exactly. Classify leftover mill scripts in the mill-script inventory ([docs/mill-script-inventory.md](docs/mill-script-inventory.md)).
-- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators; `model_channel/` holds the local and OpenRouter generator clients
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators; `model_channel/` holds the local and OpenRouter generator clients; `tool_world/` holds the deterministic tool-use environment, its four surfaces, scripted solvers, and replay oracle
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current). Leftover mill generator scripts are not stored here on `main`; they remain recoverable on `origin/legacy-mill-lane`.
 
 ## Historical prompt lane
@@ -279,6 +279,23 @@ accepted reference record whose `oracle.module_digest` matches the current
 sources is publishable as a reproducible simulator measurement; it is never
 publishable as a measurement of the named runtimes, and a digest the current
 sources cannot reproduce keeps `publishable: false`.
+
+### Tool-world families (tool calling, MCP, browser, delegation)
+
+A deterministic, stdlib-only environment executes every tool call a solver
+proposes, so an observation is measured rather than authored, success is a
+predicate over environment state, and every record replays from
+`(pack, seed, actions)`. The design and its admission milestones are in
+[`docs/tool-world-families-design.md`](docs/tool-world-families-design.md)
+(#422); the first slice is generator side only and writes candidate runs
+outside `outputs/raw/`.
+
+```bash
+python3 pipelines/tool_world_cli.py catalog-check --json
+python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
+python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json   # exit 1 on any disagreement
+python3 pipelines/tool_world_cli.py catalog-check --write-pins --json          # re-pin after a reviewed pack edit
+```
 
 ### Curation integration and promotion gate
 

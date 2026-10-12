@@ -2,6 +2,7 @@
 outputs/raw/
 outputs/staging/
 outputs/code-repair/
+outputs/tool-world/
 *.log
 *.tmp
 

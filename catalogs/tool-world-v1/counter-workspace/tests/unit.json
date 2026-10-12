@@ -1,0 +1,8 @@
+{
+  "suite": "unit",
+  "cases": [
+    {"id": "add_exists", "check": {"kind": "file_contains", "path": "src/counter.py", "text": "def add(self, delta):"}},
+    {"id": "sub_exists", "check": {"kind": "file_contains", "path": "src/counter.py", "text": "def sub(self, delta):"}},
+    {"id": "sub_subtracts", "check": {"kind": "file_contains", "path": "src/counter.py", "text": "self._value -= int(delta)"}}
+  ]
+}

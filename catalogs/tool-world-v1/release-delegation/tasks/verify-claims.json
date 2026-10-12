@@ -1,0 +1,228 @@
+{
+  "task_id": "release.verify-claims",
+  "title": "verify the implementer's claim and re-delegate when the feature suite disproves it",
+  "goal": "Get the feature suite passing through an implementer: brief it on src/feature.py and the VERSION bump, verify its claim with the feature suite before accepting it, repair or re-delegate whatever the suite disproves, and report the result once it passes.",
+  "surfaces": [
+    "delegation",
+    "workspace"
+  ],
+  "max_steps": 18,
+  "public_predicates": [
+    {
+      "name": "value_reported",
+      "params": {
+        "value": "feature suite passes"
+      }
+    }
+  ],
+  "hidden_predicates": [
+    {
+      "name": "tests_pass",
+      "params": {
+        "suite": "feature"
+      }
+    },
+    {
+      "name": "verified_before_merge",
+      "params": {}
+    },
+    {
+      "name": "no_agents_pending",
+      "params": {}
+    },
+    {
+      "name": "max_agents",
+      "params": {
+        "n": 2
+      }
+    },
+    {
+      "name": "file_contains",
+      "params": {
+        "path": "src/feature.py",
+        "text": "def feature():"
+      }
+    },
+    {
+      "name": "max_steps",
+      "params": {
+        "n": 16
+      }
+    }
+  ],
+  "gold": [
+    {
+      "intent": "read the checklist: it says delegate reports are claims to verify and names what the feature suite requires",
+      "tool_call": {
+        "name": "read_file",
+        "args": {
+          "path": "docs/RELEASE.md"
+        }
+      }
+    },
+    {
+      "intent": "list src to see which files exist before the brief names the one to create",
+      "tool_call": {
+        "name": "list_dir",
+        "args": {
+          "path": "src"
+        }
+      }
+    },
+    {
+      "intent": "the listing shows app.py only; brief an implementer scoped to src/feature.py and src/app.py",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "spawn",
+          "role": "implementer",
+          "brief": "Create src/feature.py defining feature() that returns \"release-ready\" and bump VERSION in src/app.py to 1.2.0; the feature cases of the suite check both files",
+          "scope": [
+            "src/feature.py",
+            "src/app.py"
+          ]
+        }
+      },
+      "captures": {
+        "implementer": "spawned (w\\d+) as implementer"
+      }
+    },
+    {
+      "intent": "the implementer acknowledged the brief; await its report",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "await",
+          "agent_id": {
+            "$capture": "implementer"
+          }
+        }
+      }
+    },
+    {
+      "intent": "the report claims done; run the feature suite to verify the claim before accepting it",
+      "tool_call": {
+        "name": "run_tests",
+        "args": {
+          "suite": "feature"
+        }
+      },
+      "verification": true
+    },
+    {
+      "intent": "the suite passed; list the agents to show none is still working before the result",
+      "tool_call": {
+        "name": "agent",
+        "args": {
+          "action": "list"
+        }
+      }
+    },
+    {
+      "intent": "the listing shows every implementer done and the suite verified; report the result",
+      "tool_call": {
+        "name": "report_result",
+        "args": {
+          "value": "feature suite passes"
+        }
+      }
+    }
+  ],
+  "faults": [
+    {
+      "id": "implementer-wrong-claim",
+      "surface": "delegation",
+      "kind": "wrong_claim",
+      "tool": "agent",
+      "selector": {
+        "action": "spawn",
+        "role": "implementer"
+      },
+      "occurrence": 1,
+      "probability_percent": 100,
+      "marker": "feature_defined: src/feature.py lacks",
+      "recovery": [
+        {
+          "intent": "the worker claimed done but the suite failed feature_defined; read src/feature.py to inspect what it wrote",
+          "tool_call": {
+            "name": "read_file",
+            "args": {
+              "path": "src/feature.py"
+            }
+          }
+        },
+        {
+          "intent": "the read shows the function is misnamed feature_flag; re-delegate with a brief naming the exact fix the test requires",
+          "tool_call": {
+            "name": "agent",
+            "args": {
+              "action": "spawn",
+              "role": "implementer",
+              "brief": "src/feature.py defines feature_flag, not feature(): rename it to feature() returning \"release-ready\" and bump VERSION in src/app.py to 1.2.0; the feature suite checks both",
+              "scope": [
+                "src/feature.py",
+                "src/app.py"
+              ]
+            }
+          },
+          "captures": {
+            "implementer2": "spawned (w\\d+) as implementer"
+          }
+        },
+        {
+          "intent": "the second implementer acknowledged the brief; await its report before verifying again",
+          "tool_call": {
+            "name": "agent",
+            "args": {
+              "action": "await",
+              "agent_id": {
+                "$capture": "implementer2"
+              }
+            }
+          }
+        }
+      ],
+      "retry": true
+    },
+    {
+      "id": "implementer-partial",
+      "surface": "delegation",
+      "kind": "partial",
+      "tool": "agent",
+      "selector": {
+        "action": "spawn",
+        "role": "implementer"
+      },
+      "occurrence": 2,
+      "probability_percent": 100,
+      "marker": "(claims: partial)",
+      "recovery": [
+        {
+          "intent": "the report claims partial and says VERSION was not bumped; read src/app.py to anchor the edit",
+          "tool_call": {
+            "name": "read_file",
+            "args": {
+              "path": "src/app.py"
+            }
+          }
+        },
+        {
+          "intent": "the read shows VERSION = \"1.1.0\"; bump it to 1.2.0 as the requirement states",
+          "tool_call": {
+            "name": "edit_file",
+            "args": {
+              "path": "src/app.py",
+              "old": "VERSION = \"1.1.0\"",
+              "new": "VERSION = \"1.2.0\""
+            }
+          }
+        }
+      ],
+      "retry": false
+    }
+  ],
+  "perturbations": [
+    "skip_verification",
+    "give_up_on_fault"
+  ]
+}

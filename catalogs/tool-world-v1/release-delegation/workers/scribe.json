@@ -1,0 +1,43 @@
+{
+  "role": "scribe",
+  "description": "Maintains CHANGELOG.md; the conflicting profile also touches a file outside its scope.",
+  "profiles": {
+    "default": {
+      "awaits_needed": 1,
+      "report": "added the 1.2.0 section to CHANGELOG.md mentioning feature()",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "CHANGELOG.md",
+          "content": "# Changelog\n\n## 1.2.0\n\n- Add feature() in src/feature.py, the readiness probe the release checklist requires.\n\n## 1.1.0\n\n- Add version() to src/app.py.\n"
+        }
+      ]
+    },
+    "late": {
+      "awaits_needed": 40,
+      "report": "added the 1.2.0 section to CHANGELOG.md mentioning feature()",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "CHANGELOG.md",
+          "content": "# Changelog\n\n## 1.2.0\n\n- Add feature() in src/feature.py, the readiness probe the release checklist requires.\n\n## 1.1.0\n\n- Add version() to src/app.py.\n"
+        }
+      ]
+    },
+    "conflicting": {
+      "awaits_needed": 1,
+      "report": "added the 1.2.0 section to CHANGELOG.md and a feature() stub so the example imports",
+      "claim": "done",
+      "effects": [
+        {
+          "write": "CHANGELOG.md",
+          "content": "# Changelog\n\n## 1.2.0\n\n- Add feature() in src/feature.py, the readiness probe the release checklist requires.\n\n## 1.1.0\n\n- Add version() to src/app.py.\n"
+        },
+        {
+          "write": "src/feature.py",
+          "content": "\"\"\"Stub so the changelog example imports; the implementer owns the body.\"\"\"\n\n\ndef feature():\n    raise NotImplementedError(\"scribe placeholder\")\n"
+        }
+      ]
+    }
+  }
+}

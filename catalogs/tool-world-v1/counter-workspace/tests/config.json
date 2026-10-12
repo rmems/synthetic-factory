@@ -1,0 +1,8 @@
+{
+  "suite": "config",
+  "cases": [
+    {"id": "key_renamed", "check": {"kind": "file_contains", "path": "config/settings.toml", "text": "retry_limit = 3"}},
+    {"id": "old_key_gone", "check": {"kind": "file_not_contains", "path": "config/settings.toml", "text": "max_retries"}},
+    {"id": "docs_updated", "check": {"kind": "file_contains", "path": "README.md", "text": "`retry_limit`"}}
+  ]
+}
