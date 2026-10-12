@@ -953,13 +953,13 @@ def _mill_slugs(pairs: _Pairs) -> tuple[str, ...]:
 
 
 def _mill_pair_at(pairs: _Pairs, mill: str, index: int) -> dict[str, Any]:
-    if type(index) is not int or not 0 <= index < len(pairs):
+    if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(pairs):
         raise BrwError(f"unknown_{mill}_index: {index!r}")
     return pairs[index]
 
 
 def _mill_pair_for_round(pairs: _Pairs, mill: str, first: int, rnd: int) -> dict[str, Any]:
-    if type(rnd) is not int:
+    if not isinstance(rnd, int) or isinstance(rnd, bool):
         raise BrwError(f"invalid_round: {rnd!r}")
     idx = rnd - first
     if idx < 0 or idx >= len(pairs):

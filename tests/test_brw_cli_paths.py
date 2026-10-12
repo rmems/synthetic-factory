@@ -71,7 +71,9 @@ class BrwLeftoverLookups(unittest.TestCase):
         for lookup, argument, message in (
             (catalog.r383_pair_at, 99, "unknown_r383_index: 99"),
             (catalog.r395_pair_at, -1, "unknown_r395_index: -1"),
+            (catalog.r383_pair_at, False, "unknown_r383_index: False"),
             (catalog.r212_pair_for_round, "212", "invalid_round: '212'"),
+            (catalog.r383_pair_for_round, True, "invalid_round: True"),
             (catalog.r395_pair_for_round, 455, "no r395 catalog entry for r455 (first=395 last=454)"),
         ):
             with self.subTest(message=message), self.assertRaises(BrwError) as caught:
