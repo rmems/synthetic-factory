@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .catalog_extract import KIND_PAIRS, KIND_PLANTS, catalog_json_path
-from .sources import MILL_SOURCES, catalog_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import CATALOG_SCHEMA_ID, FACTORY, GENERATOR, PRESERVE_COMMIT
 
 
@@ -107,11 +107,18 @@ def _bind_sources(catalog: CstCatalog) -> None:
     if len(MILL_SOURCES) != 21:
         raise ValueError(f"expected 21 CST sources, found {len(MILL_SOURCES)}")
     for mill_id, mill in catalog.mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha or mill.kind != source.kind:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill.n_rows != len(mill.pairs) + len(mill.plants):
-            raise ValueError(f"{mill_id} n_rows does not match extracted rows")
+        _check_mill_pin(mill_id, mill, expected[mill_id])
+
+
+def _pin_matches(mill: MillCatalog, source: MillSource) -> bool:
+    return mill.path == source.path and mill.blob_sha == source.blob_sha and mill.kind == source.kind
+
+
+def _check_mill_pin(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
+    if not _pin_matches(mill, source):
+        raise ValueError(f"{mill_id} pin disagrees with sources.py")
+    if mill.n_rows != len(mill.pairs) + len(mill.plants):
+        raise ValueError(f"{mill_id} n_rows does not match extracted rows")
 
 
 CATALOG = load_catalog()

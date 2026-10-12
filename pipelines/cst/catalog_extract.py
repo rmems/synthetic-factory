@@ -14,7 +14,7 @@ import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from .vocabulary import (
     CATALOG_ASSIGNMENT_NAMES,
@@ -91,19 +91,30 @@ def _assignment_names(node: ast.stmt) -> list[str]:
     return []
 
 
+def _assigns_name(node: ast.stmt, name: str) -> bool:
+    if not isinstance(node, ast.Assign):
+        return False
+    return any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+
+
+def _joined_path_operand(value: ast.expr) -> str | None:
+    if not isinstance(value, ast.BinOp) or not isinstance(value.op, ast.Div):
+        return None
+    if isinstance(value.right, ast.Constant) and isinstance(value.right.value, str):
+        return value.right.value
+    return None
+
+
 def extract_joined_path_constant(source: str, name: str) -> str | None:
     """``NAME = <expr> / "relative/path"`` → the string operand, if that is the shape."""
 
     tree = ast.parse(source)
     for node in tree.body:
-        if not isinstance(node, ast.Assign):
+        if not _assigns_name(node, name):
             continue
-        if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
-            continue
-        value = node.value
-        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div):
-            if isinstance(value.right, ast.Constant) and isinstance(value.right.value, str):
-                return value.right.value
+        operand = _joined_path_operand(node.value)
+        if operand is not None:
+            return operand
     return None
 
 
@@ -117,30 +128,26 @@ def extract_mill_catalog(
 
     payload = source.encode()
     namespace = extract_catalog_namespace(source, filename=path)
-    mill_id = mill_id_for_path(path)
+    mill = _MillFile(path=path, mill_id=mill_id_for_path(path), blob_sha=blob_sha, payload=payload)
     named_first = catalog_first_from_name(path)
     if "PAIRS" in namespace:
-        return _pairs_record(namespace, path=path, mill_id=mill_id, blob_sha=blob_sha, payload=payload)
+        return _pairs_record(namespace, mill)
     if "PLANTS" in namespace:
-        return _plants_record(
-            namespace,
-            path=path,
-            mill_id=mill_id,
-            blob_sha=blob_sha,
-            payload=payload,
-            named_first=named_first,
-        )
+        return _plants_record(namespace, mill, named_first=named_first)
     raise ValueError(f"{path} has no PAIRS or PLANTS catalog assignment")
 
 
-def _pairs_record(
-    namespace: Mapping[str, Any],
-    *,
-    path: str,
-    mill_id: str,
-    blob_sha: str,
-    payload: bytes,
-) -> dict[str, Any]:
+class _MillFile(NamedTuple):
+    """The mill source a catalog record describes: where it lives and its bytes."""
+
+    path: str
+    mill_id: str
+    blob_sha: str
+    payload: bytes
+
+
+def _pairs_record(namespace: Mapping[str, Any], mill: _MillFile) -> dict[str, Any]:
+    path, mill_id, blob_sha, payload = mill
     pairs = tuple(tuple(row) for row in namespace["PAIRS"])
     if not pairs:
         raise ValueError(f"{path}: PAIRS is empty")
@@ -172,14 +179,9 @@ def _pairs_record(
 
 
 def _plants_record(
-    namespace: Mapping[str, Any],
-    *,
-    path: str,
-    mill_id: str,
-    blob_sha: str,
-    payload: bytes,
-    named_first: int | None,
+    namespace: Mapping[str, Any], mill: _MillFile, *, named_first: int | None
 ) -> dict[str, Any]:
+    path, mill_id, blob_sha, payload = mill
     plants = tuple(namespace["PLANTS"])
     if not plants:
         raise ValueError(f"{path}: PLANTS is empty")
