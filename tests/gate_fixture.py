@@ -112,10 +112,15 @@ def _reward_annotated(records, source_path, sidecars=None):
             record, source_path=source_path, source_line=source_line
         )
         annotated.append(curated)
-        if sidecars is not None and sidecar["sidecar_id"] not in known_sidecars:
-            sidecars.append(sidecar)
-            known_sidecars.add(sidecar["sidecar_id"])
+        _collect_new_sidecar(sidecars, known_sidecars, sidecar)
     return annotated
+
+
+def _collect_new_sidecar(sidecars, known_sidecars, sidecar):
+    """Append sidecar to the caller's list once per sidecar_id, when a list was given."""
+    if sidecars is not None and sidecar["sidecar_id"] not in known_sidecars:
+        sidecars.append(sidecar)
+        known_sidecars.add(sidecar["sidecar_id"])
 
 
 def _stamp_canonical_identity_ids(records, relative):
@@ -184,55 +189,94 @@ def _lane_manifest_entry(
         original = source_record if isinstance(source_record, dict) else record
         kind = curate_identity.record_kind(original)
         owners = curate_gate._identity_owner_specs(original, kind, "fixture")
-        id_owner_paths = ["/", *(path for path, _owner in owners if path != "/")]
-        entry["id_mappings"] = []
-        for owner_path in id_owner_paths:
-            output_owner = curate_gate._mapping_value(record, owner_path, "fixture output owner")
-            entry["id_mappings"].append(
-                {
-                    "owner_path": owner_path,
-                    "original_ids": curate_gate._source_original_ids(
-                        original,
-                        owner_path,
-                        "fixture source owner",
-                    ),
-                    "output_id": output_owner.get("id"),
-                }
-            )
-        state_owners = owners or [("/", original)]
-        use_state = any(
-            isinstance(state := owner.get("state"), dict)
-            and ("sim_or_real" in state or "provenance" in state)
-            for _owner_path, owner in state_owners
+        entry["id_mappings"] = _fixture_id_mappings(record, original, owners)
+        provenance_paths = _fixture_provenance_paths(kind, owners or [("/", original)])
+        entry["provenance_mappings"] = _fixture_provenance_mappings(
+            record, original, provenance_paths
         )
-        provenance_paths = []
-        if use_state:
-            provenance_paths.extend(
-                (owner_path, curate_gate._mapping_pointer(owner_path, "state"))
-                for owner_path, _owner in state_owners
-            )
-            if kind in {"preference", "bridge_pair", "episode", "safety_case", "multi_agent"}:
-                provenance_paths.append(("/", None))
-        else:
-            provenance_paths.append(("/", None))
-        entry["provenance_mappings"] = []
-        for owner_path, state_path in provenance_paths:
-            output_owner = curate_gate._mapping_value(record, owner_path, "fixture output owner")
-            entry["provenance_mappings"].append(
-                {
-                    "owner_path": owner_path,
-                    "state_path": state_path,
-                    "basis": "fixture",
-                    "original": curate_gate._source_original_provenance(
-                        original,
-                        owner_path,
-                        state_path,
-                        "fixture source provenance",
-                    ),
-                    "canonical": copy.deepcopy(output_owner["provenance"]),
-                }
-            )
     return entry
+
+
+def _uses_state_provenance(state_owners):
+    """Whether any owner carries a state claim that identity curation maps."""
+    return any(
+        isinstance(state := owner.get("state"), dict)
+        and ("sim_or_real" in state or "provenance" in state)
+        for _owner_path, owner in state_owners
+    )
+
+
+def _fixture_id_mappings(record, original, owners):
+    id_owner_paths = ["/", *(path for path, _owner in owners if path != "/")]
+    id_mappings = []
+    for owner_path in id_owner_paths:
+        output_owner = curate_gate._mapping_value(record, owner_path, "fixture output owner")
+        id_mappings.append(
+            {
+                "owner_path": owner_path,
+                "original_ids": curate_gate._source_original_ids(
+                    original,
+                    owner_path,
+                    "fixture source owner",
+                ),
+                "output_id": output_owner.get("id"),
+            }
+        )
+    return id_mappings
+
+
+def _fixture_provenance_paths(kind, state_owners):
+    """(owner_path, state_path) targets identity curation records provenance for."""
+    provenance_paths = []
+    if _uses_state_provenance(state_owners):
+        provenance_paths.extend(
+            (owner_path, curate_gate._mapping_pointer(owner_path, "state"))
+            for owner_path, _owner in state_owners
+        )
+        if kind in {"preference", "bridge_pair", "episode", "safety_case", "multi_agent"}:
+            provenance_paths.append(("/", None))
+    else:
+        provenance_paths.append(("/", None))
+    return provenance_paths
+
+
+def _fixture_provenance_mappings(record, original, provenance_paths):
+    provenance_mappings = []
+    for owner_path, state_path in provenance_paths:
+        output_owner = curate_gate._mapping_value(record, owner_path, "fixture output owner")
+        provenance_mappings.append(
+            {
+                "owner_path": owner_path,
+                "state_path": state_path,
+                "basis": "fixture",
+                "original": curate_gate._source_original_provenance(
+                    original,
+                    owner_path,
+                    state_path,
+                    "fixture source provenance",
+                ),
+                "canonical": copy.deepcopy(output_owner["provenance"]),
+            }
+        )
+    return provenance_mappings
+
+
+def _stamp_designed_provenance(records):
+    """Give each identity-lane record, and its state owners, fixture designed provenance."""
+    for record in records:
+        canonical = {"kind": "designed", "claimed": None, "basis": "fixture"}
+        kind = curate_identity.record_kind(record)
+        owners = curate_gate._identity_owner_specs(record, kind, "fixture")
+        state_owners = owners or [("/", record)]
+        use_state = _uses_state_provenance(state_owners)
+        record["provenance"] = copy.deepcopy(canonical)
+        if use_state:
+            for _owner_path, owner in state_owners:
+                owner["provenance"] = copy.deepcopy(canonical)
+                owner["state"]["provenance"] = copy.deepcopy(canonical)
+        else:
+            for _owner_path, owner in owners:
+                owner["provenance"] = copy.deepcopy(canonical)
 
 
 _INTEGRATION_PLAN = {
@@ -432,12 +476,61 @@ class GateFixture:
         self.plan_path = self.root / "plan.json"
         self.plan_path.write_text(json.dumps(_INTEGRATION_PLAN, indent=2))
 
-    def source_hash(self, source_path, source_line):
+    def _raw_source_line(self, source_path, source_line):
         payload = (self.source_run / source_path).read_bytes().split(b"\n")
         raw_line = payload[source_line - 1]
         if raw_line.endswith(b"\r"):
             raw_line = raw_line[:-1]
-        return curate_gate.sha256_hex(raw_line)
+        return raw_line
+
+    def source_hash(self, source_path, source_line):
+        return curate_gate.sha256_hex(self._raw_source_line(source_path, source_line))
+
+    def _retained_lane_entries(self, lane, path):
+        """Manifest entries retaining every record of one lane JSONL file."""
+        lane_dir, transform, version = lane
+        relative = path.relative_to(lane_dir).as_posix()
+        records = _read_jsonl(path)
+        if transform == "curate_identity":
+            _stamp_designed_provenance(records)
+            _write_jsonl(path, records)
+        entries = []
+        for line, record in enumerate(records, 1):
+            source_line = self._raw_source_line(relative, line)
+            entries.append(
+                _lane_manifest_entry(
+                    "retained",
+                    line,
+                    transform=transform,
+                    version=version,
+                    source_path=relative,
+                    record=record,
+                    source_record=json.loads(source_line.decode("utf-8")),
+                    identity_mappings=transform == "curate_identity",
+                    source_hash=self.source_hash(relative, line),
+                )
+            )
+        return entries
+
+    def _default_bridge_exclusions(self):
+        first_excluded = self.bridge_source_records + 1
+        return (
+            _lane_manifest_entry(
+                "quarantine",
+                first_excluded,
+                ["AMBIGUOUS_EVENT_ORDER"],
+            ),
+            _lane_manifest_entry("excluded", first_excluded + 1, ["INVALID_JSON"]),
+        )
+
+    def _with_source_hash(self, extra):
+        """Copy of an extra entry whose placeholder source_hash is replaced by the real one."""
+        normalized = copy.deepcopy(extra)
+        if normalized.get("source_hash") == "0" * 64:
+            normalized["source_hash"] = self.source_hash(
+                normalized["source_path"], normalized["source_line"]
+            )
+        return normalized
 
     def sync_lane_manifest(self, lane_index, *, extras=()):
         lane_dir, transform, version = self.lanes[lane_index]
@@ -445,62 +538,11 @@ class GateFixture:
         for path in sorted(lane_dir.rglob("*.jsonl")):
             if path.name == REWARD_SIDECARS_FILE:
                 continue
-            relative = path.relative_to(lane_dir).as_posix()
-            records = _read_jsonl(path)
-            if transform == "curate_identity":
-                for record in records:
-                    canonical = {"kind": "designed", "claimed": None, "basis": "fixture"}
-                    kind = curate_identity.record_kind(record)
-                    owners = curate_gate._identity_owner_specs(record, kind, "fixture")
-                    state_owners = owners or [("/", record)]
-                    use_state = any(
-                        isinstance(state := owner.get("state"), dict)
-                        and ("sim_or_real" in state or "provenance" in state)
-                        for _owner_path, owner in state_owners
-                    )
-                    record["provenance"] = copy.deepcopy(canonical)
-                    if use_state:
-                        for _owner_path, owner in state_owners:
-                            owner["provenance"] = copy.deepcopy(canonical)
-                            owner["state"]["provenance"] = copy.deepcopy(canonical)
-                    else:
-                        for _owner_path, owner in owners:
-                            owner["provenance"] = copy.deepcopy(canonical)
-                _write_jsonl(path, records)
-            for line, record in enumerate(records, 1):
-                source_line = (self.source_run / relative).read_bytes().split(b"\n")[line - 1]
-                if source_line.endswith(b"\r"):
-                    source_line = source_line[:-1]
-                entries.append(
-                    _lane_manifest_entry(
-                        "retained",
-                        line,
-                        transform=transform,
-                        version=version,
-                        source_path=relative,
-                        record=record,
-                        source_record=json.loads(source_line.decode("utf-8")),
-                        identity_mappings=transform == "curate_identity",
-                        source_hash=self.source_hash(relative, line),
-                    )
-                )
+            entries.extend(self._retained_lane_entries((lane_dir, transform, version), path))
         if lane_index == 0 and not extras:
-            first_excluded = self.bridge_source_records + 1
-            extras = (
-                _lane_manifest_entry(
-                    "quarantine",
-                    first_excluded,
-                    ["AMBIGUOUS_EVENT_ORDER"],
-                ),
-                _lane_manifest_entry("excluded", first_excluded + 1, ["INVALID_JSON"]),
-            )
+            extras = self._default_bridge_exclusions()
         for extra in extras:
-            normalized = copy.deepcopy(extra)
-            if normalized.get("source_hash") == "0" * 64:
-                normalized["source_hash"] = self.source_hash(
-                    normalized["source_path"], normalized["source_line"]
-                )
-            entries.append(normalized)
+            entries.append(self._with_source_hash(extra))
         manifest_path = lane_dir / "manifest.json"
         manifest_path.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
         if len(self.manifest_paths) <= lane_index:
