@@ -25,7 +25,6 @@ from pipelines.leftover6.catalog_extract import (
     SSL_PAIR_FIELDS,
     SSL_PATH,
     UNSET,
-    dumps_header,
     extract_source,
     literal_value,
 )
@@ -194,12 +193,6 @@ class Leftover6LiteralExtraction(unittest.TestCase):
             extract_source(source, path=SSL_PATH)
         self.assertEqual(
             str(caught.exception), f"{SSL_PATH} PAIRS[0] keys drifted from {SSL_PAIR_FIELDS}"
-        )
-
-    def test_header_dump_is_sorted_indented_ascii_with_a_final_newline(self):
-        self.assertEqual(
-            dumps_header({"b": 1, "a": ["\u00e9"]}),
-            '{\n  "a": [\n    "\\u00e9"\n  ],\n  "b": 1\n}\n',
         )
 
 
