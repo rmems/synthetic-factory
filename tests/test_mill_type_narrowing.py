@@ -42,25 +42,35 @@ def _stmt(text: str) -> ast.stmt:
     return ast.parse(text).body[0]
 
 
-class LllRegistryRefusalTests(unittest.TestCase):
-    def _registry_factories(self, document: object) -> set[str]:
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "config").mkdir()
-            registry = Path(tmp) / "config" / "FACTORY-REGISTRY.json"
-            registry.write_text(json.dumps(document), encoding="utf-8")
-            with mock.patch.object(lll_catalog, "repo_root", return_value=Path(tmp)):
-                return lll_catalog._registry_factories()
+def _registry_factories(document: object) -> set[str]:
+    """LLL registry rows read from ``document`` written as a temporary repo's registry."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "config").mkdir()
+        registry = Path(tmp) / "config" / "FACTORY-REGISTRY.json"
+        registry.write_text(json.dumps(document), encoding="utf-8")
+        with mock.patch.object(lll_catalog, "repo_root", return_value=Path(tmp)):
+            return lll_catalog._registry_factories()
 
+
+def _run_cer(argv: list[str]) -> tuple[int, str]:
+    """Exit code and captured stdout of the CER CLI."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = cer_cli.run(argv)
+    return code, out.getvalue()
+
+
+class LllRegistryRefusalTests(unittest.TestCase):
     def test_malformed_registry_is_refused(self):
         for document in ([], {}, {"factories": {}}):
             with self.subTest(document=document), self.assertRaises(LllRefusal) as ctx:
-                self._registry_factories(document)
+                _registry_factories(document)
             self.assertEqual(ctx.exception.code, FINDING_FACTORY_NOT_REGISTERED)
             self.assertEqual(ctx.exception.message, "factory registry is malformed")
 
     def test_registry_rows_keep_only_string_path_ids(self):
         document = {"factories": [{"path_id": "a"}, {"path_id": 1}, "x"]}
-        self.assertEqual(self._registry_factories(document), {"a"})
+        self.assertEqual(_registry_factories(document), {"a"})
 
 
 class LllFnPairArgsTests(unittest.TestCase):
@@ -104,15 +114,9 @@ class CerPlanCliTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _run(self, argv: list[str]) -> tuple[int, str]:
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            code = cer_cli.run(argv)
-        return code, out.getvalue()
-
     def test_text_summary_reads_the_plan_counts(self):
         counts = load_mill_usage_burst_plan(None).counts()
-        code, text = self._run(["plan"])
+        code, text = _run_cer(["plan"])
         self.assertEqual(code, 0)
         self.assertIn(
             f"{counts['mills']} mills, {counts['rounds']} rounds, {counts['episodes']} episodes",
@@ -121,7 +125,7 @@ class CerPlanCliTests(unittest.TestCase):
 
     def test_json_payload_carries_the_same_counts(self):
         counts = load_mill_usage_burst_plan(None).counts()
-        code, text = self._run(["plan", "--json"])
+        code, text = _run_cer(["plan", "--json"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(text)["counts"], counts)
 
