@@ -120,15 +120,19 @@ def _verified_composed_source(mapping: Mapping):
     return _hash_verified_manifest_source(source_meta, 0)
 
 
+def _only_stage(stages: list[dict[str, Any]]) -> dict[str, Any]:
+    """The single stage a replay appends; ValueError when it appended none or several."""
+    (stage,) = stages
+    return stage
+
+
 def _replayed_identity_stage(source) -> dict:
     stages: list[dict[str, Any]] = []
     _compose_identity_stage_with_source(
         source.record, stages,
         SourceCoordinates(source.source_path, source.source_line, source.source_sha256),
     )
-    if len(stages) != 1:
-        raise ValueError("composed identity source does not replay to one identity stage")
-    identity = stages[0]
+    identity = _only_stage(stages)
     if identity["action"] != ACTION_RETAINED:
         raise ValueError("composed identity source does not replay to retention")
     expected = identity["detail"]

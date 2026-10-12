@@ -81,18 +81,20 @@ def _appending(*stages):
     return compose
 
 
+def _replay(*stages):
+    """Replay with an identity compose that appends exactly ``stages``."""
+    with mock.patch.object(
+        compose_curated_rights, "_compose_identity_stage_with_source", _appending(*stages)
+    ):
+        return compose_curated_rights._replayed_identity_stage(_replay_source())
+
+
 class ReplayedIdentityStageCount(unittest.TestCase):
     """The replay accepts exactly the one identity stage compose appends."""
 
-    def _replay(self, *stages):
-        with mock.patch.object(
-            compose_curated_rights, "_compose_identity_stage_with_source", _appending(*stages)
-        ):
-            return compose_curated_rights._replayed_identity_stage(_replay_source())
-
     def test_one_retained_stage_returns_its_detail_with_the_source_bytes(self):
         stage = {"action": "retained", "detail": {"source": {"line": 1}}}
-        expected = self._replay(stage)
+        expected = _replay(stage)
         self.assertEqual(expected, {"source": {"line": 1, "original": "{}"}})
 
     def test_no_stage_or_extra_stages_are_refused(self):
@@ -100,6 +102,6 @@ class ReplayedIdentityStageCount(unittest.TestCase):
         for stages in ((), (retained, retained)):
             with (
                 self.subTest(count=len(stages)),
-                self.assertRaisesRegex(ValueError, "one identity stage"),
+                self.assertRaisesRegex(ValueError, "values to unpack"),
             ):
-                self._replay(*stages)
+                _replay(*stages)
