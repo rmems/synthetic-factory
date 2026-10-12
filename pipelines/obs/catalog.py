@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -247,9 +247,10 @@ def _const_set(node: ast.Set) -> set[Any]:
     return {_const_eval(item) for item in node.elts}
 
 def _const_dict(node: ast.Dict) -> dict[Any, Any]:
-    if any(key is None for key in node.keys):
+    keys = [key for key in node.keys if key is not None]
+    if len(keys) != len(node.keys):
         raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
 
 def _const_negated(node: ast.UnaryOp) -> Any:
     if not isinstance(node.op, ast.USub):
@@ -257,7 +258,7 @@ def _const_negated(node: ast.UnaryOp) -> Any:
     return -_const_eval(node.operand)
 
 # One evaluator per literal node type; any other node is refused as not a constant.
-_CONST_EVALUATORS = (
+_CONST_EVALUATORS: tuple[tuple[type[ast.AST], Callable[[Any], Any]], ...] = (
     (ast.Constant, _const_value),
     (ast.List, _const_list),
     (ast.Tuple, _const_tuple),
@@ -506,16 +507,15 @@ def _eval_plant_node(node: ast.AST, kind_ns: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        return _eval_plant_call(node, kind_ns)
+        return _eval_plant_call(node, node.func.id, kind_ns)
     raise _not_a_constant(node)
 
 def _keyword_values(node: ast.Call) -> dict[str, Any]:
     return {kw.arg: _const_eval(kw.value) for kw in node.keywords if kw.arg}
 
-def _eval_plant_call(node: ast.Call, kind_ns: Mapping[str, Any]) -> Any:
+def _eval_plant_call(node: ast.Call, name: str, kind_ns: Mapping[str, Any]) -> Any:
     """``dict(k=v)``, keyword ``P(...)``/``_P(...)`` with hop defaults, or positional r401 ``P``."""
 
-    name = node.func.id
     if name == "dict" and not node.args:
         return _keyword_values(node)
     if name in {"P", "_P"} and _is_keyword_only_call(node):
@@ -620,7 +620,7 @@ def _base_round(base: Any, mill_id: str, source: str) -> int:
     return _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
 
 def _spec_rows(
-    nodes: list[ast.AST], origin: _Origin, family: str, kind_ns: Mapping[str, Any]
+    nodes: list[ast.expr], origin: _Origin, family: str, kind_ns: Mapping[str, Any]
 ) -> tuple[dict[str, Any], ...]:
     return tuple(
         _spec_from_raw(_eval_plant_node(node, kind_ns), origin, index, family)
@@ -628,7 +628,7 @@ def _spec_rows(
     )
 
 def _pair_rows(
-    nodes: list[ast.AST], origin: _Origin, shape: str, kind_ns: Mapping[str, Any]
+    nodes: list[ast.expr], origin: _Origin, shape: str, kind_ns: Mapping[str, Any]
 ) -> tuple[dict[str, Any], ...]:
     return tuple(
         _pair_from_raw(_eval_plant_node(node, kind_ns), origin, index, shape)

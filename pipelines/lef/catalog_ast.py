@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -112,7 +112,7 @@ def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor) -> Any:
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -151,7 +151,7 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
 
 
 # One resolver per literal node type, tried in this order; anything else is ``UNSET``.
-_RESOLVERS = (
+_RESOLVERS: tuple[tuple[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]], ...] = (
     (ast.Constant, _constant),
     (ast.Name, _bound_name),
     (ast.UnaryOp, _negated),
@@ -165,7 +165,7 @@ _RESOLVERS = (
 )
 
 
-def call_name(node: ast.AST) -> str | None:
+def call_name(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return node.func.id
     return None

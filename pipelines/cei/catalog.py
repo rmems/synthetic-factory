@@ -14,10 +14,10 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
 from ._contract import (
     BAD_ARG_NAMES,
@@ -374,9 +374,10 @@ def _const_tuple(node: ast.Tuple) -> tuple[Any, ...]:
 
 
 def _const_dict(node: ast.Dict) -> dict[Any, Any]:
-    if any(key is None for key in node.keys):
+    keys = [key for key in node.keys if key is not None]
+    if len(keys) != len(node.keys):
         raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
 
 
 def _const_negated(node: ast.UnaryOp) -> Any:
@@ -386,7 +387,7 @@ def _const_negated(node: ast.UnaryOp) -> Any:
 
 
 # One evaluator per literal node type; any other node is refused as not a constant.
-_CONST_EVALUATORS = (
+_CONST_EVALUATORS: tuple[tuple[type[ast.AST], Callable[[Any], Any]], ...] = (
     (ast.Constant, _const_value),
     (ast.List, _const_list),
     (ast.Tuple, _const_tuple),
@@ -472,7 +473,7 @@ def _is_ok_bad_pair(node: ast.AST) -> bool:
     )
 
 
-def _is_s_pair(node: ast.AST) -> bool:
+def _is_s_pair(node: ast.AST) -> TypeGuard[ast.Tuple]:
     return (
         isinstance(node, ast.Tuple)
         and len(node.elts) == 2
@@ -481,7 +482,7 @@ def _is_s_pair(node: ast.AST) -> bool:
     )
 
 
-def _is_dict_leftover3_pair(node: ast.AST) -> bool:
+def _is_dict_leftover3_pair(node: ast.AST) -> TypeGuard[ast.Tuple]:
     return (
         isinstance(node, ast.Tuple)
         and len(node.elts) == 2
@@ -613,21 +614,24 @@ def _checked_base(base: Any, mill_id: str, source: str) -> int:
     return base
 
 
-def _require_named_call(node: ast.AST, where: str) -> None:
+def _called_name(node: ast.AST, where: str) -> str:
+    """The function name of a ``name(...)`` call; anything else is refused at ``where``."""
+
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, where)
+    return node.func.id
 
 
-def _ok_bad_nodes(raw: ast.AST, where: str) -> tuple[ast.Call, ast.Call]:
+def _ok_bad_nodes(raw: ast.AST, where: str) -> tuple[ast.expr, ast.expr]:
     if not isinstance(raw, ast.Tuple) or len(raw.elts) != 2:
         raise CeiRefusal(
             FINDING_SOURCE_NOT_PARSEABLE,
             f"{where} is not an (_ok, _bad) tuple",
         )
     ok_node, bad_node = raw.elts
-    _require_named_call(ok_node, f"{where}[0]")
-    _require_named_call(bad_node, f"{where}[1]")
-    if ok_node.func.id != OK_CALL or bad_node.func.id != BAD_CALL:
+    ok_name = _called_name(ok_node, f"{where}[0]")
+    bad_name = _called_name(bad_node, f"{where}[1]")
+    if ok_name != OK_CALL or bad_name != BAD_CALL:
         raise CeiRefusal(
             FINDING_SOURCE_NOT_PARSEABLE,
             f"{where} must be {_ok_label()}",
@@ -815,7 +819,7 @@ def _side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Side:
     return Side(**fields, ticket=ticket, ticket_why=ticket_why)
 
 
-def _is_int_at_least(value: Any, minimum: int) -> bool:
+def _is_int_at_least(value: Any, minimum: int) -> TypeGuard[int]:
     """An int (never a bool) of at least ``minimum``."""
 
     return isinstance(value, int) and not isinstance(value, bool) and value >= minimum

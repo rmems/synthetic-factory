@@ -343,20 +343,22 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
     if sum(1 for item in selected if item) != 1:
         raise ObsRefusal(FINDING_USAGE, "generate requires exactly one of --plant / --mill / --all")
     if request.plant_id is not None:
-        return [_plant_job(loaded, request)]
+        return [_plant_job(loaded, request.plant_id, request.round)]
     if request.round is not None:
         raise ObsRefusal(FINDING_USAGE, "--round is only valid with --plant")
     return _pair_jobs(_selected_plants(loaded, request))
 
 
-def _plant_job(loaded: cat.Catalog, request: GenerateRequest) -> tuple[int, cat.Plant]:
-    plant = loaded.plant(request.plant_id)
+def _plant_job(
+    loaded: cat.Catalog, plant_id: str, round_n: int | None
+) -> tuple[int, cat.Plant]:
+    plant = loaded.plant(plant_id)
     if plant.shape not in {SHAPE_HOP, SHAPE_LEFTOVER3}:
         raise ObsRefusal(
             FINDING_SHAPE_UNSUPPORTED,
             f"generate refuses leftover-spec plant {plant.plant_id}",
         )
-    return (_require_round(request.round, plant.base_round), plant)
+    return (_require_round(round_n, plant.base_round), plant)
 
 
 def _selected_plants(loaded: cat.Catalog, request: GenerateRequest) -> tuple[cat.Plant, ...]:

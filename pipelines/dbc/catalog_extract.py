@@ -480,7 +480,7 @@ def _names_one_of(node: ast.expr, names: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in names
 
 
-def _is_named_ctor_tuple(node: ast.AST, names: set[str]) -> bool:
+def _is_named_ctor_tuple(node: ast.AST, names: frozenset[str]) -> bool:
     if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
         return False
     return call_name(node.elts[0]) in names and call_name(node.elts[1]) in names
@@ -658,7 +658,7 @@ def _compose_r248(
         for pair in companion.get("pairs") or ()
         if pair["success_slug"] not in skip and pair["fail_slug"] not in skip
     ]
-    rows = [*kept, *list(current.get("pairs") or ())]
+    rows: list[dict[str, Any]] = [*kept, *list(current.get("pairs") or ())]
     current.update(_rows_record(SHAPE_SKIP_EXTRA, rows))
     current["n_extra"] = len(records[R248_MILL_ID].get("pairs") or ())
     current["n_skip"] = len(skip)
@@ -673,7 +673,7 @@ def _compose_r647(
     companion = composed[R647_COMPANION_ID]
     current = composed[R647_MILL_ID]
     inherited = list(companion.get("pairs") or ())[R647_INHERIT_FROM:]
-    rows = [*inherited, *list(records[R647_MILL_ID].get("pairs") or ())]
+    rows: list[dict[str, Any]] = [*inherited, *list(records[R647_MILL_ID].get("pairs") or ())]
     current.update(_rows_record(SHAPE_NEW_EXTEND, rows))
     current["n_new"] = len(records[R647_MILL_ID].get("pairs") or ())
     current["n_inherited"] = len(inherited)

@@ -7,8 +7,8 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeGuard
 
 UNSET = object()
 
@@ -83,7 +83,7 @@ def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor) -> Any:
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -122,7 +122,7 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
 
 
 # One resolver per literal node type, tried in this order; anything else is ``UNSET``.
-_RESOLVERS = (
+_RESOLVERS: tuple[tuple[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]], ...] = (
     (ast.Constant, _constant),
     (ast.Name, _bound_name),
     (ast.UnaryOp, _negated),
@@ -149,13 +149,13 @@ def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str
     out: dict[str, Any] = {}
     for keyword in node.keywords:
         value = literal_value(keyword.value, env)
-        if value is UNSET:
+        if keyword.arg is None or value is UNSET:
             return None
         out[keyword.arg] = value
     return out
 
 
-def _is_keyword_only_call(node: ast.AST) -> bool:
+def _is_keyword_only_call(node: ast.AST) -> TypeGuard[ast.Call]:
     """``name(key=value, ...)`` with no positional and no ``**`` arguments."""
 
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
@@ -184,17 +184,17 @@ def joined_path_constant(node: ast.AST) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-        return _with_name_path(node)
+        return _with_name_path(node.func, node.args)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
         return _divided_path(node)
     return None
 
 
-def _with_name_path(node: ast.Call) -> str | None:
+def _with_name_path(func: ast.Attribute, args: list[ast.expr]) -> str | None:
     """``x.with_name(<path>)`` → the joined path of its first argument."""
 
-    if node.func.attr == "with_name" and node.args:
-        return joined_path_constant(node.args[0])
+    if func.attr == "with_name" and args:
+        return joined_path_constant(args[0])
     return None
 
 
@@ -253,7 +253,7 @@ def tip_slug_asserts(tree: ast.AST) -> dict[str, str]:
 
     tips: dict[str, str] = {}
     for node in ast.walk(tree):
-        tip = _slug_tip(node)
+        tip = _slug_tip(node) if isinstance(node, ast.Compare) else None
         if tip is None:
             continue
         index, slug = tip
@@ -264,10 +264,10 @@ def tip_slug_asserts(tree: ast.AST) -> dict[str, str]:
     return tips
 
 
-def _not_equal_string(node: ast.AST) -> str | None:
+def _not_equal_string(node: ast.Compare) -> str | None:
     """The string constant ``"text"`` of a ``... != "text"`` comparison."""
 
-    if not isinstance(node, ast.Compare) or not node.ops:
+    if not node.ops:
         return None
     if not isinstance(node.ops[0], ast.NotEq):
         return None
@@ -277,7 +277,7 @@ def _not_equal_string(node: ast.AST) -> str | None:
     return slug if isinstance(slug, str) else None
 
 
-def _slug_tip(node: ast.AST) -> tuple[Any, str] | None:
+def _slug_tip(node: ast.Compare) -> tuple[Any, str] | None:
     """``X[i]["slug"] != "tip"`` → ``(i, "tip")``."""
 
     slug = _not_equal_string(node)

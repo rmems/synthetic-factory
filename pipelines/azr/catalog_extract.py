@@ -11,7 +11,7 @@ import ast
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +87,7 @@ def _list_assignment(tree: ast.AST, name: str) -> ast.List | None:
     return None
 
 
-def _identity_list(elts: list[ast.AST]) -> list[dict[str, Any]]:
+def _identity_list(elts: Sequence[ast.AST]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for elt in elts:
         kwargs = identity_kwargs(elt)
