@@ -10,10 +10,12 @@ shape and the no-exec contract without publishing a raw round.
 """
 
 import ast
+import importlib.util
 import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import ClassVar
@@ -227,6 +229,23 @@ def _is_plants_assignment(node):
     )
 
 
+def _import_legacy_builders(builders, round_no):
+    """Import only the kept legacy builder functions from a throwaway module file.
+
+    The selected ``FunctionDef`` nodes are unparsed, in source order, into one
+    module that is loaded from a temporary directory and never registered in
+    ``sys.modules``; nothing else from the legacy mill (``txn``/``main``) runs.
+    """
+    source = ast.unparse(ast.Module(body=builders, type_ignores=[]))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"legacy_r{round_no}.py"
+        path.write_text(source + "\n", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(f"legacy_r{round_no}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    return {node.name: getattr(module, node.name) for node in builders}
+
+
 class DlkFidelityToLegacy(unittest.TestCase):
     """Optionally prove the cleaned builders reproduce the legacy records byte-for-byte.
 
@@ -256,12 +275,14 @@ class DlkFidelityToLegacy(unittest.TestCase):
         tree = ast.parse(src)
         keep = {"step", "success_ep", "fail_ep", "notes", "PLANTS"}
         namespace: dict = {}
+        builders = []
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.Assign)) and getattr(node, "lineno", None):
                 if isinstance(node, ast.FunctionDef) and node.name in keep:
-                    exec(compile(ast.Module([node], []), "<legacy>", "exec"), namespace)  # noqa: S102
+                    builders.append(node)
                 elif _is_plants_assignment(node):
                     namespace["PLANTS"] = ast.literal_eval(node.value)
+        namespace.update(_import_legacy_builders(builders, round_no))
         return namespace
 
     def test_cleaned_records_match_legacy_byte_for_byte(self):
