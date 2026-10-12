@@ -46,29 +46,41 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
         return node.value
     if isinstance(node, ast.Name):
         return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node, bound)
+    if isinstance(node, (ast.UnaryOp, ast.BinOp)):
+        return _operator_value(node, bound)
+    return _container_value(node, bound)
+
+
+def _operator_value(node: ast.UnaryOp | ast.BinOp, env: Mapping[str, Any]) -> Any:
+    """Negated numbers and ``str + str`` concatenation; other operators are ``UNSET``."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = literal_value(node.operand, env)
+        return -inner if isinstance(inner, (int, float)) else UNSET
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
+        left = literal_value(node.left, env)
+        right = literal_value(node.right, env)
         if isinstance(left, str) and isinstance(right, str):
             return left + right
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _container_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
+    if isinstance(node, ast.Tuple):
+        return _sequence(node.elts, env, tuple)
+    if isinstance(node, ast.List):
+        return _sequence(node.elts, env, list)
+    if isinstance(node, ast.Set):
+        values = _sequence(node.elts, env, list)
+        return set(values) if values is not UNSET else UNSET
+    if isinstance(node, ast.Dict):
+        return _mapping(node, env)
+    return UNSET
+
+
+def _sequence(elts: list[ast.AST], env: Mapping[str, Any] | None, ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -115,33 +127,25 @@ def call_name(node: ast.AST) -> str | None:
 def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
     """Keyword arguments of a ``Name(...)`` call when every value is a literal."""
 
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+    if call_name(node) is None:
         return None
     if node.args or any(keyword.arg is None for keyword in node.keywords):
         return None
-    out: dict[str, Any] = {}
-    for keyword in node.keywords:
-        value = literal_value(keyword.value, env)
-        if keyword.arg is None or value is UNSET:
-            return None
-        out[keyword.arg] = value
-    return out
+    values = _sequence([keyword.value for keyword in node.keywords], env, list)
+    if values is UNSET:
+        return None
+    return dict(zip((keyword.arg for keyword in node.keywords), values, strict=True))
 
 
 def call_posargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> list[Any] | None:
     """Positional arguments of a ``Name(...)`` call when every value is a literal."""
 
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+    if call_name(node) is None:
         return None
     if node.keywords:
         return None
-    values: list[Any] = []
-    for arg in node.args:
-        value = literal_value(arg, env)
-        if value is UNSET:
-            return None
-        values.append(value)
-    return values
+    values = _sequence(node.args, env, list)
+    return None if values is UNSET else values
 
 
 def joined_path_constant(node: ast.AST) -> str | None:
@@ -149,19 +153,25 @@ def joined_path_constant(node: ast.AST) -> str | None:
 
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Call) and call_name(node) == "str" and node.args:
+    if call_name(node) == "str" and node.args:
         return joined_path_constant(node.args[0])
     if isinstance(node, ast.Name):
         return None
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-        left = joined_path_constant(node.left)
-        right = joined_path_constant(node.right)
-        if right is None:
-            return None
-        if left is None:
-            return right
-        return f"{left}/{right}"
+    if isinstance(node, ast.BinOp):
+        return _joined_division(node)
     return None
+
+
+def _joined_division(node: ast.BinOp) -> str | None:
+    if not isinstance(node.op, ast.Div):
+        return None
+    left = joined_path_constant(node.left)
+    right = joined_path_constant(node.right)
+    if right is None:
+        return None
+    if left is None:
+        return right
+    return f"{left}/{right}"
 
 
 def experiments_mill_path(name: str) -> str | None:
@@ -187,19 +197,25 @@ def extract_replace_mill_target(source: str) -> str | None:
     tree = parse_tree(source)
     found: list[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if not isinstance(node.func, ast.Attribute) or node.func.attr != "replace":
-            continue
-        if len(node.args) != 2:
-            continue
-        new = literal_value(node.args[1])
-        if not isinstance(new, str):
-            continue
-        path = experiments_mill_path(new)
+        path = _replace_mill_path(node)
         if path is not None:
             found.append(path)
     return found[-1] if found else None
+
+
+def _replace_mill_path(node: ast.AST) -> str | None:
+    """Mill path named by the replacement argument of one ``x.replace(old, new)`` call."""
+
+    if not isinstance(node, ast.Call):
+        return None
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "replace":
+        return None
+    if len(node.args) != 2:
+        return None
+    new = literal_value(node.args[1])
+    if not isinstance(new, str):
+        return None
+    return experiments_mill_path(new)
 
 
 def extract_named_mill_path(source: str, name: str) -> str | None:
@@ -227,16 +243,22 @@ def extract_write_wave_mill(source: str) -> str | None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
             continue
-        func = node.func
-        is_write = (isinstance(func, ast.Name) and func.id == "write_wave") or (
-            isinstance(func, ast.Attribute) and func.attr == "write_wave"
-        )
-        if not is_write:
+        if not _is_write_wave(node.func):
             continue
         wave = literal_value(node.args[0])
         if isinstance(wave, int):
             return f"experiments/ntp-mill-unique-llll{wave}.py"
     return None
+
+
+def _is_write_wave(func: ast.AST) -> bool:
+    """``write_wave`` called bare or as an attribute (``g.write_wave``)."""
+
+    if isinstance(func, ast.Name):
+        return func.id == "write_wave"
+    if isinstance(func, ast.Attribute):
+        return func.attr == "write_wave"
+    return False
 
 
 def extract_first_wave_table_mill(source: str) -> str | None:
