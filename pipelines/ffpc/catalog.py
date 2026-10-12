@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_ID,
@@ -159,7 +159,7 @@ def _sub_dict(mapping: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 def _row_index(row: Mapping[str, Any], offset: int) -> int:
     index = row.get("index")
-    return index if type(index) is int else offset
+    return index if isinstance(index, int) and not isinstance(index, bool) else offset
 
 
 def _diagnosis_root(diagnosis: Mapping[str, Any]) -> Any:
@@ -176,7 +176,7 @@ def _state_fields(state: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _is_named_call(node: ast.AST, name: str) -> bool:
+def _is_named_call(node: ast.AST, name: str) -> TypeGuard[ast.Call]:
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
 
 
@@ -317,7 +317,7 @@ def _plant_draft(
     }
 
 
-def _is_plain_dict_ast(node: ast.AST) -> bool:
+def _is_plain_dict_ast(node: ast.AST) -> TypeGuard[ast.Dict]:
     return isinstance(node, ast.Dict) and all(key is not None for key in node.keys)
 
 
