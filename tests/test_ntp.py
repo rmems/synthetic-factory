@@ -368,32 +368,37 @@ class NtpSkeletonTests(unittest.TestCase):
 
 
 class NtpLegacyExtractTests(unittest.TestCase):
+    def _live_mill_matching_committed(self, source):
+        """AST-extract one legacy mill and require it to match the committed catalog."""
+        text = subprocess.check_output(
+            ["git", "show", f"{nv.LEGACY_REF}:{source.path}"],
+            text=True,
+            cwd=REPO,
+        )
+        blob = subprocess.check_output(
+            ["git", "rev-parse", f"{nv.LEGACY_REF}:{source.path}"],
+            text=True,
+            cwd=REPO,
+        ).strip()
+        self.assertEqual(blob, source.blob_sha, source.mill_id)
+        live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
+        committed = CATALOG.mills[source.mill_id]
+        self.assertEqual(live["n_rows"], committed.n_rows, source.mill_id)
+        self.assertEqual(live["n_success"], committed.n_success, source.mill_id)
+        self.assertEqual(live["n_leftover"], committed.n_leftover, source.mill_id)
+        self.assertEqual(live["first_slug"], committed.first_slug, source.mill_id)
+        self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
+        self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
+        self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
+        self.assertEqual(live["shape"], committed.shape, source.mill_id)
+        return live
+
     def test_committed_catalog_matches_live_ast_extract(self):
         if not _legacy_available():
             self.skipTest("origin/legacy-mill-lane is not fetched")
         mills = []
         for source in catalog_sources():
-            text = subprocess.check_output(
-                ["git", "show", f"{nv.LEGACY_REF}:{source.path}"],
-                text=True,
-                cwd=REPO,
-            )
-            blob = subprocess.check_output(
-                ["git", "rev-parse", f"{nv.LEGACY_REF}:{source.path}"],
-                text=True,
-                cwd=REPO,
-            ).strip()
-            self.assertEqual(blob, source.blob_sha, source.mill_id)
-            live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
-            committed = CATALOG.mills[source.mill_id]
-            self.assertEqual(live["n_rows"], committed.n_rows, source.mill_id)
-            self.assertEqual(live["n_success"], committed.n_success, source.mill_id)
-            self.assertEqual(live["n_leftover"], committed.n_leftover, source.mill_id)
-            self.assertEqual(live["first_slug"], committed.first_slug, source.mill_id)
-            self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
-            self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
-            self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
-            self.assertEqual(live["shape"], committed.shape, source.mill_id)
+            live = self._live_mill_matching_committed(source)
             mills.append(
                 mill_summary(
                     live,
