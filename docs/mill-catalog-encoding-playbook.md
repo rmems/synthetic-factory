@@ -160,9 +160,12 @@ ACM also dropped the vendored loop fixture
 
 ## 5. Header + first-slice shape
 
-Put the header at `config/<family>/CATALOG.json` (preferred) or
-`pipelines/<family>/CATALOG.json` if the package is catalog-only.
-Pretty-print the header. Filename: `CATALOG.json`, not `catalog.json`.
+Put the header where the package shape puts it (§11.6):
+`config/<family>/CATALOG.json` for catalog-only and generate-library
+packages (RLB, AMC, CEI), `pipelines/<family>/CATALOG.json` for extract
+skeletons (GOR, MDB, EVH; WSR and ACM also keep theirs there).
+Pretty-print the header. Filename:
+`CATALOG.json`, not `catalog.json`. Field sets are in §11.1.
 
 Rank 1: header lists mills and hashes; `pairs.jsonl` / `plants.jsonl`
 holds every extracted row of the named mills. See
@@ -360,12 +363,14 @@ row_count: <committed> / <extracted>
 3. AST-extract into a temp tree. Do not `exec`. Count rows.
 4. Run the decision tree in §3. Pick rank 1 or 2 **before** creating
    files.
-5. Write header + JSONL, or header + counts + one first-slice.
-6. Write the sanctioned package only. Refuse vendor globs.
+5. Write header + JSONL, or header + counts + one first-slice
+   (§11.1, §11.2, §11.4).
+6. Write the sanctioned package only (§11.6). Refuse vendor globs
+   (§11.5).
 7. Pin compactness (`N` record lines, trailing newline, no CR, no
-   leading whitespace) and a `git ls-files` vendor check.
+   leading whitespace) and a vendor-glob check (§11.3).
 8. Run `git diff --stat origin/main...HEAD`. If M > 2300, drop to rank
-   2 or shrink the first slice **now**, on this head.
+   2 or shrink the first slice **now**, on this head (§11.7).
 9. Fill the PR body line-budget section. Name the deferred mills.
 10. Do not merge from the miller PR. Do not close it. Do not open a
     second PR for the slim.
@@ -388,3 +393,433 @@ squash. They should not have to invent an encoding.
 - Editing `pipelines/leftover_mill.py`,
   `pipelines/mill_reviewed_vocabulary.py`, or `pipelines/__init__.py`
   from a catalog-encoding change
+
+## 11. Copy-paste templates
+
+Fill the `<angle-bracket>` placeholders. Fields and code below are
+copied from the family each subsection cites, and every path and
+command exists on `main`; when a template and the cited file disagree,
+the file wins. `docs/mill-support-p4-design.md` plans to
+move the vendor-refusal loop, `sha256_bytes`, the majority
+`dumps_catalog`, and the AST literal helpers into one shared package.
+That package has not landed, so each family still carries these bodies.
+
+### 11.1 Header JSON
+
+Two header shapes are on `main`. Use the one that matches the package
+shape (§11.6); each family's loader pins its field set, so do not mix
+them. `factory` is the family's `REVIEWED_MILL_PREFIX_HOMES` value and
+must be a `config/FACTORY-REGISTRY.json` row.
+
+**Generate library, rank 1** — `config/<family>/CATALOG.json` beside
+`plants.jsonl` (CEI, GQL, FLK, MSD, RAG, SAF). The loader refuses a
+`plants_sha256` that is not the sha256 of the `plants.jsonl` bytes
+(final newline included). `record_kind` is pinned too: `episode`, or
+`safety_case` for SAF, matching the registry row's `record_kinds`.
+
+```json
+{
+  "catalog_id": "<family>-<plants|pairs>-v1",
+  "factory": "<factory-slug>",
+  "format": "<family>-catalog/1",
+  "mill_prefix": "<family>",
+  "mills": [
+    {
+      "base_round": <NN>,
+      "mill_id": "<family>_r<NN>",
+      "plant_count": <n_rows>,
+      "source": "experiments/<family>-mill-r<NN>.py"
+    }
+  ],
+  "plant_count": <n_rows_total>,
+  "plants_sha256": "<sha256 of plants.jsonl>",
+  "quota_per_round": 2,
+  "record_kind": "episode",
+  "source": {
+    "commit": "<40-hex preserve commit>",
+    "method": "git-show+ast.parse",
+    "ref": "legacy-mill-lane",
+    "scripts": [
+      "experiments/<family>-mill-r<NN>.py"
+    ]
+  }
+}
+```
+
+**Extract skeleton, rank 2** — `pipelines/<family>/CATALOG.json` (GOR,
+MDB, AZR, DBC, SSR). `mills` is an object keyed by `mill_id`; only the
+first-slice mill also carries a `pairs` array of identities. `slice`
+names that mill (`r946` GOR, `r709` MDB, `r801` EVH). SSR adds an
+`extract` block; EVH adds archive keys from later slices.
+
+```json
+{
+  "factory": "<factory-slug>",
+  "generator": "grok-4.6",
+  "mills": {
+    "<family>-mill-r<NNN>": {
+      "blob_sha": "<git blob sha1 of the source>",
+      "catalog_first": <NNN>,
+      "factory": "<factory-slug>",
+      "first_slug": "<first success slug>",
+      "generator": "grok-4.6",
+      "kind": "pairs",
+      "last_slug": "<last success slug>",
+      "mill_id": "<family>-mill-r<NNN>",
+      "n_rows": <n_rows>,
+      "path": "experiments/<family>-mill-r<NNN>.py",
+      "sha256": "<sha256 of the source bytes>",
+      "shape": "<family shape id, e.g. pairs-literal>"
+    }
+  },
+  "n_mills": <n_mills>,
+  "n_pair_rows": <n_rows_extracted>,
+  "preserve_commit": "<40-hex>",
+  "schema": "<family>-catalog-extract/v1",
+  "slice": "r<NNN>",
+  "source_ref": "origin/legacy-mill-lane"
+}
+```
+
+`generator` records the hosted model that wrote the legacy script. It
+is provenance, not onboarding: the registry row stays `research_only` /
+`blocked`, and a generate library does not stamp it on records. Write
+this header with the majority `dumps_catalog`
+(`pipelines/gor/catalog_extract.py`):
+`json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"`.
+
+### 11.2 Compact JSONL writer
+
+From `dumps_pairs_jsonl` in `pipelines/gor/catalog_extract.py` (EVH,
+AZR, and LHC carry the same body):
+
+```python
+import json
+from collections.abc import Mapping
+from typing import Any
+
+
+def dumps_pairs_jsonl(rows: list[Mapping[str, Any]]) -> str:
+    """One record per line. No pretty indent. Trailing newline. No CR."""
+
+    lines = [
+        json.dumps(row, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        for row in rows
+    ]
+    return "\n".join(lines) + "\n"
+```
+
+`separators=(",", ":")` is correct **per record** and forbidden for the
+header or a whole-catalog dump (§6.1). The family writes this text only
+to its own committed `pairs.jsonl` / `plants.jsonl`, never under
+`outputs/`. Read it back fail-closed the way GOR's `load_pair_rows`
+does: refuse CR, a missing final newline, an empty line, or a line that
+starts with whitespace. To see a landed record:
+
+```bash
+head -n 1 config/rlb/pairs.jsonl | python3 -m json.tool
+```
+
+### 11.3 Compactness and vendor tests
+
+Compactness is pinned in `tests/test_rlb_catalog.py`,
+`tests/test_amc.py`, `tests/test_gor.py`, and most extract-family
+tests; the prefix, vendor-glob, and no-exec checks are from
+`tests/test_gor.py`. For an extract skeleton `cv` is the family's
+`vocabulary`. For a generate library, point `PAIRS_JSONL` at
+`config/<family>/plants.jsonl`, take `FACTORY` and the prefix
+(`MILL_PREFIX` in CEI) from `_contract`, and scan the package for
+`*mill*.py` as `tests/test_cei.py` does.
+
+```python
+import ast
+import json
+import sys
+import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "pipelines"))
+
+from <family> import vocabulary as cv  # noqa: E402
+from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
+
+PACKAGE = REPO / "pipelines" / "<family>"
+PAIRS_JSONL = PACKAGE / "pairs.jsonl"
+EXPECTED_ROWS = <n_rows_committed>
+
+
+def _module_uses_exec(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return [
+        f"{path.name}:{node.lineno}:{node.func.id}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"exec", "eval", "compile"}
+    ]
+
+
+class CatalogEncodingTests(unittest.TestCase):
+    def test_reviewed_prefix_maps_to_factory(self):
+        self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[cv.FAMILY_PREFIX], cv.FACTORY)
+
+    def test_pairs_jsonl_stays_compact(self):
+        text = PAIRS_JSONL.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), EXPECTED_ROWS)
+        self.assertTrue(text.endswith("\n"))
+        self.assertNotIn("\r", text)
+        for line in lines:
+            self.assertFalse(line.startswith((" ", "\t")))
+            json.loads(line)
+
+    def test_no_vendored_mill_scripts(self):
+        hits = []
+        for pattern in cv.FORBIDDEN_MILL_GLOBS:
+            hits.extend(
+                path for path in REPO.rglob(pattern) if "legacy-mill-lane" not in str(path)
+            )
+        self.assertEqual(hits, [])
+
+    def test_package_never_execs(self):
+        hits = []
+        for path in sorted(PACKAGE.glob("*.py")):
+            hits.extend(_module_uses_exec(path))
+        self.assertEqual(hits, [])
+```
+
+`assertEqual(len(lines), EXPECTED_ROWS)` is what rejects a one-line
+minified file. Also pin, as the cited tests do:
+
+- the committed row count against the header: equal to `plant_count`
+  for rank 1; below the pinned extract total (`n_pair_rows`,
+  `extract.full_row_count`) for rank 2 / last resort
+- each mill's source blob sha1 and content sha256 (`blob_sha` /
+  `sha256` in an extract header, `source_blob_sha1` / `source_sha256`
+  in RLB's)
+- the **bytes** of a regenerated header, not its parsed value. GOR's
+  live re-extract test compares `dumps_catalog(catalog_document(...))`
+  with the file text. EVH's compares `json.loads` of both, and on
+  `main` its r801 `pairs` are pretty-printed again: the file is 1,827
+  lines where EVH's own `dumps_catalog` of the same document is 819.
+
+### 11.4 Rank-2 hybrid dumper
+
+When the first-slice identities live inside a pretty header, a pretty
+identity costs about nine lines (seven keys plus braces, as in GOR's
+r946 slice). GOR (27) and MDB (37) paid that. Above about 40
+identities, use EVH's encoder from `pipelines/evh/catalog_extract.py`,
+which keeps the header pretty and writes each `pairs` element on one
+line. Drop metric bodies first; the identity is the slugs, plants,
+domains, and kind.
+
+```python
+import json
+from collections.abc import Mapping
+from typing import Any
+
+PAIR_IDENTITY_KEYS = (
+    "fail_domain",
+    "fail_plant",
+    "fail_slug",
+    "kind",
+    "success_domain",
+    "success_plant",
+    "success_slug",
+)
+
+
+def compact_pair_identity(pair: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep pair identity; drop leftover/first/fix metric bodies."""
+
+    return {key: pair[key] for key in PAIR_IDENTITY_KEYS}
+
+
+def dumps_catalog(document: Mapping[str, Any]) -> str:
+    """Pretty-print the catalog; pair identities stay one object per line."""
+
+    return _encode(document, 0, key=None) + "\n"
+
+
+def _encode(value: Any, level: int, key: str | None) -> str:
+    pad = "  " * level
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        parts = [
+            f"{pad}  {json.dumps(item_key)}: {_encode(value[item_key], level + 1, item_key)}"
+            for item_key in sorted(value)
+        ]
+        return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        if key == "pairs":
+            lines = [
+                f"{pad}  "
+                + json.dumps(
+                    item, ensure_ascii=True, sort_keys=True, separators=(", ", ": ")
+                )
+                for item in value
+            ]
+            return "[\n" + ",\n".join(lines) + f"\n{pad}]"
+        lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
+        return "[\n" + ",\n".join(lines) + f"\n{pad}]"
+    return json.dumps(value, ensure_ascii=True)
+```
+
+`PAIR_IDENTITY_KEYS` is EVH's; a family substitutes its own identity
+fields. EVH's slim (`75ecf45`) took `pipelines/evh/CATALOG.json` from
+2265 lines of pretty pairs with metric bodies to 501 (`+126 / -1890`).
+Pin the header bytes (§11.3) so a later slice cannot undo it.
+
+### 11.5 Vendor refusal
+
+From `pipelines/gor/identity.py` and `pipelines/gor/vocabulary.py`; the
+extract skeletons on `main` share this shape. The predicate and the
+prefix tuple stay family-local (the P4 design keeps them local too);
+only the loop is common. Refusal is `SystemExit` with
+`refusing to vendor <name>`, and `tests/test_gor.py` asserts it.
+
+```python
+# pipelines/<family>/vocabulary.py
+FAMILY_PREFIX = "<family>"
+FACTORY = "<factory-slug>"
+VENDOR_PREFIXES = ("<family>-mill-", "<family>-loop-", "_gen_<family>_")
+FORBIDDEN_MILL_GLOBS = (
+    "<family>-mill*.py",
+    "<family>-loop*.py",
+    "_gen_<family>_*.py",
+)
+```
+
+```python
+# pipelines/<family>/identity.py
+from __future__ import annotations
+
+from collections.abc import Iterable
+from pathlib import Path
+
+from .vocabulary import VENDOR_PREFIXES
+
+
+def is_vendor_filename(name: str) -> bool:
+    """True when ``name`` is a mill / loop / plant-gen publisher script."""
+
+    if not name.endswith(".py"):
+        return False
+    return name.startswith(VENDOR_PREFIXES)
+
+
+def refuse_vendor_paths(paths: Iterable[Path | str]) -> None:
+    """Fail closed if any path would vendor a legacy mill script."""
+
+    for raw in paths:
+        name = Path(raw).name
+        if is_vendor_filename(name):
+            raise SystemExit(f"refusing to vendor {name}")
+```
+
+Extend the predicate, never narrow it. The landed sets go past the three
+prefixes: GOR also refuses `gor_*_mill.py`, MDB `mdb-hop-` and
+`mdb_*_mill.py`, EVH `eval_harness_` and `mill_plants`. Read the
+family's legacy tree for the names it actually uses.
+
+### 11.6 Package skeletons
+
+Three shapes are on `main`. Do not invent a fourth on a first PR.
+
+**Catalog-only** (RLB, AMC): loader, header, JSONL. RLB landed at 668
+additions.
+
+```text
+pipelines/<family>/__init__.py
+pipelines/<family>/catalog.py
+config/<family>/CATALOG.json
+config/<family>/pairs.jsonl
+tests/test_<family>.py
+```
+
+**Generate library** (CEI, GQL, FLK, MSD, RAG, SAF): five modules.
+
+```text
+pipelines/<family>/__init__.py
+pipelines/<family>/_contract.py    # identity, coded refusals, import twins
+pipelines/<family>/catalog.py      # load header + plants.jsonl; ast.parse extract
+pipelines/<family>/generate.py     # 16-step success + 17-step handoff pairs
+pipelines/<family>/cli.py          # catalog-check | generate
+config/<family>/CATALOG.json
+config/<family>/plants.jsonl
+tests/test_<family>.py
+tests/fixtures/<family>/CATALOG.json
+tests/fixtures/<family>/plants.jsonl   # one hand-written plant, not a dump
+```
+
+Each module binds its two import names with `bind_import_twin(__name__)`
+(imported in `_contract` from `oracle_grounded.import_twins`; `cli.py`
+binds only when imported as a package), so `pipelines/__init__.py`
+stays untouched. `generate` writes a brand-new `--out` directory,
+refuses one that exists, and refuses any path that names or aliases
+`outputs/raw/` (`raw_tree_guard.is_under_raw`). It does not import
+`round_txn`. Check a landed one against its fixture:
+
+```bash
+python3 -m pipelines.cei.cli catalog-check --json
+python3 -m pipelines.cei.cli catalog-check --catalog tests/fixtures/cei --json
+python3 -m pipelines.cei.cli generate --catalog tests/fixtures/cei --all --out <new-directory> --json
+```
+
+Records reach `outputs/raw/` only through `round_txn.py` (reserve →
+stage → validate → publish), in a separate reviewed change; a mill PR
+does not do that (§10).
+
+**Extract skeleton** (GOR, AZR, DBC, SSR; MDB and EVH grew from it):
+no generate, no CLI.
+
+```text
+pipelines/<family>/__init__.py
+pipelines/<family>/catalog.py
+pipelines/<family>/catalog_ast.py
+pipelines/<family>/catalog_extract.py
+pipelines/<family>/identity.py
+pipelines/<family>/sources.py
+pipelines/<family>/vocabulary.py
+pipelines/<family>/CATALOG.json
+pipelines/<family>/pairs.jsonl      # compact identities (GOR added its own in a follow-up slice)
+tests/test_<family>.py
+```
+
+ACM's first head used a nine-module `pipelines/contract_drift/`; the
+slim collapsed it to five. Start at the smallest shape that holds the
+catalog.
+
+### 11.7 Budget arithmetic
+
+Additions at merge, per file, from each squash commit. Reproduce with
+`git show --numstat --format= <commit>`; a shallow clone needs
+`git fetch --shallow-since=2026-09-10 origin main` first.
+
+```text
+additions ≈ package_py + tests + header + payload_lines (+ fixtures)
+
+RLB #252  c1890c35   668 = 31+380 (__init__, catalog) + 146 tests + 47 header + 64 jsonl
+CEI #270  1ea42d4a  2193 = 15+222+702+175+642 (five modules) + 353 tests
+                           + 26 header + 39 jsonl + 18+1 fixtures
+EVH #278  4e68fe4c  2177 = 33+154+246+653+40+105+47 (extract skeleton) + 398 tests + 501 catalog
+GOR #265  6ea0f6c2  1885 = 32+116+173+334+40+261+84 + 354 tests + 491 catalog
+MDB #268  6491f951  1957 = 32+112+155+373+40+314+59 + 319 tests + 553 catalog
+WSR #272  b9953980  2497 = 33+161+544+109+397 + 194 tests + 1059 pretty catalog
+ACM #255  beb658cd  1341 = 45+81+270+57+437 + 125 tests + 219 slice + 47+60 fixtures
+```
+
+Package plus tests ran 557 for catalog-only RLB, 1394–1676 for the
+three extract skeletons, and 1015–2109 for the five-module packages
+(ACM, WSR, CEI). Against the 2,300-line target that leaves roughly
+200–1300 lines of catalog for the last two shapes. At WSR's ≈66 lines
+per pretty pair (1059 / 16) that is three to twenty pairs; as JSONL it
+is one line per row.
+
+These are the files as merged. `main` has since moved several of them
+(WSR's catalog is now `pipelines/wsr/CATALOG.json`), so measure your
+own head with `git diff --stat origin/main...HEAD` (§1).
