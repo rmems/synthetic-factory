@@ -7,7 +7,7 @@ an empty observation or reflection; ``episode_record`` appends provenance
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
@@ -86,15 +86,23 @@ def edit(n: int, basis: str, args: dict[str, str], observed: Observed) -> dict[s
 
 
 def assert_clean(obj: Any, path: str = "") -> None:
+    # The walk recurses only here; the generators below run their checks lazily between
+    # children, so the refusal order and one frame per nesting level match the original.
+    for child, child_path in _clean_children(obj, path):
+        assert_clean(child, child_path)
+
+
+def _clean_children(obj: Any, path: str) -> Iterable[tuple[Any, str]]:
     if isinstance(obj, dict):
-        _assert_clean_mapping(obj, path)
-        return
+        return _checked_items(obj, path)
     if isinstance(obj, list):
-        for index, item in enumerate(obj):
-            assert_clean(item, f"{path}[{index}]")
+        return ((item, f"{path}[{index}]") for index, item in enumerate(obj))
+    return ()
 
 
-def _assert_clean_mapping(obj: Mapping[str, Any], path: str) -> None:
+def _checked_items(obj: Mapping[str, Any], path: str) -> Iterator[tuple[Any, str]]:
+    """Each value with its path, after refusing a banned key or real-world provenance."""
+
     for key, val in obj.items():
         refuse_when(key in BANNED_KEYS, FINDING_BANNED, f"banned key {key} at {path}")
         refuse_when(
@@ -102,7 +110,7 @@ def _assert_clean_mapping(obj: Mapping[str, Any], path: str) -> None:
             FINDING_BANNED,
             f"sim_or_real real at {path}",
         )
-        assert_clean(val, f"{path}.{key}")
+        yield val, f"{path}.{key}"
 
 
 def episode_record(
