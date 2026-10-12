@@ -83,8 +83,10 @@ class Featurisation(unittest.TestCase):
                 [
                     sys.executable,
                     "-c",
-                    "import json, moe_router;"
-                    "print(json.dumps(moe_router.featurize('relay gate')))",
+                    (
+                        "import json, moe_router;"
+                        "print(json.dumps(moe_router.featurize('relay gate')))"
+                    ),
                 ],
                 capture_output=True,
                 text=True,

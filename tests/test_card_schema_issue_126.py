@@ -91,7 +91,7 @@ class FlakyTestQuarantineDeclarationTests(DeclarationTestCase):
         rows = card_schema.field_notes(self.declaration["features"])
         optional = [path for path, is_optional, _note in rows if is_optional]
         self.assertEqual(optional, ["steps[].reflection"])
-        self.assertIn("6586 of 38604 steps", dict((p, n) for p, _o, n in rows)[
+        self.assertIn("6586 of 38604 steps", {p: n for p, _o, n in rows}[
             "steps[].reflection"
         ])
 

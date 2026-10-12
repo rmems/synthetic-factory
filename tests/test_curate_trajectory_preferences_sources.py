@@ -327,6 +327,7 @@ class CommandLine(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
 
         self.assertEqual(proc.returncode, 1)

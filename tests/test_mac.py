@@ -242,11 +242,10 @@ class Cli(unittest.TestCase):
         self.assertEqual(payload["full_row_count"], 1401)
 
     def test_extract_json_from_a_p_snippet(self):
-        handle = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", suffix="-mac-snippet.py", delete=False
-        )
-        handle.write(P_SNIPPET)
-        handle.close()
+        ) as handle:
+            handle.write(P_SNIPPET)
         snippet = Path(handle.name)
         self.addCleanup(snippet.unlink)
         code, out, err = invoke(["extract", "--source", str(snippet), "--json"])

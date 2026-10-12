@@ -139,10 +139,11 @@ class ModelChannelPolicyTests(unittest.TestCase):
     def test_channels_are_not_conflated_across_same_vendor(self):
         registry = identity.load_registry()
         glimmer = registry.by_path_id["muse-glimmer-30b-local-factory"]
-        spark = [
-            row for row in registry.by_path_id.values()
-            if row.generator == "muse-spark-1.2"
-        ][0]
+        spark = next(
+            (row for row in registry.by_path_id.values() if row.generator == "muse-spark-1.2"),
+            None,
+        )
+        self.assertIsNotNone(spark)
         self.assertEqual((glimmer.provider, glimmer.channel), ("meta", "local_vllm"))
         self.assertEqual((spark.provider, spark.channel), ("meta", "api"))
         self.assertNotEqual(glimmer.rights_profile_id, spark.rights_profile_id)

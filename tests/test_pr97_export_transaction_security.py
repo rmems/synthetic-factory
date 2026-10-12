@@ -212,8 +212,9 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                     )
 
     def test_export_error_remains_in_star_import_surface(self):
-        self.assertIn("ExportError", export_members.__all__)
-        self.assertIs(getattr(export_members, "ExportError"), export_members.ExportError)
+        name = "ExportError"
+        self.assertIn(name, export_members.__all__)
+        self.assertIs(getattr(export_members, name), export_members.ExportError)
 
     def test_member_path_rejects_embedded_nul(self):
         with self.assertRaises(export_members.ExportError):

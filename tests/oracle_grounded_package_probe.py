@@ -170,7 +170,7 @@ def run_form(form: str) -> dict[str, Any]:
         # The two declared names are already resolved above, so assert against
         # those objects rather than importing them a second time by name.
         "declared_bound": {
-            "refusals": getattr(flat, "refusals") is refusals,
-            "rng": getattr(flat, "rng") is rng,
+            "refusals": flat.refusals is refusals,
+            "rng": flat.rng is rng,
         },
     }
