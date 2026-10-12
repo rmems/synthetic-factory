@@ -170,6 +170,44 @@ def _assert_object_matches(test_case, value, features: list[dict], path: str) ->
         _assert_value_matches(test_case, value[name], feature, child_path)
 
 
+class _MirrorCensus:
+    """Read-only tallies over the published mirror, one payload line at a time."""
+
+    def __init__(self) -> None:
+        self.record_count = 0
+        self.step_count = 0
+        self.seed_count = 0
+        self.parse_failures: list[str] = []
+        self.thin_meta_locations: list[tuple[str, int, str]] = []
+        self.reflection_missing_by_file: dict[str, int] = {}
+        self.meta_shape_counts: dict[tuple[str, ...], int] = {}
+
+    def scan(self, filename: str, handle) -> None:
+        for line_number, line in enumerate(handle, 1):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                self.parse_failures.append(f"{filename}:{line_number}: {exc}")
+                continue
+            self._count(filename, line_number, record)
+
+    def _count(self, filename: str, line_number: int, record: dict) -> None:
+        self.record_count += 1
+        steps = record["steps"]
+        self.step_count += len(steps)
+        meta = record["meta"]
+        self.seed_count += int("seed" in meta)
+        shape = tuple(sorted(meta))
+        self.meta_shape_counts[shape] = self.meta_shape_counts.get(shape, 0) + 1
+        if set(meta) == {"factory", "generator", "round"}:
+            self.thin_meta_locations.append((filename, line_number, record["id"]))
+        missing = sum("reflection" not in step for step in steps)
+        if missing:
+            self.reflection_missing_by_file[filename] = (
+                self.reflection_missing_by_file.get(filename, 0) + missing
+            )
+
+
 class ApiContractMigrationDeclarationTests(DeclarationTestCase):
     """Issue #46: leftover mill mix plus `meta` drift in the contract-migration dump.
 
@@ -348,47 +386,19 @@ class ApiContractMigrationRawMirrorFidelity(unittest.TestCase):
         inventory = ("\n".join(PUBLISHED_PAYLOADS) + "\n").encode()
         self.assertEqual(hashlib.sha256(inventory).hexdigest(), INVENTORY_SHA256)
 
-        record_count = 0
-        step_count = 0
-        seed_count = 0
-        parse_failures = []
-        thin_meta_locations = []
-        reflection_missing_by_file: dict[str, int] = {}
-        meta_shape_counts: dict[tuple[str, ...], int] = {}
-
+        census = _MirrorCensus()
         for filename in PUBLISHED_PAYLOADS:
             with (MIRROR / filename).open(encoding="utf-8") as handle:
-                for line_number, line in enumerate(handle, 1):
-                    try:
-                        record = json.loads(line)
-                    except json.JSONDecodeError as exc:
-                        parse_failures.append(f"{filename}:{line_number}: {exc}")
-                        continue
-                    record_count += 1
-                    steps = record["steps"]
-                    step_count += len(steps)
-                    meta = record["meta"]
-                    seed_count += int("seed" in meta)
-                    shape = tuple(sorted(meta))
-                    meta_shape_counts[shape] = meta_shape_counts.get(shape, 0) + 1
-                    if set(meta) == {"factory", "generator", "round"}:
-                        thin_meta_locations.append(
-                            (filename, line_number, record["id"])
-                        )
-                    missing = sum("reflection" not in step for step in steps)
-                    if missing:
-                        reflection_missing_by_file[filename] = (
-                            reflection_missing_by_file.get(filename, 0) + missing
-                        )
+                census.scan(filename, handle)
 
-        self.assertEqual(parse_failures, [])
-        self.assertEqual(record_count, 9226)
-        self.assertEqual(step_count, 149445)
-        self.assertEqual(seed_count, 7544)
-        self.assertEqual(meta_shape_counts, META_SHAPE_COUNTS)
-        self.assertEqual(thin_meta_locations, THIN_META_LOCATIONS)
+        self.assertEqual(census.parse_failures, [])
+        self.assertEqual(census.record_count, 9226)
+        self.assertEqual(census.step_count, 149445)
+        self.assertEqual(census.seed_count, 7544)
+        self.assertEqual(census.meta_shape_counts, META_SHAPE_COUNTS)
+        self.assertEqual(census.thin_meta_locations, THIN_META_LOCATIONS)
         self.assertEqual(
-            reflection_missing_by_file,
+            census.reflection_missing_by_file,
             {
                 "batch-r01.jsonl": 38,
                 "batch-r02.jsonl": 36,

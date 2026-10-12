@@ -58,6 +58,21 @@ def _safety_record(case_type: str, index: int) -> dict:
     }
 
 
+def _one_each_violations(factory_dir: Path, case_types: list[str]) -> list[str]:
+    """Validate a round-7 safety batch; return its one-of-each-case-type errors."""
+    batch = factory_dir / "raw" / "batch-r07.jsonl"
+    batch.write_text(
+        "\n".join(
+            json.dumps(_safety_record(case_type, index))
+            for index, case_type in enumerate(case_types)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    errors = round_txn.validate_agentic_envelope(batch, factory_dir, 7)
+    return [e for e in errors or [] if "requires exactly one each" in e]
+
+
 _needs_mirror = needs_mirror(SAFETY_CALIBRATION_MIRROR)
 
 _ANNOTATION_EXTRAS = ("redirect", "vector", "benign_twin")
@@ -234,6 +249,10 @@ class SafetyCalibrationDeclarationTests(DeclarationTestCase):
         per_case = int(re.search(r"(\d+) records each", case_note).group(1))
         total = int(re.search(r"of (\d+) records", names["trigger"]["note"]).group(1))
 
+        self._assert_counts_fit_the_batch_quota(declared_types, per_case, total)
+        self._assert_validator_accepts_only_one_of_each(declared_types)
+
+    def _assert_counts_fit_the_batch_quota(self, declared_types, per_case, total):
         quota = round_txn.FACTORY_QUOTAS[SAFETY_FACTORY]
         self.assertEqual(quota, len(declared_types))
         # One of each per batch at a quota of 3 means the three case types are
@@ -243,33 +262,18 @@ class SafetyCalibrationDeclarationTests(DeclarationTestCase):
         self.assertEqual(total // quota, per_case)
         self.assertIn(" / ".join([str(per_case)] * 3), self.card)
 
+    def _assert_validator_accepts_only_one_of_each(self, declared_types):
         # Drive the real validator with the declaration's own case-type names:
         # a batch of one each must be accepted, a duplicate must be rejected.
         # A renamed or invented case type fails the first call.
-        marker = "requires exactly one each"
         with tempfile.TemporaryDirectory() as tmp:
             factory_dir = Path(tmp) / SAFETY_FACTORY
             (factory_dir / "raw").mkdir(parents=True)
-            batch = factory_dir / "raw" / "batch-r07.jsonl"
-            for label, case_types in (
-                ("one of each", declared_types),
-                ("duplicate", [declared_types[0]] + declared_types[:2]),
-            ):
-                with self.subTest(batch=label):
-                    batch.write_text(
-                        "\n".join(
-                            json.dumps(_safety_record(case_type, index))
-                            for index, case_type in enumerate(case_types)
-                        )
-                        + "\n",
-                        encoding="utf-8",
-                    )
-                    errors = round_txn.validate_agentic_envelope(batch, factory_dir, 7)
-                    offending = [e for e in errors or [] if marker in e]
-                    if label == "one of each":
-                        self.assertEqual(offending, [])
-                    else:
-                        self.assertTrue(offending)
+            with self.subTest(batch="one of each"):
+                self.assertEqual(_one_each_violations(factory_dir, declared_types), [])
+            with self.subTest(batch="duplicate"):
+                duplicate = [declared_types[0]] + declared_types[:2]
+                self.assertTrue(_one_each_violations(factory_dir, duplicate))
 
     # -- Re-derived from the payload, not from the declaration -------------
     #
