@@ -1032,20 +1032,12 @@ def published_notes_coverage(
     payload counts as round 1, matching ``published_notes``.
     """
     batch_names = {path.name for path in batches}
-    published = _round_numbers(BATCH_NAME_RE, batch_names)
+    published = card_notes.round_numbers(BATCH_NAME_RE, batch_names)
     if LEGACY_R1_NAMES.intersection(batch_names):
         published.add(1)
-    noted = _round_numbers(NOTES_NAME_RE, {path.name for path in notes})
+    noted = card_notes.round_numbers(NOTES_NAME_RE, {path.name for path in notes})
     return card_notes.notes_coverage(published, noted)
 
-
-def _round_numbers(pattern: re.Pattern[str], names: set[str]) -> set[int]:
-    """Return the round number of every name the round pattern matches."""
-    return {
-        int(match.group(1))
-        for name in names
-        if (match := pattern.fullmatch(name)) is not None
-    }
 
 
 def _refuse_banned_yaml_tags(card: str, hub: str) -> None:
@@ -1259,14 +1251,6 @@ schema; the raw snapshot is intentionally not rewritten.
     return ""
 
 
-def _notes_keyword(keywords: dict[str, object]) -> card_notes.NotesCoverage | None:
-    """Pop render_card's notes= coverage, refusing anything but NotesCoverage."""
-    notes = keywords.pop("notes", None)
-    if notes is None or isinstance(notes, card_notes.NotesCoverage):
-        return notes
-    raise TypeError("render_card() notes= takes a card_notes.NotesCoverage")
-
-
 def render_card(item: dict, **keywords: object) -> str:
     """Render one Hub dataset card.
 
@@ -1282,7 +1266,7 @@ def render_card(item: dict, **keywords: object) -> str:
     kind_mix_arg = cast(
         "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
     )
-    notes_sentence = card_notes.render_notes_sentence(_notes_keyword(keywords))
+    notes_sentence = card_notes.render_notes_sentence(card_notes.pop_notes_keyword(keywords))
     summary = resolve_payload_summary(keywords)
     tags = "\n".join(f"- {t}" for t in item["tags"])
     records = summary.records

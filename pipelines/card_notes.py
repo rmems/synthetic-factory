@@ -15,6 +15,7 @@ payload and note names, and get back the card sentence.
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Iterable
 
 # The sentence every card carried before coverage was reported. It is still
@@ -48,6 +49,23 @@ def notes_coverage(published: Iterable[int], noted: Iterable[int]) -> NotesCover
         noted=len(covered),
         missing=missing_spans(rounds - covered),
     )
+
+
+def round_numbers(pattern: re.Pattern[str], names: Iterable[str]) -> set[int]:
+    """Return the round number (first group) of every name the pattern matches."""
+    return {
+        int(match.group(1))
+        for name in names
+        if (match := pattern.fullmatch(name)) is not None
+    }
+
+
+def pop_notes_keyword(keywords: dict[str, object]) -> NotesCoverage | None:
+    """Pop a card renderer's notes= coverage, refusing anything but NotesCoverage."""
+    notes = keywords.pop("notes", None)
+    if notes is None or isinstance(notes, NotesCoverage):
+        return notes
+    raise TypeError("render_card() notes= takes a card_notes.NotesCoverage")
 
 
 def missing_spans(rounds: Iterable[int]) -> tuple[tuple[int, int], ...]:
