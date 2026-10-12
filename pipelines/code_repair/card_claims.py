@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
@@ -70,7 +70,7 @@ def load_evidence(text: str | bytes, path: str) -> dict[str, Any]:
     return payload
 
 
-def _is_count(value: Any) -> bool:
+def _is_count(value: Any) -> TypeGuard[int]:
     if isinstance(value, bool):  # JSON true is not a count
         return False
     return isinstance(value, int) and value >= 0
@@ -78,9 +78,9 @@ def _is_count(value: Any) -> bool:
 
 def _count(mapping: Any, key: str, where: str) -> int:
     value = mapping.get(key) if isinstance(mapping, dict) else None
-    if not _is_count(value):
-        raise CardClaimError(f"{where} needs a non-negative integer {key!r}")
-    return value
+    if _is_count(value):
+        return value
+    raise CardClaimError(f"{where} needs a non-negative integer {key!r}")
 
 
 def _not_replayed_kind(entry: dict[str, Any]) -> str:
