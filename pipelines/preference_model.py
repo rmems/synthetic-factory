@@ -22,17 +22,11 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
-
-    _assert_direct_sibling("preference_model")
     from .raw_tree_guard import is_under_raw as _guard_is_under_raw
 else:
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "preference_model"
-    )
     from raw_tree_guard import is_under_raw as _guard_is_under_raw
 
 __all__ = [
@@ -207,9 +201,3 @@ def json_key(value: Any) -> tuple[str, str]:
         return json_type_name(value), canonical_json(value)
     except (TypeError, ValueError):
         return json_type_name(value), repr(value)
-
-
-if __package__:
-    # One module object for both import forms, so PreferenceCurationError and the
-    # other shared types keep one class identity whichever form loads first.
-    _expose_package_sibling(__name__)
