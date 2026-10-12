@@ -197,7 +197,7 @@ def _timed_spike_events(events):
 
 def _first_spike_order_violation(where, timed):
     """The first global non-decreasing-order violation among timed events, if any."""
-    for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
+    for (_, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
         if exact_fraction(t1) < exact_fraction(t0):
             key = key1 if key1 == key0 else f"{key0}/{key1}"
             return [
