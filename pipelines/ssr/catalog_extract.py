@@ -14,7 +14,7 @@ import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .catalog_ast import (
     UNSET,
@@ -164,10 +164,10 @@ def _named_list(node: ast.stmt, name: str) -> ast.List | None:
 
 def _literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        value = _named_list(node, "PAIRS")
-        if value is None or not all(_is_dict_pair(elt) for elt in value.elts):
+        pairs = _dict_pairs(_named_list(node, "PAIRS"))
+        if pairs is None:
             continue
-        rows = _literal_pair_rows(value.elts)
+        rows = _literal_pair_rows(pairs)
         if rows is None:
             return None
         if rows and rows[0]["success_slug"]:
@@ -175,10 +175,18 @@ def _literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
     return None
 
 
-def _literal_pair_rows(elts: list[ast.expr]) -> list[dict[str, Any]] | None:
+def _dict_pairs(value: ast.List | None) -> list[ast.Tuple] | None:
+    """The list's elements when every one is a ``(dict, dict)`` tuple, else ``None``."""
+
+    if value is None:
+        return None
+    pairs = [elt for elt in value.elts if _is_dict_pair(elt)]
+    return pairs if len(pairs) == len(value.elts) else None
+
+
+def _literal_pair_rows(elts: list[ast.Tuple]) -> list[dict[str, Any]] | None:
     rows = []
     for elt in elts:
-        assert isinstance(elt, ast.Tuple)
         success = literal_value(elt.elts[0])
         fail = literal_value(elt.elts[1])
         if not isinstance(success, dict) or not isinstance(fail, dict):
@@ -326,7 +334,7 @@ def tail_pair_rows(scanners: list[str], tails: list[str]) -> list[dict[str, Any]
     return rows
 
 
-def _is_dict_pair(node: ast.AST) -> bool:
+def _is_dict_pair(node: ast.AST) -> TypeGuard[ast.Tuple]:
     if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
         return False
     return all(isinstance(elt, ast.Dict) for elt in node.elts)
