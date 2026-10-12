@@ -1068,7 +1068,7 @@ def _validated_completion_marker_files(factory_dir, round_number, marker):
     return names
 
 
-def _unique_completion_entry_digest(path: Path, manifest: dict) -> str:
+def _unique_completion_entry_digest(path: Path, manifest: dict):
     """Return the well-formed digest of the one manifest entry naming ``path``."""
     entries = [
         entry
