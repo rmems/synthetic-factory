@@ -25,41 +25,34 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
-def literal_value(node: ast.AST | None, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, and literal containers; else ``UNSET``.
-
-    Unary minus recurses here directly and containers through ``_sequence`` or
-    ``_mapping``, one helper frame per level as before. A missing node, such as
-    the ``None`` key of a ``**`` entry, is ``UNSET``.
-    """
+def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
+    """Resolve constants, names, and literal containers; else ``UNSET``."""
 
     bound = env or {}
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, (ast.Tuple, ast.List)):
-        return _sequence(node, bound)
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    return _leaf_value(node, bound)
-
-
-def _leaf_value(node: ast.AST | None, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return env.get(node.id, UNSET)
+        return bound[node.id] if node.id in bound else UNSET
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = literal_value(node.operand, bound)
+        return -inner if isinstance(inner, (int, float)) else UNSET
+    if isinstance(node, ast.Tuple):
+        return _sequence(node.elts, bound, tuple)
+    if isinstance(node, ast.List):
+        return _sequence(node.elts, bound, list)
+    if isinstance(node, ast.Dict):
+        return _mapping(node, bound)
     return UNSET
 
 
-def _sequence(node: ast.Tuple | ast.List, env: Mapping[str, Any]) -> Any:
+def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
     values: list[Any] = []
-    for elt in node.elts:
+    for elt in elts:
         item = literal_value(elt, env)
         if item is UNSET:
             return UNSET
         values.append(item)
-    return tuple(values) if isinstance(node, ast.Tuple) else values
+    return ctor(values)
 
 
 def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:

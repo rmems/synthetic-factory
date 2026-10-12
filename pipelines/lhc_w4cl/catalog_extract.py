@@ -10,7 +10,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -109,69 +109,60 @@ def _used_from(tree: ast.AST, *, path: str) -> int:
     raise ValueError(f"{path} USED_FROM assignment is missing")
 
 
-def _assigned_value(tree: ast.AST, name: str, *, path: str) -> ast.AST | None:
-    """Value of the first top-level ``name = ...`` (None for a bare annotation)."""
-
-    for node in getattr(tree, "body", ()):
-        assigned, value = assignment_of(node)
-        if assigned == name:
-            return value
-    raise ValueError(f"{path} {name} assignment is missing")
-
-
 def _mk_plants(tree: ast.AST, *, path: str) -> list[dict[str, Any]]:
-    value = _assigned_value(tree, "PLANTS", path=path)
-    if not isinstance(value, ast.Dict) or not value.keys:
-        raise ValueError(f"{path} PLANTS is not a non-empty dict")
-    entries = enumerate(zip(value.keys, value.values, strict=True))
-    return [
-        _mk_row(key_node, value_node, where=f"{path} PLANTS[{index}]")
-        for index, (key_node, value_node) in entries
-    ]
-
-
-def _mk_row(key_node: ast.expr | None, value_node: ast.expr, *, where: str) -> dict[str, Any]:
-    key = literal_value(key_node)
-    identity = _mk_identity(value_node)
-    if not _nonempty_text(key) or identity is None:
-        raise ValueError(f"{where} is not a literal mk() plant")
-    return {"key": key, **identity}
-
-
-def _nonempty_text(value: Any) -> bool:
-    return isinstance(value, str) and bool(value)
-
-
-def _literal_call_args(node: ast.AST, name: str) -> list[Any] | None:
-    """Literal positional arguments of a ``name(...)`` call, else None."""
-
-    return call_positional_literals(node) if call_name(node) == name else None
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name != "PLANTS":
+            continue
+        if not isinstance(value, ast.Dict) or not value.keys:
+            raise ValueError(f"{path} PLANTS is not a non-empty dict")
+        rows: list[dict[str, Any]] = []
+        for index, (key_node, value_node) in enumerate(
+            zip(value.keys, value.values, strict=True)
+        ):
+            key = literal_value(key_node)
+            identity = _mk_identity(value_node)
+            if not isinstance(key, str) or not key or identity is None:
+                raise ValueError(f"{path} PLANTS[{index}] is not a literal mk() plant")
+            rows.append({"key": key, **identity})
+        return rows
+    raise ValueError(f"{path} PLANTS assignment is missing")
 
 
 def _mk_identity(node: ast.AST) -> dict[str, Any] | None:
-    args = _literal_call_args(node, "mk")
+    if call_name(node) != "mk":
+        return None
+    args = call_positional_literals(node)
     if args is None or len(args) < 3:
         return None
     ok, slug, plant = args[0], args[1], args[2]
-    if not isinstance(ok, bool) or not all(map(_nonempty_text, (slug, plant))):
+    if not isinstance(ok, bool):
+        return None
+    if not isinstance(slug, str) or not slug:
+        return None
+    if not isinstance(plant, str) or not plant:
         return None
     return {"ok": ok, "slug": slug, "plant": plant}
 
 
 def _fn_pairs(
-    tree: ast.AST, plants: Sequence[Mapping[str, Any]], *, path: str
+    tree: ast.AST, plants: list[Mapping[str, Any]], *, path: str
 ) -> list[dict[str, Any]]:
     by_key = {row["key"]: row for row in plants}
-    value = _assigned_value(tree, "LHC_PAIRS", path=path)
-    if not isinstance(value, ast.List) or not value.elts:
-        raise ValueError(f"{path} LHC_PAIRS is not a non-empty list")
-    rows: list[dict[str, Any]] = []
-    for index, elt in enumerate(value.elts):
-        row = _pair_identity(elt, by_key)
-        if row is None:
-            raise ValueError(f"{path} LHC_PAIRS[{index}] is not a fn() identity pair")
-        rows.append(row)
-    return rows
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name != "LHC_PAIRS":
+            continue
+        if not isinstance(value, ast.List) or not value.elts:
+            raise ValueError(f"{path} LHC_PAIRS is not a non-empty list")
+        rows: list[dict[str, Any]] = []
+        for index, elt in enumerate(value.elts):
+            row = _pair_identity(elt, by_key)
+            if row is None:
+                raise ValueError(f"{path} LHC_PAIRS[{index}] is not a fn() identity pair")
+            rows.append(row)
+        return rows
+    raise ValueError(f"{path} LHC_PAIRS assignment is missing")
 
 
 def _pair_identity(
@@ -180,38 +171,31 @@ def _pair_identity(
     if not isinstance(node, ast.Tuple) or len(node.elts) != 6:
         return None
     title = literal_value(node.elts[0])
-    success = _keyed_plant(node.elts[1], plants)
-    fail = _keyed_plant(node.elts[2], plants)
+    success_key = _fn_key(node.elts[1])
+    fail_key = _fn_key(node.elts[2])
     if not isinstance(title, str) or not title:
         return None
+    if success_key is None or fail_key is None:
+        return None
+    success = plants.get(success_key)
+    fail = plants.get(fail_key)
     if success is None or fail is None:
         return None
-    (success_key, success_plant), (fail_key, fail_plant) = success, fail
     return {
         "title": title,
         "success_key": success_key,
         "fail_key": fail_key,
-        "success_slug": success_plant["slug"],
-        "fail_slug": fail_plant["slug"],
-        "success_plant": success_plant["plant"],
-        "fail_plant": fail_plant["plant"],
+        "success_slug": success["slug"],
+        "fail_slug": fail["slug"],
+        "success_plant": success["plant"],
+        "fail_plant": fail["plant"],
     }
 
 
-def _keyed_plant(
-    node: ast.AST, plants: Mapping[str, Mapping[str, Any]]
-) -> tuple[str, Mapping[str, Any]] | None:
-    """``(key, plant)`` for a ``fn('key')`` side naming a catalogued plant, else None."""
-
-    key = _fn_key(node)
-    if key is None:
-        return None
-    plant = plants.get(key)
-    return None if plant is None else (key, plant)
-
-
 def _fn_key(node: ast.AST) -> str | None:
-    args = _literal_call_args(node, "fn")
+    if call_name(node) != "fn":
+        return None
+    args = call_positional_literals(node)
     if args is None or len(args) != 1 or not isinstance(args[0], str) or not args[0]:
         return None
     return args[0]
@@ -284,35 +268,30 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
 
 
 def _encode(value: Any, level: int, key: str | None) -> str:
-    """Nested containers recurse here directly, one frame per level as before.
-
-    Empty containers and scalars are plain ``json.dumps``; the ``pairs`` and
-    ``plants`` arrays keep one compact object per line.
-    """
-
     pad = "  " * level
-    if isinstance(value, dict) and value:
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
         parts = [
             f"{pad}  {json.dumps(item_key)}: {_encode(value[item_key], level + 1, item_key)}"
             for item_key in sorted(value)
         ]
         return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
-    if isinstance(value, list) and value:
-        lines = (
-            _compact_lines(value, pad)
-            if key in COMPACT_ARRAY_KEYS
-            else [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
-        )
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        if key in COMPACT_ARRAY_KEYS:
+            lines = [
+                f"{pad}  "
+                + json.dumps(
+                    item, ensure_ascii=True, sort_keys=True, separators=(", ", ": ")
+                )
+                for item in value
+            ]
+            return "[\n" + ",\n".join(lines) + f"\n{pad}]"
+        lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
         return "[\n" + ",\n".join(lines) + f"\n{pad}]"
     return json.dumps(value, ensure_ascii=True)
-
-
-def _compact_lines(items: list[Any], pad: str) -> list[str]:
-    return [
-        f"{pad}  "
-        + json.dumps(item, ensure_ascii=True, sort_keys=True, separators=(", ", ": "))
-        for item in items
-    ]
 
 
 def catalog_json_path(package_dir: Path | None = None) -> Path:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -167,78 +167,44 @@ def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
         return None
 
 
-_RASTER_KEYS = frozenset({"spike_events", "spikes", "raster", "excerpt"})
+def _walk_mapping(node: ast.AST, consts: Mapping[str, Any]) -> Any:
+    """Best-effort literal walk. Calls and names stay out (no exec)."""
 
-
-def _negated_number(operand: ast.expr) -> Any:
-    if isinstance(operand, ast.Constant) and isinstance(operand.value, (int, float)):
-        return -operand.value
-    return None
-
-
-def _leaf_value(node: ast.AST | None, consts: Mapping[str, Any]) -> Any:
-    """A bound name, a constant, or a negated number literal; anything else is None."""
-
-    if isinstance(node, ast.Name):
-        return consts.get(node.id)
+    if isinstance(node, ast.Name) and node.id in consts:
+        return consts[node.id]
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return _negated_number(node.operand)
-    return None
-
-
-def _kept_entries(keys: list[Any], value_nodes: list[ast.expr]) -> list[tuple[str, ast.expr]]:
-    """String keys outside the raster payload, each paired with its value node."""
-
-    return [
-        (key, value_node)
-        for key, value_node in zip(keys, value_nodes)
-        if isinstance(key, str) and key not in _RASTER_KEYS
-    ]
-
-
-def _walked_children(node: ast.List | ast.Call) -> list[ast.expr]:
-    """List elements, or a call's positional then named argument values."""
-
+        if isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, (int, float)):
+            return -node.operand.value
     if isinstance(node, ast.List):
-        return node.elts
-    return [*node.args, *(keyword.value for keyword in node.keywords if keyword.arg)]
-
-
-def _rebuilt(node: ast.List | ast.Call, walked: list[Any]) -> Any:
-    """The walked list itself, or a call recorded by name and literal arguments."""
-
-    if isinstance(node, ast.List):
-        return walked
-    func = node.func.id if isinstance(node.func, ast.Name) else None
-    names = [keyword.arg for keyword in node.keywords if keyword.arg]
-    positional = len(node.args)
-    return {
-        "_call": func,
-        "args": walked[:positional],
-        "kwargs": dict(zip(names, walked[positional:])),
-    }
-
-
-def _walk_mapping(node: ast.AST | None, consts: Mapping[str, Any]) -> Any:
-    """Best-effort literal walk. Calls and names stay out (no exec).
-
-    Nesting recurses through this function alone, one frame per level (a tuple
-    keeps its generator frame); the helpers above never call back into it. A
-    ``None`` key node (``**`` unpacking) walks to None, which no mapping keeps.
-    """
-
+        return [_walk_mapping(elt, consts) for elt in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_walk_mapping(elt, consts) for elt in node.elts)
     if isinstance(node, ast.Dict):
-        keys = [_walk_mapping(key_node, consts) for key_node in node.keys]
-        kept = _kept_entries(keys, node.values)
-        return {key: _walk_mapping(value_node, consts) for key, value_node in kept}
-    if isinstance(node, (ast.List, ast.Call)):
-        walked = [_walk_mapping(child, consts) for child in _walked_children(node)]
-        return _rebuilt(node, walked)
-    return _leaf_value(node, consts)
+        mapping: dict[str, Any] = {}
+        for key_node, value_node in zip(node.keys, node.values):
+            if key_node is None:
+                continue
+            key = _walk_mapping(key_node, consts)
+            if not isinstance(key, str):
+                continue
+            if key in {"spike_events", "spikes", "raster", "excerpt"}:
+                continue
+            mapping[key] = _walk_mapping(value_node, consts)
+        return mapping
+    if isinstance(node, ast.Call):
+        func = node.func.id if isinstance(node.func, ast.Name) else None
+        return {
+            "_call": func,
+            "args": [_walk_mapping(arg, consts) for arg in node.args],
+            "kwargs": {
+                keyword.arg: _walk_mapping(keyword.value, consts)
+                for keyword in node.keywords
+                if keyword.arg
+            },
+        }
+    return None
 
 
 def _reward_note(reward: Any) -> str:
@@ -273,40 +239,45 @@ def slice_from_record_id(record_id: str) -> str:
     return f"r{match.group('round')}{match.group('suffix')}"
 
 
-def _plant_draft(source_name: str, **raw: Any) -> dict[str, Any]:
-    """Normalize AST-read values, keyed by plant field, into one plant row.
-
-    A field missing from ``raw`` reads as None: text fields treat it as empty,
-    ``sim_or_real`` and ``correctness`` then take their defaults.
-    """
-
-    ident = _text(raw.get("record_id"))
+def _plant_draft(
+    source_name: str,
+    *,
+    record_id: Any = None,
+    source_round: Any = None,
+    index: Any = None,
+    title: Any = "",
+    domain: Any = "",
+    sim_or_real: Any = "",
+    goal: Any = "",
+    proposed_action: Any = "",
+    decision: Any = "",
+    correctness: Any = "",
+    rationale: Any = "",
+    executed_action: Any = "",
+    outcome: Any = "",
+    reward_total: Any = None,
+    reward_note: Any = "",
+) -> dict[str, Any]:
+    ident = _text(record_id)
     parsed_round = _round_from_id(ident)
-    source_round = raw.get("source_round")
-    reward_total = raw.get("reward_total")
     return {
         "record_id": ident,
         "source_round": source_round if type(source_round) is int else parsed_round,
-        "index": raw.get("index"),
-        "title": _text(raw.get("title")),
-        "domain": _text(raw.get("domain")),
-        "sim_or_real": _text(raw.get("sim_or_real")) or "designed",
-        "goal": _text(raw.get("goal")),
-        "proposed_action": _text(raw.get("proposed_action")),
-        "decision": _text(raw.get("decision")),
-        "correctness": _text(raw.get("correctness")) or "correct",
-        "rationale": _text(raw.get("rationale")),
-        "executed_action": _text(raw.get("executed_action")),
-        "outcome": _text(raw.get("outcome")),
+        "index": index,
+        "title": _text(title),
+        "domain": _text(domain),
+        "sim_or_real": _text(sim_or_real) or "designed",
+        "goal": _text(goal),
+        "proposed_action": _text(proposed_action),
+        "decision": _text(decision),
+        "correctness": _text(correctness) or "correct",
+        "rationale": _text(rationale),
+        "executed_action": _text(executed_action),
+        "outcome": _text(outcome),
         "reward_total": 0.0 if reward_total is None else reward_total,
-        "reward_note": _text(raw.get("reward_note")),
+        "reward_note": _text(reward_note),
         "source_name": source_name,
     }
-
-
-def _dict_field(rec: Mapping[str, Any], key: str) -> Mapping[str, Any]:
-    value = rec.get(key)
-    return value if isinstance(value, dict) else {}
 
 
 def _from_rec_dict(
@@ -314,11 +285,11 @@ def _from_rec_dict(
     source_name: str,
     index: int,
 ) -> dict[str, Any]:
-    state = _dict_field(rec, "state")
-    proposed = _dict_field(rec, "proposed_action")
-    safety = _dict_field(rec, "safety_decision")
-    executed = _dict_field(rec, "executed_action")
-    outcome = _dict_field(rec, "future_outcome")
+    state = rec.get("state") if isinstance(rec.get("state"), dict) else {}
+    proposed = rec.get("proposed_action") if isinstance(rec.get("proposed_action"), dict) else {}
+    safety = rec.get("safety_decision") if isinstance(rec.get("safety_decision"), dict) else {}
+    executed = rec.get("executed_action") if isinstance(rec.get("executed_action"), dict) else {}
+    outcome = rec.get("future_outcome") if isinstance(rec.get("future_outcome"), dict) else {}
     note = _reward_note(rec.get("reward_components"))
     return _plant_draft(
         source_name,
@@ -339,35 +310,20 @@ def _from_rec_dict(
     )
 
 
-_BUILDER_KEYS = frozenset({"id", "domain", "sim_or_real", "decision", "goal"})
-
-
-def _dict_entries(fn: ast.FunctionDef) -> Iterator[tuple[ast.expr | None, ast.expr]]:
-    """Every ``key: value`` entry of every dict display inside ``fn``, in walk order."""
-
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Dict):
-            yield from zip(node.keys, node.values)
-
-
-def _builder_string(key_node: ast.expr | None, value_node: ast.expr) -> tuple[str, str] | None:
-    """``(key, text)`` for a string literal under one identity key, else None."""
-
-    if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
-        return None
-    if key_node.value not in _BUILDER_KEYS:
-        return None
-    if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
-        return key_node.value, value_node.value
-    return None
-
-
 def _from_builder_fn(fn: ast.FunctionDef, source_name: str, index: int) -> dict[str, Any] | None:
     found: dict[str, Any] = {}
-    for key_node, value_node in _dict_entries(fn):
-        entry = _builder_string(key_node, value_node)
-        if entry is not None:
-            found.setdefault(*entry)
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key_node, value_node in zip(node.keys, node.values):
+            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+                continue
+            if key_node.value not in {"id", "domain", "sim_or_real", "decision", "goal"}:
+                continue
+            if key_node.value in found:
+                continue
+            if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
+                found[key_node.value] = value_node.value
     if "id" not in found:
         return None
     return _plant_draft(
@@ -381,58 +337,6 @@ def _from_builder_fn(fn: ast.FunctionDef, source_name: str, index: int) -> dict[
     )
 
 
-def _rec_draft(
-    name: str, value: ast.AST, consts: Mapping[str, Any], source_name: str
-) -> dict[str, Any] | None:
-    """Draft from a literal ``REC_<n> = {...}`` assignment, else None."""
-
-    match = REC_NAME_RE.match(name)
-    if not match or not isinstance(value, ast.Dict):
-        return None
-    walked = _walk_mapping(value, consts)
-    if not isinstance(walked, dict):
-        return None
-    return _from_rec_dict(walked, source_name, int(match.group(1)))
-
-
-def _builder_draft(node: ast.stmt, source_name: str) -> dict[str, Any] | None:
-    """Draft from a ``def rec_<n>()`` builder, else None."""
-
-    if not isinstance(node, ast.FunctionDef):
-        return None
-    match = BUILDER_NAME_RE.match(node.name)
-    if match is None:
-        return None
-    return _from_builder_fn(node, source_name, int(match.group(1)))
-
-
-def _source_rows(tree: ast.Module, source_name: str) -> list[dict[str, Any]]:
-    """``REC_<n>`` dict drafts when the module has any, else ``rec_<n>()`` builder drafts.
-
-    Literal module constants bind in source order, so a ``REC_<n>`` dict sees
-    only the names assigned above it.
-    """
-
-    consts: dict[str, Any] = {}
-    recs: list[dict[str, Any]] = []
-    builders: list[dict[str, Any]] = []
-    for node in tree.body:
-        item = _assigned(node)
-        if item is None:
-            built = _builder_draft(node, source_name)
-            if built is not None:
-                builders.append(built)
-            continue
-        name, value = item
-        resolved = _optional_const(value, consts)
-        if resolved is not None:
-            consts[name] = resolved
-        draft = _rec_draft(name, value, consts, source_name)
-        if draft is not None:
-            recs.append(draft)
-    return recs or builders
-
-
 def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, ...]:
     """AST-extract one TTF identity catalog. Never exec."""
 
@@ -440,7 +344,28 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
         tree = ast.parse(text)
     except SyntaxError as exc:
         refuse(FINDING_AST_NOT_A_PLANT, f"mill source is not parseable: {exc}")
-    rows = _source_rows(tree, source_name)
+    consts: dict[str, Any] = {}
+    recs: list[dict[str, Any]] = []
+    builders: list[dict[str, Any]] = []
+    for node in tree.body:
+        item = _assigned(node)
+        if item is not None:
+            name, value = item
+            resolved = _optional_const(value, consts)
+            if resolved is not None:
+                consts[name] = resolved
+            match = REC_NAME_RE.match(name)
+            if match and isinstance(value, ast.Dict):
+                walked = _walk_mapping(value, consts)
+                if isinstance(walked, dict):
+                    recs.append(_from_rec_dict(walked, source_name, int(match.group(1))))
+            continue
+        if isinstance(node, ast.FunctionDef) and BUILDER_NAME_RE.match(node.name):
+            index = int(BUILDER_NAME_RE.match(node.name).group(1))
+            draft = _from_builder_fn(node, source_name, index)
+            if draft is not None:
+                builders.append(draft)
+    rows = recs or builders
     refuse_when(
         len(rows) != QUOTA_PER_ROUND,
         FINDING_CATALOG_SLICE_STRIDE,
@@ -476,38 +401,30 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
         FINDING_FIELD_INVALID,
         f"{where}.index must be 1..{QUOTA_PER_ROUND}, got {shown(index)}",
     )
-    _require_vocabularies(values, where)
+    sim = values["sim_or_real"]
+    refuse_when(
+        sim not in SIM_OR_REAL,
+        FINDING_FIELD_INVALID,
+        f"{where}.sim_or_real must be designed/hil/simulated, got {shown(sim)}",
+    )
+    decision = values["decision"]
+    refuse_when(
+        decision not in DECISIONS,
+        FINDING_FIELD_INVALID,
+        f"{where}.decision must be ACCEPT/MODIFY/REJECT, got {shown(decision)}",
+    )
+    correctness = values["correctness"]
+    refuse_when(
+        correctness not in CORRECTNESS,
+        FINDING_FIELD_INVALID,
+        f"{where}.correctness must be correct/incorrect, got {shown(correctness)}",
+    )
     total = values["reward_total"]
     refuse_when(
         type(total) is not float and type(total) is not int,
         FINDING_FIELD_INVALID,
         f"{where}.reward_total must be a number, got {shown(total)}",
     )
-    return _checked_fields(values, where)
-
-
-_VOCABULARY_FIELDS = (
-    ("sim_or_real", SIM_OR_REAL, "designed/hil/simulated"),
-    ("decision", DECISIONS, "ACCEPT/MODIFY/REJECT"),
-    ("correctness", CORRECTNESS, "correct/incorrect"),
-)
-
-
-def _require_vocabularies(values: Mapping[str, Any], where: str) -> None:
-    """``sim_or_real``, ``decision`` and ``correctness`` each name an allowed value."""
-
-    for field, allowed, label in _VOCABULARY_FIELDS:
-        value = values[field]
-        refuse_when(
-            value not in allowed,
-            FINDING_FIELD_INVALID,
-            f"{where}.{field} must be {label}, got {shown(value)}",
-        )
-
-
-def _checked_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
-    """Every plant field: ``reward_total`` as a float, the text fields as strings."""
-
     checked: dict[str, Any] = {}
     for field in PLANT_FIELDS:
         value = values[field]
