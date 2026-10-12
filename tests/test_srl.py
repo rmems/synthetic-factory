@@ -246,6 +246,15 @@ class SrlCli(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertIn("Novel coverage: 42%", out)
 
+    def test_single_record_needs_a_round_and_no_count(self):
+        cases = (
+            (["generate", "--index", "3"], "missing_round: pass --round or --window\n"),
+            (["generate", "--round", "6110", "--index", "3", "--count", "2"], "count_requires_window\n"),
+        )
+        for argv, message in cases:
+            with self.subTest(argv=argv):
+                self.assertEqual(invoke(argv), (2, "", message))
+
 
 if __name__ == "__main__":
     unittest.main()

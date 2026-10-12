@@ -9,6 +9,7 @@ with reward only at the terminal. This module does not publish a raw round.
 from __future__ import annotations
 
 import hashlib
+from collections import namedtuple
 from typing import Any
 
 from . import catalog as cat
@@ -33,7 +34,7 @@ def hid(slug: str) -> str:
 
     if type(slug) is not str or not slug:
         raise SrlError(f"unknown_plant: {slug!r}")
-    return hashlib.sha1(slug.encode()).hexdigest()[:4]
+    return hashlib.sha1(slug.encode(), usedforsecurity=False).hexdigest()[:4]
 
 
 def record_id(rnd: int, slug: str) -> str:
@@ -49,16 +50,28 @@ def _step(n: int, basis: str, name: str, args: dict[str, str], observation: str)
     }
 
 
-def _steps(plant: cat.Plant) -> list[dict[str, Any]]:
-    work = f"/work/{plant['plant']}"
-    test = f"tests/{plant['test']}.py"
-    issue = f"ISSUE-{plant['issue']}.md"
-    bad = plant["bad"]
-    h1 = plant["h1"]
-    h2 = plant["h2"]
-    fix = plant["fix"]
-    grep = plant["grep"]
-    tool = plant["tool"].split()[0]
+# The paths, knobs and probes one plant's 32 steps quote, read in the original order.
+_Workspace = namedtuple("_Workspace", "work test issue bad h1 h2 fix grep tool")
+
+
+def _workspace(plant: cat.Plant) -> _Workspace:
+    return _Workspace(
+        f"/work/{plant['plant']}",
+        f"tests/{plant['test']}.py",
+        f"ISSUE-{plant['issue']}.md",
+        plant["bad"],
+        plant["h1"],
+        plant["h2"],
+        plant["fix"],
+        plant["grep"],
+        plant["tool"].split()[0],
+    )
+
+
+def _hypothesis_steps(plant: cat.Plant, ws: _Workspace) -> list[dict[str, Any]]:
+    """Steps 1-9: locate the knob, try and abandon H1 and H2, then fix app."""
+    work, test, issue, bad = ws.work, ws.test, ws.issue, ws.bad
+    h1, h2, fix, grep = ws.h1, ws.h2, ws.fix, ws.grep
     glob = "*.{py,yml,md,conf,hcl,toml,cfg}"
     return [
         _step(
@@ -93,6 +106,13 @@ def _steps(plant: cat.Plant) -> list[dict[str, Any]]:
         _step(9, "Observation: apply the fix on app.",
               "search_replace", {"path": f"{work}/app/runtime.conf", "old": h2, "new": fix},
               f"app {fix}"),
+    ]
+
+
+def _surface_steps(ws: _Workspace) -> list[dict[str, Any]]:
+    """Steps 10-18: pin worker and canary, rewrite the gate, then pin live."""
+    work, test, bad, fix, tool = ws.work, ws.test, ws.bad, ws.fix, ws.tool
+    return [
         _step(10, "Observation: worker still old.",
               "read_file", {"path": f"{work}/worker/runtime.conf"}, bad),
         _step(11, "Observation: pin worker.",
@@ -117,6 +137,13 @@ def _steps(plant: cat.Plant) -> list[dict[str, Any]]:
         _step(18, "Observation: pin live.",
               "search_replace", {"path": f"{work}/live/runtime.conf", "old": bad, "new": fix},
               f"live {fix}"),
+    ]
+
+
+def _rollout_steps(plant: cat.Plant, ws: _Workspace) -> list[dict[str, Any]]:
+    """Steps 19-32: pin deploy, unit, env and docs, then verify and close."""
+    work, test, issue, bad, fix, grep = ws.work, ws.test, ws.issue, ws.bad, ws.fix, ws.grep
+    return [
         _step(19, "Observation: helm values.",
               "grep", {"pattern": grep, "path": f"{work}/deploy"},
               f"deploy/values.yaml {bad}"),
@@ -162,6 +189,11 @@ def _steps(plant: cat.Plant) -> list[dict[str, Any]]:
               {"path": f"{work}/{issue}", "contents": f"FIXED leftover leftover leftover {fix}"},
               f"invoice closed; {fix}"),
     ]
+
+
+def _steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    ws = _workspace(plant)
+    return [*_hypothesis_steps(plant, ws), *_surface_steps(ws), *_rollout_steps(plant, ws)]
 
 
 def episode(rnd: int, plant: cat.Plant) -> dict[str, Any]:
