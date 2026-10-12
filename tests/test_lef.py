@@ -222,9 +222,9 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertEqual(PLANT_B_SOURCE.blob_sha, lv.PLANTS_B_BLOB_SHA)
 
     def test_committed_plants_catalog(self):
+        self.assertIsNotNone(CATALOG.plants)
         plants = CATALOG.plants
-        if plants is None:
-            self.fail("CATALOG.plants is unexpectedly None")
+        assert plants is not None
         self.assertEqual(plants.n_pairs, lv.PLANTS_PAIR_COUNT)
         self.assertEqual(plants.catalog_first, lv.PLANTS_CATALOG_FIRST)
         self.assertEqual(plants.first_ok_slug, "kappa-vs-geval-align")
@@ -235,9 +235,9 @@ class LefSkeletonTests(unittest.TestCase):
         self.assertFalse(plants.pairs[0].bad["success"])
 
     def test_committed_plants_b_catalog(self):
+        self.assertIsNotNone(CATALOG.plants_b)
         plants_b = CATALOG.plants_b
-        if plants_b is None:
-            self.fail("CATALOG.plants_b is unexpectedly None")
+        assert plants_b is not None
         self.assertEqual(plants_b.n_pairs, lv.PLANTS_B_PAIR_COUNT)
         self.assertEqual(plants_b.catalog_first, lv.PLANTS_B_CATALOG_FIRST)
         self.assertEqual(plants_b.first_ok_slug, "annotator-id-unkeyed")
@@ -534,8 +534,7 @@ class LefLegacyExtractTests(unittest.TestCase):
             catalog_first=lv.PLANTS_CATALOG_FIRST,
         )
         committed = CATALOG.plants
-        if committed is None:
-            self.fail("CATALOG.plants is unexpectedly None")
+        assert committed is not None
         self.assertEqual(record["n_pairs"], committed.n_pairs)
         self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
         self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
@@ -587,8 +586,7 @@ class LefLegacyExtractTests(unittest.TestCase):
             plants_file=lv.PLANTS_B_FILENAME,
         )
         committed = CATALOG.plants_b
-        if committed is None:
-            self.fail("CATALOG.plants_b is unexpectedly None")
+        assert committed is not None
         self.assertEqual(record["n_pairs"], committed.n_pairs)
         self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
         self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
