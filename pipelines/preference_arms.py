@@ -60,49 +60,40 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from curate_preferences import canonical_json, context_is_pure  # noqa: E402,F401
+from curate_preferences import context_is_pure  # noqa: E402
 from operator_paths import confine_named  # noqa: E402
 
 # The gate is split across sibling modules so each states one responsibility.
-# Everything the published surface exposes is re-exported here, so
-# ``import preference_arms`` keeps resolving every name it always did.
+# Besides what this module uses itself, the names that round_txn_preference
+# and the preference-arm tests reach through ``preference_arms`` are
+# re-exported here (F401): MAX_DIAGNOSIS_DEPTH, MAX_DIAGNOSIS_NARRATIVE_CHARS,
+# rejected_scratch_filenames, MACHINE_IDENTIFIER_PATHS,
+# MAX_ALIGNMENT_LIST_ITEMS, arm_distance, arm_terms, machine_observable_deltas,
+# ReceiptExpectation, validate_diagnosis_handoff_receipt and cosine_similarity.
 from preference_arms_diagnosis import (  # noqa: E402,F401
-    DIAGNOSIS_SECTIONS,
     HANDOFF_RECEIPT_VERSION,
     MAX_DIAGNOSIS_BYTES,
-    MAX_DIAGNOSIS_COMPONENTS,
     MAX_DIAGNOSIS_DEPTH,
-    MAX_DIAGNOSIS_LINE_CHARS,
     MAX_DIAGNOSIS_NARRATIVE_CHARS,
-    MAX_DIAGNOSIS_NODES,
     _DIAGNOSIS_NAME_RE,
     _FACTORY_SLUG_RE,
     _STAGING_NAME_RE,
     _session_b_outputs,
-    _strict_json_object,
     diagnosis_filenames,
     diagnosis_receipt_filename,
     rejected_scratch_filenames,
     validate_diagnosis_document,
 )
-from preference_arms_fs import (  # noqa: E402,F401
+from preference_arms_fs import (  # noqa: E402
     _open_canonical_directory,
-    _read_regular_artifact,
     _read_regular_artifact_from_directory,
     _require_open_directory_identity,
     _same_file_identity,
 )
 from preference_arms_observables import (  # noqa: E402,F401
-    CONTRAST_FIELDS,
     DEFAULT_MIN_ARM_DISTANCE,
-    LABEL_COPY_FIELDS,
-    MACHINE_BOOLEAN_PATHS,
     MACHINE_IDENTIFIER_PATHS,
-    MACHINE_NUMERIC_PATHS,
-    MACHINE_OBSERVABLE_FIELDS,
     MAX_ALIGNMENT_LIST_ITEMS,
-    MAX_ALIGNMENT_RESIDUAL_ITEMS,
-    SPIKE_IDENTIFIER_KEYS,
     _common_arm_observable_leaves,
     _observable_deltas_from_leaves,
     _observable_terms,
