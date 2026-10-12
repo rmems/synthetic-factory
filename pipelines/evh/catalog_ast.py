@@ -137,13 +137,17 @@ def _binop(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
         return UNSET
     if isinstance(node.op, ast.Add):
         return _add(left, right)
+    return _int_op(node.op, left, right)
+
+
+def _int_op(op: ast.operator, left: Any, right: Any) -> Any:
+    """``-`` and ``//`` on two ints; any other operator or operand stays ``UNSET``."""
+
     if not isinstance(left, int) or not isinstance(right, int):
         return UNSET
-    if isinstance(node.op, ast.Sub):
+    if isinstance(op, ast.Sub):
         return left - right
-    if isinstance(node.op, ast.FloorDiv):
-        return left // right
-    return UNSET
+    return left // right if isinstance(op, ast.FloorDiv) else UNSET
 
 
 def _add(left: Any, right: Any) -> Any:
@@ -203,6 +207,10 @@ def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if name == "pair":
         args = _call_args(node, env)
         return tuple(args) if args is not UNSET else UNSET
+    return _str_call(node, env)
+
+
+def _str_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if not isinstance(node.func, ast.Attribute) or node.func.attr not in _STR_METHODS:
         return UNSET
     owner = resolve(node.func.value, env)
@@ -225,16 +233,18 @@ def _call_args(node: ast.Call, env: Mapping[str, Any]) -> Any:
 
 def _str_method(owner: str, attr: str, args: list[Any]) -> Any:
     if attr == "replace" and len(args) == 2:
-        if not all(isinstance(item, str) for item in args):
-            return UNSET
-        return owner.replace(args[0], args[1])
+        return _str_replace(owner, args)
     if args:
         return UNSET
     if attr == "title":
         return owner.title()
-    if attr == "upper":
-        return owner.upper()
-    return UNSET
+    return owner.upper() if attr == "upper" else UNSET
+
+
+def _str_replace(owner: str, args: list[Any]) -> Any:
+    if not all(isinstance(item, str) for item in args):
+        return UNSET
+    return owner.replace(args[0], args[1])
 
 
 # Each resolver takes the node type it is paired with; ``resolve`` dispatches by isinstance.

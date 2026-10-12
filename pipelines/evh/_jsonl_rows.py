@@ -89,12 +89,20 @@ def plant_row(line: str, ctx: str, source_path: str | None) -> dict[str, Any]:
     return {key: row[key] for key in LEFTOVER_PLANT_ROW_KEYS}
 
 
+_PLANT_TEXT_KEYS = tuple(key for key in LEFTOVER_PLANT_ROW_KEYS if key != "index")
+
+
 def _require_plant_fields(row: Mapping[str, Any], ctx: str) -> None:
-    pair_index = row["index"]
-    if not isinstance(pair_index, int) or isinstance(pair_index, bool):
+    if not _is_int(row["index"]):
         raise ValueError(f"{ctx} index must be an int")
-    for key in LEFTOVER_PLANT_ROW_KEYS:
-        if key == "index":
-            continue
-        if not isinstance(row[key], str) or not row[key]:
+    for key in _PLANT_TEXT_KEYS:
+        if not _is_nonempty_str(row[key]):
             raise ValueError(f"{ctx} {key} must be a non-empty string")
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_nonempty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
