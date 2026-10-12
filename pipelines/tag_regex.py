@@ -44,7 +44,6 @@ _MAX_SAFE_REGEX_REPEATS = 64
 _MAX_SAFE_REGEX_BRANCHES = 64
 _MAX_SAFE_BOUNDED_REPEAT = 10_000
 _REGEX_RESOURCE_ERRORS = (OverflowError, RecursionError, MemoryError)
-_SKIP_LEADING = object()
 
 
 class UnsafeRegexError(ValueError):
@@ -98,17 +97,17 @@ def _nullable_repeat(argument: Any) -> bool:
 
 
 def regex_leading_domain(items: Any) -> RegexDomain:
-    """Return a provable first-character domain for a repeated body."""
+    """Return a provable first-character domain for a repeated body.
+
+    Anchors consume nothing, so the first non-anchor item decides.
+    """
     for operation, argument in items:
-        domain = _leading_op_domain(operation, argument)
-        if domain is not _SKIP_LEADING:
-            return domain
+        if operation is not _re_parser.AT:
+            return _leading_op_domain(operation, argument)
     return None
 
 
-def _leading_op_domain(operation: Any, argument: Any) -> RegexDomain | object:
-    if operation is _re_parser.AT:
-        return _SKIP_LEADING
+def _leading_op_domain(operation: Any, argument: Any) -> RegexDomain:
     if operation in REGEX_CONSUMING_ATOMS:
         return regex_atom_domain((operation, argument))
     if operation is _re_parser.SUBPATTERN:
