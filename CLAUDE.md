@@ -177,10 +177,9 @@ if __package__:
 module object so classes such as the exact-JSON decimal token keep one
 identity. Copy the prelude from a sibling when adding a module; a package child
 that others import both ways also needs its name in `_PACKAGE_SIBLING_NAMES`.
-Fourteen older modules are direct-execution only because they import siblings
+Eight older modules are direct-execution only because they import siblings
 by bare name (`next_round`, `quality_gate_audit`, `quality_gate_embedding`,
-`card_schema`, `card_schema_validate`, `card_schema_yaml`, `tag_io`,
-`tag_jsonl`, `tag_record`, `tag_regex`, `tag_taxonomy`, `tag_write`,
+`card_schema`, `card_schema_validate`, `card_schema_yaml`,
 `verify_execution`, `verify_execution_shapes`); `import pipelines.next_round`
 raises `ModuleNotFoundError`. That is why `driver.py` and
 `scripts/publish_grok46_hub.py` insert `pipelines/` into `sys.path` before

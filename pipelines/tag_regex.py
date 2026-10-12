@@ -14,18 +14,30 @@ second, subtly different regex parser.
 from __future__ import annotations
 
 import re
+import sys
 from re import _parser as _re_parser
 from typing import Any
 
-from tag_constants import TagTaxonomyError
-from tag_regex_domain import (
-    REGEX_CONSUMING_ATOMS,
-    REGEX_REPEAT_OPS,
-    RegexDomain,
-    overlaps_any_domain,
-    regex_atom_domain,
-    regex_domains_are_disjoint,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_regex")
+    from . import tag_constants as _tag_constants
+    from . import tag_regex_domain as _tag_regex_domain
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_regex"
+    )
+    import tag_constants as _tag_constants
+    import tag_regex_domain as _tag_regex_domain
+
+TagTaxonomyError = _tag_constants.TagTaxonomyError
+REGEX_CONSUMING_ATOMS = _tag_regex_domain.REGEX_CONSUMING_ATOMS
+REGEX_REPEAT_OPS = _tag_regex_domain.REGEX_REPEAT_OPS
+RegexDomain = _tag_regex_domain.RegexDomain
+overlaps_any_domain = _tag_regex_domain.overlaps_any_domain
+regex_atom_domain = _tag_regex_domain.regex_atom_domain
+regex_domains_are_disjoint = _tag_regex_domain.regex_domains_are_disjoint
 
 _MAX_SAFE_REGEX_LENGTH = 8_192
 _MAX_SAFE_REGEX_REPEATS = 64
@@ -426,3 +438,9 @@ def _compile_parsed_pattern(pattern: str, label: str, source: str) -> re.Pattern
         raise TagTaxonomyError(
             f"{source}: {label} is not a valid regex: compiler resource limit exceeded"
         ) from exc
+
+
+if __package__:
+    # One module object for both import forms, so UnsafeRegexError keeps one
+    # class identity whichever form loads first.
+    _expose_package_sibling(__name__)

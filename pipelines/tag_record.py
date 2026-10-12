@@ -3,31 +3,45 @@
 from __future__ import annotations
 
 import copy
+import sys
 from collections import Counter
 from typing import Any
 
-from tag_constants import (
-    REASON_PROVENANCE_CONFLICT,
-    REASON_RECORD_NOT_OBJECT,
-    REASON_TAGS_DEDUPLICATED,
-    REASON_TAGS_MAPPED,
-    REASON_TAGS_NOT_LIST,
-    REASON_TAGS_PROVENANCE_REUSED,
-    REASON_TAGS_PROVENANCE_WRITTEN,
-    REASON_TAGS_UNMAPPED,
-    RULE_TRANSFORM,
-    TAG_PROVENANCE_FIELD,
-    TAGS_KEY,
-    TRANSFORM_NAME,
-    TRANSFORM_VERSION,
-)
-from tag_jsonutil import (
-    canonical_json,
-    canonical_json_equal,
-    count_tag,
-    hash_value,
-)
-from tag_taxonomy import Taxonomy, load_taxonomy, map_tags
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_record")
+    from . import tag_constants as _tag_constants
+    from . import tag_jsonutil as _tag_jsonutil
+    from . import tag_taxonomy as _tag_taxonomy
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_record"
+    )
+    import tag_constants as _tag_constants
+    import tag_jsonutil as _tag_jsonutil
+    import tag_taxonomy as _tag_taxonomy
+
+REASON_PROVENANCE_CONFLICT = _tag_constants.REASON_PROVENANCE_CONFLICT
+REASON_RECORD_NOT_OBJECT = _tag_constants.REASON_RECORD_NOT_OBJECT
+REASON_TAGS_DEDUPLICATED = _tag_constants.REASON_TAGS_DEDUPLICATED
+REASON_TAGS_MAPPED = _tag_constants.REASON_TAGS_MAPPED
+REASON_TAGS_NOT_LIST = _tag_constants.REASON_TAGS_NOT_LIST
+REASON_TAGS_PROVENANCE_REUSED = _tag_constants.REASON_TAGS_PROVENANCE_REUSED
+REASON_TAGS_PROVENANCE_WRITTEN = _tag_constants.REASON_TAGS_PROVENANCE_WRITTEN
+REASON_TAGS_UNMAPPED = _tag_constants.REASON_TAGS_UNMAPPED
+RULE_TRANSFORM = _tag_constants.RULE_TRANSFORM
+TAG_PROVENANCE_FIELD = _tag_constants.TAG_PROVENANCE_FIELD
+TAGS_KEY = _tag_constants.TAGS_KEY
+TRANSFORM_NAME = _tag_constants.TRANSFORM_NAME
+TRANSFORM_VERSION = _tag_constants.TRANSFORM_VERSION
+canonical_json = _tag_jsonutil.canonical_json
+canonical_json_equal = _tag_jsonutil.canonical_json_equal
+count_tag = _tag_jsonutil.count_tag
+hash_value = _tag_jsonutil.hash_value
+Taxonomy = _tag_taxonomy.Taxonomy
+load_taxonomy = _tag_taxonomy.load_taxonomy
+map_tags = _tag_taxonomy.map_tags
 
 
 def json_pointer(tokens: list[str]) -> str:
@@ -480,3 +494,9 @@ def _assert_canonical_output(
     ]
     if leftover:
         raise AssertionError(f"tag curation emitted noncanonical tags: {leftover!r}")
+
+
+if __package__:
+    # One module object for both import forms, so the record transform and its
+    # provenance helpers stay one object whichever form loads first.
+    _expose_package_sibling(__name__)

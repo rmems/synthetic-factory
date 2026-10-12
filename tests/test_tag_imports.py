@@ -1,0 +1,110 @@
+"""Both import spellings of every tag-taxonomy module are one object, in any order.
+
+``tag_io``, ``tag_jsonl``, ``tag_record``, ``tag_regex``, ``tag_taxonomy`` and
+``tag_write`` once imported their siblings by bare name only, so
+``import pipelines.tag_io`` raised ``ModuleNotFoundError``. They now open with
+the package/direct prelude the other pipeline modules use, and
+``tag_constants`` binds the same way so the ``TagTaxonomyError`` they all raise
+keeps one class identity. Each form runs in a spawned interpreter
+(``tests/tag_import_probe.py``) so nothing this process already imported can
+mask a failure; ``InProcess`` then takes the package branch in this process,
+after the CLI form, where the coverage report is taken.
+"""
+
+import re
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import tag_import_probe as probe
+
+_FINALIZER = re.compile(r"^    _expose_package_sibling\(__name__\)$", re.MULTILINE)
+
+
+def bound_tag_modules() -> frozenset[str]:
+    """Every ``pipelines/tag_*.py`` that binds its two import forms to one object."""
+
+    return frozenset(
+        path.stem
+        for path in probe.PIPELINES.glob("tag_*.py")
+        if _FINALIZER.search(path.read_text(encoding="utf-8"))
+    )
+
+
+class FreshInterpreter(unittest.TestCase):
+    def test_the_cli_form_alone(self):
+        report = probe.in_fresh_interpreter("cli")
+        flat = ("curate_tags", *probe.MODULES)
+        self.assertEqual(report["names"], {name: name for name in flat})
+
+    def test_the_package_form_alone_binds_every_module(self):
+        report = probe.in_fresh_interpreter("package")
+        packaged = {name: f"pipelines.{name}" for name in probe.MODULES}
+        self.assertEqual(report["names"], packaged)
+        self.assertFalse(report["pipelines_on_path"])
+        self.assertEqual(report["split_modules"], [])
+
+    def test_either_order_is_one_object_and_one_error_class(self):
+        clean = {
+            "split_objects": [],
+            "split_attributes": [],
+            "cli_catches_package_error": True,
+            "split_modules": [],
+        }
+        for form in ("cli_then_package", "package_then_cli"):
+            with self.subTest(form=form):
+                self.assertEqual(probe.in_fresh_interpreter(form), clean)
+
+
+class InProcess(unittest.TestCase):
+    """The package form taken after the CLI form, in this very process."""
+
+    @classmethod
+    def setUpClass(cls):
+        if str(probe.REPO) not in sys.path:
+            sys.path.append(str(probe.REPO))
+        cls.bare = probe.cli_form()
+        cls.packaged = probe.package_form()
+
+    def test_the_probe_covers_every_bound_tag_module(self):
+        self.assertEqual(frozenset(probe.MODULES), bound_tag_modules())
+
+    def test_each_package_child_is_the_direct_module(self):
+        import pipelines
+
+        for name in probe.MODULES:
+            with self.subTest(module=name):
+                self.assertIs(self.packaged[name], self.bare[name])
+                self.assertIs(sys.modules[f"pipelines.{name}"], self.bare[name])
+                self.assertIs(getattr(pipelines, name), self.bare[name])
+
+    def test_every_registered_loader_returns_the_bound_sibling(self):
+        # _join_package_sibling reaches a sibling through _load_package_sibling;
+        # the loader must hand back the object the bare name is bound to.
+        import pipelines
+
+        for name in probe.MODULES:
+            with self.subTest(module=name):
+                self.assertIn(name, pipelines._PACKAGE_SIBLING_NAMES)
+                loaded = pipelines._load_package_sibling(name)
+                self.assertIs(loaded, sys.modules[name])
+                self.assertIs(loaded, sys.modules[f"pipelines.{name}"])
+
+    def test_shared_classes_and_functions_are_one_object(self):
+        for attribute, left, right in probe.SHARED_ATTRIBUTES:
+            with self.subTest(attribute=attribute, cli=left, package=right):
+                self.assertIs(
+                    getattr(self.bare[left], attribute),
+                    getattr(self.packaged[right], attribute),
+                )
+
+    def test_the_cli_catches_an_error_the_package_form_raises(self):
+        with self.assertRaises(self.bare["curate_tags"].TagTaxonomyError) as raised:
+            self.packaged["tag_taxonomy"].Taxonomy({}, source="<in-process>")
+        self.assertIn("version must be a nonempty string", str(raised.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
