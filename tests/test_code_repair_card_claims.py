@@ -81,6 +81,14 @@ def rendered_card(replay: dict, run: dict) -> str:
     )
 
 
+def fully_replayed_with_failures() -> tuple[dict, dict]:
+    replay, run = complete_evidence()
+    replay["status"] = "failed"
+    replay["counts"].update(passed=1, failed=2)
+    run["outcomes"] = {"accepted": 3}
+    return replay, run
+
+
 def complete_evidence() -> tuple[dict, dict]:
     replay = {
         "status": "passed",
@@ -109,11 +117,8 @@ class ReplayCoverageTests(unittest.TestCase):
         self.assertFalse(coverage.complete)
         self.assertEqual((coverage.records, coverage.passed, coverage.failed,
                           coverage.not_replayed), (132, 97, 0, 35))
-        self.assertEqual(dict(coverage.not_replayed_by_kind), {
-            "accepted with oracle status provisional": 13,
-            "rejected with oracle status provisional": 4,
-            "rejected with oracle status validated": 18,
-        })
+        self.assertEqual(dict(coverage.not_replayed_outcomes), {"accepted": 13, "rejected": 22})
+        self.assertEqual(dict(coverage.not_replayed_statuses), {"provisional": 17, "validated": 18})
 
     def test_counts_that_do_not_add_up_are_refused(self):
         replay = copy.deepcopy(REPLAY)
@@ -146,7 +151,8 @@ class RenderedStatementTests(unittest.TestCase):
     def test_partial_replay_statement_states_the_replayed_subset(self):
         text = cc.verification_statement(cc.replay_coverage(REPLAY))
         self.assertIn("97 of 132 candidates replayed and passed, 0 failed", text)
-        self.assertIn("35 not replayed (13 accepted with oracle status provisional", text)
+        self.assertIn("35 not replayed (13 accepted and 22 rejected; oracle statuses "
+                      "17 provisional and 18 validated)", text)
         self.assertIn("applies to the replayed subset only", text)
         self.assertNotIn("full batch", text)
 
@@ -169,6 +175,13 @@ class RenderedStatementTests(unittest.TestCase):
         self.assertIn("4 of the 197 catalog programs have no mutation sites and were "
                       "excluded from the draw pool, so they used no draws", text)
 
+    def test_fully_replayed_batch_with_failures_states_them(self):
+        # Every record replayed, two failed: no not-replayed breakdown to join (CodeAnt on #434).
+        replay, run = fully_replayed_with_failures()
+        text = cc.verification_statement(cc.replay_coverage(replay))
+        self.assertIn("re-executed all 3 candidates: 1 of 3 passed and 2 failed", text)
+        self.assertEqual(cc.card_claim_errors(rendered_card(replay, run), replay, run), [])
+
     def test_contents_statement_without_skips(self):
         _replay, run = complete_evidence()
         self.assertEqual(cc.contents_statement(run),
@@ -178,13 +191,15 @@ class RenderedStatementTests(unittest.TestCase):
 class CardClaimTests(unittest.TestCase):
     def test_overclaiming_card_fails(self):
         errors = cc.card_claim_errors(OVERCLAIMING_CARD, REPLAY, RUN)
-        self.assertIn("Verification claims a complete replay ('full batch') but 35 of 132 "
-                      "records were not replayed", errors)
-        for phrase in ("'97 of 132'", "'35 not replayed'", "'0 failed'"):
+        self.assertIn("Verification overclaims replay ('full batch passed'): 97 of 132 passed, "
+                      "0 failed, 35 not replayed", errors)
+        for phrase in ("'97 of 132'", "'35 not replayed'", "'0 failed'", "'13 accepted'"):
             self.assertTrue(any(phrase in e for e in errors), phrase)
         for disclosure in ("110 accepted", "22 rejected", "115 validated", "17 provisional"):
             self.assertTrue(any(disclosure in e for e in errors), disclosure)
         self.assertTrue(any("excluded from the draw pool" in e for e in errors))
+        self.assertTrue(any("'4 of the 197 catalog programs'" in e for e in errors))
+        self.assertTrue(any("'18 draws'" in e for e in errors))
 
     def test_hand_written_honest_card_passes(self):
         self.assertEqual(cc.card_claim_errors(HONEST_CARD, REPLAY, RUN), [])
@@ -210,6 +225,38 @@ class CardClaimTests(unittest.TestCase):
         card = HONEST_CARD.replace("97 of 132", "95 of 132")
         errors = cc.card_claim_errors(card, replay, RUN)
         self.assertEqual(errors, ["Verification must state '2 failed' from evidence/REPLAY.json"])
+
+    def test_counts_match_whole_numbers_only(self):
+        replay = copy.deepcopy(REPLAY)
+        replay["status"] = "failed"
+        replay["counts"].update(passed=87, failed=10)
+        card = HONEST_CARD.replace("97 of 132", "87 of 132").replace("0 failed", "10 failed")
+        errors = cc.card_claim_errors(card, replay, RUN)
+        self.assertEqual(errors, [])
+        replay["counts"].update(passed=97, failed=0)
+        errors = cc.card_claim_errors(card.replace("87 of 132", "97 of 132"), replay, RUN)
+        self.assertEqual(errors, ["Verification must state '0 failed' from evidence/REPLAY.json"])
+
+    def test_a_later_verification_block_is_checked_too(self):
+        card = HONEST_CARD + "\n> **Verification:** the full batch passed.\n"
+        errors = cc.card_claim_errors(card, REPLAY, RUN)
+        self.assertTrue(any("'full batch passed'" in e for e in errors))
+
+    def test_complete_replay_must_say_all(self):
+        replay, run = complete_evidence()
+        card = rendered_card(replay, run).replace("all 3 candidates", "the candidates")
+        self.assertEqual(cc.card_claim_errors(card, replay, run),
+                         ["Verification must state 'all 3' from evidence/REPLAY.json"])
+
+    def test_not_replayed_breakdown_must_be_stated(self):
+        card = HONEST_CARD.replace("13 accepted rows", "some accepted rows")
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN),
+                         ["Verification must state '13 accepted' from evidence/REPLAY.json"])
+
+    def test_contents_numbers_must_match_the_run(self):
+        card = HONEST_CARD.replace("from 150 requested", "from 160 requested")
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN),
+                         ["card must state '150 requested' from evidence/RUN.json"])
 
     def test_card_without_a_verification_statement_fails(self):
         errors = cc.card_claim_errors("# Card\n\n110 accepted\n", REPLAY, RUN)

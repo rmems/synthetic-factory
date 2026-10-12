@@ -49,7 +49,8 @@ are therefore rendered from the evidence by `pipelines/code_repair/card_claims.p
 `pipelines/verify_hf_release.py` checks each published code-repair card
 (`REPLAY_CLAIM_REPOS`) against its `evidence/REPLAY.json` and
 `evidence/RUN.json`. The card must state `<passed> of <records>`, the failed and
-not-replayed counts, and the outcome and oracle-status splits. It must also say
+not-replayed counts with the not-replayed outcomes, the outcome and oracle-status
+splits, and the requested-draw and draw-skip counts. It must also say
 that `MUTATION_NO_SITES` programs were excluded from the draw pool, because
 they use no draws and don't account for a shortfall between requested and
 produced candidates.

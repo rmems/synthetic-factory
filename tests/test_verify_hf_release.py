@@ -498,6 +498,8 @@ HONEST_REPLAY_CARD = """# Card
 > **Verification:** independent replay covered only part of the batch: 2 of 3
 > candidates replayed and passed, 0 failed, and 1 not replayed (the rejected row).
 > The rows mix 2 accepted and 1 rejected outcomes, with 3 validated oracle statuses.
+
+3 candidates from 3 requested draws.
 """
 
 
@@ -537,8 +539,8 @@ class ReplayClaimVerifierTests(unittest.TestCase):
         result = self.verify()
         self.assertFalse(result.ok)
         self.assertIn(
-            "Verification claims a complete replay ('full batch') but 1 of 3 records were "
-            "not replayed",
+            "Verification overclaims replay ('full batch passed'): 2 of 3 passed, 0 failed, "
+            "1 not replayed",
             result.errors,
         )
         self.assertIn(

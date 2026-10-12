@@ -29,13 +29,19 @@ REPLAY_EVIDENCE = "evidence/REPLAY.json"
 RUN_EVIDENCE = "evidence/RUN.json"
 VERIFICATION_MARKER = "> **Verification:**"
 DRAW_POOL_PHRASE = "excluded from the draw pool"
-# Wording that sells a partial replay as a complete one; issue #420 found the first.
-OVERCLAIM_PHRASES = ("full batch", "entire batch", "whole batch", "every candidate passed")
+# Wording that sells failures or a partial replay as a clean full one; #420 found "full batch".
+PASS_OVERCLAIMS = (
+    "full batch passed", "entire batch passed", "whole batch passed", "every candidate passed",
+    "all candidates passed",
+)
+COVERAGE_OVERCLAIMS = ("full batch", "entire batch", "whole batch")
 
 __all__ = [
     "CardClaimError", "ReplayCoverage", "card_claim_errors", "contents_statement",
     "load_evidence", "replay_coverage", "split_statement", "verification_statement",
 ]
+
+Tally = tuple[tuple[str, int], ...]
 
 
 class CardClaimError(ValueError):
@@ -51,11 +57,18 @@ class ReplayCoverage:
     passed: int
     failed: int
     not_replayed: int
-    not_replayed_by_kind: tuple[tuple[str, int], ...]
+    not_replayed_outcomes: Tally
+    not_replayed_statuses: Tally
 
     @property
     def complete(self) -> bool:
+        """Every record was replayed and passed."""
         return self.passed == self.records
+
+    @property
+    def fully_replayed(self) -> bool:
+        """Every record was replayed, whether or not it passed."""
+        return self.not_replayed == 0
 
 
 def load_evidence(text: str | bytes, path: str) -> dict[str, Any]:
@@ -83,11 +96,11 @@ def _count(mapping: Any, key: str, where: str) -> int:
     raise CardClaimError(f"{where} needs a non-negative integer {key!r}")
 
 
-def _not_replayed_kind(entry: dict[str, Any]) -> str:
-    return f"{entry.get('outcome')} with oracle status {entry.get('oracle_status')}"
+def _counted(values: list[Any]) -> Tally:
+    return tuple(sorted(Counter(str(v) for v in values).items()))
 
 
-def _not_replayed_kinds(replay: dict[str, Any], expected: int) -> tuple[tuple[str, int], ...]:
+def _not_replayed_entries(replay: dict[str, Any], expected: int) -> list[dict[str, Any]]:
     entries = replay.get("records")
     if not isinstance(entries, list):
         raise CardClaimError(f"{REPLAY_EVIDENCE} needs a 'records' list")
@@ -96,7 +109,7 @@ def _not_replayed_kinds(replay: dict[str, Any], expected: int) -> tuple[tuple[st
         raise CardClaimError(
             f"{REPLAY_EVIDENCE} lists {len(skipped)} not-replayed records but counts {expected}"
         )
-    return tuple(sorted(Counter(_not_replayed_kind(e) for e in skipped).items()))
+    return skipped
 
 
 def replay_coverage(replay: dict[str, Any]) -> ReplayCoverage:
@@ -115,35 +128,47 @@ def replay_coverage(replay: dict[str, Any]) -> ReplayCoverage:
     status = replay.get("status")
     if not isinstance(status, str):
         raise CardClaimError(f"{REPLAY_EVIDENCE} needs a string 'status'")
-    kinds = _not_replayed_kinds(replay, not_replayed)
-    return ReplayCoverage(status, records, passed, failed, not_replayed, kinds)
+    skipped = _not_replayed_entries(replay, not_replayed)
+    return ReplayCoverage(
+        status, records, passed, failed, not_replayed,
+        _counted([e.get("outcome") for e in skipped]),
+        _counted([e.get("oracle_status") for e in skipped]),
+    )
 
 
-def _tally(mapping: Any, where: str) -> tuple[tuple[str, int], ...]:
+def _tally(mapping: Any, where: str) -> Tally:
     if not isinstance(mapping, dict):
         raise CardClaimError(f"{where} must be an object of counts")
     return tuple((str(key), _count(mapping, key, where)) for key in sorted(mapping))
 
 
-def _joined(tally: tuple[tuple[str, int], ...]) -> str:
+def _joined(tally: Tally) -> str:
     parts = [f"{n} {name}" for name, n in tally]
-    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    if len(parts) < 2:
+        return "".join(parts)
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
 def verification_statement(coverage: ReplayCoverage) -> str:
     """The card's replay sentence, stating exactly the coverage ``REPLAY.json`` reports."""
 
+    source = f"independent replay (`{REPLAY_EVIDENCE}`)"
     if coverage.complete:
         return (
-            f"independent replay (`{REPLAY_EVIDENCE}`) re-executed all {coverage.records} "
-            f"candidates and every one passed (`status: {coverage.status}`)."
+            f"{source} re-executed all {coverage.records} candidates and every one passed "
+            f"(`status: {coverage.status}`)."
         )
-    breakdown = _joined(coverage.not_replayed_by_kind) or "none listed"
+    if coverage.fully_replayed:
+        return (
+            f"{source} re-executed all {coverage.records} candidates: {coverage.passed} of "
+            f"{coverage.records} passed and {coverage.failed} failed (`status: {coverage.status}`)."
+        )
     return (
-        f"independent replay (`{REPLAY_EVIDENCE}`) covered only part of the batch: "
-        f"{coverage.passed} of {coverage.records} candidates replayed and passed, "
-        f"{coverage.failed} failed, and {coverage.not_replayed} not replayed ({breakdown}); "
-        f"its overall `status: {coverage.status}` applies to the replayed subset only."
+        f"{source} covered only part of the batch: {coverage.passed} of {coverage.records} "
+        f"candidates replayed and passed, {coverage.failed} failed, and {coverage.not_replayed} "
+        f"not replayed ({_joined(coverage.not_replayed_outcomes)}; oracle statuses "
+        f"{_joined(coverage.not_replayed_statuses)}); its overall `status: {coverage.status}` "
+        "applies to the replayed subset only."
     )
 
 
@@ -159,10 +184,14 @@ def split_statement(run: dict[str, Any]) -> str:
     )
 
 
-def _skips(run: dict[str, Any]) -> tuple[tuple[tuple[str, int], ...], int]:
+def _skips(run: dict[str, Any]) -> tuple[Tally, int]:
     tally = _tally(run.get("skips", {}), f"{RUN_EVIDENCE} skips")
     draws = tuple((code, n) for code, n in tally if code != cv.SKIP_MUTATION_NO_SITES)
     return draws, dict(tally).get(cv.SKIP_MUTATION_NO_SITES, 0)
+
+
+def _program_count(run: dict[str, Any]) -> int:
+    return _count(run.get("catalog"), "program_count", f"{RUN_EVIDENCE} catalog")
 
 
 def contents_statement(run: dict[str, Any]) -> str:
@@ -174,10 +203,9 @@ def contents_statement(run: dict[str, Any]) -> str:
     statement = f"{records} candidates from {requested} requested draws ({skipped})"
     if not siteless:
         return statement + "."
-    programs = _count(run.get("catalog"), "program_count", f"{RUN_EVIDENCE} catalog")
     return (
-        f"{statement}; separately, {siteless} of the {programs} catalog programs have no "
-        f"mutation sites and were {DRAW_POOL_PHRASE}, so they used no draws."
+        f"{statement}; separately, {siteless} of the {_program_count(run)} catalog programs "
+        f"have no mutation sites and were {DRAW_POOL_PHRASE}, so they used no draws."
     )
 
 
@@ -185,42 +213,68 @@ def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _verification_block(card: str) -> str | None:
-    lines = card.splitlines()
-    starts = [i for i, line in enumerate(lines) if line.startswith(VERIFICATION_MARKER)]
-    if not starts:
-        return None
-    block = []
-    for line in lines[starts[0]:]:
-        if not line.startswith(">"):
-            break
-        block.append(line[1:])
-    return _flat(" ".join(block))
+def _mentions(text: str, phrase: str) -> bool:
+    """Whole-phrase match, so '10 failed' never stands in for '0 failed'."""
+    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE) is not None
 
 
-def _partial_replay_errors(block: str, coverage: ReplayCoverage) -> list[str]:
-    errors = [
-        f"Verification claims a complete replay ({phrase!r}) but {coverage.not_replayed} of "
-        f"{coverage.records} records were not replayed"
-        for phrase in (*OVERCLAIM_PHRASES, f"all {coverage.records}")
-        if phrase in block.lower()
-    ]
-    required = (
-        f"{coverage.passed} of {coverage.records}", f"{coverage.failed} failed",
-        f"{coverage.not_replayed} not replayed",
+def _verification_text(card: str) -> str | None:
+    """Every ``> **Verification:**`` blockquote on the card, flattened into one text."""
+
+    blocks: list[list[str]] = []
+    current: list[str] | None = None
+    for line in card.splitlines():
+        if line.startswith(VERIFICATION_MARKER):
+            current = []
+            blocks.append(current)
+        if current is not None and line.startswith(">"):
+            current.append(line[1:])
+        else:
+            current = None
+    return _flat(" ".join(" ".join(block) for block in blocks)) if blocks else None
+
+
+def _claim_rules(coverage: ReplayCoverage) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The phrases a Verification statement must carry, and those it must not."""
+
+    if coverage.complete:
+        return (f"all {coverage.records}",), ()
+    required = (f"{coverage.passed} of {coverage.records}", f"{coverage.failed} failed")
+    if coverage.fully_replayed:
+        return required, PASS_OVERCLAIMS
+    breakdown = tuple(f"{n} {outcome}" for outcome, n in coverage.not_replayed_outcomes)
+    return (
+        (*required, f"{coverage.not_replayed} not replayed", *breakdown),
+        (*PASS_OVERCLAIMS, *COVERAGE_OVERCLAIMS, f"all {coverage.records}"),
     )
+
+
+def _replay_errors(card: str, coverage: ReplayCoverage) -> list[str]:
+    text = _verification_text(card)
+    if text is None:
+        return [f"card has no {VERIFICATION_MARKER!r} statement"]
+    required, forbidden = _claim_rules(coverage)
+    facts = (
+        f"{coverage.passed} of {coverage.records} passed, {coverage.failed} failed, "
+        f"{coverage.not_replayed} not replayed"
+    )
+    errors = [
+        f"Verification overclaims replay ({phrase!r}): {facts}"
+        for phrase in forbidden if _mentions(text, phrase)
+    ]
     errors.extend(
         f"Verification must state {phrase!r} from {REPLAY_EVIDENCE}"
-        for phrase in required if phrase not in block
+        for phrase in required if not _mentions(text, phrase)
     )
     return errors
 
 
-def _replay_errors(card: str, coverage: ReplayCoverage) -> list[str]:
-    block = _verification_block(card)
-    if block is None:
-        return [f"card has no {VERIFICATION_MARKER!r} statement"]
-    return [] if coverage.complete else _partial_replay_errors(block, coverage)
+def _contents_phrases(run: dict[str, Any]) -> tuple[str, ...]:
+    draws, siteless = _skips(run)
+    phrases = (f"{_count(run, 'count', RUN_EVIDENCE)} requested", *(f"{n} draws" for _, n in draws))
+    if not siteless:
+        return phrases
+    return (*phrases, f"{siteless} of the {_program_count(run)} catalog programs", DRAW_POOL_PHRASE)
 
 
 def _run_errors(card: str, run: dict[str, Any]) -> list[str]:
@@ -229,16 +283,11 @@ def _run_errors(card: str, run: dict[str, Any]) -> list[str]:
         *_tally(run.get("outcomes"), f"{RUN_EVIDENCE} outcomes"),
         *_tally(run.get("oracle_statuses"), f"{RUN_EVIDENCE} oracle_statuses"),
     )
-    errors = [
-        f"card must disclose '{n} {name}' from {RUN_EVIDENCE}"
-        for name, n in tallies if f"{n} {name}" not in flat
+    phrases = (*(f"{n} {name}" for name, n in tallies), *_contents_phrases(run))
+    return [
+        f"card must state {phrase!r} from {RUN_EVIDENCE}"
+        for phrase in phrases if not _mentions(flat, phrase)
     ]
-    if _skips(run)[1] and DRAW_POOL_PHRASE not in flat:
-        errors.append(
-            f"card must say the {cv.SKIP_MUTATION_NO_SITES} programs were {DRAW_POOL_PHRASE}, "
-            "not count them as skipped draws"
-        )
-    return errors
 
 
 def card_claim_errors(card: str, replay: dict[str, Any], run: dict[str, Any]) -> list[str]:
