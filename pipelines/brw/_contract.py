@@ -16,6 +16,7 @@ else:
 
 FAMILY_PREFIX = "brw"
 FACTORY = "browser-tool-use-factory"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 GENERATOR = "grok-4.6"
 GEN = GENERATOR
 CATALOG_FIRST = 193

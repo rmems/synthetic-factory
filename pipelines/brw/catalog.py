@@ -13,9 +13,9 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any
 
-from ._contract import CATALOG_FIRST, BrwError
+from ._contract import _EXACT_INT, CATALOG_FIRST, BrwError
 
 __all__ = [
     "PAIRS",
@@ -946,23 +946,18 @@ R395_EXTRA_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_
 _Pairs = tuple[dict[str, Any], ...]
 
 
-def _is_plain_int(value: object) -> TypeGuard[int]:
-    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 def _mill_slugs(pairs: _Pairs) -> tuple[str, ...]:
     return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in pairs)
 
 
 def _mill_pair_at(pairs: _Pairs, mill: str, index: int) -> dict[str, Any]:
-    if not _is_plain_int(index) or not 0 <= index < len(pairs):
+    if type(index) not in _EXACT_INT or not 0 <= index < len(pairs):
         raise BrwError(f"unknown_{mill}_index: {index!r}")
     return pairs[index]
 
 
 def _mill_pair_for_round(pairs: _Pairs, mill: str, first: int, rnd: int) -> dict[str, Any]:
-    if not _is_plain_int(rnd):
+    if type(rnd) not in _EXACT_INT:
         raise BrwError(f"invalid_round: {rnd!r}")
     idx = rnd - first
     if idx < 0 or idx >= len(pairs):
