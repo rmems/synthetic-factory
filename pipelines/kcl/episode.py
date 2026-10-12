@@ -84,18 +84,22 @@ def _edit(n: int, basis: str, args: dict[str, str], obs: str, reflection: str) -
 
 def _assert_clean(obj: Any, path: str = "") -> None:
     if isinstance(obj, dict):
-        for key, val in obj.items():
-            refuse_when(key in BANNED_KEYS, FINDING_BANNED, f"banned key {key} at {path}")
-            refuse_when(
-                key == "sim_or_real" and val == "real",
-                FINDING_BANNED,
-                f"sim_or_real real at {path}",
-            )
-            _assert_clean(val, f"{path}.{key}")
+        _assert_clean_mapping(obj, path)
         return
     if isinstance(obj, list):
         for index, item in enumerate(obj):
             _assert_clean(item, f"{path}[{index}]")
+
+
+def _assert_clean_mapping(obj: Mapping[str, Any], path: str) -> None:
+    for key, val in obj.items():
+        refuse_when(key in BANNED_KEYS, FINDING_BANNED, f"banned key {key} at {path}")
+        refuse_when(
+            key == "sim_or_real" and val == "real",
+            FINDING_BANNED,
+            f"sim_or_real real at {path}",
+        )
+        _assert_clean(val, f"{path}.{key}")
 
 
 def _episode(
