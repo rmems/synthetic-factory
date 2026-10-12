@@ -30,6 +30,8 @@ from tests.tool_world_delegation_support import (
     workers_env,
 )
 
+# The support modules go first: they put pipelines/ on sys.path for the imports below.
+# isort: split
 from curate_coding import contains_hidden_reasoning_key
 from tool_world.policies import scripted
 from tool_world.surfaces import delegation as delegation_mod

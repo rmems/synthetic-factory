@@ -16,7 +16,12 @@ from typing import Any
 
 from . import pack as pk
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, load_strict_json, sha256_canonical
+from ._contract import (
+    bind_import_twin,
+    dumps_exact_json,
+    load_strict_json,
+    sha256_canonical,
+)
 
 __all__ = ["DEFAULT_CATALOG", "Catalog", "catalog_digest", "load_catalog", "write_pins"]
 

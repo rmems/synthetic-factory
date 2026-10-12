@@ -23,7 +23,13 @@ from . import records
 from . import vocabulary as cv
 from ._contract import bind_import_twin
 from .policies import scripted
-from .run_files import CANDIDATES_FILENAME, RUN_FILENAME, check_drawn, load_records, run_summary
+from .run_files import (
+    CANDIDATES_FILENAME,
+    RUN_FILENAME,
+    check_drawn,
+    load_records,
+    run_summary,
+)
 
 __all__ = [
     "CANDIDATES_FILENAME",

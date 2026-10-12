@@ -23,7 +23,12 @@ from typing import Any
 from .. import vocabulary as cv
 from .._contract import bind_import_twin
 from .base import Surface, ToolSpec, error_text
-from .delegation_workers import FAULT_KINDS, PROFILE_DEFAULT, apply_effects, check_worker
+from .delegation_workers import (
+    FAULT_KINDS,
+    PROFILE_DEFAULT,
+    apply_effects,
+    check_worker,
+)
 
 __all__ = ["DelegationSurface"]
 

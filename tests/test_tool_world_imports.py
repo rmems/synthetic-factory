@@ -52,6 +52,8 @@ class InProcess(unittest.TestCase):
         from pipelines.tool_world import cli as packaged_cli
         from pipelines.tool_world import vocabulary as packaged_cv
 
+        # The packaged spelling first, then the flat one.
+        # isort: split
         import tool_world_cli as entry
         from tool_world import cli as flat_cli
 

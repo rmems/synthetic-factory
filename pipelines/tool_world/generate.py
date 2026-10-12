@@ -19,7 +19,14 @@ from . import catalog as cat
 from . import env as environment
 from . import records
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, envelope, is_under_raw, rng, sha256_bytes
+from ._contract import (
+    bind_import_twin,
+    dumps_exact_json,
+    envelope,
+    is_under_raw,
+    rng,
+    sha256_bytes,
+)
 from .policies import scripted
 
 __all__ = [

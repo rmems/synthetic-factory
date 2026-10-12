@@ -9,7 +9,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from tool_world_pack_support import RECOVERY_ROW, SEEDS, armed, call, fault_row, refusal, spec
+from tool_world_pack_support import (
+    RECOVERY_ROW,
+    SEEDS,
+    armed,
+    call,
+    fault_row,
+    refusal,
+    spec,
+)
 
 # The support module goes first: it puts pipelines/ on sys.path for the imports below.
 # isort: split
