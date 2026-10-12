@@ -878,14 +878,12 @@ def _sha256_bytes(raw: bytes) -> str:
 
 def _committed_mill_rows(mills: list[Any]) -> int:
     """Each header mill in ``_MILL_ORDER`` with its committed row count; their total."""
-    expected_rows = 0
     for (mill_id, row_count), mill in zip(_MILL_ORDER, mills, strict=True):
         if mill.get("mill_id") != mill_id:
             raise BrwError(f"unexpected mill_id: {mill.get('mill_id')!r}")
         if mill.get("n_rows_committed") != row_count:
             raise BrwError(f"{mill_id} committed row count drifted")
-        expected_rows += row_count
-    return expected_rows
+    return sum(row_count for _, row_count in _MILL_ORDER)
 
 
 def _load_leftover_header() -> dict[str, Any]:

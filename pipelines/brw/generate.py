@@ -163,6 +163,12 @@ def _evaluate_step(c: _Scene, n: int, basis: str, measured: dict) -> dict:
     return st(n, basis, "browser_evaluate", {"expression": _eval_expr(c.p)}, json.dumps(measured))
 
 
+def _click_trig_step(c: _Scene, n: int, effect: str) -> dict:
+    p = c.p
+    return st(n, f"Observation: click {p['trig']} {p['trig_ref']}.",
+              "browser_click", {"ref": p["trig_ref"]}, f"clicked {p['trig_ref']}; {effect}")
+
+
 def _click_item_step(c: _Scene, n: int, basis: str) -> dict:
     p = c.p
     return st(n, basis, "browser_click", {"ref": p["ref"]}, f"clicked {p['ref']}; {p['verb']} enabled")
@@ -228,9 +234,7 @@ def _shift_steps(c: _Scene) -> tuple[list[dict], str]:
         st(4, f"Observation: GET {p['css_short']} contract.",
            "http_request", {"method": "GET", "url": f"https://{c.css_s}/shift", "headers": {"Accept": _JSON}},
            f"200 {{\"from\":{p['from_v']!r},\"to\":{p['to_v']!r},\"warn\":{p['warn']!r}}}"),
-        st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-           "browser_click", {"ref": p["trig_ref"]},
-           f"clicked {p['trig_ref']}; {p['css_short']}={p['to_v']}; {p['item']} x {x0}→{x1}"),
+        _click_trig_step(c, 5, f"{p['css_short']}={p['to_v']}; {p['item']} x {x0}→{x1}"),
         st(6, f"Observation: click stored x={x0}.",
            "browser_click", {"position": {"x": x0, "y": y}},
            f"Error: click hit {p['item_b']} (now at {x0}); {p['item']} is at {x1}"),
@@ -275,9 +279,7 @@ def _visual_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 3, f"Observation: evaluate {p['css_short']} vs box.",
                        {p["js_prop"][:6]: p["to_v"], "x": x0, "y": y, "width": 72}),
         _contract_step(c, 4, "Observation: GET paint-vs-hit contract.", "paint"),
-        st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-           "browser_click", {"ref": p["trig_ref"]},
-           f"clicked {p['trig_ref']}; {p['css_short']} live; paint ≠ box"),
+        _click_trig_step(c, 5, f"{p['css_short']} live; paint ≠ box"),
         st(6, f"Observation: click visual blob at x={vis_x}.",
            "browser_click", {"position": {"x": vis_x, "y": y}},
            f"Error: click hit {p['item']} box at {x0} (paint was at {vis_x}); not {p['item_b']}"),
@@ -312,9 +314,7 @@ def _overlay_steps(c: _Scene) -> tuple[list[dict], str]:
         st(6, "Observation: screenshot overlay capture.",
            "browser_screenshot", {"filename": f"findings/{host}-overlay.png"},
            f"png: {p['css_short']} covering {p['verb']}"),
-        st(7, f"Observation: click {p['trig']} {p['trig_ref']}.",
-           "browser_click", {"ref": p["trig_ref"]},
-           f"clicked {p['trig_ref']}; overlay cleared or stage scrolled; {p['verb']} free"),
+        _click_trig_step(c, 7, f"overlay cleared or stage scrolled; {p['verb']} free"),
         _evaluate_step(c, 8, "Observation: remeasure after overlay gone.",
                        {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": c.y1}),
         *_keep_tail(c, _TailWords(
@@ -336,9 +336,7 @@ def _viewport_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 3, f"Observation: measure {p['css_short']} before the viewport/env change.",
                        {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y}),
         _contract_step(c, 4, "Observation: GET viewport/env contract.", "vp"),
-        st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-           "browser_click", {"ref": p["trig_ref"]},
-           f"clicked {p['trig_ref']}; chrome/keyboard changed; {p['item']} y {y}→{y1}"),
+        _click_trig_step(c, 5, f"chrome/keyboard changed; {p['item']} y {y}→{y1}"),
         st(6, f"Observation: click stored y={y}.",
            "browser_click", {"position": {"x": x0, "y": y}},
            f"Error: click hit chrome/keyboard or {p['item_b']}; {p['item']} now at y={y1}"),
@@ -365,9 +363,7 @@ def _text_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 3, "Observation: measure wrap before auto-phrase.",
                        {p["js_prop"][:6]: p["from_v"], "lines": 1, "x": c.x0, "y": c.y}),
         _contract_step(c, 4, "Observation: GET phrase-wrap contract.", "type"),
-        st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-           "browser_click", {"ref": p["trig_ref"]},
-           f"clicked {p['trig_ref']}; {p['css_short']}={p['to_v']}; label now 2 lines covering {p['verb']}"),
+        _click_trig_step(c, 5, f"{p['css_short']}={p['to_v']}; label now 2 lines covering {p['verb']}"),
         st(6, "Observation: OCR the wrapped fragment.",
            "browser_evaluate", {"expression": "document.querySelector('[data-ref=" + p['ref'] + "]').innerText"},
            "締\\n約 Post"),
@@ -400,9 +396,7 @@ def _box_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 3, f"Observation: measure box before {p['css_short']}.",
                        {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y, "w": 72, "h": 40}),
         _contract_step(c, 4, "Observation: GET box contract.", "box"),
-        st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-           "browser_click", {"ref": p["trig_ref"]},
-           f"clicked {p['trig_ref']}; {p['css_short']}={p['to_v']}; principal box changed"),
+        _click_trig_step(c, 5, f"{p['css_short']}={p['to_v']}; principal box changed"),
         st(6, f"Observation: click old parent/lobe x={x0}.",
            "browser_click", {"position": {"x": x0 if p['css_short'] != 'overflow-clip-margin' else x0 + 32, "y": y if p['css_short'] != 'box-decoration-break' else y + 34}},
            f"Error: {p['css_short']} — empty parent, cloned fragment, or leaked lobe; not {p['item']} hit"),
@@ -450,10 +444,9 @@ _FailScene = namedtuple("_FailScene", "p host s css_s api code item")
 def _fail_scene(p: dict) -> _FailScene:
     host = p["bad_host"]
     s, css_s, api = site(p["sub"], host), site("css", host), site("api", host)
-    code = p["code"]
-    if code == 409:
+    if p["code"] == 409:
         raise BrwError("409-only fails are banned")
-    return _FailScene(p, host, s, css_s, api, code, p["item_fail"])
+    return _FailScene(p, host, s, css_s, api, p["code"], p["item_fail"])
 
 
 def _fail_probe_steps(c: _FailScene) -> list[dict]:
@@ -515,8 +508,6 @@ def build_fail(n: int, p: dict) -> dict:
     c = _fail_scene(p)
     host, code, item = c.host, c.code, c.item
     steps = _fail_probe_steps(c) + _fail_post_steps(c)
-    # body must be object for http_request; r192 used dict. parse fail_body
-    # already handled above
     outcome = f"Posted stale {p['css_short']} geometry. {code} {p['err']}. {item} unkept."
     reward = {
         "success": False,

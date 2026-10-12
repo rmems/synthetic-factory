@@ -103,9 +103,8 @@ def _emit(record: dict) -> None:
 
 
 def _print_catalog(args: argparse.Namespace) -> int:
-    payload = _catalog_payload()
     if args.json:
-        print(dumps_exact_json(payload, indent=2))
+        print(dumps_exact_json(_catalog_payload(), indent=2))
     else:
         print(f"{SOURCE_MILL_ID} {FACTORY} {len(catalog.PAIRS)} pairs")
         for index, pair in enumerate(catalog.PAIRS):
