@@ -33,19 +33,22 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _assigned_value(node: ast.stmt, name: str) -> ast.AST | None:
+    """The value ``node`` binds to ``name`` (plain or annotated assignment), else None."""
+
+    if isinstance(node, ast.Assign):
+        names = [target.id for target in node.targets if isinstance(target, ast.Name)]
+        return node.value if name in names else None
+    if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+        return None
+    return node.value if node.target.id == name else None
+
+
 def _assignment(tree: ast.Module, name: str) -> ast.AST:
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            names = [target.id for target in node.targets if isinstance(target, ast.Name)]
-            if name in names:
-                return node.value
-        if (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == name
-            and node.value is not None
-        ):
-            return node.value
+        value = _assigned_value(node, name)
+        if value is not None:
+            return value
     refuse(FINDING_CATALOG_PLANT, f"source has no {name} assignment")
 
 
@@ -72,28 +75,34 @@ def _slug_literal(node: ast.AST, where: str) -> str:
     return value
 
 
-def _pl_kwargs(node: ast.AST, where: str) -> dict[str, str]:
+def _is_pl_call(node: ast.AST) -> bool:
+    """``pl(**kwargs)``: a call of the name ``pl`` with named keywords only."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return False
+    if node.func.id != "pl" or node.args:
+        return False
+    return all(keyword.arg is not None for keyword in node.keywords)
+
+
+def _pl_text(keyword: ast.keyword, index: int, where: str) -> str:
+    value = _str_or_int(keyword.value, f"{where}.{keyword.arg}#{index}")
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id != "pl"
-        or node.args
-        or any(keyword.arg is None for keyword in node.keywords),
+        not isinstance(value, str) or not value,
         FINDING_CATALOG_PLANT,
-        f"{where}: expected pl(**kwargs)",
+        f"{where}.{keyword.arg} must be a non-empty string",
     )
+    assert isinstance(value, str)
+    return value
+
+
+def _pl_kwargs(node: ast.AST, where: str) -> dict[str, str]:
+    refuse_when(not _is_pl_call(node), FINDING_CATALOG_PLANT, f"{where}: expected pl(**kwargs)")
     assert isinstance(node, ast.Call)
     plant: dict[str, str] = {}
     for index, keyword in enumerate(node.keywords):
         assert keyword.arg is not None
-        value = _str_or_int(keyword.value, f"{where}.{keyword.arg}#{index}")
-        refuse_when(
-            not isinstance(value, str) or not value,
-            FINDING_CATALOG_PLANT,
-            f"{where}.{keyword.arg} must be a non-empty string",
-        )
-        assert isinstance(value, str)
-        plant[keyword.arg] = value
+        plant[keyword.arg] = _pl_text(keyword, index, where)
     missing = [key for key in PLANT_KEYS if key not in plant]
     refuse_when(bool(missing), FINDING_CATALOG_PLANT, f"{where} missing {missing}")
     extra = [key for key in plant if key not in PLANT_KEYS]
@@ -117,19 +126,26 @@ def ast_extract_leftover3_plants(source: str) -> tuple[dict[str, str], ...]:
     )
 
 
-def ast_extract_leftover3_constants(source: str) -> dict[str, str | int]:
-    """Return FACTORY_SLUG / GENERATOR / START_ROUND from leftover3 mill text."""
+_LEFTOVER3_CONSTANTS = ("FACTORY_SLUG", "GENERATOR", "START_ROUND")
 
-    tree = ast.parse(source)
+
+def _leftover3_constant_values(tree: ast.Module) -> dict[str, str | int]:
     found: dict[str, str | int] = {}
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
         names = [target.id for target in node.targets if isinstance(target, ast.Name)]
         for name in names:
-            if name in {"FACTORY_SLUG", "GENERATOR", "START_ROUND"}:
+            if name in _LEFTOVER3_CONSTANTS:
                 found[name] = _str_or_int(node.value, name)
-    missing = [name for name in ("FACTORY_SLUG", "GENERATOR", "START_ROUND") if name not in found]
+    return found
+
+
+def ast_extract_leftover3_constants(source: str) -> dict[str, str | int]:
+    """Return FACTORY_SLUG / GENERATOR / START_ROUND from leftover3 mill text."""
+
+    found = _leftover3_constant_values(ast.parse(source))
+    missing = [name for name in _LEFTOVER3_CONSTANTS if name not in found]
     refuse_when(bool(missing), FINDING_CATALOG_PLANT, f"leftover3 mill missing {missing}")
     refuse_when(
         found["FACTORY_SLUG"] != FACTORY,
