@@ -55,11 +55,12 @@ class LeftoverMillBindingTests(unittest.TestCase):
 
     def test_pair_row_drift(self):
         mill, _ = _leftover_pair()
+        expected = f"^{LEFTOVER_ID} pair rows do not match n_rows$"
         for drifted in (
             replace(mill, n_rounds=mill.n_rounds + 1),
             replace(mill, pairs=mill.pairs[:-1]),
         ):
-            with self.assertRaisesRegex(ValueError, f"^{LEFTOVER_ID} pair rows do not match n_rows$"):
+            with self.assertRaisesRegex(ValueError, expected):
                 sc._check_pair_rows(LEFTOVER_ID, drifted)
 
     def test_source_pin_is_checked_before_pair_rows(self):
@@ -67,8 +68,9 @@ class LeftoverMillBindingTests(unittest.TestCase):
         drifted = replace(mill, blob_sha="0" * 40, n_rounds=mill.n_rounds + 1)
         mills = dict(sc.CATALOG.mills)
         mills[LEFTOVER_ID] = drifted
+        catalog = replace(sc.CATALOG, mills=mills)
         with self.assertRaisesRegex(ValueError, "pin disagrees with sources.py"):
-            sc._bind_sources(replace(sc.CATALOG, mills=mills))
+            sc._bind_sources(catalog)
 
 
 class HomeMillHeaderTests(unittest.TestCase):
@@ -163,8 +165,9 @@ class HomeMillSourceTests(unittest.TestCase):
             with self.subTest(message=message), self.assertRaises(ValueError) as caught:
                 sc._check_home_source(R31_MILL_ID, drifted, self.pins)
             self.assertEqual(str(caught.exception), f"{R31_MILL_ID} {message} from vocabulary")
+        foreign_kind = replace(self.source, kind="other")
         with self.assertRaises(ValueError) as caught:
-            sc._check_home_source(R31_MILL_ID, replace(self.source, kind="other"), self.pins)
+            sc._check_home_source(R31_MILL_ID, foreign_kind, self.pins)
         self.assertEqual(str(caught.exception), f"{R31_MILL_ID} source kind is not home-pairs")
 
 

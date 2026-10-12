@@ -17,7 +17,7 @@ from .catalog_extract import (
     load_home_header,
     load_home_rows,
 )
-from .sources import MILL_SOURCES, MillSource, catalog_sources, home_mill_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources, source_by_id
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
@@ -170,7 +170,7 @@ def load_home_mill(mill_id: str, path=None) -> HomeMillCatalog:
     jsonl_path = path if path is not None else home_jsonl_path(mill_id)
     rows = load_home_rows(mill_id, jsonl_path)
     first, last = _home_slug_window(jsonl_path, rows, pins)
-    source = next(item for item in home_mill_sources() if item.mill_id == mill_id)
+    source = source_by_id(mill_id)
     _check_home_source(mill_id, source, pins)
     return HomeMillCatalog(
         mill_id=pins.mill_id,

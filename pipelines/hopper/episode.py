@@ -47,17 +47,23 @@ __all__ = [
     "dumps_episode", "emit_stage", "factory_dir", "set_raw_root", "validate_pair",
 ]
 
-_RAW_ROOT: Path | None = None
+@dataclass
+class _RawRoot:
+    """The module-wide raw-tree root ``set_raw_root`` installs; ``None`` until then."""
+
+    path: Path | None = None
+
+
+_RAW_ROOT = _RawRoot()
 
 
 def set_raw_root(path: Path | None) -> None:
     """Optional raw-tree root for ``factory_dir`` (never a repo-relative default)."""
-    global _RAW_ROOT
-    _RAW_ROOT = None if path is None else Path(path)
+    _RAW_ROOT.path = None if path is None else Path(path)
 
 
 def factory_dir(factory: str, raw_root: Path | None = None) -> Path:
-    root = raw_root if raw_root is not None else _RAW_ROOT
+    root = raw_root if raw_root is not None else _RAW_ROOT.path
     if root is None:
         env = os.environ.get("HOPPER_RAW_ROOT")
         root = Path(env) if env else None

@@ -10,11 +10,68 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from search.catalog_ast import UNSET, literal_value
+from search.catalog_ast import (
+    UNSET,
+    assignment_names,
+    assignment_of,
+    literal_value,
+    module_docstring,
+)
 
 
 def _value(source: str, env=None):
     return literal_value(ast.parse(source, mode="eval").body, env)
+
+
+def _statement(source: str) -> ast.stmt:
+    return ast.parse(source).body[0]
+
+
+class AssignmentTests(unittest.TestCase):
+    def test_assignment_of_reads_one_plain_name_target(self):
+        name, value = assignment_of(_statement("LIMIT = 8"))
+        self.assertEqual(name, "LIMIT")
+        self.assertEqual(ast.literal_eval(value), 8)
+        name, value = assignment_of(_statement("LIMIT: int = 8"))
+        self.assertEqual(name, "LIMIT")
+        self.assertEqual(ast.literal_eval(value), 8)
+        self.assertEqual(assignment_of(_statement("LIMIT: int")), ("LIMIT", None))
+
+    def test_assignment_of_refuses_every_other_shape(self):
+        for source in ("A = B = 1", "A, B = 1, 2", "obj.attr = 1", "obj.attr: int = 1", "f()"):
+            with self.subTest(source=source):
+                self.assertEqual(assignment_of(_statement(source)), (None, None))
+
+    def test_assignment_names_lists_every_plain_name_target(self):
+        cases = (
+            ("A = B = 1", ("A", "B")),
+            ("A = obj.attr = 1", ("A",)),
+            ("A, B = 1, 2", ()),
+            ("LIMIT: int = 8", ("LIMIT",)),
+            ("obj.attr: int = 1", ()),
+            ("A += 1", ()),
+            ("f()", ()),
+        )
+        for source, names in cases:
+            with self.subTest(source=source):
+                self.assertEqual(assignment_names(_statement(source)), names)
+
+
+class ModuleDocstringTests(unittest.TestCase):
+    def test_returns_the_raw_module_docstring(self):
+        tree = ast.parse('"""  Doc.\n    indented"""\nX = 1')
+        self.assertEqual(module_docstring(tree), "  Doc.\n    indented")
+        self.assertEqual(module_docstring(ast.parse('""""""')), "")
+
+    def test_no_string_docstring_reads_as_empty(self):
+        for source in ("", "X = 1", "1", "b'bytes'", "f'{x}'"):
+            with self.subTest(source=source):
+                self.assertEqual(module_docstring(ast.parse(source)), "")
+
+    def test_non_modules_read_as_empty(self):
+        function = _statement('def f():\n    """Doc."""')
+        self.assertEqual(module_docstring(function), "")
+        self.assertEqual(module_docstring(ast.parse("1", mode="eval")), "")
 
 
 class LiteralValueLeafTests(unittest.TestCase):

@@ -13,24 +13,28 @@ from typing import Any
 UNSET = object()
 
 
+def _assignment(node: ast.stmt) -> tuple[list[ast.expr], ast.expr | None]:
+    """``(targets, value)`` of an ``Assign`` or ``AnnAssign``; ``([], None)`` otherwise."""
+
+    if isinstance(node, ast.AnnAssign):
+        return [node.target], node.value
+    if isinstance(node, ast.Assign):
+        return node.targets, node.value
+    return [], None
+
+
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     """Return ``(name, value)`` for a simple ``NAME = value`` statement."""
 
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return node.target.id, node.value
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target = node.targets[0]
-        if isinstance(target, ast.Name):
-            return target.id, node.value
+    targets, value = _assignment(node)
+    if len(targets) == 1 and isinstance(targets[0], ast.Name):
+        return targets[0].id, value
     return None, None
 
 
 def assignment_names(node: ast.stmt) -> tuple[str, ...]:
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return (node.target.id,)
-    if isinstance(node, ast.Assign):
-        return tuple(target.id for target in node.targets if isinstance(target, ast.Name))
-    return ()
+    targets, _ = _assignment(node)
+    return tuple(target.id for target in targets if isinstance(target, ast.Name))
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
@@ -101,10 +105,8 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
 
 
 def module_docstring(tree: ast.AST) -> str:
-    if not isinstance(tree, ast.Module) or not tree.body:
+    """The module's raw (uncleaned) docstring; ``""`` for no docstring or a non-module."""
+
+    if not isinstance(tree, ast.Module):
         return ""
-    first = tree.body[0]
-    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
-        value = first.value.value
-        return value if isinstance(value, str) else ""
-    return ""
+    return ast.get_docstring(tree, clean=False) or ""
