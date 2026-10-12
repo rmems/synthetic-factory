@@ -25,8 +25,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import tag_import_probe as probe
+from pipeline_import_test_support import clean_package_imports
 
 _FINALIZER = re.compile(r"^    _expose_package_sibling\(__name__\)$", re.MULTILINE)
+
+# What a paired probe report says when both forms bind one object per module.
+ONE_OBJECT_REPORT = {
+    "split_objects": [],
+    "split_attributes": [],
+    "cli_catches_package_error": True,
+    "split_modules": [],
+    "unbound_attributes": [],
+}
 
 
 def bound_tag_modules() -> frozenset[str]:
@@ -54,16 +64,24 @@ class FreshInterpreter(unittest.TestCase):
         self.assertEqual(report["unbound_attributes"], [])
 
     def test_either_order_is_one_object_and_one_error_class(self):
-        clean = {
-            "split_objects": [],
-            "split_attributes": [],
-            "cli_catches_package_error": True,
-            "split_modules": [],
-            "unbound_attributes": [],
-        }
         for form in ("cli_then_package", "package_then_cli"):
             with self.subTest(form=form):
-                self.assertEqual(probe.in_fresh_interpreter(form), clean)
+                self.assertEqual(probe.in_fresh_interpreter(form), ONE_OBJECT_REPORT)
+
+
+class PreludeBranchesInProcess(unittest.TestCase):
+    """Both preludes of every module, executed where coverage measures them.
+
+    Coverage does not trace the spawned interpreters above.
+    ``clean_package_imports`` unloads every repository module and restores
+    them exactly on exit, so each direct branch and each package branch runs
+    in this process without changing what later tests see.
+    """
+
+    def test_direct_then_package_preludes_bind_one_object_per_module(self):
+        with clean_package_imports():
+            report = probe.both_preludes_report()
+        self.assertEqual(report, ONE_OBJECT_REPORT)
 
 
 class InProcess(unittest.TestCase):

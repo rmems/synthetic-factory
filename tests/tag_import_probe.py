@@ -190,6 +190,22 @@ def run_form(form: str) -> dict[str, Any]:
     return _paired_report(bound["cli"], bound["package"])
 
 
+def both_preludes_report() -> dict[str, Any]:
+    """Run every module's direct prelude, then its package prelude, and report what bound.
+
+    The bare package loads first, so its init has no flat module to alias.
+    The CLI form then runs each direct branch, and the package form runs each
+    package branch and finalizer, which rebinds the package name to the direct
+    module. Call this with no repository module loaded, for example inside
+    ``clean_package_imports``, so both branches really execute in this process.
+    """
+
+    _put_first(REPO)
+    importlib.import_module("pipelines")
+    cli = cli_form()
+    return _paired_report(cli, package_form())
+
+
 def in_fresh_interpreter(form: str) -> dict[str, Any]:
     """Run :func:`run_form` in a spawned interpreter and return its report."""
 
