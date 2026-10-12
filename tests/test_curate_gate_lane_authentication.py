@@ -16,11 +16,14 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from curate_gate_test_support import CurateGateCase  # noqa: E402
+from curate_gate_test_support import (  # noqa: E402
+    CurateGateAssertionsMixin,
+    rewrite_json,
+    temp_root,
+)
 from gate_fixture import (  # noqa: E402
     PIPELINES,
     GateFixture,
-    _captured_main,
     _lane_manifest_entry,
     _preference,
     _read_jsonl,
@@ -34,9 +37,17 @@ if str(PIPELINES) not in sys.path:
 import curate_gate  # noqa: E402
 import curate_rewards  # noqa: E402
 
+_OUTPUT_MISMATCH = "output records do not match its manifest"
+_PREFERENCE_TRANSFORM = "same-context-preference-curation"
+_FACTORY_A_BATCH = "factory-a/batch-r01.jsonl"
+_FACTORY_B_BATCH = "factory-b/batch-r02.jsonl"
 
-class LaneAuthenticationTests(CurateGateCase):
+
+class LaneAuthenticationTests(CurateGateAssertionsMixin, unittest.TestCase):
     """Lane outputs are admitted only when their manifest authenticates them."""
+
+    def setUp(self):
+        self.root = temp_root(self)
 
     def test_reward_converter_emits_a_manifest_the_gate_can_authenticate(self):
         source_run = self.root / "raw"
@@ -85,24 +96,23 @@ class LaneAuthenticationTests(CurateGateCase):
             curate_rewards.ONTOLOGY_VERSION,
         )
 
-    def test_integrate_requires_a_manifest_for_every_lane(self):
+    def _assert_plan_edit_refused(self, mutate, message):
+        """Edit the integration plan, then assert `integrate` refuses it and writes nothing."""
         fixture = GateFixture(self.root)
-        plan = json.loads(fixture.plan_path.read_text())
-        plan["lanes"][4].pop("manifest")
-        fixture.plan_path.write_text(json.dumps(plan))
+        rewrite_json(fixture.plan_path, mutate)
+        self.assert_integrate_refused_without_output(fixture, message)
 
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
+    def _assert_manifest_edit_refused(self, lane_index, mutate, *messages):
+        """Edit one lane manifest, then assert `integrate` refuses it and writes nothing."""
+        fixture = GateFixture(self.root)
+        rewrite_json(fixture.manifest_paths[lane_index], mutate)
+        self.assert_integrate_refused_without_output(fixture, *messages)
+
+    def test_integrate_requires_a_manifest_for_every_lane(self):
+        self._assert_plan_edit_refused(
+            lambda plan: plan["lanes"][4].pop("manifest"),
+            "needs a non-empty string 'manifest'",
         )
-        self.assertEqual(code, 2)
-        self.assertIn("needs a non-empty string 'manifest'", stderr)
-        self.assertFalse(fixture.cleaned.exists())
 
     def test_integrate_rejects_unaccounted_source_records(self):
         fixture = GateFixture(self.root)
@@ -111,19 +121,11 @@ class LaneAuthenticationTests(CurateGateCase):
             [_thalamic("missing-disposition")],
         )
 
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
+        self.assert_integrate_refused_without_output(
+            fixture,
+            "lack a retained output or an explicit exclusion/quarantine",
+            "unaccounted/batch-r03.jsonl:1",
         )
-        self.assertEqual(code, 2)
-        self.assertIn("lack a retained output or an explicit exclusion/quarantine", stderr)
-        self.assertIn("unaccounted/batch-r03.jsonl:1", stderr)
-        self.assertFalse(fixture.cleaned.exists())
 
     def test_integrate_requires_known_actions_and_reason_codes(self):
         for name, mutate, message in (
@@ -150,22 +152,9 @@ class LaneAuthenticationTests(CurateGateCase):
         ):
             with self.subTest(name=name):
                 fixture = GateFixture(self.root / name)
-                entries = json.loads(fixture.manifest_paths[0].read_text())
-                mutate(entries)
-                fixture.manifest_paths[0].write_text(json.dumps(entries))
+                rewrite_json(fixture.manifest_paths[0], mutate)
 
-                code, _report, stderr = _captured_main(
-                    [
-                        "integrate",
-                        "--plan",
-                        str(fixture.plan_path),
-                        "--cleaned-out",
-                        str(fixture.cleaned),
-                    ]
-                )
-                self.assertEqual(code, 2)
-                self.assertIn(message, stderr)
-                self.assertFalse(fixture.cleaned.exists())
+                self.assert_integrate_refused_without_output(fixture, message)
 
     def test_integrate_rejects_output_tampered_after_manifest_creation(self):
         fixture = GateFixture(self.root)
@@ -174,57 +163,22 @@ class LaneAuthenticationTests(CurateGateCase):
         records[0]["state"]["env"] = "tampered after identity manifest"
         _write_jsonl(output, records)
 
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
-        )
-        self.assertEqual(code, 2)
-        self.assertIn("output records do not match its manifest", stderr)
-        self.assertFalse(fixture.cleaned.exists())
+        self.assert_integrate_refused_without_output(fixture, _OUTPUT_MISMATCH)
 
     def test_integrate_rejects_manifest_source_hash_not_matching_source_run(self):
-        fixture = GateFixture(self.root)
-        entries = json.loads(fixture.manifest_paths[1].read_text())
-        entries[0]["source_hash"] = "f" * 64
-        fixture.manifest_paths[1].write_text(json.dumps(entries))
-
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
+        self._assert_manifest_edit_refused(
+            1,
+            lambda entries: entries[0].update(source_hash="f" * 64),
+            "source hash does not match",
         )
-        self.assertEqual(code, 2)
-        self.assertIn("source hash does not match", stderr)
-        self.assertFalse(fixture.cleaned.exists())
 
     def test_integrate_rejects_manifest_output_id_not_matching_output_record(self):
-        fixture = GateFixture(self.root)
-        entries = json.loads(fixture.manifest_paths[1].read_text())
-        entries[0]["output_id"] = "self-resealed-forged-output-id"
-        fixture.manifest_paths[1].write_text(json.dumps(entries))
-
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
+        self._assert_manifest_edit_refused(
+            1,
+            lambda entries: entries[0].update(output_id="self-resealed-forged-output-id"),
+            "output_id",
+            "does not match authenticated output record",
         )
-        self.assertEqual(code, 2)
-        self.assertIn("output_id", stderr)
-        self.assertIn("does not match authenticated output record", stderr)
-        self.assertFalse(fixture.cleaned.exists())
 
     def test_integrate_rejects_output_moved_to_an_undeclared_path(self):
         fixture = GateFixture(self.root)
@@ -233,37 +187,13 @@ class LaneAuthenticationTests(CurateGateCase):
         moved.parent.mkdir(parents=True)
         source.rename(moved)
 
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
-        )
-        self.assertEqual(code, 2)
-        self.assertIn("output records do not match its manifest", stderr)
-        self.assertFalse(fixture.cleaned.exists())
+        self.assert_integrate_refused_without_output(fixture, _OUTPUT_MISMATCH)
 
     def test_integrate_rejects_a_manifest_from_another_lane(self):
-        fixture = GateFixture(self.root)
-        plan = json.loads(fixture.plan_path.read_text())
-        plan["lanes"][1]["manifest"] = "lane-tag/manifest.json"
-        fixture.plan_path.write_text(json.dumps(plan))
-
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
+        self._assert_plan_edit_refused(
+            lambda plan: plan["lanes"][1].update(manifest="lane-tag/manifest.json"),
+            "declares transform 'tag_taxonomy'",
         )
-        self.assertEqual(code, 2)
-        self.assertIn("declares transform 'tag_taxonomy'", stderr)
-        self.assertFalse(fixture.cleaned.exists())
 
     def test_integrate_rejects_a_lane_with_zero_records(self):
         fixture = GateFixture(self.root)
@@ -273,49 +203,54 @@ class LaneAuthenticationTests(CurateGateCase):
         self.assertEqual(fixture.integrate(), 2)
         self.assertFalse(fixture.cleaned.exists())
 
-    def test_preference_lane_authenticates_consolidated_outputs_by_source_identity(self):
+    def _consolidated_preference_lane(self, sources, consolidated):
+        """Write one-record sources, their consolidated output and a retained manifest."""
         source_run = self.root / "raw"
         outputs = self.root / "lane-preference"
         manifest_path = outputs / "manifest.json"
-        first = _preference("pref-first")
-        second = _preference("pref-second")
-        _write_jsonl(source_run / "factory-a" / "batch-r01.jsonl", [first])
-        _write_jsonl(source_run / "factory-b" / "batch-r02.jsonl", [second])
-        _write_jsonl(outputs / "consolidated" / "preferences.jsonl", [first, second])
+        for source_path, record in sources:
+            _write_jsonl(source_run / source_path, [record])
+        _write_jsonl(outputs / "consolidated" / "preferences.jsonl", consolidated)
         source_records = curate_gate._load_source_records(source_run)
         entries = [
             _lane_manifest_entry(
                 "retained",
                 1,
-                transform="same-context-preference-curation",
+                transform=_PREFERENCE_TRANSFORM,
                 version="1.0.0",
                 source_path=source_path,
                 record=record,
                 source_hash=source_records[(source_path, 1)]["source_hash"],
             )
-            for source_path, record in (
-                ("factory-a/batch-r01.jsonl", first),
-                ("factory-b/batch-r02.jsonl", second),
-            )
+            for source_path, record in sources
         ]
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(entries), encoding="utf-8")
         lane = {
             "order": 3,
             "bead": "sf-c5l.3",
-            "transform": "same-context-preference-curation",
+            "transform": _PREFERENCE_TRANSFORM,
             "version": "1.0.0",
             "outputs_dir": outputs,
             "manifest_path": manifest_path,
             "manifest_format": "json",
             "artifacts": [],
         }
+        return lane, source_records
+
+    def test_preference_lane_authenticates_consolidated_outputs_by_source_identity(self):
+        first = _preference("pref-first")
+        second = _preference("pref-second")
+        lane, source_records = self._consolidated_preference_lane(
+            ((_FACTORY_A_BATCH, first), (_FACTORY_B_BATCH, second)),
+            [first, second],
+        )
 
         prepared = curate_gate._prepare_lane(lane, source_records)
 
         self.assertEqual(
             [record["source_path"] for record in prepared["records"]],
-            ["factory-a/batch-r01.jsonl", "factory-b/batch-r02.jsonl"],
+            [_FACTORY_A_BATCH, _FACTORY_B_BATCH],
         )
         self.assertEqual(
             {record["relative_path"] for record in prepared["records"]},
@@ -323,41 +258,11 @@ class LaneAuthenticationTests(CurateGateCase):
         )
 
     def test_preference_lane_rejects_ambiguous_duplicate_consolidated_outputs(self):
-        source_run = self.root / "raw"
-        outputs = self.root / "lane-preference"
-        manifest_path = outputs / "manifest.json"
         record = _preference("same-preference")
-        _write_jsonl(source_run / "factory-a" / "batch-r01.jsonl", [record])
-        _write_jsonl(source_run / "factory-b" / "batch-r02.jsonl", [record])
-        _write_jsonl(outputs / "consolidated" / "preferences.jsonl", [record, record])
-        source_records = curate_gate._load_source_records(source_run)
-        entries = [
-            _lane_manifest_entry(
-                "retained",
-                1,
-                transform="same-context-preference-curation",
-                version="1.0.0",
-                source_path=source_path,
-                record=record,
-                source_hash=source_records[(source_path, 1)]["source_hash"],
-            )
-            for source_path in (
-                "factory-a/batch-r01.jsonl",
-                "factory-b/batch-r02.jsonl",
-            )
-        ]
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(json.dumps(entries), encoding="utf-8")
-        lane = {
-            "order": 3,
-            "bead": "sf-c5l.3",
-            "transform": "same-context-preference-curation",
-            "version": "1.0.0",
-            "outputs_dir": outputs,
-            "manifest_path": manifest_path,
-            "manifest_format": "json",
-            "artifacts": [],
-        }
+        lane, source_records = self._consolidated_preference_lane(
+            ((_FACTORY_A_BATCH, record), (_FACTORY_B_BATCH, record)),
+            [record, record],
+        )
 
         with self.assertRaisesRegex(curate_gate.GateError, "multiple source identities"):
             curate_gate._prepare_lane(lane, source_records)

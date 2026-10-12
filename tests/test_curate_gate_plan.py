@@ -17,7 +17,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from curate_gate_test_support import CurateGateCase  # noqa: E402
+from curate_gate_test_support import temp_root  # noqa: E402
 from gate_fixture import (  # noqa: E402
     PIPELINES,
     GateFixture,
@@ -33,8 +33,11 @@ import curate_gate  # noqa: E402
 import curate_gate_plan  # noqa: E402
 
 
-class PlanLoadingTests(CurateGateCase):
+class PlanLoadingTests(unittest.TestCase):
     """Loading the integration plan pins its lane contracts, paths and digest."""
+
+    def setUp(self):
+        self.root = temp_root(self)
 
     def test_plan_rejects_ambiguous_lane_manifest_formats(self):
         for suffix in ("", ".txt"):

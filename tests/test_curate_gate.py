@@ -20,7 +20,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from curate_gate_test_support import CurateGateCase  # noqa: E402
+from curate_gate_test_support import required_item, temp_root  # noqa: E402
 from gate_fixture import (  # noqa: E402
     PIPELINES,
     GateFixture,
@@ -39,7 +39,10 @@ import curate_gate_gates  # noqa: E402
 import curate_rewards  # noqa: E402
 
 
-class IntegrationTests(CurateGateCase):
+class IntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.root = temp_root(self)
+
     def test_integrate_composes_legacy_lanes_but_refuses_training(self):
         fixture = GateFixture(self.root)
         self.assertEqual(fixture.integrate(), 1)
@@ -96,7 +99,7 @@ class IntegrationTests(CurateGateCase):
             return_value=({"passed": True, "enforced": False}, [])))
         fixture = GateFixture(self.root)
         repaired_entries = json.loads(fixture.manifest_paths[1].read_text())
-        repaired = next(entry for entry in repaired_entries if entry["source_line"] == 3)
+        repaired = required_item(entry for entry in repaired_entries if entry["source_line"] == 3)
         repaired["action"] = "repaired"
         repaired["reason_codes"] = ["IDENTITY_REPAIR"]
         fixture.manifest_paths[1].write_text(
@@ -123,7 +126,7 @@ class IntegrationTests(CurateGateCase):
         )
 
         self.assertEqual(fixture.integrate(), 0)
-        repair = next(
+        repair = required_item(
             entry
             for entry in fixture.manifest()["repairs"]
             if entry["source_path"] == "thalamic-mini/batch-r02.jsonl" and entry["source_line"] == 3
@@ -238,7 +241,7 @@ class IntegrationTests(CurateGateCase):
     def test_manifest_normalizes_nested_identity_provenance_fields(self):
         fixture = GateFixture(self.root)
         entries = json.loads(fixture.manifest_paths[1].read_text())
-        entry_index = next(
+        entry_index = required_item(
             index
             for index, entry in enumerate(entries)
             if entry["source_path"] == "thalamic-mini/batch-r02.jsonl" and entry["source_line"] == 1
@@ -267,7 +270,7 @@ class IntegrationTests(CurateGateCase):
         fixture.manifest_paths[1].write_text(json.dumps(entries))
 
         self.assertEqual(fixture.integrate(), 1)
-        entry = next(
+        entry = required_item(
             item
             for item in fixture.manifest()["exclusions"]
             if item["transform"] == "curate_identity"
@@ -311,7 +314,7 @@ class IntegrationTests(CurateGateCase):
         self.assertEqual(fixture.integrate(), 1)
         manifest = fixture.manifest()
 
-        supersession = next(
+        supersession = required_item(
             item
             for item in manifest["supersessions"]
             if item["source_path"] == "bridge-factory/batch-r02.jsonl"

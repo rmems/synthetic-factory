@@ -16,12 +16,8 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from curate_gate_test_support import CurateGateCase  # noqa: E402
-from gate_fixture import (  # noqa: E402
-    PIPELINES,
-    GateFixture,
-    _captured_main,
-)
+from curate_gate_test_support import CurateGateAssertionsMixin, temp_root  # noqa: E402
+from gate_fixture import PIPELINES, GateFixture  # noqa: E402
 
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
@@ -29,8 +25,11 @@ if str(PIPELINES) not in sys.path:
 import curate_gate  # noqa: E402
 
 
-class CleanedDestinationTests(CurateGateCase):
+class CleanedDestinationTests(CurateGateAssertionsMixin, unittest.TestCase):
     """Integration writes only to a new destination and fails closed."""
+
+    def setUp(self):
+        self.root = temp_root(self)
 
     def test_confined_path_redacts_a_leaf_symlink_spelling(self):
         target = self.root / "target.json"
@@ -53,23 +52,9 @@ class CleanedDestinationTests(CurateGateCase):
     def test_integrate_refuses_a_dangling_destination_symlink(self):
         fixture = GateFixture(self.root)
         target = self.root / "must-not-be-created"
-        try:
-            fixture.cleaned.symlink_to(target, target_is_directory=True)
-        except (OSError, NotImplementedError):
-            self.skipTest("symlinks are unavailable on this platform")
+        self.symlink_or_skip(fixture.cleaned, target, directory=True)
 
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(fixture.cleaned),
-            ]
-        )
-
-        self.assertEqual(code, 2)
-        self.assertIn("existing cleaned destination", stderr)
+        self.assert_integrate_refused(fixture, "existing cleaned destination")
         self.assertFalse(target.exists())
 
     def test_destinations_beneath_raw_output_are_rejected(self):
@@ -90,39 +75,22 @@ class CleanedDestinationTests(CurateGateCase):
         ):
             with self.subTest(name=name):
                 fixture = GateFixture(self.root / name)
-                cleaned = destination(fixture)
-                code, _report, stderr = _captured_main(
-                    [
-                        "integrate",
-                        "--plan",
-                        str(fixture.plan_path),
-                        "--cleaned-out",
-                        str(cleaned),
-                    ]
+                self.assert_integrate_refused(
+                    fixture,
+                    "must be disjoint after symlink resolution",
+                    destination=destination(fixture),
                 )
-                self.assertEqual(code, 2)
-                self.assertIn("must be disjoint after symlink resolution", stderr)
 
     def test_cleaned_destination_symlink_alias_of_source_run_is_rejected(self):
         fixture = GateFixture(self.root)
         alias = self.root / "raw-alias"
-        try:
-            alias.symlink_to(fixture.source_run, target_is_directory=True)
-        except (OSError, NotImplementedError):
-            self.skipTest("symlinks are unavailable on this platform")
-        destination = alias / "cleaned"
+        self.symlink_or_skip(alias, fixture.source_run, directory=True)
 
-        code, _report, stderr = _captured_main(
-            [
-                "integrate",
-                "--plan",
-                str(fixture.plan_path),
-                "--cleaned-out",
-                str(destination),
-            ]
+        self.assert_integrate_refused(
+            fixture,
+            "must be disjoint after symlink resolution",
+            destination=alias / "cleaned",
         )
-        self.assertEqual(code, 2)
-        self.assertIn("must be disjoint after symlink resolution", stderr)
         self.assertFalse((fixture.source_run / "cleaned").exists())
 
     def test_a_failed_plan_leaves_no_partial_destination(self):
@@ -142,91 +110,80 @@ class CleanedDestinationTests(CurateGateCase):
         self.assertFalse(fixture.cleaned.exists())
         self.assertEqual(list(self.root.glob(".cleaned-v1.staging-*")), [])
 
-    def test_integration_atomically_refuses_a_concurrent_destination(self):
-        fixture = GateFixture(self.root)
+    def _assert_publish_refused(self, fixture, before_publish, message):
+        """Run a refused `integrate` with ``before_publish`` ahead of the no-replace rename."""
         original = curate_gate._rename_noreplace
-        reserved_inodes = []
 
-        def reserve_then_publish(source, destination, label, expected_tree):
-            destination.mkdir(parents=True)
-            reserved_inodes.append(destination.stat().st_ino)
+        def hooked_publish(source, destination, label, expected_tree):
+            before_publish(source, destination)
             return original(source, destination, label, expected_tree)
 
         with mock.patch.object(
             curate_gate,
             "_rename_noreplace",
-            side_effect=reserve_then_publish,
+            side_effect=hooked_publish,
         ):
-            code, _report, stderr = _captured_main(
-                [
-                    "integrate",
-                    "--plan",
-                    str(fixture.plan_path),
-                    "--cleaned-out",
-                    str(fixture.cleaned),
-                ]
-            )
-        self.assertEqual(code, 2)
-        self.assertIn("refusing to overwrite an existing cleaned destination", stderr)
+            self.assert_integrate_refused(fixture, message)
+
+    def test_integration_atomically_refuses_a_concurrent_destination(self):
+        fixture = GateFixture(self.root)
+        reserved_inodes = []
+
+        def reserve_destination(_source, destination):
+            destination.mkdir(parents=True)
+            reserved_inodes.append(destination.stat().st_ino)
+
+        self._assert_publish_refused(
+            fixture,
+            reserve_destination,
+            "refusing to overwrite an existing cleaned destination",
+        )
         self.assertEqual(fixture.cleaned.stat().st_ino, reserved_inodes[0])
         self.assertEqual(list(fixture.cleaned.iterdir()), [])
         self.assertEqual(list(self.root.glob(".cleaned-v1.staging-*")), [])
 
     def test_integration_publisher_reauthenticates_the_staging_tree(self):
         fixture = GateFixture(self.root)
-        original = curate_gate._rename_noreplace
 
-        def mutate_then_publish(source, destination, label, expected_tree):
+        def corrupt_staged_corpus(source, _destination):
             corpus = source / "thalamic-mini" / "batch-r02.jsonl"
             corpus.write_text("{invalid-json\n", encoding="utf-8")
-            return original(source, destination, label, expected_tree)
 
-        with mock.patch.object(
-            curate_gate,
-            "_rename_noreplace",
-            side_effect=mutate_then_publish,
-        ):
-            code, _report, stderr = _captured_main(
-                [
-                    "integrate",
-                    "--plan",
-                    str(fixture.plan_path),
-                    "--cleaned-out",
-                    str(fixture.cleaned),
-                ]
-            )
-
-        self.assertEqual(code, 2)
-        self.assertIn("staging tree changed after final validation", stderr)
+        self._assert_publish_refused(
+            fixture,
+            corrupt_staged_corpus,
+            "staging tree changed after final validation",
+        )
         self.assertFalse(fixture.cleaned.exists())
         self.assertEqual(list(self.root.glob(".cleaned-v1.staging-*")), [])
 
-    def test_staging_tree_snapshot_rejects_a_symlink(self):
+    def _assert_staging_snapshot_rejects(self, make_link, unavailable, expected):
+        """Stage one linked file and assert the staging-tree snapshot refuses it."""
         staged = self.root / "staged"
         staged.mkdir()
         target = self.root / "target.jsonl"
         target.write_text("{}\n", encoding="utf-8")
         try:
-            (staged / "alias.jsonl").symlink_to(target)
+            make_link(staged / "alias.jsonl", target)
         except (OSError, NotImplementedError):
-            self.skipTest("symlinks are unavailable on this platform")
+            self.skipTest(unavailable)
 
-        with self.assertRaisesRegex(curate_gate.GateError, "contains a symlink"):
+        with self.assertRaisesRegex(curate_gate.GateError, expected):
             curate_gate._tree_snapshot(staged)
+
+    def test_staging_tree_snapshot_rejects_a_symlink(self):
+        self._assert_staging_snapshot_rejects(
+            Path.symlink_to,
+            "symlinks are unavailable on this platform",
+            "contains a symlink",
+        )
 
     def test_staging_tree_snapshot_rejects_a_hardlink(self):
-        staged = self.root / "staged"
-        staged.mkdir()
-        target = self.root / "target.jsonl"
-        target.write_text("{}\n", encoding="utf-8")
-        try:
-            (staged / "alias.jsonl").hardlink_to(target)
-        except (OSError, NotImplementedError):
-            self.skipTest("hard links are unavailable on this platform")
-
-        with self.assertRaisesRegex(curate_gate.GateError, "multiply linked"):
-            curate_gate._tree_snapshot(staged)
-
+        self._assert_staging_snapshot_rejects(
+            Path.hardlink_to,
+            "hard links are unavailable on this platform",
+            "multiply linked",
+        )
 
 if __name__ == '__main__':
     unittest.main()

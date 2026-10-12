@@ -10,6 +10,7 @@ and JSONL framing survives Unicode line separators.
 import json
 import sys
 import unittest
+from functools import partial
 from pathlib import Path
 from unittest import mock
 
@@ -17,7 +18,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from curate_gate_test_support import CurateGateCase  # noqa: E402
+from curate_gate_test_support import required_item, temp_root  # noqa: E402
 from gate_fixture import (  # noqa: E402
     PIPELINES,
     GateFixture,
@@ -33,8 +34,11 @@ import curate_gate_digest  # noqa: E402
 import curate_gate_gates  # noqa: E402
 
 
-class EvidenceSnapshotTests(CurateGateCase):
+class EvidenceSnapshotTests(unittest.TestCase):
     """Evidence is copied from the bytes the gate authenticated."""
+
+    def setUp(self):
+        self.root = temp_root(self)
 
     def test_jsonl_lane_manifest_remains_parseable_as_promoted_evidence(self):
         # This case isolates evidence framing and promotion mechanics from rights policy.
@@ -83,7 +87,7 @@ class EvidenceSnapshotTests(CurateGateCase):
         self.assertEqual(curate_gate.count_records(output), 1)
         parsed = list(curate_gate.iter_records(fixture.cleaned))
         self.assertEqual(len(parsed), 2)
-        thalamic = next(item for item in parsed if item[0].startswith("thalamic-mini/"))
+        thalamic = required_item(item for item in parsed if item[0].startswith("thalamic-mini/"))
         self.assertEqual(thalamic[2]["state"]["env"], "before\u2028middle\u2029after")
         self.assertEqual(
             thalamic[2]["reward_components"]["note"],
@@ -92,7 +96,9 @@ class EvidenceSnapshotTests(CurateGateCase):
         review = fixture.accepted_review()
         self.assertEqual(fixture.promote(review), 0)
         promoted = list(curate_gate.iter_records(fixture.curated))
-        promoted_thalamic = next(item for item in promoted if item[0].startswith("thalamic-mini/"))
+        promoted_thalamic = required_item(
+            item for item in promoted if item[0].startswith("thalamic-mini/")
+        )
         self.assertEqual(
             promoted_thalamic[2]["state"]["env"],
             "before\u2028middle\u2029after",
@@ -120,11 +126,8 @@ class EvidenceSnapshotTests(CurateGateCase):
         copied = fixture.cleaned / curate_gate.GOVERNANCE_DIRNAME / "lane-manifests"
         self.assertEqual(len(list(copied.rglob("*.evidence"))), 6)
 
-    def test_lane_snapshot_rejects_a_path_replaced_during_read(self):
-        path = self.root / "lane.jsonl"
-        replacement = self.root / "replacement.jsonl"
-        path.write_text('{"id":"before"}\n', encoding="utf-8")
-        replacement.write_text('{"id":"after"}\n', encoding="utf-8")
+    def _assert_refuses_replacement_during_read(self, path, replacement, read):
+        """Swap ``replacement`` over ``path`` at the second fstat; ``read`` must refuse."""
         original_fstat = curate_gate_digest.os.fstat
         calls = 0
 
@@ -143,7 +146,19 @@ class EvidenceSnapshotTests(CurateGateCase):
             ),
             self.assertRaisesRegex(curate_gate.GateError, "changed while"),
         ):
-            curate_gate._read_regular_file_snapshot(path, "lane output")
+            read()
+
+    def test_lane_snapshot_rejects_a_path_replaced_during_read(self):
+        path = self.root / "lane.jsonl"
+        replacement = self.root / "replacement.jsonl"
+        path.write_text('{"id":"before"}\n', encoding="utf-8")
+        replacement.write_text('{"id":"after"}\n', encoding="utf-8")
+
+        self._assert_refuses_replacement_during_read(
+            path,
+            replacement,
+            partial(curate_gate._read_regular_file_snapshot, path, "lane output"),
+        )
 
     def test_source_loader_rejects_a_path_replaced_during_read(self):
         source_run = self.root / "raw"
@@ -151,25 +166,12 @@ class EvidenceSnapshotTests(CurateGateCase):
         replacement = self.root / "replacement.jsonl"
         _write_jsonl(path, [_thalamic("before")])
         _write_jsonl(replacement, [_thalamic("after")])
-        original_fstat = curate_gate_digest.os.fstat
-        calls = 0
 
-        def replace_before_second_fstat(descriptor):
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                replacement.replace(path)
-            return original_fstat(descriptor)
-
-        with (
-            mock.patch.object(
-                curate_gate_digest.os,
-                "fstat",
-                side_effect=replace_before_second_fstat,
-            ),
-            self.assertRaisesRegex(curate_gate.GateError, "changed while"),
-        ):
-            curate_gate._load_source_records(source_run)
+        self._assert_refuses_replacement_during_read(
+            path,
+            replacement,
+            partial(curate_gate._load_source_records, source_run),
+        )
 
     def test_lane_manifest_evidence_uses_the_authenticated_snapshot(self):
         fixture = GateFixture(self.root)
@@ -188,7 +190,9 @@ class EvidenceSnapshotTests(CurateGateCase):
     def test_reward_artifact_evidence_uses_the_authenticated_snapshot(self):
         fixture = GateFixture(self.root)
         prepared = curate_gate.prepare_lanes(curate_gate.load_plan(fixture.plan_path))
-        reward_lane = next(lane for lane in prepared if lane["transform"] == "reward_ontology")
+        reward_lane = required_item(
+            lane for lane in prepared if lane["transform"] == "reward_ontology"
+        )
         artifact = reward_lane["artifacts"][0]
         original = artifact["_payload"]
         artifact["source_path"].write_text("{}\n", encoding="utf-8")
@@ -197,7 +201,7 @@ class EvidenceSnapshotTests(CurateGateCase):
 
         lane_evidence, _governance = curate_gate.copy_lane_evidence(prepared, destination)
 
-        reward_evidence = next(
+        reward_evidence = required_item(
             lane for lane in lane_evidence if lane["transform"] == "reward_ontology"
         )["artifacts"][0]
         copied = destination / reward_evidence["path"]
