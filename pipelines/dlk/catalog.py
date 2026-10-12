@@ -96,6 +96,11 @@ def default_config_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "dlk"
 
 
+def _config_dir(config_dir: Path | str | None) -> Path:
+    """``config_dir`` as a path, or :func:`default_config_dir` when it is omitted."""
+    return Path(config_dir) if config_dir is not None else default_config_dir()
+
+
 def _read_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -103,7 +108,7 @@ def _read_json(path: Path) -> Any:
 
 def catalog_index(config_dir: Path | str | None = None) -> dict[str, Any]:
     """The decoded ``CATALOG.json`` for this lane; refuses a missing or malformed pin."""
-    directory = Path(config_dir) if config_dir is not None else default_config_dir()
+    directory = _config_dir(config_dir)
     index = _read_json(directory / CATALOG_FILENAME)
     if not isinstance(index, Mapping):
         raise TypeError(f"{directory / CATALOG_FILENAME} is not a JSON object")
@@ -134,26 +139,46 @@ def _verify_pin(directory: Path, round: int, plant_files: Mapping[str, Any]) -> 
     return entry
 
 
-def load_catalog(round: int, config_dir: Path | str | None = None) -> Catalog:
-    """Load one preserved round's plants, refusing a sha256 drift or a duplicate slug."""
-    directory = Path(config_dir) if config_dir is not None else default_config_dir()
-    index = catalog_index(directory)
-    entry = _verify_pin(directory, round, index["plant_files"])
-    payload = _read_json(directory / entry["file"])
+def _read_plant_payload(directory: Path, fname: str) -> Mapping[str, Any]:
+    """The decoded plant file; refuses anything but a JSON object."""
+    payload = _read_json(directory / fname)
     if not isinstance(payload, Mapping):
-        raise TypeError(f"{entry['file']} is not a JSON object")
+        raise TypeError(f"{fname} is not a JSON object")
+    return payload
+
+
+def _plants_from_payload(fname: str, payload: Mapping[str, Any]) -> tuple[Plant, ...]:
+    """The typed plants of ``payload['plants']``; refuses anything but a list of objects."""
     rows = payload.get("plants")
     if not isinstance(rows, Sequence) or any(not isinstance(r, Mapping) for r in rows):
-        raise ValueError(f"{entry['file']} .plants is not a list of objects")
-    plants = tuple(Plant.from_row(row) for row in rows)
+        raise ValueError(f"{fname} .plants is not a list of objects")
+    return tuple(Plant.from_row(row) for row in rows)
+
+
+def _refuse_duplicate_slugs(round_n: int, plants: tuple[Plant, ...]) -> None:
     slugs = [p.slug for p in plants]
     if len(slugs) != len(set(slugs)):
         dupes = sorted({s for s in slugs if slugs.count(s) > 1})
-        raise ValueError(f"round r{round:04d} has duplicate plant slugs: {dupes}")
+        raise ValueError(f"round r{round_n:04d} has duplicate plant slugs: {dupes}")
+
+
+def _require_payload_identity(fname: str, payload: Mapping[str, Any]) -> None:
+    """Refuse a plant file whose factory or generator is not this lane's."""
     if payload.get("factory") != c.FACTORY:
-        raise ValueError(f"{entry['file']} factory {payload.get('factory')!r} != {c.FACTORY!r}")
+        raise ValueError(f"{fname} factory {payload.get('factory')!r} != {c.FACTORY!r}")
     if payload.get("generator") != c.GEN:
-        raise ValueError(f"{entry['file']} generator {payload.get('generator')!r} != {c.GEN!r}")
+        raise ValueError(f"{fname} generator {payload.get('generator')!r} != {c.GEN!r}")
+
+
+def load_catalog(round: int, config_dir: Path | str | None = None) -> Catalog:
+    """Load one preserved round's plants, refusing a sha256 drift or a duplicate slug."""
+    directory = _config_dir(config_dir)
+    index = catalog_index(directory)
+    entry = _verify_pin(directory, round, index["plant_files"])
+    payload = _read_plant_payload(directory, entry["file"])
+    plants = _plants_from_payload(entry["file"], payload)
+    _refuse_duplicate_slugs(round, plants)
+    _require_payload_identity(entry["file"], payload)
     return Catalog(
         round=round,
         factory=payload["factory"],
@@ -166,7 +191,7 @@ def load_catalog(round: int, config_dir: Path | str | None = None) -> Catalog:
 
 def load_all(config_dir: Path | str | None = None) -> tuple[Catalog, ...]:
     """Every preserved round's catalog, in the pinned order; refuses cross-round slug overlap."""
-    directory = Path(config_dir) if config_dir is not None else default_config_dir()
+    directory = _config_dir(config_dir)
     index = catalog_index(directory)
     rounds = index["preserved_rounds"]
     catalogs = tuple(load_catalog(rnd, directory) for rnd in rounds)
