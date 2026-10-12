@@ -95,7 +95,7 @@ const TOKEN_EFFICIENCY = {
 
 Per factory lane:
 
-- After each verified round, the lane reads the verifier's independent `novel_coverage_pct` from the published `NOTES-rNN.md` (never the generation agent's self-reported `coverage_notes`); a missing or out-of-range value counts as unparseable.
+- After each verified round, the lane uses the `novel_coverage_pct` that the verifier reads from the published `NOTES-rNN.md` line rather than the `coverage_notes` the generation agent returns. The number is still the agent's own estimate; a missing or out-of-range value counts as unparseable.
 - `<5%` increments `consecutiveLowNovel`; `>=5%` resets it; unparseable holds it.
 - At `consecutiveLowNovel >= 2`, the lane breaks with:
 
