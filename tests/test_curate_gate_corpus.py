@@ -30,11 +30,19 @@ import curate_gate  # noqa: E402
 import curate_rewards  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in items:
+        if predicate(item):
+            return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 def _manifest_entry(entries, source_path, source_line):
-    return next(
-        entry
-        for entry in entries
-        if entry["source_path"] == source_path and entry["source_line"] == source_line
+    return _first_matching(
+        entries,
+        lambda entry: entry["source_path"] == source_path
+        and entry["source_line"] == source_line,
     )
 
 
@@ -51,7 +59,7 @@ def _keep_only_root_owner_mappings(entry):
 
 
 def _sidecar_document(documents, sidecar_id):
-    return next(document for document in documents if document["sidecar_id"] == sidecar_id)
+    return _first_matching(documents, lambda document: document["sidecar_id"] == sidecar_id)
 
 
 def _reseal_sidecar(document):

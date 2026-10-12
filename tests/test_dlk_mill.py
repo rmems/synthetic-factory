@@ -241,8 +241,8 @@ class DlkFidelityToLegacy(unittest.TestCase):
         1280: "experiments/dlk_r1280_leftover3_mill.py",
     }
 
-    def _legacy_source(self, round):
-        path = self.LEGACY_FILES[round]
+    def _legacy_source(self, round_no):
+        path = self.LEGACY_FILES[round_no]
         proc = subprocess.run(
             ["git", "show", f"origin/legacy-mill-lane:{path}"],
             capture_output=True, text=True, cwd=str(REPO), check=False,
@@ -251,8 +251,8 @@ class DlkFidelityToLegacy(unittest.TestCase):
             self.skipTest(f"origin/legacy-mill-lane not available: {proc.stderr.strip()}")
         return proc.stdout
 
-    def _legacy_module(self, round):
-        src = self._legacy_source(round)
+    def _legacy_module(self, round_no):
+        src = self._legacy_source(round_no)
         tree = ast.parse(src)
         keep = {"step", "success_ep", "fail_ep", "notes", "PLANTS"}
         namespace: dict = {}

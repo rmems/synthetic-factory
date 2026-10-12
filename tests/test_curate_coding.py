@@ -39,19 +39,13 @@ from curate_coding import (  # noqa: E402
     curate_step,
 )
 
-def _run_curate_coding_cli(source, output):
-    return subprocess.run(
-        [
-            sys.executable,
-            str(PIPELINES / "curate_coding.py"),
-            str(source),
-            "--output-dir",
-            str(output),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+def _alpha_and_zeta_episodes():
+    """Two visible-evidence coding episodes for the alpha and zeta source files."""
+    first_record = episode([visible_step(n=1)])
+    first_record["id"] = "coding-alpha"
+    second_record = episode([visible_step(n=2, reflection="Visible second file.")])
+    second_record["id"] = "coding-zeta"
+    return first_record, second_record
 
 
 def _read_jsonl_lines(path):
@@ -296,11 +290,20 @@ class CurateCodingTests(unittest.TestCase):
         self.assertEqual(summary["hidden_reasoning_fields_removed"], 2)
         self.assertEqual(summary["wrap_records"], 0)
 
+    def _assert_coding_lane_prepares(self, source, output, expected_paths):
+        """The run directory loads as the gate's coding lane, records in path order."""
+        prepared = curate_gate._prepare_lane(  # noqa: SLF001
+            _coding_lane(output, output / curate_coding.RUN_MANIFEST_FILENAME),
+            curate_gate._load_source_records(source),  # noqa: SLF001
+        )
+        self.assertEqual(len(prepared["entries"]), 2)
+        self.assertEqual(
+            [record["relative_path"] for record in prepared["records"]],
+            expected_paths,
+        )
+
     def test_directory_writer_preserves_paths_and_emits_one_gate_manifest(self):
-        first_record = episode([visible_step(n=1)])
-        first_record["id"] = "coding-alpha"
-        second_record = episode([visible_step(n=2, reflection="Visible second file.")])
-        second_record["id"] = "coding-zeta"
+        first_record, second_record = _alpha_and_zeta_episodes()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "source-run"
@@ -315,7 +318,18 @@ class CurateCodingTests(unittest.TestCase):
             )
             output = root / "lane-coding"
 
-            completed = _run_curate_coding_cli(source, output)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_coding.py"),
+                    str(source),
+                    "--output-dir",
+                    str(output),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             summary = json.loads(completed.stdout)
             manifest_path = output / curate_coding.RUN_MANIFEST_FILENAME
@@ -333,15 +347,7 @@ class CurateCodingTests(unittest.TestCase):
                 [alpha.as_posix(), curate_coding.RUN_MANIFEST_FILENAME, zeta.as_posix()],
             )
 
-            prepared = curate_gate._prepare_lane(  # noqa: SLF001
-                _coding_lane(output, manifest_path),
-                curate_gate._load_source_records(source),  # noqa: SLF001
-            )
-            self.assertEqual(len(prepared["entries"]), 2)
-            self.assertEqual(
-                [record["relative_path"] for record in prepared["records"]],
-                [alpha.as_posix(), zeta.as_posix()],
-            )
+            self._assert_coding_lane_prepares(source, output, [alpha.as_posix(), zeta.as_posix()])
 
     def test_directory_writer_refuses_clobber_and_preserves_existing_tree(self):
         with tempfile.TemporaryDirectory() as temporary:

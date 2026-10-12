@@ -61,13 +61,15 @@ def _side_curation_patch(side_result):
 
 class ComposeCuratedFacadeContract(unittest.TestCase):
     def _assert_facade_seam(self, binding, message, invocation):
-        with mock.patch.object(
-            compose_curated,
-            binding,
-            side_effect=FacadeSentinel(message),
+        with (
+            mock.patch.object(
+                compose_curated,
+                binding,
+                side_effect=FacadeSentinel(message),
+            ),
+            self.assertRaisesRegex(FacadeSentinel, message),
         ):
-            with self.assertRaisesRegex(FacadeSentinel, message):
-                invocation()
+            invocation()
 
     def test_the_complete_historical_module_surface_is_restored(self):
         missing = sorted(HISTORICAL_BINDINGS - set(vars(compose_curated)))

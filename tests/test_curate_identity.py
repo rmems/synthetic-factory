@@ -1796,8 +1796,16 @@ def _write_one_record_run(tmp, factory_id, filename, record):
     return dest
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in items:
+        if predicate(item):
+            return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 def _retained_mapping(manifest):
-    return next(item for item in manifest if item["action"] == "retained")
+    return _first_matching(manifest, lambda item: item["action"] == "retained")
 
 
 def _reseal_provenance_mapping(provenance_mapping):
@@ -2581,8 +2589,8 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
             tampered = copy.deepcopy(original)
             retained_copy = _retained_mapping(tampered)
-            chosen = next(
-                item for item in retained_copy["id_mappings"] if item["owner_path"] == "/chosen"
+            chosen = _first_matching(
+                retained_copy["id_mappings"], lambda item: item["owner_path"] == "/chosen"
             )
             chosen["output_id"] = "sfcur-tampered-nested"
             self._assert_manifest_rejected(dest, tampered, r"id[_ ]mapping")
@@ -2712,10 +2720,9 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             self._assert_missing_provenance_targets_rejected(dest, original)
 
             tampered = copy.deepcopy(original)
-            root_owner_mapping = next(
-                item
-                for item in _retained_mapping(tampered)["provenance_mappings"]
-                if item["owner_path"] == "/" and "state_path" not in item
+            root_owner_mapping = _first_matching(
+                _retained_mapping(tampered)["provenance_mappings"],
+                lambda item: item["owner_path"] == "/" and "state_path" not in item,
             )
             root_owner_mapping["basis"] = "state.provenance.kind"
             root_owner_mapping["canonical"]["basis"] = "state.provenance.kind"

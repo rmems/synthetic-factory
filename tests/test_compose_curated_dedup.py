@@ -36,17 +36,22 @@ def _cross_factory_episode_copies():
     return first, second
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in items:
+        if predicate(item):
+            return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 def _duplicate_and_survivor(manifest):
     """(the entry excluded as a duplicate, the other entry) of a two-entry manifest."""
-    duplicate = next(
-        entry
-        for entry in manifest
-        if entry["reason_codes"]
-        == [compose_curated.REASON_DUPLICATE_CURATED_RECORD]
+    duplicate = _first_matching(
+        manifest,
+        lambda entry: entry["reason_codes"]
+        == [compose_curated.REASON_DUPLICATE_CURATED_RECORD],
     )
-    retained = next(
-        entry for entry in manifest if entry is not duplicate
-    )
+    retained = _first_matching(manifest, lambda entry: entry is not duplicate)
     return duplicate, retained
 
 
