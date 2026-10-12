@@ -117,14 +117,12 @@ class RestartGrok46Tests(unittest.TestCase):
             self.assertTrue(state_dir.is_dir())
             self.assertTrue((state_dir / "launcher.lock").is_file())
 
-    def test_failed_tmux_startup_does_not_consume_the_weekly_window(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            commands = root / "bin"
-            commands.mkdir()
-            self.write_executable(
-                commands / "date",
-                """#!/usr/bin/env bash
+    def _write_tmux_session_that_dies_on_start(self, commands):
+        """Fake date (Wednesday 07:00), python3 and a tmux whose session vanishes."""
+        commands.mkdir()
+        self.write_executable(
+            commands / "date",
+            """#!/usr/bin/env bash
 case "${1:-}" in
   +%u) printf '3\\n' ;;
   +%H) printf '07\\n' ;;
@@ -133,17 +131,23 @@ case "${1:-}" in
   *) printf '2099-01-07T07:00:00-06:00\\n' ;;
 esac
 """,
-            )
-            self.write_executable(commands / "python3", "#!/usr/bin/env bash\nexit 0\n")
-            self.write_executable(
-                commands / "tmux",
-                """#!/usr/bin/env bash
+        )
+        self.write_executable(commands / "python3", "#!/usr/bin/env bash\nexit 0\n")
+        self.write_executable(
+            commands / "tmux",
+            """#!/usr/bin/env bash
 if [[ "${1:-}" == "new-session" ]]; then
   exit 0
 fi
 exit 1
 """,
-            )
+        )
+
+    def test_failed_tmux_startup_does_not_consume_the_weekly_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            commands = root / "bin"
+            self._write_tmux_session_that_dies_on_start(commands)
             grok = root / "grok"
             self.write_executable(grok, "#!/usr/bin/env bash\nexit 1\n")
             state_home = root / "state"

@@ -163,14 +163,7 @@ class RightsPolicyTestCase(unittest.TestCase):
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsPolicyTests(RightsPolicyTestCase):
 
-    def test_committed_policy_is_loaded_and_bound_to_its_exact_bytes(self):
-        document = json.loads(MAPPING.read_text(encoding="utf-8"))
-
-        self.assertEqual(plain_policy_value(rights_policy.RIGHTS_POLICY), document)
-        self.assertEqual(
-            rights_policy.RIGHTS_POLICY_SHA256,
-            digest(MAPPING.read_bytes()),
-        )
+    def _assert_provider_and_channel_vocabularies(self, document):
         self.assertEqual(
             set(document["vocabularies"]["providers"]),
             {
@@ -202,6 +195,16 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 "openrouter_api",
             },
         )
+
+    def test_committed_policy_is_loaded_and_bound_to_its_exact_bytes(self):
+        document = json.loads(MAPPING.read_text(encoding="utf-8"))
+
+        self.assertEqual(plain_policy_value(rights_policy.RIGHTS_POLICY), document)
+        self.assertEqual(
+            rights_policy.RIGHTS_POLICY_SHA256,
+            digest(MAPPING.read_bytes()),
+        )
+        self._assert_provider_and_channel_vocabularies(document)
         self.assertEqual(
             document["evidence_status_fields"],
             [
