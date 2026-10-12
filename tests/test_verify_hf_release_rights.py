@@ -8,9 +8,10 @@ rights checks under test depend only on the sidecar and ``release-status.json``.
 from __future__ import annotations
 
 import json
-import subprocess
+import multiprocessing
 import sys
 import unittest
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
@@ -19,6 +20,7 @@ for _path in (TESTS, ROOT / "pipelines"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+import rights_import_probe
 import verify_hf_release
 import verify_hf_release_rights
 from test_rights_document import anthropic_document
@@ -266,43 +268,18 @@ class RightsSidecarVerificationTests(unittest.TestCase):
         )
 
 
-# Imports verify_hf_release in one form first, then reports every module that
-# the bare name and the ``pipelines.`` name bind to two different objects.
-_IMPORT_FORM_PROBE = """
-import importlib, sys
-sys.path.insert(0, "pipelines")
-importlib.import_module(sys.argv[1] + "verify_hf_release")
-split = [
-    name for name in sys.argv[2:]
-    if importlib.import_module(name) is not importlib.import_module("pipelines." + name)
-]
-print(",".join(split))
-"""
-_TWIN_MODULES = (
-    "verify_hf_release",
-    "verify_hf_release_rights",
-    "rights_document",
-    "rights_document_procedural",
-    "rights_document_support",
-)
-
-
 class RightsSidecarImportFormTests(unittest.TestCase):
     def test_package_and_cli_forms_bind_one_module_in_either_order(self) -> None:
-        # Fresh interpreters, so nothing this suite imported can mask a split; the
-        # preludes alone bind the twins, with no _PACKAGE_SIBLING_NAMES entry.
-        for first in ("", "pipelines."):
-            with self.subTest(first_form=first or "cli"):
-                result = subprocess.run(
-                    [sys.executable, "-c", _IMPORT_FORM_PROBE, first, *_TWIN_MODULES],
-                    cwd=ROOT,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=120,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout.strip(), "", "split import twins")
+        # Fresh spawned interpreters, so nothing this suite imported can mask a
+        # split; the module preludes alone bind the twins.
+        context = multiprocessing.get_context("spawn")
+        for first in ("cli", "package"):
+            with (
+                self.subTest(first_form=first),
+                ProcessPoolExecutor(max_workers=1, mp_context=context) as pool,
+            ):
+                split = pool.submit(rights_import_probe.split_twins, first).result(timeout=180)
+                self.assertEqual(split, [])
 
 
 if __name__ == "__main__":
