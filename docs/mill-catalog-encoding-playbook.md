@@ -122,7 +122,7 @@ babysitters exist.
 
 These five already landed. Copy the **encoding**, not the family.
 
-| family | PR | additions / files | catalog on `main` | encoding | extracted | committed |
+| family | PR | additions / files | catalog at merge | encoding | extracted | committed |
 |---|---|---|---|---|---|---|
 | **rlb** | [#252](https://github.com/rmems/synthetic-factory/pull/252) | **668 / 5** | `config/rlb/CATALOG.json` 47 + `pairs.jsonl` 64 | rank 1 | 64 pairs / 128 cases from 4 sources | **64 / 64** |
 | **cei** | [#270](https://github.com/rmems/synthetic-factory/pull/270) | **2193 / 10** | `config/cei/CATALOG.json` 26 + `plants.jsonl` 39 | rank 1 | 39 `_ok`/`_bad` plants from `cei-mill-r81` | **39 / 39** of r81 |
@@ -170,7 +170,7 @@ holds every extracted row of the named mills. See
 `config/cei/CATALOG.json` + `config/cei/plants.jsonl`.
 
 Rank 2: header keeps extract totals even when bodies are omitted. AMC
-#274 is the overflow valve:
+#274, as merged, is the overflow valve:
 
 ```json
 {
@@ -182,8 +182,9 @@ Rank 2: header keeps extract totals even when bodies are omitted. AMC
 
 Each mill row in that header already carries `n_rows_extracted`,
 `first_slug`, `last_slug`, `source_blob_sha1`, and `source_sha256`.
-The 24-line `config/amc/pairs.jsonl` is the first-slice: first and last
-identity per mill, one object per line — not 1401 pretty pair bodies.
+At #274 the 24-line `config/amc/pairs.jsonl` was the first-slice (a later
+slice committed the remaining 1377 identities; it is 1401 lines on `main`):
+first and last identity per mill, one object per line — not 1401 pretty pair bodies.
 
 EVH #278 is the same rank with the first-slice **inside** the header:
 r801's 126 pair identities are one compact object per line (`fail_slug`,

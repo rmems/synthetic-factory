@@ -38,9 +38,9 @@ where it differs from the executed public release.
 - A diagnostic cleaner run may write a fresh, date-labelled destination only.
   It must preserve `outputs/raw/2026-08-17` and must state whether remaining
   curation gates prevent promotion.
-- Final training-ready publication remains blocked on the open tag-taxonomy
-  and integration Beads (`sf-c5l.6` and `sf-c5l.7`) plus the strict curation
-  audit. Public raw availability does not relax those gates.
+- Final training-ready publication remains blocked on the integration gate
+  (`sf-c5l.7`, #8) plus the strict curation audit; the tag-taxonomy lane
+  (`sf-c5l.6`, #7) has since closed. Public raw availability does not relax those gates.
 
 ## Approved topology
 

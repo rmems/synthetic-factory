@@ -2,7 +2,10 @@
 
 Status: **design only**. Do not implement `pipelines/mill_support` until
 after a main reset. Budget: **≤500 lines** for the new package (tests extra).
-Surveyed at `main` `fef9fef` (post `#276` SSR land).
+Surveyed at `main` `fef9fef` (post `#276` SSR land). The open mill PRs named
+below have since landed with their own copies of these helpers, so the def
+counts and file:line references in sections 1-5 are as of that survey; the
+migration is now cleanup rather than a pre-rebase step.
 
 This document is the P4 plan. It does not change runtime code.
 

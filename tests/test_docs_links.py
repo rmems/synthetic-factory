@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Every relative link in README.md and docs/ resolves to a file and heading.
 
 External links (any ``scheme:`` target) are not fetched. ``*.card.md`` files
@@ -99,8 +98,6 @@ class DocsLinkTests(unittest.TestCase):
     def test_checker_reports_missing_files_and_headings(self):
         self.assertEqual(github_slug("How the `separation` is enforced!"),
                          "how-the-separation-is-enforced")
-        readme = REPO / "README.md"
-        self.assertTrue(readme.is_file())
         probe = list(link_targets(_Probe("[a](missing.md) [b](#nowhere) [c](https://x.y)")))
         self.assertEqual([target for _, target in probe], ["missing.md", "#nowhere"])
 
