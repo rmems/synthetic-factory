@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Collection
 from typing import NamedTuple
 
 if __package__:
@@ -58,10 +59,10 @@ class _VocabularyContext(NamedTuple):
 
 
 class _ClassificationCatalogues(NamedTuple):
-    """The policy's declared comparability classes and reason codes."""
+    """The policy's declared comparability classes and reason codes (only their names are read)."""
 
-    classes: dict
-    reason_codes: dict
+    classes: Collection[str]
+    reason_codes: Collection[str]
 
 
 def _validate_vocabulary_counts(vocabulary, reward_keys, where):

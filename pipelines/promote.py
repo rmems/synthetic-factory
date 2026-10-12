@@ -106,17 +106,20 @@ def _is_hil_claim(low):
     return HIL_WORD.search(low) is not None
 
 
+#: Ordered claim rules: the first predicate that holds names the kind.
+_CLAIM_RULES = (
+    (_is_designed_claim, "designed"),
+    (_is_simulated_claim, "simulated"),
+    (_is_hil_claim, "hil"),
+)
+
+
 def _claimed_kind(low):
     """The canonical kind for a nonempty, lowercased claim; the first matching rule wins."""
-    if _is_designed_claim(low):
-        return "designed"
-    if _is_simulated_claim(low):
-        return "simulated"
-    if _is_hil_claim(low):
-        return "hil"
-    if low in ALLOWED_KINDS:
-        return low
-    return "unknown"
+    for matches, kind in _CLAIM_RULES:
+        if matches(low):
+            return kind
+    return low if low in ALLOWED_KINDS else "unknown"
 
 
 def remap_claimed(claimed):

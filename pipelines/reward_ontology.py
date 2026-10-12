@@ -152,6 +152,15 @@ def _object_value_type(value):
     return "object"
 
 
+def _container_value_type(value):
+    """Objects, arrays, ``null``, and ``unknown`` for anything else."""
+    if isinstance(value, dict):
+        return _object_value_type(value)
+    if isinstance(value, list):
+        return "array"
+    return "null" if value is None else "unknown"
+
+
 def value_type(value):
     """Return the mapping's value-type name for one source reward member.
 
@@ -166,13 +175,7 @@ def value_type(value):
         return _number_value_type(value)
     if isinstance(value, str):
         return "string"
-    if isinstance(value, dict):
-        return _object_value_type(value)
-    if isinstance(value, list):
-        return "array"
-    if value is None:
-        return "null"
-    return "unknown"
+    return _container_value_type(value)
 
 
 def _reward_signature_type(value):
@@ -337,21 +340,34 @@ def _classify_preference_uncalibrated(chosen_total, rejected_total, unit_statuse
     )
 
 
-def _classify_preference(rewards_by_pointer, arithmetic_by_pointer, calibration):
+def _screen_preference_totals(rewards_by_pointer, arithmetic_by_pointer):
+    """``(rule_id, totals)``: P01-P03 when the pair cannot be compared, else ``None``.
+
+    The pointer-set guard runs before any pointer is indexed, so a missing
+    pointer is P01 rather than a ``KeyError``. ``totals`` is the
+    ``(chosen, rejected)`` pair of source totals once both arms are valid.
+    """
     if set(rewards_by_pointer) != set(PREFERENCE_POINTERS):
-        return _mapped_verdict("P01")
+        return "P01", None
     chosen_pointer, rejected_pointer = PREFERENCE_POINTERS
     chosen_arithmetic = arithmetic_by_pointer[chosen_pointer]
     rejected_arithmetic = arithmetic_by_pointer[rejected_pointer]
     statuses = {chosen_arithmetic["status"], rejected_arithmetic["status"]}
     if "invalid" in statuses:
-        return _mapped_verdict("P02")
+        return "P02", None
     if statuses != {"valid"}:
-        return _mapped_verdict("P03")
+        return "P03", None
     chosen_total = _decimal(chosen_arithmetic["source_total"])
     rejected_total = _decimal(rejected_arithmetic["source_total"])
-    if chosen_total is None or rejected_total is None:
-        return _mapped_verdict("P03")
+    totals_missing = chosen_total is None or rejected_total is None
+    return ("P03" if totals_missing else None), (chosen_total, rejected_total)
+
+
+def _classify_preference(rewards_by_pointer, arithmetic_by_pointer, calibration):
+    rule_id, totals = _screen_preference_totals(rewards_by_pointer, arithmetic_by_pointer)
+    if rule_id is not None:
+        return _mapped_verdict(rule_id)
+    chosen_total, rejected_total = totals
     preference_units = _preference_units(rewards_by_pointer, calibration)
     if all(unit is not None for unit in preference_units.units.values()):
         return _classify_preference_calibrated(

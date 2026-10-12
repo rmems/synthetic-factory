@@ -337,7 +337,12 @@ def _require_bound_publication(
     the diagnosis filenames already define.
     """
 
-    pairs = _batch_pairs(expectation.batch, expectation.expected_count)
+    batch = expectation.batch
+    if batch is None:
+        # The only caller binds publication when a batch was captured; reaching
+        # here without one would silently skip the binding, so refuse instead.
+        raise PreferenceArmsError("publication binding requires the captured batch")
+    pairs = _batch_pairs(batch, expectation.expected_count)
     scratch_names = rejected_scratch_filenames(
         expectation.round_number, expectation.expected_count
     )

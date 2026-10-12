@@ -94,11 +94,14 @@ def _exclusion_reasons(context_diff_paths: tuple[str, ...]) -> tuple[str, ...]:
 
 _MALFORMED_CONTEXT = "malformed_preference_context"
 
+#: ``(same_state, same_proposed_action)`` of the source pair, before any repair.
+_Agreement = tuple[bool | None, bool | None]
+
 
 def _excluded_decision(
     classification: str,
     reason_codes: tuple[str, ...],
-    agreement: tuple[Any, Any],
+    agreement: _Agreement,
     context_diff_paths: tuple[str, ...] = (),
 ) -> CurationDecision:
     """An exclusion that keeps the source pair's per-field agreement."""
@@ -135,7 +138,7 @@ def _absent_context_decision(
 
 def _repaired_or_excluded(
     record: dict[str, Any],
-    agreement: tuple[Any, Any],
+    agreement: _Agreement,
     context_diff_paths: tuple[str, ...],
 ) -> CurationDecision:
     """An attested-identity repair of an impure pair, or its coded exclusion."""
@@ -177,7 +180,17 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         return _absent_context_decision(
             record, same_state, same_proposed_action
         )
+    return _paired_context_decision(record, agreement, context)
 
+
+def _paired_context_decision(
+    record: dict[str, Any],
+    agreement: _Agreement,
+    context: tuple[dict[str, Any], dict[str, Any]],
+) -> CurationDecision:
+    """Retain an already-identical pair; otherwise repair it or exclude it."""
+
+    same_state, same_proposed_action = agreement
     chosen, rejected = context
     context_diff_paths = all_context_diffs(chosen, rejected)
     if not context_diff_paths:

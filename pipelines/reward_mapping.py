@@ -171,11 +171,20 @@ def _policy_disposition(key, observed_types, arithmetic):
     declared = _declared_group_disposition(key, arithmetic)
     if declared is not None:
         return declared
-    types = set(observed_types)
+    return _observed_type_disposition(key, set(observed_types), arithmetic)
+
+
+def _observed_type_disposition(key, types, arithmetic):
+    """Numbers are magnitude terms and strings narrative; the rest is structural."""
     if types <= {"number", "value-object"}:
         return DISPOSITION_MAGNITUDE_TERM
     if types == {"string"}:
         return DISPOSITION_NARRATIVE
+    return _structural_disposition(key, types, arithmetic)
+
+
+def _structural_disposition(key, types, arithmetic):
+    """Object/array keys are structure, or a container when declared; others are ambiguous."""
     if types == {"object"}:
         return (
             DISPOSITION_CONTAINER
