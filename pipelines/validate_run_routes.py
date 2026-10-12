@@ -261,25 +261,32 @@ def _route_family(obj, where):
     return None
 
 
+def _route_self_declared(obj, where, factory_staging):
+    """Self-declared families route ahead of the shape table, in the same order
+    as record_kind.classify_kind: a record that names its own family can
+    never be confused with a trajectory that happens to share a key name."""
+    declared_kind = obj.get("record_kind")
+    if isinstance(declared_kind, str) and declared_kind in _parity_record_kinds():
+        return _route_parity(obj, where, factory_staging), declared_kind
+    return _route_family(obj, where)
+
+
+def _is_oracle_shape(obj):
+    return obj.get("schema") == "oracle-grounded/v1" or all(
+        key in obj for key in ("oracle", "result", "proposal_hash")
+    )
+
+
 def check_line(obj, where, factory_staging=False, hooks=None):
     """Route an object to the right checker based on its shape."""
     if hooks is None:
         raise TypeError("check_line requires LineHooks from the validate_run facade")
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-    # Self-declared families route ahead of the shape table, in the same order
-    # as record_kind.classify_kind: a record that names its own family can
-    # never be confused with a trajectory that happens to share a key name.
-    declared_kind = obj.get("record_kind")
-    if isinstance(declared_kind, str) and declared_kind in _parity_record_kinds():
-        return _route_parity(obj, where, factory_staging), declared_kind
-    routed = _route_family(obj, where)
+    routed = _route_self_declared(obj, where, factory_staging)
     if routed is not None:
         return routed
-    oracle_shape = obj.get("schema") == "oracle-grounded/v1" or all(
-        key in obj for key in ("oracle", "result", "proposal_hash")
-    )
-    if oracle_shape:
+    if _is_oracle_shape(obj):
         return _route_oracle(obj, where, factory_staging), "oracle"
     return _route_known_shape(LineCall(obj, where, factory_staging, hooks))
 
