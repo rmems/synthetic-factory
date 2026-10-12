@@ -149,7 +149,7 @@ EXTRACT_CASES = (
     ("non-constant value", _source().replace(f"mod={PAIR['mod']!r}", "mod=unbound"), MILL,
      UNPARSEABLE, "plant source is not a constant (Name)"),
     ("keyword unpacking",
-     f"FAC = {FACTORY!r}\nPREFIX = {RECORD_PREFIX!r}\nBASE = dict(slug='x')\nPAIRS = [dict(**BASE)]\n",
+     _source(before="BASE = dict(slug='x')\n").split("PAIRS = ")[0] + "PAIRS = [dict(**BASE)]\n",
      MILL, UNPARSEABLE, "literal catalog uses keyword unpacking"),
     ("prefix pin", _source(prefix="other"), MILL, UNPARSEABLE,
      f"{SOURCE} PREFIX must be {RECORD_PREFIX}"),
@@ -177,7 +177,8 @@ GENERATE_CASES = (
      "round exceeds the exact-JSON integer domain"),
     ("round without plant", {"mill_id": MILL, "round": 120}, "USAGE",
      "round applies only with plant_id"),
-    ("unknown mill", {"mill_id": "csv_r999"}, "MILL_NOT_FOUND", "no mill 'csv_r999' in the catalog"),
+    ("unknown mill", {"mill_id": "csv_r999"}, "MILL_NOT_FOUND",
+     "no mill 'csv_r999' in the catalog"),
 )
 
 
@@ -196,7 +197,8 @@ class RefusalAssertions:
     def assert_refusal(self, call, code, message):
         with self.assertRaises(CsvRefusal) as caught:
             call()
-        self.assertEqual((caught.exception.code, str(caught.exception)), (code, f"{code}: {message}"))
+        refusal = caught.exception
+        self.assertEqual((refusal.code, str(refusal)), (code, f"{code}: {message}"))
 
 
 class CsvCatalogRefusals(RefusalAssertions, unittest.TestCase):

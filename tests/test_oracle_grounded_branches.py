@@ -1,4 +1,4 @@
-"""Per-invariant findings of the memory, credit-assignment and mesh family checks.
+"""Per-invariant findings of the five oracle-grounded family checks.
 
 Each case copies one accepted reference record, edits a single retained value
 under ``result.measured``, re-hashes the result, and asserts that
@@ -59,6 +59,13 @@ def _append(path, value):
     return edit
 
 
+def _pop(path):
+    def edit(item):
+        _parent(item, path)[path[-1]].pop()
+
+    return edit
+
+
 def _reverse(path):
     def edit(item):
         _parent(item, path)[path[-1]].reverse()
@@ -73,6 +80,9 @@ PRE = PLASTIC + ("pre_update_behavior",)
 DEPENDENCE = ("temporal_dependence",)
 BEFORE = ("before",)
 DELTA_DERIVED = "does not match the value derived from before/after states"
+SUMMARY_DERIVED = "does not match the summary derived from spike_times_ms and the retained duration"
+ENCODING_A = ("encoding_a",)
+EXCERPT0 = ENCODING_A + ("representation_excerpt", 0)
 
 # (label, edit(record), finding the memory checks must report)
 MEMORY_CASES = (
@@ -92,7 +102,8 @@ MEMORY_CASES = (
      "baseline hit the spike budget; the trajectory is truncated"),
     ("latch window", _put(BASE + ("latch_last_spike_ms",), {"MA": None, "MB": 1.0e6}),
      "baseline.latch_last_spike_ms leaves the retained probe window"),
-    ("energy", _shift(BASE + ("energy_pJ",), 1.0), "baseline.energy_pJ does not match total_spikes"),
+    ("energy", _shift(BASE + ("energy_pJ",), 1.0),
+     "baseline.energy_pJ does not match total_spikes"),
     ("duration", _shift(BASE + ("duration_ms",), 1.0),
      "baseline.duration_ms does not match the task configuration"),
     ("retention", _put(BASE + ("state_retained_at_probe",), True),
@@ -158,7 +169,8 @@ MESH_CASES = (
      "before.downstream_activation does not match spike_counts"),
     ("total spikes", _shift(BEFORE + ("total_spikes",), 1),
      "before.total_spikes does not match spike_counts"),
-    ("energy", _shift(BEFORE + ("energy_pJ",), 1.0), "before.energy_pJ does not match total_spikes"),
+    ("energy", _shift(BEFORE + ("energy_pJ",), 1.0),
+     "before.energy_pJ does not match total_spikes"),
     ("sink reached", _put(BEFORE + ("sink_reached",), True),
      "before.sink_reached disagrees with first_arrival_ms[N5]"),
     ("spike budget", _put(BEFORE + ("spike_budget_exhausted",), True),
@@ -171,28 +183,72 @@ MESH_CASES = (
      f"delta.firing_order_changed {DELTA_DERIVED}"),
 )
 
+# (label, edit(record), finding the neuron-intervention checks must report)
+NEURON_CASES = (
+    ("trace length", _pop(BEFORE + ("v_trace",)),
+     "before.v_trace length does not match v_trace_stride_ms and duration_ms"),
+    ("spike order", _reverse(BEFORE + ("spike_times_ms",)),
+     "before.spike_times_ms is not non-decreasing"),
+    ("spike window", _put(BEFORE + ("spike_times_ms", -1), 1.0e6),
+     "before.spike_times_ms contains an event outside the simulated duration"),
+    ("summary", _shift(BEFORE + ("spike_count",), 1), f"before.spike_count {SUMMARY_DERIVED}"),
+    ("voltage bounds", _put(BEFORE + ("v_min",), 2.0), "before.v_min is greater than v_max"),
+    ("mean voltage", _put(BEFORE + ("v_mean",), 5.0),
+     "before.v_mean does not lie between v_min and v_max"),
+    ("trace floor", _put(BEFORE + ("v_trace", 0), -5.0),
+     "before.v_trace[0] is below the recorded v_min"),
+    ("trace ceiling", _put(BEFORE + ("v_trace", 0), 5.0),
+     "before.v_trace[0] is above the recorded v_max"),
+)
+
+# (label, edit(record), finding the encoder-comparison checks must report)
+ENCODER_CASES = (
+    ("encoding pair", _put(ENCODING_A + ("encoding",), "rate"),
+     "encoding_a.encoding 'rate' does not match scenario.encoding_pair ('temporal')"),
+    ("excerpt channel", _put(EXCERPT0 + ("channel",), "rate_on"),
+     "encoding_a.representation_excerpt[0] names an unknown channel"),
+    ("excerpt time", _put(EXCERPT0 + ("t_ms",), 1.0e6),
+     "encoding_a.representation_excerpt[0].t_ms lies outside the encoded signal window"),
+    ("excerpt truncation", _put(ENCODING_A + ("representation_excerpt_truncated",), False),
+     ("encoding_a.representation_excerpt_truncated does not match spike_count and the retained "
+      "excerpt")),
+    ("retention margin", _shift(("retention_margin",), 0.5),
+     "retention_margin does not match the two measured retentions"),
+    ("energy margin", _shift(("energy_margin_pJ",), 5.0),
+     "energy_margin_pJ does not match the two measured energies"),
+    ("winner basis", _put(("winner_basis",), "tie"),
+     ("winner_basis 'tie' does not match the measured retention and spike counts "
+      "('information_retention')")),
+    ("winner outside pair", _put(("winner",), "burst"),
+     "winner 'burst' is not one of the compared encodings ['temporal', 'rate']"),
+)
+
+
+FAMILY_CASES = {
+    families.MEMORY_FAMILY: MEMORY_CASES,
+    families.CREDIT_FAMILY: CREDIT_CASES,
+    families.MESH_FAMILY: MESH_CASES,
+    families.NEURON_FAMILY: NEURON_CASES,
+    families.ENCODER_FAMILY: ENCODER_CASES,
+}
+
 
 class FamilyInvariantFindings(unittest.TestCase):
     def _assert_findings(self, family, cases):
         for label, edit, expected in cases:
-            with self.subTest(label):
+            with self.subTest(family=family, case=label):
                 item = _reference(family)
                 edit(item)
                 self.assertIn(expected, result_findings(item))
 
     def test_reference_records_start_clean(self):
-        for family in (families.MEMORY_FAMILY, families.CREDIT_FAMILY, families.MESH_FAMILY):
+        for family in FAMILY_CASES:
             with self.subTest(family):
                 self.assertEqual(result_findings(_reference(family)), [])
 
-    def test_memory_invariants(self):
-        self._assert_findings(families.MEMORY_FAMILY, MEMORY_CASES)
-
-    def test_credit_assignment_invariants(self):
-        self._assert_findings(families.CREDIT_FAMILY, CREDIT_CASES)
-
-    def test_mesh_propagation_invariants(self):
-        self._assert_findings(families.MESH_FAMILY, MESH_CASES)
+    def test_each_family_reports_each_edited_invariant(self):
+        for family, cases in FAMILY_CASES.items():
+            self._assert_findings(family, cases)
 
 
 if __name__ == "__main__":

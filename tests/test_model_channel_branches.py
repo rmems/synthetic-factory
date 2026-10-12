@@ -19,6 +19,7 @@ from tests.test_model_channel import NANO, TASK, episode_payload
 OLLAMA = "nemotron-nano-4b-ollama-factory"
 MODEL = "exact-model"
 ENDPOINT = "http://localhost/v1"
+HTTPS_ENDPOINT = "https://example.invalid/v1"
 UTC_STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 LAUNCH = {"runtime_version": "0.11.0", "device": "fixture-gpu"}
 SNAPSHOT = {
@@ -170,11 +171,13 @@ class ModelChannelAcceptedPaths(unittest.TestCase):
         self.assertRegex(found["generated_at"], UTC_STAMP)
 
     def test_https_requests_carry_tls_and_bearer_authorization(self):
-        with mock.patch.object(openai_client, "_read_response", return_value=b'{"id": "x"}') as read:
-            found = openai_client.chat_completions("https://example.invalid/v1", MODEL, [], api_key="k")
+        reply = b'{"id": "x"}'
+        with mock.patch.object(openai_client, "_read_response", return_value=reply) as read:
+            found = openai_client.chat_completions(HTTPS_ENDPOINT, MODEL, [], api_key="k")
         conn, path, _body, headers = read.call_args.args
         self.assertEqual(found, {"id": "x"})
-        self.assertEqual((conn.host, conn.port, path), ("example.invalid", 443, "/v1/chat/completions"))
+        self.assertEqual((conn.host, conn.port, path),
+                         ("example.invalid", 443, "/v1/chat/completions"))
         self.assertEqual(headers["Authorization"], "Bearer k")
 
     def test_docker_launch_spec_carries_digest_and_optional_parsers(self):
