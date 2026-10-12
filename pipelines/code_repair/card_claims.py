@@ -101,6 +101,7 @@ def _counted(values: list[Any]) -> Tally:
 
 
 def _entry_kind(entry: Any) -> str:
+    """Classify one REPLAY.json entry: passed, failed, not_replayed or malformed."""
     status = entry.get("status") if isinstance(entry, dict) else None
     if status == "not_replayed":
         return "not_replayed"
@@ -237,7 +238,8 @@ def _flat(text: str) -> str:
 
 def _mentions(text: str, phrase: str) -> bool:
     """Whole-phrase match, so '10 failed' never stands in for '0 failed'."""
-    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE) is not None
+    pattern = rf"(?<!\w){re.escape(phrase)}(?!\w)"  # escaped: a literal, so linear time
+    return re.search(pattern, text, re.IGNORECASE) is not None
 
 
 def _verification_text(card: str) -> str | None:

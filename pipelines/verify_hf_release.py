@@ -16,7 +16,8 @@ Apache-2.0 ``LICENSE`` file fails closed here.
 Code-repair releases (``REPLAY_CLAIM_REPOS``) are checked against their own
 evidence instead: the card's replay coverage, outcome and oracle-status splits
 and skip accounting must match ``evidence/REPLAY.json`` and ``evidence/RUN.json``
-(``code_repair.card_claims``).
+(``code_repair.card_claims``). They run when named with ``--repo``; the
+default run covers ``DEFAULT_REPOS``, which must pass against what is published.
 
 Usage:
     python3 pipelines/verify_hf_release.py
@@ -26,6 +27,7 @@ Usage:
 
 import argparse
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -48,8 +50,16 @@ DATASET_REPOS = (
 # Code-repair releases carry their own evidence instead of the raw-release
 # contract above; what their cards may claim is derived from that evidence by
 # ``code_repair.card_claims`` (issue #420: a card sold a 97-of-132 replay as the
-# full batch).
+# full batch). They are checked on request (``--repo``), not in the default
+# run: the default run must keep passing against what is published today, and
+# this card stays overclaiming until its card-only Hub fix merges. Add a repo to
+# DEFAULT_REPOS once its published card passes.
 REPLAY_CLAIM_REPOS = ("rmems/python-function-repair-20261006",)
+DEFAULT_REPOS = DATASET_REPOS
+# What a public fetch can raise: urllib's URLError/HTTPError and timeouts are
+# OSError, a truncated response is an HTTPException, and a non-Hub URL or a
+# body that is not UTF-8 is a ValueError. Anything else is a bug and propagates.
+FETCH_ERRORS = (OSError, ValueError, http.client.HTTPException)
 
 REQUIRED_CONTRIBUTORS = {
     "Claude Fable 5 (Ultracode)": {"synthetic-data-generation"},
@@ -787,7 +797,7 @@ def verify_replay_claims(
         card, replay_text, run_text = (
             text_fetcher(public_url(repo, path, HUB_BASE_URL), timeout) for path in paths
         )
-    except Exception as error:  # network exceptions differ across Hub backends
+    except FETCH_ERRORS as error:
         return CheckResult(repo, (f"public fetch failed: {error}",))
     try:
         errors = card_claims.card_claim_errors(
@@ -824,7 +834,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    repos = args.repo or DATASET_REPOS + REPLAY_CLAIM_REPOS
+    repos = args.repo or DEFAULT_REPOS
     results = verify_repositories(repos, timeout=args.timeout)
     for result in results:
         if result.ok:
