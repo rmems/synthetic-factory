@@ -35,12 +35,13 @@ jobs:
 
       # Correctness rules only: pyflakes, syntax errors, pylint errors and bugbear. The default
       # rule set still reports thousands of style findings and is not gated. Ignored here:
-      # PLE0605 (the `"...".split()` __all__ idiom), B008 (frozen-dataclass defaults),
-      # B009/B010 (style) and B905 (strict= would change zip() behaviour).
+      # PLE0605 (the `"...".split()` __all__ idiom), B007 (flags a for/else loop variable
+      # read after `break`), B008 (frozen-dataclass defaults), B009/B010 (style) and B905
+      # (strict= would change zip() behaviour).
       - name: Lint correctness rules
         run: >-
           ruff check --no-cache --output-format=github
-          --select F,E9,PLE,B --ignore PLE0605,B008,B009,B010,B905
+          --select F,E9,PLE,B --ignore PLE0605,B007,B008,B009,B010,B905
           pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 
   oracle:

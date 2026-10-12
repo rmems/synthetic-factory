@@ -105,7 +105,7 @@ class RewardsCli(_FunnelCase):
                     self.assertRefused(
                         curate_rewards.main, [a.replace("{bad}", bad) for a in argv]
                     )
-                    for sink in mocks.values():
+                    for name, sink in mocks.items():
                         sink.assert_not_called()
 
     def test_paths_under_a_temporary_directory_still_work(self):

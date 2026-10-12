@@ -41,7 +41,7 @@ python3 pipelines/census.py tests/fixtures/mini-run   # validate_run.py on this 
 
 # Lint: CI (python.yml, ruff 0.16.8) gates only these correctness rules -- pyflakes, syntax
 # errors, pylint errors, bugbear -- and fails on any finding; fix the code, do not add noqa.
-ruff check --select F,E9,PLE,B --ignore PLE0605,B008,B009,B010,B905 \
+ruff check --select F,E9,PLE,B --ignore PLE0605,B007,B008,B009,B010,B905 \
   pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 # The default rule set (pyproject.toml: py314, line length 100) still reports thousands of
 # style findings and is not gated

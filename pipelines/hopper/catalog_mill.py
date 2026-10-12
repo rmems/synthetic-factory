@@ -188,7 +188,7 @@ def load_mill_catalog(directory: Path | None = None) -> tuple[Mapping[str, Any],
         f"{pairs_path} sha256 drift",
     )
     rows: list[dict[str, Any]] = []
-    for line in payload.splitlines():
+    for line_no, line in enumerate(payload.splitlines(), start=1):
         if not line:
             continue
         row = json.loads(line)
