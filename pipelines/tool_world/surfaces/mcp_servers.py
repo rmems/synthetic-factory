@@ -61,35 +61,47 @@ def _key_of(behavior: Mapping[str, Any], arguments: Mapping[str, Any]) -> str:
     return str(arguments.get(behavior.get("key_arg", "key")))
 
 
-def _echo(_server: Server, _behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _echo(
+    _server: Server, _behavior: Mapping[str, Any], arguments: Mapping[str, Any]
+) -> tuple[str, bool]:
     return canonical_text(arguments), False
 
 
-def _lookup(_server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _lookup(
+    _server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]
+) -> tuple[str, bool]:
     key, table = _key_of(behavior, arguments), behavior.get("table", {})
     if key in table:
         return table[key], False
     return f"no entry for {key!r}", True
 
 
-def _set(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _set(
+    server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]
+) -> tuple[str, bool]:
     key = _key_of(behavior, arguments)
     server.store[key] = str(arguments.get(behavior.get("value_arg", "value")))
     return f"stored {key}", False
 
 
-def _get(server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]):
+def _get(
+    server: Server, behavior: Mapping[str, Any], arguments: Mapping[str, Any]
+) -> tuple[str, bool]:
     key = _key_of(behavior, arguments)
     if key in server.store:
         return server.store[key], False
     return f"nothing stored under {key!r}", True
 
 
-def _list_items(_server: Server, behavior: Mapping[str, Any], _arguments: Mapping[str, Any]):
+def _list_items(
+    _server: Server, behavior: Mapping[str, Any], _arguments: Mapping[str, Any]
+) -> tuple[str, bool]:
     return "\n".join(behavior.get("items", [])), False
 
 
-def _fail(_server: Server, behavior: Mapping[str, Any], _arguments: Mapping[str, Any]):
+def _fail(
+    _server: Server, behavior: Mapping[str, Any], _arguments: Mapping[str, Any]
+) -> tuple[str, bool]:
     return behavior.get("message", "tool failed"), True
 
 

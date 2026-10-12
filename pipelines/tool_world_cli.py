@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-if __package__:
+# Type checkers read the package spelling; at run time TYPE_CHECKING is False.
+if TYPE_CHECKING or __package__:
     from .tool_world import cli as _cli
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))

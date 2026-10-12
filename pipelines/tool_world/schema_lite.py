@@ -10,8 +10,8 @@ error observation is deterministic.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, NamedTuple
 
 from ._contract import bind_import_twin
 
@@ -39,7 +39,7 @@ def _is_int(value: Any) -> bool:
 
 
 def _type_matches(expected: str, value: Any) -> bool:
-    checks = {
+    checks: dict[str, Callable[[Any], bool]] = {
         "object": lambda item: isinstance(item, Mapping),
         "string": lambda item: isinstance(item, str),
         "integer": _is_int,
@@ -105,11 +105,25 @@ def _is_str(value: Any) -> bool:
     return isinstance(value, str)
 
 
-# (keyword, the values it bounds, how a value breaks it, the finding it yields)
+class _Bound(NamedTuple):
+    """A bounding keyword, the values it bounds, how a value breaks it, the finding it yields."""
+
+    keyword: str
+    applies: Callable[[Any], bool]
+    broken: Callable[[Any, Any], bool]
+    message: str
+
+    def broken_by(self, schema: Mapping[str, Any], value: Any) -> bool:
+        """Whether ``schema`` declares this bound and ``value``, a value it bounds, breaks it."""
+        if self.keyword not in schema or not self.applies(value):
+            return False
+        return self.broken(value, schema[self.keyword])
+
+
 _BOUNDS = (
-    ("minimum", _is_number, lambda value, bound: value < bound, "must be at least {}"),
-    ("maximum", _is_number, lambda value, bound: value > bound, "must be at most {}"),
-    (
+    _Bound("minimum", _is_number, lambda value, bound: value < bound, "must be at least {}"),
+    _Bound("maximum", _is_number, lambda value, bound: value > bound, "must be at most {}"),
+    _Bound(
         "minLength",
         _is_str,
         lambda value, bound: len(value) < bound,
@@ -120,9 +134,9 @@ _BOUNDS = (
 
 def _bounds_findings(schema: Mapping[str, Any], value: Any, where: str) -> list[str]:
     return [
-        f"{where}: {message.format(schema[keyword])}"
-        for keyword, applies, broken, message in _BOUNDS
-        if keyword in schema and applies(value) and broken(value, schema[keyword])
+        f"{where}: {bound.message.format(schema[bound.keyword])}"
+        for bound in _BOUNDS
+        if bound.broken_by(schema, value)
     ]
 
 

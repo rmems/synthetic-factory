@@ -65,11 +65,10 @@ def _header(directory: Path) -> Mapping[str, Any]:
         raise cv.ToolWorldRefusal(
             cv.FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON ({exc})"
         ) from exc
-    cv.refuse_when(
-        not isinstance(header, Mapping),
-        cv.FINDING_CATALOG_FIELD_INVALID,
-        f"{CATALOG_FILENAME} must be an object",
-    )
+    if not isinstance(header, Mapping):
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} must be an object"
+        )
     cv.refuse_first(
         (
             (

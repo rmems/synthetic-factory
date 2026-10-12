@@ -33,11 +33,8 @@ def run_summary(run_dir: Path) -> Mapping[str, Any]:
         raise cv.ToolWorldRefusal(
             cv.FINDING_RUN_FILE_INVALID, f"{RUN_FILENAME} is not strict JSON ({exc})"
         ) from exc
-    cv.refuse_when(
-        not isinstance(summary, Mapping),
-        cv.FINDING_RUN_FILE_INVALID,
-        f"{RUN_FILENAME} must be an object",
-    )
+    if not isinstance(summary, Mapping):
+        raise cv.ToolWorldRefusal(cv.FINDING_RUN_FILE_INVALID, f"{RUN_FILENAME} must be an object")
     return summary
 
 
@@ -67,11 +64,8 @@ def _parse_record(line: str, number: int) -> Mapping[str, Any]:
         raise cv.ToolWorldRefusal(
             cv.FINDING_RECORD_MALFORMED, f"line {number} is not strict JSON ({exc})"
         ) from exc
-    cv.refuse_when(
-        not isinstance(record, Mapping),
-        cv.FINDING_RECORD_MALFORMED,
-        f"line {number} is not an object",
-    )
+    if not isinstance(record, Mapping):
+        raise cv.ToolWorldRefusal(cv.FINDING_RECORD_MALFORMED, f"line {number} is not an object")
     return record
 
 

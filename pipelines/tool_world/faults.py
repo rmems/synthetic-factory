@@ -149,11 +149,10 @@ def action_from_row(row: Any, where: str) -> Action:
 def _flag(row: Mapping[str, Any], key: str, default: bool, where: str) -> bool:
     """A declared boolean, never a coerced truthy value such as the string "false"."""
     value = row.get(key, default)
-    cv.refuse_when(
-        not isinstance(value, bool),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: {key} must be a boolean",
-    )
+    if not isinstance(value, bool):
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a boolean"
+        )
     return value
 
 
