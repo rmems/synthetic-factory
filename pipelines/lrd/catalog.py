@@ -144,7 +144,7 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _const_eval(node: ast.AST | None) -> Any:
+def _const_eval(node: ast.AST) -> Any:
     """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
 
     if isinstance(node, ast.Constant):
@@ -166,12 +166,18 @@ def _const_eval_container(node: ast.List | ast.Tuple | ast.Dict) -> Any:
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    refuse_when(
-        any(key is None for key in node.keys),
-        FINDING_SOURCE_NOT_PARSEABLE,
-        "pair source uses dict unpacking",
-    )
-    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    return {_const_eval(key): _const_eval(value) for key, value in _dict_entries(node)}
+
+
+def _dict_entries(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """Every key/value pair, refusing ``**`` unpacking before any value is evaluated."""
+
+    entries = []
+    for key, value in zip(node.keys, node.values):
+        if key is None:
+            refuse(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
+        entries.append((key, value))
+    return entries
 
 
 def _is_keyword_dict_call(node: ast.Call) -> bool:

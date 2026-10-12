@@ -413,7 +413,7 @@ def _pair_row(
 
 
 def _lll_pair_row(
-    left: dict[str, str | int], right: dict[str, str | int], mill: _MillSource
+    left: dict[str, str | int], right: dict[str, str | int], mill: _MillSource, shape: str
 ) -> dict[str, Any]:
     _pair_slug(left)  # a left side without a slug fails before the key check
     missing = [key for key in LLL_PAIR_KEYS if key not in left or key not in right]
@@ -422,7 +422,7 @@ def _lll_pair_row(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"lll pair missing keys {missing[0] if missing else ''}",
     )
-    return _pair_row(left, right, mill, SHAPE_LLL)
+    return _pair_row(left, right, mill, shape)
 
 
 def _pair_elts(item: ast.AST, where: str, expected: str) -> list[ast.expr]:
@@ -454,11 +454,11 @@ def _p_call_item_row(item: ast.AST, where: str, mill: _MillSource, shape: str) -
     return _pair_row(ok, fail, mill, shape)
 
 
-def _lll_item_row(item: ast.AST, where: str, mill: _MillSource, _shape: str) -> dict[str, Any]:
+def _lll_item_row(item: ast.AST, where: str, mill: _MillSource, shape: str) -> dict[str, Any]:
     left_node, right_node = _pair_elts(item, where, "(dict, dict)")
     left = _literal_dict(left_node, f"{where}[0]")
     right = _literal_dict(right_node, f"{where}[1]")
-    return _lll_pair_row(left, right, mill)
+    return _lll_pair_row(left, right, mill, shape)
 
 
 _ITEM_EXTRACTORS = (
