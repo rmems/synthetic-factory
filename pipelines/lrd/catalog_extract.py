@@ -210,7 +210,7 @@ class _PKind:
     domain_tag: str
     seed_tag: str
     lore: str  # the "leftover" run in stack, goal, outcome and distinct text
-    secret: str  # the leaked field as logs show it
+    leaked_field: str  # the leaked field as logs show it
     proof: str  # what the OK plan proves was dumped
     target: str  # what the redaction removes
     test_name: str  # the ``test_no_*`` suffix
@@ -230,7 +230,7 @@ _IDTOKEN = _PKind(
     domain_tag="idtoken",
     seed_tag="idtok",
     lore="leftover leftover leftover",
-    secret="id_token",
+    leaked_field="id_token",
     proof="id_token",
     target="leftover leftover leftover id_token",
     test_name="id_token",
@@ -253,7 +253,7 @@ _COOKIE = _PKind(
     domain_tag="setcookie",
     seed_tag="cookie",
     lore="leftover",
-    secret="Set-Cookie",
+    leaked_field="Set-Cookie",
     proof="cookie",
     target="Set-Cookie",
     test_name="set_cookie",
@@ -272,7 +272,7 @@ def _p_ok(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
     return {
         "slug": f"{p.sdk}-{p.okm}-{kind.slug_tag}",
         "domain": f"{p.sdk}-{p.okm}-{kind.domain_tag}-vs-level-off",
-        "stack": f"{p.sdk} {p.okm} {kind.lore} {kind.secret} vs level off",
+        "stack": f"{p.sdk} {p.okm} {kind.lore} {kind.leaked_field} vs level off",
         "seed": f"{str(p.sdk)[:6]}-{str(p.okm)[:6]}-pay-{kind.seed_tag}-off",
         "ticket": f"{p.tk}-{kind.ok_ticket}",
         "root": f"{p.root}ok",
@@ -286,14 +286,14 @@ def _p_ok(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
         ),
         "plan": (
             f"Prove {kind.proof} dump. Try mute; if warn tests fail, "
-            f"redact {p.okm} {kind.secret}."
+            f"redact {p.okm} {kind.leaked_field}."
         ),
         "outcome": (
             f"mute blinded warn. {p.okm} redact. Tests 3/3. "
             f"Residual {p.tk}-{kind.ok_ticket}: one path still raw. {kind.ok_distinct}"
         ),
         "plan_basis": f"pay-api {p.sdk} {p.okm} leaked {kind.target}. Inspect before mute.",
-        "list_obs": f"{p.src} {p.okm} {kind.secret}\nkept",
+        "list_obs": f"{p.src} {p.okm} {kind.leaked_field}\nkept",
         "test_fail": f"FAIL test_no_{kind.test_name}: leaked. FAIL test_keep_warn.",
         "read1": p.ok_fo,
         "read2": p.ok_wo,
@@ -303,7 +303,7 @@ def _p_ok(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
         "wn": p.ok_wn,
         "wto": "FAILED test_keep_warn: warn gone. leak would vanish for the wrong reason.",
         "pc": f"Plan change: mute is the wrong layer. Redact {kind.target} in {p.okm}.",
-        "rr": f"Need {p.okm} without {kind.secret}. Restore warn.",
+        "rr": f"Need {p.okm} without {kind.leaked_field}. Restore warn.",
         "fb": f"Redact {kind.target}; keep warn.",
         "fo": p.ok_fo,
         "fn": p.ok_fn,
@@ -324,7 +324,7 @@ def _p_fail_episode(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
     return {
         "slug": f"{p.sdk}-{p.failm}{kind.handoff_tag}-handoff",
         "domain": f"{p.sdk}-{p.failm}-{kind.domain_tag}-vs-disable",
-        "stack": f"{p.sdk} {p.failm} {kind.lore} {kind.secret} vs disable {p.sdk}",
+        "stack": f"{p.sdk} {p.failm} {kind.lore} {kind.leaked_field} vs disable {p.sdk}",
         "seed": f"{str(p.sdk)[:6]}-{str(p.failm)[:6]}-pay-{kind.seed_tag}-handoff",
         "ticket": f"{p.tk}-{kind.fail_ticket}",
         "root": f"{p.root}hf",
@@ -333,7 +333,7 @@ def _p_fail_episode(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
         "rg": p.rg,
         "platform": plat,
         "goal": (
-            f"{p.sdk} pay-api {p.failm} {kind.lore} dumped {kind.secret}. "
+            f"{p.sdk} pay-api {p.failm} {kind.lore} dumped {kind.leaked_field}. "
             f"Do not disable {p.sdk}. Hand off {p.failm} to {plat}."
         ),
         "plan": (
@@ -351,7 +351,7 @@ def _p_fail_episode(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
 def _p_fail_steps(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
     plat = f"platform-{p.sdk}"
     return {
-        "list_obs": f"{p.src} {p.failm} {kind.secret}\n# @{plat}",
+        "list_obs": f"{p.src} {p.failm} {kind.leaked_field}\n# @{plat}",
         "test_fail": f"FAIL test_no_{kind.test_name}: leaked. FAIL test_keep_{p.failm}.",
         "read1": p.fail_fo,
         "read2": f"{p.fail_wo}  # @{plat}",
