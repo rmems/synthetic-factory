@@ -229,6 +229,14 @@ class TransformersMoERouter(RouterOracle):
             raise oc.OracleUnavailable(self.name, detail)
         import torch
         import transformers
+
+        model, tokenizer = self._load_pinned(pinned_revision)
+        self._fingerprint = self._moe_fingerprint(model, transformers, torch)
+        self._model, self._tokenizer = model, tokenizer
+        return model, tokenizer
+
+    def _load_pinned(self, pinned_revision):  # pragma: no cover - requires a real checkpoint
+        """Tokenizer and evaluation-mode model fetched at the validated revision."""
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained(  # nosec B615 - validated 40-hex pin
@@ -239,6 +247,10 @@ class TransformersMoERouter(RouterOracle):
         )
         model.eval()
         model.to(self.device)
+        return model, tokenizer
+
+    def _moe_fingerprint(self, model, transformers, torch):  # pragma: no cover - needs a checkpoint
+        """Refuse a dense checkpoint, then fingerprint the loaded MoE teacher."""
         config = model.config
         if not getattr(config, "num_local_experts", None) and not getattr(
             config, "num_experts", None
@@ -246,7 +258,7 @@ class TransformersMoERouter(RouterOracle):
             raise oc.OracleUnavailable(
                 self.name, f"{self.model_id} is not a mixture-of-experts checkpoint"
             )
-        self._fingerprint = {
+        return {
             "is_llm_teacher": True,
             "model": self.model_id,
             # Never "main": a branch name is not a checkpoint, and the
@@ -269,8 +281,6 @@ class TransformersMoERouter(RouterOracle):
             "torch_version": torch.__version__,
             "device": self.device,
         }
-        self._model, self._tokenizer = model, tokenizer
-        return model, tokenizer
 
     def configuration(self) -> dict[str, Any]:
         return {
