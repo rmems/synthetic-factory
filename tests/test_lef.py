@@ -414,18 +414,8 @@ class LefSkeletonTests(unittest.TestCase):
 
 
 class LefLegacyExtractTests(unittest.TestCase):
-    def _live_mill_matching_committed(self, source):
+    def _live_mill_matching_committed(self, source, text, blob):
         """AST-extract one legacy mill and require it to match the committed catalog."""
-        text = subprocess.check_output(
-            ["git", "show", f"{lv.LEGACY_REF}:{source.path}"],
-            text=True,
-            cwd=REPO,
-        )
-        blob = subprocess.check_output(
-            ["git", "rev-parse", f"{lv.LEGACY_REF}:{source.path}"],
-            text=True,
-            cwd=REPO,
-        ).strip()
         self.assertEqual(blob, source.blob_sha, source.mill_id)
         live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
         committed = CATALOG.mills[source.mill_id]
@@ -448,7 +438,17 @@ class LefLegacyExtractTests(unittest.TestCase):
             self.skipTest("origin/legacy-mill-lane is not fetched")
         mills = []
         for source in catalog_sources():
-            live = self._live_mill_matching_committed(source)
+            text = subprocess.check_output(
+                ["git", "show", f"{lv.LEGACY_REF}:{source.path}"],
+                text=True,
+                cwd=REPO,
+            )
+            blob = subprocess.check_output(
+                ["git", "rev-parse", f"{lv.LEGACY_REF}:{source.path}"],
+                text=True,
+                cwd=REPO,
+            ).strip()
+            live = self._live_mill_matching_committed(source, text, blob)
             mills.append(mill_summary(live, include_tables=False))
         slugs_source = slug_sources()[0]
         slugs_text = subprocess.check_output(
