@@ -45,12 +45,12 @@ def _package_root_on_path() -> None:
 
 def _load_packaged() -> dict:
     _package_root_on_path()
-    return {name: importlib.import_module(f"pipelines.{name}") for name in MODULES}
+    return {name: load() for name, load in probe.PACKAGE_LOADERS.items()}
 
 
 def _load_flat() -> dict:
     with direct_pipeline_path():
-        return {name: importlib.import_module(name) for name in MODULES}
+        return {name: load() for name, load in probe.FLAT_LOADERS.items()}
 
 
 def _flat_first() -> tuple[dict, dict]:
@@ -94,6 +94,11 @@ class PackageForm(unittest.TestCase):
             packaged["card_schema"].CardSchemaError, "must be a JSON object"
         ):
             flat["card_schema"].validate([], "dataset")
+        self.assertTrue(probe.caught_across(packaged, flat))
+
+    def test_both_loader_tables_name_the_same_eight_modules(self):
+        self.assertEqual(len(MODULES), 8)
+        self.assertEqual(tuple(probe.FLAT_LOADERS), MODULES)
 
     def test_each_module_imports_from_a_clean_package_without_the_cli_path(self):
         with clean_package_imports():
@@ -154,6 +159,9 @@ class FreshInterpreter(unittest.TestCase):
                 )
                 self.assertEqual(
                     [name for name, same in report["one_class"].items() if not same], [], report
+                )
+                self.assertEqual(
+                    [name for name, ok in report["caught_across"].items() if not ok], [], report
                 )
                 self.assertEqual(report["split_modules"], [], report)
 

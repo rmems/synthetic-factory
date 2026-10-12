@@ -24,16 +24,28 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 
-MODULES = (
-    "card_schema",
-    "card_schema_validate",
-    "card_schema_yaml",
-    "next_round",
-    "quality_gate_audit",
-    "quality_gate_embedding",
-    "verify_execution",
-    "verify_execution_shapes",
-)
+# Each loader names its module literally; nothing here imports by computed name.
+PACKAGE_LOADERS = {
+    "card_schema": lambda: importlib.import_module("pipelines.card_schema"),
+    "card_schema_validate": lambda: importlib.import_module("pipelines.card_schema_validate"),
+    "card_schema_yaml": lambda: importlib.import_module("pipelines.card_schema_yaml"),
+    "next_round": lambda: importlib.import_module("pipelines.next_round"),
+    "quality_gate_audit": lambda: importlib.import_module("pipelines.quality_gate_audit"),
+    "quality_gate_embedding": lambda: importlib.import_module("pipelines.quality_gate_embedding"),
+    "verify_execution": lambda: importlib.import_module("pipelines.verify_execution"),
+    "verify_execution_shapes": lambda: importlib.import_module("pipelines.verify_execution_shapes"),
+}
+FLAT_LOADERS = {
+    "card_schema": lambda: importlib.import_module("card_schema"),
+    "card_schema_validate": lambda: importlib.import_module("card_schema_validate"),
+    "card_schema_yaml": lambda: importlib.import_module("card_schema_yaml"),
+    "next_round": lambda: importlib.import_module("next_round"),
+    "quality_gate_audit": lambda: importlib.import_module("quality_gate_audit"),
+    "quality_gate_embedding": lambda: importlib.import_module("quality_gate_embedding"),
+    "verify_execution": lambda: importlib.import_module("verify_execution"),
+    "verify_execution_shapes": lambda: importlib.import_module("verify_execution_shapes"),
+}
+MODULES = tuple(PACKAGE_LOADERS)
 
 # Classes a caller catches or constructs by name; a split here means an error
 # raised through one import name is not caught through the other.
@@ -69,14 +81,14 @@ def import_flat() -> dict[str, ModuleType]:
     """``python3 pipelines/x.py``: ``pipelines/`` first, every module by bare name."""
 
     sys.path.insert(0, str(PIPELINES))
-    return {name: importlib.import_module(name) for name in MODULES}
+    return {name: load() for name, load in FLAT_LOADERS.items()}
 
 
 def import_packaged() -> dict[str, ModuleType]:
     """The package form from the repository root: ``pipelines.<name>``."""
 
     sys.path.insert(0, str(REPO))
-    return {name: importlib.import_module(f"pipelines.{name}") for name in MODULES}
+    return {name: load() for name, load in PACKAGE_LOADERS.items()}
 
 
 LOADERS = {"cli": import_flat, "package": import_packaged}
@@ -93,6 +105,18 @@ def split_modules() -> list[str]:
     ]
 
 
+def caught_across(raiser: dict[str, ModuleType], catcher: dict[str, ModuleType]) -> bool:
+    """Whether ``catcher``'s ``CardSchemaError`` catches what ``raiser``'s validator raises."""
+
+    try:
+        raiser["card_schema_validate"].validate([], "dataset")
+    except catcher["card_schema"].CardSchemaError:
+        return True
+    except raiser["card_schema"].CardSchemaError:
+        return False
+    return False
+
+
 def _paired_report(flat: dict[str, ModuleType], packaged: dict[str, ModuleType]) -> dict[str, Any]:
     return {
         "one_object": {name: flat[name] is packaged[name] for name in MODULES},
@@ -100,6 +124,10 @@ def _paired_report(flat: dict[str, ModuleType], packaged: dict[str, ModuleType])
             f"{module}.{attribute}": getattr(flat[module], attribute)
             is getattr(packaged[module], attribute)
             for module, attribute in SHARED_CLASSES
+        },
+        "caught_across": {
+            "flat_raises_package_catches": caught_across(flat, packaged),
+            "package_raises_flat_catches": caught_across(packaged, flat),
         },
         "split_modules": split_modules(),
     }

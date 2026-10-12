@@ -84,6 +84,23 @@ else:
     from operator_paths import confine
     from verify_execution_shapes import verify_record_execution
 
+# The validator names are host exports: verify_execution_shapes reads them
+# through ``_host()`` at call time, so a test patches them on this module.
+__all__ = (
+    "ALLOWED_SIM_OR_REAL",
+    "THALAMIC_CORE_KEYS",
+    "audit_run",
+    "check_episode",
+    "check_line",
+    "check_safety_case",
+    "frontier_gate_result",
+    "jsonl_lines",
+    "main",
+    "verify_batch_for_frontier",
+    "verify_record_execution",
+    "verify_stage_for_frontier",
+)
+
 # ---------------------------------------------------------------------------
 # Frontier gate — integration with pipelines/round_txn.py
 # ---------------------------------------------------------------------------
