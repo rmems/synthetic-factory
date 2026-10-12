@@ -46,6 +46,8 @@ def legacy_source(source_id: str) -> str:
 
 def legacy_module(source_id: str):
     module = types.ModuleType(f"legacy_ffd_{source_id}")
-    module.__file__ = f"/tmp/legacy_ffd_{source_id}.py"
+    # The leftover3 mill puts dirname(__file__) at sys.path[0]; name the mill's
+    # own repository path so no shared temp directory gains import priority.
+    module.__file__ = str(REPO / catalog.SOURCE_PATHS[source_id])
     exec(compile(legacy_source(source_id), f"legacy-ffd-{source_id}.py", "exec"), module.__dict__)
     return module
