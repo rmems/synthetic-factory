@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,7 +113,7 @@ def _mill_headers() -> dict[str, Mapping[str, Any]]:
     return mills
 
 
-def _refuse_mill_drift(rows: list[Mapping[str, Any]], expected: Mapping[str, Any], path: Path) -> None:
+def _refuse_mill_drift(rows: Sequence[Mapping[str, Any]], expected: Mapping[str, Any], path: Path) -> None:
     counts = Counter(row["mill_id"] for row in rows)
     if set(counts) != set(expected):
         raise ValueError(
@@ -124,7 +124,7 @@ def _refuse_mill_drift(rows: list[Mapping[str, Any]], expected: Mapping[str, Any
 
 
 def _rows_by_mill(
-    rows: list[Mapping[str, Any]], expected: Mapping[str, Any]
+    rows: Sequence[Mapping[str, Any]], expected: Mapping[str, Any]
 ) -> dict[str, list[Mapping[str, Any]]]:
     """Rows grouped by mill in file order; each path must match sources.py, no repeats."""
 
@@ -157,7 +157,7 @@ def _refuse_mill_rows(mill_id: str, mill_rows: list[Mapping[str, Any]], mill: Ma
         raise ValueError(f"{mill_id} last deferred slug drifted from catalog")
 
 
-def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
+def _bind_catalog(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
     headers = _mill_headers()
     expected = {source.mill_id: source for source in deferred_sources()}
     _refuse_mill_drift(rows, expected, path)

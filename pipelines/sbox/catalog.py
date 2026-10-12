@@ -354,8 +354,8 @@ def load_catalog(path: Path | None = None) -> Catalog:
     extract = _as_mapping(meta.get("extract"), "extract")
     plants_file, jsonl_file = _pinned_plants_file(meta, catalog_file)
     raw_sources = meta.get("sources")
-    refuse_when(not isinstance(raw_sources, list) or not raw_sources,
-                FINDING_CATALOG_EMPTY, "catalog has no source pins")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        refuse(FINDING_CATALOG_EMPTY, "catalog has no source pins")
     plants = tuple(
         _plant_from_mapping(row, f"{plants_file}:{index}")
         for index, row in enumerate(_read_jsonl(jsonl_file), 1)

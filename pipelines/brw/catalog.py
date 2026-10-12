@@ -50,7 +50,7 @@ __all__ = [
     "slugs",
 ]
 
-PAIRS: tuple[dict[str, Any], ...] = tuple([
+PAIRS: tuple[dict[str, Any], ...] = (
     {
         "shape": "shift",
         "css": "offset-anchor:right 50%",
@@ -747,7 +747,7 @@ PAIRS: tuple[dict[str, Any], ...] = tuple([
         "reflect": ":nth-child(An+B of S) counts only matching siblings.",
         "coverage": 13,
     },
-])
+)
 
 
 def slugs() -> tuple[str, ...]:

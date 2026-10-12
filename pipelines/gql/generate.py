@@ -65,12 +65,12 @@ class GenerateRequest:
 
 def _walk_keys(value: Any) -> list[str]:
     if isinstance(value, dict):
-        keys = list(value)
+        keys: list[str] = list(value)
         for item in value.values():
             keys.extend(_walk_keys(item))
         return keys
     if isinstance(value, list):
-        keys: list[str] = []
+        keys = []
         for item in value:
             keys.extend(_walk_keys(item))
         return keys

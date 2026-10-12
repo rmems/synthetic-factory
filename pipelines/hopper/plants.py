@@ -117,7 +117,7 @@ class Catalog:
 
     def pair_for_slug(self, slug: str) -> PlantPair:
         for pair in self.pairs:
-            if pair.ok["slug"] == slug or pair.bad["slug"] == slug:
+            if slug in (pair.ok["slug"], pair.bad["slug"]):
                 return pair
         refuse("UNKNOWN_SLUG", f"no hopper plant with slug {slug!r}")
 

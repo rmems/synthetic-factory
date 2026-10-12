@@ -173,7 +173,9 @@ class DbmCatalogTests(unittest.TestCase):
         gen_src = _legacy_source(LEGACY_PLANTS_GEN)
         if gen_src is None:
             self.skipTest("legacy-mill-lane r1340 plant generator is not available")
-        r1340 = next(pin for pin in loaded.mills if pin.path.endswith("dbm-mill-r1340.py"))
+        matches = [pin for pin in loaded.mills if pin.path.endswith("dbm-mill-r1340.py")]
+        self.assertEqual(len(matches), 1)
+        r1340 = matches[0]
         slugs = ast_extract_gen_slugs(gen_src)
         self.assertEqual(slugs[0], r1340.first_slug)
         self.assertEqual(slugs[-1], r1340.last_slug)

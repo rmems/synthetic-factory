@@ -278,7 +278,8 @@ def _validate_plants(plants_raw: object) -> list[Any]:
         FINDING_CATALOG_PAIR_COUNT,
         f"need {N_PAIRS * 2} leftover3 plants, got {len(plants_raw)}",
     )
-    slugs, plants, tables, leftovers, surfaces = [], [], [], [], []
+    slugs, plants, tables, surfaces = [], [], [], []
+    leftovers: list[str] = []
     for index, entry in enumerate(plants_raw):
         plant = _plant(entry, f"plants[{index}]")
         slugs.append(plant["slug"])

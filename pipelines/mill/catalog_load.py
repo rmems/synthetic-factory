@@ -32,11 +32,8 @@ def _read(path: Path, code: str) -> bytes:
 
 def _require_str(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
-    cv.refuse_when(
-        not isinstance(value, str) or not value.strip(),
-        cv.FINDING_PLANT_FIELD_MISSING,
-        f"plant field {key} must be a nonempty string",
-    )
+    if not isinstance(value, str) or not value.strip():
+        cv.refuse(cv.FINDING_PLANT_FIELD_MISSING, f"plant field {key} must be a nonempty string")
     return value
 
 
@@ -131,7 +128,7 @@ def _plant_from_row(row: Any, index: int) -> cat.Plant:
 
 
 def _check_uniques(plants: tuple[cat.Plant, ...]) -> None:
-    axes = {
+    axes: dict[str, list[Any]] = {
         "plant_id": [item.plant_id for item in plants],
         "fail_id": [item.fail_id for item in plants],
         "module": [item.module for item in plants],

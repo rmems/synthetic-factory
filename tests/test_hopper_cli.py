@@ -37,8 +37,6 @@ class HopperCliTests(unittest.TestCase):
         self.assertEqual(DEFAULT_CATALOG_DIR, CATALOG)
 
     def test_self_check_json(self):
-        import io
-        from contextlib import redirect_stdout
         buf = io.StringIO()
         with redirect_stdout(buf):
             code = run(["self-check", "--json"])
@@ -50,8 +48,6 @@ class HopperCliTests(unittest.TestCase):
         self.assertIn("g46c", payload["waves"])
 
     def test_generate_one_g46c_slug(self):
-        import io
-        from contextlib import redirect_stdout
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "fresh"
             buf = io.StringIO()
