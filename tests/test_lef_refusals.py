@@ -7,8 +7,10 @@ import json
 import sys
 import tempfile
 import unittest
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
@@ -26,6 +28,20 @@ from lef.sources import catalog_sources, plant_sources
 from test_lef import _STEMS_SNIPPET, _TABLES_SNIPPET
 
 
+def _first_rows(name: str, count: int) -> list[str]:
+    package = REPO / "pipelines" / "lef"
+    return (package / name).read_text(encoding="utf-8").splitlines()[:count]
+
+
+def _first(items: Iterable[Any], what: str) -> Any:
+    """The first item, or an AssertionError naming what was expected."""
+
+    try:
+        return next(iter(items))
+    except StopIteration:
+        raise AssertionError(f"expected at least one {what}") from None
+
+
 class LefRefusalBranchTests(unittest.TestCase):
     """Each load, bind, and extract refusal fires with its own message."""
 
@@ -36,12 +52,8 @@ class LefRefusalBranchTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8", newline="")
         return path
 
-    def _first_rows(self, name: str, count: int) -> list[str]:
-        package = REPO / "pipelines" / "lef"
-        return (package / name).read_text(encoding="utf-8").splitlines()[:count]
-
     def test_slice_rows_refuse_each_framing_and_row_defect(self):
-        first, second = self._first_rows("rows.jsonl", 2)
+        first, second = _first_rows("rows.jsonl", 2)
         row = json.loads(first)
         short = dict(row, CACHE_OK=row["CACHE_OK"][:2])
         cases = (
@@ -60,7 +72,7 @@ class LefRefusalBranchTests(unittest.TestCase):
             lef_catalog._parse_slice_rows(REPO / "missing" / "rows.jsonl")
 
     def test_plant_rows_refuse_each_row_defect(self):
-        (first,) = self._first_rows("plants.jsonl", 1)
+        (first,) = _first_rows("plants.jsonl", 1)
         row = json.loads(first)
         cases = (
             ("\n", "plants.jsonl:1 is empty"),
@@ -90,7 +102,9 @@ class LefRefusalBranchTests(unittest.TestCase):
     def test_mill_pin_shape_and_table_refusals(self):
         tables_mill = CATALOG.mills["lef-mill-r629"]
         stems_mill = CATALOG.mills["lef-mill-r968"]
-        source = next(s for s in catalog_sources() if s.mill_id == "lef-mill-r629")
+        source = _first(
+            (s for s in catalog_sources() if s.mill_id == "lef-mill-r629"), "r629 source pin"
+        )
         cases = (
             (replace(tables_mill, path="x.py"), "pin disagrees"),
             (replace(tables_mill, kind=lv.KIND_STEMS), "kind disagrees"),
@@ -124,7 +138,8 @@ class LefRefusalBranchTests(unittest.TestCase):
 
     def test_archive_b_plant_pin_refusals(self):
         plants = CATALOG.plants
-        assert plants is not None
+        if plants is None:
+            self.fail("the committed catalog has no Archive B plants")
         pins = {pin.mill_id: pin for pin in plant_sources()}
         slot = lef_catalog._PlantSlot("plants_b", "plants_b.jsonl", lv.PLANTS_PAIR_COUNT)
         cases = (

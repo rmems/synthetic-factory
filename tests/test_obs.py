@@ -368,6 +368,11 @@ R401_ROW = (
 )
 
 
+def _spec_index(**pin) -> dict:
+    row = {"mill_id": "obs_leftover9", "count": 1, "first": "a", "last": "b", **pin}
+    return {"kind": catalog.SPEC_INDEX_KIND, "total": 1, "mills": [row]}
+
+
 class RefusalBranches(unittest.TestCase):
     """Each extracted check's refusal fires with its code and message."""
 
@@ -394,10 +399,6 @@ class RefusalBranches(unittest.TestCase):
             edit_meta(meta)
         meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         return dest
-
-    def _spec_index(self, **pin) -> dict:
-        row = {"mill_id": "obs_leftover9", "count": 1, "first": "a", "last": "b", **pin}
-        return {"kind": catalog.SPEC_INDEX_KIND, "total": 1, "mills": [row]}
 
     def test_const_eval_reads_containers_and_refuses_the_rest(self):
         expected = [1, (2, -3), {4}, {"k": -1.5}]
@@ -464,12 +465,12 @@ class RefusalBranches(unittest.TestCase):
             catalog._plant_from_row(trimmed, "p")
 
     def test_spec_index_catalog_loads_and_refuses_drifted_pins(self):
-        loaded = catalog.load_catalog(self._catalog_copy(specs=self._spec_index()))
+        loaded = catalog.load_catalog(self._catalog_copy(specs=_spec_index()))
         self.assertEqual(loaded.leftover_spec_index["total"], 1)
         self.assertEqual(len(loaded.plants), 2)
         cases = (
-            (self._spec_index(count=2), "obs_leftover9 leftover-spec index does not match"),
-            (self._spec_index(mill_id="obs_leftover10"), "index mills do not match catalog"),
+            (_spec_index(count=2), "obs_leftover9 leftover-spec index does not match"),
+            (_spec_index(mill_id="obs_leftover10"), "index mills do not match catalog"),
         )
         for specs, message in cases:
             copy = self._catalog_copy(specs=specs)

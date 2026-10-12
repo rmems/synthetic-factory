@@ -10,8 +10,10 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -464,13 +466,26 @@ def _expr(text: str) -> ast.expr:
     return ast.parse(text, mode="eval").body
 
 
+def _first(items: Iterable[Any], what: str) -> Any:
+    """The first item, or an AssertionError naming what was expected."""
+
+    try:
+        return next(iter(items))
+    except StopIteration:
+        raise AssertionError(f"expected at least one {what}") from None
+
+
 class AzrRefusalBranchTests(unittest.TestCase):
     """Each pin refusal and each reader fall-through, one branch each."""
 
     def setUp(self):
-        self.mill_id = next(mill for mill in CATALOG.mills if mill != av.SLICE_MILL_ID)
+        self.mill_id = _first(
+            (mill for mill in CATALOG.mills if mill != av.SLICE_MILL_ID), "non-slice mill"
+        )
         self.mill = CATALOG.mills[self.mill_id]
-        self.source = next(s for s in catalog_sources() if s.mill_id == self.mill_id)
+        self.source = _first(
+            (s for s in catalog_sources() if s.mill_id == self.mill_id), "source pin"
+        )
 
     def test_mill_header_refusals(self):
         moved = replace(self.mill, path="x.py")
