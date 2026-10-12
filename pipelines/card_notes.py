@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""What a Hub card may say about the NOTES files published beside its raw rounds.
+
+Issue #405: ``observability-debug-trajectories`` reached Hub main with raw
+batches for 1435 rounds but NOTES files for only 974 (``r38`` through ``r498``
+missing), while its card said only that notes live under
+``data/metadata/NOTES-*.md``. A card must state the coverage of the files it
+actually publishes: every round, or exactly which rounds have none. It never
+invents notes to close a hole.
+
+This module is pure: callers pass the round numbers parsed from the published
+payload and note names, and get back the card sentence.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from collections.abc import Iterable
+
+# The sentence every card carried before coverage was reported. It is still
+# rendered when a caller supplies no coverage, so legacy callers keep
+# byte-identical cards.
+LEGACY_NOTES_SENTENCE = "Supporting notes are under\n`data/metadata/NOTES-*.md`."
+
+# A scattered hole is summarised rather than listed span by span.
+MAX_LISTED_SPANS = 12
+
+
+@dataclasses.dataclass(frozen=True)
+class NotesCoverage:
+    """How many published rounds carry a published NOTES file, and which do not."""
+
+    rounds: int
+    noted: int
+    missing: tuple[tuple[int, int], ...]
+
+
+def notes_coverage(published: Iterable[int], noted: Iterable[int]) -> NotesCoverage:
+    """Compare published round numbers with the rounds that have notes.
+
+    A note for a round that is not published cannot be claimed by the card, so
+    only notes on published rounds count toward coverage.
+    """
+    rounds = set(published)
+    covered = rounds & set(noted)
+    return NotesCoverage(
+        rounds=len(rounds),
+        noted=len(covered),
+        missing=missing_spans(rounds - covered),
+    )
+
+
+def missing_spans(rounds: Iterable[int]) -> tuple[tuple[int, int], ...]:
+    """Collapse round numbers into sorted, inclusive, contiguous spans."""
+    spans: list[tuple[int, int]] = []
+    for number in sorted(set(rounds)):
+        if spans and spans[-1][1] + 1 == number:
+            spans[-1] = (spans[-1][0], number)
+        else:
+            spans.append((number, number))
+    return tuple(spans)
+
+
+def render_notes_sentence(coverage: NotesCoverage | None) -> str:
+    """Return the card's NOTES sentence for the published coverage."""
+    if coverage is None or coverage.rounds == 0:
+        return LEGACY_NOTES_SENTENCE
+    if not coverage.missing:
+        return (
+            "Supporting notes are under\n`data/metadata/NOTES-*.md`; every one of "
+            f"the {coverage.rounds} published rounds has one."
+        )
+    if coverage.noted == 0:
+        return (
+            "No supporting `data/metadata/NOTES-*.md` file is published for any of "
+            f"the {coverage.rounds} published rounds."
+        )
+    return _partial_coverage_sentence(coverage)
+
+
+def _partial_coverage_sentence(coverage: NotesCoverage) -> str:
+    absent = coverage.rounds - coverage.noted
+    return (
+        "Supporting notes are under\n`data/metadata/NOTES-*.md` for "
+        f"{coverage.noted} of the {coverage.rounds} published rounds. The other "
+        f"{absent} have no published NOTES file: {_describe_spans(coverage.missing)}. "
+        "Their raw batches are published unchanged, and no NOTES file is written "
+        "after the fact to fill the gap."
+    )
+
+
+def _describe_spans(spans: tuple[tuple[int, int], ...]) -> str:
+    listed = ", ".join(_describe_span(first, last) for first, last in spans[:MAX_LISTED_SPANS])
+    hidden = len(spans) - MAX_LISTED_SPANS
+    if hidden > 0:
+        listed += f", and {hidden} more span(s)"
+    return listed
+
+
+def _describe_span(first: int, last: int) -> str:
+    if first == last:
+        return f"`r{first:02d}`"
+    return f"`r{first:02d}`–`r{last:02d}` ({last - first + 1} rounds)"

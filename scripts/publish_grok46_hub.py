@@ -30,6 +30,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
 
@@ -54,6 +55,7 @@ PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
+import card_notes  # noqa: E402
 import card_schema  # noqa: E402
 from card_payload import PayloadSummary, resolve_payload_summary  # noqa: E402
 from card_schema import CardSchemaError  # noqa: E402
@@ -1021,6 +1023,31 @@ def _published_round_range(batches) -> tuple[str | None, str | None]:
     )
 
 
+def published_notes_coverage(
+    batches: Iterable[Path], notes: Iterable[Path]
+) -> card_notes.NotesCoverage:
+    """Return which published rounds carry a published NOTES file (issue #405).
+
+    Rounds come from the payload files the card describes; a legacy ``r1``
+    payload counts as round 1, matching ``published_notes``.
+    """
+    batch_names = {path.name for path in batches}
+    published = _round_numbers(BATCH_NAME_RE, batch_names)
+    if LEGACY_R1_NAMES.intersection(batch_names):
+        published.add(1)
+    noted = _round_numbers(NOTES_NAME_RE, {path.name for path in notes})
+    return card_notes.notes_coverage(published, noted)
+
+
+def _round_numbers(pattern: re.Pattern[str], names: set[str]) -> set[int]:
+    """Return the round number of every name the round pattern matches."""
+    return {
+        int(match.group(1))
+        for name in names
+        if (match := pattern.fullmatch(name)) is not None
+    }
+
+
 def _refuse_banned_yaml_tags(card: str, hub: str) -> None:
     """Refuse a banned tag in the card's YAML front matter.
 
@@ -1072,6 +1099,7 @@ def snapshot_one(item: dict) -> dict:
         ),
         schema=(schema_yaml, schema_body),
         kind_mix=kind_mix,
+        notes=published_notes_coverage(batches, notes),
     )
     replace_snapshot_text(dest / "README.md", card)
     license_dst = dest / "LICENSE"
@@ -1238,12 +1266,16 @@ def render_card(item: dict, **keywords: object) -> str:
     records=/bytes_=/first=/last=/payload_names= keywords still used by the
     stacked card leaves; both styles render byte-identical cards, and unknown,
     mixed, or incomplete keywords fail closed with TypeError. schema= and
-    kind_mix= keep their prior meanings on either surface.
+    kind_mix= keep their prior meanings on either surface. notes= takes the
+    published NOTES coverage; without it the card keeps its legacy sentence.
     """
 
     schema = cast("tuple[str, str] | None", keywords.pop("schema", None))
     kind_mix_arg = cast(
         "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
+    )
+    notes_sentence = card_notes.render_notes_sentence(
+        cast("card_notes.NotesCoverage | None", keywords.pop("notes", None))
     )
     summary = resolve_payload_summary(keywords)
     tags = "\n".join(f"- {t}" for t in item["tags"])
@@ -1291,8 +1323,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 ## Published raw payload
 
 {payload}
-`outputs/raw/2026-08-19-agentic/{item['slug']}/`. Supporting notes are under
-`data/metadata/NOTES-*.md`. The factory source remains the write destination; this Hub
+`outputs/raw/2026-08-19-agentic/{item['slug']}/`. {notes_sentence} The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
 {quarantine}
@@ -1527,6 +1558,7 @@ def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, k
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
     first, last = _published_round_range(batches)
+    notes = published_notes_coverage(batches, (dest / "data" / "metadata").iterdir())
     expected_card = render_card(
         item,
         summary=PayloadSummary(
@@ -1537,6 +1569,7 @@ def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, k
             names=[batch.name for batch in batches],
         ),
         kind_mix=kind_mix,
+        notes=notes,
     )
     card = _read_snapshot_card(dest)
     if card != expected_card:
