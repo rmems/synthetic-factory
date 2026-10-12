@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -189,12 +189,8 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.value is not None
-    ):
-        return node.target.id, node.value
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 
@@ -267,9 +263,15 @@ def _plant_base_round(
     base = inferred_base if base_round is None else base_round
     if base is None:
         base = int(mill_id[len("flk_r") :])
-    if not isinstance(base, int) or isinstance(base, bool) or base < 1:
+    if not _is_plain_int(base) or base < 1:
         raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{source} BASE must be a positive int")
     return base
+
+
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -402,11 +404,11 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise FlkRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    ids = {
-        path_id
-        for row in factories
-        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str)
-    }
+    ids: set[str] = set()
+    for row in factories:
+        path_id = row.get("path_id") if isinstance(row, dict) else None
+        if isinstance(path_id, str):
+            ids.add(path_id)
     return ids
 
 

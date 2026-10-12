@@ -179,6 +179,16 @@ class PlantShapeRefusals(unittest.TestCase):
         self.assertEqual(caught.exception.code, FINDING_FACTORY_NOT_REGISTERED)
         self.assertEqual(caught.exception.message, f"{FACTORY} is not a registry path_id")
 
+    def test_registry_ids_keep_only_the_string_path_ids_of_object_rows(self):
+        rows = [{"path_id": "ok"}, "row", {"path_id": 3}, {"path_id": ["x"]}, {}, {"path_id": "ok"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config"
+            config.mkdir()
+            registry = json.dumps({"factories": rows})
+            (config / "FACTORY-REGISTRY.json").write_text(registry, encoding="utf-8")
+            with patch.object(catalog, "repo_root", return_value=Path(tmp)):
+                self.assertEqual(catalog._registry_factory_ids(), {"ok"})
+
 
 class AstExtract(unittest.TestCase):
     def test_plants_from_source_reads_literals_and_skips_hop(self):
@@ -263,8 +273,9 @@ class GeneratePairs(unittest.TestCase):
         every = generate.run(generate.GenerateRequest(FIXTURE, self.root / "all", all_plants=True))
         self.assertEqual(by_mill["records"], 2)
         self.assertEqual(by_mill["records_sha256"], every["records_sha256"])
+        unknown_mill = generate.GenerateRequest(FIXTURE, self.root / "x", mill_id="flk_r9999")
         with self.assertRaises(FlkRefusal) as caught:
-            generate.run(generate.GenerateRequest(FIXTURE, self.root / "x", mill_id="flk_r9999"))
+            generate.run(unknown_mill)
         self.assertEqual(caught.exception.code, FINDING_MILL_NOT_FOUND)
 
     def test_call_style_assign_without_equals_emits_handoff(self):
