@@ -164,6 +164,11 @@ class Drafts(unittest.TestCase):
             [row["record_id"] for row in cat._source_rows(builders_only, "src")], ["ttf-r05-1"]
         )
 
+    def test_unparseable_source_is_a_coded_refusal(self):
+        with self.assertRaisesRegex(TtfRefusal, "mill source is not parseable") as caught:
+            cat.plants_from_source("def broken(:\n", "broken.py")
+        self.assertEqual(caught.exception.code, "CATALOG_AST_NOT_A_PLANT")
+
 
 class RequiredFields(unittest.TestCase):
     def row(self, **changes):
