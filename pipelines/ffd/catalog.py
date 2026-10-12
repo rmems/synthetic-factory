@@ -154,7 +154,7 @@ def _constant_tuple(source: str, name: str) -> tuple[Any, ...]:
     tree = ast.parse(source)
     for node in tree.body:
         if name in _assign_names(node) and isinstance(node, (ast.Assign, ast.AnnAssign)):
-            value = node.value if isinstance(node, ast.AnnAssign) else node.value
+            value = node.value
             if value is None:
                 break
             literal = _literal(value)
