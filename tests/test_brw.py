@@ -110,6 +110,10 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
+def _legacy_assign_names(node):
+    return [t.id for t in node.targets if isinstance(t, ast.Name) and t.id in LEGACY_ASSIGN_NAMES]
+
+
 def _legacy_literals():
     src = subprocess.check_output(
         ["git", "show", f"origin/legacy-mill-lane:{SOURCE_PATH}"],
@@ -121,11 +125,7 @@ def _legacy_literals():
     ns = {}
     for node in tree.body:
         if isinstance(node, ast.Assign):
-            names = [
-                target.id
-                for target in node.targets
-                if isinstance(target, ast.Name) and target.id in LEGACY_ASSIGN_NAMES
-            ]
+            names = _legacy_assign_names(node)
             if names:
                 value = ast.literal_eval(node.value)
                 for name in names:

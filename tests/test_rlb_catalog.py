@@ -47,6 +47,23 @@ SOURCE_PROVENANCE = {
 }
 
 
+def _defined_function_names(tree):
+    return {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _imported_names(tree):
+    return {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+
+
 class RlbCatalogTests(unittest.TestCase):
     def test_catalog_preserves_all_ast_extracted_case_counts(self):
         pairs = list(CATALOG.pairs())
@@ -101,17 +118,8 @@ class RlbCatalogTests(unittest.TestCase):
         for path in PACKAGE.glob("*.py"):
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(path))
-            functions = {
-                node.name
-                for node in ast.walk(tree)
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            }
-            imports = {
-                alias.name
-                for node in ast.walk(tree)
-                if isinstance(node, (ast.Import, ast.ImportFrom))
-                for alias in node.names
-            }
+            functions = _defined_function_names(tree)
+            imports = _imported_names(tree)
             self.assertTrue(functions.isdisjoint(forbidden_functions))
             self.assertNotIn("subprocess", imports)
             self.assertNotIn("round_txn", imports)
