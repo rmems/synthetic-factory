@@ -30,8 +30,7 @@ def selection_decisions(records: Iterable[dict[str, Any]], *, lineage_cap=DEFAUL
     per_lineage: Counter[str] = Counter()
     for record in sorted(records, key=lambda r: r["id"]):
         exact = record["result"]["broken_sha256"]
-        broken = record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]
-        structural = lineage.structure_digest(broken)
+        structural = structural_digest(record)
         lineage_id = record["provenance"]["split_lineage"]["lineage_id"]
         code = None
         if exact in seen_exact:
@@ -45,6 +44,12 @@ def selection_decisions(records: Iterable[dict[str, Any]], *, lineage_cap=DEFAUL
             seen_structural.add(structural)
             per_lineage[lineage_id] += 1
         yield record, code
+
+
+def structural_digest(record: dict[str, Any]) -> str:
+    """The canonical-structure digest of a record's broken module (the AST dedup key)."""
+    broken = record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]
+    return lineage.structure_digest(broken)
 
 
 def _validate_cap(lineage_cap):

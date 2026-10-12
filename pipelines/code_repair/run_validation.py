@@ -198,6 +198,11 @@ def _valid_timeout(value):
     return precise_timeout is not None and 0 < precise_timeout <= cv.MAX_TIMEOUT_S
 
 
+def candidates_bound(run: dict, candidates_sha256: str) -> bool:
+    """RUN.json pins the exact bytes of the candidates file it summarises."""
+    return run.get('candidates_sha256') == candidates_sha256
+
+
 def _run_execution_matches(inputs):
     run = inputs.run
     checks = (
@@ -205,7 +210,7 @@ def _run_execution_matches(inputs):
         lambda: _integer_in_domain(run['per_program_cap'], 1, cv.MAX_PER_PROGRAM_CAP),
         lambda: _valid_timeout(run['timeout_s']),
         lambda: run['harness_sha256'] == _HARNESS_SHA256,
-        lambda: run['candidates_sha256'] == inputs.candidates_sha256,
+        lambda: candidates_bound(run, inputs.candidates_sha256),
     )
     return all(check() for check in checks)
 
