@@ -22,9 +22,13 @@ def read_lf_jsonl(path: Path, load_error: str) -> str:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ValueError(f"{load_error} {path}: {exc}") from exc
-    if "\r" in text or not text.endswith("\n"):
+    if not _is_lf_framed(text):
         raise ValueError(f"{path.name} must be LF-framed jsonl")
     return text
+
+
+def _is_lf_framed(text: str) -> bool:
+    return "\r" not in text and text.endswith("\n")
 
 
 def parse_rows(
@@ -57,7 +61,7 @@ def require_pinned(
 
 
 def decode_object_row(line: str, ctx: str) -> dict[str, Any]:
-    if not line or line.startswith((" ", "\t")):
+    if not _is_compact_line(line):
         raise ValueError(f"{ctx} is not a compact JSONL row")
     try:
         row = json.loads(line)
@@ -66,6 +70,10 @@ def decode_object_row(line: str, ctx: str) -> dict[str, Any]:
     if not isinstance(row, dict):
         raise ValueError(f"{ctx} must be an object")
     return row
+
+
+def _is_compact_line(line: str) -> bool:
+    return bool(line) and not line.startswith((" ", "\t"))
 
 
 def require_exact_keys(row: Mapping[str, Any], keys: Sequence[str], ctx: str) -> None:
