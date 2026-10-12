@@ -14,16 +14,16 @@ if __package__:
     _assert_direct_sibling("tag_jsonl")
     from . import tag_constants as _tag_constants
     from . import tag_jsonutil as _tag_jsonutil
-    from . import tag_record as _tag_record
-    from . import tag_taxonomy as _tag_taxonomy
+    from .tag_record import base_manifest, curate_record
+    from .tag_taxonomy import Taxonomy, load_taxonomy
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "tag_jsonl"
     )
     import tag_constants as _tag_constants
     import tag_jsonutil as _tag_jsonutil
-    import tag_record as _tag_record
-    import tag_taxonomy as _tag_taxonomy
+    from tag_record import base_manifest, curate_record
+    from tag_taxonomy import Taxonomy, load_taxonomy
 
 REASON_INVALID_JSON = _tag_constants.REASON_INVALID_JSON
 REASON_INVALID_UTF8 = _tag_constants.REASON_INVALID_UTF8
@@ -36,10 +36,6 @@ count_tag = _tag_jsonutil.count_tag
 display_source_path = _tag_jsonutil.display_source_path
 load_strict_json = _tag_jsonutil.load_strict_json
 vocabulary_entropy = _tag_jsonutil.vocabulary_entropy
-base_manifest = _tag_record.base_manifest
-curate_record = _tag_record.curate_record
-Taxonomy = _tag_taxonomy.Taxonomy
-load_taxonomy = _tag_taxonomy.load_taxonomy
 
 
 def _excluded_line_manifest(
