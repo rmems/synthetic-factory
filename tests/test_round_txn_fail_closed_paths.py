@@ -70,13 +70,14 @@ class CompletionManifestEntryTests(unittest.TestCase):
                 round_txn.completion_manifest_file_matches(artifact, manifest)
 
 
-class ExecutionVerifiedRoundsTests(unittest.TestCase):
-    def _policy(self, mode):
-        with tempfile.TemporaryDirectory() as root:
-            factory = Path(root)
-            _write_json(factory / round_txn.MODE_FILE, mode)
-            return round_txn.execution_gate_policy(factory)
+def _execution_gate_policy_for(mode):
+    with tempfile.TemporaryDirectory() as root:
+        factory = Path(root)
+        _write_json(factory / round_txn.MODE_FILE, mode)
+        return round_txn.execution_gate_policy(factory)
 
+
+class ExecutionVerifiedRoundsTests(unittest.TestCase):
     def test_bound_rounds_must_be_an_ascending_positive_list_below_cutover(self):
         key = round_txn.EXECUTION_VERIFIED_ROUNDS_KEY
         cutover = round_txn.EXECUTION_CUTOVER_KEY
@@ -93,13 +94,13 @@ class ExecutionVerifiedRoundsTests(unittest.TestCase):
                 self.subTest(label),
                 self.assertRaisesRegex(round_txn.TransactionError, f"invalid {key} in"),
             ):
-                self._policy(mode)
+                _execution_gate_policy_for(mode)
 
     def test_valid_bound_rounds_are_returned(self):
         key = round_txn.EXECUTION_VERIFIED_ROUNDS_KEY
         cutover = round_txn.EXECUTION_CUTOVER_KEY
-        self.assertEqual(self._policy({cutover: 5, key: [2, 4]}), (5, frozenset({2, 4})))
-        self.assertEqual(self._policy({}), (None, frozenset()))
+        self.assertEqual(_execution_gate_policy_for({cutover: 5, key: [2, 4]}), (5, frozenset({2, 4})))
+        self.assertEqual(_execution_gate_policy_for({}), (None, frozenset()))
 
 
 class InFlightBatchPathTests(unittest.TestCase):
