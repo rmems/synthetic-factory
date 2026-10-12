@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -167,44 +167,77 @@ def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
         return None
 
 
+_SKIPPED_KEYS = frozenset({"spike_events", "spikes", "raster", "excerpt"})
+_BUILDER_KEYS = frozenset({"id", "domain", "sim_or_real", "decision", "goal"})
+
+
+def _negated_number(node: ast.UnaryOp) -> Any:
+    """``-<int or float literal>``; any other unary expression walks to None."""
+    if not isinstance(node.op, ast.USub) or not isinstance(node.operand, ast.Constant):
+        return None
+    value = node.operand.value
+    return -value if isinstance(value, (int, float)) else None
+
+
+_Parts = tuple[Sequence[ast.AST], Callable[[list[Any]], Any]]
+
+
+def _leaf(value: Any) -> _Parts:
+    return (), lambda _values: value
+
+
+def _call_parts(node: ast.Call) -> _Parts:
+    """Positional args, then named keyword values (``**`` entries stay out)."""
+    func = node.func.id if isinstance(node.func, ast.Name) else None
+    named = [keyword for keyword in node.keywords if keyword.arg]
+    count = len(node.args)
+
+    def rebuild(values: list[Any]) -> dict[str, Any]:
+        kwargs = {keyword.arg: value for keyword, value in zip(named, values[count:])}
+        return {"_call": func, "args": values[:count], "kwargs": kwargs}
+
+    return [*node.args, *(keyword.value for keyword in named)], rebuild
+
+
+def _walk_parts(node: ast.AST, consts: Mapping[str, Any]) -> _Parts:
+    """Any node but a tuple or dict as (child nodes, rebuild); unknown nodes walk to None.
+
+    ``_walk_mapping`` walks the children itself, so a nesting level costs one frame.
+    """
+    if isinstance(node, ast.Name) and node.id in consts:
+        return _leaf(consts[node.id])
+    if isinstance(node, ast.Constant):
+        return _leaf(node.value)
+    if isinstance(node, ast.UnaryOp):
+        return _leaf(_negated_number(node))
+    if isinstance(node, ast.List):
+        return node.elts, list
+    return _call_parts(node) if isinstance(node, ast.Call) else _leaf(None)
+
+
+def _kept_key(key: Any) -> bool:
+    return isinstance(key, str) and key not in _SKIPPED_KEYS
+
+
+def _keyed_entries(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """Dict entries with a key node; ``**`` entries are skipped."""
+    return [(key, value) for key, value in zip(node.keys, node.values) if key is not None]
+
+
 def _walk_mapping(node: ast.AST, consts: Mapping[str, Any]) -> Any:
     """Best-effort literal walk. Calls and names stay out (no exec)."""
 
-    if isinstance(node, ast.Name) and node.id in consts:
-        return consts[node.id]
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        if isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, (int, float)):
-            return -node.operand.value
-    if isinstance(node, ast.List):
-        return [_walk_mapping(elt, consts) for elt in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_walk_mapping(elt, consts) for elt in node.elts)
     if isinstance(node, ast.Dict):
         mapping: dict[str, Any] = {}
-        for key_node, value_node in zip(node.keys, node.values):
-            if key_node is None:
-                continue
+        for key_node, value_node in _keyed_entries(node):
             key = _walk_mapping(key_node, consts)
-            if not isinstance(key, str):
-                continue
-            if key in {"spike_events", "spikes", "raster", "excerpt"}:
-                continue
-            mapping[key] = _walk_mapping(value_node, consts)
+            if _kept_key(key):
+                mapping[key] = _walk_mapping(value_node, consts)
         return mapping
-    if isinstance(node, ast.Call):
-        func = node.func.id if isinstance(node.func, ast.Name) else None
-        return {
-            "_call": func,
-            "args": [_walk_mapping(arg, consts) for arg in node.args],
-            "kwargs": {
-                keyword.arg: _walk_mapping(keyword.value, consts)
-                for keyword in node.keywords
-                if keyword.arg
-            },
-        }
-    return None
+    children, rebuild = _walk_parts(node, consts)
+    return rebuild([_walk_mapping(child, consts) for child in children])
 
 
 def _reward_note(reward: Any) -> str:
@@ -239,45 +272,52 @@ def slice_from_record_id(record_id: str) -> str:
     return f"r{match.group('round')}{match.group('suffix')}"
 
 
-def _plant_draft(
-    source_name: str,
-    *,
-    record_id: Any = None,
-    source_round: Any = None,
-    index: Any = None,
-    title: Any = "",
-    domain: Any = "",
-    sim_or_real: Any = "",
-    goal: Any = "",
-    proposed_action: Any = "",
-    decision: Any = "",
-    correctness: Any = "",
-    rationale: Any = "",
-    executed_action: Any = "",
-    outcome: Any = "",
-    reward_total: Any = None,
-    reward_note: Any = "",
-) -> dict[str, Any]:
-    ident = _text(record_id)
-    parsed_round = _round_from_id(ident)
+_DRAFT_TEXT_FIELDS = (
+    "title",
+    "domain",
+    "sim_or_real",
+    "goal",
+    "proposed_action",
+    "decision",
+    "correctness",
+    "rationale",
+    "executed_action",
+    "outcome",
+    "reward_note",
+)
+
+
+def _plant_draft(source_name: str, extracted: Mapping[str, Any]) -> dict[str, Any]:
+    """A plant row from the fields an extractor found; absent fields default to empty.
+
+    No extractor finds a source round, so it always comes from the record id.
+    """
+    ident = _text(extracted.get("record_id"))
+    text = {field: _text(extracted.get(field)) for field in _DRAFT_TEXT_FIELDS}
+    reward_total = extracted.get("reward_total")
     return {
         "record_id": ident,
-        "source_round": source_round if type(source_round) is int else parsed_round,
-        "index": index,
-        "title": _text(title),
-        "domain": _text(domain),
-        "sim_or_real": _text(sim_or_real) or "designed",
-        "goal": _text(goal),
-        "proposed_action": _text(proposed_action),
-        "decision": _text(decision),
-        "correctness": _text(correctness) or "correct",
-        "rationale": _text(rationale),
-        "executed_action": _text(executed_action),
-        "outcome": _text(outcome),
+        "source_round": _round_from_id(ident),
+        "index": extracted.get("index"),
+        "title": text["title"],
+        "domain": text["domain"],
+        "sim_or_real": text["sim_or_real"] or "designed",
+        "goal": text["goal"],
+        "proposed_action": text["proposed_action"],
+        "decision": text["decision"],
+        "correctness": text["correctness"] or "correct",
+        "rationale": text["rationale"],
+        "executed_action": text["executed_action"],
+        "outcome": text["outcome"],
         "reward_total": 0.0 if reward_total is None else reward_total,
-        "reward_note": _text(reward_note),
+        "reward_note": text["reward_note"],
         "source_name": source_name,
     }
+
+
+def _dict_field(mapping: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = mapping.get(key)
+    return value if isinstance(value, dict) else {}
 
 
 def _from_rec_dict(
@@ -285,56 +325,110 @@ def _from_rec_dict(
     source_name: str,
     index: int,
 ) -> dict[str, Any]:
-    state = rec.get("state") if isinstance(rec.get("state"), dict) else {}
-    proposed = rec.get("proposed_action") if isinstance(rec.get("proposed_action"), dict) else {}
-    safety = rec.get("safety_decision") if isinstance(rec.get("safety_decision"), dict) else {}
-    executed = rec.get("executed_action") if isinstance(rec.get("executed_action"), dict) else {}
-    outcome = rec.get("future_outcome") if isinstance(rec.get("future_outcome"), dict) else {}
+    state = _dict_field(rec, "state")
+    proposed = _dict_field(rec, "proposed_action")
+    safety = _dict_field(rec, "safety_decision")
+    executed = _dict_field(rec, "executed_action")
+    outcome = _dict_field(rec, "future_outcome")
     note = _reward_note(rec.get("reward_components"))
-    return _plant_draft(
-        source_name,
-        record_id=rec.get("id"),
-        index=index,
-        title=rec.get("title"),
-        domain=state.get("domain") or rec.get("domain"),
-        sim_or_real=state.get("sim_or_real"),
-        goal=state.get("goal") or rec.get("goal"),
-        proposed_action=proposed.get("name") or rec.get("proposed_action"),
-        decision=safety.get("decision"),
-        correctness=safety.get("correctness"),
-        rationale=safety.get("rationale"),
-        executed_action=executed.get("name") or rec.get("executed_action"),
-        outcome=outcome.get("summary") or rec.get("outcome"),
-        reward_total=_reward_total(note),
-        reward_note=note,
-    )
+    return _plant_draft(source_name, {
+        "record_id": rec.get("id"),
+        "index": index,
+        "title": rec.get("title"),
+        "domain": state.get("domain") or rec.get("domain"),
+        "sim_or_real": state.get("sim_or_real"),
+        "goal": state.get("goal") or rec.get("goal"),
+        "proposed_action": proposed.get("name") or rec.get("proposed_action"),
+        "decision": safety.get("decision"),
+        "correctness": safety.get("correctness"),
+        "rationale": safety.get("rationale"),
+        "executed_action": executed.get("name") or rec.get("executed_action"),
+        "outcome": outcome.get("summary") or rec.get("outcome"),
+        "reward_total": _reward_total(note),
+        "reward_note": note,
+    })
 
 
-def _from_builder_fn(fn: ast.FunctionDef, source_name: str, index: int) -> dict[str, Any] | None:
-    found: dict[str, Any] = {}
+def _str_constant(node: ast.AST | None) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _builder_strings(fn: ast.FunctionDef) -> dict[str, str]:
+    """The first string literal per identity key across every dict literal in ``fn``."""
+    found: dict[str, str] = {}
     for node in ast.walk(fn):
         if not isinstance(node, ast.Dict):
             continue
         for key_node, value_node in zip(node.keys, node.values):
-            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
-                continue
-            if key_node.value not in {"id", "domain", "sim_or_real", "decision", "goal"}:
-                continue
-            if key_node.value in found:
-                continue
-            if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
-                found[key_node.value] = value_node.value
+            key = _str_constant(key_node)
+            value = _str_constant(value_node)
+            if key in _BUILDER_KEYS and key not in found and value is not None:
+                found[key] = value
+    return found
+
+
+def _from_builder_fn(fn: ast.FunctionDef, source_name: str, index: int) -> dict[str, Any] | None:
+    found = _builder_strings(fn)
     if "id" not in found:
         return None
-    return _plant_draft(
-        source_name,
-        record_id=found.get("id"),
-        index=index,
-        domain=found.get("domain"),
-        sim_or_real=found.get("sim_or_real"),
-        goal=found.get("goal"),
-        decision=found.get("decision"),
-    )
+    return _plant_draft(source_name, {
+        "record_id": found.get("id"),
+        "index": index,
+        "domain": found.get("domain"),
+        "sim_or_real": found.get("sim_or_real"),
+        "goal": found.get("goal"),
+        "decision": found.get("decision"),
+    })
+
+
+def _rec_from_assignment(
+    name: str, value: ast.AST, consts: Mapping[str, Any], source_name: str
+) -> dict[str, Any] | None:
+    """A ``REC_<n> = {...}`` dict literal walked into a plant row, else None."""
+    match = REC_NAME_RE.match(name)
+    if not match or not isinstance(value, ast.Dict):
+        return None
+    return _from_rec_dict(_walk_mapping(value, consts), source_name, int(match.group(1)))
+
+
+def _builder_from_function(node: ast.FunctionDef, source_name: str) -> dict[str, Any] | None:
+    match = BUILDER_NAME_RE.match(node.name)
+    if match is None:
+        return None
+    return _from_builder_fn(node, source_name, int(match.group(1)))
+
+
+def _remember_const(consts: dict[str, Any], name: str, value: ast.AST) -> None:
+    """Bind ``name`` when ``value`` is a known name or a literal, so later rows can use it."""
+    resolved = _optional_const(value, consts)
+    if resolved is not None:
+        consts[name] = resolved
+
+
+def _module_rows(
+    tree: ast.Module, source_name: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """``REC_<n>`` dict rows and ``rec_<n>()`` builder rows, in source order."""
+    consts: dict[str, Any] = {}
+    recs: list[dict[str, Any]] = []
+    builders: list[dict[str, Any]] = []
+    for node in tree.body:
+        item = _assigned(node)
+        if item is not None:
+            name, value = item
+            _remember_const(consts, name, value)
+            row = _rec_from_assignment(name, value, consts, source_name)
+            found = recs
+        elif isinstance(node, ast.FunctionDef):
+            row = _builder_from_function(node, source_name)
+            found = builders
+        else:
+            continue
+        if row is not None:
+            found.append(row)
+    return recs, builders
 
 
 def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, ...]:
@@ -344,27 +438,7 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
         tree = ast.parse(text)
     except SyntaxError as exc:
         refuse(FINDING_AST_NOT_A_PLANT, f"mill source is not parseable: {exc}")
-    consts: dict[str, Any] = {}
-    recs: list[dict[str, Any]] = []
-    builders: list[dict[str, Any]] = []
-    for node in tree.body:
-        item = _assigned(node)
-        if item is not None:
-            name, value = item
-            resolved = _optional_const(value, consts)
-            if resolved is not None:
-                consts[name] = resolved
-            match = REC_NAME_RE.match(name)
-            if match and isinstance(value, ast.Dict):
-                walked = _walk_mapping(value, consts)
-                if isinstance(walked, dict):
-                    recs.append(_from_rec_dict(walked, source_name, int(match.group(1))))
-            continue
-        if isinstance(node, ast.FunctionDef) and BUILDER_NAME_RE.match(node.name):
-            index = int(BUILDER_NAME_RE.match(node.name).group(1))
-            draft = _from_builder_fn(node, source_name, index)
-            if draft is not None:
-                builders.append(draft)
+    recs, builders = _module_rows(tree, source_name)
     rows = recs or builders
     refuse_when(
         len(rows) != QUOTA_PER_ROUND,
@@ -380,9 +454,7 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
     )
 
 
-def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
-    missing = [field for field in PLANT_FIELDS if field not in values]
-    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
+def _require_identity(values: Mapping[str, Any], where: str) -> None:
     record_id = values["record_id"]
     refuse_when(
         not isinstance(record_id, str) or RECORD_ID_RE.match(record_id) is None,
@@ -401,6 +473,9 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
         FINDING_FIELD_INVALID,
         f"{where}.index must be 1..{QUOTA_PER_ROUND}, got {shown(index)}",
     )
+
+
+def _require_vocabulary(values: Mapping[str, Any], where: str) -> None:
     sim = values["sim_or_real"]
     refuse_when(
         sim not in SIM_OR_REAL,
@@ -425,21 +500,33 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
         FINDING_FIELD_INVALID,
         f"{where}.reward_total must be a number, got {shown(total)}",
     )
+
+
+def _checked_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
+    """Every field in ``PLANT_FIELDS`` order: ints kept, the total as float, the rest strings."""
     checked: dict[str, Any] = {}
     for field in PLANT_FIELDS:
         value = values[field]
         if field in {"source_round", "index"}:
             checked[field] = value
-            continue
-        if field == "reward_total":
+        elif field == "reward_total":
             checked[field] = float(value)
-            continue
-        refuse_when(
-            not isinstance(value, str),
-            FINDING_FIELD_INVALID,
-            f"{where}.{field} must be a string, got {shown(value)}",
-        )
-        checked[field] = value
+        else:
+            refuse_when(
+                not isinstance(value, str),
+                FINDING_FIELD_INVALID,
+                f"{where}.{field} must be a string, got {shown(value)}",
+            )
+            checked[field] = value
+    return checked
+
+
+def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
+    missing = [field for field in PLANT_FIELDS if field not in values]
+    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
+    _require_identity(values, where)
+    _require_vocabulary(values, where)
+    checked = _checked_fields(values, where)
     refuse_when(
         not checked["domain"] or not checked["decision"],
         FINDING_FIELD_MISSING,
