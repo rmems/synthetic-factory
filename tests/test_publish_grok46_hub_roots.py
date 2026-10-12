@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""Configurable Hub mirror and factory source roots for the Grok 4.6 publisher.
+
+Each root resolves once per run: the CLI flag, then the environment, then the
+module default. A configured root fails closed unless it already exists as a
+real directory, and the Hub root is refused when it names or aliases
+``outputs/raw/`` or overlaps the factory source.
+"""
+
+import contextlib
+import io
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "scripts"))
+
+import publish_grok46_hub as publisher  # noqa: E402
+
+HF_ENV = publisher.HF_ROOT_SETTING.env
+FACTORY_ENV = publisher.FACTORY_ROOT_SETTING.env
+
+
+def resolve(hf_flag=None, factory_flag=None, environ=None):
+    return publisher.resolve_publisher_roots(hf_flag, factory_flag, environ or {})
+
+
+class RootFixture(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def directory(self, *parts):
+        path = self.root.joinpath(*parts)
+        path.mkdir(parents=True)
+        return path
+
+    def assert_refused(self, message, **call):
+        """Require ``resolve(**call)`` to refuse with ``message``; return the refusal."""
+        with self.assertRaisesRegex(publisher.PublisherRootError, message) as caught:
+            resolve(**call)
+        return str(caught.exception)
+
+
+class RootPrecedenceTests(RootFixture):
+    def test_defaults_are_unchanged_without_flag_or_environment(self):
+        self.assertEqual(publisher.HF_ROOT, Path("/home/raulmc/rmems/hf"))
+        self.assertEqual(publisher.HF_DATASETS_DIRNAME, "grok-4.6")
+        self.assertEqual(
+            resolve(),
+            publisher.PublisherRoots(hf=publisher.HF_ROOT, factory=publisher.FACTORY_ROOT),
+        )
+        self.assertEqual(
+            publisher.hf_datasets_root(), Path("/home/raulmc/rmems/hf/grok-4.6")
+        )
+
+    def test_defaults_are_read_at_call_time_so_patched_globals_still_steer(self):
+        hub = self.directory("hf")
+        source = self.directory("raw")
+        with mock.patch.object(publisher, "HF_ROOT", hub), mock.patch.object(
+            publisher, "FACTORY_ROOT", source
+        ):
+            self.assertEqual(resolve(), publisher.PublisherRoots(hf=hub, factory=source))
+            self.assertEqual(publisher.hf_datasets_root(), hub / "grok-4.6")
+
+    def test_environment_overrides_the_default(self):
+        hub = self.directory("env-hf")
+        source = self.directory("env-raw")
+
+        roots = resolve(environ={HF_ENV: str(hub), FACTORY_ENV: str(source)})
+
+        self.assertEqual(roots, publisher.PublisherRoots(hf=hub, factory=source))
+
+    def test_flag_overrides_the_environment(self):
+        flag_hub = self.directory("flag-hf")
+        flag_source = self.directory("flag-raw")
+        environ = {
+            HF_ENV: str(self.directory("env-hf")),
+            FACTORY_ENV: str(self.directory("env-raw")),
+        }
+
+        roots = resolve(str(flag_hub), str(flag_source), environ)
+
+        self.assertEqual(roots, publisher.PublisherRoots(hf=flag_hub, factory=flag_source))
+
+    def test_flag_wins_even_when_the_environment_value_is_unusable(self):
+        flag_hub = self.directory("flag-hf")
+
+        roots = resolve(str(flag_hub), environ={HF_ENV: str(self.root / "missing")})
+
+        self.assertEqual(roots.hf, flag_hub)
+
+    def test_each_root_resolves_independently(self):
+        hub = self.directory("flag-hf")
+        source = self.directory("env-raw")
+
+        hub_only = resolve(str(hub))
+        source_only = resolve(environ={FACTORY_ENV: str(source)})
+
+        roots = publisher.PublisherRoots
+        self.assertEqual(hub_only, roots(hf=hub, factory=publisher.FACTORY_ROOT))
+        self.assertEqual(source_only, roots(hf=publisher.HF_ROOT, factory=source))
+
+    def test_relative_configured_root_is_made_absolute(self):
+        hub = self.directory("hf")
+
+        roots = resolve(os.path.relpath(hub))
+
+        self.assertTrue(roots.hf.is_absolute())
+        self.assertEqual(roots.hf, hub)
+
+    def test_a_configured_factory_root_may_itself_be_a_raw_tree(self):
+        # The factory root is the read-only source; only the Hub root is guarded.
+        source = self.directory("outputs", "raw", "2026-08-19-agentic")
+
+        roots = resolve(str(self.directory("hf")), str(source))
+
+        self.assertEqual(roots.factory, source)
+
+    def test_roots_are_immutable(self):
+        roots = resolve()
+        with self.assertRaises(AttributeError):
+            roots.hf = self.root  # type: ignore[misc]
+
+
+class ConfiguredRootRefusalTests(RootFixture):
+    def test_missing_root_is_refused_and_never_created(self):
+        missing = self.root / "absent" / "root"
+        cases = (
+            ("--hf-root", {"hf_flag": str(missing)}),
+            ("--factory-root", {"factory_flag": str(missing)}),
+            (HF_ENV, {"environ": {HF_ENV: str(missing)}}),
+            (FACTORY_ENV, {"environ": {FACTORY_ENV: str(missing)}}),
+        )
+        for source, call in cases:
+            with self.subTest(source=source):
+                message = self.assert_refused("does not exist; create it first", **call)
+                self.assertTrue(message.startswith(source), message)
+                self.assertFalse(os.path.lexists(missing.parent))
+
+    def test_root_that_is_a_file_is_refused(self):
+        regular = self.root / "not-a-directory"
+        regular.write_text("x\n", encoding="utf-8")
+
+        self.assert_refused("--hf-root does not name a directory", hf_flag=str(regular))
+        self.assert_refused(
+            f"{FACTORY_ENV} does not name a directory", environ={FACTORY_ENV: str(regular)}
+        )
+
+    def test_symlinked_root_is_refused(self):
+        target = self.directory("real-hf")
+        link = self.root / "linked-hf"
+        link.symlink_to(target, target_is_directory=True)
+
+        self.assert_refused("--hf-root names a symlink", hf_flag=str(link))
+        self.assert_refused(
+            f"{FACTORY_ENV} names a symlink", environ={FACTORY_ENV: str(link)}
+        )
+
+    def test_dangling_symlink_root_is_refused(self):
+        link = self.root / "dangling"
+        link.symlink_to(self.root / "gone", target_is_directory=True)
+
+        self.assert_refused("names a symlink", hf_flag=str(link))
+        self.assertFalse((self.root / "gone").exists())
+
+    def test_empty_root_is_refused_not_read_as_the_working_directory(self):
+        self.assert_refused("--hf-root is set but empty", hf_flag="")
+        self.assert_refused(f"{HF_ENV} is set but empty", environ={HF_ENV: ""})
+        self.assert_refused("--factory-root is set but empty", factory_flag="")
+
+    def test_uninspectable_root_is_refused(self):
+        hub = self.directory("hf")
+        with mock.patch.object(publisher.os, "lstat", side_effect=PermissionError("denied")):
+            self.assert_refused("--hf-root cannot be inspected", hf_flag=str(hub))
+
+    def test_refusal_names_the_setting_but_never_the_configured_value(self):
+        secret = self.root / "token-abc123-not-a-dir"
+
+        message = self.assert_refused("does not exist", environ={HF_ENV: str(secret)})
+
+        self.assertIn(HF_ENV, message)
+        self.assertNotIn("token-abc123", message)
+
+
+class HubRootRawGuardTests(RootFixture):
+    RAW = "names or aliases outputs/raw/"
+
+    def assert_hub_refused(self, message, hub, source):
+        hf_flag = None if hub is None else str(hub)
+        self.assert_refused(message, hf_flag=hf_flag, factory_flag=str(source))
+
+    def test_hub_root_naming_outputs_raw_is_refused(self):
+        hub = self.directory("outputs", "raw", "hf")
+
+        self.assert_hub_refused(self.RAW, hub, self.directory("src"))
+
+    def test_hub_root_aliasing_outputs_raw_through_a_symlinked_parent_is_refused(self):
+        raw = self.directory("outputs", "raw")
+        (raw / "hf").mkdir()
+        alias = self.root / "alias"
+        alias.symlink_to(raw, target_is_directory=True)
+
+        # The leaf is a real directory; only its resolved path names the raw tree.
+        self.assert_hub_refused(self.RAW, alias / "hf", self.directory("src"))
+
+    def test_hub_root_at_or_under_the_repository_raw_tree_is_refused(self):
+        # The guard's raw root has no outputs/raw segments here, so only the
+        # path identity check can catch it.
+        guarded = self.directory("immutable")
+        (guarded / "hf").mkdir()
+        source = self.directory("src")
+        with mock.patch.object(publisher.raw_tree_guard, "DEFAULT_RAW_OUTPUT_ROOT", guarded):
+            for hub in (guarded, guarded / "hf"):
+                with self.subTest(hub=hub.name):
+                    self.assert_hub_refused(self.RAW, hub, source)
+
+    def test_hub_root_inside_or_equal_to_the_factory_root_is_refused(self):
+        source = self.directory("src")
+        nested = self.directory("src", "hf")
+
+        for hub in (nested, source):
+            with self.subTest(hub=hub.name):
+                self.assert_hub_refused(
+                    "Hub mirror root lies inside the factory source root", hub, source
+                )
+
+    def test_factory_root_inside_the_hub_root_is_refused(self):
+        hub = self.directory("hf")
+        source = self.directory("hf", "grok-4.6", "src")
+
+        self.assert_hub_refused(
+            "factory source root lies inside the Hub mirror root", hub, source
+        )
+
+    def test_default_hub_root_gets_the_same_raw_guard(self):
+        unsafe_default = self.root / "outputs" / "raw" / "hf"
+        with mock.patch.object(publisher, "HF_ROOT", unsafe_default):
+            self.assert_hub_refused(self.RAW, None, self.directory("src"))
+        self.assertFalse(unsafe_default.exists())
+
+
+class PublisherMainRootTests(RootFixture):
+    def setUp(self):
+        super().setUp()
+        # An operator's exported overrides must not leak into these runs;
+        # the snapshot taken here restores them afterwards.
+        restore = mock.patch.dict(os.environ)
+        restore.start()
+        self.addCleanup(restore.stop)
+        for setting in publisher.ROOT_SETTINGS:
+            os.environ.pop(setting.env, None)
+
+    def run_main(self, argv, **exported):
+        stderr = io.StringIO()
+        with mock.patch.object(sys, "argv", ["publish_grok46_hub.py", *argv]), (
+            mock.patch.dict(os.environ, exported)
+        ), contextlib.redirect_stderr(stderr):
+            try:
+                code = publisher.main()
+            except SystemExit as exc:
+                code = exc.code
+        return code, stderr.getvalue()
+
+    def test_bad_configured_root_exits_2_before_any_work(self):
+        missing = self.root / "missing"
+        with mock.patch.object(publisher, "factories") as factories, mock.patch.object(
+            publisher, "cmd_snapshot"
+        ) as snapshot, mock.patch.object(publisher.subprocess, "run") as whoami:
+            for argv, environ in (
+                (["snapshot", "--hf-root", str(missing)], {}),
+                (["upload"], {HF_ENV: str(missing)}),
+                (["status", "--factory-root", str(missing)], {}),
+            ):
+                with self.subTest(argv=argv, environ=environ):
+                    code, stderr = self.run_main(argv, **environ)
+                    self.assertEqual(code, 2)
+                    self.assertIn("refusing publication root:", stderr)
+                    self.assertIn("does not exist", stderr)
+
+        factories.assert_not_called()
+        snapshot.assert_not_called()
+        whoami.assert_not_called()
+        self.assertFalse(missing.exists())
+
+    def test_environment_roots_reach_the_dispatched_command(self):
+        hub = self.directory("hf")
+        source = self.directory("raw")
+        exported = {HF_ENV: str(hub), FACTORY_ENV: str(source)}
+        with mock.patch.object(publisher, "cmd_status") as status:
+            code, _stderr = self.run_main(["status"], **exported)
+
+        self.assertEqual(code, 0)
+        status.assert_called_once_with(publisher.PublisherRoots(hf=hub, factory=source))
+
+    def test_flags_override_environment_at_the_command_line(self):
+        flag_hub = self.directory("flag-hf")
+        env_hub = self.directory("env-hf")
+        with mock.patch.object(publisher, "cmd_status") as status:
+            code, _stderr = self.run_main(
+                ["status", "--hf-root", str(flag_hub)], **{HF_ENV: str(env_hub)}
+            )
+
+        self.assertEqual(code, 0)
+        status.assert_called_once_with(
+            publisher.PublisherRoots(hf=flag_hub, factory=publisher.FACTORY_ROOT)
+        )
+
+    def test_only_target_is_checked_against_the_configured_factory_root(self):
+        source = self.directory("raw")
+        with mock.patch.object(
+            publisher, "factories", return_value=[]
+        ) as factories, mock.patch.object(publisher, "cmd_snapshot") as snapshot:
+            code, stderr = self.run_main(
+                ["snapshot", "--only", "typo", "--factory-root", str(source)]
+            )
+
+        self.assertEqual(code, 2)
+        self.assertIn("unknown --only target", stderr)
+        factories.assert_called_once_with(
+            publisher.PublisherRoots(hf=publisher.HF_ROOT, factory=source)
+        )
+        snapshot.assert_not_called()
+
+    def test_schemas_refuses_root_flags_and_ignores_root_environment(self):
+        with mock.patch.object(publisher, "cmd_schemas", return_value=0) as schemas:
+            for flag in ("--hf-root", "--factory-root"):
+                with self.subTest(flag=flag):
+                    code, stderr = self.run_main(["schemas", flag, str(self.root)])
+                    self.assertEqual(code, 2)
+                    self.assertIn(f"schemas does not accept {flag}", stderr)
+            schemas.assert_not_called()
+
+            code, stderr = self.run_main(
+                ["schemas"], **{HF_ENV: str(self.root / "missing"), FACTORY_ENV: ""}
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        schemas.assert_called_once_with(strict=False)
+
+    def test_schemas_still_refuses_only(self):
+        with mock.patch.object(publisher, "cmd_schemas") as schemas:
+            code, stderr = self.run_main(["schemas", "--only", "anything"])
+
+        self.assertEqual(code, 2)
+        self.assertIn("schemas does not accept --only", stderr)
+        schemas.assert_not_called()
+
+    def test_help_documents_flags_environment_and_defaults(self):
+        stdout = io.StringIO()
+        plain = {"NO_COLOR": "1", "PYTHON_COLORS": "0", "COLUMNS": "200"}
+        with mock.patch.object(sys, "argv", ["publish_grok46_hub.py", "--help"]), (
+            mock.patch.dict(os.environ, plain)
+        ), contextlib.redirect_stdout(stdout), self.assertRaises(SystemExit):
+            publisher.main()
+
+        text = " ".join(stdout.getvalue().split())
+        for setting in publisher.ROOT_SETTINGS:
+            self.assertIn(setting.flag, text)
+            self.assertIn(f"${setting.env}", text)
+        self.assertIn(str(publisher.HF_ROOT), text)
+
+
+if __name__ == "__main__":
+    unittest.main()
