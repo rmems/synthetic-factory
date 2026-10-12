@@ -93,7 +93,9 @@ def _bind_scene(plant: cat.Plant, module: str) -> _Bind:
 
 _Outage = namedtuple("_Outage", "response failed retry_basis retried")
 _Recovery = namedtuple("_Recovery", "outage body reflection")
-_Probe = namedtuple("_Probe", "short module test_name failure contract grep recoveries")
+_Scene = namedtuple(
+    "_Scene", "short module test_name failure contract grep recoveries goal plan outcome"
+)
 
 _BAD_GATEWAY = _Outage(
     "HTTP/1.1 502 Bad Gateway\nBad Gateway.",
@@ -116,11 +118,11 @@ def _rate_limited(retry_after: int) -> _Outage:
     )
 
 
-def _probe_scene(c: _Bind, success: bool) -> _Probe:
-    """What the success and fail probes differ in: paths, test, assertion, grep, doc outages."""
+def _outcome_scene(c: _Bind, success: bool) -> _Scene:
+    """What the success bind and the fail handoff differ in, from the probe to the outcome line."""
     plant, idf, evf, naive = c.plant, c.idf, c.evf, c.naive
     if success:
-        return _Probe(
+        return _Scene(
             plant.short, plant.module, plant.test_ok,
             f"{naive} PK collapsed retry events",
             f"assert pk({{{idf!r}: 'm1', {evf!r}: 'open', {naive!r}: 'a@b'}}) == ('m1', 'open')",
@@ -129,8 +131,11 @@ def _probe_scene(c: _Bind, success: bool) -> _Probe:
                        "Degraded path used the local fixture. Continue with that content."),
              _Recovery(_rate_limited(5), f"Do not drop {evf}.",
                        "Retry succeeded. Resume the local debug plan with that document in hand.")),
+            f"Dedupe {plant.provider} events on ({idf}, {evf}), not {naive}.",
+            f"Read {naive}-as-pk, try {idf} only, then bind ({idf}, {evf}).",
+            f"Bound ({idf}, {evf}). {naive} unused (success).",
         )
-    return _Probe(
+    return _Scene(
         plant.dshort, plant.drop_module, plant.test_fail,
         f"dropped {evf}; {naive}-as-key collapsed bounce",
         f"assert pk({{{idf!r}: 'm1', {evf!r}: 'bounce', {naive!r}: 'a@b'}}) != ev_{naive}_only()",
@@ -139,6 +144,9 @@ def _probe_scene(c: _Bind, success: bool) -> _Probe:
                    "Retry succeeded. Continue with that document."),
          _Recovery(_BAD_GATEWAY, f"Handoff {plant.ticket}.",
                    "Degraded path used the local fixture. Resume the local debug plan.")),
+        f"Do not drop {plant.provider} {evf} when binding the id.",
+        f"Read drop-{evf}, try {naive}, then hand off dropped {evf} grain.",
+        f"Still drop-{evf}; {evf} grain is {plant.provider} — handoff {plant.ticket}.",
     )
 
 
@@ -152,10 +160,9 @@ def _doc_fetch_steps(n: int, url: str, recovery: _Recovery, need: str) -> list[d
     ]
 
 
-def _probe_steps(c: _Bind, success: bool) -> list[dict[str, Any]]:
+def _probe_steps(c: _Bind, probe: _Scene) -> list[dict[str, Any]]:
     """Steps 1-9: list, failing test, read, grep, source, and two recovered doc fetches."""
     plant, src, test, naive, naive_return = c.plant, c.src, c.test, c.naive, c.naive_return
-    probe = _probe_scene(c, success)
     return [
         _step(1, cv.DB_PLAN, f"list src {probe.short} and tests before touching conversion or config.",
               _bash(f"ls -la src {probe.short} tests | head -40"),
@@ -251,44 +258,47 @@ def _fail_handoff_steps(c: _Bind) -> list[dict[str, Any]]:
     ]
 
 
+_Outcome = namedtuple("_Outcome", "module seed later_steps step_count drift reward")
+_OUTCOMES = {
+    True: _Outcome(
+        "module", "plant_id", _success_fix_steps, cv.SUCCESS_STEPS, "success step count drifted",
+        {"success": True, "tests_passed": 3, "retries": 2, "duration_min": 610,
+         "wasted_calls": 180, "cost_steps": cv.SUCCESS_STEPS, "plan_changes": 1},
+    ),
+    False: _Outcome(
+        "drop_module", "fail_id", _fail_handoff_steps, cv.FAIL_STEPS, "fail step count drifted",
+        {"success": False, "tests_passed": 2, "retries": 2, "duration_min": 640,
+         "wasted_calls": 210, "cost_steps": cv.FAIL_STEPS, "plan_changes": 1},
+    ),
+}
+
+
+def _episode(round_n: int, plant: cat.Plant, success: bool) -> dict[str, Any]:
+    outcome = _OUTCOMES[success]
+    c = _bind_scene(plant, getattr(plant, outcome.module))
+    scene = _outcome_scene(c, success)
+    steps = _probe_steps(c, scene) + outcome.later_steps(c)
+    cv.refuse_when(len(steps) != outcome.step_count, cv.FINDING_STEP_COUNT_INVALID, outcome.drift)
+    seed = getattr(plant, outcome.seed)
+    return {
+        "id": cv.record_id(round_n, seed),
+        "goal": scene.goal,
+        "plan": scene.plan,
+        "steps": steps,
+        "outcome": scene.outcome,
+        "reward": dict(outcome.reward),
+        "meta": _meta(round_n, seed, _domain(plant, dropped=not success), f"{plant.provider} identity-bind"),
+    }
+
+
 def success_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
     """16-step success: naive key, identity-only miss, then (identity, event) bind."""
-    c = _bind_scene(plant, plant.module)
-    idf, evf, naive = c.idf, c.evf, c.naive
-    steps = _probe_steps(c, success=True) + _success_fix_steps(c)
-    cv.refuse_when(len(steps) != cv.SUCCESS_STEPS, cv.FINDING_STEP_COUNT_INVALID, "success step count drifted")
-    return {
-        "id": cv.record_id(round_n, plant.plant_id),
-        "goal": f"Dedupe {plant.provider} events on ({idf}, {evf}), not {naive}.",
-        "plan": f"Read {naive}-as-pk, try {idf} only, then bind ({idf}, {evf}).",
-        "steps": steps,
-        "outcome": f"Bound ({idf}, {evf}). {naive} unused (success).",
-        "reward": {
-            "success": True, "tests_passed": 3, "retries": 2, "duration_min": 610,
-            "wasted_calls": 180, "cost_steps": cv.SUCCESS_STEPS, "plan_changes": 1,
-        },
-        "meta": _meta(round_n, plant.plant_id, _domain(plant, dropped=False), f"{plant.provider} identity-bind"),
-    }
+    return _episode(round_n, plant, success=True)
 
 
 def fail_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
     """17-step handoff: dropping the event field stays red; ticket the grain."""
-    c = _bind_scene(plant, plant.drop_module)
-    evf, naive = c.evf, c.naive
-    steps = _probe_steps(c, success=False) + _fail_handoff_steps(c)
-    cv.refuse_when(len(steps) != cv.FAIL_STEPS, cv.FINDING_STEP_COUNT_INVALID, "fail step count drifted")
-    return {
-        "id": cv.record_id(round_n, plant.fail_id),
-        "goal": f"Do not drop {plant.provider} {evf} when binding the id.",
-        "plan": f"Read drop-{evf}, try {naive}, then hand off dropped {evf} grain.",
-        "steps": steps,
-        "outcome": f"Still drop-{evf}; {evf} grain is {plant.provider} — handoff {plant.ticket}.",
-        "reward": {
-            "success": False, "tests_passed": 2, "retries": 2, "duration_min": 640,
-            "wasted_calls": 210, "cost_steps": cv.FAIL_STEPS, "plan_changes": 1,
-        },
-        "meta": _meta(round_n, plant.fail_id, _domain(plant, dropped=True), f"{plant.provider} identity-bind"),
-    }
+    return _episode(round_n, plant, success=False)
 
 
 def notes(round_n: int, plant: cat.Plant) -> str:

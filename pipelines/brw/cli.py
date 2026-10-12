@@ -114,13 +114,8 @@ def _print_catalog(args: argparse.Namespace) -> int:
 
 
 def _emit_sides(args: argparse.Namespace, ok: dict, bad: dict) -> None:
-    if args.fail:
-        _emit(bad)
-    elif args.success:
-        _emit(ok)
-    else:
-        _emit(ok)
-        _emit(bad)
+    for record in (bad,) if args.fail else (ok,) if args.success else (ok, bad):
+        _emit(record)
 
 
 def _single_pair(args: argparse.Namespace) -> tuple[dict, dict]:

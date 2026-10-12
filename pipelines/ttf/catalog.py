@@ -355,6 +355,11 @@ def _str_constant(node: ast.AST | None) -> str | None:
     return None
 
 
+def _builder_key(node: ast.AST | None) -> str | None:
+    key = _str_constant(node)
+    return key if key in _BUILDER_KEYS else None
+
+
 def _builder_strings(fn: ast.FunctionDef) -> dict[str, str]:
     """The first string literal per identity key across every dict literal in ``fn``."""
     found: dict[str, str] = {}
@@ -362,10 +367,10 @@ def _builder_strings(fn: ast.FunctionDef) -> dict[str, str]:
         if not isinstance(node, ast.Dict):
             continue
         for key_node, value_node in zip(node.keys, node.values):
-            key = _str_constant(key_node)
+            key = _builder_key(key_node)
             value = _str_constant(value_node)
-            if key in _BUILDER_KEYS and key not in found and value is not None:
-                found[key] = value
+            if key is not None and value is not None:
+                found.setdefault(key, value)
     return found
 
 

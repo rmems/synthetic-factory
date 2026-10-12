@@ -143,12 +143,8 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.value is not None
-    ):
-        return node.target.id, node.value
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 

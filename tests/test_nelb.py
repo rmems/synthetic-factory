@@ -456,11 +456,12 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
+        request = generate.RunRequest(1, out)
         with (
             mock.patch.object(generate, "_fsync_destination", interrupt),
             self.assertRaises(KeyboardInterrupt),
         ):
-            generate.run(generate.RunRequest(1, out))
+            generate.run(request)
         self.assertFalse(out.exists())
         summary = generate.run(generate.RunRequest(1, out))
         self.assertEqual(summary["records"], 3)
