@@ -407,6 +407,29 @@ def _classify_source_record(original):
     return kind, kind_error
 
 
+def _nonprocedural_dependencies() -> _identity_stages.CurationDependencies:
+    """Bind the non-procedural stages to this module's current seams at call time."""
+    return _identity_stages.CurationDependencies(
+        allowed_contracts=ALLOWED_CONTRACTS,
+        apply_resolved_state=_apply_resolved_state,
+        apply_shape_designed=_apply_shape_designed,
+        canonical_id=_canonical_id,
+        collect_state_resolutions=_collect_state_resolutions,
+        curation_result=CurationResult,
+        exclude=_exclude,
+        identity_curation_error=IdentityCurationError,
+        owner_specs=_owner_specs,
+        payload_factory=_payload_factory,
+        payload_has_state_claim=_payload_has_state_claim,
+        require_state_contract=CONTRACT_REQUIRE_STATE,
+        residual_real_claim_paths=_residual_real_claim_paths,
+        sha256_json=sha256_json,
+        shape_basis=SHAPE_BASIS,
+        shape_validation_errors=_shape_validation_errors,
+        training_ready_true_paths=_training_ready_true_paths,
+    )
+
+
 def curate_record(
     source_record: SourceRecord,
     registry: FactoryRegistry | None = None,
@@ -452,26 +475,9 @@ def curate_record(
             root_original_ids=root_original_ids,
             mapping=mapping,
         )
-        dependencies = _identity_stages.CurationDependencies(
-            allowed_contracts=ALLOWED_CONTRACTS,
-            apply_resolved_state=_apply_resolved_state,
-            apply_shape_designed=_apply_shape_designed,
-            canonical_id=_canonical_id,
-            collect_state_resolutions=_collect_state_resolutions,
-            curation_result=CurationResult,
-            exclude=_exclude,
-            identity_curation_error=IdentityCurationError,
-            owner_specs=_owner_specs,
-            payload_factory=_payload_factory,
-            payload_has_state_claim=_payload_has_state_claim,
-            require_state_contract=CONTRACT_REQUIRE_STATE,
-            residual_real_claim_paths=_residual_real_claim_paths,
-            sha256_json=sha256_json,
-            shape_basis=SHAPE_BASIS,
-            shape_validation_errors=_shape_validation_errors,
-            training_ready_true_paths=_training_ready_true_paths,
+        result = _identity_stages.curate_nonprocedural_record(
+            context, _nonprocedural_dependencies()
         )
-        result = _identity_stages.curate_nonprocedural_record(context, dependencies)
     return _attach_retained_rights(result, row, source.sha256, registry.sha256)
 
 
