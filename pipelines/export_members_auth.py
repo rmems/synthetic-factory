@@ -14,15 +14,11 @@ if __package__:
 
     _assert_direct_sibling("export_members_auth")
     from .export_contract import ExportError
-    from .export_members_jsonl import lf_jsonl_documents
-    from .export_members_read import read_exact_regular_file
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "export_members_auth"
     )
     from export_contract import ExportError
-    from export_members_jsonl import lf_jsonl_documents
-    from export_members_read import read_exact_regular_file
 
 
 _ReadExactRegularFile = Callable[[Path, str, str], tuple[Path, bytes]]
@@ -116,21 +112,6 @@ def _require_entry_count(
         raise ExportError(
             f"COMPOSE.json: {key} entry count {entries} != {len(documents)}"
         )
-
-
-def authenticated_descriptor(
-    curated_root: Path,
-    summary: dict[str, Any],
-    key: str,
-    expected_path: str,
-) -> tuple[dict[str, Any], list[Any]]:
-    """Authenticate one descriptor's path, bytes, digest, JSON, and count."""
-    request = AuthenticationRequest(curated_root, summary, key, expected_path)
-    dependencies = AuthenticationDependencies(
-        read_exact_regular_file,
-        lf_jsonl_documents,
-    )
-    return authenticate_descriptor(request, dependencies)
 
 
 def authenticate_descriptor(
