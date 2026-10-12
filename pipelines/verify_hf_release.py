@@ -556,12 +556,12 @@ class _CompactReader:
         return field_id, field_type
 
     def skip(self, field_type: int) -> None:
-        if field_type in {self.BOOLEAN_TRUE, self.BOOLEAN_FALSE, self.BYTE}:
-            self._read(1) if field_type == self.BYTE else None
+        # Booleans carry their value in the type nibble, so they occupy no bytes.
+        fixed_widths = {self.BOOLEAN_TRUE: 0, self.BOOLEAN_FALSE: 0, self.BYTE: 1, self.DOUBLE: 8}
+        if field_type in fixed_widths:
+            self._read(fixed_widths[field_type])
         elif field_type in {self.I16, self.I32, self.I64}:
             self._uvarint()
-        elif field_type == self.DOUBLE:
-            self._read(8)
         elif field_type == self.BINARY:
             self._binary()
         elif field_type in {self.LIST, self.SET}:
@@ -689,7 +689,7 @@ def _viewer_errors(card: str, viewer_bytes: bytes) -> tuple[str, ...]:
     footer_start = len(viewer_bytes) - 8 - footer_size
     try:
         names, rows = _CompactReader(viewer_bytes[footer_start : footer_start + footer_size]).schema_names_and_rows()
-    except (UnicodeDecodeError, ValueError) as error:
+    except ValueError as error:  # UnicodeDecodeError is a ValueError
         errors.append(f"viewer projection has invalid Parquet footer metadata: {error}")
         return tuple(errors)
     if rows <= 0:
