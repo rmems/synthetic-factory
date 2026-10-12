@@ -29,7 +29,7 @@ def _require(holds: bool, what: str) -> None:
 
 
 def _count(value: Any, what: str) -> int:
-    _require(type(value) is int and value >= 0, what)
+    _require(public.is_integer(value) and value >= 0, what)
     return value
 
 
@@ -163,10 +163,10 @@ def label_of(record: dict[str, Any]) -> dict[str, Any]:
     measured = _measured_of(record)
     try:
         return _LABELS[family](measured)
-    except (KeyError, TypeError, IndexError) as exc:
+    except (KeyError, TypeError, IndexError, OverflowError) as exc:
         raise tv.TextViewRefusal(
             tv.FINDING_UNSUPPORTED_RECORD_SHAPE,
-            f"result.measured lacks a field the {family} label needs: {type(exc).__name__}",
+            f"result.measured cannot yield the {family} label: {type(exc).__name__}",
         ) from exc
 
 

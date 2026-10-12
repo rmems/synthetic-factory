@@ -36,15 +36,20 @@ def same(left: Any, right: Any) -> bool:
 
 
 def _strings(value: Any) -> list[str]:
-    """Every string in ``value``, mapping keys included."""
+    """Every string in ``value``, mapping keys included; iterative, so depth cannot overflow."""
 
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return [*map(str, value), *_strings(list(value.values()))]
-    if isinstance(value, list):
-        return [text for item in value for text in _strings(item)]
-    return []
+    found: list[str] = []
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict):
+            found.extend(map(str, item))
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return found
 
 
 def _basis_phrases(candidate: dict[str, Any]) -> list[str]:

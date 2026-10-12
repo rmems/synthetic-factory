@@ -159,15 +159,26 @@ def _close(reservation: _Reservation) -> None:
             os.close(descriptor)
 
 
+def _fill(reservation: _Reservation, files: dict[str, bytes]) -> None:
+    _open_directory(reservation)
+    try:
+        for name, data in files.items():
+            _create(reservation, name, data)
+    except FileExistsError as exc:
+        raise tv.TextViewRefusal(
+            tv.FINDING_DESTINATION_EXISTS, "another writer created an entry in the destination"
+        ) from exc
+    except OSError as exc:
+        raise _write_failed("writing the view files", exc) from exc
+
+
 def _populate(reservation: _Reservation, files: dict[str, bytes]) -> None:
     _make_directory(reservation)
     try:
-        _open_directory(reservation)
-        for name, data in files.items():
-            _create(reservation, name, data)
-    except OSError as exc:
+        _fill(reservation, files)
+    except BaseException:
         _roll_back(reservation)
-        raise _write_failed("writing the view files", exc) from exc
+        raise
     except tv.TextViewRefusal:
         _roll_back(reservation)
         raise

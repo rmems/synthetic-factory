@@ -13,7 +13,6 @@ from __future__ import annotations
 import contextlib
 import copy
 import hashlib
-import importlib
 import io
 import json
 import math
@@ -171,6 +170,19 @@ class CodedRefusals(unittest.TestCase):
         for name, record, code in cases:
             with self.subTest(case=name):
                 self.assert_refused(record, code)
+
+    def test_an_overflowing_measurement_or_signal_is_a_coded_refusal(self):
+        accepted = records(tv.STATUS_ACCEPTED)
+        credit = copy.deepcopy(first(accepted, lambda r: r["family"] == tv.CREDIT_FAMILY,
+                                     "an accepted credit record"))
+        deltas = credit["result"]["measured"]["plasticity"]["weight_deltas"]
+        credit["result"]["measured"]["plasticity"]["weight_deltas"] = [1e308] * len(deltas)
+        encoder = copy.deepcopy(first(accepted, lambda r: r["family"] == tv.ENCODER_FAMILY,
+                                      "an accepted encoder record"))
+        encoder["scenario"]["signal"] = [1e308] * len(encoder["scenario"]["signal"])
+        for name, record in (("weight deltas", credit), ("signal", encoder)):
+            with self.subTest(case=name):
+                self.assert_refused(reseal(record), tv.FINDING_UNSUPPORTED_RECORD_SHAPE)
 
     def test_a_leak_in_the_public_sections_refuses_the_row(self):
         record = copy.deepcopy(records(tv.STATUS_ACCEPTED)[0])
@@ -396,13 +408,18 @@ class CommandLineRefusals(unittest.TestCase):
         self.assertIn(tv.LEAK_VIEW_EXTRA_KEYS, stderr)
         self.assertFalse(out.exists())
 
-    def test_a_write_failure_leaves_no_destination(self):
-        out = self.root / "views"
-        with mock.patch.object(cli.output, "_create", side_effect=OSError("disk full")):
-            status, _, stderr = invoke([_STATE["run_dir"], "--out", out])
-        self.assertEqual((status, refusal_code(stderr)),
-                         (cli.EXIT_REFUSED, tv.FINDING_DESTINATION_WRITE_FAILED))
-        self.assertFalse(out.exists())
+    def test_a_failed_write_is_coded_and_leaves_no_destination(self):
+        cases = (
+            (OSError("disk full"), tv.FINDING_DESTINATION_WRITE_FAILED),
+            (FileExistsError("raced"), tv.FINDING_DESTINATION_EXISTS),
+        )
+        for error, code in cases:
+            with self.subTest(error=type(error).__name__):
+                out = self.root / f"views-{type(error).__name__}"
+                with mock.patch.object(cli.output, "_create", side_effect=error):
+                    status, _, stderr = invoke([_STATE["run_dir"], "--out", out])
+                self.assertEqual((status, refusal_code(stderr)), (cli.EXIT_REFUSED, code))
+                self.assertFalse(out.exists())
 
     def test_the_entry_script_dispatches_as_main(self):
         out = self.root / "direct"
@@ -421,12 +438,17 @@ class ImportForms(unittest.TestCase):
     def test_both_spellings_are_one_module(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
+        import pipelines.oracle_views as packaged_views
+
+        import oracle_views
+
+        self.assertIs(packaged_views, oracle_views)
         for name in PACKAGE_MODULES:
             with self.subTest(module=name):
-                flat = importlib.import_module(f"oracle_views.{name}")
-                packaged = importlib.import_module(f"pipelines.oracle_views.{name}")
-                self.assertIs(flat, packaged)
-        packaged_tv = importlib.import_module("pipelines.oracle_views.vocabulary")
+                flat = sys.modules[f"oracle_views.{name}"]
+                self.assertIs(sys.modules[f"pipelines.oracle_views.{name}"], flat)
+                self.assertIs(getattr(oracle_views, name), flat)
+        packaged_tv = sys.modules["pipelines.oracle_views.vocabulary"]
         self.assertIs(packaged_tv.TextViewRefusal, tv.TextViewRefusal)
 
 

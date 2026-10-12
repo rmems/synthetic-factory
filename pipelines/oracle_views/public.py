@@ -15,14 +15,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import vocabulary as tv
 from ._contract import bind_import_twin, canon, dumps_exact_json
 
 __all__ = [
-    "PublicView", "choice_options", "compact", "family_of", "is_number", "public_view",
-    "render_choice_prompt", "render_prompt", "summarize",
+    "PublicView", "choice_options", "compact", "family_of", "is_integer", "is_number",
+    "public_view", "render_choice_prompt", "render_prompt", "summarize",
 ]
 
 
@@ -54,10 +54,25 @@ def is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def is_integer(value: Any) -> TypeGuard[int]:
+    """An int that is not a boolean."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _is_long_numeric(value: Any) -> bool:
     if not isinstance(value, list) or len(value) <= tv.MAX_INLINE_VALUES:
         return False
     return all(is_number(item) for item in value)
+
+
+def _mean(values: list[Any]) -> float:
+    try:
+        return math.fsum(values) / len(values)
+    except OverflowError as exc:
+        raise tv.TextViewRefusal(
+            tv.FINDING_UNSUPPORTED_RECORD_SHAPE, "a numeric array overflows its mean"
+        ) from exc
 
 
 def summarize(values: list[Any]) -> dict[str, Any]:
@@ -68,7 +83,7 @@ def summarize(values: list[Any]) -> dict[str, Any]:
         "length": len(values),
         "min": canon.normalize(min(values)),
         "max": canon.normalize(max(values)),
-        "mean": canon.normalize(math.fsum(values) / len(values)),
+        "mean": canon.normalize(_mean(values)),
     }
 
 
@@ -160,12 +175,12 @@ def _encoder_options(view: PublicView) -> tuple[str, ...]:
         not _two_distinct_encodings(pair), tv.FINDING_UNSUPPORTED_RECORD_SHAPE,
         f"encoding_pair {tv.shown(pair)} is not two distinct encodings",
     )
-    return (*pair, tv.ENCODER_TIE_OPTION)
+    return *pair, tv.ENCODER_TIE_OPTION
 
 
 def _synapse_count(circuit: Any) -> int:
     count = circuit.get("pre_neuron_count") if isinstance(circuit, dict) else None
-    if type(count) is int and count >= 1:
+    if is_integer(count) and count >= 1:
         return count
     raise tv.TextViewRefusal(
         tv.FINDING_UNSUPPORTED_RECORD_SHAPE,
@@ -176,7 +191,7 @@ def _synapse_count(circuit: Any) -> int:
 def _credit_options(view: PublicView) -> tuple[str, ...]:
     count = _synapse_count(view.scenario["circuit"])
     synapses = tuple(f"{tv.CREDIT_SYNAPSE_PREFIX}{index}" for index in range(count))
-    return (*synapses, tv.CREDIT_NO_UPDATE)
+    return *synapses, tv.CREDIT_NO_UPDATE
 
 
 _OPTIONS = {

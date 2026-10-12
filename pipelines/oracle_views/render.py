@@ -57,16 +57,25 @@ def _chat_row(prompt: str, completion: str) -> dict[str, Any]:
     }
 
 
-def render_row(record: dict[str, Any], kind: str) -> dict[str, Any]:
-    """The ``kind`` row for ``record``; a malformed record raises a coded refusal."""
-
-    view = public.public_view(record)
-    if kind == tv.KIND_CHOICE:
-        return _choice_row(record, view)
-    prompt, completion = public.render_prompt(view), labels.completion_of(record)
-    if kind == tv.KIND_CHAT:
-        return _chat_row(prompt, completion)
+def _sft_row(prompt: str, completion: str) -> dict[str, Any]:
     return {"prompt": prompt, "completion": completion}
+
+
+_TEXT_ROWS = {tv.KIND_SFT: _sft_row, tv.KIND_CHAT: _chat_row}
+
+
+def render_row(record: dict[str, Any], kind: str) -> dict[str, Any]:
+    """The ``kind`` row for ``record``; a malformed record raises a coded refusal.
+
+    ``kind`` is one of ``ROW_KINDS``; any other value is a programming error and
+    raises ``KeyError`` rather than falling back to another shape.
+    """
+
+    text_row = None if kind == tv.KIND_CHOICE else _TEXT_ROWS[kind]
+    view = public.public_view(record)
+    if text_row is None:
+        return _choice_row(record, view)
+    return text_row(public.render_prompt(view), labels.completion_of(record))
 
 
 def row_kind(row: dict[str, Any]) -> str:
@@ -131,7 +140,7 @@ def completion_object(row: dict[str, Any], kind: str) -> dict[str, Any]:
     text = completion_text(row, kind)
     try:
         value = json.loads(text, parse_constant=envelope.reject_json_constant)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         return {}
     return value if isinstance(value, dict) else {}
 
