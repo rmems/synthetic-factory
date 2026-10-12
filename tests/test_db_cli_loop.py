@@ -324,7 +324,7 @@ class SelfCheckRefusalTests(unittest.TestCase):
 
 
 # Every required field gets a non-empty placeholder; engine and slug get real values.
-_PLANT_FIELDS = dict({key: f"<{key}>" for key in REQUIRED_KEYS}, engine="sqlite", slug="slug-x")
+_PLANT_FIELDS = {key: f"<{key}>" for key in REQUIRED_KEYS} | {"engine": "sqlite", "slug": "slug-x"}
 
 
 class PlantConstructorTests(unittest.TestCase):
