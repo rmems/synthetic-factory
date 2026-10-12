@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable, Mapping
-from typing import Any
+from functools import partial
+from typing import Any, TypeGuard
 
 UNSET = object()
 
-_STR_METHODS = frozenset({"replace", "title", "upper"})
+_REPLACE = "replace"
+_STR_METHODS = frozenset({_REPLACE, "title", "upper"})
 
 
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
@@ -37,9 +39,20 @@ def call_name(node: ast.AST) -> str | None:
 
 
 def resolve(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve a closed set of literal AST forms; else ``UNSET``."""
+    """Resolve a closed set of literal AST forms; else ``UNSET``.
+
+    Constants, names and ``-x`` are handled here and every resolver in
+    ``_RESOLVERS`` calls ``resolve`` directly, so a ``-x`` level costs one frame and
+    any other nesting level two, as before the resolvers were split out.
+    """
 
     bound = env or {}
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return bound.get(node.id, UNSET)
+    if _is_negation(node):
+        return _negated(resolve(node.operand, bound))
     for node_type, resolver in _RESOLVERS:
         if isinstance(node, node_type):
             return resolver(node, bound)
@@ -54,39 +67,21 @@ def require(node: ast.AST, env: Mapping[str, Any], ctx: str) -> Any:
     return value
 
 
-def _constant(node: ast.Constant, _unused_env: Mapping[str, Any]) -> Any:
-    """A literal needs no bindings; the ``env`` slot keeps the resolver-table signature."""
-
-    return node.value
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
 
 
-def _name(node: ast.Name, env: Mapping[str, Any]) -> Any:
-    return env.get(node.id, UNSET)
+def _negated(inner: Any) -> Any:
+    """``-inner`` for a resolved number; anything else stays ``UNSET``."""
 
-
-def _unary(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.op, ast.USub):
-        return UNSET
-    inner = resolve(node.operand, env)
     return -inner if isinstance(inner, (int, float)) else UNSET
 
 
-def _tuple(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
-    return _sequence(node.elts, env, tuple)
-
-
-def _list(node: ast.List, env: Mapping[str, Any]) -> Any:
-    return _sequence(node.elts, env, list)
-
-
-def _set(node: ast.Set, env: Mapping[str, Any]) -> Any:
-    values = _sequence(node.elts, env, list)
-    return set(values) if values is not UNSET else UNSET
-
-
-def _sequence(elts: list[ast.expr], env: Mapping[str, Any], ctor):
+def _sequence(
+    node: ast.Tuple | ast.List | ast.Set, env: Mapping[str, Any], *, ctor: Callable[[list[Any]], Any]
+) -> Any:
     values: list[Any] = []
-    for elt in elts:
+    for elt in node.elts:
         item = resolve(elt, env)
         if item is UNSET:
             return UNSET
@@ -110,15 +105,17 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
 def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
     parts: list[str] = []
     for value in node.values:
-        part = _joined_part(value, env)
+        piece = _joined_piece(value)
+        part = _field_text(resolve(piece, env)) if isinstance(piece, ast.AST) else piece
         if part is UNSET:
             return UNSET
         parts.append(part)
     return "".join(parts)
 
 
-def _joined_part(value: ast.AST, env: Mapping[str, Any]) -> Any:
-    """One f-string piece: a str literal or a plain/``!s`` replacement field."""
+def _joined_piece(value: ast.AST) -> Any:
+    """One f-string piece: its str literal, the expression of a plain/``!s`` field, or
+    ``UNSET`` for anything else. The caller resolves the expression itself."""
 
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
         return value.value
@@ -126,7 +123,12 @@ def _joined_part(value: ast.AST, env: Mapping[str, Any]) -> Any:
         return UNSET
     if value.format_spec is not None or value.conversion not in (-1, 115):
         return UNSET
-    inner = resolve(value.value, env)
+    return value.value
+
+
+def _field_text(inner: Any) -> Any:
+    """``str(inner)`` for a resolved str or int field; anything else stays ``UNSET``."""
+
     if inner is UNSET or not isinstance(inner, (str, int)):
         return UNSET
     return str(inner)
@@ -166,14 +168,12 @@ def _subscript(node: ast.Subscript, env: Mapping[str, Any]) -> Any:
         return UNSET
     slc = node.slice
     if isinstance(slc, ast.Slice):
-        bounds = _slice_bounds(slc, env)
-        if bounds is UNSET:
-            return UNSET
-        return _item(owner, slice(*bounds))
+        bounds = _bounds_or_unset(
+            [resolve(part, env) if part is not None else None for part in _slice_parts(slc)]
+        )
+        return UNSET if bounds is UNSET else _item(owner, slice(*bounds))
     index = resolve(slc, env)
-    if index is UNSET:
-        return UNSET
-    return _item(owner, index)
+    return UNSET if index is UNSET else _item(owner, index)
 
 
 def _item(owner: Any, index: Any) -> Any:
@@ -184,22 +184,26 @@ def _item(owner: Any, index: Any) -> Any:
 
 
 def _slice_value(node: ast.Slice, env: Mapping[str, Any]) -> Any:
-    bounds = _slice_bounds(node, env)
-    if bounds is UNSET:
-        return UNSET
-    return slice(*bounds)
-
-
-def _slice_bounds(node: ast.Slice, env: Mapping[str, Any]) -> Any:
-    """Resolve every present bound first, then refuse if any stayed ``UNSET``."""
-
-    bounds = tuple(
-        resolve(part, env) if part is not None else None
-        for part in (node.lower, node.upper, node.step)
+    bounds = _bounds_or_unset(
+        [resolve(part, env) if part is not None else None for part in _slice_parts(node)]
     )
-    if any(bound is UNSET for bound in bounds):
+    return UNSET if bounds is UNSET else slice(*bounds)
+
+
+def _slice_parts(node: ast.Slice) -> tuple[ast.expr | None, ast.expr | None, ast.expr | None]:
+    return node.lower, node.upper, node.step
+
+
+def _bounds_or_unset(bounds: list[Any]) -> Any:
+    """Every present bound is resolved first; any that stayed ``UNSET`` refuses them all.
+
+    ``UNSET`` is a private sentinel and resolved values are builtins, so ``in`` is the
+    identity test, without a generator frame below the deepest ``resolve``.
+    """
+
+    if UNSET in bounds:
         return UNSET
-    return bounds
+    return tuple(bounds)
 
 
 def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
@@ -207,56 +211,55 @@ def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if name in {"exec", "eval", "compile", "__import__"}:
         return UNSET
     if name == "pair":
-        args = _call_args(node, env)
-        return tuple(args) if args is not UNSET else UNSET
-    return _str_call(node, env)
-
-
-def _str_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.func, ast.Attribute) or node.func.attr not in _STR_METHODS:
+        return _pair_tuple(_checked_args(node, [resolve(arg, env) for arg in node.args]))
+    method = _str_method_target(node)
+    if method is None:
         return UNSET
-    owner = resolve(node.func.value, env)
+    owner = resolve(method.value, env)
     if not isinstance(owner, str):
         return UNSET
-    args = _call_args(node, env)
-    if args is UNSET:
-        return UNSET
-    return _str_method(owner, node.func.attr, args)
+    args = _checked_args(node, [resolve(arg, env) for arg in node.args])
+    return UNSET if args is UNSET else _str_method(owner, method.attr, args)
 
 
-def _call_args(node: ast.Call, env: Mapping[str, Any]) -> Any:
+def _str_method_target(node: ast.Call) -> ast.Attribute | None:
+    """``owner.method`` when ``method`` is one of the closed set of ``str`` methods."""
+
+    func = node.func
+    if isinstance(func, ast.Attribute) and func.attr in _STR_METHODS:
+        return func
+    return None
+
+
+def _checked_args(node: ast.Call, args: list[Any]) -> Any:
     """Positional args, all resolved before keywords are refused."""
 
-    args = [resolve(arg, env) for arg in node.args]
-    if node.keywords or any(item is UNSET for item in args):
+    if node.keywords or UNSET in args:
         return UNSET
     return args
 
 
+def _pair_tuple(args: Any) -> Any:
+    return UNSET if args is UNSET else tuple(args)
+
+
 def _str_method(owner: str, attr: str, args: list[Any]) -> Any:
-    if attr == "replace" and len(args) == 2:
-        return _str_replace(owner, args)
-    if args:
-        return UNSET
-    if attr == "title":
-        return owner.title()
-    return owner.upper() if attr == "upper" else UNSET
+    """``replace`` with two strs, or ``title`` / ``upper`` with no args; else ``UNSET``."""
 
-
-def _str_replace(owner: str, args: list[Any]) -> Any:
-    if not all(isinstance(item, str) for item in args):
+    if attr == _REPLACE and len(args) == 2:
+        both_str = isinstance(args[0], str) and isinstance(args[1], str)
+        return owner.replace(args[0], args[1]) if both_str else UNSET
+    if args or attr == _REPLACE:
         return UNSET
-    return owner.replace(args[0], args[1])
+    return owner.title() if attr == "title" else owner.upper()
 
 
 # Each resolver takes the node type it is paired with; ``resolve`` dispatches by isinstance.
+# The sequence ctors are bound with ``partial`` (a C callable, so no extra Python frame).
 _RESOLVERS: tuple[tuple[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]], ...] = (
-    (ast.Constant, _constant),
-    (ast.Name, _name),
-    (ast.UnaryOp, _unary),
-    (ast.Tuple, _tuple),
-    (ast.List, _list),
-    (ast.Set, _set),
+    (ast.Tuple, partial(_sequence, ctor=tuple)),
+    (ast.List, partial(_sequence, ctor=list)),
+    (ast.Set, partial(_sequence, ctor=set)),
     (ast.Dict, _mapping),
     (ast.JoinedStr, _joined_string),
     (ast.BinOp, _binop),
