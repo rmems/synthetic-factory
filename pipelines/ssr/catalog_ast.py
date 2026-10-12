@@ -7,8 +7,8 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeGuard
 
 UNSET = object()
 PAIR_CTORS = frozenset({"plant", "S"})
@@ -35,59 +35,70 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    The helpers below only classify or combine and every recursive call is made here,
+    so a ``-x`` or ``a + b`` level costs one frame and a container or f-string level two.
+    """
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
         return bound.get(node.id, UNSET)
-    if isinstance(node, (ast.Tuple, ast.List, ast.Set, ast.Dict)):
-        return _container_value(node, bound)
-    return _expression_value(node, bound)
+    if _is_negation(node):
+        return _negated(literal_value(node.operand, bound))
+    if _is_concatenation(node):
+        left = literal_value(node.left, bound)
+        return _concatenated(left, literal_value(node.right, bound))
+    evaluate, args = _compound_step(node)
+    return evaluate(*args, bound)
 
 
-def _expression_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
-    if isinstance(node, ast.UnaryOp):
-        return _negated(node, env)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, env)
-    if isinstance(node, ast.BinOp):
-        return _concatenated(node, env)
-    return UNSET
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
 
 
-def _container_value(
-    node: ast.Tuple | ast.List | ast.Set | ast.Dict, env: Mapping[str, Any]
-) -> Any:
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, env, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, env, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, env, list)
-        return set(values) if values is not UNSET else UNSET
-    return _mapping(node, env)
+def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
 
 
-def _negated(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.op, ast.USub):
-        return UNSET
-    inner = literal_value(node.operand, env)
+def _negated(inner: Any) -> Any:
+    """``-inner`` for a resolved number; anything else stays ``UNSET``."""
+
     return -inner if isinstance(inner, (int, float)) else UNSET
 
 
-def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.op, ast.Add):
-        return UNSET
-    left = literal_value(node.left, env)
-    right = literal_value(node.right, env)
+def _concatenated(left: Any, right: Any) -> Any:
+    """``left + right`` for two resolved strings; anything else stays ``UNSET``."""
+
     if isinstance(left, str) and isinstance(right, str):
         return left + right
     return UNSET
 
 
-def _sequence(elts: Sequence[ast.expr], env: Mapping[str, Any], ctor):
+def _compound_step(node: ast.AST) -> tuple[Callable[..., Any], tuple[Any, ...]]:
+    """``(evaluator, leading arguments)`` for a dict, f-string, set, tuple or list node.
+
+    Never recurses itself; every other node maps to ``_unresolved`` and stays ``UNSET``.
+    """
+
+    if isinstance(node, ast.Dict):
+        return _mapping, (node,)
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string, (node,)
+    if isinstance(node, ast.Set):
+        return _sequence, (node.elts, set)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return _sequence, (node.elts, tuple if isinstance(node, ast.Tuple) else list)
+    return _unresolved, ()
+
+
+def _unresolved(_env: Mapping[str, Any]) -> Any:
+    return UNSET
+
+
+def _sequence(elts: Sequence[ast.expr], ctor, env: Mapping[str, Any]):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)

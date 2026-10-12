@@ -9,8 +9,8 @@ from __future__ import annotations
 import ast
 import re
 import warnings
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeGuard
 
 UNSET = object()
 
@@ -39,48 +39,70 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    The helpers below only classify or combine and every recursive call is made here,
+    so a ``-x`` or ``a + b`` level costs one frame and a container or f-string level two.
+    """
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
         return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, (ast.UnaryOp, ast.BinOp)):
-        return _operator_value(node, bound)
-    return _container_value(node, bound)
+    if _is_negation(node):
+        return _negated(literal_value(node.operand, bound))
+    if _is_concatenation(node):
+        left = literal_value(node.left, bound)
+        return _concatenated(left, literal_value(node.right, bound))
+    evaluate, args = _compound_step(node)
+    return evaluate(*args, bound)
 
 
-def _operator_value(node: ast.UnaryOp | ast.BinOp, env: Mapping[str, Any]) -> Any:
-    """Negated numbers and ``str + str`` concatenation; other operators are ``UNSET``."""
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
 
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, env)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, env)
-        right = literal_value(node.right, env)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+
+def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _negated(inner: Any) -> Any:
+    """``-inner`` for a resolved number; anything else stays ``UNSET``."""
+
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _concatenated(left: Any, right: Any) -> Any:
+    """``left + right`` for two resolved strings; anything else stays ``UNSET``."""
+
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     return UNSET
 
 
-def _container_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
+def _compound_step(node: ast.AST) -> tuple[Callable[..., Any], tuple[Any, ...]]:
+    """Evaluator and leading arguments for a container or f-string node.
+
+    Any other node gets ``_unresolved``, so it stays ``UNSET``.
+    """
+
     if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, env, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, env, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, env, list)
-        return set(values) if values is not UNSET else UNSET
+        return _sequence, (node.elts, tuple)
+    if isinstance(node, (ast.List, ast.Set)):
+        return _sequence, (node.elts, list if isinstance(node, ast.List) else set)
     if isinstance(node, ast.Dict):
-        return _mapping(node, env)
+        return _mapping, (node,)
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string, (node,)
+    return _unresolved, ()
+
+
+def _unresolved(_env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any] | None, ctor):
+def _sequence(elts: Sequence[ast.AST], ctor, env: Mapping[str, Any]):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -134,10 +156,13 @@ def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str
     names = _keyword_names(node)
     if names is None:
         return None
-    values = _sequence([keyword.value for keyword in node.keywords], env, list)
-    if values is UNSET:
-        return None
-    return dict(zip(names, values, strict=True))
+    out: dict[str, Any] = {}
+    for name, keyword in zip(names, node.keywords, strict=True):
+        value = literal_value(keyword.value, env)
+        if value is UNSET:
+            return None
+        out[name] = value
+    return out
 
 
 def _keyword_names(node: ast.Call) -> list[str] | None:
@@ -158,8 +183,13 @@ def call_posargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> list[An
         return None
     if node.keywords:
         return None
-    values = _sequence(node.args, env, list)
-    return None if values is UNSET else values
+    values: list[Any] = []
+    for arg in node.args:
+        value = literal_value(arg, env)
+        if value is UNSET:
+            return None
+        values.append(value)
+    return values
 
 
 def joined_path_constant(node: ast.AST) -> str | None:
@@ -171,16 +201,19 @@ def joined_path_constant(node: ast.AST) -> str | None:
         return joined_path_constant(node.args[0])
     if isinstance(node, ast.Name):
         return None
-    if isinstance(node, ast.BinOp):
-        return _joined_division(node)
+    if _is_division(node):
+        left = joined_path_constant(node.left)
+        return _joined_path(left, joined_path_constant(node.right))
     return None
 
 
-def _joined_division(node: ast.BinOp) -> str | None:
-    if not isinstance(node.op, ast.Div):
-        return None
-    left = joined_path_constant(node.left)
-    right = joined_path_constant(node.right)
+def _is_division(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
+
+
+def _joined_path(left: str | None, right: str | None) -> str | None:
+    """``left/right``; an unresolved left keeps ``right``, an unresolved right is ``None``."""
+
     if right is None:
         return None
     if left is None:
@@ -211,14 +244,20 @@ def extract_replace_mill_target(source: str) -> str | None:
     tree = parse_tree(source)
     found: list[str] = []
     for node in ast.walk(tree):
-        path = _replace_mill_path(node)
+        replacement = _replace_argument(node)
+        if replacement is None:
+            continue
+        new = literal_value(replacement)
+        if not isinstance(new, str):
+            continue
+        path = experiments_mill_path(new)
         if path is not None:
             found.append(path)
     return found[-1] if found else None
 
 
-def _replace_mill_path(node: ast.AST) -> str | None:
-    """Mill path named by the replacement argument of one ``x.replace(old, new)`` call."""
+def _replace_argument(node: ast.AST) -> ast.AST | None:
+    """The replacement argument of one ``x.replace(old, new)`` call, else ``None``."""
 
     if not isinstance(node, ast.Call):
         return None
@@ -226,10 +265,7 @@ def _replace_mill_path(node: ast.AST) -> str | None:
         return None
     if len(node.args) != 2:
         return None
-    new = literal_value(node.args[1])
-    if not isinstance(new, str):
-        return None
-    return experiments_mill_path(new)
+    return node.args[1]
 
 
 def extract_named_mill_path(source: str, name: str) -> str | None:
