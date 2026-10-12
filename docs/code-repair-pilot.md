@@ -231,7 +231,7 @@ pilot and frozen handoff must be generated separately.
 
 ### Upstream recall probe (offline; no results yet)
 
-`POSSIBLE_UPSTREAM_CODE_RECALL` can be measured with an offline probe. The repository writes the
+`POSSIBLE_UPSTREAM_CODE_RECALL` can be probed offline. The repository writes the
 prompts and scores completions, but it never calls a model and never executes a completion.
 Destinations must be new and outside `outputs/raw/`.
 
@@ -259,13 +259,14 @@ that the prompts still match the run byte for byte. Then it reports, per variant
 
 Exit 1 means at least one exact recall under `docstring_only`.
 
-The repaired module is the upstream function verbatim, after the import lines it needs. Exact
-output under `no_evidence` may therefore be either repair or recall. A `docstring_only` prompt
-gives too little to rebuild the module byte for byte by reasoning, so high exact recall there
-indicates memorized upstream code. Report the `docstring_only` exact and structural rates
-alongside any held-out number. Both rates compare whole modules. A completion that wraps the
-recalled function in more of the upstream file, such as its `__main__` guard, scores neither, so
-the rates are a lower bound on recall.
+The repaired module is the upstream function verbatim, after the import lines it needs, so an
+exact match under `no_evidence` may be either repair or recall. Under `docstring_only` an exact
+match is a recall signal, not proof of memorization or contamination. The prompt still carries
+the function's specification, and a short function can be rebuilt byte for byte from it. Treat
+the `docstring_only` exact rate as an upper bound on contamination risk for the records it
+matches, and report it with the structural rate alongside any held-out number. The rates can
+also miss recall: both compare whole modules, so a completion that wraps the recalled function
+in more of the upstream file, such as its `__main__` guard, scores neither.
 
 ## Not done, by design
 

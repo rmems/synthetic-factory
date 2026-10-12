@@ -267,7 +267,8 @@ LIMITATION_CODE_SET = frozenset(LIMITATION_CODES)
 # The offline recall probe that measures POSSIBLE_UPSTREAM_CODE_RECALL: two prompt
 # variants per positive record, completions produced elsewhere, scored here without
 # executing any of them. The one reported (never raised) code marks the strongest
-# memorisation signal; the refusals live among the finding codes below.
+# recall signal, which is not proof of memorisation; the refusals live among the
+# finding codes below.
 RECALL_VARIANT_NO_EVIDENCE = "no_evidence"
 RECALL_VARIANT_DOCSTRING_ONLY = "docstring_only"
 RECALL_VARIANTS = (RECALL_VARIANT_NO_EVIDENCE, RECALL_VARIANT_DOCSTRING_ONLY)

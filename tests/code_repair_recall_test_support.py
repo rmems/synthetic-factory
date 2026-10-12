@@ -26,38 +26,19 @@ NO_EVIDENCE, DOCSTRING_ONLY = cv.RECALL_VARIANT_NO_EVIDENCE, cv.RECALL_VARIANT_D
 PLACEHOLDER_LINE = "    ...\n"
 UNKNOWN_ID = "pfr-0-99999"
 
-__all__ = (
-    "DOCSTRING_ONLY",
-    "NO_EVIDENCE",
-    "PLACEHOLDER_LINE",
-    "UNKNOWN_ID",
-    "ProbeTree",
-    "broken_of",
-    "completion_lines",
-    "function_of",
-    "invoke",
-    "positives",
-    "rejected",
-    "renamed_repair",
-    "shown_code",
-    "structure_of",
-    "verdict",
-    "write_lines",
-)
+
+def smoke_records(positive):
+    """The smoke run's records, in run order, that are (or are not) positive examples."""
+
+    return [r for r in smoke_run()[1] if views.is_positive(r) == positive]
 
 
 def positives():
-    """The smoke run's accepted, validated, eligible records, in run order."""
-
-    _summary, records, _run_dir = smoke_run()
-    return [r for r in records if views.is_positive(r)]
+    return smoke_records(True)
 
 
 def rejected():
-    """The smoke run's records that are not positive examples."""
-
-    _summary, records, _run_dir = smoke_run()
-    return [r for r in records if not views.is_positive(r)]
+    return smoke_records(False)
 
 
 def broken_of(record):

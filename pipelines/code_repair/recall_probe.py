@@ -1,16 +1,18 @@
 """The offline recall probe: prompts out, completions scored, no model called here.
 
 Every repair target is verbatim TheAlgorithms/Python code that code models
-have seen in pretraining, which the export records as the evaluation
+may have seen in pretraining, which the export records as the evaluation
 limitation ``POSSIBLE_UPSTREAM_CODE_RECALL``: a model may recall the upstream
-module rather than repair the broken one. The probe measures that in two
+module rather than repair the broken one. The probe looks for that in two
 steps the repository runs without a model. ``emit`` writes the two prompt
 variants of :mod:`.recall_prompts` for every positive record of a run into a
 brand-new directory. ``score`` reads completions produced elsewhere, binds the
 prompts back to the run byte for byte, scores each completion with
 :mod:`.recall_score` (hashed and parsed, never executed) and writes the report
-to a brand-new file. High exact recall under ``docstring_only`` is memorised
-upstream code, not repair.
+to a brand-new file. An exact match under ``docstring_only`` is a recall
+signal and an upper bound on contamination risk, not proof of memorisation:
+the prompt still carries the function's specification, from which a short
+function can be rebuilt verbatim.
 """
 
 from __future__ import annotations
