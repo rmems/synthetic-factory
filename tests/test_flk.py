@@ -137,6 +137,11 @@ class PlantShapeRefusals(unittest.TestCase):
             catalog.plants_from_source("BASE = {**x}\n", mill_id="flk_r100", source="m.py")
         self.assertEqual(caught.exception.message, "plant source uses dict unpacking")
 
+    def test_an_annotated_base_counts_like_a_plain_one(self):
+        source = TINY_SOURCE.replace("BASE = 7", "BASE: int = 9")
+        rows = catalog.plants_from_source(source, mill_id="flk_r0001", source="t.py")
+        self.assertEqual(rows[0]["base_round"], 9)
+
     def test_source_needs_plants_a_flk_mill_id_and_a_positive_base(self):
         cases = (
             ("BASE = 3\n", "flk_r0001", FINDING_SOURCE_NOT_PARSEABLE, "t.py has no PLANTS list"),

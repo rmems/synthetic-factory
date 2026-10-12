@@ -189,9 +189,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -400,9 +403,9 @@ def _registry_factory_ids() -> set[str]:
     if not isinstance(factories, list):
         raise FlkRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
     ids = {
-        row.get("path_id")
+        path_id
         for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
+        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str)
     }
     return ids
 
