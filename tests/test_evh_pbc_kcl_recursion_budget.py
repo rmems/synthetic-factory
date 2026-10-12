@@ -211,8 +211,9 @@ class DeepChains(unittest.TestCase):
                 self.assertEqual(run(_expr(source)), expected)
 
     def test_pbc_refuses_a_unary_chain_without_recursing(self):
+        node = _expr(_negations(DEPTH))
         with self.assertRaisesRegex(ValueError, r"^w: not a constant literal$"):
-            _PBC_CONST(_expr(_negations(DEPTH)))
+            _PBC_CONST(node)
 
     def test_extract_plant_catalog_reads_deep_chains(self):
         expected = _extract(_catalog())
