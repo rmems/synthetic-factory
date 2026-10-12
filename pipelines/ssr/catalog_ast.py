@@ -38,29 +38,35 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
     bound = env or {}
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+    for node_type, resolve in _LITERAL_RESOLVERS:
+        if isinstance(node, node_type):
+            return resolve(node, bound)
+    return UNSET
+
+
+def _name_value(node: ast.Name, env: Mapping[str, Any]) -> Any:
+    return env.get(node.id, UNSET)
+
+
+def _negated(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.USub):
+        return UNSET
+    inner = literal_value(node.operand, env)
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _set_value(node: ast.Set, env: Mapping[str, Any]) -> Any:
+    values = _sequence(node.elts, env, list)
+    return set(values) if values is not UNSET else UNSET
+
+
+def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.Add):
+        return UNSET
+    left = literal_value(node.left, env)
+    right = literal_value(node.right, env)
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     return UNSET
 
 
@@ -102,6 +108,19 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
     return "".join(parts)
 
 
+_LITERAL_RESOLVERS = (
+    (ast.Constant, lambda node, env: node.value),
+    (ast.Name, _name_value),
+    (ast.UnaryOp, _negated),
+    (ast.Tuple, lambda node, env: _sequence(node.elts, env, tuple)),
+    (ast.List, lambda node, env: _sequence(node.elts, env, list)),
+    (ast.Set, _set_value),
+    (ast.Dict, _mapping),
+    (ast.JoinedStr, _joined_string),
+    (ast.BinOp, _concatenated),
+)
+
+
 def call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return node.func.id
@@ -129,20 +148,25 @@ def ctor_identity(node: ast.AST) -> dict[str, str | None] | None:
         return None
     slug = const_keyword(node, "slug")
     scanner = const_keyword(node, "scanner")
-    if name == "S" and node.args:
-        first = node.args[0]
-        if slug is None and isinstance(first, ast.Constant) and isinstance(first.value, str):
-            slug = first.value
-        if (
-            scanner is None
-            and len(node.args) > 1
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
-        ):
-            scanner = node.args[1].value
+    if name == "S":
+        if slug is None:
+            slug = _str_arg(node, 0)
+        if scanner is None:
+            scanner = _str_arg(node, 1)
     if not slug:
         return None
     return {"slug": slug, "scanner": scanner}
+
+
+def _str_arg(node: ast.Call, index: int) -> str | None:
+    """String constant positional argument ``index``, else ``None``."""
+
+    if index >= len(node.args):
+        return None
+    arg = node.args[index]
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    return None
 
 
 def joined_path_constant(node: ast.AST) -> str | None:
