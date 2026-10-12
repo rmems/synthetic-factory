@@ -95,10 +95,16 @@ def _rebalance_one_sided_split(
 def _validate_split_request(rows: Sequence[ViewerRow], eval_fraction: float) -> None:
     """Reject requests that cannot produce a meaningful two-sided split."""
 
-    if not 0 < eval_fraction < 1:
+    if not _is_open_unit_fraction(eval_fraction):
         raise ExportError("eval_fraction must be between 0 and 1 exclusive")
     if len(rows) < 2:
         raise ExportError("refusing to split a corpus with fewer than two records")
+
+
+def _is_open_unit_fraction(value: float) -> bool:
+    """True only strictly between 0 and 1, so NaN and both endpoints are refused."""
+
+    return 0 < value < 1
 
 
 def _partition_by_eval_keys(
