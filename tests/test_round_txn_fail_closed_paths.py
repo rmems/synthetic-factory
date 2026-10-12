@@ -15,9 +15,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 sys.path.insert(0, str(REPO / "tests"))
 
-import round_txn  # noqa: E402
-import round_txn_agentic  # noqa: E402
-from round_txn_test_helpers import raw_factory, stage_round, thalamic, write_records  # noqa: E402
+import round_txn
+import round_txn_agentic
+from round_txn_test_helpers import raw_factory, stage_round, thalamic, write_records
 
 TOKEN = "a" * 32
 
@@ -31,18 +31,22 @@ class ReserveArgumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             factory = raw_factory(root, "thalamic-trajectory-factory")
             for bad_round in (0, True, 1.0):
-                with self.subTest(round=bad_round):
-                    with self.assertRaisesRegex(
+                with (
+                    self.subTest(round=bad_round),
+                    self.assertRaisesRegex(
                         round_txn.TransactionError, "^round number must be at least 1$"
-                    ):
-                        round_txn.reserve(factory, bad_round, 1)
+                    ),
+                ):
+                    round_txn.reserve(factory, bad_round, 1)
             for bad_expected in (0, False):
-                with self.subTest(expected=bad_expected):
-                    with self.assertRaisesRegex(
+                with (
+                    self.subTest(expected=bad_expected),
+                    self.assertRaisesRegex(
                         round_txn.TransactionError,
                         "^expected record count must be at least 1$",
-                    ):
-                        round_txn.reserve(factory, 1, bad_expected)
+                    ),
+                ):
+                    round_txn.reserve(factory, 1, bad_expected)
 
     def test_existing_reservation_stage_is_refused(self):
         with tempfile.TemporaryDirectory() as root:
@@ -85,9 +89,11 @@ class ExecutionVerifiedRoundsTests(unittest.TestCase):
             ("no cutover", {key: [2]}),
             ("at cutover", {cutover: 5, key: [5]}),
         ):
-            with self.subTest(label):
-                with self.assertRaisesRegex(round_txn.TransactionError, f"invalid {key} in"):
-                    self._policy(mode)
+            with (
+                self.subTest(label),
+                self.assertRaisesRegex(round_txn.TransactionError, f"invalid {key} in"),
+            ):
+                self._policy(mode)
 
     def test_valid_bound_rounds_are_returned(self):
         key = round_txn.EXECUTION_VERIFIED_ROUNDS_KEY
