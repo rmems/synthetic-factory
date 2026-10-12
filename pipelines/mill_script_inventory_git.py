@@ -22,7 +22,6 @@ if __package__:
     from . import mill_script_inventory_gitdir as _gitdir
     from . import mill_script_inventory_gitignore as _gitignore
     from . import mill_script_inventory_gitindex as _gitindex
-    from . import mill_script_inventory_schema as _schema
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "mill_script_inventory_git"
@@ -30,9 +29,8 @@ else:
     import mill_script_inventory_gitdir as _gitdir
     import mill_script_inventory_gitignore as _gitignore
     import mill_script_inventory_gitindex as _gitindex
-    import mill_script_inventory_schema as _schema
 
-MillScriptInventoryError = _schema.MillScriptInventoryError
+MillScriptInventoryError = _gitdir.MillScriptInventoryError
 _GIT_REQUIRED = _gitdir._GIT_REQUIRED
 GITIGNORE_NAME = _gitignore.GITIGNORE_NAME
 REPO_ROOT = Path(__file__).resolve().parents[1]
