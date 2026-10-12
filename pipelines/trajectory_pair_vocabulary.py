@@ -26,6 +26,13 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("trajectory_pair_vocabulary")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "trajectory_pair_vocabulary"
+    )
+
+
+if __package__:
     from .curate_agentic import (
         REASON_GOAL_DIVERGES,
         REASON_GOAL_MISSING,
@@ -33,9 +40,6 @@ if __package__:
     )
     from .curate_preferences import PreferenceCurationError
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "trajectory_pair_vocabulary"
-    )
     from curate_agentic import (
         REASON_GOAL_DIVERGES,
         REASON_GOAL_MISSING,
