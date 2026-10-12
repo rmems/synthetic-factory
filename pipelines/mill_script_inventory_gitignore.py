@@ -21,8 +21,6 @@ else:
     import mill_script_inventory_gitglob as _gitglob
 
 GITIGNORE_NAME = ".gitignore"
-_core_ignore_case = _gitdir._core_ignore_case
-_wildcard_regex = _gitglob._wildcard_regex
 
 
 def _collect_ignore_files(root: Path, paths: Iterable[str]) -> tuple[tuple[str, Path], ...]:
@@ -44,7 +42,7 @@ def _parse_ignore_file(
         if not line or line.startswith("#"):
             continue
         pattern = line.removeprefix("!")
-        rules.append((source, str(number), line, _wildcard_regex(pattern, flags)))
+        rules.append((source, str(number), line, _gitglob.wildcard_regex(pattern, flags)))
     return tuple(rules)
 
 
@@ -62,7 +60,7 @@ def _scope_relative(path: str, scope: str, flags: int = 0) -> str | None:
 def _load_ignore_rules(
     root: Path, paths: Iterable[str]
 ) -> tuple[tuple[str, str, str, str, re.Pattern[str]], ...]:
-    flags = re.IGNORECASE if _core_ignore_case(root) else 0
+    flags = re.IGNORECASE if _gitdir.core_ignore_case(root) else 0
     rules: list[tuple[str, str, str, str, re.Pattern[str]]] = []
     for scope, path in _collect_ignore_files(root, paths):
         parsed = _parse_ignore_file(path, f"{scope}{GITIGNORE_NAME}", flags)
@@ -133,7 +131,7 @@ def gitignore_matches(root: Path, paths: Iterable[str]) -> dict[str, tuple[str, 
     return matches
 
 
-def _ignored_paths(matches: Mapping[str, tuple[str, str, str]]) -> frozenset[str]:
+def ignored_paths(matches: Mapping[str, tuple[str, str, str]]) -> frozenset[str]:
     return frozenset(
         path for path, (_source, _line, rule) in matches.items() if not rule.startswith("!")
     )

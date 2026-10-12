@@ -31,17 +31,17 @@ else:
     import mill_script_inventory_gitindex as _gitindex
 
 MillScriptInventoryError = _gitdir.MillScriptInventoryError
-_GIT_REQUIRED = _gitdir._GIT_REQUIRED
+_GIT_REQUIRED = _gitdir.GIT_REQUIRED
 GITIGNORE_NAME = _gitignore.GITIGNORE_NAME
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-_git_dir = _gitdir._git_dir
+_git_dir = _gitdir.git_dir
 gitignore_matches = _gitignore.gitignore_matches
-_ignored_paths = _gitignore._ignored_paths
-_parse_git_index = _gitindex._parse_git_index
-_merge_split_paths = _gitindex._merge_split_paths
-_ewah_decode = _gitindex._ewah_decode
-_read_git_index = _gitindex._read_git_index
+_ignored_paths = _gitignore.ignored_paths
+_parse_git_index = _gitindex.parse_git_index
+_merge_split_paths = _gitindex.merge_split_paths
+_ewah_decode = _gitindex.ewah_decode
+_read_git_index = _gitindex.read_git_index
 
 
 def _git_available(repo: Path | None = None) -> bool:

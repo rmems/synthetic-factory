@@ -101,7 +101,7 @@ def _wildcard_token(pattern: str, index: int) -> tuple[str, int]:
     return re.escape(pattern[index]), index + 1
 
 
-def _wildcard_regex(pattern: str, flags: int = 0) -> re.Pattern[str]:
+def wildcard_regex(pattern: str, flags: int = 0) -> re.Pattern[str]:
     pattern = pattern.removesuffix("/")
     anchored = pattern.startswith("/") or "/" in pattern
     pattern = pattern.removeprefix("/")

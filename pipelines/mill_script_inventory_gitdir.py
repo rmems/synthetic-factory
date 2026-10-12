@@ -17,7 +17,7 @@ else:
     import mill_script_inventory_schema as _schema
 
 MillScriptInventoryError = _schema.MillScriptInventoryError
-_GIT_REQUIRED = "git is required for inventory scope checks"
+GIT_REQUIRED = "git is required for inventory scope checks"
 
 
 def _resolve_gitdir_pointer(marker: Path, raw: str) -> Path:
@@ -32,7 +32,7 @@ def _gitdir_from_gitfile(marker: Path) -> Path | None:
     return None
 
 
-def _git_dir(repo: Path) -> Path:
+def git_dir(repo: Path) -> Path:
     marker = Path(repo).resolve() / ".git"
     if marker.is_file():
         found = _gitdir_from_gitfile(marker)
@@ -40,7 +40,7 @@ def _git_dir(repo: Path) -> Path:
             return found
     if marker.is_dir():
         return marker
-    raise MillScriptInventoryError(_GIT_REQUIRED)
+    raise MillScriptInventoryError(GIT_REQUIRED)
 
 
 def _truthy(value: str) -> bool:
@@ -70,9 +70,9 @@ def _config_pairs(path: Path) -> tuple[tuple[str, str], ...]:
     return tuple(pairs)
 
 
-def _core_ignore_case(root: Path) -> bool:
+def core_ignore_case(root: Path) -> bool:
     try:
-        pairs = _config_pairs(_git_config_file(_git_dir(root)))
+        pairs = _config_pairs(_git_config_file(git_dir(root)))
     except MillScriptInventoryError:
         return False
     return any(key == "ignorecase" and _truthy(value) for key, value in pairs)

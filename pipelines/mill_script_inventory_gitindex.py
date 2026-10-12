@@ -18,7 +18,6 @@ else:
     import mill_script_inventory_gitdir as _gitdir
 
 MillScriptInventoryError = _gitdir.MillScriptInventoryError
-_git_dir = _gitdir._git_dir
 _INDEX_UNPARSEABLE = "git index is not parseable"
 _INDEX_TRUNCATED = "git index is truncated"
 _INDEX_UNSUPPORTED = "unsupported git index version"
@@ -79,7 +78,7 @@ def _index_extensions(payload: bytes, offset: int) -> dict[bytes, bytes]:
     return extensions
 
 
-def _parse_git_index(payload: bytes) -> tuple[tuple[str, ...], dict[bytes, bytes]]:
+def parse_git_index(payload: bytes) -> tuple[tuple[str, ...], dict[bytes, bytes]]:
     count = _git_index_header(payload)
     offset = 12
     paths: list[str] = []
@@ -113,7 +112,7 @@ def _ewah_literals(
     return cursor, index
 
 
-def _ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
+def ewah_decode(words: Sequence[int], bit_size: int) -> frozenset[int]:
     if bit_size == 0:
         return frozenset()
     bits: list[int] = []
@@ -138,7 +137,7 @@ def _ewah_bits(payload: bytes, offset: int) -> tuple[frozenset[int], int]:
         words.append(int.from_bytes(payload[offset : offset + 8], "big"))
         offset += 8
     _need(payload, offset, 4)
-    return _ewah_decode(words, bit_size), offset + 4
+    return ewah_decode(words, bit_size), offset + 4
 
 
 def _link_bitmaps(link: bytes) -> tuple[str, frozenset[int], frozenset[int]]:
@@ -160,7 +159,7 @@ def _remaining_split(split: Sequence[str], cursor: int) -> tuple[str, ...]:
     return tuple(path for path in split[cursor:] if path)
 
 
-def _merge_split_paths(
+def merge_split_paths(
     shared: Sequence[str],
     split: Sequence[str],
     deleted: frozenset[int],
@@ -178,9 +177,9 @@ def _merge_split_paths(
     return tuple(merged) + _remaining_split(split, cursor)
 
 
-def _read_git_index(repo: Path) -> tuple[str, ...]:
-    gitdir = _git_dir(repo)
-    paths, extensions = _parse_git_index((gitdir / "index").read_bytes())
+def read_git_index(repo: Path) -> tuple[str, ...]:
+    gitdir = _gitdir.git_dir(repo)
+    paths, extensions = parse_git_index((gitdir / "index").read_bytes())
     link = extensions.get(b"link")
     if link is None:
         return tuple(path for path in paths if path)
@@ -188,10 +187,10 @@ def _read_git_index(repo: Path) -> tuple[str, ...]:
     shared_path = gitdir / f"sharedindex.{oid}"
     if not shared_path.is_file():
         raise MillScriptInventoryError(_INDEX_UNPARSEABLE)
-    shared_paths, shared_ext = _parse_git_index(shared_path.read_bytes())
+    shared_paths, shared_ext = parse_git_index(shared_path.read_bytes())
     if b"link" in shared_ext:
         raise MillScriptInventoryError(_INDEX_UNSUPPORTED)
-    return _merge_split_paths(shared_paths, paths, deleted, replaced)
+    return merge_split_paths(shared_paths, paths, deleted, replaced)
 
 
 if __package__:
