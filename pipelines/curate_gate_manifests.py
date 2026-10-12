@@ -97,6 +97,29 @@ def _jsonl_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     return entries
 
 
+def _first_manifest_list(document: dict[str, Any]) -> list[Any] | None:
+    """The first ``MANIFEST_LIST_KEYS`` member that holds a list."""
+    for key in MANIFEST_LIST_KEYS:
+        value = document.get(key)
+        if isinstance(value, list):
+            return value
+    return None
+
+
+def _manifest_candidates(path: Path, document: Any) -> list[Any]:
+    """A top-level list, or the entry list an object manifest declares."""
+    if isinstance(document, list):
+        return document
+    if not isinstance(document, dict):
+        raise GateError(f"{path}: manifest must be a list or an object")
+    candidates = _first_manifest_list(document)
+    if candidates is None:
+        raise GateError(
+            f"{path}: manifest object needs one of {', '.join(MANIFEST_LIST_KEYS)} as a list"
+        )
+    return candidates
+
+
 def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     """A top-level list, or the first ``MANIFEST_LIST_KEYS`` list in an object."""
     try:
@@ -107,21 +130,7 @@ def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
         )
     except ValueError as exc:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
-    if isinstance(document, list):
-        candidates = document
-    elif isinstance(document, dict):
-        candidates = None
-        for key in MANIFEST_LIST_KEYS:
-            value = document.get(key)
-            if isinstance(value, list):
-                candidates = value
-                break
-        if candidates is None:
-            raise GateError(
-                f"{path}: manifest object needs one of {', '.join(MANIFEST_LIST_KEYS)} as a list"
-            )
-    else:
-        raise GateError(f"{path}: manifest must be a list or an object")
+    candidates = _manifest_candidates(path, document)
     for entry in candidates:
         if not isinstance(entry, dict):
             raise GateError(f"{path}: every manifest entry must be an object")
@@ -269,27 +278,40 @@ def _entry_view(entry: dict[str, Any], source_key: Any, view: RetentionView) -> 
     return normalized
 
 
+def _fold_refusal(
+    fold: _LaneManifestFold, bucket: list[dict[str, Any]], normalized: dict[str, Any]
+) -> None:
+    """An exclusion or quarantine is bucketed, reviewed, and counted by reason."""
+    bucket.append(normalized)
+    fold.review_candidates.append(normalized)
+    fold.reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+
+
+def _is_retained_change(row: _NormalizedEntry, view: RetentionView) -> bool:
+    """A retained entry whose content changed and whose source stays retained."""
+    normalized, lowered, source_key = row
+    return bool(
+        lowered in RETAIN_ACTIONS
+        and normalized.get("content_changed")
+        and view.retains(source_key)
+    )
+
+
 def _classify_entry(
     fold: _LaneManifestFold,
     row: _NormalizedEntry,
     view: RetentionView,
 ) -> None:
     """Route one normalized entry into the disposition and review buckets."""
-    normalized, lowered, source_key = row
+    normalized, lowered = row.normalized, row.lowered
     if lowered in EXCLUSION_ACTIONS:
-        fold.exclusions.append(normalized)
-        fold.review_candidates.append(normalized)
-        fold.reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+        _fold_refusal(fold, fold.exclusions, normalized)
     elif lowered in QUARANTINE_ACTIONS:
-        fold.quarantines.append(normalized)
-        fold.review_candidates.append(normalized)
-        fold.reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+        _fold_refusal(fold, fold.quarantines, normalized)
     elif lowered in REPAIR_ACTIONS:
         fold.repairs.append(normalized)
         fold.review_candidates.append(normalized)
-    elif lowered in RETAIN_ACTIONS and normalized.get("content_changed") and view.retains(
-        source_key
-    ):
+    elif _is_retained_change(row, view):
         derived = copy.deepcopy(normalized)
         derived["review_action"] = "changed"
         derived["review_reason_codes"] = [DERIVED_CHANGE_REASON]

@@ -78,6 +78,32 @@ def _reward_field_count(value: Any) -> int:
     return 0
 
 
+def _annotation_error(annotation: Any, reward_count: int) -> str | None:
+    """Why a record's reward annotation is invalid for its reward fields, or None."""
+    try:
+        curate_rewards.validate_ontology_document(annotation)
+        if annotation.get("source_reward_count") != reward_count:
+            raise curate_rewards.RewardOntologyError(
+                "source_reward_count does not match record reward fields"
+            )
+    except curate_rewards.RewardOntologyError as exc:
+        return str(exc)
+    return None
+
+
+def _ontology_examples(
+    missing: list[str], invalid: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """The first five problems, missing annotations before invalid ones."""
+    return [
+        *(
+            {"source": source, "error": "reward_training annotation missing"}
+            for source in missing[:5]
+        ),
+        *invalid[:5],
+    ][:5]
+
+
 def _reward_ontology_gate(cleaned: Path) -> dict[str, Any]:
     reward_bearing = 0
     annotated = 0
@@ -98,14 +124,9 @@ def _reward_ontology_gate(cleaned: Path) -> dict[str, Any]:
             missing.append(where)
             continue
         annotated += 1
-        try:
-            curate_rewards.validate_ontology_document(annotation)
-            if annotation.get("source_reward_count") != reward_count:
-                raise curate_rewards.RewardOntologyError(
-                    "source_reward_count does not match record reward fields"
-                )
-        except curate_rewards.RewardOntologyError as exc:
-            invalid.append({"source": where, "error": str(exc)})
+        error = _annotation_error(annotation, reward_count)
+        if error is not None:
+            invalid.append({"source": where, "error": error})
             continue
         comparability[str(annotation["comparability"])] += 1
 
@@ -117,13 +138,7 @@ def _reward_ontology_gate(cleaned: Path) -> dict[str, Any]:
         "missing_annotations": len(missing),
         "invalid_annotations": len(invalid),
         "comparability": dict(sorted(comparability.items())),
-        "examples": [
-            *(
-                {"source": source, "error": "reward_training annotation missing"}
-                for source in missing[:5]
-            ),
-            *invalid[:5],
-        ][:5],
+        "examples": _ontology_examples(missing, invalid),
     }
 
 
@@ -186,6 +201,14 @@ def _reward_calibration_catalog(
     return catalogs[0] if catalogs else {}
 
 
+def _sidecar_identity_mismatch(authenticated_id: Any, sidecar_record_id: Any) -> bool:
+    """Whether a sidecar's declared record id fails to name the authenticated record."""
+    if authenticated_id is None or not isinstance(sidecar_record_id, str):
+        return True
+    authenticated_key = curate_rewards.catalog_record_key(authenticated_id)
+    return authenticated_key != curate_rewards.catalog_record_key(sidecar_record_id)
+
+
 def _authenticated_calibration_lookup(
     source_record: dict[str, Any] | None,
     sidecar: dict[str, Any],
@@ -193,20 +216,11 @@ def _authenticated_calibration_lookup(
     """Return the record id a calibration claim may be looked up under."""
     source = sidecar.get("source") if isinstance(sidecar.get("source"), dict) else {}
     sidecar_record_id = source.get("record_id")
-    authenticated_id = (
-        curate_rewards.canonical_source_record_id(source_record)
-        if source_record is not None
-        else None
-    )
-    if (
-        source_record is not None
-        and sidecar_record_id is not None
-        and (
-            authenticated_id is None
-            or not isinstance(sidecar_record_id, str)
-            or curate_rewards.catalog_record_key(authenticated_id)
-            != curate_rewards.catalog_record_key(sidecar_record_id)
-        )
+    if source_record is None:
+        return sidecar_record_id
+    authenticated_id = curate_rewards.canonical_source_record_id(source_record)
+    if sidecar_record_id is not None and _sidecar_identity_mismatch(
+        authenticated_id, sidecar_record_id
     ):
         raise curate_rewards.RewardOntologyError(
             "sidecar calibration source identity does not match the authenticated record"
@@ -353,19 +367,27 @@ def _assert_annotation_matches_derived(
         )
 
 
+def _assert_magnitude_claim(annotation: dict[str, Any], payload: Any) -> None:
+    if annotation.get("magnitude") != payload or "order" in annotation:
+        raise curate_rewards.RewardOntologyError(
+            "canonical magnitude or calibration does not match independent derivation"
+        )
+
+
+def _assert_order_claim(annotation: dict[str, Any], payload: Any) -> None:
+    if annotation.get("order") != payload or "magnitude" in annotation:
+        raise curate_rewards.RewardOntologyError(
+            "preference order does not match independent derivation"
+        )
+
+
 def _assert_payload_claims(annotation: dict[str, Any], derived: dict[str, Any]) -> None:
     """Only the derived comparability class may carry a magnitude or an order."""
     comparability = derived["classification"]["comparability"]
     if comparability == curate_rewards.MAGNITUDE_COMPARABLE:
-        if annotation.get("magnitude") != derived["payload"] or "order" in annotation:
-            raise curate_rewards.RewardOntologyError(
-                "canonical magnitude or calibration does not match independent derivation"
-            )
+        _assert_magnitude_claim(annotation, derived["payload"])
     elif comparability == curate_rewards.SIGN_ORDER_ONLY:
-        if annotation.get("order") != derived["payload"] or "magnitude" in annotation:
-            raise curate_rewards.RewardOntologyError(
-                "preference order does not match independent derivation"
-            )
+        _assert_order_claim(annotation, derived["payload"])
     elif "magnitude" in annotation or "order" in annotation:
         raise curate_rewards.RewardOntologyError(
             "excluded reward class must not carry magnitude or order claims"

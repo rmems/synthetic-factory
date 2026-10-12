@@ -96,19 +96,29 @@ def _match_path(lane: dict[str, Any], path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _entry_action(entry: dict[str, Any], label: str) -> str:
-    """The normalized action, with its reason codes checked against the action class."""
-    raw_action = entry.get("action")
+def _known_action(raw_action: Any, label: str) -> str:
+    """Lower an explicit action and require it to be one the gate understands."""
     if not isinstance(raw_action, str) or not raw_action.strip():
         raise GateError(f"{label} needs an explicit action")
     action = raw_action.strip().lower()
     if action not in KNOWN_ACTIONS:
         raise GateError(f"{label} has unsupported action {raw_action!r}")
+    return action
+
+
+def _is_reason_code_list(reasons: Any) -> bool:
+    """A list whose every member is a non-blank string."""
+    if not isinstance(reasons, list):
+        return False
+    return not any(not isinstance(reason, str) or not reason.strip() for reason in reasons)
+
+
+def _entry_action(entry: dict[str, Any], label: str) -> str:
+    """The normalized action, with its reason codes checked against the action class."""
+    action = _known_action(entry.get("action"), label)
     entry["action"] = action
     reasons = entry.get("reason_codes")
-    if not isinstance(reasons, list) or any(
-        not isinstance(reason, str) or not reason.strip() for reason in reasons
-    ):
+    if not _is_reason_code_list(reasons):
         raise GateError(f"{label} reason_codes must be a list of non-empty strings")
     if action in REPAIR_ACTIONS | NO_OUTPUT_ACTIONS and not reasons:
         raise GateError(f"{label} action {action!r} needs at least one reason code")
@@ -451,16 +461,28 @@ def _prepare_lane(
     }
 
 
-def prepare_lanes(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    source_records = _load_source_records(plan["source_run_dir"])
-    prepared = [_prepare_lane(lane, source_records) for lane in plan["lanes"]]
+def _is_terminal_disposition(entry: dict[str, Any]) -> bool:
+    """Whether a manifest entry explicitly excludes or quarantines its source record."""
+    action = str(entry.get("action") or "").strip().lower()
+    return action in EXCLUSION_ACTIONS | QUARANTINE_ACTIONS
+
+
+def _dispositioned_source_keys(prepared: list[dict[str, Any]]) -> set[_SourceKey]:
+    """Source keys with a retained output or an explicit exclusion or quarantine."""
     dispositioned = {emitted["source_key"] for lane in prepared for emitted in lane["records"]}
     dispositioned.update(
         entry["_source_key"]
         for lane in prepared
         for entry in lane["entries"]
-        if str(entry.get("action") or "").strip().lower() in EXCLUSION_ACTIONS | QUARANTINE_ACTIONS
+        if _is_terminal_disposition(entry)
     )
+    return dispositioned
+
+
+def prepare_lanes(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    source_records = _load_source_records(plan["source_run_dir"])
+    prepared = [_prepare_lane(lane, source_records) for lane in plan["lanes"]]
+    dispositioned = _dispositioned_source_keys(prepared)
     missing = sorted(set(source_records) - dispositioned)
     if missing:
         preview = [f"{path}:{line}" for path, line in missing[:10]]

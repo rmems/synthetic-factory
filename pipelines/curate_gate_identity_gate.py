@@ -60,6 +60,19 @@ _ROOT_PROVENANCE_KINDS = frozenset(
 )
 
 
+def _mapping_child(value: Any, raw_token: str, label: str) -> Any:
+    """Step one escaped JSON-pointer token into a list index or an existing member."""
+    token = raw_token.replace("~1", "/").replace("~0", "~")
+    if isinstance(value, list):
+        try:
+            return value[int(token)]
+        except (ValueError, IndexError) as exc:
+            raise GateError(f"{label} does not resolve") from exc
+    if isinstance(value, dict) and token in value:
+        return value[token]
+    raise GateError(f"{label} does not resolve")
+
+
 def _mapping_value(document: Any, pointer: Any, label: str) -> Any:
     if pointer == "/":
         return document
@@ -67,16 +80,7 @@ def _mapping_value(document: Any, pointer: Any, label: str) -> Any:
         raise GateError(f"{label} must be a JSON pointer")
     value = document
     for raw_token in pointer[1:].split("/"):
-        token = raw_token.replace("~1", "/").replace("~0", "~")
-        if isinstance(value, list):
-            try:
-                value = value[int(token)]
-            except (ValueError, IndexError) as exc:
-                raise GateError(f"{label} does not resolve") from exc
-        elif isinstance(value, dict) and token in value:
-            value = value[token]
-        else:
-            raise GateError(f"{label} does not resolve")
+        value = _mapping_child(value, raw_token, label)
     return value
 
 
@@ -160,13 +164,8 @@ def _source_original_provenance(
     }
 
 
-def _claimed_identity_source_evidence(entry: dict[str, Any], label: str) -> dict[str, Any]:
-    id_mappings = entry.get("id_mappings")
-    provenance_mappings = entry.get("provenance_mappings")
-    if not isinstance(id_mappings, list) or not id_mappings:
-        raise GateError(f"{label}.id_mappings must be non-empty")
-    if not isinstance(provenance_mappings, list) or not provenance_mappings:
-        raise GateError(f"{label}.provenance_mappings must be non-empty")
+def _claimed_id_mappings(id_mappings: list[Any], label: str) -> list[dict[str, Any]]:
+    """Each claimed id mapping's owner path and a copy of its original ids."""
     claimed_ids: list[dict[str, Any]] = []
     for index, mapping in enumerate(id_mappings, 1):
         mapping_label = f"{label}.id_mappings[{index}]"
@@ -181,6 +180,13 @@ def _claimed_identity_source_evidence(entry: dict[str, Any], label: str) -> dict
                 "original_ids": copy.deepcopy(originals),
             }
         )
+    return claimed_ids
+
+
+def _claimed_provenance_mappings(
+    provenance_mappings: list[Any], label: str
+) -> list[dict[str, Any]]:
+    """Each claimed provenance mapping's pointers and a copy of its original snapshot."""
     claimed_provenance: list[dict[str, Any]] = []
     for index, mapping in enumerate(provenance_mappings, 1):
         mapping_label = f"{label}.provenance_mappings[{index}]"
@@ -196,9 +202,19 @@ def _claimed_identity_source_evidence(entry: dict[str, Any], label: str) -> dict
                 "original": copy.deepcopy(original),
             }
         )
+    return claimed_provenance
+
+
+def _claimed_identity_source_evidence(entry: dict[str, Any], label: str) -> dict[str, Any]:
+    id_mappings = entry.get("id_mappings")
+    provenance_mappings = entry.get("provenance_mappings")
+    if not isinstance(id_mappings, list) or not id_mappings:
+        raise GateError(f"{label}.id_mappings must be non-empty")
+    if not isinstance(provenance_mappings, list) or not provenance_mappings:
+        raise GateError(f"{label}.provenance_mappings must be non-empty")
     return {
-        "id_mappings": claimed_ids,
-        "provenance_mappings": claimed_provenance,
+        "id_mappings": _claimed_id_mappings(id_mappings, label),
+        "provenance_mappings": _claimed_provenance_mappings(provenance_mappings, label),
     }
 
 
@@ -222,6 +238,25 @@ def _expected_identity_ids(
     ]
 
 
+def _owner_state_claims_provenance(owner: dict[str, Any]) -> bool:
+    """Whether an owner's ``state`` object carries a sim/real or provenance claim."""
+    state = owner.get("state")
+    return isinstance(state, dict) and ("sim_or_real" in state or "provenance" in state)
+
+
+def _owner_state_paths(
+    state_owners: list[tuple[str, dict[str, Any]]], label: str
+) -> list[tuple[str, str | None]]:
+    """Every owner's state pointer; each owner must then hold a state object."""
+    provenance_paths: list[tuple[str, str | None]] = []
+    for owner_path, owner in state_owners:
+        state_path = _mapping_pointer(owner_path, "state")
+        if not isinstance(owner.get("state"), dict):
+            raise GateError(f"{label}{state_path} does not identify a source object")
+        provenance_paths.append((owner_path, state_path))
+    return provenance_paths
+
+
 def _identity_provenance_paths(
     source_record: dict[str, Any],
     kind: str,
@@ -230,19 +265,9 @@ def _identity_provenance_paths(
 ) -> list[tuple[str, str | None]]:
     """Which (owner, state) pointers the provenance claims must cover."""
     state_owners = owners or [("/", source_record)]
-    use_state = any(
-        isinstance(state := owner.get("state"), dict)
-        and ("sim_or_real" in state or "provenance" in state)
-        for _owner_path, owner in state_owners
-    )
-    if not use_state:
+    if not any(_owner_state_claims_provenance(owner) for _owner_path, owner in state_owners):
         return [("/", None)]
-    provenance_paths: list[tuple[str, str | None]] = []
-    for owner_path, owner in state_owners:
-        state_path = _mapping_pointer(owner_path, "state")
-        if not isinstance(owner.get("state"), dict):
-            raise GateError(f"{label}{state_path} does not identify a source object")
-        provenance_paths.append((owner_path, state_path))
+    provenance_paths = _owner_state_paths(state_owners, label)
     if kind in _ROOT_PROVENANCE_KINDS:
         provenance_paths.append(("/", None))
     return provenance_paths
