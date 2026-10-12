@@ -326,13 +326,15 @@ class GeneratePairs(unittest.TestCase):
                 .splitlines()[0]
             )
             self.assertEqual(first["id"], "gql-r1-tiny-leftover-bind")
+        unknown_mill = generate.GenerateRequest(FIXTURE, self.root / "x", mill_id="gql_r0002")
         with self.assertRaises(GqlRefusal) as caught:
-            generate.run(generate.GenerateRequest(FIXTURE, self.root / "x", mill_id="gql_r0002"))
+            generate.run(unknown_mill)
         self.assertEqual(caught.exception.code, catalog.FINDING_MILL_NOT_FOUND)
+        mill_with_round = generate.GenerateRequest(
+            FIXTURE, self.root / "y", mill_id="gql_r0001", round=2
+        )
         with self.assertRaises(GqlRefusal) as caught:
-            generate.run(
-                generate.GenerateRequest(FIXTURE, self.root / "y", mill_id="gql_r0001", round=2)
-            )
+            generate.run(mill_with_round)
         self.assertEqual(caught.exception.code, FINDING_USAGE)
 
     def test_fixture_pair_is_an_episode_and_not_hosted_grok(self):

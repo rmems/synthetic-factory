@@ -96,9 +96,9 @@ class HopperMillExtractEdgeTests(unittest.TestCase):
             ast_extract_mill_pairs(bad_side, source_path="ssl-mill-bad.py")
         self.assertEqual(caught.exception.code, "CATALOG_FIELD_INVALID")
         self.assertIn("PAIRS[0].ok[5] must be a string literal", str(caught.exception))
+        bool_first = _mill_source(head="CATALOG_FIRST = True\n")
         with self.assertRaises(HopperRefusal) as caught:
-            ast_extract_mill_pairs(_mill_source(head="CATALOG_FIRST = True\n"),
-                                   source_path="ssl-mill-bool.py")
+            ast_extract_mill_pairs(bool_first, source_path="ssl-mill-bool.py")
         self.assertIn("missing int CATALOG_FIRST", str(caught.exception))
 
 

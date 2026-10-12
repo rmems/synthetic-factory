@@ -106,13 +106,10 @@ def _print_catalog(args: argparse.Namespace) -> int:
     payload = _catalog_payload()
     if args.json:
         print(dumps_exact_json(payload, indent=2))
-        return 0
-    print(f"{SOURCE_MILL_ID} {FACTORY} {len(catalog.PAIRS)} pairs")
-    for index, pair in enumerate(catalog.PAIRS):
-        print(
-            f"{index:2d} r{SOURCE_ROUND + index} "
-            f"{pair['ok_slug']} {pair['css_short']}"
-        )
+    else:
+        print(f"{SOURCE_MILL_ID} {FACTORY} {len(catalog.PAIRS)} pairs")
+        for index, pair in enumerate(catalog.PAIRS):
+            print(f"{index:2d} r{SOURCE_ROUND + index} {pair['ok_slug']} {pair['css_short']}")
     return 0
 
 
@@ -141,14 +138,15 @@ def _single_pair(args: argparse.Namespace) -> tuple[dict, dict]:
     return ok, bad
 
 
-def _generate(args: argparse.Namespace) -> int:
-    if not args.window:
-        _emit_sides(args, *_single_pair(args))
-        return 0
+def _window_pairs(args: argparse.Namespace) -> list[tuple[dict, dict]]:
     start = SOURCE_ROUND if args.round is None else args.round
     if args.slug is not None or args.index is not None:
         raise BrwError("window_rejects_slug_index")
-    for ok, bad in generate.generate_window(start, args.count):
+    return generate.generate_window(start, args.count)
+
+
+def _generate(args: argparse.Namespace) -> int:
+    for ok, bad in _window_pairs(args) if args.window else (_single_pair(args),):
         _emit_sides(args, ok, bad)
     return 0
 

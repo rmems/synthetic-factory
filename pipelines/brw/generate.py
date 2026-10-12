@@ -39,6 +39,8 @@ __all__ = [
     "st",
     "validate_pair",
 ]
+_JSON = "application/json"
+_RECEIPT_BASIS = "Observation: GET api receipt."
 
 
 def clip(text: str, n: int = 240) -> str:
@@ -153,7 +155,7 @@ def _open_step(c: _Scene, before: str, rel: str, path: str) -> dict:
 def _contract_step(c: _Scene, n: int, basis: str, path: str) -> dict:
     p = c.p
     return st(n, basis,
-              "http_request", {"method": "GET", "url": f"https://{c.css_s}/{path}", "headers": {"Accept": "application/json"}},
+              "http_request", {"method": "GET", "url": f"https://{c.css_s}/{path}", "headers": {"Accept": _JSON}},
               f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}")
 
 
@@ -183,7 +185,7 @@ def _click_verb_step(c: _Scene, n: int, basis: str) -> dict:
 def _receipt_step(c: _Scene, n: int, basis: str, tail: str) -> dict:
     p = c.p
     return st(n, basis,
-              "http_request", {"method": "GET", "url": f"https://{c.api}/{p['verb'].lower()}s/{c.keep}", "headers": {"Accept": "application/json"}},
+              "http_request", {"method": "GET", "url": f"https://{c.api}/{p['verb'].lower()}s/{c.keep}", "headers": {"Accept": _JSON}},
               f"200 {{\"{p['verb'].lower()}_id\":\"{c.keep}\",\"item\":\"{p['item']}\",{tail}}}")
 
 
@@ -224,7 +226,7 @@ def _shift_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 3, f"Observation: measure {p['item']} before {p['css_short']}.",
                        {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y}),
         st(4, f"Observation: GET {p['css_short']} contract.",
-           "http_request", {"method": "GET", "url": f"https://{c.css_s}/shift", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.css_s}/shift", "headers": {"Accept": _JSON}},
            f"200 {{\"from\":{p['from_v']!r},\"to\":{p['to_v']!r},\"warn\":{p['warn']!r}}}"),
         st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
            "browser_click", {"ref": p["trig_ref"]},
@@ -285,7 +287,7 @@ def _visual_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 8, "Observation: remeasure unfiltered/unmasked box.",
                        {p["js_prop"][:6]: p["to_v"], "x": x0, "y": y}),
         *_keep_tail(c, _TailWords(
-            f"Observation: click {p['item']} {p['ref']} not the blob.", "Observation: GET api receipt.",
+            f"Observation: click {p['item']} {p['ref']} not the blob.", _RECEIPT_BASIS,
             "\"via\":\"a11y_ref\"", f"Observation: snapshot {keep}.", f"ref_not_paint_{p['css_short']}")),
     ]
     if p["css_short"] == "backface-visibility":
@@ -316,7 +318,7 @@ def _overlay_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 8, "Observation: remeasure after overlay gone.",
                        {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": c.y1}),
         *_keep_tail(c, _TailWords(
-            f"Observation: click {p['item']} {p['ref']}.", "Observation: GET api receipt.",
+            f"Observation: click {p['item']} {p['ref']}.", _RECEIPT_BASIS,
             "\"overlay\":\"cleared\"", f"Observation: snapshot {keep}.", f"clear_{p['css_short']}")),
     ]
     outcome = f"{p['css']} captured the click. Cleared overlay, clicked {p['ref']}. POST: {keep}."
@@ -346,7 +348,7 @@ def _viewport_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 8, "Observation: remeasure dvh/inset box.",
                        {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": y1}),
         *_keep_tail(c, _TailWords(
-            f"Observation: click {p['item']} {p['ref']}.", "Observation: GET api receipt.",
+            f"Observation: click {p['item']} {p['ref']}.", _RECEIPT_BASIS,
             f"\"unit\":{p['to_v']!r}", f"Observation: snapshot {keep}.", f"ref_after_{p['css_short']}")),
     ]
     outcome = f"{p['css']} moved the used y. Stored y missed. Clicked {p['ref']}. POST: {keep}."
@@ -377,9 +379,9 @@ def _text_steps(c: _Scene) -> tuple[list[dict], str]:
            "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": p["item"]}]},
            f"filled {p['note_ref']}='{p['item']}'"),
         _click_verb_step(c, 10, f"Observation: click {p['verb']} {p['act_ref']} by ref under wrap."),
-        _receipt_step(c, 11, "Observation: GET api receipt.", "\"token\":\"full\""),
+        _receipt_step(c, 11, _RECEIPT_BASIS, "\"token\":\"full\""),
         st(12, "Observation: GET OpenAPI 415 clause.",
-           "http_request", {"method": "GET", "url": f"https://{c.api}/openapi.json", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.api}/openapi.json", "headers": {"Accept": _JSON}},
            f"200\nPOST /{p['sub']} 415 phrase_ocr if token is a wrap fragment"),
         _kept_step(c, 13, f"Observation: snapshot {keep}."),
         _findings_step(c, 14, "ref_not_ocr_fragment"),
@@ -410,7 +412,7 @@ def _box_steps(c: _Scene) -> tuple[list[dict], str]:
         _evaluate_step(c, 8, "Observation: remeasure used child box.",
                        {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": c.y1, "w": 0 if p["css_short"] == "display:contents" else 72}),
         *_keep_tail(c, _TailWords(
-            f"Observation: click child {p['item']} {p['ref']}.", "Observation: GET api receipt.",
+            f"Observation: click child {p['item']} {p['ref']}.", _RECEIPT_BASIS,
             "\"box\":\"child\"", f"Observation: snapshot {keep}.", f"child_ref_{p['css_short']}")),
     ]
     outcome = f"{p['css']} changed the principal box. Clicked child {p['ref']}. POST: {keep}."
@@ -465,7 +467,7 @@ def _fail_probe_steps(c: _FailScene) -> list[dict]:
            "browser_snapshot", {"interactive": True},
            f"[a11y]\n- article '{item}' ref={p['ref_fail']}\n- button '{p['verb']}' ref={p['act_ref']}"),
         st(3, f"Observation: GET {p['css_short']} gate.",
-           "http_request", {"method": "GET", "url": f"https://{c.css_s}/gate", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.css_s}/gate", "headers": {"Accept": _JSON}},
            f"200 {p['gate']}"),
         st(4, "Observation: evaluate live box.",
            "browser_evaluate", {"expression": _eval_expr(p)},
@@ -484,13 +486,13 @@ def _fail_post_steps(c: _FailScene) -> list[dict]:
     return [
         st(7, f"Observation: POST stale {p['css_short']} payload.",
            "http_request",
-           {"method": "POST", "url": f"https://{c.s}/ui/keep", "headers": {"Content-Type": "application/json", f"X-{host[:4].capitalize()}-Key": f"{host[:4]}-write"}, "body": json.loads(p["fail_body"]) if p["fail_body"].startswith("{") else {"code": item}},
+           {"method": "POST", "url": f"https://{c.s}/ui/keep", "headers": {"Content-Type": _JSON, f"X-{host[:4].capitalize()}-Key": f"{host[:4]}-write"}, "body": json.loads(p["fail_body"]) if p["fail_body"].startswith("{") else {"code": item}},
            f"{code} {{\"error\":\"{p['err']}\",\"have\":{p['to_v']!r}}}"),
         st(8, f"Observation: GET OpenAPI {code}.",
-           "http_request", {"method": "GET", "url": f"https://{c.api}/openapi.json", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.api}/openapi.json", "headers": {"Accept": _JSON}},
            f"200\nPOST /{p['sub']} {code} {p['err']}"),
         st(9, f"Observation: GET {item}.",
-           "http_request", {"method": "GET", "url": f"https://{c.api}/{p['sub']}/{item}", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.api}/{p['sub']}/{item}", "headers": {"Accept": _JSON}},
            f"200 {{\"item\":\"{item}\",\"kept\":false}}"),
         st(10, f"Observation: snapshot {code}.",
            "browser_snapshot", {"interactive": True},

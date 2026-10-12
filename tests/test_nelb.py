@@ -348,8 +348,9 @@ class AstExtractEdges(unittest.TestCase):
         self.assertEqual([plant.index for plant in plants], [1, 2, 3])
         self.assertEqual([plant.site for plant in plants], ["Bay 1", "Bay 2", "Bay 3"])
         self.assertEqual({plant.companion_key for plant in plants}, {"trajectory_companion"})
+        by_offset = f"ROUND = 3\nPAIRS = [not_a_dict, {rows(False)}]\n"
         with self.assertRaises(NelbRefusal) as ctx:
-            cat.plants_from_source(f"ROUND = 3\nPAIRS = [not_a_dict, {rows(False)}]\n", "offsets")
+            cat.plants_from_source(by_offset, "offsets")
         self.assertIn("index must be 1..3, got 4", str(ctx.exception))
 
     def test_unparseable_and_foreign_sources_are_refused(self):
