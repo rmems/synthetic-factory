@@ -236,10 +236,6 @@ _ROWS = [r for r in _ROWS if r["family"] != "leftover-drop"]
         self.assertEqual(ctx.exception.code, FINDING_AST_NOT_A_PLANT)
 
 
-def _plants_from_source(plants, source):
-    return [plant for plant in plants if plant.source == source]
-
-
 class CommittedCatalog(unittest.TestCase):
     def test_jsonl_slice_and_full_row_pins(self):
         loaded = cat.load_catalog()
@@ -310,12 +306,14 @@ class CommittedCatalog(unittest.TestCase):
             text=True,
         )
         committed = cat.load_catalog().plants
-        leftover_committed = _plants_from_source(
-            committed, "experiments/sbox-mill-plants-leftover.py"
-        )
-        twelve_committed = _plants_from_source(
-            committed, "experiments/sbox-mill-plants-leftover12.py"
-        )
+        leftover_committed = [
+            plant for plant in committed if plant.source == "experiments/sbox-mill-plants-leftover.py"
+        ]
+        twelve_committed = [
+            plant
+            for plant in committed
+            if plant.source == "experiments/sbox-mill-plants-leftover12.py"
+        ]
         self.assertEqual(
             [(row["family"], row["inc"]) for row in generate.plants_from_source(leftover)],
             [(plant.family, plant.inc) for plant in leftover_committed],

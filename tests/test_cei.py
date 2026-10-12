@@ -243,35 +243,39 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
-def _mill_plants(loaded, mill_id):
-    return [plant for plant in loaded.plants if plant.mill_id == mill_id]
-
-
-def _ok_slugs(plants):
-    return [plant.ok.slug for plant in plants]
-
-
 class CatalogLoading(unittest.TestCase):
-    def _assert_mill_slices(self, slices):
-        """Sizes, ok-slug order and shapes of the r81, r48, r42, r65 and r137 slices."""
-        r81, r48, r42, r65, r137 = slices
+    def test_committed_catalog_loads_r81_r48_and_slice3_ast_extracted_pairs(self):
+        loaded = catalog.load_catalog(COMMITTED)
+        self.assertEqual(loaded.catalog_id, "cei-pairs-v1")
+        self.assertEqual(loaded.factory, FACTORY)
+        self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
+        self.assertEqual(len(loaded.plants), 89)
+        self.assertEqual(len(loaded.mills), 5)
+        r81 = [plant for plant in loaded.plants if plant.mill_id == SOURCE_MILL_ID]
+        r48 = [plant for plant in loaded.plants if plant.mill_id == LEFTOVER3_MILL_ID]
+        r42 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R42_MILL_ID]
+        r65 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R65_MILL_ID]
+        r137 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R137_MILL_ID]
         self.assertEqual(len(r81), 39)
         self.assertEqual(len(r48), 16)
         self.assertEqual(len(r42), 7)
         self.assertEqual(len(r65), 12)
         self.assertEqual(len(r137), 15)
-        self.assertEqual(_ok_slugs(r81), list(EXPECTED_OK_SLUGS))
-        self.assertEqual(_ok_slugs(r48), list(EXPECTED_R48_OK_SLUGS))
-        self.assertEqual(_ok_slugs(r42), list(EXPECTED_R42_OK_SLUGS))
-        self.assertEqual(_ok_slugs(r65), list(EXPECTED_R65_OK_SLUGS))
-        self.assertEqual(_ok_slugs(r137), list(EXPECTED_R137_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r81], list(EXPECTED_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r48], list(EXPECTED_R48_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r42], list(EXPECTED_R42_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r65], list(EXPECTED_R65_OK_SLUGS))
+        self.assertEqual([plant.ok.slug for plant in r137], list(EXPECTED_R137_OK_SLUGS))
         self.assertEqual({plant.shape for plant in r81}, {SHAPE_OK_BAD})
         self.assertEqual(
             {plant.shape for plant in r48 + r42 + r65 + r137},
             {LEFTOVER3_SHAPE},
         )
-
-    def _assert_source_scripts_and_mill_order(self, loaded):
+        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 89)
+        slugs = [plant.ok.slug for plant in loaded.plants] + [
+            plant.bad.slug for plant in loaded.plants
+        ]
+        self.assertEqual(len(set(slugs)), 178)
         self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
         self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
         self.assertEqual(
@@ -294,24 +298,6 @@ class CatalogLoading(unittest.TestCase):
         self.assertEqual(loaded.mills[3].base_round, SLICE3_R65_ROUND)
         self.assertEqual(loaded.mills[4].mill_id, SLICE3_R137_MILL_ID)
         self.assertEqual(loaded.mills[4].base_round, SLICE3_R137_ROUND)
-
-    def test_committed_catalog_loads_r81_r48_and_slice3_ast_extracted_pairs(self):
-        loaded = catalog.load_catalog(COMMITTED)
-        self.assertEqual(loaded.catalog_id, "cei-pairs-v1")
-        self.assertEqual(loaded.factory, FACTORY)
-        self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
-        self.assertEqual(len(loaded.plants), 89)
-        self.assertEqual(len(loaded.mills), 5)
-        r81 = _mill_plants(loaded, SOURCE_MILL_ID)
-        r48 = _mill_plants(loaded, LEFTOVER3_MILL_ID)
-        r42 = _mill_plants(loaded, SLICE3_R42_MILL_ID)
-        r65 = _mill_plants(loaded, SLICE3_R65_MILL_ID)
-        r137 = _mill_plants(loaded, SLICE3_R137_MILL_ID)
-        self._assert_mill_slices((r81, r48, r42, r65, r137))
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 89)
-        slugs = _ok_slugs(loaded.plants) + [plant.bad.slug for plant in loaded.plants]
-        self.assertEqual(len(set(slugs)), 178)
-        self._assert_source_scripts_and_mill_order(loaded)
         self.assertEqual(loaded.plants[0].bad.ticket, "DBF-MEMO-81")
         self.assertEqual(r81[-1].ok.slug, "xlsx-vml-vs-comment")
         self.assertEqual(r48[0].bad.ticket, "ORC-BLOOM-16")

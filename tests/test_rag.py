@@ -115,14 +115,6 @@ class CatalogLoading(unittest.TestCase):
         self.assertEqual(caught.exception.code, FINDING_PLANT_NOT_FOUND)
 
 
-def _runpy_aliases(node):
-    return [
-        alias.name
-        for alias in node.names
-        if alias.name == "runpy" or alias.name.startswith("runpy.")
-    ]
-
-
 class AstExtract(unittest.TestCase):
     def test_plants_from_source_reads_p_calls_and_catalog_first(self):
         rows = catalog.plants_from_source(
@@ -184,22 +176,23 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(hits, [])
         forbidden_calls = frozenset({"exec", "eval", "compile"})
         for path in (PIPELINES / "rag").glob("*.py"):
-            self._assert_module_has_no_runpy_or_dynamic_code(path, forbidden_calls)
-
-    def _assert_module_has_no_runpy_or_dynamic_code(self, path, forbidden_calls):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                runpy_aliases = _runpy_aliases(node)
-                self.assertEqual(runpy_aliases, [], msg=f"{path.name} imports runpy")
-            if isinstance(node, ast.ImportFrom) and node.module == "runpy":
-                self.fail(f"{path.name} imports runpy")
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                self.assertNotIn(
-                    node.func.id,
-                    forbidden_calls,
-                    msg=f"{path.name} calls {node.func.id}",
-                )
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    runpy_aliases = [
+                        alias.name
+                        for alias in node.names
+                        if alias.name == "runpy" or alias.name.startswith("runpy.")
+                    ]
+                    self.assertEqual(runpy_aliases, [], msg=f"{path.name} imports runpy")
+                if isinstance(node, ast.ImportFrom) and node.module == "runpy":
+                    self.fail(f"{path.name} imports runpy")
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    self.assertNotIn(
+                        node.func.id,
+                        forbidden_calls,
+                        msg=f"{path.name} calls {node.func.id}",
+                    )
 
 
 class GeneratePairs(unittest.TestCase):

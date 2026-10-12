@@ -34,13 +34,6 @@ else:  # The first RED is a missing behavior, not an import-time test error.
     rights_policy = None
 
 
-def _first_matching(items, predicate):
-    """The first item predicate accepts; a missing item fails the test instead of leaking."""
-    for item in filter(predicate, items):
-        return item
-    raise AssertionError("no item matches the fixture lookup")
-
-
 def digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
@@ -76,10 +69,17 @@ def mutated_loaded_policy():
 
 
 def _policy_item(collection: str, identifier: str):
-    for candidate in rights_policy.RIGHTS_POLICY[collection]:
-        if candidate["id"] == identifier:
-            return candidate
-    raise AssertionError(f"missing policy test fixture {identifier}")
+    item = next(
+        (
+            candidate
+            for candidate in rights_policy.RIGHTS_POLICY[collection]
+            if candidate["id"] == identifier
+        ),
+        None,
+    )
+    if item is None:
+        raise AssertionError(f"missing policy test fixture {identifier}")
+    return item
 
 
 def _assert_policy_mutations_rejected(profile, rule):
@@ -130,8 +130,7 @@ class RightsPolicyTestCase(unittest.TestCase):
     SOURCE_SHA256 = digest(SOURCE_BYTES)
     REGISTRY_SHA256 = digest(REGISTRY_BYTES)
 
-    @staticmethod
-    def route(provider="anthropic", channel="consumer", profile=None):
+    def route(self, provider="anthropic", channel="consumer", profile=None):
         return rights_classifier.RightsRoute(
             provider=provider,
             channel=channel,
@@ -155,8 +154,7 @@ class RightsPolicyTestCase(unittest.TestCase):
             policy_bytes=policy_bytes,
         )
 
-    @staticmethod
-    def write_bytes(directory: str, name: str, payload: bytes) -> Path:
+    def write_bytes(self, directory: str, name: str, payload: bytes) -> Path:
         path = Path(directory) / name
         path.write_bytes(payload)
         return path
@@ -165,7 +163,14 @@ class RightsPolicyTestCase(unittest.TestCase):
 @unittest.skipIf(RIGHTS_POLICY_SPEC is None, "rights policy runtime is not implemented")
 class RightsPolicyTests(RightsPolicyTestCase):
 
-    def _assert_provider_and_channel_vocabularies(self, document):
+    def test_committed_policy_is_loaded_and_bound_to_its_exact_bytes(self):
+        document = json.loads(MAPPING.read_text(encoding="utf-8"))
+
+        self.assertEqual(plain_policy_value(rights_policy.RIGHTS_POLICY), document)
+        self.assertEqual(
+            rights_policy.RIGHTS_POLICY_SHA256,
+            digest(MAPPING.read_bytes()),
+        )
         self.assertEqual(
             set(document["vocabularies"]["providers"]),
             {
@@ -197,16 +202,6 @@ class RightsPolicyTests(RightsPolicyTestCase):
                 "openrouter_api",
             },
         )
-
-    def test_committed_policy_is_loaded_and_bound_to_its_exact_bytes(self):
-        document = json.loads(MAPPING.read_text(encoding="utf-8"))
-
-        self.assertEqual(plain_policy_value(rights_policy.RIGHTS_POLICY), document)
-        self.assertEqual(
-            rights_policy.RIGHTS_POLICY_SHA256,
-            digest(MAPPING.read_bytes()),
-        )
-        self._assert_provider_and_channel_vocabularies(document)
         self.assertEqual(
             document["evidence_status_fields"],
             [
@@ -282,9 +277,10 @@ class RightsPolicyTests(RightsPolicyTestCase):
 
     def test_provider_training_evidence_cannot_promote_project_policy(self):
         document = mutable_policy_document()
-        profile = _first_matching(
-            document["profiles"],
-            lambda item: item["id"] == rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID,
+        profile = next(
+            item
+            for item in document["profiles"]
+            if item["id"] == rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
         )
         profile["evidence_statuses"]["provider_training_status"] = "allowed"
 
@@ -447,9 +443,10 @@ class RightsPolicyTests(RightsPolicyTestCase):
             if rule["rights_profile_id"]
             != rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
         ]
-        hosted_profile = _first_matching(
-            document["profiles"],
-            lambda profile: profile["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID,
+        hosted_profile = next(
+            profile
+            for profile in document["profiles"]
+            if profile["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
         )
         hosted_profile["reason_codes"].append("UNKNOWN_PROVENANCE")
         for rule in document["rules"]:
@@ -499,9 +496,11 @@ class RightsPolicyTests(RightsPolicyTestCase):
 
     def test_unknown_provenance_rule_covers_every_provider_channel_route(self):
         document = mutable_policy_document()
-        fallback = _first_matching(
-            document["rules"],
-            lambda rule: rule["rights_profile_id"] == rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID,
+        fallback = next(
+            rule
+            for rule in document["rules"]
+            if rule["rights_profile_id"]
+            == rights_policy.UNKNOWN_PROVENANCE_PROFILE_ID
         )
         fallback["providers"] = ["xai"]
         fallback["channels"] = ["local"]
@@ -538,9 +537,10 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_hosted_profile_must_keep_all_evidence_unresolved(self):
         document = mutable_policy_document()
         document["profiles"].reverse()
-        hosted_profile = _first_matching(
-            document["profiles"],
-            lambda profile: profile["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID,
+        hosted_profile = next(
+            profile
+            for profile in document["profiles"]
+            if profile["id"] == rights_policy.HOSTED_FRONTIER_PROFILE_ID
         )
         hosted_profile["evidence_statuses"][
             "provider_training_status"
