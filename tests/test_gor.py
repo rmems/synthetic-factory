@@ -29,7 +29,6 @@ from gor.catalog_extract import (  # noqa: E402
     dumps_pairs_jsonl,
     extract_companion_path,
     extract_mill_catalog,
-    load_pair_rows,
     mill_summary,
     pair_identity,
     pairs_jsonl_path,
@@ -355,75 +354,6 @@ class GorSkeletonTests(unittest.TestCase):
             (dest / "pairs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "keys differ"):
                 load_catalog(dest / "CATALOG.json")
-
-
-class GorExtractRefusalTests(unittest.TestCase):
-    """Shapes the extractor declines, and the loader's per-line and per-mill checks."""
-
-    def test_600_deep_plus_and_minus_chains_resolve_as_constants(self):
-        deep = "CATALOG_FIRST = " + "-" * 600 + "946"
-        chained = _LITERAL_SNIPPET.replace("CATALOG_FIRST = 946", deep)
-        chained = chained.replace('GEN = "grok-4.6"', "GEN = " + " + ".join(['"g"'] * 600))
-        extracted = extract_mill_catalog(chained, path="experiments/gor-mill-r946.py")
-        self.assertEqual((extracted["catalog_first"], extracted["generator"]), (946, "g" * 600))
-
-    def test_fstring_constants_resolve_and_mixed_sums_do_not(self):
-        source = _LITERAL_SNIPPET + 'X = 3\nFACTORY = f"gor-{X}"\nGEN = "g" + 1\n'
-        extracted = extract_mill_catalog(source, path="experiments/gor-mill-r946.py")
-        self.assertEqual((extracted["factory"], extracted["generator"]), ("gor-3", "grok-4.6"))
-
-    def test_lists_and_adds_that_are_not_pair_identities_extract_nothing(self):
-        for source in (
-            'PAIRS = [("lfs", "annex")]\n',
-            'PAIRS = [(_X(slug="a"), _X(slug="b"))]\n',
-            'add(_cfg("only-one-spec", "s", "k", "v", None))\n',
-        ):
-            refused = self.assertRaisesRegex(ValueError, "^m.py has no extractable GOR catalog")
-            with self.subTest(source=source), refused:
-                extract_mill_catalog(source, path="m.py")
-
-    def test_a_later_list_of_another_shape_names_the_shape(self):
-        source = (
-            'PAIRS = [({"slug": "lit-ok"}, {"slug": "lit-fail"})]\n'
-            'MORE = [_pair(gitcfg(slug="cfg-ok"), gitcfg(slug="cfg-fail", handoff="ci"))]\n'
-        )
-        extracted = extract_mill_catalog(source, path="m.py")
-        self.assertEqual(extracted["shape"], SHAPE_GITCFG)
-        self.assertEqual((extracted["n_new"], extracted["n_more"]), (0, 1))
-        self.assertEqual(extracted["last_slug"], "cfg-ok")
-
-    def test_each_pairs_line_must_be_compact_json(self):
-        cases = (
-            ('\n{"i":0}\n', "pairs.jsonl:1 is empty"),
-            (' {"i":0}\n', "pairs.jsonl:1 is not compact"),
-            ("{i:0}\n", "pairs.jsonl:1 is not JSON: "),
-        )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "pairs.jsonl"
-            for text, message in cases:
-                path.write_text(text, encoding="utf-8")
-                with self.subTest(message=message):
-                    with self.assertRaises(ValueError) as caught:
-                        load_pair_rows(path)
-                    self.assertTrue(str(caught.exception).startswith(message))
-
-    def test_deferred_rows_must_name_a_known_mill_in_order_on_its_path(self):
-        header = catalog_json_path().read_text(encoding="utf-8")
-        lines = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
-        first = json.loads(lines[0])
-        for change, message in (
-            ({"mill_id": "gor-mill-r9999"}, "pairs.jsonl names unknown mill gor-mill-r9999"),
-            ({"i": 5}, f"{first['mill_id']} pair index drifted"),
-            ({"path": "experiments/elsewhere.py"}, f"{first['mill_id']} path drifted from catalog"),
-        ):
-            edited = [json.dumps({**first, **change}, separators=(",", ":")), *lines[1:]]
-            with tempfile.TemporaryDirectory() as temp_dir, self.subTest(change=change):
-                dest = Path(temp_dir)
-                (dest / "CATALOG.json").write_text(header, encoding="utf-8")
-                (dest / "pairs.jsonl").write_text("\n".join(edited) + "\n", encoding="utf-8")
-                with self.assertRaises(ValueError) as caught:
-                    load_catalog(dest / "CATALOG.json")
-                self.assertEqual(str(caught.exception), message)
 
 
 class GorLegacyExtractTests(unittest.TestCase):

@@ -128,12 +128,6 @@ def _bind_header(mills: Mapping[str, MillCatalog]) -> None:
     slice_mill = mills[SLICE_MILL_ID]
     if len(slice_mill.pairs) != slice_mill.n_rows:
         raise ValueError("r946 slice n_rows does not match extracted pairs")
-    _check_mill_pins(mills, expected)
-
-
-def _check_mill_pins(mills: Mapping[str, MillCatalog], expected: Mapping[str, Any]) -> None:
-    """Every mill matches its sources.py pin; only the r946 slice carries pair rows."""
-
     for mill_id, mill in mills.items():
         source = expected[mill_id]
         if mill.path != source.path or mill.blob_sha != source.blob_sha:
@@ -152,26 +146,18 @@ def _overlay_deferred_pairs(
         raise ValueError(f"{PAIRS_FILENAME} must omit the r946 first-slice mill")
     out = dict(mills)
     for mill_id, mill_rows in grouped.items():
-        _check_deferred_rows(mills, mill_id, mill_rows)
+        if mill_id not in mills:
+            raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
+        expected_index = list(range(len(mill_rows)))
+        if [row["i"] for row in mill_rows] != expected_index:
+            raise ValueError(f"{mill_id} pair index drifted")
+        if any(row["path"] != mills[mill_id].path for row in mill_rows):
+            raise ValueError(f"{mill_id} path drifted from catalog")
         out[mill_id] = replace(
             mills[mill_id],
             pairs=tuple(pair_identity(row) for row in mill_rows),
         )
     return out
-
-
-def _check_deferred_rows(
-    mills: Mapping[str, MillCatalog], mill_id: str, mill_rows: list[dict[str, Any]]
-) -> None:
-    """A known mill, rows indexed 0..n-1 in order, every row on the catalog path."""
-
-    if mill_id not in mills:
-        raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
-    expected_index = list(range(len(mill_rows)))
-    if [row["i"] for row in mill_rows] != expected_index:
-        raise ValueError(f"{mill_id} pair index drifted")
-    if any(row["path"] != mills[mill_id].path for row in mill_rows):
-        raise ValueError(f"{mill_id} path drifted from catalog")
 
 
 def _bind_sources(catalog: GorCatalog) -> None:
@@ -182,12 +168,6 @@ def _bind_sources(catalog: GorCatalog) -> None:
     bulky = catalog.mills[BULKY_MILL_ID]
     if bulky.n_rows != BULKY_N_ROWS or len(bulky.pairs) != BULKY_N_ROWS:
         raise ValueError("r1460 bulky width drifted from vocabulary")
-    _check_pair_widths(catalog)
-
-
-def _check_pair_widths(catalog: GorCatalog) -> None:
-    """Each mill's committed pair identities match its n_rows and first/last slug."""
-
     for mill_id, mill in catalog.mills.items():
         if len(mill.pairs) != mill.n_rows:
             raise ValueError(f"{mill_id} n_rows does not match committed pair identities")
