@@ -30,42 +30,59 @@ import json
 import sys
 from pathlib import Path
 
-# Reuse the existing validator vocabulary as ground truth.
-try:
-    from check_records import ALLOWED_SIM_OR_REAL
-except ImportError:  # pragma: no cover - depends on sys.path of the caller
-    print(
-        "verify_execution: check_records unavailable — falling back to the "
-        "built-in state.sim_or_real set",
-        file=sys.stderr,
-    )
-    ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-try:
-    from validate_run import (
+    _assert_direct_sibling("verify_execution")
+    # The package always ships its validators, so the package form imports
+    # them outright: a missing sibling raises instead of taking the fallbacks
+    # below, which exist only for direct callers with an unusual sys.path.
+    from .check_records import ALLOWED_SIM_OR_REAL
+    from .operator_paths import confine
+    from .validate_run import (
         THALAMIC_CORE_KEYS,
         check_episode,
         check_line,
         check_safety_case,
     )
-except ImportError:  # pragma: no cover - publish imports from the repo tree
-    THALAMIC_CORE_KEYS = (
-        "state",
-        "proposed_action",
-        "safety_decision",
-        "executed_action",
-        "future_outcome",
-        "reward_components",
+    from .verify_execution_shapes import verify_record_execution
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "verify_execution"
     )
-    check_episode = None
-    check_line = None
-    check_safety_case = None
+    # Reuse the existing validator vocabulary as ground truth.
+    try:
+        from check_records import ALLOWED_SIM_OR_REAL
+    except ImportError:  # pragma: no cover - depends on sys.path of the caller
+        print(
+            "verify_execution: check_records unavailable — falling back to the "
+            "built-in state.sim_or_real set",
+            file=sys.stderr,
+        )
+        ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
 
+    try:
+        from validate_run import (
+            THALAMIC_CORE_KEYS,
+            check_episode,
+            check_line,
+            check_safety_case,
+        )
+    except ImportError:  # pragma: no cover - publish imports from the repo tree
+        THALAMIC_CORE_KEYS = (
+            "state",
+            "proposed_action",
+            "safety_decision",
+            "executed_action",
+            "future_outcome",
+            "reward_components",
+        )
+        check_episode = None
+        check_line = None
+        check_safety_case = None
 
-from operator_paths import confine  # noqa: E402
-from verify_execution_shapes import (  # noqa: E402
-    verify_record_execution,
-)
+    from operator_paths import confine
+    from verify_execution_shapes import verify_record_execution
 
 # ---------------------------------------------------------------------------
 # Frontier gate — integration with pipelines/round_txn.py
@@ -304,6 +321,10 @@ def main(argv=None):
         for f in findings:
             print(f"{f['status'].upper()}: {f['file']}:{f['line']} — {f['reason']}", file=sys.stderr)
     sys.exit(1 if blocked else 0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":
