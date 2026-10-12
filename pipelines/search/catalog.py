@@ -6,16 +6,18 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .catalog_extract import (
+    HomeMillPins,
     catalog_json_path,
     home_jsonl_path,
     home_mill_pins,
     load_home_header,
     load_home_rows,
 )
-from .sources import MILL_SOURCES, catalog_sources, home_mill_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources, home_mill_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
@@ -142,46 +144,34 @@ def _bind_sources(catalog: SearchCatalog) -> None:
     if len(MILL_SOURCES) != 2:
         raise ValueError(f"expected 2 search leftover mills, found {len(MILL_SOURCES)}")
     for mill_id, mill in catalog.mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill.catalog_first != source.catalog_first:
-            raise ValueError(f"{mill_id} catalog_first disagrees with sources.py")
-        if mill.n_hops != source.n_hops or mill.n_hops != len(mill.hops):
-            raise ValueError(f"{mill_id} hop count disagrees with sources.py")
-        if mill.n_rows != mill.n_rounds or len(mill.pairs) != mill.n_rows:
-            raise ValueError(f"{mill_id} pair rows do not match n_rows")
+        _bind_mill_to_source(mill_id, mill, expected[mill_id])
+        _check_pair_rows(mill_id, mill)
+
+
+def _bind_mill_to_source(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
+    """Path, blob, ``catalog_first`` and hop count must agree with ``sources.py``."""
+
+    if mill.path != source.path or mill.blob_sha != source.blob_sha:
+        raise ValueError(f"{mill_id} pin disagrees with sources.py")
+    if mill.catalog_first != source.catalog_first:
+        raise ValueError(f"{mill_id} catalog_first disagrees with sources.py")
+    if mill.n_hops != source.n_hops or mill.n_hops != len(mill.hops):
+        raise ValueError(f"{mill_id} hop count disagrees with sources.py")
+
+
+def _check_pair_rows(mill_id: str, mill: MillCatalog) -> None:
+    if mill.n_rows != mill.n_rounds or len(mill.pairs) != mill.n_rows:
+        raise ValueError(f"{mill_id} pair rows do not match n_rows")
 
 
 def load_home_mill(mill_id: str, path=None) -> HomeMillCatalog:
     pins = home_mill_pins(mill_id)
-    header = load_home_header(mill_id)
-    mill = header["mill"]
-    if mill.get("mill_id") != pins.mill_id or mill.get("path") != pins.path:
-        raise ValueError(f"{mill_id} header mill pin drifted from vocabulary")
-    if mill.get("blob_sha") != pins.blob_sha or mill.get("sha256") != pins.source_sha256:
-        raise ValueError(f"{mill_id} header source hashes drifted from vocabulary")
-    if header.get("pairs_sha256") != pins.jsonl_sha256:
-        raise ValueError(f"{mill_id} header pairs_sha256 drifted from vocabulary")
+    _check_home_header(mill_id, load_home_header(mill_id), pins)
     jsonl_path = path if path is not None else home_jsonl_path(mill_id)
     rows = load_home_rows(mill_id, jsonl_path)
-    if len(rows) != pins.n_rows:
-        raise ValueError(f"{jsonl_path} expected {pins.n_rows} rows, found {len(rows)}")
-    first = rows[0]["success_slug"]
-    last = rows[-1]["success_slug"]
-    if first != pins.first_slug or last != pins.last_slug:
-        raise ValueError(f"{jsonl_path} first/last slugs drifted: {first} / {last}")
-    for offset, row in enumerate(rows):
-        expected_round = pins.catalog_first + offset
-        if row.get("round") != expected_round:
-            raise ValueError(f"{jsonl_path} row {offset} round drifted from {expected_round}")
+    first, last = _home_slug_window(jsonl_path, rows, pins)
     source = next(item for item in home_mill_sources() if item.mill_id == mill_id)
-    if source.path != pins.path or source.blob_sha != pins.blob_sha:
-        raise ValueError(f"{mill_id} source pin drifted from vocabulary")
-    if source.catalog_first != pins.catalog_first or source.n_hops != 0:
-        raise ValueError(f"{mill_id} source window drifted from vocabulary")
-    if source.kind != KIND_HOME_PAIRS:
-        raise ValueError(f"{mill_id} source kind is not home-pairs")
+    _check_home_source(mill_id, source, pins)
     return HomeMillCatalog(
         mill_id=pins.mill_id,
         path=pins.path,
@@ -194,6 +184,45 @@ def load_home_mill(mill_id: str, path=None) -> HomeMillCatalog:
         slice=pins.slice_id,
         pairs=tuple(rows),
     )
+
+
+def _check_home_header(mill_id: str, header: Mapping[str, Any], pins: HomeMillPins) -> None:
+    """The committed header's mill pin, source hashes and pairs hash match the pins."""
+
+    mill = header["mill"]
+    if mill.get("mill_id") != pins.mill_id or mill.get("path") != pins.path:
+        raise ValueError(f"{mill_id} header mill pin drifted from vocabulary")
+    if mill.get("blob_sha") != pins.blob_sha or mill.get("sha256") != pins.source_sha256:
+        raise ValueError(f"{mill_id} header source hashes drifted from vocabulary")
+    if header.get("pairs_sha256") != pins.jsonl_sha256:
+        raise ValueError(f"{mill_id} header pairs_sha256 drifted from vocabulary")
+
+
+def _home_slug_window(
+    jsonl_path: Path, rows: list[dict[str, Any]], pins: HomeMillPins
+) -> tuple[str, str]:
+    """``(first, last)`` success slugs once count, slug window and rounds match the pins."""
+
+    if len(rows) != pins.n_rows:
+        raise ValueError(f"{jsonl_path} expected {pins.n_rows} rows, found {len(rows)}")
+    first = rows[0]["success_slug"]
+    last = rows[-1]["success_slug"]
+    if first != pins.first_slug or last != pins.last_slug:
+        raise ValueError(f"{jsonl_path} first/last slugs drifted: {first} / {last}")
+    for offset, row in enumerate(rows):
+        expected_round = pins.catalog_first + offset
+        if row.get("round") != expected_round:
+            raise ValueError(f"{jsonl_path} row {offset} round drifted from {expected_round}")
+    return first, last
+
+
+def _check_home_source(mill_id: str, source: MillSource, pins: HomeMillPins) -> None:
+    if source.path != pins.path or source.blob_sha != pins.blob_sha:
+        raise ValueError(f"{mill_id} source pin drifted from vocabulary")
+    if source.catalog_first != pins.catalog_first or source.n_hops != 0:
+        raise ValueError(f"{mill_id} source window drifted from vocabulary")
+    if source.kind != KIND_HOME_PAIRS:
+        raise ValueError(f"{mill_id} source kind is not home-pairs")
 
 
 def load_r72(path=None) -> HomeMillCatalog:

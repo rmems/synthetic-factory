@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 UNSET = object()
@@ -34,29 +34,41 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, and literal containers; else ``UNSET``."""
+    """Resolve constants, names, and literal containers; else ``UNSET``.
+
+    One frame per unary nesting level: the ``-`` operand recurses here
+    directly, and ``_negated`` / ``_sequence_ctor`` never recurse.
+    """
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
+        return bound.get(node.id, UNSET)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
+        return _negated(literal_value(node.operand, bound))
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return _sequence(node.elts, bound, _sequence_ctor(node))
     if isinstance(node, ast.Dict):
         return _mapping(node, bound)
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _negated(inner: Any) -> Any:
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _sequence_ctor(node: ast.Tuple | ast.List | ast.Set) -> Callable[[list[Any]], Any]:
+    """``tuple`` / ``list`` / ``set`` for the literal's own container type."""
+
+    if isinstance(node, ast.Tuple):
+        return tuple
+    if isinstance(node, ast.List):
+        return list
+    return set
+
+
+def _sequence(elts: list[ast.expr], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
