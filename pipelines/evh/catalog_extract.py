@@ -199,7 +199,8 @@ def _extract_catalogs(
     emit_calls = _emit_calls(tree, dict(env))
     if emit_calls:
         return [_param_catalog(catalog_fn, env, emit, path=path) for emit in emit_calls]
-    return [_plain_catalog(tree, env, catalog_fn, path=path)]
+    rows = _interpret_catalog(catalog_fn, env, {}, path=path)
+    return [_plain_catalog(tree, env, rows, path=path)]
 
 
 def _raw_catalog(
@@ -249,11 +250,10 @@ def _param_catalog(
 def _plain_catalog(
     tree: ast.AST,
     env: Mapping[str, Any],
-    catalog_fn: ast.FunctionDef,
+    rows: list[tuple[Any, ...]],
     *,
     path: str,
 ) -> dict[str, Any]:
-    rows = _interpret_catalog(catalog_fn, env, {}, path=path)
     void_base = _void_base(tree, default=59 if "PLANTED_OK" in env else 96)
     planted = _plant_catalog_rows(rows, env, void_base)
     shape = SHAPE_FSTRING if "METS" in env else SHAPE_ADD_TABLES
@@ -288,41 +288,30 @@ def _exec_body(
     rows: list[tuple[Any, ...]],
     ctx: str,
 ) -> Any:
-    """Run one ``catalog()`` body; ``ctx`` is ``"<path>:<fn name>"``."""
+    """Run one ``catalog()`` body; ``ctx`` is ``"<path>:<fn name>"``.
+
+    Assignments, ``for`` loops, bare calls and ``return`` run here; nested defs and
+    every other statement are skipped. Dispatching in this frame keeps a nested
+    ``for`` at two frames per level (``_exec_body`` and ``_exec_for``).
+    """
 
     for stmt in body:
-        if isinstance(stmt, ast.Return):
-            return _exec_return(stmt, env, ctx)
-        _exec_stmt(stmt, env, rows, ctx)
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            _exec_assign(stmt, env, ctx)
+        elif isinstance(stmt, ast.For):
+            _exec_for(stmt, env, rows, ctx)
+        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            _exec_call(stmt.value, env, rows, ctx)
+        elif isinstance(stmt, ast.Return):
+            return None if stmt.value is None else require(stmt.value, env, f"{ctx} return")
     return UNSET
-
-
-def _exec_stmt(
-    stmt: ast.stmt,
-    env: dict[str, Any],
-    rows: list[tuple[Any, ...]],
-    ctx: str,
-) -> None:
-    """Assignments, ``for`` loops and bare calls; nested defs and every other
-    statement are skipped."""
-
-    if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
-        _exec_assign(stmt, env, ctx)
-    elif isinstance(stmt, ast.For):
-        _exec_for(stmt, env, rows, ctx)
-    elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-        _exec_call(stmt.value, env, rows, ctx)
-
-
-def _exec_return(stmt: ast.Return, env: dict[str, Any], ctx: str) -> Any:
-    if stmt.value is None:
-        return None
-    return require(stmt.value, env, f"{ctx} return")
 
 
 def _exec_assign(stmt: ast.stmt, env: dict[str, Any], ctx: str) -> None:
     if isinstance(stmt, ast.AnnAssign):
-        _exec_ann_assign(stmt, env, ctx)
+        annotated = _annotated_binding(stmt)
+        if annotated is not None:
+            env[annotated[0]] = require(annotated[1], env, f"{ctx} assign")
         return
     if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
         raise ValueError(f"{ctx}: unsupported assignment")
@@ -337,9 +326,12 @@ def _exec_assign(stmt: ast.stmt, env: dict[str, Any], ctx: str) -> None:
     raise ValueError(f"{ctx}: unsupported assignment target")
 
 
-def _exec_ann_assign(stmt: ast.AnnAssign, env: dict[str, Any], ctx: str) -> None:
+def _annotated_binding(stmt: ast.AnnAssign) -> tuple[str, ast.expr] | None:
+    """``(name, value)`` for ``name: T = value``; a bare annotation binds nothing."""
+
     if isinstance(stmt.target, ast.Name) and stmt.value is not None:
-        env[stmt.target.id] = require(stmt.value, env, f"{ctx} assign")
+        return stmt.target.id, stmt.value
+    return None
 
 
 def _unpack_names(
@@ -727,38 +719,40 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
 
 
 def _encode(value: Any, level: int, key: str | None) -> str:
+    # Recursion stays in this function (the comprehensions run in its frame), so a
+    # nested dict or list level costs one frame; _encode_flat never recurses.
+    pad = "  " * level
+    flat = _encode_flat(value, pad, key)
+    if flat is not None:
+        return flat
     if isinstance(value, dict):
-        return _encode_dict(value, level)
-    if isinstance(value, list):
-        return _encode_list(value, level, key)
-    return json.dumps(value, ensure_ascii=True)
-
-
-def _encode_dict(value: dict[str, Any], level: int) -> str:
-    if not value:
-        return "{}"
-    pad = "  " * level
-    parts = [
-        f"{pad}  {json.dumps(item_key)}: {_encode(value[item_key], level + 1, item_key)}"
-        for item_key in sorted(value)
-    ]
-    return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
-
-
-def _encode_list(value: list[Any], level: int, key: str | None) -> str:
-    """A ``pairs`` list keeps one compact pair identity per line."""
-
-    if not value:
-        return "[]"
-    pad = "  " * level
-    if key == "pairs":
-        lines = [
-            f"{pad}  "
-            + json.dumps(item, ensure_ascii=True, sort_keys=True, separators=(", ", ": "))
-            for item in value
+        parts = [
+            f"{pad}  {json.dumps(item_key)}: {_encode(value[item_key], level + 1, item_key)}"
+            for item_key in sorted(value)
         ]
-    else:
-        lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
+        return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
+    lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
+    return _bracketed(lines, pad)
+
+
+def _encode_flat(value: Any, pad: str, key: str | None) -> str | None:
+    """Scalars, empty containers, and a ``pairs`` list (one compact pair identity per
+    line); ``None`` for a non-empty dict or list that needs ``_encode`` to recurse."""
+
+    if not isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=True)
+    if not value:
+        return "{}" if isinstance(value, dict) else "[]"
+    if isinstance(value, dict) or key != "pairs":
+        return None
+    lines = [
+        f"{pad}  " + json.dumps(item, ensure_ascii=True, sort_keys=True, separators=(", ", ": "))
+        for item in value
+    ]
+    return _bracketed(lines, pad)
+
+
+def _bracketed(lines: list[str], pad: str) -> str:
     return "[\n" + ",\n".join(lines) + f"\n{pad}]"
 
 
