@@ -100,7 +100,10 @@ def _const(node: ast.AST, where: str, *, env: dict[str, Any] | None = None) -> A
 
 
 def _const_tuple(node: ast.Tuple, where: str, env: dict[str, Any] | None) -> tuple[Any, ...]:
-    return tuple([_const(elt, where, env=env) for elt in node.elts])
+    items: list[Any] = []
+    for elt in node.elts:
+        items.append(_const(elt, where, env=env))
+    return tuple(items)
 
 
 def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
