@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from . import config as cfg
-from . import episode as ep_mod
 from .import_twins import bind_import_twin
 from .notes import build_pair
 from .plants import PLANTS
