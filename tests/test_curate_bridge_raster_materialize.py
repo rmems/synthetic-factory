@@ -23,6 +23,18 @@ except ModuleNotFoundError:
     )
 
 
+def source_tree(root, records):
+    """Write ``records`` as one Bridge batch under ``<root>/raw``; return (raw root, batch)."""
+    source_root = Path(root) / "raw"
+    batch = source_root / "neuromorphic-event-language-bridge" / "batch-r02.jsonl"
+    batch.parent.mkdir(parents=True)
+    batch.write_text(
+        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    return source_root, batch
+
+
 class MaterializedLaneRequiresRasters(unittest.TestCase):
     """``--out-dir`` publishes a *gate-compatible* tree, so it must gate.
 
@@ -32,20 +44,10 @@ class MaterializedLaneRequiresRasters(unittest.TestCase):
     other layer refuses.
     """
 
-    def source_tree(self, root, records):
-        source_root = Path(root) / "raw"
-        batch = source_root / "neuromorphic-event-language-bridge" / "batch-r02.jsonl"
-        batch.parent.mkdir(parents=True)
-        batch.write_text(
-            "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
-            encoding="utf-8",
-        )
-        return source_root, batch
-
     def test_materialized_tree_quarantines_a_raster_less_record(self):
         with tempfile.TemporaryDirectory() as td:
             records = [bridge([event(1.0, "a"), event(2.0, "b")], "no-raster")]
-            source_root, batch = self.source_tree(td, records)
+            source_root, batch = source_tree(td, records)
             out_dir = Path(td) / "lane"
 
             decisions = curate_bridge.materialize_paths(
@@ -62,7 +64,7 @@ class MaterializedLaneRequiresRasters(unittest.TestCase):
 
     def test_materialized_tree_keeps_a_raster_backed_record(self):
         with tempfile.TemporaryDirectory() as td:
-            source_root, batch = self.source_tree(td, [gate_snn_fixture()])
+            source_root, batch = source_tree(td, [gate_snn_fixture()])
             out_dir = Path(td) / "lane"
 
             decisions = curate_bridge.materialize_paths(
@@ -77,7 +79,7 @@ class MaterializedLaneRequiresRasters(unittest.TestCase):
     def test_the_pure_decision_api_still_defaults_to_lenient(self):
         with tempfile.TemporaryDirectory() as td:
             records = [bridge([event(1.0, "a"), event(2.0, "b")], "no-raster")]
-            _source_root, batch = self.source_tree(td, records)
+            _source_root, batch = source_tree(td, records)
 
             self.assertEqual([d.action for d in curate_bridge.curate_jsonl(batch)], ["retain"])
             self.assertEqual(

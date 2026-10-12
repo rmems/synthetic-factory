@@ -23,6 +23,29 @@ except ModuleNotFoundError:
 
 from exact_json import dumps_exact_json, exact_fraction, parse_finite_json_float
 
+_OTHER_ENERGY_UNIT = {"energy_pJ": "energy_uJ", "energy_uJ": "energy_pJ"}
+
+
+def _scaled_raster_record(spikes, energy_key, energy):
+    """The reference record scaled to ``spikes`` at 25 Hz over a 40 ms window.
+
+    The raster declares its energy only under ``energy_key``; the other unit's
+    total is removed so that it cannot decide the comparison.
+    """
+    record = gate_snn_fixture()
+    record["raster"].update(
+        {
+            "neurons": spikes,
+            "mean_rate_hz": 25,
+            "window_ms": 40,
+            "window_s": 0.04,
+            "spikes": spikes,
+            energy_key: energy,
+        }
+    )
+    record["raster"].pop(_OTHER_ENERGY_UNIT[energy_key], None)
+    return record
+
 
 class RasterArithmeticReviewFollowUps(unittest.TestCase):
     """Spike-arithmetic holes the PR #94 review found in the shared validator.
@@ -226,19 +249,9 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         self.assertIn(curate_bridge.REASON_RASTER_ENERGY, mismatch["reason_codes"])
 
     def test_decimal_pj_token_does_not_hide_one_pj_mismatch(self):
-        record = gate_snn_fixture()
-        spikes = 10**16
-        record["raster"].update(
-            {
-                "neurons": spikes,
-                "mean_rate_hz": 25,
-                "window_ms": 40,
-                "window_s": 0.04,
-                "spikes": spikes,
-                "energy_pJ": parse_finite_json_float("230000000000000001.0"),
-            }
+        record = _scaled_raster_record(
+            10**16, "energy_pJ", parse_finite_json_float("230000000000000001.0")
         )
-        record["raster"].pop("energy_uJ", None)
 
         status = curate_bridge.raster_status(record)
 
@@ -246,19 +259,9 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         self.assertIn(curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"])
 
     def test_large_exact_uj_token_matches_integer_spike_energy(self):
-        record = gate_snn_fixture()
-        spikes = 2**52
-        record["raster"].update(
-            {
-                "neurons": spikes,
-                "mean_rate_hz": 25,
-                "window_ms": 40,
-                "window_s": 0.04,
-                "spikes": spikes,
-                "energy_uJ": parse_finite_json_float("103582791429.521408"),
-            }
+        record = _scaled_raster_record(
+            2**52, "energy_uJ", parse_finite_json_float("103582791429.521408")
         )
-        record["raster"].pop("energy_pJ", None)
 
         status = curate_bridge.raster_status(record)
 
