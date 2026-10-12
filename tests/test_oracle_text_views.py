@@ -421,6 +421,15 @@ class CommandLineRefusals(unittest.TestCase):
                 self.assertEqual((status, refusal_code(stderr)), (cli.EXIT_REFUSED, code))
                 self.assertFalse(out.exists())
 
+    def test_an_interrupted_write_leaves_no_destination(self):
+        out = self.root / "views"
+        with (
+            mock.patch.object(cli.output, "_create", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            invoke([_STATE["run_dir"], "--out", out])
+        self.assertFalse(out.exists())
+
     def test_the_entry_script_dispatches_as_main(self):
         out = self.root / "direct"
         argv = [str(CLI_SCRIPT), str(_STATE["run_dir"]), "--out", str(out)]

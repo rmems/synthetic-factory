@@ -173,13 +173,12 @@ def _fill(reservation: _Reservation, files: dict[str, bytes]) -> None:
 
 
 def _populate(reservation: _Reservation, files: dict[str, bytes]) -> None:
+    """Fill the reserved directory; any failure, an interrupt included, rolls it back."""
+
     _make_directory(reservation)
     try:
         _fill(reservation, files)
     except BaseException:
-        _roll_back(reservation)
-        raise
-    except tv.TextViewRefusal:
         _roll_back(reservation)
         raise
 
