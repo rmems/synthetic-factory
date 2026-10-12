@@ -40,32 +40,9 @@ def resolve(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve a closed set of literal AST forms; else ``UNSET``."""
 
     bound = env or {}
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = resolve(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp):
-        return _binop(node, bound)
-    if isinstance(node, ast.Subscript):
-        return _subscript(node, bound)
-    if isinstance(node, ast.Slice):
-        return _slice_value(node, bound)
-    if isinstance(node, ast.Call):
-        return _safe_call(node, bound)
+    for node_type, resolver in _RESOLVERS:
+        if isinstance(node, node_type):
+            return resolver(node, bound)
     return UNSET
 
 
@@ -75,6 +52,34 @@ def require(node: ast.AST, env: Mapping[str, Any], ctx: str) -> Any:
         lineno = getattr(node, "lineno", "?")
         raise ValueError(f"{ctx}: cannot resolve AST at line {lineno}")
     return value
+
+
+def _constant(node: ast.Constant, env: Mapping[str, Any]) -> Any:
+    return node.value
+
+
+def _name(node: ast.Name, env: Mapping[str, Any]) -> Any:
+    return env[node.id] if node.id in env else UNSET
+
+
+def _unary(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.USub):
+        return UNSET
+    inner = resolve(node.operand, env)
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _tuple(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
+    return _sequence(node.elts, env, tuple)
+
+
+def _list(node: ast.List, env: Mapping[str, Any]) -> Any:
+    return _sequence(node.elts, env, list)
+
+
+def _set(node: ast.Set, env: Mapping[str, Any]) -> Any:
+    values = _sequence(node.elts, env, list)
+    return set(values) if values is not UNSET else UNSET
 
 
 def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
@@ -103,20 +108,26 @@ def _mapping(node: ast.Dict, env: Mapping[str, Any]) -> Any:
 def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
     parts: list[str] = []
     for value in node.values:
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            parts.append(value.value)
-            continue
-        if not isinstance(value, ast.FormattedValue):
+        part = _joined_part(value, env)
+        if part is UNSET:
             return UNSET
-        if value.format_spec is not None:
-            return UNSET
-        if value.conversion not in (-1, 115):
-            return UNSET
-        inner = resolve(value.value, env)
-        if inner is UNSET or not isinstance(inner, (str, int)):
-            return UNSET
-        parts.append(str(inner))
+        parts.append(part)
     return "".join(parts)
+
+
+def _joined_part(value: ast.AST, env: Mapping[str, Any]) -> Any:
+    """One f-string piece: a str literal or a plain/``!s`` replacement field."""
+
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        return value.value
+    if not isinstance(value, ast.FormattedValue):
+        return UNSET
+    if value.format_spec is not None or value.conversion not in (-1, 115):
+        return UNSET
+    inner = resolve(value.value, env)
+    if inner is UNSET or not isinstance(inner, (str, int)):
+        return UNSET
+    return str(inner)
 
 
 def _binop(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
@@ -125,19 +136,21 @@ def _binop(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     if left is UNSET or right is UNSET:
         return UNSET
     if isinstance(node.op, ast.Add):
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
-        if isinstance(left, int) and isinstance(right, int):
-            return left + right
+        return _add(left, right)
+    if not isinstance(left, int) or not isinstance(right, int):
         return UNSET
-    if isinstance(node.op, ast.Sub) and isinstance(left, int) and isinstance(right, int):
+    if isinstance(node.op, ast.Sub):
         return left - right
-    if (
-        isinstance(node.op, ast.FloorDiv)
-        and isinstance(left, int)
-        and isinstance(right, int)
-    ):
+    if isinstance(node.op, ast.FloorDiv):
         return left // right
+    return UNSET
+
+
+def _add(left: Any, right: Any) -> Any:
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
+    if isinstance(left, int) and isinstance(right, int):
+        return left + right
     return UNSET
 
 
@@ -147,22 +160,17 @@ def _subscript(node: ast.Subscript, env: Mapping[str, Any]) -> Any:
         return UNSET
     slc = node.slice
     if isinstance(slc, ast.Slice):
-        start = resolve(slc.lower, env) if slc.lower is not None else None
-        stop = resolve(slc.upper, env) if slc.upper is not None else None
-        step = resolve(slc.step, env) if slc.step is not None else None
-        if slc.lower is not None and start is UNSET:
+        bounds = _slice_bounds(slc, env)
+        if bounds is UNSET:
             return UNSET
-        if slc.upper is not None and stop is UNSET:
-            return UNSET
-        if slc.step is not None and step is UNSET:
-            return UNSET
-        try:
-            return owner[start:stop:step]
-        except (TypeError, KeyError, IndexError):
-            return UNSET
+        return _item(owner, slice(*bounds))
     index = resolve(slc, env)
     if index is UNSET:
         return UNSET
+    return _item(owner, index)
+
+
+def _item(owner: Any, index: Any) -> Any:
     try:
         return owner[index]
     except (TypeError, KeyError, IndexError):
@@ -170,16 +178,22 @@ def _subscript(node: ast.Subscript, env: Mapping[str, Any]) -> Any:
 
 
 def _slice_value(node: ast.Slice, env: Mapping[str, Any]) -> Any:
-    start = resolve(node.lower, env) if node.lower is not None else None
-    stop = resolve(node.upper, env) if node.upper is not None else None
-    step = resolve(node.step, env) if node.step is not None else None
-    if node.lower is not None and start is UNSET:
+    bounds = _slice_bounds(node, env)
+    if bounds is UNSET:
         return UNSET
-    if node.upper is not None and stop is UNSET:
+    return slice(*bounds)
+
+
+def _slice_bounds(node: ast.Slice, env: Mapping[str, Any]) -> Any:
+    """Resolve every present bound first, then refuse if any stayed ``UNSET``."""
+
+    bounds = tuple(
+        resolve(part, env) if part is not None else None
+        for part in (node.lower, node.upper, node.step)
+    )
+    if any(bound is UNSET for bound in bounds):
         return UNSET
-    if node.step is not None and step is UNSET:
-        return UNSET
-    return slice(start, stop, step)
+    return bounds
 
 
 def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
@@ -187,29 +201,56 @@ def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     if name in {"exec", "eval", "compile", "__import__"}:
         return UNSET
     if name == "pair":
-        args = [resolve(arg, env) for arg in node.args]
-        if node.keywords or any(item is UNSET for item in args):
-            return UNSET
-        return tuple(args)
-    if not isinstance(node.func, ast.Attribute):
-        return UNSET
-    if node.func.attr not in _STR_METHODS:
+        args = _call_args(node, env)
+        return tuple(args) if args is not UNSET else UNSET
+    if not isinstance(node.func, ast.Attribute) or node.func.attr not in _STR_METHODS:
         return UNSET
     owner = resolve(node.func.value, env)
     if not isinstance(owner, str):
         return UNSET
+    args = _call_args(node, env)
+    if args is UNSET:
+        return UNSET
+    return _str_method(owner, node.func.attr, args)
+
+
+def _call_args(node: ast.Call, env: Mapping[str, Any]) -> Any:
+    """Positional args, all resolved before keywords are refused."""
+
     args = [resolve(arg, env) for arg in node.args]
     if node.keywords or any(item is UNSET for item in args):
         return UNSET
-    if node.func.attr == "replace" and len(args) == 2:
+    return args
+
+
+def _str_method(owner: str, attr: str, args: list[Any]) -> Any:
+    if attr == "replace" and len(args) == 2:
         if not all(isinstance(item, str) for item in args):
             return UNSET
         return owner.replace(args[0], args[1])
-    if node.func.attr == "title" and not args:
+    if args:
+        return UNSET
+    if attr == "title":
         return owner.title()
-    if node.func.attr == "upper" and not args:
+    if attr == "upper":
         return owner.upper()
     return UNSET
+
+
+_RESOLVERS = (
+    (ast.Constant, _constant),
+    (ast.Name, _name),
+    (ast.UnaryOp, _unary),
+    (ast.Tuple, _tuple),
+    (ast.List, _list),
+    (ast.Set, _set),
+    (ast.Dict, _mapping),
+    (ast.JoinedStr, _joined_string),
+    (ast.BinOp, _binop),
+    (ast.Subscript, _subscript),
+    (ast.Slice, _slice_value),
+    (ast.Call, _safe_call),
+)
 
 
 def joined_path_constant(node: ast.AST) -> str | None:
