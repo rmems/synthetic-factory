@@ -34,7 +34,6 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
-    refuse,
     refuse_when,
     shown,
 )
@@ -648,7 +647,9 @@ Leftover leftover leftover {suc['leftover']} beats percentage. Do not drop lefto
 
 
 def hop_hx(kind: str, rnd: int, slug: str) -> str:
-    return hashlib.sha1(f"ffdhop|{kind}|{rnd}|{slug}|{GENERATOR}".encode()).hexdigest()[:4]
+    return hashlib.sha1(
+        f"ffdhop|{kind}|{rnd}|{slug}|{GENERATOR}".encode(), usedforsecurity=False
+    ).hexdigest()[:4]
 
 
 def hop_step(n: int, basis: str, name: str, args: dict, obs: str,
