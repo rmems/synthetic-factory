@@ -69,6 +69,15 @@ class LiteralValue(unittest.TestCase):
         )
         self.assertEqual(gast.literal_value(add), "a" + "b" * 600)
 
+    def test_parsed_600_deep_minus_and_plus_chains_resolve_as_module_constants(self):
+        source = (
+            "CATALOG_FIRST = " + "-" * 600 + "946\n"
+            "GEN = " + " + ".join(['"g"'] * 600) + "\n"
+            "PAIRS = [({'slug': 'a'}, {'slug': 'b'})]\n"
+        )
+        extracted = gex.extract_mill_catalog(source, path="experiments/gor-mill-r946.py")
+        self.assertEqual((extracted["catalog_first"], extracted["generator"]), (946, "g" * 600))
+
     def test_depth_400_for_containers_and_f_strings(self):
         shapes = {
             "list": (lambda n: ast.List(elts=[n], ctx=ast.Load()), list),
