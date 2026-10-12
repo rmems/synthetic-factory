@@ -39,7 +39,8 @@ def _nested(depth: int, wrap, leaf: ast.expr) -> ast.expr:
 
 
 class LiteralValue(unittest.TestCase):
-    def value(self, source: str, env=None):
+    @staticmethod
+    def value(source: str, env=None):
         return gast.literal_value(_expr(source), env)
 
     def test_leaves_and_operators(self):
@@ -100,7 +101,8 @@ class LiteralValue(unittest.TestCase):
 
 
 class ConstructorArguments(unittest.TestCase):
-    def kwargs(self, source: str, env=None):
+    @staticmethod
+    def kwargs(source: str, env=None):
         return gast.ctor_kwargs(_expr(source), env)
 
     def test_positional_names_come_from_the_constructor_table(self):
@@ -144,7 +146,8 @@ class JoinedPath(unittest.TestCase):
 
 
 class ListedPairs(unittest.TestCase):
-    def listed(self, source: str):
+    @staticmethod
+    def listed(source: str):
         return gex._listed_pairs(ast.parse(source))
 
     def test_counts_new_and_more_rows(self):
