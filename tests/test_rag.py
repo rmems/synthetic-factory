@@ -228,6 +228,18 @@ class MillAndRowRefusals(unittest.TestCase):
         rows = catalog.plants_from_source(source, mill_id="rag_r0001", source="s.py")
         self.assertEqual(rows[0]["base_round"], 9)
 
+    def test_catalog_first_defaults_to_the_mill_number(self):
+        source = TINY_SOURCE.replace("CATALOG_FIRST = 7\n", "")
+        rows = catalog.plants_from_source(source, mill_id="rag_r0012", source="s.py")
+        self.assertEqual(rows[0]["base_round"], 12)
+
+    def test_catalog_first_must_be_a_positive_int(self):
+        for value in ("True", "0", "'7'"):
+            with self.subTest(value=value):
+                source = TINY_SOURCE.replace("CATALOG_FIRST = 7", f"CATALOG_FIRST = {value}")
+                refused = self.source_refusal(source)
+                self.assertEqual(refused.message, "s.py CATALOG_FIRST must be a positive int")
+
     def test_p_arguments_must_be_string_constants(self):
         for arg, message in (
             ("('qdrant',)", "P() arguments must be non-empty strings"),
