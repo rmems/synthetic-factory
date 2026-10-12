@@ -20,6 +20,7 @@ from reward_test_helpers import (  # noqa: E402
     RAW_RUN,
     components,
     preference,
+    usd_2000_preference,
     write_jsonl,
 )
 
@@ -71,26 +72,6 @@ def _sidecar_source_paths(lane_dir):
         for line in (lane_dir / "reward-sidecars.jsonl").read_text().splitlines()
     ]
     return [sidecar["source"]["path"] for sidecar in sidecars]
-
-
-def _two_thousand_usd_preference(record_id):
-    """A preference whose both sides declare 1.0 = $2,000 reward units."""
-    record = preference(
-        {
-            "task_progress": 3.0,
-            "safety": 0.6,
-            "total": 3.6,
-            "units": "1.0 = $2,000; audited_true_reward basis",
-        },
-        {
-            "task_progress": 0.2,
-            "safety": -0.8,
-            "total": -0.6,
-            "units": "1.0 = $2,000; risk-adjusted terms",
-        },
-    )
-    record["id"] = record_id
-    return record
 
 
 class RewardOntologyRunTests(unittest.TestCase):
@@ -232,7 +213,8 @@ class RewardOntologyRunTests(unittest.TestCase):
             self._assert_reward_lane_prepares(source, first)
 
     def test_run_conversion_copies_units_migration_and_seals_sidecar_calibration(self):
-        record = _two_thousand_usd_preference("ffpc-r2-001")
+        record = usd_2000_preference()
+        record["id"] = "ffpc-r2-001"
         migration = {
             "records": [
                 {

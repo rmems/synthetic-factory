@@ -20,6 +20,7 @@ from reward_test_helpers import (  # noqa: E402
     components,
     preference,
     rich,
+    usd_2000_preference,
 )
 
 if str(PIPELINES) not in sys.path:
@@ -94,20 +95,7 @@ class RewardOntologyV1Tests(unittest.TestCase):
         )
 
     def test_explicit_migration_evidence_calibrates_a_partially_labeled_pair(self):
-        record = preference(
-            {
-                "task_progress": 3.0,
-                "safety": 0.6,
-                "total": 3.6,
-                "units": "1.0 = $2,000; audited_true_reward basis",
-            },
-            {
-                "task_progress": 0.2,
-                "safety": -0.8,
-                "total": -0.6,
-                "units": "1.0 = $2,000; risk-adjusted terms",
-            },
-        )
+        record = usd_2000_preference()
         calibration = {
             "source_unit_usd": 2000,
             "canonical_factor": 0.2,
