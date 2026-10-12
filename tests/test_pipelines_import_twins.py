@@ -58,28 +58,23 @@ DIRECT_EXECUTION_ONLY = frozenset(
 # modules are in ``source_policy.PROGRAM_NAMES`` (``programs_sha256`` in
 # ``schemas/procedural-oracle-policy-v1.json``). Each needs an owner-reviewed
 # parity or procedural-oracle re-seal before it can take the prelude.
+# The oracle parts as {facade: number of _partN modules}.
+_SEALED_ORACLE_PARTS = {
+    "oracle_record_envelope": 2,
+    "oracle_record_stages": 6,
+    "oracle_validate_capture": 2,
+    "oracle_validate_manifest": 4,
+    "oracle_validate_manifest_records": 3,
+    "oracle_validate_snapshot": 2,
+}
 SEALED_UNTIL_RESEAL = frozenset(
     {
-        "oracle_record_envelope_part1",
-        "oracle_record_envelope_part2",
-        "oracle_record_stages_part1",
-        "oracle_record_stages_part2",
-        "oracle_record_stages_part3",
-        "oracle_record_stages_part4",
-        "oracle_record_stages_part5",
-        "oracle_record_stages_part6",
-        "oracle_validate_capture_part1",
-        "oracle_validate_capture_part2",
-        "oracle_validate_manifest_part1",
-        "oracle_validate_manifest_part2",
-        "oracle_validate_manifest_part3",
-        "oracle_validate_manifest_part4",
-        "oracle_validate_manifest_records_part1",
-        "oracle_validate_manifest_records_part2",
-        "oracle_validate_manifest_records_part3",
-        "oracle_validate_snapshot_part1",
-        "oracle_validate_snapshot_part2",
         "tag_jsonutil",
+        *(
+            f"{facade}_part{index}"
+            for facade, parts in _SEALED_ORACLE_PARTS.items()
+            for index in range(1, parts + 1)
+        ),
     }
 )
 

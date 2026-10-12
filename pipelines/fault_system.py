@@ -24,6 +24,13 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("fault_system")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_system"
+    )
+
+
+if __package__:
     from .fault_types import (
         _genuine_count_from,
         _non_negative_number,
@@ -31,9 +38,6 @@ if __package__:
         _unit_interval,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "fault_system"
-    )
     from fault_types import (
         _genuine_count_from,
         _non_negative_number,

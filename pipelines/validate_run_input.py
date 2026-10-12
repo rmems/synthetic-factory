@@ -11,11 +11,15 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("validate_run_input")
-    from .exact_json import dumps_exact_json, parse_finite_json_float, parse_json_integer
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "validate_run_input"
     )
+
+
+if __package__:
+    from .exact_json import dumps_exact_json, parse_finite_json_float, parse_json_integer
+else:
     from exact_json import dumps_exact_json, parse_finite_json_float, parse_json_integer
 
 

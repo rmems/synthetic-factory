@@ -22,6 +22,13 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("fault_oracle_checks")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_oracle_checks"
+    )
+
+
+if __package__:
     from .fault_types import (
         DEFAULT_SYSTEM,
         ORACLE_IMPLEMENTATION,
@@ -29,9 +36,6 @@ if __package__:
         OUTCOME_PRECEDENCE,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "fault_oracle_checks"
-    )
     from fault_types import (
         DEFAULT_SYSTEM,
         ORACLE_IMPLEMENTATION,

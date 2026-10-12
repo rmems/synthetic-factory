@@ -25,11 +25,15 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("moe_layer_fields")
-    from .moe_featurizer import RECOMPUTE_TOLERANCE, entropy_nats, softmax
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "moe_layer_fields"
     )
+
+
+if __package__:
+    from .moe_featurizer import RECOMPUTE_TOLERANCE, entropy_nats, softmax
+else:
     from moe_featurizer import RECOMPUTE_TOLERANCE, entropy_nats, softmax
 
 

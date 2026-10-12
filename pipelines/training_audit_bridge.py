@@ -8,15 +8,19 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("training_audit_bridge")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "training_audit_bridge"
+    )
+
+
+if __package__:
     from .validate_run import (
         BRIDGE_SPIKE_EVENT_KEYS,
         SPIKE_ORDER_MISMATCH,
         check_spike_order,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "training_audit_bridge"
-    )
     from validate_run import (
         BRIDGE_SPIKE_EVENT_KEYS,
         SPIKE_ORDER_MISMATCH,

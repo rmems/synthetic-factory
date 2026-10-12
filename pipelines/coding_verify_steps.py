@@ -9,6 +9,13 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("coding_verify_steps")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "coding_verify_steps"
+    )
+
+
+if __package__:
     from .coding_constants import (
         REASON_HIDDEN_REASONING_REMOVED,
         REASON_STEP_NOT_OBJECT,
@@ -20,9 +27,6 @@ if __package__:
         _EVIDENCE_REASON,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "coding_verify_steps"
-    )
     from coding_constants import (
         REASON_HIDDEN_REASONING_REMOVED,
         REASON_STEP_NOT_OBJECT,

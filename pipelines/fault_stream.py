@@ -22,15 +22,19 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("fault_stream")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_stream"
+    )
+
+
+if __package__:
     from .fault_types import (
         FaultResult,
         MALFORMED_INTEGRITY_KINDS,
         _DisturbanceSpec,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "fault_stream"
-    )
     from fault_types import (
         FaultResult,
         MALFORMED_INTEGRITY_KINDS,
