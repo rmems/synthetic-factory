@@ -54,7 +54,9 @@ def require(node: ast.AST, env: Mapping[str, Any], ctx: str) -> Any:
     return value
 
 
-def _constant(node: ast.Constant, env: Mapping[str, Any]) -> Any:
+def _constant(node: ast.Constant, _unused_env: Mapping[str, Any]) -> Any:
+    """A literal needs no bindings; the ``env`` slot keeps the resolver-table signature."""
+
     return node.value
 
 
