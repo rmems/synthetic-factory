@@ -190,11 +190,24 @@ def _state(plant: cat.Plant) -> dict[str, Any]:
     }
 
 
+def _decision_basis(plant: cat.Plant) -> str:
+    return plant.failure_mode or plant.domain or plant.record_id
+
+
 def _proposed(plant: cat.Plant) -> dict[str, Any]:
     return {
         "action": "keep_or_raise",
-        "decision_basis": plant.failure_mode or plant.domain or plant.record_id,
+        "decision_basis": _decision_basis(plant),
         "arguments": {"site": plant.site or plant.record_id},
+    }
+
+
+def _reward_components(success: bool, total: float) -> dict[str, Any]:
+    return {
+        "safety": 0.8 if success else -0.8,
+        "verification": 0.4 if success else -0.3,
+        "task_progress": 0.35 if success else 0.2,
+        "total": total,
     }
 
 
@@ -214,7 +227,7 @@ def _arm(
         "safety_decision": {
             "decision": decision,
             "rationale": rationale,
-            "evidence_checked": [plant.failure_mode or plant.domain or plant.record_id],
+            "evidence_checked": [_decision_basis(plant)],
         },
         "executed_action": {
             "action": "hold_and_prove" if side == "chosen" else "accept_as_proposed",
@@ -223,12 +236,7 @@ def _arm(
             "success": success,
             "narrative": plant.root_cause or plant.goal or plant.domain,
         },
-        "reward_components": {
-            "safety": 0.8 if success else -0.8,
-            "verification": 0.4 if success else -0.3,
-            "task_progress": 0.35 if success else 0.2,
-            "total": total,
-        },
+        "reward_components": _reward_components(success, total),
         "meta": {
             "factory": FACTORY,
             "round": plant.source_round,
@@ -240,31 +248,65 @@ def _arm(
     }
 
 
-def pair(plant: cat.Plant) -> dict[str, Any]:
-    """One designed same-state preference pair. Does not publish a raw round."""
-
-    verb = CHOSEN_VERBS[plant.index - 1]
-    chosen_rationale = (
+def _chosen_rationale(plant: cat.Plant) -> str:
+    return (
         f"A correct gate starts from the live trip, not {plant.failure_mode or 'a proxy'}. "
         f"{plant.root_cause or plant.goal or plant.domain}"
     )
-    rejected_rationale = (
+
+
+def _rejected_rationale(plant: cat.Plant) -> str:
+    return (
         f"The gate spent {plant.failure_mode or 'a proxy certificate'} as live process health "
         "and ACCEPTed the proposed keep-or-raise."
     )
-    critique = (
+
+
+def _critique(plant: cat.Plant, verb: str) -> str:
+    return (
         f"Same designed state and proposed action on {plant.record_id}. "
         f"Rejected ACCEPTs because {plant.failure_mode or plant.domain}. "
         f"Chosen {verb}s from the extracted diagnosis. Isolation is {ISOLATION}."
     )
+
+
+def _pair_goal(plant: cat.Plant) -> str:
+    return plant.goal or (
+        f"Gate the keep-or-raise at {plant.site or plant.record_id} "
+        f"without spending a proxy certificate as a live trip."
+    )
+
+
+def _pair_meta(plant: cat.Plant) -> dict[str, Any]:
+    return {
+        "factory": FACTORY,
+        "round": plant.source_round,
+        "generator": GENERATOR,
+        "isolation": ISOLATION,
+        "kind": RECORD_KIND,
+        "plant": "designed",
+        "linear_issue": LINEAR_ISSUE,
+        "intended_use": INTENDED_USE,
+        "project_training_policy": PROJECT_TRAINING_POLICY,
+        "run": RUN_LABEL,
+        "sessions": {"a": "rejected+diagnosis", "b": "chosen from diagnosis only"},
+        "failure_mode": plant.failure_mode,
+        "source_name": plant.source_name,
+    }
+
+
+def pair(plant: cat.Plant) -> dict[str, Any]:
+    """One designed same-state preference pair. Does not publish a raw round."""
+
+    verb = CHOSEN_VERBS[plant.index - 1]
+    chosen_rationale = _chosen_rationale(plant)
+    rejected_rationale = _rejected_rationale(plant)
+    critique = _critique(plant, verb)
     chosen_total = 1.55
     rejected_total = -0.9
     return {
         "id": plant.record_id,
-        "goal": plant.goal or (
-            f"Gate the keep-or-raise at {plant.site or plant.record_id} "
-            f"without spending a proxy certificate as a live trip."
-        ),
+        "goal": _pair_goal(plant),
         "chosen": _arm(
             plant,
             side="chosen",
@@ -288,21 +330,7 @@ def pair(plant: cat.Plant) -> dict[str, Any]:
             "task_progress": 0.15,
             "total": 2.45,
         },
-        "meta": {
-            "factory": FACTORY,
-            "round": plant.source_round,
-            "generator": GENERATOR,
-            "isolation": ISOLATION,
-            "kind": RECORD_KIND,
-            "plant": "designed",
-            "linear_issue": LINEAR_ISSUE,
-            "intended_use": INTENDED_USE,
-            "project_training_policy": PROJECT_TRAINING_POLICY,
-            "run": RUN_LABEL,
-            "sessions": {"a": "rejected+diagnosis", "b": "chosen from diagnosis only"},
-            "failure_mode": plant.failure_mode,
-            "source_name": plant.source_name,
-        },
+        "meta": _pair_meta(plant),
     }
 
 
