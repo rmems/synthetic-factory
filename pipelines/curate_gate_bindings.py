@@ -60,25 +60,28 @@ iter_records = _records.iter_records
 # ---------------------------------------------------------------------------
 
 
+def _positive_line(raw: dict[str, Any], label: str, field: str) -> int:
+    """One binding line number, refused unless it is a positive integer."""
+    value = raw.get(field)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise GateError(f"{label}.{field} must be a positive integer")
+    return value
+
+
 def _binding_coordinates(
     raw: dict[str, Any],
     label: str,
     output_coordinates: set[tuple[str, int]],
     source_coordinates: set[tuple[str, int]],
-) -> tuple[str, Any, str, Any]:
+) -> tuple[str, int, str, int]:
     """Normalize one binding's output/source coordinates and claim both.
 
-    The line numbers stay ``Any``: they are proven positive integers by the
-    loop below, which no static narrowing follows, and the caller re-publishes
-    them verbatim.
+    The caller re-publishes the proven positive line numbers verbatim.
     """
     output_path = _normalized_output_path(raw.get("output_path"), f"{label}.output_path")
     source_path = _logical_source_path(raw.get("source_path"), f"{label}.source_path")
-    output_line = raw.get("output_line")
-    source_line = raw.get("source_line")
-    for field, value in (("output_line", output_line), ("source_line", source_line)):
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise GateError(f"{label}.{field} must be a positive integer")
+    output_line = _positive_line(raw, label, "output_line")
+    source_line = _positive_line(raw, label, "source_line")
     output_coordinate = (output_path, output_line)
     source_coordinate = (source_path, source_line)
     if output_coordinate in output_coordinates:

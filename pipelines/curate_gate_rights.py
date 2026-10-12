@@ -89,12 +89,12 @@ def _mapping_defect(mapping: Mapping, sources: Mapping) -> str | None:
 def evaluate_rights(mappings: Sequence[dict], prepared_lanes: Sequence[dict]) -> tuple[dict, list[str]]:
     """Require every retained mapping to carry a replayed, training-eligible verdict."""
     sources = _source_index(prepared_lanes)
-    counts = Counter()
+    counts: Counter[str | None] = Counter()
     for mapping in mappings:
         if str(mapping.get("action", "")).lower() in {"retained", "retain", "unchanged"}:
             counts[_mapping_defect(mapping, sources)] += 1
     blockers = [f"{message} ({counts[kind]})" for kind, message in _MESSAGES.items() if counts[kind]]
-    report = {"passed": not blockers, "enforced": True}
+    report: dict[str, bool | int] = {"passed": not blockers, "enforced": True}
     report.update({kind: counts[kind] for kind in _MESSAGES})
     return report, blockers
 
