@@ -174,9 +174,7 @@ def _assign_value(tree: ast.AST, name: str) -> ast.AST | None:
     return None
 
 
-def pairs_from_source(source: str) -> tuple[dict[str, Any], ...]:
-    """Parse leftover3 ``PAIRS`` with ``ast.parse`` / ``literal_eval`` only."""
-
+def _pairs_literal(source: str) -> Any:
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
@@ -184,21 +182,28 @@ def pairs_from_source(source: str) -> tuple[dict[str, Any], ...]:
     node = _assign_value(tree, "PAIRS")
     refuse_when(node is None, FINDING_SOURCE_NOT_PARSEABLE, "missing PAIRS")
     try:
-        raw = ast.literal_eval(node)
+        return ast.literal_eval(node)
     except (TypeError, ValueError, SyntaxError) as exc:
         raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
+
+
+def _pair_row_from_literal(item: Any) -> dict[str, Any]:
+    refuse_when(not isinstance(item, tuple) or len(item) != 2, FINDING_SOURCE_NOT_PARSEABLE, "pair shape")
+    left, right = item
+    refuse_when(not isinstance(left, Mapping) or not isinstance(right, Mapping),
+                FINDING_SOURCE_NOT_PARSEABLE, "side not a mapping")
+    missing = [key for key in SIDE_KEYS if key not in left or key not in right]
+    refuse_when(bool(missing), FINDING_SOURCE_NOT_PARSEABLE, f"missing {missing}")
+    return _pair_mapping(tuple(left[key] for key in SIDE_KEYS),
+                         tuple(right[key] for key in SIDE_KEYS))
+
+
+def pairs_from_source(source: str) -> tuple[dict[str, Any], ...]:
+    """Parse leftover3 ``PAIRS`` with ``ast.parse`` / ``literal_eval`` only."""
+
+    raw = _pairs_literal(source)
     refuse_when(not isinstance(raw, list), FINDING_SOURCE_NOT_PARSEABLE, "PAIRS not a list")
-    rows = []
-    for item in raw:
-        refuse_when(not isinstance(item, tuple) or len(item) != 2, FINDING_SOURCE_NOT_PARSEABLE, "pair shape")
-        left, right = item
-        refuse_when(not isinstance(left, Mapping) or not isinstance(right, Mapping),
-                    FINDING_SOURCE_NOT_PARSEABLE, "side not a mapping")
-        missing = [key for key in SIDE_KEYS if key not in left or key not in right]
-        refuse_when(bool(missing), FINDING_SOURCE_NOT_PARSEABLE, f"missing {missing}")
-        rows.append(_pair_mapping(tuple(left[key] for key in SIDE_KEYS),
-                                  tuple(right[key] for key in SIDE_KEYS)))
-    return tuple(rows)
+    return tuple(_pair_row_from_literal(item) for item in raw)
 
 
 bind_import_twin(__name__)

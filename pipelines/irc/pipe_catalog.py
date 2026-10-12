@@ -195,6 +195,26 @@ def load_family_catalog() -> FamilyCatalog:
     return FamilyCatalog(catalog_id=CATALOG_ID, sources=sources, spec_rows=spec_rows)
 
 
+def _pipe_field_target(node: ast.stmt) -> str | None:
+    if not isinstance(node, ast.Assign):
+        return None
+    targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+    if targets and targets[0] in PIPE_FIELD_NAMES:
+        return targets[0]
+    return None
+
+
+def _pipe_rows_literal(node: ast.Assign) -> tuple[str, ...]:
+    try:
+        literal = ast.literal_eval(node.value)
+    except (TypeError, ValueError, SyntaxError) as exc:
+        raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
+    refuse_when(not isinstance(literal, str), FINDING_SOURCE_NOT_PARSEABLE, "field not str")
+    return tuple(
+        line for line in literal.splitlines() if line.strip() and not line.startswith("#")
+    )
+
+
 def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
     """Parse ``SPECS`` or ``ROWS`` with ``ast.parse`` / ``literal_eval`` only."""
 
@@ -203,18 +223,9 @@ def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
     except SyntaxError as exc:
         raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            if targets and targets[0] in PIPE_FIELD_NAMES:
-                try:
-                    literal = ast.literal_eval(node.value)
-                except (TypeError, ValueError, SyntaxError) as exc:
-                    raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
-                refuse_when(not isinstance(literal, str), FINDING_SOURCE_NOT_PARSEABLE, "field not str")
-                rows = tuple(
-                    line for line in literal.splitlines() if line.strip() and not line.startswith("#")
-                )
-                return targets[0], rows
+        field = _pipe_field_target(node)
+        if field is not None:
+            return field, _pipe_rows_literal(node)
     refuse(FINDING_SOURCE_NOT_PARSEABLE, f"missing one of {PIPE_FIELD_NAMES}")
 
 
@@ -227,36 +238,54 @@ def _legacy_source(path: str) -> str:
     )
 
 
-def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
-    catalog = load_family_catalog()
-    if not live_legacy:
-        return catalog
+def _legacy_ref_available() -> bool:
     try:
         subprocess.check_output(["git", "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return catalog
-    for source in catalog.sources:
-        path = source.get("path")
-        expected = source.get("sha256")
-        if not isinstance(path, str) or not isinstance(expected, str):
-            continue
-        if not path.startswith("experiments/irc-mill-r"):
-            continue
-        if source.get("committed") is not True:
-            continue
-        live = _legacy_source(path)
-        digest = _sha256_text(live)
-        refuse_when(digest != expected, FINDING_CATALOG_SHA256_MISMATCH, path)
-        field, rows = pipe_rows_from_source(live)
-        refuse_when(field != source.get("field"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} field")
-        refuse_when(len(rows) != source.get("n_rows_extracted"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} n_rows")
+        return False
+    return True
+
+
+def _is_committed_mill_source(source: Mapping[str, Any]) -> bool:
+    path = source.get("path")
+    expected = source.get("sha256")
+    if not isinstance(path, str) or not isinstance(expected, str):
+        return False
+    if not path.startswith("experiments/irc-mill-r"):
+        return False
+    return source.get("committed") is True
+
+
+def _verify_live_source(source: Mapping[str, Any]) -> None:
+    path = source.get("path")
+    live = _legacy_source(path)
+    digest = _sha256_text(live)
+    refuse_when(digest != source.get("sha256"), FINDING_CATALOG_SHA256_MISMATCH, path)
+    field, rows = pipe_rows_from_source(live)
+    refuse_when(field != source.get("field"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} field")
+    refuse_when(len(rows) != source.get("n_rows_extracted"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} n_rows")
+
+
+def _verify_spec_indexes(spec_rows: tuple[SpecRow, ...]) -> None:
     grouped: dict[int, list[SpecRow]] = {}
-    for row in catalog.spec_rows:
+    for row in spec_rows:
         grouped.setdefault(row.mill_round, []).append(row)
     for mill_round, rows in grouped.items():
         rows_sorted = sorted(rows, key=lambda item: item.index)
         for index, row in enumerate(rows_sorted):
             refuse_when(row.index != index, FINDING_CATALOG_FIELD_INVALID, f"mill {mill_round} index gap")
+
+
+def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
+    catalog = load_family_catalog()
+    if not live_legacy:
+        return catalog
+    if not _legacy_ref_available():
+        return catalog
+    for source in catalog.sources:
+        if _is_committed_mill_source(source):
+            _verify_live_source(source)
+    _verify_spec_indexes(catalog.spec_rows)
     return catalog
 
 
