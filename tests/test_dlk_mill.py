@@ -124,22 +124,36 @@ class DlkNeverExec(unittest.TestCase):
     BANNED_IMPORTS: ClassVar[set[str]] = {"subprocess"}
     BANNED_DEFS: ClassVar[set[str]] = {"txn", "main"}
 
+    def _banned_import_names(self, node):
+        if isinstance(node, ast.Import):
+            return [
+                alias.name
+                for alias in node.names
+                if alias.name.split(".")[0] in self.BANNED_IMPORTS
+            ]
+        if (isinstance(node, ast.ImportFrom) and node.module
+                and node.module.split(".")[0] in self.BANNED_IMPORTS):
+            return [node.module]
+        return []
+
+    def _banned_findings(self, path):
+        """(module, "import" | "def", name) for each banned exec surface in one module."""
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        findings = []
+        for node in ast.walk(tree):
+            findings.extend(
+                (path.name, "import", name) for name in self._banned_import_names(node)
+            )
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name in self.BANNED_DEFS):
+                findings.append((path.name, "def", node.name))
+        return findings
+
     def test_no_banned_imports_or_defs_in_package_modules(self):
         package_dir = REPO / "pipelines" / "dlk"
         findings = []
         for path in sorted(package_dir.glob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name.split(".")[0] in self.BANNED_IMPORTS:
-                            findings.append((path.name, "import", alias.name))
-                elif (isinstance(node, ast.ImportFrom) and node.module
-                      and node.module.split(".")[0] in self.BANNED_IMPORTS):
-                    findings.append((path.name, "import", node.module))
-                elif (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                      and node.name in self.BANNED_DEFS):
-                    findings.append((path.name, "def", node.name))
+            findings.extend(self._banned_findings(path))
         self.assertEqual(findings, [], f"banned exec surface found: {findings}")
 
     def test_generate_has_no_main_guard(self):
@@ -207,6 +221,12 @@ class DlkCli(unittest.TestCase):
         self.assertEqual(payload["plants"], 32)
 
 
+def _is_plants_assignment(node):
+    return isinstance(node, ast.Assign) and any(
+        isinstance(t, ast.Name) and t.id == "PLANTS" for t in node.targets
+    )
+
+
 class DlkFidelityToLegacy(unittest.TestCase):
     """Optionally prove the cleaned builders reproduce the legacy records byte-for-byte.
 
@@ -221,7 +241,7 @@ class DlkFidelityToLegacy(unittest.TestCase):
         1280: "experiments/dlk_r1280_leftover3_mill.py",
     }
 
-    def _legacy_module(self, round):
+    def _legacy_source(self, round):
         path = self.LEGACY_FILES[round]
         proc = subprocess.run(
             ["git", "show", f"origin/legacy-mill-lane:{path}"],
@@ -229,7 +249,10 @@ class DlkFidelityToLegacy(unittest.TestCase):
         )
         if proc.returncode != 0:
             self.skipTest(f"origin/legacy-mill-lane not available: {proc.stderr.strip()}")
-        src = proc.stdout
+        return proc.stdout
+
+    def _legacy_module(self, round):
+        src = self._legacy_source(round)
         tree = ast.parse(src)
         keep = {"step", "success_ep", "fail_ep", "notes", "PLANTS"}
         namespace: dict = {}
@@ -237,9 +260,7 @@ class DlkFidelityToLegacy(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.Assign)) and getattr(node, "lineno", None):
                 if isinstance(node, ast.FunctionDef) and node.name in keep:
                     exec(compile(ast.Module([node], []), "<legacy>", "exec"), namespace)  # noqa: S102
-                elif isinstance(node, ast.Assign) and any(
-                    isinstance(t, ast.Name) and t.id == "PLANTS" for t in node.targets
-                ):
+                elif _is_plants_assignment(node):
                     namespace["PLANTS"] = ast.literal_eval(node.value)
         return namespace
 
