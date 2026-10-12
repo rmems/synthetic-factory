@@ -305,12 +305,8 @@ def _plant_rows(
 
 
 def _mapping_pin_rows(pin: MillPin, source: str | None) -> list[dict[str, Any]]:
-    refuse_when(
-        source is None,
-        FINDING_CATALOG_MILL,
-        f"missing mapping source for {pin.mill_path}",
-    )
-    assert source is not None
+    if source is None:
+        refuse(FINDING_CATALOG_MILL, f"missing mapping source for {pin.mill_path}")
     mapping_sha = sha256_text(source)
     refuse_when(
         mapping_sha != pin.mill_sha256,
