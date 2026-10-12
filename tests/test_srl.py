@@ -72,22 +72,6 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
-def _keeps_legacy_node(node):
-    """Whether a legacy top-level node is a pure constant or builder the fixture needs."""
-    keep = False
-    if isinstance(node, ast.Assign):
-        keep = any(
-            isinstance(target, ast.Name)
-            and target.id in ("FACTORY", "GEN", "N_STEPS", "BANNED", "HOP", "PLANTS")
-            for target in node.targets
-        )
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        keep = node.target.id in ("FACTORY", "GEN", "N_STEPS", "BANNED", "HOP", "PLANTS")
-    if isinstance(node, ast.FunctionDef) and node.name in ("hid", "episode"):
-        keep = True
-    return keep
-
-
 def _legacy_namespace():
     src = subprocess.check_output(
         ["git", "show", f"origin/legacy-mill-lane:{SOURCE_PATH}"],
@@ -98,7 +82,18 @@ def _legacy_namespace():
     tree = ast.parse(src)
     ns = {"hashlib": __import__("hashlib"), "json": json}
     for node in tree.body:
-        if _keeps_legacy_node(node):
+        keep = False
+        if isinstance(node, ast.Assign):
+            keep = any(
+                isinstance(target, ast.Name)
+                and target.id in ("FACTORY", "GEN", "N_STEPS", "BANNED", "HOP", "PLANTS")
+                for target in node.targets
+            )
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            keep = node.target.id in ("FACTORY", "GEN", "N_STEPS", "BANNED", "HOP", "PLANTS")
+        if isinstance(node, ast.FunctionDef) and node.name in ("hid", "episode"):
+            keep = True
+        if keep:
             exec(compile(ast.Module([node], type_ignores=[]), "<legacy>", "exec"), ns)
     return ns
 
