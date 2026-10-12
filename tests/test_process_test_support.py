@@ -43,11 +43,9 @@ class SpawnedProcessLifecycle(unittest.TestCase):
     def test_timed_out_child_is_terminated_and_reaped(self):
         child_pids_before = {child.pid for child in multiprocessing.active_children()}
 
+        timeout = ProcessTimeout(0.1, 1.0, "bounded child timed out")
         with self.assertRaisesRegex(TimeoutError, "bounded child timed out"):
-            spawned_process_exit_code(
-                _wait_for_termination,
-                timeout=ProcessTimeout(0.1, 1.0, "bounded child timed out"),
-            )
+            spawned_process_exit_code(_wait_for_termination, timeout=timeout)
 
         child_pids_after = {child.pid for child in multiprocessing.active_children()}
         self.assertEqual(child_pids_after, child_pids_before)

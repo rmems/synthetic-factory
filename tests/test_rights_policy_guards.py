@@ -231,13 +231,12 @@ class RightsPolicyGuardTests(unittest.TestCase):
         serialized["profiles"][0]["intended_use"] = SpoofedString(
             "training_candidate", "research_only"
         )
+        payload = json.dumps(serialized).encode("utf-8")
         with self.assertRaisesRegex(
             rights_policy.RightsPolicyError,
             "inconsistent intended_use and project policy",
         ):
-            rights_policy.load_rights_policy_bytes(
-                json.dumps(serialized).encode("utf-8")
-            )
+            rights_policy.load_rights_policy_bytes(payload)
 
 
 def _spoofed_closed_vocabulary_cases():

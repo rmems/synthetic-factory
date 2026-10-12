@@ -39,8 +39,9 @@ class CanonicalPaths(unittest.TestCase):
             with self.subTest(path=path):
                 document = json.loads(msi.INVENTORY_BYTES)
                 document["scripts"][0]["path"] = path
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
 
 class ArchivedCoverage(unittest.TestCase):
@@ -184,8 +185,9 @@ class InventoryIntegrity(unittest.TestCase):
                 policy = inventory["historical_generator_policy"]
                 policy[field] = change(policy[field])
                 self.assertFalse(msi.check_inventory(REPO, inventory=inventory)["ok"])
+                payload = json.dumps(inventory).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(inventory).encode())
+                    msi.load_inventory_bytes(payload)
 
     def test_literal_dynamic_imports_cannot_load_archived_publishers(self):
         statements = (

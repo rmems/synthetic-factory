@@ -64,9 +64,10 @@ class BridgeTimingCuration(unittest.TestCase):
         self.assertEqual(evidence, {"event_count": 0})
 
     def test_source_hash_remains_a_required_keyword(self):
+        record = bridge([])
         with self.assertRaisesRegex(TypeError, "source_hash"):
             curate_bridge.curate_record(
-                bridge([]),
+                record,
                 source_path="bridge/batch-r02.jsonl",
                 source_line=1,
             )

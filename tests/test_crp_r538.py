@@ -170,12 +170,14 @@ class Generate(unittest.TestCase):
         self.assertEqual(classify_kind(first), "preference")
         notes = (out / "NOTES-r554.md").read_text(encoding="utf-8")
         self.assertIn("r538 orchestration/data-platform stretch", notes)
+        request = generate.RunRequest(554, out)
         with self.assertRaises(CrpRefusal) as exists:
-            generate.run(generate.RunRequest(554, out))
+            generate.run(request)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
+        request = generate.RunRequest(554, raw)
         with self.assertRaises(CrpRefusal) as under_raw:
-            generate.run(generate.RunRequest(554, raw))
+            generate.run(request)
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 

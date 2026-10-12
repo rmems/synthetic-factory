@@ -45,13 +45,12 @@ class ComposeRunLinesContract(unittest.TestCase):
 
         from compose_contract import NativeRecordFrame
 
+        state = ComposeRunState()
+        source = SourceFileContext("factory/a.jsonl", b"", object(), None)
+        frames = [NativeRecordFrame('{"a":1}', ""), NativeRecordFrame('{"b":2}', "\n")]
+        services = Services()
         with self.assertRaisesRegex(ComposeError, "unterminated"):
-            write_emitted_records(
-                ComposeRunState(),
-                SourceFileContext("factory/a.jsonl", b"", object(), None),
-                [NativeRecordFrame('{"a":1}', ""), NativeRecordFrame('{"b":2}', "\n")],
-                Services(),
-            )
+            write_emitted_records(state, source, frames, services)
 
 
 if __name__ == "__main__":

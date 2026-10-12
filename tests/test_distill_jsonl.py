@@ -21,8 +21,9 @@ class JsonlHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "out.jsonl"
             oc.write_jsonl(path, [minimal_record()])
+            records = [minimal_record()]
             with self.assertRaises(oc.ContractError):
-                oc.write_jsonl(path, [minimal_record()])
+                oc.write_jsonl(path, records)
 
     def test_write_refuses_a_link_planted_at_the_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -30,8 +31,9 @@ class JsonlHelpers(unittest.TestCase):
             target.parent.mkdir()
             link = Path(tmp) / "out.jsonl"
             link.symlink_to(target)  # dangling, so exists() is False and the link is followed
+            records = [minimal_record()]
             with self.assertRaises(oc.ContractError):
-                oc.write_jsonl(link, [minimal_record()])
+                oc.write_jsonl(link, records)
             self.assertFalse(target.exists())
 
     def test_a_non_finite_constant_is_a_parse_failure_not_a_value(self):
@@ -158,8 +160,9 @@ class JsonlCanonicalBoundary(unittest.TestCase):
         for name, record in records.items():
             with self.subTest(case=name), tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "batch.jsonl"
+                batch = [minimal_record(), record]
                 with self.assertRaises(oc.ContractError) as caught:
-                    oc.write_jsonl(path, [minimal_record(), record])
+                    oc.write_jsonl(path, batch)
                 self.assertIsNotNone(caught.exception.__cause__)
                 self.assertFalse(path.exists())
         # Deep nesting is legal JSON; whether the C encoder can serialise

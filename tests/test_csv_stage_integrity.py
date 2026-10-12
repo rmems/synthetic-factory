@@ -23,8 +23,9 @@ class StageIntegrity(unittest.TestCase):
                 staged.mkdir()
                 (staged / "foreign").write_text("preserve")
                 raise OSError("injected publication failure")
+            request = self._request(root)
             with patch.object(generate_io, "_publish", replace), self.assertRaises(CsvRefusal):
-                generate.run(self._request(root))
+                generate.run(request)
             replacement = next(root.glob(".csv-stage-*"))
             self.assertEqual((replacement / "foreign").read_text(), "preserve")
             self.assertEqual(list((root / "original-stage").iterdir()), [])
@@ -36,8 +37,9 @@ class StageIntegrity(unittest.TestCase):
             def refuse(parent, staged, destination, *args):
                 (staged / "foreign").write_text("preserve")
                 raise OSError("injected")
+            request = self._request(root)
             with patch.object(generate_io, "_publish", refuse), self.assertRaises(CsvRefusal):
-                generate.run(self._request(root))
+                generate.run(request)
             stage = next(root.glob(".csv-stage-*"))
             self.assertEqual([path.name for path in stage.iterdir()], ["foreign"])
 
@@ -50,8 +52,9 @@ class StageIntegrity(unittest.TestCase):
                 staged.mkdir()
                 (staged / "foreign").write_text("preserve")
                 return publish(parent, staged, destination, *args)
+            request = self._request(root)
             with patch.object(generate_io, "_publish", replace), self.assertRaises(CsvRefusal):
-                generate.run(self._request(root))
+                generate.run(request)
             self.assertFalse((root / "run").exists())
             self.assertEqual(next(root.glob(".csv-stage-*/foreign")).read_text(), "preserve")
 
@@ -80,9 +83,10 @@ class StageIntegrity(unittest.TestCase):
             def refuse(*args, **kwargs):
                 raise OSError("injected publication failure")
 
+            request = self._request(root)
             with patch.object(generate_io._StageFile, "matches", matches):
                 with patch.object(generate_io, "_publish", refuse), self.assertRaises(CsvRefusal):
-                    generate.run(self._request(root))
+                    generate.run(request)
             stage = next(root.glob(".csv-stage-*"))
             self.assertEqual((stage / "records.jsonl").read_text(), "replacement")
 

@@ -261,12 +261,14 @@ class IrcGenerate(unittest.TestCase):
             if line
         ]
         self.assertEqual([record["id"] for record in records], [FIRST_OK_ID, FIRST_BAD_ID])
+        request = generate.GenerateRequest(out_dir=dest, round=3366)
         with self.assertRaises(IrcRefusal) as exists:
-            generate.run(generate.GenerateRequest(out_dir=dest, round=3366))
+            generate.run(request)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = REPO / "outputs" / "raw" / "irc-should-not-write"
+        request = generate.GenerateRequest(out_dir=raw, round=3366)
         with self.assertRaises(IrcRefusal) as under:
-            generate.run(generate.GenerateRequest(out_dir=raw, round=3366))
+            generate.run(request)
         self.assertEqual(under.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 
