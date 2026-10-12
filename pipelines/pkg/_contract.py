@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TypeGuard
 
 if __name__.startswith("pipelines."):
     from ..exact_json import dumps_exact_json
@@ -26,6 +25,7 @@ else:
 
 FAMILY_PREFIX = "pkg"
 FACTORY = "package-release-factory"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 GENERATOR = "grok-4.6"
 GEN = GENERATOR
 QUOTA_PER_ROUND = 2
@@ -109,17 +109,11 @@ refuse, refuse_when, refuse_first = refusals.helpers(PkgRefusal)
 shown = refusals.shown
 
 
-def _is_plain_int(value: object) -> TypeGuard[int]:
-    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
-
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 def require_round(rnd: int) -> int:
     """Accept a positive integer round token. Booleans are not rounds."""
 
     refuse_when(
-        not _is_plain_int(rnd) or rnd < 1,
+        type(rnd) not in _EXACT_INT or rnd < 1,
         FINDING_ROUND_OUT_OF_DOMAIN,
         f"round must be a positive int, got {shown(rnd)}",
     )

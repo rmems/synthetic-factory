@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from ._contract import SrlError, _is_plain_int
+from ._contract import SrlError
 
 __all__ = ["PLANT_KEYS", "Plant", "PLANTS", "plant_at", "plant_by_slug", "slugs"]
+
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 
 
 class Plant(TypedDict):
@@ -282,7 +284,7 @@ def slugs() -> tuple[str, ...]:
 def plant_at(index: int) -> Plant:
     """Return the plant at ``index`` (0..15). Raises ``SrlError`` if out of range."""
 
-    if not _is_plain_int(index) or not 0 <= index < len(PLANTS):
+    if type(index) not in _EXACT_INT or not 0 <= index < len(PLANTS):
         raise SrlError(f"unknown_plant_index: {index!r}")
     return PLANTS[index]
 

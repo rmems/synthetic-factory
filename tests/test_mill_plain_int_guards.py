@@ -1,13 +1,16 @@
-"""Pin the int-but-not-bool rule of the mill round, index and count guards.
+"""Pin the exact-int rule of the mill round, index and count guards.
 
-Each guard accepts a plain ``int`` and refuses ``bool`` (an ``int`` subclass),
-``float``, ``str`` and ``None`` with the module's own error. The cases hold for
-the ``type(value) is int`` spelling and for the ``_is_plain_int`` helper alike.
+Each guard accepts exactly ``int``. ``bool`` and every other ``int`` subclass
+(an ``IntEnum`` member here) are refused, as are ``float``, ``str`` and
+``None``, with the error, finding code and message of main's
+``type(value) is int`` spelling. Each stand-in carries a value the guard would
+otherwise accept, so only the type decides.
 """
 
 from __future__ import annotations
 
 import unittest
+from enum import IntEnum
 from functools import partial
 from unittest import mock
 
@@ -26,114 +29,149 @@ from pipelines.srl import catalog as srl_catalog
 from pipelines.ttf import _contract as ttf
 from pipelines.ttf import catalog as ttf_catalog
 
-NOT_PLAIN_INTS = (True, False, 1.0, "1", None)
 DEFERRED_PATH = "experiments/mill_plants_x.py"
-ROUND_CONTRACTS = (
-    (brw, brw.BrwError),
-    (srl, srl.SrlError),
-    (ffpc, ffpc.FfpcRefusal),
-    (maos, maos.MaosRefusal),
-    (nelb, nelb.NelbRefusal),
-    (pkg, pkg.PkgRefusal),
-    (ttf, ttf.TtfRefusal),
-    (irc, irc.IrcRefusal),
+POSITIVE_ROUND = "round must be a positive int, got {!r}"
+ANY_ROUND = "round must be an int, got {!r}"
+ROUND_GUARDS = (
+    (brw.require_round, brw.BrwError, "invalid_round: {!r}"),
+    (srl.require_round, srl.SrlError, "invalid_round: {!r}"),
+    (ffpc.require_round, ffpc.FfpcRefusal, f"{ffpc.FINDING_ROUND_OUT_OF_DOMAIN}: {POSITIVE_ROUND}"),
+    (maos.require_round, maos.MaosRefusal, f"{maos.FINDING_ROUND_OUT_OF_DOMAIN}: {POSITIVE_ROUND}"),
+    (nelb.require_round, nelb.NelbRefusal, f"{nelb.FINDING_ROUND_OUT_OF_DOMAIN}: {POSITIVE_ROUND}"),
+    (pkg.require_round, pkg.PkgRefusal, f"{pkg.FINDING_ROUND_OUT_OF_DOMAIN}: {POSITIVE_ROUND}"),
+    (ttf.require_round, ttf.TtfRefusal, f"{ttf.FINDING_ROUND_OUT_OF_DOMAIN}: {POSITIVE_ROUND}"),
+    (irc.require_round, irc.IrcRefusal, f"{irc.FINDING_ROUND_INVALID}: {{!r}}"),
 )
 
 
-class RequireRoundTests(unittest.TestCase):
-    def test_a_positive_plain_int_is_returned_unchanged(self):
-        for module, _error in ROUND_CONTRACTS:
-            with self.subTest(module=module.__name__):
-                self.assertEqual(module.require_round(1), 1)
-                self.assertEqual(module.require_round(7), 7)
+def int_subclass(value: int) -> int:
+    """An ``IntEnum`` member equal to ``value``: an ``int``, but not exactly one."""
 
-    def test_bools_non_ints_and_non_positive_ints_are_refused(self):
-        for module, error in ROUND_CONTRACTS:
-            for value in (*NOT_PLAIN_INTS, 0, -1):
-                with self.subTest(module=module.__name__, value=value), self.assertRaises(error):
-                    module.require_round(value)
+    return IntEnum("Exact", {"MEMBER": value}).MEMBER
+
+
+def non_exact(value: int) -> tuple[object, ...]:
+    """Stand-ins for the valid ``value`` that are not exactly ``int``."""
+
+    return (True, False, int_subclass(value), float(value), str(value), None)
+
+
+def assert_refusal(case, error, expected, thunk):
+    """``thunk()`` raises ``error`` whose text is exactly ``expected``."""
+
+    with case.assertRaises(error) as caught:
+        thunk()
+    case.assertEqual(str(caught.exception), expected)
+
+
+class RequireRoundTests(unittest.TestCase):
+    def test_an_exact_positive_int_is_returned_unchanged(self):
+        for guard, _error, _message in ROUND_GUARDS:
+            with self.subTest(guard=guard.__module__):
+                self.assertEqual(guard(7), 7)
+
+    def test_a_bool_int_subclass_or_non_positive_round_is_refused(self):
+        for guard, error, message in ROUND_GUARDS:
+            for value in (*non_exact(7), 0, -1):
+                with self.subTest(guard=guard.__module__, value=value):
+                    assert_refusal(self, error, message.format(value), partial(guard, value))
 
 
 class SrlPlantAtTests(unittest.TestCase):
-    def test_index_zero_is_a_plant_but_false_is_not(self):
-        self.assertEqual(srl_catalog.plant_at(0), srl_catalog.PLANTS[0])
-        for value in NOT_PLAIN_INTS:
-            with self.subTest(value=value), self.assertRaises(srl.SrlError):
-                srl_catalog.plant_at(value)
+    def test_an_exact_index_is_a_plant_but_a_bool_or_int_subclass_is_not(self):
+        self.assertEqual(srl_catalog.plant_at(3), srl_catalog.PLANTS[3])
+        for value in (*non_exact(3), len(srl_catalog.PLANTS)):
+            with self.subTest(value=value):
+                assert_refusal(
+                    self,
+                    srl.SrlError,
+                    f"unknown_plant_index: {value!r}",
+                    partial(srl_catalog.plant_at, value),
+                )
 
 
-class CodedRefusalAssertions(unittest.TestCase):
-    def assert_refused(self, error, code, thunk):
-        with self.assertRaises(error) as caught:
-            thunk()
-        self.assertEqual(caught.exception.code, code)
-
-
-class TtfCatalogTests(CodedRefusalAssertions):
+class TtfCatalogTests(unittest.TestCase):
     def setUp(self):
         self.plant = ttf_catalog.load_catalog().plants[-1]
 
-    def test_plants_for_round_refuses_a_non_int_round(self):
-        self.assertIn(self.plant, ttf_catalog.plants_for_round(self.plant.source_round))
-        for value in NOT_PLAIN_INTS:
+    def test_plants_for_round_refuses_a_non_exact_round(self):
+        round_n = self.plant.source_round
+        self.assertIn(self.plant, ttf_catalog.plants_for_round(round_n))
+        for value in non_exact(round_n):
             with self.subTest(value=value):
-                self.assert_refused(
+                assert_refusal(
+                    self,
                     ttf.TtfRefusal,
-                    ttf.FINDING_ROUND_OUT_OF_DOMAIN,
+                    f"{ttf.FINDING_ROUND_OUT_OF_DOMAIN}: {ANY_ROUND.format(value)}",
                     partial(ttf_catalog.plants_for_round, value),
                 )
 
-    def test_plant_mapping_refuses_a_non_int_round_or_index(self):
+    def test_plant_mapping_refuses_a_non_exact_round_or_index(self):
         values = self.plant.as_mapping()
         self.assertEqual(ttf_catalog.plant_from_mapping(values), self.plant)
-        for field in ("source_round", "index"):
-            for value in NOT_PLAIN_INTS:
+        messages = {
+            "source_round": "plant.source_round must be a positive int, got {!r}",
+            "index": f"plant.index must be 1..{ttf.QUOTA_PER_ROUND}, got {{!r}}",
+        }
+        for field, message in messages.items():
+            for value in non_exact(values[field]):
                 with self.subTest(field=field, value=value):
-                    self.assert_refused(
+                    assert_refusal(
+                        self,
                         ttf.TtfRefusal,
-                        ttf.FINDING_FIELD_INVALID,
+                        f"{ttf.FINDING_FIELD_INVALID}: {message.format(value)}",
                         partial(ttf_catalog.plant_from_mapping, {**values, field: value}),
                     )
 
 
-class CodeLeftover3CatalogTests(CodedRefusalAssertions):
-    def test_plants_for_round_refuses_a_non_int_round(self):
+class CodeLeftover3CatalogTests(unittest.TestCase):
+    def test_plants_for_round_refuses_a_non_exact_round(self):
         first = code_catalog.plants_for_round(code_catalog.WAVE_FIRST_ROUND)
         self.assertEqual(len(first), code_catalog.PLANTS_PER_ROUND)
-        for value in NOT_PLAIN_INTS:
+        for value in non_exact(code_catalog.WAVE_FIRST_ROUND):
             with self.subTest(value=value):
-                self.assert_refused(
+                assert_refusal(
+                    self,
                     code_contract.CodeRefusal,
-                    code_contract.FINDING_ROUND_OUT_OF_DOMAIN,
+                    f"{code_contract.FINDING_ROUND_OUT_OF_DOMAIN}: {ANY_ROUND.format(value)}",
                     partial(code_catalog.plants_for_round, value),
                 )
 
-    def test_plant_mapping_refuses_a_non_int_line(self):
+    def test_plant_mapping_refuses_a_non_exact_line(self):
         plant = code_catalog.load_catalog().plants[0]
         values = plant.as_mapping()
         self.assertEqual(code_catalog.plant_from_mapping(values), plant)
-        for value in NOT_PLAIN_INTS:
+        message = f"{code_contract.FINDING_FIELD_INVALID}: plant.line must be an int, got {{!r}}"
+        for value in non_exact(plant.line):
             with self.subTest(value=value):
-                self.assert_refused(
+                assert_refusal(
+                    self,
                     code_contract.CodeRefusal,
-                    code_contract.FINDING_FIELD_INVALID,
+                    message.format(value),
                     partial(code_catalog.plant_from_mapping, {**values, "line": value}),
                 )
 
 
 class PayDeferredCountTests(unittest.TestCase):
-    def test_a_non_int_or_non_positive_pair_count_is_refused_before_git(self):
-        for value in (*NOT_PLAIN_INTS, 0):
+    def test_a_non_exact_or_non_positive_pair_count_is_refused_before_git(self):
+        expected = (
+            f"{pay_contract.FINDING_CATALOG_FIELD_INVALID}: "
+            f"{DEFERRED_PATH} n_pairs must be positive int"
+        )
+        for value in (*non_exact(2), 0):
             entry = {"path": DEFERRED_PATH, "n_pairs": value}
             with self.subTest(value=value), mock.patch.object(
                 pay_deferred, "git_show_deferred_source"
             ) as show:
-                with self.assertRaises(pay_contract.PayRefusal) as caught:
-                    pay_deferred.extract_all_deferred([entry])
-                self.assertEqual(caught.exception.code, pay_contract.FINDING_CATALOG_FIELD_INVALID)
+                assert_refusal(
+                    self,
+                    pay_contract.PayRefusal,
+                    expected,
+                    partial(pay_deferred.extract_all_deferred, [entry]),
+                )
                 show.assert_not_called()
 
-    def test_a_positive_int_pair_count_reaches_the_extractor(self):
+    def test_an_exact_positive_pair_count_reaches_the_extractor(self):
         entry = {"path": DEFERRED_PATH, "n_pairs": 2}
         extracted = ({"row": 1}, {"row": 2})
         with mock.patch.object(

@@ -30,6 +30,7 @@ else:
 
 FAMILY_PREFIX = "irc"
 FACTORY = "incident-response-oncall-factory"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 GENERATOR = "irc-mill"
 SOURCE_GENERATOR = "grok-4.6"
 CATALOG_FIRST = 3366
@@ -123,14 +124,14 @@ def refuse_vendor_paths(paths: Iterable[Path | str]) -> None:
             refuse(FINDING_VENDOR_PATH, f"refusing to vendor {name}")
 
 
-def _is_plain_int(value: object) -> TypeGuard[int]:
-    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
+def _is_exact_int(value: object) -> TypeGuard[int]:
+    """Exactly ``int``: a ``bool`` or any other ``int`` subclass is not."""
 
-    return isinstance(value, int) and not isinstance(value, bool)
+    return type(value) in _EXACT_INT
 
 
 def require_round(rnd: object) -> int:
-    refuse_when(not _is_plain_int(rnd) or rnd < 1, FINDING_ROUND_INVALID, shown(rnd))
+    refuse_when(not _is_exact_int(rnd) or rnd < 1, FINDING_ROUND_INVALID, shown(rnd))
     return rnd  # type: ignore[return-value]
 
 

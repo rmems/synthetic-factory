@@ -6,7 +6,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any
 
 from ._contract import (
     FINDING_CATALOG_FIELD_INVALID,
@@ -27,6 +27,8 @@ __all__ = [
     "git_show_deferred_source",
     "load_deferred_sources_meta",
 ]
+
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 
 
 def load_deferred_sources_meta(catalog_path: Path | None = None) -> tuple[Mapping[str, Any], ...]:
@@ -86,12 +88,6 @@ def deferred_source_rows(
     return pairs_from_chained_source(text, source=path, expected_rows=expected_rows)
 
 
-def _is_plain_int(value: object) -> TypeGuard[int]:
-    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
-
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 def extract_all_deferred(
     sources: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], ...]:
@@ -103,7 +99,7 @@ def extract_all_deferred(
         path = str(entry["path"])
         expected = entry["n_pairs"]
         refuse_when(
-            not _is_plain_int(expected) or expected < 1,
+            type(expected) not in _EXACT_INT or expected < 1,
             FINDING_CATALOG_FIELD_INVALID,
             f"{path} n_pairs must be positive int",
         )
