@@ -384,19 +384,6 @@ def _validate_gate_checks(
     return total_spikes
 
 
-def _expected_gate_energy(total_spikes: int | None, per_spike: float) -> float | int | None:
-    return _spike_energy(total_spikes, per_spike) if total_spikes is not None else None
-
-
-def _gate_energy_valid(
-    value: Any, expected: float | None, tolerance: float, reason_codes: list[str]
-) -> bool:
-    valid = _raster_energy_field(value, expected, tolerance)
-    if not valid:
-        reason_codes.append(REASON_RASTER_ENERGY)
-    return valid
-
-
 def _validate_gate_energy(
     gate_compute: dict[str, Any],
     total_spikes: int | None,
@@ -407,17 +394,15 @@ def _validate_gate_energy(
         ("total_energy_uJ", RASTER_ENERGY_UJ_PER_SPIKE, 1e-9),
         ("total_energy_pJ", RASTER_ENERGY_PJ_PER_SPIKE, 1e-6),
     )
-    # Each declared total is checked, and its reason recorded, in declaration order.
-    results = [
-        _gate_energy_valid(
-            gate_compute[key],
-            _expected_gate_energy(total_spikes, per_spike),
-            tolerance,
-            reason_codes,
-        )
-        for key, per_spike, tolerance in checks
-        if key in gate_compute
-    ]
+    results = []
+    for key, per_spike, tolerance in checks:
+        if key not in gate_compute:
+            continue
+        expected = _spike_energy(total_spikes, per_spike) if total_spikes is not None else None
+        valid = _raster_energy_field(gate_compute[key], expected, tolerance)
+        results.append(valid)
+        if not valid:
+            reason_codes.append(REASON_RASTER_ENERGY)
     if results:
         evidence["gate_compute_energy_valid"] = all(results)
 
