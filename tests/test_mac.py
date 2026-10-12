@@ -191,7 +191,10 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(report["catalog_files"], 31)
         self.assertFalse(report["exec"])
         self.assertEqual(loaded.plants[0].slug, "wetphos-gypsum-vs-p2o5")
-        maleic = next(plant for plant in loaded.plants if plant.slug == "maleic-butane-vs-conv")
+        maleic = next(
+            (plant for plant in loaded.plants if plant.slug == "maleic-butane-vs-conv"), None
+        )
+        self.assertIsNotNone(maleic)
         self.assertEqual(maleic.process, "maleic anhydride")
         self.assertEqual(maleic.metric, "conv")
         self.assertEqual(maleic.spike, "14 K")

@@ -90,7 +90,9 @@ class StagePublicationBoundaries(unittest.TestCase):
             self._run()
         self.assertEqual(caught.exception.code, "DESTINATION_INVALID")
         self.assertFalse(self.destination.exists())
-        return next(self.root.glob(".csv-stage-*"))
+        stage = next(self.root.glob(".csv-stage-*"), None)
+        self.assertIsNotNone(stage)
+        return stage
 
     def test_extra_entry_refuses_publication_and_survives_cleanup(self):
         stage = self._refuse_changed_stage(lambda path: (path / "foreign").write_text("preserve"))
@@ -213,7 +215,9 @@ class StagePublicationBoundaries(unittest.TestCase):
             (path / "foreign").write_text("preserve")
 
         self._fail_stage_open(replace)
-        self.assertEqual(next(self.root.glob(".csv-stage-*/foreign")).read_text(), "preserve")
+        foreign = next(self.root.glob(".csv-stage-*/foreign"), None)
+        self.assertIsNotNone(foreign)
+        self.assertEqual(foreign.read_text(), "preserve")
 
     def test_failed_stage_open_preserves_an_empty_replacement(self):
         def replace(path):
@@ -221,7 +225,9 @@ class StagePublicationBoundaries(unittest.TestCase):
             path.mkdir()
 
         self._fail_stage_open(replace)
-        self.assertEqual(list(next(self.root.glob(".csv-stage-*")).iterdir()), [])
+        stage = next(self.root.glob(".csv-stage-*"), None)
+        self.assertIsNotNone(stage)
+        self.assertEqual(list(stage.iterdir()), [])
 
     def test_partial_write_failure_cleans_only_the_written_bytes_and_allows_retry(self):
         original = os.write
