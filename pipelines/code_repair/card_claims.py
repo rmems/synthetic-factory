@@ -272,6 +272,12 @@ def _claim_rules(coverage: ReplayCoverage) -> tuple[tuple[str, ...], tuple[str, 
     )
 
 
+def _overclaim_scope(phrase: str, card: str, verification: str) -> str:
+    """Pass overclaims are false anywhere on the card; coverage wording only where coverage
+    is stated, since body text such as "all 132 rows carry evidence" can be true."""
+    return _flat(card) if phrase in PASS_OVERCLAIMS else verification
+
+
 def _replay_errors(card: str, coverage: ReplayCoverage) -> list[str]:
     text = _verification_text(card)
     if text is None:
@@ -282,8 +288,8 @@ def _replay_errors(card: str, coverage: ReplayCoverage) -> list[str]:
         f"{coverage.not_replayed} not replayed"
     )
     errors = [
-        f"Verification overclaims replay ({phrase!r}): {facts}"
-        for phrase in forbidden if _mentions(text, phrase)
+        f"Card overclaims replay ({phrase!r}): {facts}"
+        for phrase in forbidden if _mentions(_overclaim_scope(phrase, card, text), phrase)
     ]
     errors.extend(
         f"Verification must state {phrase!r} from {REPLAY_EVIDENCE}"

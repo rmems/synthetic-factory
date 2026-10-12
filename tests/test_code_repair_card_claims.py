@@ -201,7 +201,7 @@ class RenderedStatementTests(unittest.TestCase):
 class CardClaimTests(unittest.TestCase):
     def test_overclaiming_card_fails(self):
         errors = cc.card_claim_errors(OVERCLAIMING_CARD, REPLAY, RUN)
-        self.assertIn("Verification overclaims replay ('full batch passed'): 97 of 132 passed, "
+        self.assertIn("Card overclaims replay ('full batch passed'): 97 of 132 passed, "
                       "0 failed, 35 not replayed", errors)
         for phrase in ("'97 of 132'", "'35 not replayed'", "'0 failed'", "'13 accepted'"):
             self.assertTrue(any(phrase in e for e in errors), phrase)
@@ -224,9 +224,17 @@ class CardClaimTests(unittest.TestCase):
         errors = cc.card_claim_errors(card, REPLAY, RUN)
         self.assertTrue(any("'all 132'" in e for e in errors))
 
-    def test_overclaim_outside_the_verification_block_is_not_its_claim(self):
-        card = HONEST_CARD + "\nA future full batch replay is planned.\n"
+    def test_coverage_wording_outside_the_verification_block_is_not_its_claim(self):
+        card = HONEST_CARD + (
+            "\nA future full batch replay is planned; all 132 rows carry evidence.\n"
+        )
         self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [])
+
+    def test_pass_overclaim_anywhere_on_the_card_fails(self):
+        card = HONEST_CARD + "\nIn short, the full batch passed.\n"
+        errors = cc.card_claim_errors(card, REPLAY, RUN)
+        self.assertEqual(errors, ["Card overclaims replay ('full batch passed'): 97 of 132 "
+                                  "passed, 0 failed, 35 not replayed"])
 
     def test_failures_must_be_stated(self):
         replay = with_failures(REPLAY, 2)

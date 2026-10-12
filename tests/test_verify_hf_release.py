@@ -3,6 +3,7 @@
 
 import hashlib
 import base64
+import io
 import json
 import sys
 import unittest
@@ -540,7 +541,7 @@ class ReplayClaimVerifierTests(unittest.TestCase):
         result = self.verify()
         self.assertFalse(result.ok)
         self.assertIn(
-            "Verification overclaims replay ('full batch passed'): 2 of 3 passed, 0 failed, "
+            "Card overclaims replay ('full batch passed'): 2 of 3 passed, 0 failed, "
             "1 not replayed",
             result.errors,
         )
@@ -577,6 +578,52 @@ class ReplayClaimVerifierTests(unittest.TestCase):
             verify_hf_release.verify_repositories((CODE_REPAIR_REPO, dataset_repo))
         self.assertEqual(claims.call_args_list, [mock.call(CODE_REPAIR_REPO, timeout=30.0)])
         self.assertEqual(dataset.call_args_list, [mock.call(dataset_repo, timeout=30.0)])
+
+
+class ParquetFooterReaderTests(unittest.TestCase):
+    def test_skip_reads_fixed_width_fields(self) -> None:
+        reader = verify_hf_release._CompactReader(bytes(9))
+        reader.skip(reader.BOOLEAN_TRUE)  # the value rides in the type nibble
+        self.assertEqual(reader.offset, 0)
+        reader.skip(reader.BYTE)
+        self.assertEqual(reader.offset, 1)
+        reader.skip(reader.DOUBLE)
+        self.assertEqual(reader.offset, 9)
+
+    def test_truncated_footer_metadata_is_reported(self) -> None:
+        footer = bytes([0x15])  # field 1, type I32, with its varint missing
+        viewer = b"PAR1" + footer + len(footer).to_bytes(4, "little") + b"PAR1"
+        errors = verify_hf_release._viewer_errors(_card(), viewer)
+        self.assertTrue(
+            any("invalid Parquet footer metadata" in error for error in errors), errors
+        )
+
+
+class VerifierCliTests(unittest.TestCase):
+    def run_main(self, argv: list[str], ok: bool) -> tuple[int, list[str]]:
+        calls: list[str] = []
+
+        def fake(repo: str, *, timeout: float) -> verify_hf_release.CheckResult:
+            calls.append(repo)
+            return verify_hf_release.CheckResult(repo, () if ok else ("bad card",))
+
+        with (
+            mock.patch.object(verify_hf_release, "verify_repository", side_effect=fake),
+            mock.patch("sys.stdout", new_callable=io.StringIO),
+            mock.patch("sys.stderr", new_callable=io.StringIO),
+        ):
+            code = verify_hf_release.main(argv)
+        return code, calls
+
+    def test_default_run_includes_code_repair_releases(self) -> None:
+        code, calls = self.run_main([], ok=True)
+        self.assertEqual(code, 0)
+        expected = [*verify_hf_release.DATASET_REPOS, *verify_hf_release.REPLAY_CLAIM_REPOS]
+        self.assertEqual(calls, expected)
+
+    def test_code_repair_release_can_be_selected_and_fails_the_run(self) -> None:
+        code, calls = self.run_main(["--repo", CODE_REPAIR_REPO], ok=False)
+        self.assertEqual((code, calls), (1, [CODE_REPAIR_REPO]))
 
 
 if __name__ == "__main__":
