@@ -224,7 +224,7 @@ outcome — the unverified fraction is visible in the marker instead of silent.
 
 ## Test Matrix
 
-Executable coverage lives in `tests/test_quality_and_verify_gates.py`,
+Executable coverage lives in `tests/test_quality_gate_audit.py`,
 `tests/test_verify_execution.py`, `tests/test_verify_execution_records.py`,
 `tests/test_execution_override.py`, and `tests/test_frontier_publish_gate.py`.
 The clauses this spec requires:

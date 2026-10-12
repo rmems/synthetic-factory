@@ -467,6 +467,6 @@ See ``pipelines/promote.py`` for the integrated exit-code contract and
 
 ## References
 
-- Thalamic schema: ``schemas/thalamic.md`` / ``schemas/provenance.md``
+- Thalamic schema: ``schemas/thalamic-trajectory.schema.json`` / ``schemas/provenance.md``
 - SOTA mix guidance: ``Demystifying Synthetic Data`` (≈30% rephrased synthetic)
 - Deep record checks: ``pipelines/check_records.py`` (spike order, reward arithmetic, duplicate IDs)
