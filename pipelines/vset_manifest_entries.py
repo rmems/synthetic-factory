@@ -18,6 +18,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_constants import (
         ENTRY_TOP_LEVEL_KEYS,
         ERR_ACTOR_FIELDS_INVALID,
+        ERR_ACTORS_CONFLATED,
         ERR_PAYLOAD_INVALID,
         ERR_RELEASE_CONTRACT_MISMATCH,
         MANIFEST_ROLES,
@@ -41,6 +42,7 @@ else:
     from vset_constants import (
         ENTRY_TOP_LEVEL_KEYS,
         ERR_ACTOR_FIELDS_INVALID,
+        ERR_ACTORS_CONFLATED,
         ERR_PAYLOAD_INVALID,
         ERR_RELEASE_CONTRACT_MISMATCH,
         MANIFEST_ROLES,
@@ -124,7 +126,7 @@ def _entry_actor_pair_errors(where: str, entry: Mapping[str, Any]) -> list[VSetV
     if same_run or _entry_actor_key(author) == _entry_actor_key(solver):
         return [
             VSetValidationError(
-                "vset.actors_conflated",
+                ERR_ACTORS_CONFLATED,
                 f"{where} task_author.run_id and solver.run_id must remain distinct",
             )
         ]
@@ -141,14 +143,14 @@ def _reviewer_conflated(where: str, entry: Mapping[str, Any], reviewer: Mapping[
     if _reviewer_matches(reviewer, entry.get("task_author")):
         return [
             VSetValidationError(
-                "vset.actors_conflated",
+                ERR_ACTORS_CONFLATED,
                 f"{where} reviewer must not be the task_author",
             )
         ]
     if _reviewer_matches(reviewer, entry.get("solver")):
         return [
             VSetValidationError(
-                "vset.actors_conflated",
+                ERR_ACTORS_CONFLATED,
                 f"{where} reviewer must not be the solver",
             )
         ]

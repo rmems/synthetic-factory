@@ -13,6 +13,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_constants import (
         ACTOR_PROVENANCE_VERSION,
         ERR_ACTOR_FIELDS_INVALID,
+        ERR_ACTORS_CONFLATED,
         ERR_PAYLOAD_INVALID,
         ERR_RELEASE_CONTRACT_MISMATCH,
         RECORD_KINDS,
@@ -42,6 +43,7 @@ else:
     from vset_constants import (
         ACTOR_PROVENANCE_VERSION,
         ERR_ACTOR_FIELDS_INVALID,
+        ERR_ACTORS_CONFLATED,
         ERR_PAYLOAD_INVALID,
         ERR_RELEASE_CONTRACT_MISMATCH,
         RECORD_KINDS,
@@ -221,7 +223,7 @@ def _author_solver_conflated(
         return []
     return [
         VSetValidationError(
-            "vset.actors_conflated",
+            ERR_ACTORS_CONFLATED,
             "task_author and solver must remain distinct on model, version, and run_id",
         )
     ]
@@ -274,14 +276,14 @@ def _reviewer_distinct_errors(
     if author is not None and key == _actor_key(author):
         return [
             VSetValidationError(
-                "vset.actors_conflated",
+                ERR_ACTORS_CONFLATED,
                 "reviewer must not be the task_author",
             )
         ]
     if solver is not None and key == _actor_key(solver):
         return [
             VSetValidationError(
-                "vset.actors_conflated",
+                ERR_ACTORS_CONFLATED,
                 "reviewer must not be the solver",
             )
         ]
