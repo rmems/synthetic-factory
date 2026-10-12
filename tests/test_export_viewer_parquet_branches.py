@@ -195,7 +195,10 @@ class ViewerReaderRefusals(RefusalCaseAssertions, unittest.TestCase):
         self.assertEqual(export_viewer_reader.read_viewer_parquet(_payload(_Spec())), [_ROW])
 
     def test_an_empty_row_group_decodes_to_no_rows(self):
-        empty = _payload(_Spec(rows=0, page_rows=0))
+        """A well-formed zero-row file: every column page is empty as well."""
+
+        no_values = tuple(replace(column, values=b"") for column in _DEFAULT_COLUMNS)
+        empty = _payload(_Spec(columns=no_values, rows=0, page_rows=0))
         self.assertEqual(export_viewer_reader.read_viewer_parquet(empty), [])
 
     def test_payloads_outside_the_viewer_contract_are_refused(self):
