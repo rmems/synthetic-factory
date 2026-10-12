@@ -307,10 +307,9 @@ class IacShapeScanTests(unittest.TestCase):
         return finder(ast.parse(source))
 
     def test_600_deep_plus_and_minus_chains_resolve_as_constants(self):
+        too_deep = "X = " + " + ".join(['"a"'] * 601)
         with self.assertRaisesRegex(ValueError, "has no extractable IAC catalog assignment"):
-            extract_mill_catalog(
-                "X = " + " + ".join(['"a"'] * 601), path="experiments/iac-mill-r1.py"
-            )
+            extract_mill_catalog(too_deep, path="experiments/iac-mill-r1.py")
         deep = "CATALOG_FIRST = " + "-" * 600 + "659"
         chained = _SUC_FAIL_SNIPPET.replace("CATALOG_FIRST = 659", deep)
         chained += "GEN = " + " + ".join(['"g"'] * 600) + "\n"
