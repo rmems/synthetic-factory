@@ -8,7 +8,9 @@ error. ``--json`` prints one object so an agent never parses prose.
 
 from __future__ import annotations
 
-from . import _contract, catalog, generate
+from . import catalog as cat
+from . import generate
+from ._contract import bind_import_twin, envelope
 
 # ``python3 -m`` runs this module as ``__main__``, so the import form comes from ``__package__``.
 if (__package__ or "").startswith("pipelines."):
@@ -21,15 +23,15 @@ __all__ = ["build_parser", "run"]
 _COMMANDS = subcommands.ExtractCommands(
     prog="mac.cli",
     description=__doc__,
-    catalog=catalog,
+    catalog=cat,
     generate=generate,
-    refusal=_contract.envelope.ContractError,
+    refusal=envelope.ContractError,
 )
 build_parser = _COMMANDS.build_parser
 run = _COMMANDS.run
 
 
-_contract.bind_import_twin(__name__)
+bind_import_twin(__name__)
 
 
 if __name__ == "__main__":

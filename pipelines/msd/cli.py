@@ -11,12 +11,16 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from . import _contract, catalog, generate
+    from . import catalog as cat
+    from . import generate as gen
+    from ._contract import MsdRefusal, bind_import_twin
 else:
     _PIPELINES = Path(__file__).resolve().parents[1]
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
-    from msd import _contract, catalog, generate
+    from msd import catalog as cat
+    from msd import generate as gen
+    from msd._contract import MsdRefusal, bind_import_twin
 
 # ``python3 -m`` runs this module as ``__main__``, so the import form comes from ``__package__``.
 if (__package__ or "").startswith("pipelines."):
@@ -29,9 +33,9 @@ __all__ = ["build_parser", "run"]
 _COMMANDS = subcommands.GenerateCommands(
     prog="msd.cli",
     description=__doc__,
-    catalog=catalog,
-    generate=generate,
-    refusal=_contract.MsdRefusal,
+    catalog=cat,
+    generate=gen,
+    refusal=MsdRefusal,
 )
 build_parser = _COMMANDS.build_parser
 run = _COMMANDS.run
@@ -44,4 +48,4 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 elif __package__:
-    _contract.bind_import_twin(__name__)
+    bind_import_twin(__name__)
