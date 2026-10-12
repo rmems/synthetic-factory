@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -163,7 +163,7 @@ def _load_jsonl(path) -> list[dict[str, Any]]:
 
 
 def _slice_themes(
-    leftover_rows: list[Mapping[str, Any]],
+    leftover_rows: Sequence[Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     success: list[dict[str, Any]] = []
     leftover: list[dict[str, Any]] = []
@@ -178,7 +178,7 @@ def _slice_themes(
 
 
 def _theme_lists(
-    theme_rows: list[Mapping[str, Any]],
+    theme_rows: Sequence[Mapping[str, Any]],
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
     success, leftover = _per_mill_lists(theme_rows, THEME_MILL_IDS, THEMES_FILENAME, "theme")
     if THEME_MILL_ID not in success or not success[THEME_MILL_ID]:
@@ -189,7 +189,7 @@ def _theme_lists(
 
 
 def _pair_lists(
-    pair_rows: list[Mapping[str, Any]],
+    pair_rows: Sequence[Mapping[str, Any]],
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
     success, leftover = _per_mill_lists(pair_rows, PAIR_MILL_IDS, PAIRS_FILENAME, "pair")
     for mill_id in PAIR_MILL_IDS:
@@ -199,7 +199,7 @@ def _pair_lists(
 
 
 def _per_mill_lists(
-    rows: list[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, Any]],
     mill_ids: frozenset[str],
     filename: str,
     slice_label: str,
