@@ -14,7 +14,7 @@ from .leftover_plants import load_leftover_plants
 from .leftover_plants_b import load_leftover_plants_b
 from .leftover_plants_letter import load_leftover_plants_letter
 from .pairs import load_pairs
-from .sources import MILL_SOURCES, catalog_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import (
     ARCHIVE_B_BLOB_SHA,
     ARCHIVE_B_PATH,
@@ -292,18 +292,24 @@ def _bind_sources(catalog: EvhCatalog) -> None:
         )
     if len(MILL_SOURCES) != 9:
         raise ValueError(f"expected 9 EVH sources, found {len(MILL_SOURCES)}")
-    slice_mill = catalog.mills[FIRST_SLICE_MILL_ID]
+    _bind_first_slice(catalog.mills[FIRST_SLICE_MILL_ID])
+    for mill_id, mill in catalog.mills.items():
+        _bind_mill_source(mill_id, mill, expected[mill_id])
+
+
+def _bind_first_slice(slice_mill: MillCatalog) -> None:
     if len(slice_mill.catalogs) != 1:
         raise ValueError("r801 slice must be a single destination catalog")
     slice_dest = slice_mill.catalogs[0]
     if len(slice_dest.pairs) != slice_dest.n_rows:
         raise ValueError("r801 slice n_rows does not match extracted pairs")
-    for mill_id, mill in catalog.mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill_id != FIRST_SLICE_MILL_ID and any(dest.pairs for dest in mill.catalogs):
-            raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+
+
+def _bind_mill_source(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
+    if mill.path != source.path or mill.blob_sha != source.blob_sha:
+        raise ValueError(f"{mill_id} pin disagrees with sources.py")
+    if mill_id != FIRST_SLICE_MILL_ID and any(dest.pairs for dest in mill.catalogs):
+        raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
 
 
 def _group_deferred_pairs(
@@ -325,23 +331,7 @@ def _bind_deferred_pairs(catalog: EvhCatalog) -> None:
     for mill_id, mill in catalog.mills.items():
         if mill_id == FIRST_SLICE_MILL_ID:
             continue
-        mill_n = 0
-        for dest in mill.catalogs:
-            rows = grouped.pop((mill_id, dest.dest), None)
-            if rows is None:
-                raise ValueError(f"{mill_id} dest {dest.dest} missing from pairs.jsonl")
-            if len(rows) != dest.n_rows:
-                raise ValueError(
-                    f"{mill_id} dest {dest.dest} n_rows {dest.n_rows} != {len(rows)}"
-                )
-            if rows[0]["success_slug"] != dest.first_slug:
-                raise ValueError(f"{mill_id} dest {dest.dest} first_slug drifted")
-            if rows[-1]["success_slug"] != dest.last_slug:
-                raise ValueError(f"{mill_id} dest {dest.dest} last_slug drifted")
-            mill_n += len(rows)
-        if mill_n != mill.n_rows:
-            raise ValueError(f"{mill_id} deferred width {mill_n} != n_rows {mill.n_rows}")
-        matched += mill_n
+        matched += _bind_mill_deferred_pairs(mill_id, mill, grouped)
     if grouped:
         extra = ", ".join(f"{mill}:{dest}" for mill, dest in sorted(grouped))
         raise ValueError(f"pairs.jsonl names unknown dests: {extra}")
@@ -349,27 +339,65 @@ def _bind_deferred_pairs(catalog: EvhCatalog) -> None:
         raise ValueError(f"deferred dest widths {matched} != {PAIRS_N_ROWS}")
 
 
+def _bind_mill_deferred_pairs(
+    mill_id: str,
+    mill: MillCatalog,
+    grouped: dict[tuple[str, str], list[Mapping[str, Any]]],
+) -> int:
+    """Pop and check each dest's rows from ``grouped``; return the mill's width."""
+
+    mill_n = 0
+    for dest in mill.catalogs:
+        rows = grouped.pop((mill_id, dest.dest), None)
+        if rows is None:
+            raise ValueError(f"{mill_id} dest {dest.dest} missing from pairs.jsonl")
+        _bind_dest_deferred_pairs(mill_id, dest, rows)
+        mill_n += len(rows)
+    if mill_n != mill.n_rows:
+        raise ValueError(f"{mill_id} deferred width {mill_n} != n_rows {mill.n_rows}")
+    return mill_n
+
+
+def _bind_dest_deferred_pairs(
+    mill_id: str,
+    dest: EvhDestCatalog,
+    rows: list[Mapping[str, Any]],
+) -> None:
+    if len(rows) != dest.n_rows:
+        raise ValueError(
+            f"{mill_id} dest {dest.dest} n_rows {dest.n_rows} != {len(rows)}"
+        )
+    if rows[0]["success_slug"] != dest.first_slug:
+        raise ValueError(f"{mill_id} dest {dest.dest} first_slug drifted")
+    if rows[-1]["success_slug"] != dest.last_slug:
+        raise ValueError(f"{mill_id} dest {dest.dest} last_slug drifted")
+
+
 def _bind_archive_b_plants(catalog: EvhCatalog) -> None:
     _bind_archive_leftover_plants(
         catalog.archive_b,
-        path_pin=ARCHIVE_B_PATH,
-        blob_pin=ARCHIVE_B_BLOB_SHA,
-        plants_filename=LEFTOVER_PLANTS_FILENAME,
-        plants_sha256=LEFTOVER_PLANTS_SHA256,
-        n_rows=LEFTOVER_PLANTS_N_ROWS,
-        label="archive_b",
+        {
+            "path": ARCHIVE_B_PATH,
+            "blob_sha": ARCHIVE_B_BLOB_SHA,
+            "filename": LEFTOVER_PLANTS_FILENAME,
+            "plants_sha256": LEFTOVER_PLANTS_SHA256,
+            "n_rows": LEFTOVER_PLANTS_N_ROWS,
+        },
+        "archive_b",
     )
 
 
 def _bind_archive_c_plants(catalog: EvhCatalog) -> None:
     _bind_archive_leftover_plants(
         catalog.archive_c,
-        path_pin=ARCHIVE_C_PATH,
-        blob_pin=ARCHIVE_C_BLOB_SHA,
-        plants_filename=LEFTOVER_PLANTS_B_FILENAME,
-        plants_sha256=LEFTOVER_PLANTS_B_SHA256,
-        n_rows=LEFTOVER_PLANTS_B_N_ROWS,
-        label="archive_c",
+        {
+            "path": ARCHIVE_C_PATH,
+            "blob_sha": ARCHIVE_C_BLOB_SHA,
+            "filename": LEFTOVER_PLANTS_B_FILENAME,
+            "plants_sha256": LEFTOVER_PLANTS_B_SHA256,
+            "n_rows": LEFTOVER_PLANTS_B_N_ROWS,
+        },
+        "archive_c",
     )
 
 
@@ -382,15 +410,7 @@ def _bind_archive_letter_plants(catalog: EvhCatalog) -> None:
         archive = catalog.archive_letters.get(key)
         if archive is None:
             raise ValueError(f"catalog must pin {key} leftover plants")
-        _bind_archive_leftover_plants(
-            archive,
-            path_pin=str(pin["path"]),
-            blob_pin=str(pin["blob_sha"]),
-            plants_filename=str(pin["filename"]),
-            plants_sha256=str(pin["plants_sha256"]),
-            n_rows=int(pin["n_rows"]),
-            label=key,
-        )
+        _bind_archive_leftover_plants(archive, pin, key)
         if archive.sha256 != str(pin["sha256"]):
             raise ValueError(f"{key}.sha256 drifted from vocabulary")
 
@@ -408,28 +428,32 @@ def _bind_deferred_leftover_mills(catalog: EvhCatalog) -> None:
             raise ValueError(f"deferred leftover path {row.path!r} is not a mill_plants script")
 
 
+# (ArchiveBPlants attribute, pin key, pin cast), checked in this order.
+_ARCHIVE_PIN_FIELDS = (
+    ("path", "path", str),
+    ("blob_sha", "blob_sha", str),
+    ("plants_filename", "filename", str),
+    ("plants_sha256", "plants_sha256", str),
+    ("n_pairs", "n_rows", int),
+)
+
+
 def _bind_archive_leftover_plants(
     archive: ArchiveBPlants | None,
-    *,
-    path_pin: str,
-    blob_pin: str,
-    plants_filename: str,
-    plants_sha256: str,
-    n_rows: int,
+    pin: Mapping[str, object],
     label: str,
 ) -> None:
+    """``pin`` has the ``LEFTOVER_LETTER_PINS`` shape (path, blob_sha, filename, ...)."""
+
     if archive is None:
         raise ValueError(f"catalog must pin {label} leftover plants")
-    if archive.path != path_pin:
-        raise ValueError(f"{label}.path drifted from vocabulary")
-    if archive.blob_sha != blob_pin:
-        raise ValueError(f"{label}.blob_sha drifted from vocabulary")
-    if archive.plants_filename != plants_filename:
-        raise ValueError(f"{label}.plants_filename drifted from vocabulary")
-    if archive.plants_sha256 != plants_sha256:
-        raise ValueError(f"{label}.plants_sha256 drifted from vocabulary")
-    if archive.n_pairs != n_rows:
-        raise ValueError(f"{label}.n_pairs drifted from vocabulary")
+    for attr, pin_key, cast in _ARCHIVE_PIN_FIELDS:
+        if getattr(archive, attr) != cast(pin[pin_key]):
+            raise ValueError(f"{label}.{attr} drifted from vocabulary")
+    _bind_archive_plant_rows(archive, str(pin["path"]), label)
+
+
+def _bind_archive_plant_rows(archive: ArchiveBPlants, path_pin: str, label: str) -> None:
     if len(archive.pairs) != archive.n_pairs:
         raise ValueError(f"{label}.n_pairs does not match plants jsonl")
     if archive.pairs[0]["ok_slug"] != archive.first_ok_slug:
