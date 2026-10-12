@@ -4,6 +4,7 @@
 import json
 import unittest
 from collections import Counter
+from typing import ClassVar
 
 from card_schema_test_support import (
     DEFAULT_DATA_FILES,
@@ -59,9 +60,9 @@ class GitOpsRecoveryDeclarationTests(DeclarationTestCase):
 
     # The published dump is 1959 shards of exactly two records each, with no
     # gaps: batch-r01.jsonl through batch-r1959.jsonl.
-    PAYLOAD_NAMES = [f"batch-r{n:02d}.jsonl" for n in range(1, 1960)]
+    PAYLOAD_NAMES: ClassVar[list[str]] = [f"batch-r{n:02d}.jsonl" for n in range(1, 1960)]
 
-    SIR_IDS = [
+    SIR_IDS: ClassVar[list[str]] = [
         "sir-r1194-es-reindex-leftover3d-rebuild",
         "sir-r1194-es-drop-reindex-leftover3d-handoff",
         "sir-r1195-whoosh-writer-leftover3d-rebuild",
