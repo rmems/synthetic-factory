@@ -55,7 +55,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
     print(rendered)
 
 
-def _catalog(args: argparse.Namespace) -> None:
+def _catalog(args: argparse.Namespace) -> int:
     loaded = cat.load_catalog()
     if args.json:
         payload = {
@@ -68,30 +68,33 @@ def _catalog(args: argparse.Namespace) -> None:
             "plants": [plant.as_mapping() for plant in loaded.plants],
         }
         print(dumps_exact_json(payload, indent=2))
-        return
+        return 0
     print(f"{loaded.catalog_id} {FACTORY} {len(loaded.plants)} plants")
     for plant in loaded.plants:
         print(f"{plant.source_round:2d} {plant.record_id} {plant.domain or plant.failure_mode}")
+    return 0
 
 
-def _catalog_check(args: argparse.Namespace) -> None:
+def _catalog_check(args: argparse.Namespace) -> int:
     report = cat.catalog_check()
     text = (
         f"catalog-check ok: {report['plants']} plants "
         f"({report['triples']} triples) r{report['first_round']}-r{report['last_round']}"
     )
     _emit({"command": "catalog-check", **report}, args.json, text)
+    return 0
 
 
-def _generate(args: argparse.Namespace) -> None:
+def _generate(args: argparse.Namespace) -> int:
     if args.out is None:
         plants = cat.plants_for_round(args.round)
         for plant in plants:
             print(dumps_exact_json(generate.pair(plant), sort_keys=False))
-        return
+        return 0
     summary = generate.run(generate.RunRequest(args.round, args.out))
     text = f"generated {summary['records']} records into {args.out}"
     _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
+    return 0
 
 
 _COMMANDS = {
@@ -118,10 +121,9 @@ def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        _COMMANDS[args.command](args)
+        return _COMMANDS[args.command](args)
     except envelope.ContractError as refusal:
         return _refused(args, refusal)
-    return 0
 
 
 def main() -> None:
