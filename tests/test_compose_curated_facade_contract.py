@@ -48,6 +48,17 @@ def line_coordinate(path, line, file_sha256):
     return compose_curated.SourceLineCoordinate(path, line, file_sha256)
 
 
+def _side_curation_patch(side_result):
+    """Stub the facade's side curation with side_result, or patch nothing when None."""
+    if side_result is None:
+        return nullcontext()
+    return mock.patch.object(
+        compose_curated,
+        "_curate_trajectory_sides",
+        return_value=side_result,
+    )
+
+
 class ComposeCuratedFacadeContract(unittest.TestCase):
     def _assert_facade_seam(self, binding, message, invocation):
         with mock.patch.object(
@@ -186,18 +197,8 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             ("_strip_hidden_only_side", bridge_hidden, None),
         )
         for binding, invocation, side_result in cases:
-            with self.subTest(binding=binding):
-                side_patch = (
-                    mock.patch.object(
-                        compose_curated,
-                        "_curate_trajectory_sides",
-                        return_value=side_result,
-                    )
-                    if side_result is not None
-                    else nullcontext()
-                )
-                with side_patch:
-                    self._assert_facade_seam(binding, f"nested {binding}", invocation)
+            with self.subTest(binding=binding), _side_curation_patch(side_result):
+                self._assert_facade_seam(binding, f"nested {binding}", invocation)
 
         coding_binding = mock.Mock()
         coding_binding.steps_path.side_effect = FacadeSentinel("coding binding")
