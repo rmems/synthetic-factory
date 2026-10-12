@@ -79,7 +79,7 @@ __all__ = [
 
 ast_extract_plants = _extract.ast_extract_plants
 refuse_hopper_source = _extract.refuse_hopper_source
-_refuse_loop_source = _extract._refuse_loop_source
+_refuse_loop_source = _extract.refuse_loop_source
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,7 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _const_eval(node: ast.AST) -> Any:
+def _const_eval(node: ast.AST | None) -> Any:
     """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
 
     if isinstance(node, ast.Constant):

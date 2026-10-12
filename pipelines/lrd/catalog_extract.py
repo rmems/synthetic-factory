@@ -454,7 +454,7 @@ def _p_call_item_row(item: ast.AST, where: str, mill: _MillSource, shape: str) -
     return _pair_row(ok, fail, mill, shape)
 
 
-def _lll_item_row(item: ast.AST, where: str, mill: _MillSource, shape: str) -> dict[str, Any]:
+def _lll_item_row(item: ast.AST, where: str, mill: _MillSource, _shape: str) -> dict[str, Any]:
     left_node, right_node = _pair_elts(item, where, "(dict, dict)")
     left = _literal_dict(left_node, f"{where}[0]")
     right = _literal_dict(right_node, f"{where}[1]")
@@ -492,7 +492,7 @@ def refuse_hopper_source(source: str) -> None:
     )
 
 
-def _refuse_loop_source(source: str) -> None:
+def refuse_loop_source(source: str) -> None:
     name = _source_filename(source)
     loop = any(marker in name for marker in LOOP_NAME_MARKERS)
     refuse_when(
@@ -506,7 +506,7 @@ def _legacy_rows(source: str, *, mill_id: str, path: str, base_round: int) -> tu
     from . import catalog as cat
 
     refuse_hopper_source(path)
-    _refuse_loop_source(path)
+    refuse_loop_source(path)
     rows = cat.plants_from_source(source, mill_id=mill_id, source=path, base_round=base_round)
     return tuple({**row, "shape": SHAPE_LEGACY} for row in rows)
 
