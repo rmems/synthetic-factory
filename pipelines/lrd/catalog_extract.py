@@ -43,16 +43,15 @@ __all__ = [
 def _literal(node: ast.AST, where: str) -> str | int:
     # The constant test stays inline (no helper call) so the deepest frame of a
     # ``-...-1`` chain is this function, exactly one frame per unary minus.
-    if isinstance(node, ast.Constant):
-        constant = node.value
-        if isinstance(constant, (str, int)) and not isinstance(constant, bool):
-            return constant
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        value = _literal(node.operand, where)
-        if not isinstance(value, int):
-            refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where}: expected int after unary minus")
-        return -value
-    refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where}: expected str or int literal")
+    constant = node.value if isinstance(node, ast.Constant) else None
+    if isinstance(constant, (str, int)) and not isinstance(constant, bool):
+        return constant
+    if not (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)):
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where}: expected str or int literal")
+    value = _literal(node.operand, where)
+    if not isinstance(value, int):
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where}: expected int after unary minus")
+    return -value
 
 
 def _literal_dict(node: ast.AST, where: str) -> dict[str, str | int]:

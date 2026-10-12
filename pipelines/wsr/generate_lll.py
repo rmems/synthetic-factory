@@ -364,6 +364,30 @@ def _handoff_close_steps(plant: Mapping[str, Any], src: str, test: str, ticket: 
     ]
 
 
+def _reward(success: bool, tests_passed: int, duration_min: int, wasted_calls: int) -> dict[str, Any]:
+    return {
+        "success": success,
+        "tests_passed": tests_passed,
+        "retries": 2,
+        "duration_min": duration_min,
+        "wasted_calls": wasted_calls,
+        "cost_steps": SUCCESS_STEPS if success else HANDOFF_STEPS,
+        "plan_changes": 1,
+    }
+
+
+def _check_episode(episode: dict[str, Any], eid: str, expected_steps: int) -> None:
+    gen._assert_clean(episode)
+    refuse_when(
+        contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning"
+    )
+    refuse_when(
+        len(episode["steps"]) != expected_steps,
+        FINDING_GENERATE_SHAPE,
+        f"{eid} expected {expected_steps} steps",
+    )
+
+
 def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     gen._goal_ok(
         f"Bind leftover leftover leftover {plant['stack']} {plant['idf']}; "
@@ -386,15 +410,7 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": f"Read leftover leftover leftover-as-timeout, try 30s, then {idf} plus {evf}.",
         "steps": steps,
         "outcome": f"leftover leftover leftover {idf} bound. {naive} unused (success).",
-        "reward": {
-            "success": True,
-            "tests_passed": 3,
-            "retries": 2,
-            "duration_min": 610,
-            "wasted_calls": 180,
-            "cost_steps": SUCCESS_STEPS,
-            "plan_changes": 1,
-        },
+        "reward": _reward(True, 3, 610, 180),
         "meta": {
             "factory": FACTORY,
             "round": round_n,
@@ -406,11 +422,7 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "stack": f"{plant['stack']} leftover leftover leftover {idf}",
         },
     }
-    gen._assert_clean(episode)
-    refuse_when(
-        contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning"
-    )
-    refuse_when(len(steps) != SUCCESS_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {SUCCESS_STEPS} steps")
+    _check_episode(episode, eid, SUCCESS_STEPS)
     return episode
 
 
@@ -437,15 +449,7 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": f"Read leftover leftover leftover-as-timeout, try 0s, then hand off drop-{plant['dropk']}.",
         "steps": steps,
         "outcome": f"Still timeout-classed; leftover leftover leftover drop {plant['dropk']} is platform — handoff {ticket}.",
-        "reward": {
-            "success": False,
-            "tests_passed": 2,
-            "retries": 2,
-            "duration_min": 640,
-            "wasted_calls": 210,
-            "cost_steps": HANDOFF_STEPS,
-            "plan_changes": 1,
-        },
+        "reward": _reward(False, 2, 640, 210),
         "meta": {
             "factory": FACTORY,
             "round": round_n,
@@ -457,11 +461,7 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "stack": f"{plant['stack']} leftover leftover leftover drop {plant['dropk']}",
         },
     }
-    gen._assert_clean(episode)
-    refuse_when(
-        contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning"
-    )
-    refuse_when(len(steps) != HANDOFF_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {HANDOFF_STEPS} steps")
+    _check_episode(episode, eid, HANDOFF_STEPS)
     return episode
 
 
