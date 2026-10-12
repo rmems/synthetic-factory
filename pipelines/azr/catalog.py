@@ -15,7 +15,7 @@ from .catalog_extract import (
     pair_identity,
     pairs_jsonl_path,
 )
-from .sources import MILL_SOURCES, catalog_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import (
     BULKY_MILL_ID,
     BULKY_N_ROWS,
@@ -136,11 +136,14 @@ def _bind_header(mills: Mapping[str, MillCatalog]) -> None:
     if len(slice_mill.pairs) != slice_mill.n_rows:
         raise ValueError("r1181 slice n_rows does not match extracted pairs")
     for mill_id, mill in mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if not is_slice_mill(mill_id) and mill.pairs:
-            raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+        _bind_mill_header(mill_id, mill, expected[mill_id])
+
+
+def _bind_mill_header(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
+    if mill.path != source.path or mill.blob_sha != source.blob_sha:
+        raise ValueError(f"{mill_id} pin disagrees with sources.py")
+    if not is_slice_mill(mill_id) and mill.pairs:
+        raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
 
 
 def _overlay_deferred_pairs(
@@ -153,18 +156,24 @@ def _overlay_deferred_pairs(
         raise ValueError(f"{PAIRS_FILENAME} must omit the r1181 first-slice mill")
     out = dict(mills)
     for mill_id, mill_rows in grouped.items():
-        if mill_id not in mills:
-            raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
-        expected_index = list(range(len(mill_rows)))
-        if [row["i"] for row in mill_rows] != expected_index:
-            raise ValueError(f"{mill_id} pair index drifted")
-        if any(row["path"] != mills[mill_id].path for row in mill_rows):
-            raise ValueError(f"{mill_id} path drifted from catalog")
-        out[mill_id] = replace(
-            mills[mill_id],
-            pairs=tuple(pair_identity(row) for row in mill_rows),
-        )
+        pairs = _deferred_pairs(mill_id, mill_rows, mills)
+        out[mill_id] = replace(mills[mill_id], pairs=pairs)
     return out
+
+
+def _deferred_pairs(
+    mill_id: str, mill_rows: list[dict[str, Any]], mills: Mapping[str, MillCatalog]
+) -> tuple[Mapping[str, Any], ...]:
+    """One mill's ``pairs.jsonl`` rows: a known mill, contiguous indices, its own path."""
+
+    if mill_id not in mills:
+        raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
+    expected_index = list(range(len(mill_rows)))
+    if [row["i"] for row in mill_rows] != expected_index:
+        raise ValueError(f"{mill_id} pair index drifted")
+    if any(row["path"] != mills[mill_id].path for row in mill_rows):
+        raise ValueError(f"{mill_id} path drifted from catalog")
+    return tuple(pair_identity(row) for row in mill_rows)
 
 
 def _bind_sources(catalog: AzrCatalog) -> None:
@@ -176,12 +185,16 @@ def _bind_sources(catalog: AzrCatalog) -> None:
     if bulky.n_rows != BULKY_N_ROWS or len(bulky.pairs) != BULKY_N_ROWS:
         raise ValueError("r1205 bulky width drifted from vocabulary")
     for mill_id, mill in catalog.mills.items():
-        if len(mill.pairs) != mill.n_rows:
-            raise ValueError(f"{mill_id} n_rows does not match committed pair identities")
-        if mill.pairs[0]["success_slug"] != mill.first_slug:
-            raise ValueError(f"{mill_id} first_slug drifted from pair identities")
-        if mill.pairs[-1]["success_slug"] != mill.last_slug:
-            raise ValueError(f"{mill_id} last_slug drifted from pair identities")
+        _bind_committed_pairs(mill_id, mill)
+
+
+def _bind_committed_pairs(mill_id: str, mill: MillCatalog) -> None:
+    if len(mill.pairs) != mill.n_rows:
+        raise ValueError(f"{mill_id} n_rows does not match committed pair identities")
+    if mill.pairs[0]["success_slug"] != mill.first_slug:
+        raise ValueError(f"{mill_id} first_slug drifted from pair identities")
+    if mill.pairs[-1]["success_slug"] != mill.last_slug:
+        raise ValueError(f"{mill_id} last_slug drifted from pair identities")
 
 
 CATALOG = load_catalog()

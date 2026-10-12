@@ -37,29 +37,49 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
     bound = env or {}
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+    for node_type, resolve in _RESOLVERS:
+        if isinstance(node, node_type):
+            return resolve(node, bound)
+    return UNSET
+
+
+def _constant(node: ast.Constant, env: Mapping[str, Any]) -> Any:
+    return node.value
+
+
+def _bound_name(node: ast.Name, env: Mapping[str, Any]) -> Any:
+    return env.get(node.id, UNSET)
+
+
+def _negated(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
+    if not isinstance(node.op, ast.USub):
+        return UNSET
+    inner = literal_value(node.operand, env)
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _tuple(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
+    return _sequence(node.elts, env, tuple)
+
+
+def _list(node: ast.List, env: Mapping[str, Any]) -> Any:
+    return _sequence(node.elts, env, list)
+
+
+def _set(node: ast.Set, env: Mapping[str, Any]) -> Any:
+    values = _sequence(node.elts, env, list)
+    return set(values) if values is not UNSET else UNSET
+
+
+def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
+    """``"a" + "b"`` string concatenation; any other operator is not a literal."""
+
+    if not isinstance(node.op, ast.Add):
+        return UNSET
+    left = literal_value(node.left, env)
+    right = literal_value(node.right, env)
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     return UNSET
 
 
@@ -101,6 +121,20 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
     return "".join(parts)
 
 
+# One resolver per literal node type, tried in this order; anything else is ``UNSET``.
+_RESOLVERS = (
+    (ast.Constant, _constant),
+    (ast.Name, _bound_name),
+    (ast.UnaryOp, _negated),
+    (ast.Tuple, _tuple),
+    (ast.List, _list),
+    (ast.Set, _set),
+    (ast.Dict, _mapping),
+    (ast.JoinedStr, _joined_string),
+    (ast.BinOp, _concatenated),
+)
+
+
 def call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return node.func.id
@@ -110,17 +144,23 @@ def call_name(node: ast.AST) -> str | None:
 def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
     """Keyword arguments of a ``Name(...)`` call when every value is a literal."""
 
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-        return None
-    if node.args or any(keyword.arg is None for keyword in node.keywords):
+    if not _is_keyword_only_call(node):
         return None
     out: dict[str, Any] = {}
     for keyword in node.keywords:
         value = literal_value(keyword.value, env)
-        if keyword.arg is None or value is UNSET:
+        if value is UNSET:
             return None
         out[keyword.arg] = value
     return out
+
+
+def _is_keyword_only_call(node: ast.AST) -> bool:
+    """``name(key=value, ...)`` with no positional and no ``**`` arguments."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return False
+    return not node.args and all(keyword.arg is not None for keyword in node.keywords)
 
 
 def identity_kwargs(node: ast.AST) -> dict[str, Any] | None:
@@ -143,22 +183,31 @@ def joined_path_constant(node: ast.AST) -> str | None:
 
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Name):
-        return None
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-        if node.func.attr == "with_name" and node.args:
-            name = joined_path_constant(node.args[0])
-            return name
-        return None
+        return _with_name_path(node)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-        left = joined_path_constant(node.left)
-        right = joined_path_constant(node.right)
-        if right is None:
-            return None
-        if left is None:
-            return right
-        return f"{left}/{right}"
+        return _divided_path(node)
     return None
+
+
+def _with_name_path(node: ast.Call) -> str | None:
+    """``x.with_name(<path>)`` → the joined path of its first argument."""
+
+    if node.func.attr == "with_name" and node.args:
+        return joined_path_constant(node.args[0])
+    return None
+
+
+def _divided_path(node: ast.BinOp) -> str | None:
+    """``left / right``: the right part alone when the left is not a constant."""
+
+    left = joined_path_constant(node.left)
+    right = joined_path_constant(node.right)
+    if right is None:
+        return None
+    if left is None:
+        return right
+    return f"{left}/{right}"
 
 
 def normalize_experiments_path(path: str) -> str:
@@ -204,29 +253,45 @@ def tip_slug_asserts(tree: ast.AST) -> dict[str, str]:
 
     tips: dict[str, str] = {}
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Compare) or not node.ops:
+        tip = _slug_tip(node)
+        if tip is None:
             continue
-        if not isinstance(node.ops[0], ast.NotEq):
-            continue
-        if not isinstance(node.comparators[0], ast.Constant):
-            continue
-        slug = node.comparators[0].value
-        if not isinstance(slug, str):
-            continue
-        left = node.left
-        if not isinstance(left, ast.Subscript) or not isinstance(left.slice, ast.Constant):
-            continue
-        if left.slice.value != "slug":
-            continue
-        inner = left.value
-        if not isinstance(inner, ast.Subscript) or not isinstance(inner.slice, ast.Constant):
-            continue
-        index = inner.slice.value
+        index, slug = tip
         if index == 0:
             tips["success"] = slug
         elif index == 1:
             tips["fail"] = slug
     return tips
+
+
+def _not_equal_string(node: ast.AST) -> str | None:
+    """The string constant ``"text"`` of a ``... != "text"`` comparison."""
+
+    if not isinstance(node, ast.Compare) or not node.ops:
+        return None
+    if not isinstance(node.ops[0], ast.NotEq):
+        return None
+    if not isinstance(node.comparators[0], ast.Constant):
+        return None
+    slug = node.comparators[0].value
+    return slug if isinstance(slug, str) else None
+
+
+def _slug_tip(node: ast.AST) -> tuple[Any, str] | None:
+    """``X[i]["slug"] != "tip"`` → ``(i, "tip")``."""
+
+    slug = _not_equal_string(node)
+    if slug is None:
+        return None
+    left = node.left
+    if not isinstance(left, ast.Subscript) or not isinstance(left.slice, ast.Constant):
+        return None
+    if left.slice.value != "slug":
+        return None
+    inner = left.value
+    if not isinstance(inner, ast.Subscript) or not isinstance(inner.slice, ast.Constant):
+        return None
+    return inner.slice.value, slug
 
 
 def function_named(tree: ast.AST, name: str) -> ast.FunctionDef | None:
