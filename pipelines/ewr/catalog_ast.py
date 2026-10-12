@@ -304,9 +304,14 @@ def _plant_rows(
     return rows
 
 
-def _mapping_pin_rows(pin: MillPin, source: str | None) -> list[dict[str, Any]]:
-    if source is None:
-        refuse(FINDING_CATALOG_MILL, f"missing mapping source for {pin.mill_path}")
+def _mapping_source(pin: MillPin, sources_by_path: Mapping[str, str]) -> str:
+    source = sources_by_path.get(pin.mill_path)
+    if source is not None:
+        return source
+    refuse(FINDING_CATALOG_MILL, f"missing mapping source for {pin.mill_path}")
+
+
+def _mapping_pin_rows(pin: MillPin, source: str) -> list[dict[str, Any]]:
     mapping_sha = sha256_text(source)
     refuse_when(
         mapping_sha != pin.mill_sha256,
@@ -350,7 +355,7 @@ def ast_extract_catalog_rows(
     for pin in MILL_SOURCES[1:]:
         if pin.source_format != "mapping-v1":
             continue
-        rows.extend(_mapping_pin_rows(pin, mapping_sources_by_path.get(pin.mill_path)))
+        rows.extend(_mapping_pin_rows(pin, _mapping_source(pin, mapping_sources_by_path)))
     _ = commit
     return rows
 
