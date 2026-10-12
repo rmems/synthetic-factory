@@ -405,8 +405,9 @@ class DbcRefusalBranchTests(unittest.TestCase):
     def test_bind_sources_refuses_a_drifted_mill_pin(self):
         mill_id = "dbc-mill-r233"
         mills = dict(CATALOG.mills, **{mill_id: replace(CATALOG.mills[mill_id], path="x.py")})
+        drifted = replace(CATALOG, mills=mills)
         with self.assertRaisesRegex(ValueError, f"{mill_id} pin disagrees"):
-            dbc_catalog._bind_sources(replace(CATALOG, mills=mills))
+            dbc_catalog._bind_sources(drifted)
 
     def test_literal_value_negation_and_concatenation(self):
         unset = dbc_ast.UNSET

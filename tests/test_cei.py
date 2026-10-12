@@ -683,8 +683,9 @@ class RefusalBranches(unittest.TestCase):
                 self.assertEqual(catalog._const_eval(ast.parse(text, mode="eval").body), expected)
         for text, message in (("{**extra}", "uses dict unpacking"), ("not 1", "(UnaryOp)"),
                               ("{1, 2}", "(Set)")):
+            node = ast.parse(text, mode="eval").body
             with self.subTest(text=text), self._refusal(FINDING_SOURCE_NOT_PARSEABLE, message):
-                catalog._const_eval(ast.parse(text, mode="eval").body)
+                catalog._const_eval(node)
 
     def test_expansions_name_the_first_missing_argument(self):
         with self._refusal(FINDING_SOURCE_NOT_PARSEABLE, "_ok missing slug"):
@@ -753,13 +754,18 @@ class RefusalBranches(unittest.TestCase):
             (lambda meta: meta["mills"][0].update(base_round=2), "base_round != mill base_round"),
         )
         for edit, message in cases:
+            copy = self._catalog_copy(edit)
             with self.subTest(message=message), self._refusal(invalid, message):
-                catalog.load_catalog(self._catalog_copy(edit))
+                catalog.load_catalog(copy)
         with (
             mock.patch.object(catalog, "_registry_factory_ids", return_value=set()),
             self._refusal(catalog.FINDING_FACTORY_NOT_REGISTERED, "is not a registry path_id"),
         ):
             catalog.load_catalog(FIXTURE)
+        unplanted = self._catalog_copy()
+        (unplanted / catalog.PLANTS_FILENAME).unlink()
+        with self._refusal(catalog.FINDING_CATALOG_FILE_MISSING, "plants.jsonl is missing"):
+            catalog.load_catalog(unplanted)
 
     def test_builders_refuse_a_missing_ticket_and_a_short_episode(self):
         plant = catalog.load_catalog(FIXTURE).plants[0]

@@ -405,8 +405,9 @@ class RefusalBranches(unittest.TestCase):
         self.assertEqual(catalog._const_eval(node), expected)
         for text, message in (("{**extra}", "uses dict unpacking"), ("not 1", "(UnaryOp)"),
                               ("name", "(Name)")):
+            node = ast.parse(text, mode="eval").body
             with self.subTest(text=text), self._refusal(FINDING_SOURCE_NOT_PARSEABLE, message):
-                catalog._const_eval(ast.parse(text, mode="eval").body)
+                catalog._const_eval(node)
 
     def test_kind_bits_read_one_row_per_kind_and_default_to_am(self):
         for kind in catalog.DEFAULT_KIND_NS:
@@ -455,8 +456,9 @@ class RefusalBranches(unittest.TestCase):
 
     def test_plant_rows_refuse_an_unknown_shape_or_missing_key(self):
         row = json.loads((FIXTURE / "hop-plants.jsonl").read_text(encoding="utf-8"))
+        loose = dict(row, shape="loose")
         with self._refusal(catalog.FINDING_PLANT_FIELD_INVALID, "p.shape is not a reviewed shape"):
-            catalog._plant_from_row(dict(row, shape="loose"), "p")
+            catalog._plant_from_row(loose, "p")
         trimmed = {key: value for key, value in row.items() if key != "lslug"}
         with self._refusal(catalog.FINDING_PLANT_FIELD_MISSING, "p missing lslug"):
             catalog._plant_from_row(trimmed, "p")
@@ -470,11 +472,12 @@ class RefusalBranches(unittest.TestCase):
             (self._spec_index(mill_id="obs_leftover10"), "index mills do not match catalog"),
         )
         for specs, message in cases:
+            copy = self._catalog_copy(specs=specs)
             with (
                 self.subTest(message=message),
                 self._refusal(FINDING_CATALOG_FIELD_INVALID, message),
             ):
-                catalog.load_catalog(self._catalog_copy(specs=specs))
+                catalog.load_catalog(copy)
 
     def test_mill_pins_refuse_a_plant_mill_missing_from_the_catalog(self):
         loaded = catalog.load_catalog(FIXTURE)
@@ -487,11 +490,12 @@ class RefusalBranches(unittest.TestCase):
             (lambda meta: meta.update(quota_per_round=3), "quota_per_round must be 2"),
         )
         for edit, message in cases:
+            copy = self._catalog_copy(edit)
             with (
                 self.subTest(message=message),
                 self._refusal(FINDING_CATALOG_FIELD_INVALID, message),
             ):
-                catalog.load_catalog(self._catalog_copy(edit))
+                catalog.load_catalog(copy)
         broken = self._catalog_copy()
         (broken / "CATALOG.json").write_text("{", encoding="utf-8")
         with self._refusal(FINDING_CATALOG_FIELD_INVALID, "CATALOG.json is not strict JSON"):

@@ -473,8 +473,8 @@ class AzrRefusalBranchTests(unittest.TestCase):
         self.source = next(s for s in catalog_sources() if s.mill_id == self.mill_id)
 
     def test_mill_header_refusals(self):
+        moved = replace(self.mill, path="x.py")
         with self.assertRaisesRegex(ValueError, f"{self.mill_id} pin disagrees"):
-            moved = replace(self.mill, path="x.py")
             azr_catalog._bind_mill_header(self.mill_id, moved, self.source)
         with self.assertRaisesRegex(ValueError, "is not the first slice and must omit pair rows"):
             azr_catalog._bind_mill_header(self.mill_id, self.mill, self.source)
@@ -553,11 +553,10 @@ class AzrRefusalBranchTests(unittest.TestCase):
         _load_extra("azr_plants_r9")
         """
         plant = 'EXTRA_IDOR_ROWS = [dict(slug="x1", plant="a"), dict(slug="x2", plant="b")]\n'
+        text = textwrap.dedent(mill)
         with self.assertRaisesRegex(ValueError, "composed idor 3 != bfla 0"):
             extract_mill_catalog(
-                textwrap.dedent(mill),
-                path="experiments/azr-mill-r9.py",
-                plants={"experiments/azr-plants-r9.py": plant},
+                text, path="experiments/azr-mill-r9.py", plants={"experiments/azr-plants-r9.py": plant}
             )
 
     def test_zip_mill_without_plant_text_is_pinned_by_its_tips(self):
@@ -575,10 +574,9 @@ class AzrRefusalBranchTests(unittest.TestCase):
         untipped = _SLICE_SNIPPET.split("if PAIRS")[0]
         self.assertIsNone(azr_extract._slice_record(_tree(untipped), path="p", plants=None))
         plant = 'EXTRA_IDOR_ROWS = [dict(slug="other-idor", plant="a")]\n'
+        tree = _tree(_SLICE_SNIPPET)
         with self.assertRaisesRegex(ValueError, "slice tip drifted"):
-            azr_extract._slice_record(
-                _tree(_SLICE_SNIPPET), path="p", plants={"experiments/azr-plants-r1285.py": plant}
-            )
+            azr_extract._slice_record(tree, path="p", plants={"experiments/azr-plants-r1285.py": plant})
 
     def test_pair_rows_refuse_each_line_defect(self):
         for line, message in (("", "w is empty"), (" {}", "w is not compact"),
