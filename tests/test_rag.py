@@ -210,6 +210,19 @@ class MillAndRowRefusals(unittest.TestCase):
             catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
         return caught.exception
 
+    def test_a_600_deep_minus_chain_is_still_a_constant(self):
+        chained = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST = " + "-" * 600 + "7")
+        rows = catalog.plants_from_source(chained, mill_id="rag_r0007", source="s.py")
+        self.assertEqual(rows[0]["base_round"], 7)
+        refused = self.source_refusal("CATALOG_FIRST = " + "-" * 600 + "x\n")
+        self.assertEqual(refused.message, "plant source is not a constant (Name)")
+
+    def test_constant_containers_evaluate_and_unpacking_is_refused(self):
+        value = catalog._const_eval(ast.parse("[(1, -2), {'a': [3]}]", mode="eval").body)
+        self.assertEqual(value, [(1, -2), {"a": [3]}])
+        refused = self.source_refusal("CATALOG_FIRST = {'a': 1, **x}\n")
+        self.assertEqual(refused.message, "plant source uses dict unpacking")
+
     def test_p_arguments_must_be_string_constants(self):
         for arg, message in (
             ("('qdrant',)", "P() arguments must be non-empty strings"),

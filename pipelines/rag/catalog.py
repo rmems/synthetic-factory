@@ -161,36 +161,51 @@ def expand_pair(
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Refuses calls, names, and starred dicts."""
+    """Literal values only. Refuses calls, names, and starred dicts.
+
+    Every nested value is evaluated by this function calling itself (one frame a
+    level, two inside a tuple's generator), never through a helper.
+    """
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    return _const_tuple_or_dict(node)
-
-
-def _const_tuple_or_dict(node: ast.AST) -> Any:
-    """Literal tuples and dicts."""
-
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, ast.List):
+        return list(map(_const_eval, node.elts))
+    pairs = _literal_pairs(node)
+    if pairs is not None:
+        return {_const_eval(key): _const_eval(value) for key, value in pairs}
+    operand = _minus_operand(node)
+    if operand is None:
+        raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, _refusal_text(node))
+    return -_const_eval(operand)
+
+
+def _literal_pairs(node: ast.AST) -> list[tuple[ast.expr, ast.expr]] | None:
+    """``(key, value)`` nodes of a dict without ``**`` unpacking; None otherwise."""
+
+    if not isinstance(node, ast.Dict):
+        return None
+    pairs = [(key, value) for key, value in zip(node.keys, node.values) if key is not None]
+    return pairs if len(pairs) == len(node.keys) else None
+
+
+def _minus_operand(node: ast.AST) -> ast.expr | None:
+    """What ``-x`` negates; None for every other node."""
+
+    if not isinstance(node, ast.UnaryOp):
+        return None
+    return node.operand if isinstance(node.op, ast.USub) else None
+
+
+def _refusal_text(node: ast.AST) -> str:
+    """Why ``node`` is not a constant: ``**`` in a dict, or any other node kind."""
+
+    kind = type(node).__name__
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
-    return _const_negative_or_refuse(node)
-
-
-def _const_negative_or_refuse(node: ast.AST) -> Any:
-    """A negated number; anything else is not a constant."""
-
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    raise RagRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+        return "plant source uses dict unpacking"
+    return f"plant source is not a constant ({kind})"
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -563,7 +578,9 @@ def _mills_and_digest(
     return mills, digest
 
 
-def _plants_by_mill(plants_path: Path, plant_count: int) -> tuple[tuple[Plant, ...], dict[str, int]]:
+def _plants_by_mill(
+    plants_path: Path, plant_count: int
+) -> tuple[tuple[Plant, ...], dict[str, int]]:
     """Unique plants from plants.jsonl and how many each mill has."""
 
     rows = _read_jsonl(plants_path)
