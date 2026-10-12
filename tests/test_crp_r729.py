@@ -175,12 +175,14 @@ class Generate(unittest.TestCase):
         self.assertEqual(classify_kind(first), "preference")
         notes = (out / "NOTES-r745.md").read_text(encoding="utf-8")
         self.assertIn("r729 commerce/platform stretch", notes)
+        again = generate.RunRequest(745, out)
         with self.assertRaises(CrpRefusal) as exists:
-            generate.run(generate.RunRequest(745, out))
+            generate.run(again)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
+        raw_request = generate.RunRequest(745, raw)
         with self.assertRaises(CrpRefusal) as under_raw:
-            generate.run(generate.RunRequest(745, raw))
+            generate.run(raw_request)
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 

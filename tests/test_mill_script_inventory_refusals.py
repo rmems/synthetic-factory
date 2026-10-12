@@ -64,8 +64,9 @@ class InventorySchemaRefusals(unittest.TestCase):
             with self.subTest(field=field, value=value):
                 document = json.loads(msi.INVENTORY_BYTES)
                 document[field] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
     def test_invalid_script_identity_and_scope_are_refused(self):
         cases = (("classification", "unknown"), ("quality_scope", "unknown"),
@@ -75,14 +76,16 @@ class InventorySchemaRefusals(unittest.TestCase):
             with self.subTest(field=field):
                 document = json.loads(msi.INVENTORY_BYTES)
                 document["scripts"][0][field] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
     def test_duplicate_script_coordinates_are_refused(self):
         document = json.loads(msi.INVENTORY_BYTES)
         document["scripts"].append(document["scripts"][0])
+        payload = json.dumps(document).encode()
         with self.assertRaisesRegex(msi.MillScriptInventoryError, "unique"):
-            msi.load_inventory_bytes(json.dumps(document).encode())
+            msi.load_inventory_bytes(payload)
 
     def test_invalid_archive_and_family_policies_are_refused(self):
         cases = (("historical_generator_policy", "classification", "production"),
@@ -93,8 +96,9 @@ class InventorySchemaRefusals(unittest.TestCase):
                 document = json.loads(msi.INVENTORY_BYTES)
                 row = document[group][0] if group == "mill_families" else document[group]
                 row[field] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
 
 class InventoryEvidenceRefusals(unittest.TestCase):

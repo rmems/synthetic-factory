@@ -122,6 +122,7 @@ class SimulatorGateReplay(unittest.TestCase):
             native.parent.mkdir(parents=True)
             native.write_bytes(payload)
             destination = Path(temp) / "export-destination"
+            request = export_hf.ExportRequest(export_root, destination)
             with self.assertRaisesRegex(export_hf.ExportError, "research-only"):
-                export_hf.export_run(export_hf.ExportRequest(export_root, destination))
+                export_hf.export_run(request)
             self.assertFalse(destination.exists())

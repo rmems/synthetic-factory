@@ -154,8 +154,9 @@ class ExactJSONNumbers(unittest.TestCase):
             ):
                 parse_finite_json_float(token)
 
+        beyond_limit = Fraction(1, 10**4097)
         with self.assertRaisesRegex(ValueError, "exact-decimal limit"):
-            json_number_from_fraction(Fraction(1, 10**4097))
+            json_number_from_fraction(beyond_limit)
 
     def test_exact_float_is_immutable_across_copy_operations(self):
         value = parse_finite_json_float("25.000000000000001")

@@ -41,8 +41,9 @@ class ParityRegistry(unittest.TestCase):
 
     def test_legacy_schema_cannot_claim_native_route(self):
         for version in ('factory-registry-v0.1', 'factory-registry-v0.2', 'factory-registry-v0.3'):
+            row = policy.reviewed_row('hardware_parity')
             with self.subTest(version=version), self.assertRaises(identity.IdentityCurationError):
-                self._load(policy.reviewed_row('hardware_parity'), version)
+                self._load(row, version)
 
     def test_modified_policy_copy_has_no_authority(self):
         document = policy.load_policy()

@@ -72,8 +72,9 @@ class CatalogBoundaries(unittest.TestCase):
 
     def test_missing_source_identity_pins_are_refused(self):
         for pins in ({}, {"FAC": FACTORY}, {"PREFIX": RECORD_PREFIX}):
+            source = _dict_source([TINY_PAIR], **pins)
             with self.subTest(pins=pins), self.assertRaises(CsvRefusal):
-                catalog.plants_from_source(_dict_source([TINY_PAIR], **pins), mill_id="csv_r114", source="unknown.py")
+                catalog.plants_from_source(source, mill_id="csv_r114", source="unknown.py")
 
     def test_oversized_mill_suffix_is_a_coded_refusal(self):
         self.meta["mills"][0]["mill_id"] = "csv_r" + "9" * 5000
@@ -170,5 +171,6 @@ class OutputBoundaries(unittest.TestCase):
     def test_abbreviated_json_flags_are_not_supported_parser_spellings(self):
         from pipelines.csv_mill import cli
         for flag in ("--j", "--js"):
+            parser = cli.build_parser()
             with self.subTest(flag=flag), self.assertRaises(CsvRefusal):
-                cli.build_parser().parse_args(["catalog-check", flag])
+                parser.parse_args(["catalog-check", flag])

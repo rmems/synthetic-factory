@@ -90,10 +90,9 @@ class TrajectoryPreferencesFunnel(_FunnelCase):
             for name in ("output", "manifest"):
                 with self.subTest(name=name):
                     stderr = io.StringIO()
+                    args = SimpleNamespace(**{name: existing})
                     with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
-                        curate_trajectory_preferences._inputs(
-                            self.parser, SimpleNamespace(**{name: existing})
-                        )
+                        curate_trajectory_preferences._inputs(self.parser, args)
                     self.assertIn("the destination already exists", stderr.getvalue())
 
 
@@ -313,11 +312,12 @@ class NextRoundCli(_FunnelCase):
     def test_a_missing_directory_still_exits_2_after_the_funnel(self):
         with tempfile.TemporaryDirectory() as td:
             stderr = io.StringIO()
+            argv = [os.path.join(td, "absent")]
             with (
                 contextlib.redirect_stderr(stderr),
                 self.assertRaises(SystemExit) as raised,
             ):
-                next_round.main([os.path.join(td, "absent")])
+                next_round.main(argv)
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("error: not a directory", stderr.getvalue())
 

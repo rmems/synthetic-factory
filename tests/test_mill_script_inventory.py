@@ -68,8 +68,9 @@ class InventoryLoad(unittest.TestCase):
             with self.subTest(key=key):
                 document = json.loads(msi.INVENTORY_BYTES)
                 document["historical_generator_policy"][key] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
 
 class Completeness(unittest.TestCase):

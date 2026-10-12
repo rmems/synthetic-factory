@@ -230,8 +230,9 @@ class OracleInjection(unittest.TestCase):
         class Declared(fo.FaultOracle):
             meter_clock, meter_state, meter_thermal, oracle_run = "a", "b", "c", "d"
 
+        declared = Declared()
         with self.assertRaises(NotImplementedError):
-            fo.build_records(1, 1, oracle=Declared())
+            fo.build_records(1, 1, oracle=declared)
 
     def test_cheap_refusals_run_before_any_proposal_is_drawn_and_count_is_bounded(self):
         """Reviewer finding: 100,000 proposals were drawn before a bad produced_at or

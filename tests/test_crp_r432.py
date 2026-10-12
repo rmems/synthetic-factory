@@ -183,12 +183,14 @@ class Generate(unittest.TestCase):
         notes = (out / "NOTES-r432.md").read_text(encoding="utf-8")
         self.assertIn("r432 application-bug stretch", notes)
         self.assertIn("noun=`quay`", notes)
+        again = generate.RunRequest(432, out)
         with self.assertRaises(CrpRefusal) as exists:
-            generate.run(generate.RunRequest(432, out))
+            generate.run(again)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
+        raw_request = generate.RunRequest(432, raw)
         with self.assertRaises(CrpRefusal) as under_raw:
-            generate.run(generate.RunRequest(432, raw))
+            generate.run(raw_request)
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 

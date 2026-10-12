@@ -254,8 +254,9 @@ class StampRefusesBlankIdentity(unittest.TestCase):
             "non-string name": {"validator": None, "version": "1"},
             "non-string version": {"validator": "v", "version": 1},
         }.items():
+            record = minimal_record()
             with self.subTest(case=name), self.assertRaises(oc.ContractError):
-                oc.stamp_validation(minimal_record(), findings=[], **kwargs)
+                oc.stamp_validation(record, findings=[], **kwargs)
 
     def test_an_ordinary_stamp_is_unchanged(self):
         record = minimal_record()
