@@ -198,34 +198,41 @@ def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
     return _literal_or_none(value)
 
 
-def _resolve_dict(node: ast.Dict, consts: Mapping[str, Any]) -> dict[str, Any]:
+def _resolve_expr(node: ast.AST, consts: Mapping[str, Any]) -> Any:
+    # Every recursive call is made here and the helpers below never recurse, so a
+    # list or dict level costs one frame (a tuple level two, with its generator).
+    if isinstance(node, ast.List):
+        return [_resolve_expr(elt, consts) for elt in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_resolve_expr(elt, consts) for elt in node.elts)
+    if not isinstance(node, ast.Dict):
+        return _leaf_value(node, consts)
     out: dict[str, Any] = {}
-    for key_node, value_node in zip(node.keys, node.values):
-        if key_node is None or value_node is None:
-            continue
+    for key_node, value_node in _present_entries(node):
         key = _resolve_expr(key_node, consts)
-        if not isinstance(key, str):
-            continue
-        out[key] = _resolve_expr(value_node, consts)
+        if isinstance(key, str):
+            out[key] = _resolve_expr(value_node, consts)
     return out
 
 
-def _resolve_expr(node: ast.AST, consts: Mapping[str, Any]) -> Any:
+def _leaf_value(node: ast.AST, consts: Mapping[str, Any]) -> Any:
+    """A constant, a bound name (``None`` when unbound), or a literal; else ``None``."""
+
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
         return consts.get(node.id)
-    if isinstance(node, (ast.Dict, ast.List, ast.Tuple)):
-        return _resolve_container(node, consts)
     return _literal_or_none(node)
 
 
-def _resolve_container(node: ast.Dict | ast.List | ast.Tuple, consts: Mapping[str, Any]) -> Any:
-    if isinstance(node, ast.Dict):
-        return _resolve_dict(node, consts)
-    if isinstance(node, ast.List):
-        return [_resolve_expr(elt, consts) for elt in node.elts]
-    return tuple(_resolve_expr(elt, consts) for elt in node.elts)
+def _present_entries(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """Key/value pairs in order, without ``**mapping`` entries (they have no key)."""
+
+    return [
+        (key, value)
+        for key, value in zip(node.keys, node.values)
+        if key is not None and value is not None
+    ]
 
 
 def _collect_consts(tree: ast.Module) -> tuple[dict[str, Any], dict[str, ast.AST]]:
@@ -445,7 +452,8 @@ def _from_pairs_int_dict(
 ) -> list[dict[str, Any]]:
     plants: list[dict[str, Any]] = []
     for key_node, value_node in zip(pairs.keys, pairs.values):
-        index = _resolve_expr(key_node, consts)
+        # A ``**mapping`` entry has no key node; it resolves to None like any non-literal.
+        index = None if key_node is None else _resolve_expr(key_node, consts)
         row = _resolve_expr(value_node, consts)
         if type(index) is not int or not isinstance(row, dict):
             continue
