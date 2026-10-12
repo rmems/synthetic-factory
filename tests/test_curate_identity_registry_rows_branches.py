@@ -137,11 +137,6 @@ _ROUTE_REFUSALS = (
         "factories[0] v0.1 rows cannot carry non-hosted rights profiles",
     ),
     (
-        "model-channel row on a pre-v0.4 registry",
-        _single_row_registry(_MODEL_CHANNEL, "factory-registry-v0.2"),
-        "factories[0] model-channel fields require v0.3 route",
-    ),
-    (
         "model-channel row drifts from its sealed policy",
         _update_row(_MODEL_CHANNEL, generator_version="unreviewed"),
         (

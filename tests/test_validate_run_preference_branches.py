@@ -57,6 +57,12 @@ def _set_wrapper_success(value):
     return mutate
 
 
+def _blank_top_goal_with_side_goals(record):
+    record["goal"] = "   "
+    record["chosen"]["goal"] = "Publish"
+    record["rejected"]["goal"] = "Publish"
+
+
 def _disjoint_first_steps(record):
     record["chosen"]["steps"][0]["tool_call"]["args"]["command"] = "cat a.py"
     record["rejected"]["steps"][0]["tool_call"]["args"]["command"] = "cat b.py"
@@ -96,7 +102,19 @@ _STAGING_CASES = (
             "L1: preference needs both side goals when no top-level goal is present",
         ],
     ),
-    ("blank top-level goal", _set("goal", "   "), [_SHARED_GOAL]),
+    (
+        "blank side goal beside a top-level goal",
+        _side_goal("rejected", "   "),
+        [
+            "L1.rejected: goal must be a non-empty string",
+            "L1: rejected.goal must be a non-empty string when present",
+        ],
+    ),
+    (
+        "blank top-level goal beside two side goals",
+        _blank_top_goal_with_side_goals,
+        ["L1: goal must be a non-empty string when present"],
+    ),
     (
         "side goal is not text",
         _side_goal("chosen", 5),
