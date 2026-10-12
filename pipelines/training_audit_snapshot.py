@@ -109,6 +109,34 @@ def _require_audit_member_identity(
         raise ValueError(f"audit member identity changed while reading: {relative}")
 
 
+def _open_pinned_parent(
+    run_dir: Path,
+    relative: Path,
+    open_descriptor: _OpenDescriptor,
+    opened: list[int],
+) -> int:
+    """Open ``run_dir`` and each parent component relative to its pinned parent.
+
+    Every descriptor is appended to ``opened`` as soon as it exists, so the
+    caller closes all of them even when a later component fails to open.
+    """
+    current = open_descriptor(
+        run_dir,
+        PINNED_DIRECTORY_FLAGS,
+        relative,
+    )
+    opened.append(current)
+    for part in relative.parts[:-1]:
+        current = open_descriptor(
+            part,
+            PINNED_DIRECTORY_FLAGS,
+            relative,
+            dir_fd=current,
+        )
+        opened.append(current)
+    return current
+
+
 def read_pinned_member(
     run_dir: Path,
     relative: Path,
@@ -125,20 +153,7 @@ def read_pinned_member(
     expected = _regular_member_metadata(run_dir / relative, relative)
     opened: list[int] = []
     try:
-        current = open_descriptor(
-            run_dir,
-            PINNED_DIRECTORY_FLAGS,
-            relative,
-        )
-        opened.append(current)
-        for part in relative.parts[:-1]:
-            current = open_descriptor(
-                part,
-                PINNED_DIRECTORY_FLAGS,
-                relative,
-                dir_fd=current,
-            )
-            opened.append(current)
+        current = _open_pinned_parent(run_dir, relative, open_descriptor, opened)
         descriptor = open_descriptor(
             relative.name,
             os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
