@@ -116,8 +116,8 @@ class HopperEpisodeTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             with refusal(self, FINDING_RAW_ROOT_REQUIRED, "HOPPER_RAW_ROOT"):
                 factory_dir("rate-limit-backoff-factory")
-        root = factory_dir("rate-limit-backoff-factory", raw_root="/tmp/hopper-raw")
-        self.assertEqual(str(root), "/tmp/hopper-raw/rate-limit-backoff-factory")
+        root = factory_dir("rate-limit-backoff-factory", raw_root="/srv/hopper-raw")
+        self.assertEqual(str(root), "/srv/hopper-raw/rate-limit-backoff-factory")
 
     def test_public_start_pairs_drive_a_round(self):
         factory = "rate-limit-backoff-factory"
