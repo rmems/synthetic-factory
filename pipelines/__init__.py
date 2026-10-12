@@ -145,6 +145,15 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "oracle_validate_snapshot",
     "oracle_validate_capture",
     "oracle_validate_run",
+    "oracle_text_view_vocabulary",
+    "oracle_text_view_public",
+    "oracle_text_view_labels",
+    "oracle_text_view_gate",
+    "oracle_text_view_render",
+    "oracle_text_view_findings",
+    "oracle_text_view_rows",
+    "oracle_text_view_output",
+    "oracle_text_views",
 
 
     "validate_run_episode",
