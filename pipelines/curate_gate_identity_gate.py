@@ -46,7 +46,6 @@ else:
 GateError = _contract.GateError
 record_sha256 = _digest.record_sha256
 _same_json = _merge._same_json
-_MISSING = _merge._MISSING
 
 if __package__:
     from .curate_gate_rights import replay_gate_identity
@@ -96,6 +95,7 @@ def _identity_owner_specs(
 ) -> list[tuple[str, dict[str, Any]]]:
     if kind == "thalamic":
         return [("/", source_record)]
+    paths: tuple[str, ...]
     if kind == "preference":
         paths = ("/chosen", "/rejected")
     elif kind == "bridge_pair":
@@ -418,9 +418,12 @@ def _check_canonical_output_id(
 
 
 def _carries_provenance(container: Any, canonical: dict[str, Any]) -> bool:
-    return isinstance(container, dict) and _same_json(
-        container.get("provenance", _MISSING), canonical
-    )
+    """Whether ``container`` holds exactly the canonical provenance object."""
+    # An absent key never matches: callers have already required ``canonical``
+    # to be an object, so it can never be the merge's missing-member sentinel.
+    if not isinstance(container, dict) or "provenance" not in container:
+        return False
+    return _same_json(container["provenance"], canonical)
 
 
 def _check_provenance_mapping(record: dict[str, Any], mapping: Any, label: str) -> None:

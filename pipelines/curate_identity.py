@@ -155,12 +155,12 @@ canonical_json = _identity_json.canonical_json
 sha256_json = _identity_json.sha256_json
 ExactJSONFloat = _identity_json.ExactJSONFloat
 dumps_exact_json = _identity_json.dumps_exact_json
-_canonical_json_equal = _identity_json._canonical_json_equal
+_canonical_json_equal = _identity_json.canonical_json_equal
 _require_canonical_json_equal = _identity_json._require_canonical_json_equal
 _reject_json_constant = _identity_json._reject_json_constant
 parse_finite_json_float = _identity_json.parse_finite_json_float
 reject_duplicate_object_keys = _identity_json.reject_duplicate_object_keys
-_strict_json_loads = _identity_json._strict_json_loads
+_strict_json_loads = _identity_json.strict_json_loads
 _is_json_whitespace = _identity_json._is_json_whitespace
 _reject_training_ready_true = _identity_json._reject_training_ready_true
 
