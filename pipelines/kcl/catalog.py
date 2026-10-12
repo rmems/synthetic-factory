@@ -268,7 +268,9 @@ def _refuse_bad_identity(plant: str, slug: str, where: str) -> None:
     refuse_when(not SLUG_RE.fullmatch(slug), FINDING_PLANT_FIELD_INVALID, f"{where}.slug")
 
 
-def _extracted_row(shape: str, payload: dict[str, Any], origin: Mapping[str, Any]) -> dict[str, Any]:
+def _extracted_row(
+    shape: str, payload: dict[str, Any], origin: Mapping[str, Any]
+) -> dict[str, Any]:
     """One checked plant row; ``origin`` carries ``mill_id``/``source``/``base_round``."""
 
     mill_id = origin["mill_id"]
