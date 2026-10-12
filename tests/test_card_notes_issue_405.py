@@ -134,15 +134,16 @@ class PublisherCoverageTests(unittest.TestCase):
         self.assertEqual(coverage, card_notes.NotesCoverage(2, 1, ((2, 2),)))
 
 
-class ObservabilityCardTests(unittest.TestCase):
-    def render(self, **keywords):
-        return publisher.render_card(
-            OBSERVABILITY_ITEM, summary=OBSERVABILITY_SUMMARY, **keywords
-        )
+def render_observability_card(**keywords):
+    return publisher.render_card(
+        OBSERVABILITY_ITEM, summary=OBSERVABILITY_SUMMARY, **keywords
+    )
 
+
+class ObservabilityCardTests(unittest.TestCase):
     def test_card_discloses_the_r38_r498_notes_hole(self):
         coverage = card_notes.notes_coverage(PUBLISHED_ROUNDS, NOTED_ROUNDS)
-        card = self.render(notes=coverage)
+        card = render_observability_card(notes=coverage)
 
         self.assertIn(
             "Supporting notes are under\n`data/metadata/NOTES-*.md` for 974 of the 1435 "
@@ -152,17 +153,17 @@ class ObservabilityCardTests(unittest.TestCase):
         self.assertIn("`r38`–`r498` (461 rounds)", card)
 
     def test_card_without_coverage_is_byte_identical_to_the_legacy_card(self):
-        legacy = self.render()
+        legacy = render_observability_card()
 
         self.assertIn(
             "`outputs/raw/2026-08-19-agentic/observability-debug-factory/`. "
             "Supporting notes are under\n`data/metadata/NOTES-*.md`. The factory source",
             legacy,
         )
-        self.assertEqual(legacy, self.render(notes=None))
+        self.assertEqual(legacy, render_observability_card(notes=None))
 
     def test_card_carries_no_hub_tip_or_reindex_framing(self):
-        card = self.render(notes=card_notes.notes_coverage(PUBLISHED_ROUNDS, NOTED_ROUNDS))
+        card = render_observability_card(notes=card_notes.notes_coverage(PUBLISHED_ROUNDS, NOTED_ROUNDS))
 
         for phrase in HUB_STATE_PHRASES:
             with self.subTest(phrase=phrase):
@@ -171,7 +172,7 @@ class ObservabilityCardTests(unittest.TestCase):
     def test_declaration_counts_describe_the_published_payload(self):
         path = REPO / "config" / "card-schemas" / f"{OBSERVABILITY_HUB}.json"
         declaration = json.loads(path.read_text(encoding="utf-8"))
-        card = self.render()
+        card = render_observability_card()
 
         self.assertIn(405, declaration["issues"])
         self.assertIn("present on all 2869 records", card)
