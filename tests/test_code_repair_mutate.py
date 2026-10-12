@@ -219,9 +219,10 @@ class FiveOperators(unittest.TestCase):
         _prog, found = self.sites_of("get_1s_count", cv.OPERATOR_ARITHMETIC)
         for site in found:
             payload = site.as_json()
-            self.assertEqual({"node", "start_byte", "end_byte", "lineno", "col_offset", "original_text",
-                              "replacement_text", "node_lineno", "node_col_offset", "node_end_lineno",
-                              "node_end_col_offset", "op_index"}, set(payload))
+            self.assertEqual(set(payload), {"node", "start_byte", "end_byte", "lineno", "col_offset",
+                                            "original_text", "replacement_text", "node_lineno",
+                                            "node_col_offset", "node_end_lineno",
+                                            "node_end_col_offset", "op_index"})
 
 
 if __name__ == "__main__":

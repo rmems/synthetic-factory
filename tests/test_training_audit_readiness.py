@@ -140,10 +140,7 @@ class TrainingAuditReadinessReport(unittest.TestCase):
     def test_snapshot_boundary_captures_exact_visible_member_bytes(self):
         """The reusable snapshot boundary preserves the bytes it authenticates."""
 
-        try:
-            import training_audit_snapshot
-        except ModuleNotFoundError as exc:
-            self.fail(f"training-audit snapshot boundary is unavailable: {exc}")
+        import training_audit_snapshot
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

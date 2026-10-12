@@ -240,7 +240,7 @@ class SsrSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.n_pair_rows, 1604)
         self.assertEqual(CATALOG.slice, "r181")
         self.assertEqual(CATALOG.preserve_commit, cv.PRESERVE_COMMIT)
-        self.assertFalse(CATALOG.mills["ssr-mill-r181"].pairs == ())
+        self.assertNotEqual(CATALOG.mills["ssr-mill-r181"].pairs, ())
         r181 = CATALOG.mills["ssr-mill-r181"]
         self.assertEqual(r181.n_rows, 16)
         self.assertEqual(r181.catalog_first, 181)

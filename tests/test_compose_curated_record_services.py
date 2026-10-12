@@ -69,10 +69,7 @@ class ComposeRecordServiceContracts(unittest.TestCase):
         self.assertTrue(all(call.args for call in process.join.call_args_list))
 
     def test_built_services_resolve_every_stage_from_the_live_facade(self):
-        try:
-            service_builder = importlib.import_module("compose_curated_record_services")
-        except ModuleNotFoundError:
-            self.fail("compose_curated_record_services is missing")
+        service_builder = importlib.import_module("compose_curated_record_services")
         from compose_curated_record import RecordServices
 
         facade = SimpleNamespace(

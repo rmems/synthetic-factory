@@ -395,7 +395,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             with mock.patch.object(
                 compose_destination,
                 "_source_member_path",
-                lambda *args, **kwargs: member_fifo,
+                return_value=member_fifo,
             ):
                 with self.assertRaisesRegex(compose_curated.ComposeError, "not a regular file"):
                     compose_destination._read_exact_regular_file(

@@ -34,11 +34,9 @@ class ProceduralRegistryTests(unittest.TestCase):
         self.assertEqual(admission.load_trusted_catalog(), baseline)
 
     def test_trusted_catalog_snapshots_isolate_mutable_source_and_metadata(self):
+        """The trusted catalog must support immutable hidden cases and load isolated snapshots."""
         from code_repair import admission
-        try:
-            first = admission.load_trusted_catalog()
-        except TypeError as exc:
-            self.fail(f"trusted catalog must support immutable hidden cases: {exc}")
+        first = admission.load_trusted_catalog()
         second = admission.load_trusted_catalog()
         first.meta["upstream"]["repository"] = "unreviewed/project"
         first.meta["split_policy"]["weights"]["train"] = 0

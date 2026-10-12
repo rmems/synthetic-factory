@@ -161,7 +161,7 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
         corrections = self.audit["card_corrections"]
         self.assertTrue(corrections)
         for row in corrections:
-            self.assertEqual({"field", "current", "replacement", "why"}, set(row))
+            self.assertEqual(set(row), {"field", "current", "replacement", "why"})
             for value in row.values():
                 self.assertIsInstance(value, str)
                 self.assertTrue(value.strip())

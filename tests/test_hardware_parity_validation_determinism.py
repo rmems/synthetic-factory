@@ -162,10 +162,7 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
     def _assert_reports(self, mutate):
         record = copy.deepcopy(self.record)
         mutate(record)
-        try:
-            errors = hp.validate_record(record, WHERE)
-        except Exception as exc:  # noqa: BLE001 - the point is that none escape
-            self.fail(f"validation raised {type(exc).__name__}: {exc}")
+        errors = hp.validate_record(record, WHERE)
         self.assertTrue(errors)
 
     def test_non_dict_deployment(self):

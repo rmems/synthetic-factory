@@ -212,16 +212,15 @@ class ScrubbedDivergence(unittest.TestCase):
 
 
 class MalformedRecordsDoNotCrash(unittest.TestCase):
+    """A bad record must be reported, not raise and abort the whole scan."""
+
     def setUp(self):
         self.record = nir.generate_records(round_number=1, steps=4)[0]
 
     def _assert_reports(self, mutate):
         record = copy.deepcopy(self.record)
         mutate(record)
-        try:
-            errors = nir.validate_record(record, WHERE)
-        except Exception as exc:  # noqa: BLE001 - the point is that none escape
-            self.fail(f"validation raised {type(exc).__name__}: {exc}")
+        errors = nir.validate_record(record, WHERE)
         self.assertTrue(errors)
 
     def test_truthy_non_dict_oracle(self):

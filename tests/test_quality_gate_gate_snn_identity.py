@@ -132,7 +132,8 @@ class QualityGateGateSnnIdentity(unittest.TestCase):
         root["gate_snn"] = copy.deepcopy(gate_snn)
         meta = copy.deepcopy(pair)
         meta["meta"] = {"gate_snn": copy.deepcopy(gate_snn)}
-        originals = copy.deepcopy((root, meta))
+        records = (root, meta)
+        originals = copy.deepcopy(records)
 
         root_view = quality_gate_identity.exact_identity_view(root)
         meta_view = quality_gate_identity.exact_identity_view(meta)
@@ -151,7 +152,7 @@ class QualityGateGateSnnIdentity(unittest.TestCase):
             quality_gate_identity.record_hash(root),
             quality_gate_identity.record_hash(changed),
         )
-        self.assertEqual((root, meta), originals)
+        self.assertEqual(records, originals)
 
     def test_thalamic_meta_raster_is_normalized_into_identity(self):
         top_level = thalamic_fixture("thalamic-raster")

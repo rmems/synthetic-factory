@@ -253,6 +253,7 @@ class FreshReplay(unittest.TestCase):
         )
 
     def test_malformed_run_catalog_refuses_api_and_cli_without_output(self):
+        """The API refuses a malformed run catalog; the CLI exits nonzero and leaks no exception."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_dir, _ = run_copy(root)
@@ -266,20 +267,13 @@ class FreshReplay(unittest.TestCase):
                 path.write_text(json.dumps(changed))
                 out = root / f'replay-{index}'
                 with self.subTest(catalog=value):
-                    try:
+                    with self.assertRaises(cv.RepairRefusal, msg='malformed catalog was accepted'):
                         replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, out))
-                    except Exception as exc:
-                        self.assertIsInstance(exc, cv.RepairRefusal)
-                    else:
-                        self.fail('malformed catalog was accepted')
                     self.assertFalse(out.exists())
                     captured = io.StringIO()
-                    try:
-                        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-                            code = cli.run(['replay', '--run', str(run_dir), '--catalog',
-                                            str(FIXTURE_CATALOG), '--out', str(out), '--json'])
-                    except Exception as exc:
-                        self.fail(f'CLI leaked {type(exc).__name__}')
+                    with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
+                        code = cli.run(['replay', '--run', str(run_dir), '--catalog',
+                                        str(FIXTURE_CATALOG), '--out', str(out), '--json'])
                     self.assertNotEqual(code, 0)
                     self.assertIn('RECORD_MALFORMED', captured.getvalue())
                     self.assertFalse(out.exists())
