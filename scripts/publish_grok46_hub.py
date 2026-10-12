@@ -73,7 +73,12 @@ from round_txn import (  # noqa: E402
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
 )
-# A sibling in this script's own directory, which is on sys.path when it runs.
+# The roots sibling sits beside this script. Put that directory on sys.path
+# explicitly: -I, -P and PYTHONSAFEPATH=1 leave it off. Append rather than
+# insert, so pipelines/ keeps precedence over the scripts/ shims.
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.append(str(SCRIPTS_ROOT))
 from publish_hub_roots import (  # noqa: E402
     PublisherRoots,
     active_factory_root,

@@ -11,6 +11,7 @@ are active only inside ``main``'s run.
 import contextlib
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -377,6 +378,41 @@ class DirectoryGuardTests(unittest.TestCase):
             self.assertRaisesRegex(SystemExit, "unsafe snapshot directory")
         ):
             hub_roots.real_directory(planted)
+
+
+class SiblingImportTests(unittest.TestCase):
+    """The publisher reaches its roots sibling without the implicit script dir."""
+
+    def test_publisher_and_tests_share_one_roots_module(self):
+        # One module object means one ContextVar: roots a test activates are
+        # the roots the publisher's helpers read.
+        self.assertIs(sys.modules["publish_hub_roots"], hub_roots)
+        self.assertIs(publisher.active_roots, hub_roots.active_roots)
+        self.assertIs(publisher.active_hf_root, hub_roots.active_hf_root)
+
+    def test_schemas_output_is_identical_without_the_script_directory_on_sys_path(self):
+        script = REPO / "scripts" / "publish_grok46_hub.py"
+        environ = {
+            key: value for key, value in os.environ.items() if key != "PYTHONSAFEPATH"
+        }
+
+        def run(*flags, **extra):
+            return subprocess.run(
+                [sys.executable, *flags, str(script), "schemas"],
+                cwd=REPO, env={**environ, **extra}, capture_output=True, check=False,
+            )
+
+        normal = run()
+        self.assertEqual(normal.returncode, 0, normal.stderr.decode())
+        self.assertTrue(normal.stdout)
+        for label, isolated in (
+            ("-I", run("-I")),
+            ("-P", run("-P")),
+            ("PYTHONSAFEPATH=1", run(PYTHONSAFEPATH="1")),
+        ):
+            with self.subTest(mode=label):
+                self.assertEqual(isolated.returncode, 0, isolated.stderr.decode())
+                self.assertEqual(isolated.stdout, normal.stdout)
 
 
 class PublisherMainRootTests(unittest.TestCase):
