@@ -32,23 +32,6 @@ EXTRA_PATHS = tuple(
 )
 
 
-def _rows_and_keys(tree):
-    """The last top-level ROWS and KEYS literals of a legacy mill (None when absent)."""
-    rows: list[tuple] | None = None
-    keys: tuple[str, ...] | None = None
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                continue
-            if target.id == "ROWS":
-                rows = ast.literal_eval(node.value)
-            elif target.id == "KEYS":
-                keys = ast.literal_eval(node.value)
-    return rows, keys
-
-
 def _legacy_extra_pairs(path: str) -> list[dict]:
     src = subprocess.check_output(
         ["git", "show", f"{LEGACY_REF}:{path}"],
@@ -65,6 +48,23 @@ def _legacy_extra_pairs(path: str) -> list[dict]:
         spec["not"] = row[-3]
         out.append(spec)
     return out
+
+
+def _rows_and_keys(tree):
+    """The last top-level ROWS and KEYS literals of a legacy mill (None when absent)."""
+    rows: list[tuple] | None = None
+    keys: tuple[str, ...] | None = None
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if target.id == "ROWS":
+                rows = ast.literal_eval(node.value)
+            elif target.id == "KEYS":
+                keys = ast.literal_eval(node.value)
+    return rows, keys
 
 
 class BrwR395ExtraLayout(unittest.TestCase):
