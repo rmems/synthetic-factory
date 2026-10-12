@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import _contract
 from ._contract import FACTORY, GENERATOR, VENDOR_PREFIX
@@ -283,7 +283,7 @@ def _call_slugs(tree: ast.Module) -> list[str]:
     return slugs
 
 
-def _is_raw_assign(node: ast.stmt) -> bool:
+def _is_raw_assign(node: ast.stmt) -> TypeGuard[ast.Assign]:
     if not isinstance(node, ast.Assign):
         return False
     return any(isinstance(t, ast.Name) and t.id == "RAW" for t in node.targets)

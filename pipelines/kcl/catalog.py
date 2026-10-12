@@ -15,7 +15,7 @@ import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     BANNED_ID_TOKENS,
@@ -344,7 +344,7 @@ def _parse_source(source: str, path: str) -> ast.AST:
         refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{path} does not parse: {exc}")
 
 
-def _is_call_to(node: ast.AST, name: str) -> bool:
+def _is_call_to(node: ast.AST, name: str) -> TypeGuard[ast.Call]:
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return False
     return node.func.id == name
