@@ -16,7 +16,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from azr import (  # noqa: E402
+from azr import (
     catalog as azr_catalog,
     catalog_ast as azr_ast,
     catalog_extract as azr_extract,

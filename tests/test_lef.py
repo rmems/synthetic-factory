@@ -16,7 +16,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from lef import (  # noqa: E402
+from lef import (
     catalog as lef_catalog,
     catalog_ast as lef_ast,
     catalog_extract as lef_extract,

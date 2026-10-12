@@ -16,7 +16,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from dbc import (  # noqa: E402
+from dbc import (
     catalog as dbc_catalog,
     catalog_ast as dbc_ast,
     catalog_extract as dbc_extract,
