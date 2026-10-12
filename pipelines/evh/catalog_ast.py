@@ -10,7 +10,7 @@ arithmetic, subscript/slice, and a closed set of ``str`` methods. Calls to
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 UNSET = object()
@@ -82,7 +82,7 @@ def _set(node: ast.Set, env: Mapping[str, Any]) -> Any:
     return set(values) if values is not UNSET else UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: list[ast.expr], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = resolve(elt, env)
@@ -237,7 +237,8 @@ def _str_method(owner: str, attr: str, args: list[Any]) -> Any:
     return UNSET
 
 
-_RESOLVERS = (
+# Each resolver takes the node type it is paired with; ``resolve`` dispatches by isinstance.
+_RESOLVERS: tuple[tuple[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]], ...] = (
     (ast.Constant, _constant),
     (ast.Name, _name),
     (ast.UnaryOp, _unary),

@@ -13,7 +13,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .catalog_ast import (
     UNSET,
@@ -214,10 +214,12 @@ def _raw_catalog(
     return _catalog_record(
         SHAPE_RAW,
         planted,
-        dest=dest,
-        start_round=catalog_first_from_name(path) or 927,
-        void_base=_void_base(tree, default=72),
-        offset=_eval_pair_offset(tree, default=446),
+        {
+            "dest": dest,
+            "start_round": catalog_first_from_name(path) or 927,
+            "void_base": _void_base(tree, default=72),
+            "offset": _eval_pair_offset(tree, default=446),
+        },
     )
 
 
@@ -234,10 +236,12 @@ def _param_catalog(
     return _catalog_record(
         SHAPE_PARAM,
         planted,
-        dest=emit["mod"],
-        start_round=emit["start_round"],
-        void_base=emit["void_base"],
-        offset=emit["offset"],
+        {
+            "dest": emit["mod"],
+            "start_round": emit["start_round"],
+            "void_base": emit["void_base"],
+            "offset": emit["offset"],
+        },
         params=bindings,
     )
 
@@ -260,10 +264,7 @@ def _plain_catalog(
     return _catalog_record(
         shape,
         planted,
-        dest=dest,
-        start_round=start,
-        void_base=void_base,
-        offset=offset,
+        {"dest": dest, "start_round": start, "void_base": void_base, "offset": offset},
     )
 
 
@@ -484,26 +485,25 @@ def _pair_identity(
 def _catalog_record(
     shape: str,
     pairs: list[dict[str, Any]],
+    placement: Mapping[str, Any],
     *,
-    dest: str,
-    start_round: int,
-    void_base: int,
-    offset: int,
     params: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """``params`` are the ``catalog(tag, to, kw1, kw2, kw3)`` bindings, if any."""
+    """``placement`` is where the mill emits the rows (``dest``, ``start_round``,
+    ``void_base``, ``offset``); ``params`` are the ``catalog(tag, to, kw1, kw2, kw3)``
+    bindings, if any."""
 
     if not pairs:
-        raise ValueError(f"{dest} extracted zero pairs")
+        raise ValueError(f"{placement['dest']} extracted zero pairs")
     record = {
-        "dest": dest,
+        "dest": placement["dest"],
         "shape": shape,
         "n_rows": len(pairs),
         "first_slug": pairs[0]["success_slug"],
         "last_slug": pairs[-1]["success_slug"],
-        "start_round": start_round,
-        "void_base": void_base,
-        "offset": offset,
+        "start_round": placement["start_round"],
+        "void_base": placement["void_base"],
+        "offset": placement["offset"],
         "pairs": pairs,
     }
     if params is not None and params["tag"] is not None:
@@ -545,7 +545,7 @@ def _statement_call(stmt: ast.stmt) -> tuple[str | None, ast.Call | None]:
     return None, None
 
 
-def _is_emit_call(call: ast.Call | None) -> bool:
+def _is_emit_call(call: ast.Call | None) -> TypeGuard[ast.Call]:
     if call is None or not isinstance(call.func, ast.Name):
         return False
     return call.func.id == "emit"
