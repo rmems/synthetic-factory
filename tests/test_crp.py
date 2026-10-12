@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import json
@@ -212,6 +213,49 @@ class Generate(unittest.TestCase):
         with self.assertRaises(CrpRefusal) as ctx:
             cat.plants_for_round(728)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+
+
+class RawEnumerateShapes(unittest.TestCase):
+    """``_RAW`` + ``enumerate`` expansion only accepts the pinned literal shapes."""
+
+    def test_raw_rows_must_be_a_nonempty_list_of_tuples(self):
+        for source in ("obj.attr = 1\n", "_RAW = []\n", "_RAW = [('a',), ['b']]\n"):
+            with self.subTest(source=source):
+                self.assertIsNone(cat._raw_rows_from_tree(ast.parse(source)))
+        tree = ast.parse("first = _RAW = [('fam', 1)]\n_RAW = [('later',)]\n")
+        self.assertEqual(cat._raw_rows_from_tree(tree), [("later",)])
+        tree = ast.parse("other: int = 3\n_RAW: list = [('fam', 1)]\n")
+        self.assertEqual(cat._raw_rows_from_tree(tree), [("fam", 1)])
+
+    def test_the_noun_loop_skips_every_non_plant_append(self):
+        loop = (
+            "for i in range(3):\n    PLANTS.append(P(a, b, f'keel{800 + i}'))\n"
+            "for i, row in rows.enumerate():\n    PLANTS.append(P(a, b, f'keel{801 + i}'))\n"
+            "for i, row in enumerate(_RAW):\n"
+            "    PLANTS.extend(row)\n"
+            "    OTHER.append(P(a, b, f'keel{802 + i}'))\n"
+            "    PLANTS.append()\n"
+            "    PLANTS.append(mod.P(a, b, f'keel{803 + i}'))\n"
+            "    PLANTS.append(Q(a, b, f'keel{804 + i}'))\n"
+            "    PLANTS.append(_p(a, b))\n"
+        )
+        self.assertIsNone(cat._raw_noun_base_from_tree(ast.parse(loop)))
+        found = loop + "    PLANTS.append(_p(a, b, f'reef{805 + i}'))\n"
+        self.assertEqual(cat._raw_noun_base_from_tree(ast.parse(found)), ("reef", 805))
+
+
+class WaveRouting(unittest.TestCase):
+    def test_a_round_owned_by_no_wave_falls_through_to_the_leftover3_refusal(self):
+        for round_n, message in (
+            (4000, "round must lie in [729, 744], got 4000"),
+            (True, "round must be an int, got True"),
+            (729.0, "round must be an int, got 729.0"),
+        ):
+            with self.subTest(round_n=round_n):
+                with self.assertRaises(CrpRefusal) as ctx:
+                    generate._wave_for_round(round_n)
+                self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+                self.assertEqual(ctx.exception.message, message)
 
 
 class Cli(unittest.TestCase):
