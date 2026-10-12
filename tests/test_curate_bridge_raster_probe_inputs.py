@@ -1,4 +1,4 @@
-"""The spike probe reads each input once, however it is named."""
+"""The spike probe reads each Bridge raster input once, however it is named."""
 
 from __future__ import annotations
 
