@@ -318,7 +318,8 @@ def _program_row(
 
     source_text = build.sources[path]
     extracted = extract_module(source_text, function)
-    cv.refuse_when(extracted is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND, f"{path}::{function}")
+    if extracted is None:
+        cv.refuse(cv.FINDING_TARGET_FUNCTION_NOT_FOUND, f"{path}::{function}")
     text, span = extracted
     program_id = program_id_for(build.upstream, path, function)
     examples = cat.examples_of(text, function)

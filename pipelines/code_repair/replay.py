@@ -270,7 +270,8 @@ def replay_record(
     failed entry, never natural ineligibility (Greptile and Codex on #202).
     """
 
-    result = record.get("result") if isinstance(record.get("result"), dict) else {}
+    stored = record.get("result")
+    result = stored if isinstance(stored, dict) else {}
     claims_positive = (
         result.get("outcome") == cv.OUTCOME_ACCEPTED
         and result.get("oracle_status") == cv.STATUS_VALIDATED
