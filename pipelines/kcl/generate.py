@@ -47,6 +47,8 @@ else:
 
 BASIS_PREFIXES = ("Plan:", "Observation:", "Reflection:", "Tool call:")
 BASIS_LIMIT = 240
+_LINT_SUMMARY = "Summary: 3 resources found, 0 errors.\n"
+_LINT_BLIND_SPOT = "# kubeconform does not evaluate this dataplane leftover.\n"
 
 __all__ = [
     "BuiltPair",
@@ -169,46 +171,24 @@ def _episode(
     return record
 
 
-def build_success(
-    spec: Mapping[str, str],
-    *,
-    round_n: int,
-    mill_id: str,
-    plant_id: str,
-) -> dict[str, Any]:
-    ns = spec["plant"]
-    app = spec["app"]
-    chart = spec["chart"]
-    rs = spec["rs"]
-    field = spec["field"]
-    eid = f"{FAMILY_PREFIX}-r{round_n}-{spec['slug']}"
-    hide_in_fail = spec["hide_old"] in spec["values_fail"]
-    values_hide = (
-        spec["values_fail"].replace(spec["hide_old"], spec["hide_new"])
-        if hide_in_fail
-        else spec["values_fail"] + spec["hide_new"]
-    )
-    hide_old = spec["hide_old"] if hide_in_fail else spec["values_fail"]
-    hide_new = spec["hide_new"] if hide_in_fail else values_hide
-    pytest_lines = "\n# ".join(spec["pytest_ok"].splitlines())
-    steps = [
-        _bash(
-            1,
-            f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {chart} "
-            f"({field} leftover). List po.",
-            f"kubectl -n {ns} get po,deploy -l app={app}",
-            f"pod/{app}-{rs}-a 0/1 CrashLoopBackOff 9\n"
-            f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 9\ndeploy/{app} 0/2\n",
-            "0/2. Logs next.",
-        ),
-        _bash(
-            2,
-            f"Observation: 9 restarts. Logs and describe ({field} leftover).",
-            f"kubectl -n {ns} logs {app}-{rs}-a --tail=12; "
-            f"kubectl -n {ns} describe po {app}-{rs}-a | tail -n 24",
-            f"{field}={spec['fail_val']}\n{spec['log']}\n",
-            "Root cause visible. Read values.",
-        ),
+@dataclass(frozen=True)
+class _Scene:
+    """The live names one episode's commands and observations interpolate."""
+
+    ns: str
+    app: str
+    chart: str
+    rs: str
+    field: str
+
+
+def _values_template_lint(
+    spec: Mapping[str, str], scene: _Scene, summary: str
+) -> list[dict[str, Any]]:
+    """Steps 3-5 of both episodes: read values, read the template, kubeconform clean."""
+
+    app, ns = scene.app, scene.ns
+    return [
         _read(
             3,
             "Observation: live fail matches ticket. Read values.yaml.",
@@ -227,10 +207,40 @@ def build_success(
             5,
             "Observation: template emits fail field. helm template + kubeconform.",
             f"helm template {app} charts/{app} -n {ns} | kubeconform -strict -summary",
-            "Summary: 3 resources found, 0 errors.\n"
-            "# kubeconform does not evaluate this dataplane leftover.\n",
+            summary,
             "Plan clean. Apply --wait.",
         ),
+    ]
+
+
+def _success_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+    ns, app, rs, field = scene.ns, scene.app, scene.rs, scene.field
+    return [
+        _bash(
+            1,
+            f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {scene.chart} "
+            f"({field} leftover). List po.",
+            f"kubectl -n {ns} get po,deploy -l app={app}",
+            f"pod/{app}-{rs}-a 0/1 CrashLoopBackOff 9\n"
+            f"pod/{app}-{rs}-b 0/1 CrashLoopBackOff 9\ndeploy/{app} 0/2\n",
+            "0/2. Logs next.",
+        ),
+        _bash(
+            2,
+            f"Observation: 9 restarts. Logs and describe ({field} leftover).",
+            f"kubectl -n {ns} logs {app}-{rs}-a --tail=12; "
+            f"kubectl -n {ns} describe po {app}-{rs}-a | tail -n 24",
+            f"{field}={spec['fail_val']}\n{spec['log']}\n",
+            "Root cause visible. Read values.",
+        ),
+    ]
+
+
+def _success_wrong_hide(
+    spec: Mapping[str, str], scene: _Scene, hide: tuple[str, str]
+) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    return [
         _bash(
             6,
             "Observation: kubeconform 0. helm upgrade --wait current values.",
@@ -243,8 +253,8 @@ def build_success(
             7,
             "Observation: --wait failed. Apply the wrong first hide.",
             f"charts/{app}/values.yaml",
-            hide_old,
-            hide_new,
+            hide[0],
+            hide[1],
             f"patched {spec['hide_name']} (wrong knob; {field} still {spec['fail_val']})",
             "Hide is not the contract. Confirm then plan-change.",
         ),
@@ -255,6 +265,14 @@ def build_success(
             f'Release "{app}" upgraded. REVISION: 4\nwaiting... done\n',
             "Ready via hide. Wrong terminal. Plan change is the real fix.",
         ),
+    ]
+
+
+def _success_plan_change(
+    spec: Mapping[str, str], scene: _Scene, hide_new: str
+) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    return [
         _edit(
             9,
             f"Reflection: {field} {spec['fix_val']} is the contract. Undo {spec['hide_name']}.",
@@ -278,6 +296,14 @@ def build_success(
             f"{spec['live_ok']}\n",
             "Contract holds. pytest.",
         ),
+    ]
+
+
+def _success_verify(
+    spec: Mapping[str, str], scene: _Scene, pytest_lines: str
+) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    return [
         _bash(
             12,
             "Observation: live contract ok. pytest chart fixtures.",
@@ -318,6 +344,43 @@ def build_success(
             "Done.",
         ),
     ]
+
+
+def _success_hide(spec: Mapping[str, str]) -> tuple[str, str]:
+    """``(old, new)`` text of the wrong first hide edit on values.yaml."""
+
+    hide_in_fail = spec["hide_old"] in spec["values_fail"]
+    values_hide = (
+        spec["values_fail"].replace(spec["hide_old"], spec["hide_new"])
+        if hide_in_fail
+        else spec["values_fail"] + spec["hide_new"]
+    )
+    hide_old = spec["hide_old"] if hide_in_fail else spec["values_fail"]
+    hide_new = spec["hide_new"] if hide_in_fail else values_hide
+    return hide_old, hide_new
+
+
+def build_success(
+    spec: Mapping[str, str],
+    *,
+    round_n: int,
+    mill_id: str,
+    plant_id: str,
+) -> dict[str, Any]:
+    scene = _Scene(
+        ns=spec["plant"], app=spec["app"], chart=spec["chart"], rs=spec["rs"], field=spec["field"]
+    )
+    ns, app, field = scene.ns, scene.app, scene.field
+    eid = f"{FAMILY_PREFIX}-r{round_n}-{spec['slug']}"
+    hide = _success_hide(spec)
+    pytest_lines = "\n# ".join(spec["pytest_ok"].splitlines())
+    steps = [
+        *_success_triage(spec, scene),
+        *_values_template_lint(spec, scene, _LINT_SUMMARY + _LINT_BLIND_SPOT),
+        *_success_wrong_hide(spec, scene, hide),
+        *_success_plan_change(spec, scene, hide[1]),
+        *_success_verify(spec, scene, pytest_lines),
+    ]
     refuse_when(len(steps) != SUCCESS_STEPS, FINDING_USAGE, f"{eid} want {SUCCESS_STEPS} steps")
     return _episode(
         spec,
@@ -347,22 +410,9 @@ def build_success(
     )
 
 
-def build_handoff(
-    spec: Mapping[str, str],
-    *,
-    round_n: int,
-    mill_id: str,
-    plant_id: str,
-) -> dict[str, Any]:
-    ns = spec["plant"]
-    app = spec["app"].replace("-api", "-svc")
-    chart = spec["chart"]
-    rs = spec["rs"]
-    field = spec["field"]
-    node = ns.split("-")[0]
-    eid = f"{FAMILY_PREFIX}-r{round_n}-{spec['slug']}-n2-handoff"
-    values_hide = spec["values_fail"] + spec["hide_new"]
-    steps = [
+def _handoff_triage(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+    ns, app, chart, rs, field = scene.ns, scene.app, scene.chart, scene.rs, scene.field
+    return [
         _bash(
             1,
             f"Plan: ticket is {app} CrashLoopBackOff in {ns} after chart {chart} leftover. "
@@ -382,27 +432,14 @@ def build_handoff(
             f"{spec['log']}\n",
             "Root cause visible. Read values.",
         ),
-        _read(
-            3,
-            "Observation: live fail matches ticket. Read values.yaml.",
-            f"charts/{app}/values.yaml",
-            spec["values_fail"],
-            "Values match the failing live object. Template next.",
-        ),
-        _read(
-            4,
-            "Observation: values fail-open. Read deployment/related template.",
-            f"charts/{app}/templates/deployment.yaml",
-            spec["tpl"],
-            "Template emits the failing field. kubeconform next.",
-        ),
-        _bash(
-            5,
-            "Observation: template emits fail field. helm template + kubeconform.",
-            f"helm template {app} charts/{app} -n {ns} | kubeconform -strict -summary",
-            "Summary: 3 resources found, 0 errors.\n",
-            "Plan clean. Apply --wait.",
-        ),
+    ]
+
+
+def _handoff_forced_apply(
+    spec: Mapping[str, str], scene: _Scene, values_hide: str
+) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    return [
         _bash(
             6,
             "Observation: kubeconform 0. helm upgrade --wait current values.",
@@ -430,6 +467,13 @@ def build_handoff(
             f"pod/{app}-5e1-b 0/1 CrashLoopBackOff {field}={spec['fail_val']}  # leftover n2\n",
             "--force mixed replicas. Do not --force again.",
         ),
+    ]
+
+
+def _handoff_forbid_force(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    node = ns.split("-")[0]
+    return [
         _edit(
             9,
             f"Reflection: leftover is n2 {field} {spec['fail_val']}. "
@@ -449,6 +493,13 @@ def build_handoff(
             f"deploy spec matches git; pod/{app}-5e1-b leftover on {node}-n2\n",
             "Helm three-way did not replace the leftover replica.",
         ),
+    ]
+
+
+def _handoff_leftover_n2(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    node = ns.split("-")[0]
+    return [
         _bash(
             11,
             "Observation: mixed live vs git. Diff pods.",
@@ -478,6 +529,13 @@ def build_handoff(
             f"{app}-5e1-a 1/1 Running 0\n{app}-5e1-b leftover\n",
             "1/2 Ready. leftover is the teaching residual.",
         ),
+    ]
+
+
+def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+    ns, app, field = scene.ns, scene.app, scene.field
+    node = ns.split("-")[0]
+    return [
         _bash(
             14,
             "Observation: 1/2 Ready. pytest + handoff; do not --force n2.",
@@ -517,6 +575,33 @@ def build_handoff(
             f"{app}-5e1-a 1/1 Running\n{app}-5e1-b leftover\n",
             "PARTIAL. Stop. Handoff leftover RS.",
         ),
+    ]
+
+
+def build_handoff(
+    spec: Mapping[str, str],
+    *,
+    round_n: int,
+    mill_id: str,
+    plant_id: str,
+) -> dict[str, Any]:
+    scene = _Scene(
+        ns=spec["plant"],
+        app=spec["app"].replace("-api", "-svc"),
+        chart=spec["chart"],
+        rs=spec["rs"],
+        field=spec["field"],
+    )
+    ns, app, field = scene.ns, scene.app, scene.field
+    eid = f"{FAMILY_PREFIX}-r{round_n}-{spec['slug']}-n2-handoff"
+    values_hide = spec["values_fail"] + spec["hide_new"]
+    steps = [
+        *_handoff_triage(spec, scene),
+        *_values_template_lint(spec, scene, _LINT_SUMMARY),
+        *_handoff_forced_apply(spec, scene, values_hide),
+        *_handoff_forbid_force(spec, scene),
+        *_handoff_leftover_n2(spec, scene),
+        *_handoff_partial(spec, scene),
     ]
     refuse_when(len(steps) != HANDOFF_STEPS, FINDING_USAGE, f"{eid} want {HANDOFF_STEPS} steps")
     return _episode(
@@ -613,6 +698,33 @@ def write_round(out_dir: Path, built: BuiltPair) -> tuple[Path, Path]:
     return batch, notes
 
 
+def _resolve_catalog(catalog: cat.Catalog | None, catalog_dir: Path | None) -> cat.Catalog:
+    if catalog is not None:
+        return catalog
+    if catalog_dir is not None:
+        return cat.load_catalog(catalog_dir)
+    return cat.catalog_check()
+
+
+def _select_plants(
+    loaded: cat.Catalog,
+    plant_id: str | None,
+    mill_id: str | None,
+    all_plants: bool,
+) -> tuple[cat.Plant, ...]:
+    if plant_id is not None:
+        return (loaded.plant(plant_id),)
+    if mill_id is not None:
+        return loaded.mill_plants(mill_id)
+    if all_plants:
+        selected = tuple(
+            plant for plant in loaded.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE
+        )
+        refuse_when(not selected, FINDING_USAGE, "no representative plants to generate")
+        return selected
+    refuse(FINDING_USAGE, "generate needs --plant, --mill, or --all")
+
+
 def generate(
     out_dir: Path,
     *,
@@ -625,31 +737,15 @@ def generate(
 ) -> tuple[BuiltPair, ...]:
     """Write leftover CrashLoop pairs into a brand-new destination."""
 
-    if catalog is not None:
-        loaded = catalog
-    elif catalog_dir is not None:
-        loaded = cat.load_catalog(catalog_dir)
-    else:
-        loaded = cat.catalog_check()
-    if plant_id is not None:
-        selected = (loaded.plant(plant_id),)
-    elif mill_id is not None:
-        selected = loaded.mill_plants(mill_id)
-    elif all_plants:
-        selected = tuple(
-            plant for plant in loaded.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE
-        )
-        refuse_when(not selected, FINDING_USAGE, "no representative plants to generate")
-    else:
-        refuse(FINDING_USAGE, "generate needs --plant, --mill, or --all")
+    loaded = _resolve_catalog(catalog, catalog_dir)
+    selected = _select_plants(loaded, plant_id, mill_id, all_plants)
     _refuse_destination(out_dir)
     out_dir.mkdir(parents=True)
+    # --round pins one exact plant; mill and --all runs step from each base round.
+    pinned_round = round_n if plant_id is not None else None
     built: list[BuiltPair] = []
     for offset, plant in enumerate(selected):
-        if round_n is not None and plant_id is not None:
-            used = round_n
-        else:
-            used = plant.base_round + offset
+        used = plant.base_round + offset if pinned_round is None else pinned_round
         item = build_pair(plant, round_n=used)
         write_round(out_dir, item)
         built.append(item)
