@@ -165,26 +165,53 @@ def _literal_pair_identity(node: ast.AST) -> dict[str, Any] | None:
     return {
         "success_slug": success_slug,
         "fail_slug": fail_slug,
-        "success_plant": success.get("plant") if isinstance(success.get("plant"), str) else None,
-        "fail_plant": fail.get("plant") if isinstance(fail.get("plant"), str) else None,
+        "success_plant": _str_or_none(success.get("plant")),
+        "fail_plant": _str_or_none(fail.get("plant")),
         "fail": bool(fail.get("fail", True)),
     }
 
 
-def _p_ctor_pairs(tree: ast.AST) -> dict[str, Any] | None:
+def _str_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _assigned_nonempty_list(node: ast.stmt, wanted: str) -> ast.List | None:
+    """The value of a top-level ``wanted = [...]`` with at least one element."""
+
+    name, value = assignment_of(node)
+    if name != wanted or not isinstance(value, ast.List):
+        return None
+    return value if value.elts else None
+
+
+def _assigned_literals(tree: ast.AST, wanted: str):
+    """Literal value of each top-level ``wanted = ...`` assignment, in source order."""
+
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List) or not value.elts:
+        if name == wanted and value is not None:
+            yield literal_value(value)
+
+
+def _collect_or_none(items, convert) -> list[Any] | None:
+    """``convert`` every item, or None as soon as one item does not convert."""
+
+    out: list[Any] = []
+    for item in items:
+        converted = convert(item)
+        if converted is None:
+            return None
+        out.append(converted)
+    return out
+
+
+def _p_ctor_pairs(tree: ast.AST) -> dict[str, Any] | None:
+    for node in getattr(tree, "body", ()):
+        value = _assigned_nonempty_list(node, "PAIRS")
+        if value is None or not all(_is_p_tuple(elt) for elt in value.elts):
             continue
-        if not all(_is_p_tuple(elt) for elt in value.elts):
-            continue
-        rows = []
-        for elt in value.elts:
-            row = _p_pair_identity(elt)
-            if row is None:
-                return None
-            rows.append(row)
-        return _rows_record(SHAPE_P_CTOR, rows)
+        rows = _collect_or_none(value.elts, _p_pair_identity)
+        return None if rows is None else _rows_record(SHAPE_P_CTOR, rows)
     return None
 
 
@@ -211,18 +238,16 @@ def _p_pair_identity(node: ast.AST) -> dict[str, Any] | None:
     return {
         "success_slug": success[P_SLUG],
         "fail_slug": fail[P_SLUG],
-        "success_plant": success[P_PLANT] if isinstance(success[P_PLANT], str) else None,
-        "fail_plant": fail[P_PLANT] if isinstance(fail[P_PLANT], str) else None,
+        "success_plant": _str_or_none(success[P_PLANT]),
+        "fail_plant": _str_or_none(fail[P_PLANT]),
         "fail": bool(fail_flag),
     }
 
 
 def _slugs_pairs(tree: ast.AST) -> dict[str, Any] | None:
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "SLUGS" or value is None:
-            continue
-        resolved = literal_value(value)
+    """The first ``SLUGS`` assignment decides: a non-empty all-string list, or None."""
+
+    for resolved in _assigned_literals(tree, "SLUGS"):
         if not isinstance(resolved, list) or not resolved:
             return None
         if not all(isinstance(item, str) for item in resolved):
@@ -233,56 +258,50 @@ def _slugs_pairs(tree: ast.AST) -> dict[str, Any] | None:
 
 def _r_ctor_pairs(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "RAW" or not isinstance(value, ast.List) or not value.elts:
+        value = _assigned_nonempty_list(node, "RAW")
+        if value is None or not all(call_name(elt) == "R" for elt in value.elts):
             continue
-        if not all(call_name(elt) == "R" for elt in value.elts):
-            continue
-        slugs: list[str] = []
-        for elt in value.elts:
-            args = call_posargs(elt)
-            if args is None or len(args) < 3:
-                return None
-            pkg, ext, leftover = args[R_PKG], args[R_EXT], args[R_LEFTOVER]
-            if not isinstance(pkg, str) or not isinstance(ext, str) or not isinstance(leftover, str):
-                return None
-            slugs.append(f"{pkg}-{ext}-leftover-{leftover}")
-        return _slug_rows(SHAPE_R_CTOR, slugs)
+        slugs = _collect_or_none(value.elts, _r_ctor_slug)
+        return None if slugs is None else _slug_rows(SHAPE_R_CTOR, slugs)
     return None
+
+
+def _r_ctor_slug(node: ast.AST) -> str | None:
+    """``R(pkg, ext, leftover, ...)`` → ``{pkg}-{ext}-leftover-{leftover}``."""
+
+    args = call_posargs(node)
+    if args is None or len(args) < 3:
+        return None
+    parts = (args[R_PKG], args[R_EXT], args[R_LEFTOVER])
+    if not all(isinstance(part, str) for part in parts):
+        return None
+    pkg, ext, leftover = parts
+    return f"{pkg}-{ext}-leftover-{leftover}"
 
 
 def _raw_pairs(tree: ast.AST) -> dict[str, Any] | None:
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "RAW" or value is None:
-            continue
-        resolved = literal_value(value)
-        if not isinstance(resolved, list) or not resolved:
-            continue
-        slugs: list[str] = []
-        for row in resolved:
-            if not isinstance(row, (tuple, list)) or not row or not isinstance(row[0], str):
-                return None
-            slugs.append(row[0])
-        return _slug_rows(SHAPE_RAW, slugs)
-    return None
+    return _first_column_pairs(tree, "RAW", SHAPE_RAW)
 
 
 def _tools_pairs(tree: ast.AST) -> dict[str, Any] | None:
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "TOOLS" or value is None:
-            continue
-        resolved = literal_value(value)
+    return _first_column_pairs(tree, "TOOLS", SHAPE_TOOLS)
+
+
+def _first_column_pairs(tree: ast.AST, wanted: str, shape: str) -> dict[str, Any] | None:
+    """Slugs from column 0 of the first non-empty literal ``wanted`` row table."""
+
+    for resolved in _assigned_literals(tree, wanted):
         if not isinstance(resolved, list) or not resolved:
             continue
-        slugs: list[str] = []
-        for row in resolved:
-            if not isinstance(row, (tuple, list)) or not row or not isinstance(row[0], str):
-                return None
-            slugs.append(row[0])
-        return _slug_rows(SHAPE_TOOLS, slugs)
+        slugs = _collect_or_none(resolved, _str_head)
+        return None if slugs is None else _slug_rows(shape, slugs)
     return None
+
+
+def _str_head(row: Any) -> str | None:
+    if not isinstance(row, (tuple, list)) or not row:
+        return None
+    return _str_or_none(row[0])
 
 
 def _slug_rows(shape: str, slugs: list[str]) -> dict[str, Any] | None:
