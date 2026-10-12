@@ -19,10 +19,14 @@ def _class_skip(pattern: str, index: int, chars: str) -> int:
     return index + int(index < len(pattern) and pattern[index] in chars)
 
 
+def _escaped(text: str, index: int) -> bool:
+    """Whether a backslash at ``index`` escapes a following character."""
+
+    return text.startswith("\\", index) and index + 1 < len(text)
+
+
 def _escape_width(pattern: str, index: int) -> int:
-    if pattern.startswith("\\", index) and index + 1 < len(pattern):
-        return 2
-    return 1
+    return 2 if _escaped(pattern, index) else 1
 
 
 def _class_close(pattern: str, start: int) -> int | None:
@@ -47,7 +51,7 @@ def _class_regex(body: str) -> str:
     parts: list[str] = []
     index = 0
     while index < len(body):
-        if body.startswith("\\", index) and index + 1 < len(body):
+        if _escaped(body, index):
             parts.append(re.escape(body[index + 1]))
             index += 2
             continue
@@ -90,7 +94,7 @@ def _wildcard_token(pattern: str, index: int) -> tuple[str, int]:
     starred = _glob_star(pattern, index)
     if starred is not None:
         return starred
-    if pattern.startswith("\\", index) and index + 1 < len(pattern):
+    if _escaped(pattern, index):
         return re.escape(pattern[index + 1]), index + 2
     if pattern[index] == "[":
         return _character_class(pattern, index)
