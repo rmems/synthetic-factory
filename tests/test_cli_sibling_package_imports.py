@@ -4,11 +4,18 @@
 ``card_schema``, ``card_schema_validate``, ``card_schema_yaml``,
 ``verify_execution`` and ``verify_execution_shapes`` now open with the
 assert/join/expose prelude, so ``importlib.import_module("pipelines.<name>")``
-works without ``pipelines/`` on ``sys.path`` and binds the same module object
-as the bare CLI name in either order. The in-process cases take the package
-branch of every prelude here, where the coverage report is measured; the
-spawned-interpreter cases (``tests/cli_sibling_import_probe.py``) prove each
-order with nothing inherited from this process.
+works without ``pipelines/`` on ``sys.path``. Their package form imports their
+siblings relatively, so every pipelines module a converted module loads has to
+be one object under both names as well, not only the converted module: the
+helpers they reach (``card_schema_core``, ``card_schema_coverage``,
+``card_schema_render``, ``quality_gate_identity``, ``verify_execution_safety``,
+``check_records``, ``record_kind``) carry the same prelude for that reason.
+
+The in-process cases take the package branch of every prelude here, where the
+coverage report is measured. The fresh-interpreter cases
+(``tests/cli_sibling_import_probe.py``) import each converted module in four
+orders, each in its own isolated interpreter, and report every loaded pipelines
+module that is not one object under both names.
 """
 
 from __future__ import annotations
@@ -134,36 +141,99 @@ class PackageForm(unittest.TestCase):
             )
 
 
+# Splits main already has. On main the converted modules cannot be imported as
+# package children, but importing their own dependencies (round_txn, validate_run,
+# training_audit, check_records) under both names splits these same modules,
+# because they lack the binding prelude. They may stay split here; any other
+# split fails. ``tag_jsonutil`` is a parity shared source, so it cannot take the
+# prelude without an owner-reviewed re-seal; it holds only pure functions and
+# raises only ValueError, so nothing compares its two copies.
+_ROUND_TXN_SPLITS = frozenset(
+    {
+        "round_txn_coverage",
+        "round_txn_execution",
+        "round_txn_preference",
+        "round_txn_raster",
+        "round_txn_stage",
+    }
+)
+_VALIDATE_RUN_SPLITS = frozenset({"validate_run_input"})
+_SEALED_SPLITS = frozenset({"tag_jsonutil"})
+_TRAINING_AUDIT_SPLITS = frozenset(
+    {
+        "census",
+        "census_sim",
+        "code_repair._sandbox",
+        "coding_constants",
+        "coding_verify",
+        "coding_verify_manifest",
+        "coding_verify_steps",
+        "curate_coding",
+        "curate_identity_checks",
+        "distillation_audit",
+        "mill_evidence",
+        "mill_family",
+        "mill_findings",
+        "mill_locations",
+        "mill_ownership",
+        "mill_resolution",
+        "mill_reviewed_vocabulary",
+        "mill_signals",
+        "training_audit_bridge",
+        "training_audit_mill",
+        "training_audit_report",
+    }
+)
+MAIN_BASELINE_SPLITS = {
+    "card_schema": frozenset(),
+    "card_schema_validate": frozenset(),
+    "card_schema_yaml": frozenset(),
+    "next_round": _ROUND_TXN_SPLITS | _VALIDATE_RUN_SPLITS | _SEALED_SPLITS,
+    "quality_gate_audit": (
+        _ROUND_TXN_SPLITS | _VALIDATE_RUN_SPLITS | _SEALED_SPLITS | _TRAINING_AUDIT_SPLITS
+    ),
+    "quality_gate_embedding": frozenset(),
+    "verify_execution": _VALIDATE_RUN_SPLITS | _SEALED_SPLITS,
+    "verify_execution_shapes": frozenset(),
+}
+
+# Helpers the converted modules import relatively; each carries the prelude, so
+# none of them may ever split.
+PRELUDE_HELPERS = frozenset(
+    {
+        "card_schema_core",
+        "card_schema_coverage",
+        "card_schema_render",
+        "check_records",
+        "quality_gate_identity",
+        "record_kind",
+        "verify_execution_safety",
+    }
+)
+
+
 class FreshInterpreter(unittest.TestCase):
-    @staticmethod
-    def fresh(form: str) -> dict:
-        return probe.in_fresh_interpreter(probe.run_form, form)
+    def test_the_baseline_names_every_converted_module_and_no_helper(self):
+        self.assertEqual(tuple(MAIN_BASELINE_SPLITS), MODULES)
+        allowed = frozenset().union(*MAIN_BASELINE_SPLITS.values())
+        self.assertEqual(sorted(allowed & (PRELUDE_HELPERS | set(MODULES))), [])
 
-    def test_the_cli_form_alone(self):
-        report = self.fresh("cli")
-        self.assertEqual(report["names"], sorted(MODULES))
-        self.assertTrue(report["pipelines_on_path"])
+    def test_every_loaded_module_is_one_object_in_every_order(self):
+        calls = [(form, name) for name in MODULES for form in probe.FORMS]
+        loaded = set()
+        for report in probe.in_fresh_interpreters(probe.run_closure, calls):
+            loaded.update(report["loaded"])
+            with self.subTest(module=report["module"], form=report["form"]):
+                self.assertIn(report["module"], report["loaded"])
+                unexpected = set(report["split"]) - MAIN_BASELINE_SPLITS[report["module"]]
+                self.assertEqual(sorted(unexpected), [], report["split"])
+        self.assertLessEqual(PRELUDE_HELPERS, loaded)
 
-    def test_the_package_form_alone_binds_both_names(self):
-        report = self.fresh("package")
-        self.assertEqual(report["names"], sorted(f"pipelines.{name}" for name in MODULES))
-        self.assertFalse(report["pipelines_on_path"])
-        self.assertEqual(report["split_modules"], [])
-
-    def test_either_order_is_one_object_and_one_class(self):
-        for form in ("cli_then_package", "package_then_cli"):
-            with self.subTest(form=form):
-                report = self.fresh(form)
-                self.assertEqual(
-                    [name for name, same in report["one_object"].items() if not same], [], report
-                )
-                self.assertEqual(
-                    [name for name, same in report["one_class"].items() if not same], [], report
-                )
-                self.assertEqual(
-                    [name for name, ok in report["caught_across"].items() if not ok], [], report
-                )
-                self.assertEqual(report["split_modules"], [], report)
+    def test_package_first_then_bare_helpers_share_classes_and_sentinels(self):
+        # import pipelines.card_schema; from card_schema_core import CardSchemaError
+        # must catch what card_schema.validate raises, as it does on main.
+        (report,) = probe.in_fresh_interpreters(probe.run_shared_objects, [()])
+        self.assertEqual([name for name, same in report.items() if not same], [], report)
 
 
 if __name__ == "__main__":
