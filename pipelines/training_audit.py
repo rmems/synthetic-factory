@@ -82,6 +82,8 @@ StrictJsonlError = _strict_jsonl.StrictJsonlError
 reject_duplicate_object_keys = _tag_jsonutil.reject_duplicate_object_keys
 check_episode = _validate_run.check_episode
 episode_like = _validate_run.episode_like
+audit_jsonl_records = _completion.audit_jsonl_records
+completed_published_payload = _completion.completed_published_payload
 _percentile = _report.percentile
 _render_markdown = _report.render_markdown
 

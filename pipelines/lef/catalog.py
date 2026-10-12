@@ -11,7 +11,7 @@ from typing import Any
 
 from .catalog_extract import catalog_json_path, rows_jsonl_path
 from .plants_extract import plants_jsonl_path, sha256_bytes as plants_sha256_bytes
-from .sources import MILL_SOURCES, PLANT_SOURCE, catalog_sources, plant_sources, slug_sources
+from .sources import MILL_SOURCES, catalog_sources, plant_sources, slug_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,

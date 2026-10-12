@@ -485,13 +485,13 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
             raise TransactionError(f"staged file changed while publishing: {source}")
         try:
             os.link(temporary, destination, follow_symlinks=False)
-        except FileExistsError:
+        except FileExistsError as exc:
             if (
                 not destination.is_file()
                 or destination.is_symlink()
                 or file_sha256(destination) != expected_sha256
             ):
-                raise TransactionError(f"publication race at {destination}")
+                raise TransactionError(f"publication race at {destination}") from exc
     finally:
         if source_fd >= 0:
             os.close(source_fd)
@@ -1081,10 +1081,12 @@ def ensure_marker_mode(factory_dir: Path):
     try:
         write_exclusive_json(mode_path, payload)
         return payload
-    except FileExistsError:
+    except FileExistsError as exc:
         existing = marker_mode_path(factory_dir)
         if existing is None:
-            raise TransactionError(f"marker mode disappeared while creating it: {mode_path}")
+            raise TransactionError(
+                f"marker mode disappeared while creating it: {mode_path}"
+            ) from exc
         return validated_marker_mode(factory_dir, existing)
 
 

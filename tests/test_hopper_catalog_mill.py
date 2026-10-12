@@ -14,7 +14,6 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from hopper.catalog_mill import (  # noqa: E402
-    CATALOG_FILENAME,
     DEFAULT_MILL_CATALOG_DIR,
     MILL_SOURCE_PATHS,
     PAIRS_FILENAME,

@@ -9,7 +9,6 @@ from typing import Any
 from ._contract import (
     FACTORY,
     FAMILY_PREFIX,
-    FINDING_GENERATE_GOAL,
     FINDING_GENERATE_HIDDEN,
     FINDING_GENERATE_SHAPE,
     GENERATOR,
@@ -235,7 +234,7 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     src = f"src/{plant['drop']}.py"
     cfg = f"{plant['drop']}/cfg.yml"
     test = f"tests/test_{plant['drop']}.py"
-    idf, evf, naive = plant["idf"], plant["evf"], plant["naive"]
+    idf, naive = plant["idf"], plant["naive"]
     ticket = str(plant["ticket"])
     steps = [
         gen._step(

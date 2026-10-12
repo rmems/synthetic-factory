@@ -9,7 +9,6 @@ from contextlib import contextmanager, ExitStack
 import importlib.util
 import json
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 

@@ -18,7 +18,6 @@ if __package__:
     from . import generate as gen
     from . import pipe_catalog as pipes
     from ._contract import (
-        COMMITTED_SPEC_ROW_COUNT,
         CATALOG_FIRST,
         FACTORY,
         FAMILY_SOURCE_FILES,
@@ -41,7 +40,6 @@ else:
     from irc import generate as gen
     from irc import pipe_catalog as pipes
     from irc._contract import (
-        COMMITTED_SPEC_ROW_COUNT,
         CATALOG_FIRST,
         FACTORY,
         FAMILY_SOURCE_FILES,

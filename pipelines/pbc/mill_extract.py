@@ -19,7 +19,7 @@ else:
     import pbc.generate as gen  # type: ignore[no-redef]
 
 SOURCE_REF = "813f93f1969c1c4421e5663492e9663739efa642"
-LEGACY = f"origin/legacy-mill-lane"
+LEGACY = "origin/legacy-mill-lane"
 ENUM_MODE = 'enum Mode { MODE_UNSPECIFIED = 0; MODE_LIVE = 1; MODE_IDLE = 2; }\n'
 
 MILL_SOURCES: tuple[tuple[str, str, int, str], ...] = (

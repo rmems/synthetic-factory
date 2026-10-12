@@ -332,10 +332,8 @@ class RightsPolicyTests(RightsPolicyTestCase):
     def test_compiled_authorizations_have_no_writable_instance_dict(self):
         authorization = self.classify().authorization
 
-        with self.assertRaises(AttributeError):
-            authorization.__dict__
-        with self.assertRaises(AttributeError):
-            authorization.evidence_statuses.__dict__
+        self.assertFalse(hasattr(authorization, "__dict__"))
+        self.assertFalse(hasattr(authorization.evidence_statuses, "__dict__"))
 
     def test_decision_is_immutable(self):
         decision = self.classify()

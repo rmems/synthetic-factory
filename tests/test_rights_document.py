@@ -189,8 +189,8 @@ class RightsDocumentTests(unittest.TestCase):
         )
 
         for section in sections:
-            with self.subTest(section=type(section).__name__), self.assertRaises(AttributeError):
-                section.__dict__
+            with self.subTest(section=type(section).__name__):
+                self.assertFalse(hasattr(section, "__dict__"))
 
     def test_openai_and_meta_display_aliases_are_explicit(self):
         cases = (
