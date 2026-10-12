@@ -14,10 +14,14 @@ where it used to read ``self._entries``.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_resolution")
     from .mill_evidence import (
         GOAL_FAMILY_MIN_SUPPORT,
         Axes,
@@ -30,6 +34,9 @@ if __package__:
         REVIEWED_MILL_PREFIX_HOMES,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_resolution"
+    )
     from mill_evidence import (
         GOAL_FAMILY_MIN_SUPPORT,
         Axes,
@@ -413,3 +420,7 @@ def goal_family_homes(
         for entry, goal_home in candidates.items()
         if _goal_home_is_supported(entry, goal_home, support, axes)
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

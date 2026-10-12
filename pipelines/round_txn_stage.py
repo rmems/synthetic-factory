@@ -2,9 +2,19 @@
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn_stage")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn_stage"
+    )
 
 
 @dataclass(frozen=True)
@@ -118,3 +128,7 @@ def validate_counts(records: int, kinds, policy: BatchPolicy) -> None:
             f"{policy.factory_name} requires only {expected_kind!r} records; "
             f"staged kinds are {sorted(kinds)!r}"
         )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

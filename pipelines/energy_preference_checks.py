@@ -18,12 +18,18 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_preference_checks")
     from .energy_contract import (
         ABSTAIN_NO_FEASIBLE,
         DECISION_RULE,
     )
     from .energy_generator import _feasible_candidates
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_preference_checks"
+    )
     from energy_contract import (
         ABSTAIN_NO_FEASIBLE,
         DECISION_RULE,
@@ -154,6 +160,7 @@ def _cheaper_rejected_ids(
         if _cheaper_rejected_row(row, preferred_id, preferred_cost)
     )
 
+
 def _cheaper_rejected_row(
     row: dict[str, Any], preferred_id: Any, preferred_cost: float
 ) -> bool:
@@ -248,6 +255,7 @@ def _cost_value_drifts(
         abs(float(preference["cost_value"]) - float(preferred["cost_value"]))
         > 1e-12
     )
+
 
 def _check_preferred_feasibility(
     preferred: dict[str, Any], quality_floor: float | None, where: str
@@ -382,3 +390,7 @@ def _check_preference(
             preference, candidates, quality_floor, where
         )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

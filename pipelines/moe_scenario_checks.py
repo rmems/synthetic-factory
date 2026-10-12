@@ -19,6 +19,9 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_scenario_checks")
     from .moe_featurizer import (
         COMPACT_SUMMARY_STATS,
         FEATURIZER_ID,
@@ -27,6 +30,9 @@ if __package__:
         featurize,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_scenario_checks"
+    )
     from moe_featurizer import (
         COMPACT_SUMMARY_STATS,
         FEATURIZER_ID,
@@ -112,6 +118,7 @@ def _declared_width_error(
         f"declares {expected}"
     )
 
+
 def _positive_dim(value: Any, floor: int) -> int | None:
     if not oc.is_genuine_int(value):
         return None
@@ -181,6 +188,7 @@ def _features_drift(features: list[Any], expected: list[float]) -> bool:
         for value, target in zip(features, expected)
     )
 
+
 def _check_scenario_context(scenario: Any, where: str) -> list[str]:
     """The student-visible context, its digest, and the compact input."""
 
@@ -189,3 +197,7 @@ def _check_scenario_context(scenario: Any, where: str) -> list[str]:
     return _check_context_digest(scenario, where) + _check_compact_input(
         scenario, where
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

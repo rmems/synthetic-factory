@@ -14,6 +14,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_task")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("energy_task")
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -206,3 +213,7 @@ def _slot_violations(index: int, value: float, cap: float) -> list[str]:
     if value < -1e-9:
         violations.append(f"ACTUATOR_{index}_NEGATIVE")
     return violations
+
+
+if __package__:
+    _expose_package_sibling(__name__)

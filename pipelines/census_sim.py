@@ -6,7 +6,15 @@ census histogram labels: ``real``, ``real*`` (near-real claims), ``sim*``,
 ``hil*`` (hardware-in-the-loop), ``other``, and ``<missing>``.
 """
 
+import sys
 from collections import Counter
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("census_sim")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("census_sim")
 
 
 # Near-real labels: not the bare word ``real``, but still claiming a live or
@@ -76,3 +84,7 @@ def _record_simulation_buckets(obj) -> Counter:
     if not values:
         return Counter({"<missing>": 1})
     return Counter(bucket_sim_or_real(value) for value in values)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

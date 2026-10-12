@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_constants")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_constants"
+    )
 
 TRANSFORM_NAME = "tag_taxonomy"
 TRANSFORM_VERSION = "1"
@@ -46,3 +56,9 @@ REASON_RECORD_TOO_DEEP = "tag_record_too_deep"
 
 class TagTaxonomyError(ValueError):
     """Raised when a taxonomy document violates its own declared contract."""
+
+
+if __package__:
+    # One module object for both import forms, so a TagTaxonomyError raised
+    # through one name is caught through the other whichever form loads first.
+    _expose_package_sibling(__name__)

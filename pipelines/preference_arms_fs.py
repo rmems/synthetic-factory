@@ -9,6 +9,15 @@ from pathlib import Path
 
 import sys
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_arms_fs")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_arms_fs"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -196,3 +205,7 @@ def _read_regular_artifact(
     finally:
         if root_fd >= 0:
             os.close(root_fd)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

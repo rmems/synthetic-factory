@@ -19,12 +19,18 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_stream")
     from .fault_types import (
         FaultResult,
         MALFORMED_INTEGRITY_KINDS,
         _DisturbanceSpec,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_stream"
+    )
     from fault_types import (
         FaultResult,
         MALFORMED_INTEGRITY_KINDS,
@@ -213,5 +219,9 @@ def _result_from_state(
         result_delay_ms=spec.result_delay_ms,
         trace=tuple(state.trace),
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

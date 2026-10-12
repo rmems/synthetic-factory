@@ -33,10 +33,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("leftover_mill")
     from .census import census_dir, reject_json_constant
     from .curate_agentic import classify_record
     from .round_txn import AGENTIC_FACTORY_KINDS, TransactionError
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "leftover_mill"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -496,6 +502,10 @@ def scan_jsonl_kind_mix(
 def unacknowledged(findings: Iterable[KindMixFinding]) -> list[KindMixFinding]:
     """Return the findings that no quarantine ledger entry covers."""
     return [finding for finding in findings if not finding.acknowledged]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,9 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_checkpoint_checks")
     from .moe_featurizer import (
         COMMIT_SHA_RE,
         SEALED_HUB_MOE_CARDS,
@@ -26,6 +29,9 @@ if __package__:
     )
     from .moe_oracles import TransformersMoERouter
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_checkpoint_checks"
+    )
     from moe_featurizer import (
         COMMIT_SHA_RE,
         SEALED_HUB_MOE_CARDS,
@@ -57,6 +63,7 @@ def _is_authoritative_teacher_grounded(oracle: Any, result: Any) -> bool:
         and result.get("teacher_grounded") is True
     )
 
+
 def _claims_transformers(oracle: Any) -> bool:
     """Either known producer field keeps the Transformers contract active."""
 
@@ -64,6 +71,7 @@ def _claims_transformers(oracle: Any) -> bool:
         oracle.get("name") == TransformersMoERouter.name
         or oracle.get("implementation") == TRANSFORMERS_MOE_IMPLEMENTATION
     )
+
 
 def _claims_transformers_or_sealed_moe(oracle: Any, fingerprint: Any) -> bool:
     """A Transformers producer identity or a sealed Hub MoE card model."""
@@ -187,3 +195,7 @@ def _check_teacher_router_logits(
 
 def _layer_missing_logits(layer: Any) -> bool:
     return isinstance(layer, dict) and layer.get("router_logits") is None
+
+
+if __package__:
+    _expose_package_sibling(__name__)

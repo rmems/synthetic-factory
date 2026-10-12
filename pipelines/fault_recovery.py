@@ -59,6 +59,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_recovery")
     from . import fault_check as _fault_check
     from . import fault_records as _fault_records
     from . import fault_simulator as _fault_simulator
@@ -66,6 +69,9 @@ if __package__:
     from .fault_records import build_records
     from .fault_types import describe
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_recovery"
+    )
     import fault_check as _fault_check
     import fault_records as _fault_records
     import fault_simulator as _fault_simulator
@@ -118,6 +124,10 @@ def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands
         for record in records:
             print(oc.canonical_json(record))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

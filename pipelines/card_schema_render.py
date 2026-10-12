@@ -9,6 +9,17 @@ and renders the human-readable "Dataset viewer schema" section
 
 from __future__ import annotations
 
+import sys
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_schema_render")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_schema_render"
+    )
+
 ISSUE_URL = "https://github.com/rmems/synthetic-factory/issues"
 
 __all__ = (
@@ -156,3 +167,7 @@ def undeclared_body_section(dataset: str) -> str:
             "",
         ]
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

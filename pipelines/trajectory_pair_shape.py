@@ -8,9 +8,13 @@ pair carries usable contrast — that is ``trajectory_pair_gate``.
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("trajectory_pair_shape")
     from .trajectory_pair_vocabulary import (
         DEFAULT_POLICY,
         PAIR_SIDES,
@@ -19,6 +23,9 @@ if __package__:
     )
     from .validate_run import THALAMIC_CORE_KEYS, check_episode
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "trajectory_pair_shape"
+    )
     from trajectory_pair_vocabulary import (
         DEFAULT_POLICY,
         PAIR_SIDES,
@@ -156,3 +163,7 @@ def classify_pair_schema(record: Any, policy: GatePolicy = DEFAULT_POLICY) -> st
     if pair_envelope_validation_errors(record) or side_episode_validation_errors(record, policy):
         return "malformed_trajectory_pair"
     return "trajectory_pair"
+
+
+if __package__:
+    _expose_package_sibling(__name__)

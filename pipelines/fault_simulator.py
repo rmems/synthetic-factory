@@ -23,6 +23,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_simulator")
     from .fault_parameters import _check_parameters
     from .fault_preflight import (
         _affected,
@@ -51,6 +54,9 @@ if __package__:
         _spec_from_parameters,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_simulator"
+    )
     from fault_parameters import _check_parameters
     from fault_preflight import (
         _affected,
@@ -336,3 +342,7 @@ class RelayReflexSimulator(FaultOracle):
             "degrade_gracefully": float(system["tick_ms"]),
         }[outcome]
         return round(detection_ms + extra, 3)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

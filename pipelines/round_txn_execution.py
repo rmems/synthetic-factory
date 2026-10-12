@@ -10,6 +10,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn_execution")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn_execution"
+    )
+
 
 def _main_module_is_round_txn(module):
     module_file = getattr(module, "__file__", None)
@@ -431,3 +440,7 @@ def execution_gate(batch: Path, staged_batch: Path, override=None):
         "waived_inconclusive": counts["inconclusive"],
     }
     return summary
+
+
+if __package__:
+    _expose_package_sibling(__name__)

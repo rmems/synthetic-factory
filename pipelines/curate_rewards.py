@@ -52,6 +52,9 @@ from typing import NamedTuple
 # readers can see exactly which sibling owns each name; ``__all__`` below
 # declares the re-exported surface.
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_rewards")
     from .exact_json import dumps_exact_json, parse_finite_json_float
     from .operator_paths import confine, confine_named
     from .reward_calibration import _entry_calibrations
@@ -137,6 +140,9 @@ if __package__:
         normalize_calibration,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_rewards"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -886,6 +892,10 @@ def main(argv=None):
         return 2
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

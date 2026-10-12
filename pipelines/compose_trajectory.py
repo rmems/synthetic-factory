@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("compose_trajectory")
     from . import compose_trajectory_gate as _gate_module
     from . import compose_trajectory_goals as _goals_module
     from . import curate_agentic, curate_coding
@@ -28,6 +31,9 @@ if __package__:
     )
     from .record_kind import PREFERENCE_SIDE_KINDS
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_trajectory"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -248,3 +254,7 @@ def _curate_trajectory_sides(
         list(dict.fromkeys(reasons)),
         changed,
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

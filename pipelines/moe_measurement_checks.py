@@ -12,6 +12,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_measurement_checks")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_measurement_checks"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -51,6 +60,7 @@ def _check_measurement_reconciliation(
     return errors + _missing_promised_measurements(
         expected_measurements, reconciled, where
     )
+
 
 def _reconcile_reading(
     reading: tuple[dict[str, Any], str, Any],
@@ -191,3 +201,7 @@ def _check_declared_count_authority(
             "without it the routed expert ids cannot be range-checked"
         ]
     return []
+
+
+if __package__:
+    _expose_package_sibling(__name__)

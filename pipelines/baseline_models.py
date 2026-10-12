@@ -18,8 +18,14 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("baseline_models")
     from .baseline_dataset import BaselineError, Sample
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "baseline_models"
+    )
     from baseline_dataset import BaselineError, Sample
 
 def _accuracy(predictions: list[int], truth: list[int]) -> float:
@@ -300,5 +306,9 @@ def mlp_baseline(
         return _argmax_label(scores, labels)
 
     return _model_report("mlp", predict, (train, test), **asdict(hyper))
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

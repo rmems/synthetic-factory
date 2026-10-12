@@ -23,10 +23,14 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 from oracle_grounded import fault_vocabulary  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_check")
     from . import fault_oracle_checks as _oracle_checks
     from . import fault_replay_checks as _replay_checks
     from . import fault_types as _fault_types
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("fault_check")
     import fault_oracle_checks as _oracle_checks
     import fault_replay_checks as _replay_checks
     import fault_types as _fault_types
@@ -314,3 +318,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += _check_simulator_type_binding(record, where)
     errors += _recheck_deterministic_outcome(record, where)
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

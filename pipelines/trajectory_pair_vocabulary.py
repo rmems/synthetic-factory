@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 from dataclasses import dataclass
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("trajectory_pair_vocabulary")
     from .curate_agentic import (
         REASON_GOAL_DIVERGES,
         REASON_GOAL_MISSING,
@@ -29,6 +33,9 @@ if __package__:
     )
     from .curate_preferences import PreferenceCurationError
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "trajectory_pair_vocabulary"
+    )
     from curate_agentic import (
         REASON_GOAL_DIVERGES,
         REASON_GOAL_MISSING,
@@ -157,3 +164,7 @@ def is_finite_json_number(value: Any) -> bool:
     """Accept arbitrary-size JSON integers and finite floats, but not booleans."""
 
     return type(value) is int or (type(value) is float and math.isfinite(value))
+
+
+if __package__:
+    _expose_package_sibling(__name__)

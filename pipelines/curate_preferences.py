@@ -61,6 +61,9 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_preferences")
     from . import leftover_mill
     from .operator_paths import confine_named
     from .preference_audit import (
@@ -107,6 +110,9 @@ if __package__:
     )
     from .preference_writer import write_run
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_preferences"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -771,6 +777,10 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, PreferenceCurationError, ValueError) as exc:
         print(f"preference curation failed: {exc}", file=sys.stderr)
         return 1
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

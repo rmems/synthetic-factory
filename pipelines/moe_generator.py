@@ -23,6 +23,9 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_generator")
     from .moe_featurizer import (
         COMPACT_DIM,
         CONTEXT_TEMPLATES,
@@ -39,6 +42,9 @@ if __package__:
     from .moe_layers import RouterObservation
     from .moe_oracles import ReferenceMoERouter, RouterOracle
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_generator"
+    )
     from moe_featurizer import (
         COMPACT_DIM,
         CONTEXT_TEMPLATES,
@@ -179,3 +185,7 @@ def build_records(
             )
         )
     return records
+
+
+if __package__:
+    _expose_package_sibling(__name__)

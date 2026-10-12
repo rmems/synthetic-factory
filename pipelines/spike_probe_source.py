@@ -13,6 +13,15 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("spike_probe_source")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "spike_probe_source"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -137,3 +146,7 @@ def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]
 
     for path in paths:
         yield from _records_in_path(path)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

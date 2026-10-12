@@ -16,8 +16,18 @@ resolve unchanged.
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Mapping
 from typing import Any
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_signals")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_signals"
+    )
 
 # ``<mill>-r<round>[<suffix>]-<slug>``: the id shape every agentic factory
 # emits. ``r4_29``-style round tokens occur in a handful of published rounds
@@ -158,3 +168,7 @@ def goal_family(record: Any) -> frozenset[str]:
         for token in GOAL_TOKEN_RE.findall(text.lower())
         if token not in GOAL_STOPWORDS
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

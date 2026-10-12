@@ -5,6 +5,16 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import sys
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("verify_execution_safety")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "verify_execution_safety"
+    )
 
 
 REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
@@ -389,3 +399,7 @@ def safety_step_contradicts_calibrated_outcome(obj, where):
 def safety_refusal_contradicts_calibrated_outcome(obj, where):
     """Backward-compatible alias for the bidirectional safety-step check."""
     return safety_step_contradicts_calibrated_outcome(obj, where)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -16,16 +16,23 @@ everywhere is now the single ``Axes`` value they always travelled as.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_evidence")
     from .mill_reviewed_vocabulary import (
         REVIEWED_GOAL_STRONG_ANCHORS,
         REVIEWED_GOAL_TOKEN_HOMES,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_evidence"
+    )
     from mill_reviewed_vocabulary import (
         REVIEWED_GOAL_STRONG_ANCHORS,
         REVIEWED_GOAL_TOKEN_HOMES,
@@ -253,3 +260,7 @@ def raw_goal_family_home(
         return best_factory
     best_tokens = entry.goal_family & vocabulary[best_factory]
     return best_factory if _has_independent_anchor(best_tokens) else None
+
+
+if __package__:
+    _expose_package_sibling(__name__)

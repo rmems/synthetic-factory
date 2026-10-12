@@ -19,10 +19,16 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_replay_checks")
     from .fault_records import _derived_measurements, _trace_summary
     from .fault_simulator import RelayReflexSimulator
     from .fault_types import ORACLE_IMPLEMENTATION, ORACLE_NAME, _genuine_count
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_replay_checks"
+    )
     from fault_records import _derived_measurements, _trace_summary
     from fault_simulator import RelayReflexSimulator
     from fault_types import ORACLE_IMPLEMENTATION, ORACLE_NAME, _genuine_count
@@ -307,4 +313,8 @@ def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[s
     return _check_replay_labels(result, replay, where) + _check_replay_measurements(
         result, replay, _record_meters(record), where
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 

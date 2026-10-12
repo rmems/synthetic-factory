@@ -53,6 +53,13 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("promote")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("promote")
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -740,6 +747,10 @@ def main(argv=None):
     print(json.dumps(summary, indent=2))
     _emit_gate_messages(report)
     raise SystemExit(1 if report["blocked"] else 0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

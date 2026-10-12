@@ -3,9 +3,19 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from exact_json import ExactJSONFloat
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("exact_json_compare")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "exact_json_compare"
+    )
 
 
 def same_exact_json(left: Any, right: Any) -> bool:
@@ -32,3 +42,7 @@ def _same_list(left: list[Any], right: list[Any]) -> bool:
     if len(left) != len(right):
         return False
     return all(same_exact_json(left_item, right_item) for left_item, right_item in zip(left, right))
+
+
+if __package__:
+    _expose_package_sibling(__name__)

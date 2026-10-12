@@ -12,7 +12,17 @@ styles keep rendering byte-identical cards until every leaf migrates.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from typing import cast
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_payload")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_payload"
+    )
 
 # The pre-PayloadSummary render_card keyword surface. Every card leaf PR
 # stacked on the schema-infra branch still calls it; render_card keeps
@@ -79,3 +89,7 @@ def _summary_from_legacy_keywords(legacy: dict[str, object]) -> PayloadSummary:
         last=cast("str | None", legacy["last"]),
         names=cast("list[str] | None", legacy.get("payload_names")),
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

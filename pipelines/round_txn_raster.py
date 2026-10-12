@@ -9,15 +9,22 @@ the established names while keeping its transaction orchestration focused.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn_raster")
     from .check_records import read_utf8_jsonl
     from .curate_bridge import is_bridge_record, is_thalamic_record, raster_status
     from .exact_json import parse_finite_json_float as _parse_exact_json_float
     from .record_kind import classify_kind
     from .validate_run import reject_json_constant
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn_raster"
+    )
     from check_records import read_utf8_jsonl
     from curate_bridge import is_bridge_record, is_thalamic_record, raster_status
     from exact_json import parse_finite_json_float as _parse_exact_json_float
@@ -164,3 +171,7 @@ def enforce_bridge_envelope(batch: Path, factory_dir: Path, exception_type):
             "staged batch violates the bridge raster envelope:\n"
             + "\n".join(f"ERROR: {error}" for error in errors)
         )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

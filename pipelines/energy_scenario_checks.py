@@ -18,6 +18,9 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_scenario_checks")
     from .energy_allocation import _positive_weights
     from .energy_contract import (
         MAX_ACTUATORS,
@@ -26,6 +29,9 @@ if __package__:
         SUPPORTED_COST_QUANTITIES,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_scenario_checks"
+    )
     from energy_allocation import _positive_weights
     from energy_contract import (
         MAX_ACTUATORS,
@@ -254,3 +260,7 @@ def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
             f"is {corpus_quantity!r} — the flag must follow the quantity"
         )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

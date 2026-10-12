@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from typing import Any, NamedTuple
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("coding_verify")
     from .coding_constants import (
         MAX_DECISION_BASIS_CHARS,
         REASON_BASIS_CONCISED,
@@ -20,6 +24,9 @@ if __package__:
         _is_positive_int,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "coding_verify"
+    )
     from coding_constants import (
         MAX_DECISION_BASIS_CHARS,
         REASON_BASIS_CONCISED,
@@ -517,3 +524,7 @@ def verify_curation(
         _summary_reconcile_violations(result, manifests, emitting, totals)
     )
     return violations
+
+
+if __package__:
+    _expose_package_sibling(__name__)

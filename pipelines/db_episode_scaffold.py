@@ -8,8 +8,18 @@ envelope shared by both generators.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("db_episode_scaffold")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "db_episode_scaffold"
+    )
 
 
 def bash(command: str) -> dict[str, Any]:
@@ -64,3 +74,7 @@ def assemble_episode(parts: EpisodeAssembly) -> dict[str, Any]:
         },
         "meta": parts.meta,
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

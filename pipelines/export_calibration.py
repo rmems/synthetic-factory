@@ -15,6 +15,15 @@ import sys
 from pathlib import Path
 from typing import Any, TypeGuard
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("export_calibration")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_calibration"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -220,3 +229,7 @@ def _authenticated_calibration(
     catalog = _calibration_catalog_for_mode(descriptor, mode, source_root)
     _require_authenticated_record_count(summary, catalog, records)
     return catalog, dict(descriptor)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

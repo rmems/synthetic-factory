@@ -13,6 +13,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("baseline_dataset")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "baseline_dataset"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -286,5 +295,9 @@ def _feature_scales(
         total = sum((sample.features[i] - means[i]) ** 2 for sample in train)
         scales.append(math.sqrt(total / len(train)) or 1.0)
     return scales
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

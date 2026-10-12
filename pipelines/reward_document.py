@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import copy
+import sys
 from collections import Counter
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_document")
     from .reward_mapping import (
         ARITHMETIC_STATUSES,
         COMPONENT_DISPOSITIONS,
@@ -59,6 +63,9 @@ if __package__:
         value_type,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_document"
+    )
     from reward_mapping import (
     ARITHMETIC_STATUSES,
     COMPONENT_DISPOSITIONS,
@@ -606,4 +613,8 @@ def reward_census(records, *, scope_keys=None):
         "component_keys": component_keys,
         "shapes": shape_rows,
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 

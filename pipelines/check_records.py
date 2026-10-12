@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("check_records")
     from .curate_identity_simulator_process import replay_session
     from .record_kind import DECLARED_FACTORY_KINDS
     from . import parity_validators
@@ -41,6 +44,9 @@ if __package__:
         reject_json_constant,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "check_records"
+    )
     from curate_identity_simulator_process import replay_session
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
@@ -896,6 +902,10 @@ def main(argv=None):
     for warn in result["warnings"]:
         print("WARNING:", warn, file=sys.stderr)
     sys.exit(result["exit_code"])
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

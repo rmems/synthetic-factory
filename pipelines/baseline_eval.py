@@ -23,6 +23,9 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 import validate_distill  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("baseline_eval")
     from .baseline_dataset import (
         BaselineError,
         Sample,
@@ -40,6 +43,9 @@ if __package__:
         mlp_baseline,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "baseline_eval"
+    )
     from baseline_dataset import (
         BaselineError,
         Sample,
@@ -56,6 +62,7 @@ else:
         majority_baseline,
         mlp_baseline,
     )
+
 
 def _significance_floor(
     accuracy: float, test_count: int, min_lift: float
@@ -483,5 +490,9 @@ def _corpus_problem_summary(problems: list[str]) -> str:
     shown = "; ".join(problems[:5])
     more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
     return f"input is not a clean router-family corpus: {shown}{more}"
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import sys
 from decimal import Decimal
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_units")
     from .reward_mapping import (
         RewardOntologyError,
         _decimal,
@@ -31,6 +35,9 @@ if __package__:
         WEIGHTS_FIELD,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_units"
+    )
     from reward_mapping import (
         RewardOntologyError,
         _decimal,
@@ -285,3 +292,7 @@ def _extract_unit_usd(reward, calibration=None):
     if in_record_unit is None:
         return None, "missing_risk_adjusted_semantics", None
     return in_record_unit, "explicit_usd_unit_calibration", "source_reward_fields"
+
+
+if __package__:
+    _expose_package_sibling(__name__)

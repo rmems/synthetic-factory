@@ -55,6 +55,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple, Sequence
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_arms")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_arms"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -1011,6 +1020,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "verify-handoff":
         return _run_verify_handoff(args, paths.staging_dir)
     return _run_scan(args, paths.source)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

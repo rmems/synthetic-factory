@@ -12,12 +12,19 @@ import hashlib
 import json
 import os
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn_preference")
     from .round_txn_execution import rt
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn_preference"
+    )
     from round_txn_execution import rt
 
 
@@ -692,3 +699,7 @@ def _supported_reservation_version(reservation: dict) -> bool:
 
     version = reservation.get("version")
     return type(version) is int and version == 1
+
+
+if __package__:
+    _expose_package_sibling(__name__)

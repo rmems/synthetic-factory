@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import copy
+import sys
 from decimal import Decimal
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_ontology")
     from .reward_mapping import (
         DISPOSITION_AMBIGUOUS,
         DISPOSITION_CONTAINER,
@@ -45,6 +49,9 @@ if __package__:
     )
     from .reward_units import _component_value, _extract_unit_usd
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_ontology"
+    )
     from reward_mapping import (
     DISPOSITION_AMBIGUOUS,
     DISPOSITION_CONTAINER,
@@ -578,3 +585,7 @@ def _require_declared_rule(comparability, reason_codes, rule_id):
         raise RewardOntologyError(f"rule {rule_id} emitted duplicate reason codes")
     _require_catalogued_reasons(emitted)
     return rule
+
+
+if __package__:
+    _expose_package_sibling(__name__)

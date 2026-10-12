@@ -22,8 +22,14 @@ import moe_router  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("distill_records")
     from .distill_manifest import _manifest_findings, jsonl_paths
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "distill_records"
+    )
     from distill_manifest import _manifest_findings, jsonl_paths
 
 VALIDATOR_NAME = "validate_distill"
@@ -258,5 +264,9 @@ def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict
 
     tally.findings += _manifest_findings(root, paths, records_per_file, tally)
     return _build_report(root, paths, tally, strict)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
