@@ -9,9 +9,10 @@ loop's branch order stays exactly as it is on main.
 from __future__ import annotations
 
 import contextlib
+import importlib.machinery
+import importlib.util
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import types
@@ -27,6 +28,24 @@ from pipelines.db import check, cli
 from pipelines.db import config as cfg
 from pipelines.db.episode import build_episode
 from pipelines.db.plants import PLANTS
+
+
+class _OptimizedSourceLoader(importlib.machinery.SourceFileLoader):
+    """Compile a module the way ``python -O`` does (asserts stripped), skipping cached bytecode."""
+
+    def get_code(self, fullname):
+        return compile(self.get_data(self.path), self.path, "exec", dont_inherit=True, optimize=1)
+
+
+def _optimized_check_module() -> types.ModuleType:
+    """A fresh copy of ``pipelines.db.check`` compiled with ``optimize=1``."""
+    name = "pipelines.db._check_optimized"
+    loader = _OptimizedSourceLoader(name, check.__file__)
+    spec = importlib.util.spec_from_loader(name, loader, origin=check.__file__)
+    module = importlib.util.module_from_spec(spec)
+    with mock.patch.dict(sys.modules, {name: module}):
+        loader.exec_module(module)
+    return module
 
 
 class _TransactionError(Exception):
@@ -287,23 +306,16 @@ class SelfCheckRefusalTests(unittest.TestCase):
                     self._self_check(PLANTS[:2])
 
     def test_built_pair_invariants_still_fail_under_python_optimize(self):
-        code = (
-            "import sys\n"
-            "sys.path.insert(0, '.')\n"
-            "from pipelines.db import check\n"
-            "a, b, notes = check.build_pair(845)\n"
-            "check.build_pair = lambda rnd: (a, dict(b, steps=[]), notes)\n"
-            "check.self_check()\n"
-        )
-        proc = subprocess.run(
-            [sys.executable, "-O", "-c", code],
-            cwd=str(REPO),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertNotEqual(proc.returncode, 0, proc.stdout)
-        self.assertEqual(proc.stderr.strip().splitlines()[-1], "AssertionError")
+        optimized = _optimized_check_module()
+        good_a, good_b, good_notes = check.build_pair(cfg.START_ROUND)
+        pair = (good_a, dict(good_b, steps=[]), good_notes)
+        with (
+            mock.patch.object(optimized, "PLANTS", PLANTS[:2]),
+            mock.patch.object(optimized, "build_pair", return_value=pair),
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaises(AssertionError),
+        ):
+            optimized.self_check()
 
     def test_recycle_suffix_in_an_episode_id_is_refused(self):
         with self.assertRaisesRegex(ValueError, "^recycle suffix in id: dbm-r845-x-r12$"):

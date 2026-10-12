@@ -12,7 +12,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import shutil
 import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -238,31 +237,13 @@ def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
     return field, _pipe_rows_literal(assign)
 
 
-def _git_command(*args: str) -> list[str]:
-    """``git`` resolved to its absolute path; FileNotFoundError when it is not installed."""
-    git = shutil.which("git")
-    if git is None:
-        raise FileNotFoundError("git")
-    return [git, *args]
-
-
 def _legacy_source(path: str) -> str:
     return subprocess.check_output(
-        _git_command("show", f"{SOURCE_REF}:{path}"),
+        ["git", "show", f"{SOURCE_REF}:{path}"],
         text=True,
         cwd=repo_root(),
         stderr=subprocess.DEVNULL,
     )
-
-
-def _legacy_ref_available() -> bool:
-    try:
-        subprocess.check_output(
-            _git_command("rev-parse", SOURCE_REF), cwd=repo_root(), stderr=subprocess.DEVNULL
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-    return True
 
 
 def _committed_mill_path(source: Mapping[str, Any]) -> str | None:
@@ -301,7 +282,9 @@ def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
     catalog = load_family_catalog()
     if not live_legacy:
         return catalog
-    if not _legacy_ref_available():
+    try:
+        subprocess.check_output(["git", "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return catalog
     for source in catalog.sources:
         path = _committed_mill_path(source)

@@ -110,12 +110,8 @@ def _bind_sources(catalog: CstCatalog) -> None:
         _check_mill_pin(mill_id, mill, expected[mill_id])
 
 
-def _pin_matches(mill: MillCatalog, source: MillSource) -> bool:
-    return mill.path == source.path and mill.blob_sha == source.blob_sha and mill.kind == source.kind
-
-
 def _check_mill_pin(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
-    if not _pin_matches(mill, source):
+    if (mill.path, mill.blob_sha, mill.kind) != (source.path, source.blob_sha, source.kind):
         raise ValueError(f"{mill_id} pin disagrees with sources.py")
     if mill.n_rows != len(mill.pairs) + len(mill.plants):
         raise ValueError(f"{mill_id} n_rows does not match extracted rows")

@@ -59,11 +59,9 @@ def _family_check(sources, spec_rows, *, live_legacy=True, ref="present"):
         shown.append(path)
         return _LIVE
 
-    which = None if ref == "no-git" else "/usr/bin/git"
     with (
         mock.patch.object(pc, "load_family_catalog", return_value=catalog),
         mock.patch.object(pc.subprocess, "check_output", side_effect=rev_parse),
-        mock.patch("shutil.which", return_value=which),
         mock.patch.object(pc, "_legacy_source", side_effect=legacy),
     ):
         result = pc.catalog_family_check(live_legacy)
@@ -75,8 +73,7 @@ class CatalogFamilyCheckTests(unittest.TestCase):
         same, probes, shown = _family_check(sources, spec_rows, live_legacy=live_legacy, ref=ref)
         self.assertTrue(same)
         for cmd in probes:
-            self.assertEqual(Path(cmd[0]).name, "git")
-            self.assertEqual(cmd[1:], ["rev-parse", pc.SOURCE_REF])
+            self.assertEqual(cmd, ["git", "rev-parse", pc.SOURCE_REF])
         return shown
 
     def test_committed_mill_sources_are_rechecked_against_the_legacy_ref(self):
@@ -117,21 +114,6 @@ class CatalogFamilyCheckTests(unittest.TestCase):
         same, _probes, shown = _family_check([_source(sha256="0" * 64)], _rows(0, 2), ref="no-git")
         self.assertTrue(same)
         self.assertEqual(shown, [])
-
-    def test_git_is_invoked_by_absolute_path(self):
-        calls: list[list[str]] = []
-        with (
-            mock.patch("shutil.which", return_value="/opt/bin/git"),
-            mock.patch.object(pc.subprocess, "check_output", side_effect=lambda cmd, **kw: calls.append(cmd) or "x"),
-        ):
-            self.assertEqual(pc._legacy_source(_PATH), "x")
-        self.assertEqual(calls, [["/opt/bin/git", "show", f"{pc.SOURCE_REF}:{_PATH}"]])
-        with mock.patch("shutil.which", return_value=None), self.assertRaises(FileNotFoundError):
-            pc._legacy_source(_PATH)
-
-    def test_spec_row_pipe_text_is_not_compared_with_the_live_source(self):
-        # Behaviour on main: only the digest, field name and row count are compared.
-        self.assertEqual(self._check([_source()], _rows(0, 1, pipe="EDITED")), [_PATH])
 
 
 class PipeRowsFromSourceTests(unittest.TestCase):

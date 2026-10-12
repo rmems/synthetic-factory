@@ -284,7 +284,7 @@ def _rec_section(rec: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 def _positive_round(value: Any, source_name: str) -> int:
     refuse_when(
-        type(value) is not int or value < 1,
+        isinstance(value, bool) or not isinstance(value, int) or value < 1,
         FINDING_FIELD_INVALID,
         f"{source_name} meta.round is not a positive int",
     )
