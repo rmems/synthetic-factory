@@ -35,7 +35,7 @@ def _run_main(*argv):
     return caught.exception.code, out.getvalue(), err.getvalue()
 
 
-class TempTreeCase(unittest.TestCase):
+class TempTreeCaseMixin:
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -55,7 +55,7 @@ class AsRoundTests(unittest.TestCase):
                 self.assertEqual(next_round._as_round(value), expected)
 
 
-class ScanRoundsTests(TempTreeCase):
+class ScanRoundsTests(TempTreeCaseMixin, unittest.TestCase):
     def test_missing_directory_has_no_rounds(self):
         self.assertEqual(next_round.scan_rounds(self.root / "absent"), set())
 
@@ -78,7 +78,7 @@ class ScanRoundsTests(TempTreeCase):
         self.assertEqual(next_round.scan_rounds(factory), {1, 4})
 
 
-class FactoryPlanTests(TempTreeCase):
+class FactoryPlanTests(TempTreeCaseMixin, unittest.TestCase):
     def marker_factory(self):
         factory = self.factory()
         mode = {"version": 1, "legacy_baseline": 0, "commit_point": "ROUND-rNN.complete.json"}
@@ -110,7 +110,7 @@ class FactoryPlanTests(TempTreeCase):
         self.assertEqual((plan["write"], plan["notes"]), ("batch-r05.jsonl", "NOTES-r05.md"))
 
 
-class AllocateTests(TempTreeCase):
+class AllocateTests(TempTreeCaseMixin, unittest.TestCase):
     def test_occupied_targets_are_refused(self):
         names = ("batch-r03.jsonl", "ROUND-r03.reserved.json", "ROUND-r03.publishing.json",
                  "ROUND-r03.complete.json")
@@ -127,7 +127,7 @@ class AllocateTests(TempTreeCase):
         self.assertEqual(next_round.allocate(factory, 3)["next_round"], 3)
 
 
-class IndexTests(TempTreeCase):
+class IndexTests(TempTreeCaseMixin, unittest.TestCase):
     def test_is_factory_dir_cases(self):
         hidden = self.factory(".hidden")
         (hidden / "a.jsonl").write_text("")
@@ -153,7 +153,7 @@ class IndexTests(TempTreeCase):
         self.assertEqual([e["next_round"] for e in payload["factories"]], [2, 3])
 
 
-class MainTests(TempTreeCase):
+class MainTests(TempTreeCaseMixin, unittest.TestCase):
     def test_parse_args_reads_flags(self):
         args = next_round.parse_args(["--allocate", "4", "factory"])
         self.assertEqual((args.allocate, args.path, args.write_index), (4, "factory", False))

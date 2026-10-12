@@ -41,7 +41,7 @@ def write_mode(factory, baseline=0, **extra):
     write_json(factory / round_txn.MODE_FILE, payload)
 
 
-class TempCase(unittest.TestCase):
+class TempCaseMixin:
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
@@ -77,7 +77,7 @@ class TempCase(unittest.TestCase):
         return factory, reservation
 
 
-class FilePrimitiveTests(TempCase):
+class FilePrimitiveTests(TempCaseMixin, unittest.TestCase):
     def test_read_json_requires_an_object(self):
         path = self.root / "list.json"
         path.write_text("[1]\n")
@@ -134,7 +134,7 @@ class FilePrimitiveTests(TempCase):
                     self.assertFalse(path.exists())
 
 
-class CompletionMarkerTests(TempCase):
+class CompletionMarkerTests(TempCaseMixin, unittest.TestCase):
     def mutated_marker_error(self, mutate, pattern):
         factory, marker = self.committed()
         payload = json.loads(marker.read_text())
@@ -201,7 +201,7 @@ class CompletionMarkerTests(TempCase):
                 round_txn.completion_manifest_file_matches(path, {"files": entries})
 
 
-class MarkerModeTests(TempCase):
+class MarkerModeTests(TempCaseMixin, unittest.TestCase):
     def test_validated_marker_mode_requires_a_declaration(self):
         factory = self.factory(CUSTOM)
         with self.assertRaisesRegex(TXN, "marker mode is not enabled"):
@@ -267,7 +267,7 @@ class MarkerModeTests(TempCase):
                     round_txn.ensure_marker_mode(factory)
 
 
-class LegacyDiscoveryTests(TempCase):
+class LegacyDiscoveryTests(TempCaseMixin, unittest.TestCase):
     def test_unrecognised_and_symlinked_payloads_do_not_advance_frontiers(self):
         factory = self.factory(CUSTOM)
         write_records(factory / "other.jsonl", [thalamic("legacy-other")])
@@ -306,7 +306,7 @@ class LegacyDiscoveryTests(TempCase):
         self.assertEqual(round_txn.sibling_committed_and_inflight_ids(factory), {})
 
 
-class InFlightTests(TempCase):
+class InFlightTests(TempCaseMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.factory_dir = self.factory()
@@ -347,7 +347,7 @@ class InFlightTests(TempCase):
             self.inflight()
 
 
-class StagingTests(TempCase):
+class StagingTests(TempCaseMixin, unittest.TestCase):
     def test_staging_paths_require_the_raw_layout(self):
         token = "a" * 32
         with self.assertRaisesRegex(TXN, "must be outputs/raw"):
@@ -386,7 +386,7 @@ class StagingTests(TempCase):
     def test_validate_stage_refuses_a_stage_mutated_during_capture(self):
         real_capture = round_txn.capture_regular_file
         mutations = (
-            (lambda stage: shutil.rmtree(stage), "cannot inspect staging directory"),
+            (shutil.rmtree, "cannot inspect staging directory"),
             (lambda stage: (stage / "extra.txt").write_text("x"), "file set changed"),
             (lambda stage: ((stage / "NOTES-r01.md").unlink(), (stage / "NOTES-r01.md").mkdir()),
              "file set changed"),
@@ -408,7 +408,7 @@ class StagingTests(TempCase):
                 round_txn.validate_stage(factory, stage, 1, 1, reservation["token"])
 
 
-class PublishRecoveryTests(TempCase):
+class PublishRecoveryTests(TempCaseMixin, unittest.TestCase):
     def test_completed_round_cleanup_refusals(self):
         def as_dir(path):
             path.unlink(missing_ok=True)
@@ -502,7 +502,7 @@ class PublishRecoveryTests(TempCase):
             round_txn.abort(factory, 1, "a" * 32)
 
 
-class GateHelperTests(TempCase):
+class GateHelperTests(TempCaseMixin, unittest.TestCase):
     def gate(self, scan=None, error=None, records=1):
         patched = mock.patch.object(preference_arms, "scan_source", return_value=scan,
                                     side_effect=error)
@@ -538,8 +538,9 @@ class GateHelperTests(TempCase):
             )
 
 
-class CliTests(TempCase):
-    def run_cli(self, *argv):
+class CliTests(TempCaseMixin, unittest.TestCase):
+    @staticmethod
+    def run_cli(*argv):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = round_txn.main([str(arg) for arg in argv])

@@ -28,7 +28,7 @@ def _link(deleted: bytes = EMPTY_BITMAP, replaced: bytes = EMPTY_BITMAP) -> byte
     return OID + deleted + replaced
 
 
-class TempRepoCase(unittest.TestCase):
+class TempRepoCaseMixin:
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory()
         self.addCleanup(self._temp.cleanup)
@@ -51,7 +51,7 @@ class TempRepoCase(unittest.TestCase):
         return git.gitignore_matches(self.root, paths)
 
 
-class WildcardTranslation(TempRepoCase):
+class WildcardTranslation(TempRepoCaseMixin, unittest.TestCase):
     CASES = (
         ("[a-c].py", "b.py", "d.py"),
         ("[!x]y.txt", "ay.txt", "xy.txt"),
@@ -69,7 +69,7 @@ class WildcardTranslation(TempRepoCase):
                 self.assertNotIn(miss, matches)
 
 
-class CoreIgnoreCase(TempRepoCase):
+class CoreIgnoreCase(TempRepoCaseMixin, unittest.TestCase):
     IGNORECASE = "[core]\n\tignorecase = true ; comment\n"
 
     def test_ignorecase_folds_nested_scope_rules(self):
@@ -92,7 +92,7 @@ class CoreIgnoreCase(TempRepoCase):
         self.assertEqual(self.ignored("readme"), {})
 
 
-class IndexParsingRefusals(TempRepoCase):
+class IndexParsingRefusals(TempRepoCaseMixin, unittest.TestCase):
     def test_malformed_indexes_fail_closed(self):
         cases = (
             ("bad-magic", b"XXXX" + bytes(28), "not parseable"),
@@ -118,7 +118,7 @@ class IndexParsingRefusals(TempRepoCase):
         self.assertEqual(git.tracked_paths(self.root), ("ab",))
 
 
-class SplitIndexMerging(TempRepoCase):
+class SplitIndexMerging(TempRepoCaseMixin, unittest.TestCase):
     SHARED = _git_index((_index_entry(""), _index_entry("README"), _index_entry("x")))
 
     def tracked_with(self, link: bytes, split: tuple[bytes, ...] = (), shared=SHARED):
@@ -146,7 +146,7 @@ class SplitIndexMerging(TempRepoCase):
                 self.tracked_with(link, shared=shared)
 
 
-class GitOutputEmulation(TempRepoCase):
+class GitOutputEmulation(TempRepoCaseMixin, unittest.TestCase):
     CHECK_IGNORE = ("check-ignore", "--no-index", "-z", "-v", "--stdin")
 
     def test_ls_files_lists_index_paths_nul_terminated(self):

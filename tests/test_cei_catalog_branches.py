@@ -34,11 +34,16 @@ LEFTOVER3_SHAPE = contract.LEFTOVER3_SHAPE
 
 FIXTURE_META = json.loads((FIXTURE / "CATALOG.json").read_text(encoding="utf-8"))
 OK_BAD_ROW = json.loads((FIXTURE / "plants.jsonl").read_text(encoding="utf-8"))
-LEFTOVER3_ROW = next(
-    json.loads(line)
-    for line in (COMMITTED / "plants.jsonl").read_text(encoding="utf-8").splitlines()
-    if f'"shape":"{LEFTOVER3_SHAPE}"' in line
-)
+
+
+def _first_leftover3_row() -> dict:
+    for line in (COMMITTED / "plants.jsonl").read_text(encoding="utf-8").splitlines():
+        if f'"shape":"{LEFTOVER3_SHAPE}"' in line:
+            return json.loads(line)
+    raise AssertionError("the committed CEI catalog has no leftover3 plant")
+
+
+LEFTOVER3_ROW = _first_leftover3_row()
 
 
 def encode_rows(rows) -> bytes:
@@ -75,7 +80,7 @@ def mutated(row, path, value):
     return row
 
 
-class CatalogDir(unittest.TestCase):
+class CatalogDirMixin:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -117,7 +122,7 @@ def mill_setter(key, value):
     return edit
 
 
-class CatalogMetaRefusals(CatalogDir):
+class CatalogMetaRefusals(CatalogDirMixin, unittest.TestCase):
     def test_meta_field_refusals(self):
         cases = (
             ("not-object", lambda meta: [meta], CAT_INVALID),
@@ -164,7 +169,7 @@ class CatalogMetaRefusals(CatalogDir):
         self.assertRefused(FILE_MISSING, catalog._read_jsonl, self.root / "absent.jsonl")
 
 
-class RegistryRefusals(CatalogDir):
+class RegistryRefusals(CatalogDirMixin, unittest.TestCase):
     def test_registry_must_be_readable_and_list_the_factory(self):
         cases = (
             ("unreadable", None),
@@ -191,7 +196,7 @@ class RegistryRefusals(CatalogDir):
         self.assertEqual(catalog.catalog_check(FIXTURE), [])
 
 
-class PlantRowRefusals(CatalogDir):
+class PlantRowRefusals(CatalogDirMixin, unittest.TestCase):
     def test_ok_bad_row_refusals(self):
         cases = (
             ("mill-id", mutated(OK_BAD_ROW, "mill_id", "cei_x"), PLANT_INVALID),
@@ -291,7 +296,7 @@ def extract(text, mill_id="cei_r0007", source="tiny.py"):
     return catalog.plants_from_source(text, mill_id=mill_id, source=source)
 
 
-class SourceExtraction(CatalogDir):
+class SourceExtraction(CatalogDirMixin, unittest.TestCase):
     def test_source_refusals(self):
         cases = (
             ("syntax", "PAIRS = [", NOT_PARSEABLE),

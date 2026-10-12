@@ -35,14 +35,14 @@ def _sealed_json(path, payload):
     return path
 
 
-class _TempCase(unittest.TestCase):
+class TempCaseMixin:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
 
 
-class ReadOnlyJsonRefusals(_TempCase):
+class ReadOnlyJsonRefusals(TempCaseMixin, unittest.TestCase):
     def test_missing_symlinked_and_directory_plans_are_refused(self):
         target = _sealed_json(self.root / "plan.json", {})
         link = self.root / "link.json"
@@ -159,7 +159,7 @@ class MigrationEntryRefusals(PreferenceRoundHarness):
                 )
 
 
-class CompletionMarkerSealing(_TempCase):
+class CompletionMarkerSealing(TempCaseMixin, unittest.TestCase):
     def review(self, factory_name, mode):
         factory = self.root / factory_name
         factory.mkdir()
@@ -176,7 +176,7 @@ class CompletionMarkerSealing(_TempCase):
             )
 
 
-class LinkVerifiedCompletionMarker(_TempCase):
+class LinkVerifiedCompletionMarker(TempCaseMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.publishing = _sealed_json(self.root / "ROUND-r01.publishing.json", {"a": 1})
@@ -238,8 +238,9 @@ class LinkVerifiedCompletionMarker(_TempCase):
         self.assertFalse(self.complete.exists())
 
 
-class ExpectedInodeReads(_TempCase):
-    def read(self, path, expected_stat):
+class ExpectedInodeReads(TempCaseMixin, unittest.TestCase):
+    @staticmethod
+    def read(path, expected_stat):
         return rtp._read_json_from_expected_inode(
             path, label="marker", expected_stat=expected_stat, require_readonly=True
         )
@@ -279,7 +280,7 @@ class ExpectedInodeReads(_TempCase):
         self.assertEqual(rtp._stable_preference_gate_evidence(summary), summary)
 
 
-class CommittedRoundRecheck(_TempCase):
+class CommittedRoundRecheck(TempCaseMixin, unittest.TestCase):
     def committed(self, records=3, **manifest):
         factory = self.root / "outputs" / "raw" / "2099-01-01"
         factory = factory / round_txn.PREFERENCE_ISOLATION_FACTORY

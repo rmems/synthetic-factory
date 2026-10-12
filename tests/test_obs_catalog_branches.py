@@ -71,7 +71,7 @@ def _spec_index_meta(meta):
     meta["plant_count"] = 2
 
 
-class CatalogTree(unittest.TestCase):
+class CatalogTreeMixin:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="obs-cat-")
         self.addCleanup(tmp.cleanup)
@@ -102,7 +102,7 @@ class CatalogTree(unittest.TestCase):
         self.assertEqual(caught.exception.code, code, caught.exception.message)
 
 
-class CatalogLoadRefusals(CatalogTree):
+class CatalogLoadRefusals(CatalogTreeMixin, unittest.TestCase):
     def test_catalog_lookups_and_default_dir(self):
         loaded = catalog.load_catalog(self.build())
         self.assertEqual(len(loaded.mill_plants("obs_r0002")), 1)
@@ -176,7 +176,7 @@ class CatalogLoadRefusals(CatalogTree):
         self.assertRefuses(FIELD_INVALID, listed)
 
 
-class SpecIndexCatalog(CatalogTree):
+class SpecIndexCatalog(CatalogTreeMixin, unittest.TestCase):
     def build_index(self, index_edit=None, meta_edit=None) -> Path:
         index = json.loads(json.dumps(SPEC_INDEX))
         if index_edit:
@@ -206,7 +206,7 @@ class SpecIndexCatalog(CatalogTree):
                 self.assertRefuses(code, self.build_index(index_edit, meta_edit))
 
 
-class RegistryRefusals(CatalogTree):
+class RegistryRefusals(CatalogTreeMixin, unittest.TestCase):
     def with_registry(self, text: str) -> Path:
         directory = self.build()
         fake = self.root / "repo"

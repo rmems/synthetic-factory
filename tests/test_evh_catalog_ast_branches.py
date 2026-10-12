@@ -96,7 +96,8 @@ class ResolveUnsetTests(unittest.TestCase):
 
 
 class ResolveSliceNodeTests(unittest.TestCase):
-    def slice_of(self, source: str) -> ast.AST:
+    @staticmethod
+    def slice_of(source: str) -> ast.AST:
         return expr(source).slice
 
     def test_bare_slice_node_resolves_to_slice(self) -> None:

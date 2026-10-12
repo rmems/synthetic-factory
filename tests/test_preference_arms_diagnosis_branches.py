@@ -44,7 +44,7 @@ def _document(*, context=_CONTEXT, target=_TARGET, root_cause=_NARRATIVE) -> byt
     return f"# Diagnosis\n\n{body}".encode()
 
 
-class DiagnosisRefusalCase(unittest.TestCase):
+class DiagnosisRefusalCaseMixin:
     def assertRefused(self, payload: bytes, message: str) -> None:
         with self.assertRaises(pad.PreferenceArmsError) as caught:
             pad.validate_diagnosis_document(payload, label=LABEL)
@@ -80,7 +80,7 @@ class ArtifactNamingRefusals(unittest.TestCase):
         self.assertEqual(pad.diagnosis_receipt_filename(7), "diagnosis-handoff-receipt-r07.json")
 
 
-class EncodingRefusals(DiagnosisRefusalCase):
+class EncodingRefusals(DiagnosisRefusalCaseMixin, unittest.TestCase):
     def test_baseline_document_is_accepted(self):
         result = pad.validate_diagnosis_document(_document(), label=LABEL)
         self.assertEqual(result["target_reward_delta"], _TARGET)
@@ -93,7 +93,7 @@ class EncodingRefusals(DiagnosisRefusalCase):
         ))
 
 
-class SharedContextRefusals(DiagnosisRefusalCase):
+class SharedContextRefusals(DiagnosisRefusalCaseMixin, unittest.TestCase):
     def test_fence_shape_violations_are_refused(self):
         self.assertRefusedTable((
             ("missing-fence", _document(context=None), "exactly one fenced JSON object"),
@@ -124,7 +124,7 @@ class SharedContextRefusals(DiagnosisRefusalCase):
         self.assertEqual(result["shared_context"], context)
 
 
-class NarrativeRefusals(DiagnosisRefusalCase):
+class NarrativeRefusals(DiagnosisRefusalCaseMixin, unittest.TestCase):
     def test_bounded_prose_violations_are_refused(self):
         oversized_line = "a" * (pad.MAX_DIAGNOSIS_LINE_CHARS + 1)
         self.assertRefusedTable((
@@ -138,7 +138,7 @@ def _target(components, total):
     return _document(target={"per_component": components, "total": total})
 
 
-class TargetRewardDeltaRefusals(DiagnosisRefusalCase):
+class TargetRewardDeltaRefusals(DiagnosisRefusalCaseMixin, unittest.TestCase):
     def test_shape_and_component_count_are_enforced(self):
         many = {f"c{i}": 0.01 for i in range(pad.MAX_DIAGNOSIS_COMPONENTS + 1)}
         self.assertRefusedTable((
