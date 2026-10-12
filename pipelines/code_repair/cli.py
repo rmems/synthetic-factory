@@ -24,6 +24,7 @@ from . import hub_bundle
 from . import publication
 from . import replay
 from . import views
+from . import views_chat
 from . import views_edit
 from . import record_validation as validation
 from . import vocabulary as cv
@@ -208,8 +209,8 @@ def _render(args: argparse.Namespace) -> int:
         return 1
     row = {"prompt": views.render_prompt(views.public_view(record)),
            "completion": views.completion_of(record)}
-    chat, edit = views.chat_candidate(record), views_edit.edit_candidate(record)
-    leaks = (views.view_findings(record, row) + views.chat_findings(record, chat)
+    chat, edit = views_chat.chat_candidate(record), views_edit.edit_candidate(record)
+    leaks = (views.view_findings(record, row) + views_chat.chat_findings(record, chat)
              + views_edit.edit_findings(record, edit))
     payload = {
         "command": "render", "status": "findings" if leaks else "ok", "record_id": args.record_id,

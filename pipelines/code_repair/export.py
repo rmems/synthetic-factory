@@ -32,6 +32,7 @@ from . import publication_export
 from . import selection
 from . import validation
 from . import views
+from . import views_chat
 from . import views_edit
 from . import vocabulary as cv
 from ._contract import (
@@ -244,8 +245,8 @@ def _materialize_rows(corpus: _Corpus, selected: list[dict[str, Any]]) -> None:
 
     for record in selected:
         row = views.sft_row(record)
-        chat, edit = views.chat_candidate(record), views_edit.edit_candidate(record)
-        leaks = (views.view_findings(record, row) + views.chat_findings(record, chat)
+        chat, edit = views_chat.chat_candidate(record), views_edit.edit_candidate(record)
+        leaks = (views.view_findings(record, row) + views_chat.chat_findings(record, chat)
                  + views_edit.edit_findings(record, edit))
         cv.refuse_when(
             bool(leaks), cv.FINDING_EXPORT_INTEGRITY,

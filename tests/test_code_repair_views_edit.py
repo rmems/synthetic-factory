@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from code_repair_test_support import catalog, refusal, smoke_run, views, views_edit
+from code_repair_test_support import catalog, refusal, smoke_run, views, views_chat, views_edit
 from code_repair_test_support import vocabulary as cv
 
 PROGRAM = "program.py"
@@ -150,37 +150,40 @@ class ChatProjection(unittest.TestCase):
     def test_chat_rows_carry_exactly_the_sft_pair(self):
         for record in positives():
             with self.subTest(record=record["id"]):
-                row = views.chat_row(record)
+                row = views_chat.chat_row(record)
                 sft = views.sft_row(record)
-                self.assertEqual(set(row), views.CHAT_KEYS)
-                self.assertEqual(views.chat_pair(row), (sft["prompt"], sft["completion"]))
+                self.assertEqual(set(row), views_chat.CHAT_KEYS)
+                self.assertEqual(views_chat.chat_pair(row), (sft["prompt"], sft["completion"]))
                 self.assertEqual([m["role"] for m in row["messages"]],
-                                 [views.ROLE_USER, views.ROLE_ASSISTANT])
-                self.assertEqual(views.chat_findings(record, row), [])
+                                 [views_chat.ROLE_USER, views_chat.ROLE_ASSISTANT])
+                self.assertEqual(views_chat.chat_findings(record, row), [])
 
     def test_rejected_records_are_refused(self):
         for record in rejected():
             with self.subTest(record=record["id"]), refusal(
                 self, cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE, "not an accepted"
             ):
-                views.chat_row(record)
+                views_chat.chat_row(record)
 
     def test_tampers(self):
         record = positives()[0]
-        row = views.chat_row(record)
-        self.assertEqual(views.chat_findings(record, {**row, "extra": 1}),
+        row = views_chat.chat_row(record)
+        self.assertEqual(views_chat.chat_findings(record, {**row, "extra": 1}),
                          [cv.LEAK_VIEW_EXTRA_KEYS])
         swapped = {"messages": list(reversed(row["messages"]))}
-        self.assertEqual(views.chat_findings(record, swapped), [cv.LEAK_CHAT_MESSAGES_MALFORMED])
+        self.assertEqual(views_chat.chat_findings(record, swapped),
+                         [cv.LEAK_CHAT_MESSAGES_MALFORMED])
         three = {"messages": [*row["messages"], row["messages"][1]]}
-        self.assertEqual(views.chat_findings(record, three), [cv.LEAK_CHAT_MESSAGES_MALFORMED])
+        self.assertEqual(views_chat.chat_findings(record, three),
+                         [cv.LEAK_CHAT_MESSAGES_MALFORMED])
         annotated = {"messages": [{**row["messages"][0], "thought": "x"}, row["messages"][1]]}
-        self.assertEqual(views.chat_findings(record, annotated), [cv.LEAK_CHAT_MESSAGES_MALFORMED])
+        self.assertEqual(views_chat.chat_findings(record, annotated),
+                         [cv.LEAK_CHAT_MESSAGES_MALFORMED])
         non_text = {"messages": [{"role": "user", "content": 1}, row["messages"][1]]}
-        self.assertIsNone(views.chat_pair(non_text))
+        self.assertIsNone(views_chat.chat_pair(non_text))
         edited = copy.deepcopy(row)
         edited["messages"][1]["content"] = broken_of(record)
-        findings = views.chat_findings(record, edited)
+        findings = views_chat.chat_findings(record, edited)
         self.assertIn(cv.LEAK_COMPLETION_NOT_VERIFIED, findings)
         self.assertIn(cv.LEAK_COMPLETION_EQUALS_BROKEN, findings)
 

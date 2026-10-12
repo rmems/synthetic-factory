@@ -24,6 +24,7 @@ from code_repair_test_support import (
     required_item,
     smoke_run,
     views,
+    views_chat,
 )
 from code_repair_test_support import vocabulary as cv
 
@@ -246,7 +247,7 @@ class Cli(unittest.TestCase):
         code, text, _err = invoke(["render", str(run_dir), positive["id"], "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(text)
-        self.assertEqual(views.chat_pair(payload["chat"]),
+        self.assertEqual(views_chat.chat_pair(payload["chat"]),
                          (payload["sft"]["prompt"], payload["sft"]["completion"]))
         self.assertEqual(set(payload["edit"]), {"prompt", "completion"})
         self.assertTrue(payload["edit"]["completion"].startswith(cv.EDIT_SEARCH_MARKER))

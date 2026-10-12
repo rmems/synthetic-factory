@@ -23,7 +23,6 @@ repository or launches a trainer.
 from __future__ import annotations
 
 import hashlib
-import importlib
 import re
 from pathlib import Path
 from typing import Any
@@ -52,12 +51,10 @@ from .hub_card import (
 )
 
 # The lossless viewer writer the published datasets use, under this module's import form.
-_VIEWER = importlib.import_module(
-    "pipelines.export_viewer" if __name__.startswith("pipelines.") else "export_viewer"
-)
-ViewerRow = _VIEWER.ViewerRow
-read_viewer_parquet = _VIEWER.read_viewer_parquet
-write_viewer_parquet = _VIEWER.write_viewer_parquet
+if __name__.startswith("pipelines."):
+    from ..export_viewer import ViewerRow, read_viewer_parquet, write_viewer_parquet
+else:
+    from export_viewer import ViewerRow, read_viewer_parquet, write_viewer_parquet
 
 BUNDLE_FORMAT = "code-repair-hub-bundle/1"
 BUNDLE_FILENAME = "BUNDLE.json"
@@ -68,22 +65,8 @@ _DATASET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 
 __all__ = [
-    "BUNDLE_FILENAME",
-    "BUNDLE_FORMAT",
-    "CARD_FILENAME",
-    "LICENSE_FILENAME",
-    "PROVENANCE_FILENAME",
-    "RELEASE_STATUS_FILENAME",
-    "STAGE_ADMITTED",
-    "STAGE_BLOCKED",
-    "TEXT_CONFIGS",
-    "VIEWER_PATH",
-    "BundleFacts",
-    "BundleRequest",
-    "read_viewer_parquet",
-    "render_card",
-    "run",
-    "training_ready",
+    "BUNDLE_FILENAME", "BUNDLE_FORMAT", "STAGE_ADMITTED", "STAGE_BLOCKED", "read_viewer_parquet",
+    "run", "training_ready",
 ]
 
 

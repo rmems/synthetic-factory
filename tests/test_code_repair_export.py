@@ -18,7 +18,7 @@ from tests.code_repair_test_support import (
     FIXTURE_CATALOG, cli, envelope, generate, oc, refusal, smoke_run, verify, views,
     vocabulary as cv,
 )
-from code_repair import export, lineage, replay, views_edit
+from code_repair import export, lineage, replay, views_chat, views_edit
 from code_repair._contract import ExactJSONFloat, exact_fraction, load_strict_json
 from scripts import agoge_consumer_probe as probe
 from tests.code_repair_test_support import required_item
@@ -162,7 +162,8 @@ class Artifacts(unittest.TestCase):
             self.assertEqual((len(chat), len(edit)), (len(sft), len(sft)))
             exported_rows += len(sft)
             for pair, chat_row, edit_row in zip(sft, chat, edit):
-                self.assertEqual(views.chat_pair(chat_row), (pair["prompt"], pair["completion"]))
+                self.assertEqual(views_chat.chat_pair(chat_row),
+                                 (pair["prompt"], pair["completion"]))
                 fenced = edit_row["prompt"].split("```python\n", 1)[1]
                 broken = fenced.split("```\n\n### Failing doctest examples", 1)[0]
                 applied, code = views_edit.apply_block(broken, edit_row["completion"])

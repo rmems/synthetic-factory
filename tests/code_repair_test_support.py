@@ -22,7 +22,7 @@ from coded_refusal_test_support import CodedFamily, coded_refusal
 from code_repair_import_probe import MODULES as FAMILY_MODULES
 from distill_contract_test_support import REPO, envelope, oc
 from code_repair import catalog, cli, executor, generate, mutate, records, sandbox, verify, views, vocabulary
-from code_repair import export, hub_bundle, lineage, replay, views_edit
+from code_repair import export, hub_bundle, lineage, replay, views_chat, views_edit
 
 FIXTURE_CATALOG = REPO / "tests" / "fixtures" / "code-repair"
 PINNED_AT = "2026-09-08T00:00:00.000Z"
@@ -35,7 +35,7 @@ __all__ = (
     "FAMILY_MODULES", "FIXTURE_CATALOG", "FakeExecutor", "PINNED_AT", "REPO", "SEED", "catalog",
     "boundary_site", "cli", "envelope", "executor", "export", "fixture", "generate", "hub_bundle",
     "lineage", "mutate", "oc", "program", "records", "refusal", "replay", "report", "rows",
-    "smoke_run", "verify", "views", "views_edit", "vocabulary",
+    "smoke_run", "verify", "views", "views_chat", "views_edit", "vocabulary",
 )
 
 
