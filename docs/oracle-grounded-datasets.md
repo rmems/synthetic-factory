@@ -412,8 +412,8 @@ hidden-reasoning key; any finding aborts the write. The view is a projection of
 the record, not a curation decision: it makes no training-readiness claim, adds
 no registry row or rights lane, and leaves the training audit, the compose
 contract and the round gate as the authorities on whether anything may be
-trained on. The modules sit beside `oracle_grounded/` rather than inside it so
-the sealed oracle catalog digest does not move.
+trained on. The `pipelines/oracle_views/` package sits beside `oracle_grounded/`
+rather than inside it so the sealed oracle catalog digest does not move.
 
 ## Tests
 

@@ -14,25 +14,11 @@ does not authenticate, which is where those declarations are recomputed.
 
 from __future__ import annotations
 
-import sys
 from typing import Any
 
-if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
-
-    _assert_direct_sibling("oracle_text_view_gate")
-    from . import oracle_text_view_public as public
-    from . import oracle_text_view_render as render
-    from . import oracle_text_view_vocabulary as tv
-    from .oracle_grounded import canon, envelope
-else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "oracle_text_view_gate"
-    )
-    import oracle_text_view_public as public
-    import oracle_text_view_render as render
-    import oracle_text_view_vocabulary as tv
-    from oracle_grounded import canon, envelope
+from . import public, render
+from . import vocabulary as tv
+from ._contract import bind_import_twin, canon, envelope
 
 __all__ = ["is_positive", "positive_problems", "refusal_of", "require_positive", "seal_findings"]
 
@@ -42,20 +28,23 @@ def _section(record: dict[str, Any], name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _self_attributed(record: dict[str, Any]) -> bool:
+    oracle_id = _section(record, "oracle").get("id")
+    produced_by = _section(record, "result").get("produced_by")
+    return isinstance(oracle_id, str) and produced_by == oracle_id != ""
+
+
 def positive_problems(record: dict[str, Any]) -> list[str]:
     """Each stored declaration that keeps ``record`` from being a positive example."""
 
     validation = _section(record, "validation")
-    oracle_id = _section(record, "oracle").get("id")
-    produced_by = _section(record, "result").get("produced_by")
     checks = (
         (validation.get("status") == tv.STATUS_ACCEPTED,
          f"validation.status is {tv.shown(validation.get('status'))}, not accepted"),
         (validation.get("publishable") is True, "validation.publishable is not true"),
         (_section(record, "provenance").get("kind") == tv.PROVENANCE_SIMULATED,
          "provenance.kind is not simulated"),
-        (isinstance(oracle_id, str) and bool(oracle_id) and produced_by == oracle_id,
-         f"result.produced_by {tv.shown(produced_by)} is not oracle.id {tv.shown(oracle_id)}"),
+        (_self_attributed(record), "result.produced_by is not oracle.id"),
     )
     return [problem for holds, problem in checks if not holds]
 
@@ -67,17 +56,28 @@ def _digest_or_none(value: Any) -> str | None:
         return None
 
 
+def _seal_holds(stored: Any, value: Any) -> bool:
+    digest = _digest_or_none(value)
+    return digest is not None and stored == digest
+
+
 def seal_findings(record: dict[str, Any]) -> list[str]:
     """Leak codes for a scenario or measurement that no longer matches its stored hash."""
 
-    findings = []
-    proposal = _digest_or_none(envelope.proposal_of(record))
-    if proposal is None or record.get("proposal_hash") != proposal:
-        findings.append(tv.LEAK_PROPOSAL_DIGEST_MISMATCH)
-    measurement = _digest_or_none(record.get("result"))
-    if measurement is None or record.get("result_hash") != measurement:
-        findings.append(tv.LEAK_MEASUREMENT_DIGEST_MISMATCH)
-    return findings
+    seals = (
+        (record.get("proposal_hash"), envelope.proposal_of(record),
+         tv.LEAK_PROPOSAL_DIGEST_MISMATCH),
+        (record.get("result_hash"), record.get("result"), tv.LEAK_MEASUREMENT_DIGEST_MISMATCH),
+    )
+    return [code for stored, value, code in seals if not _seal_holds(stored, value)]
+
+
+def _projection_refusal(record: dict[str, Any]) -> tuple[str, str] | None:
+    try:
+        render.render_row(record, tv.KIND_CHOICE)
+    except tv.TextViewRefusal as exc:
+        return exc.code, exc.message
+    return None
 
 
 def refusal_of(record: Any) -> tuple[str, str] | None:
@@ -93,11 +93,7 @@ def refusal_of(record: Any) -> tuple[str, str] | None:
     unsealed = seal_findings(record)
     if unsealed:
         return tv.FINDING_RECORD_NOT_SEALED, "stored hashes do not cover: " + ", ".join(unsealed)
-    try:
-        render.render_row(record, tv.KIND_CHOICE)
-    except tv.TextViewRefusal as exc:
-        return exc.code, exc.message
-    return None
+    return _projection_refusal(record)
 
 
 def is_positive(record: Any) -> bool:
@@ -114,5 +110,4 @@ def require_positive(record: Any) -> None:
         tv.refuse(*refusal)
 
 
-if __package__:
-    _expose_package_sibling(__name__)
+bind_import_twin(__name__)

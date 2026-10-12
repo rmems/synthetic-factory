@@ -11,26 +11,12 @@ read here: the guess is non-authoritative and cannot become a label.
 from __future__ import annotations
 
 import math
-import sys
 from collections.abc import Callable
 from typing import Any
 
-if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
-
-    _assert_direct_sibling("oracle_text_view_labels")
-    from . import oracle_text_view_public as public
-    from . import oracle_text_view_vocabulary as tv
-    from .exact_json import dumps_exact_json
-    from .oracle_grounded import families, sim
-else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "oracle_text_view_labels"
-    )
-    import oracle_text_view_public as public
-    import oracle_text_view_vocabulary as tv
-    from exact_json import dumps_exact_json
-    from oracle_grounded import families, sim
+from . import public
+from . import vocabulary as tv
+from ._contract import bind_import_twin, dumps_exact_json, families, sim
 
 __all__ = ["choice_answer_of", "choice_option", "completion_of", "label_of"]
 
@@ -43,13 +29,19 @@ def _require(holds: bool, what: str) -> None:
 
 
 def _count(value: Any, what: str) -> int:
-    _require(isinstance(value, int) and not isinstance(value, bool) and value >= 0, what)
+    _require(type(value) is int and value >= 0, what)
     return value
 
 
 def _flag(value: Any, what: str) -> bool:
     _require(isinstance(value, bool), what)
     return value
+
+
+def _numbers(values: Any) -> bool:
+    if not isinstance(values, list) or not values:
+        return False
+    return all(public.is_number(value) for value in values)
 
 
 def _encoder(measured: dict[str, Any]) -> dict[str, Any]:
@@ -70,23 +62,26 @@ def _neuron(measured: dict[str, Any]) -> dict[str, Any]:
 
 def _delay(side: dict[str, Any], reached: bool, what: str) -> Any:
     delay = side["propagation_delay_ms"]
-    numeric = isinstance(delay, (int, float)) and not isinstance(delay, bool)
-    _require(numeric if reached else delay is None, what)
+    _require(public.is_number(delay) if reached else delay is None, what)
     return delay
 
 
-def _mesh_outcome(reached: tuple[bool, bool], delays: tuple[Any, Any]) -> str:
-    reached_before, reached_after = reached
-    if not (reached_before or reached_after):
-        return tv.MESH_SINK_NOT_REACHED
-    if not reached_before:
-        return tv.MESH_SINK_NEWLY_REACHED
-    if not reached_after:
-        return tv.MESH_SINK_NO_LONGER_REACHED
-    shift = delays[1] - delays[0]
+_REACHABILITY_OUTCOMES = {
+    (False, False): tv.MESH_SINK_NOT_REACHED,
+    (False, True): tv.MESH_SINK_NEWLY_REACHED,
+    (True, False): tv.MESH_SINK_NO_LONGER_REACHED,
+}
+
+
+def _delay_outcome(shift: float) -> str:
     if abs(shift) <= families.ROUNDING_TOL:
         return tv.MESH_SINK_REACHED_UNCHANGED
     return tv.MESH_SINK_REACHED_EARLIER if shift < 0 else tv.MESH_SINK_REACHED_LATER
+
+
+def _mesh_outcome(reached: tuple[bool, bool], delays: tuple[Any, Any]) -> str:
+    outcome = _REACHABILITY_OUTCOMES.get(reached)
+    return outcome if outcome is not None else _delay_outcome(delays[1] - delays[0])
 
 
 def _mesh(measured: dict[str, Any]) -> dict[str, Any]:
@@ -117,26 +112,21 @@ def _weight_direction(deltas: list[Any]) -> str:
     return tv.CREDIT_NO_CHANGE
 
 
+def _update_of(deltas: list[Any]) -> dict[str, Any]:
+    """The strongest synapse and net direction; no update when every delta is negligible."""
+
+    if all(abs(delta) <= sim.WEIGHT_UPDATE_EPS for delta in deltas):
+        return {"strongest_synapse": None, "weight_direction": tv.CREDIT_NO_CHANGE}
+    strongest = max(range(len(deltas)), key=lambda index: (abs(deltas[index]), -index))
+    return {"strongest_synapse": strongest, "weight_direction": _weight_direction(deltas)}
+
+
 def _credit(measured: dict[str, Any]) -> dict[str, Any]:
     valence = measured["critic"]["valence"]
     _require(valence in tv.CREDIT_VALENCES, "critic.valence")
     deltas = measured["plasticity"]["weight_deltas"]
-    numeric = isinstance(deltas, list) and all(
-        isinstance(delta, (int, float)) and not isinstance(delta, bool) for delta in deltas
-    )
-    _require(numeric and bool(deltas), "plasticity.weight_deltas")
-    if all(abs(delta) <= sim.WEIGHT_UPDATE_EPS for delta in deltas):
-        return {
-            "strongest_synapse": None,
-            "valence": valence,
-            "weight_direction": tv.CREDIT_NO_CHANGE,
-        }
-    strongest = max(range(len(deltas)), key=lambda index: (abs(deltas[index]), -index))
-    return {
-        "strongest_synapse": strongest,
-        "valence": valence,
-        "weight_direction": _weight_direction(deltas),
-    }
+    _require(_numbers(deltas), "plasticity.weight_deltas")
+    return {"valence": valence, **_update_of(deltas)}
 
 
 def _memory(measured: dict[str, Any]) -> dict[str, Any]:
@@ -156,12 +146,21 @@ _LABELS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 }
 
 
+def _measured_of(record: dict[str, Any]) -> dict[str, Any]:
+    result = record.get("result")
+    measured = result.get("measured") if isinstance(result, dict) else None
+    if isinstance(measured, dict):
+        return measured
+    raise tv.TextViewRefusal(
+        tv.FINDING_UNSUPPORTED_RECORD_SHAPE, "result.measured is not an object"
+    )
+
+
 def label_of(record: dict[str, Any]) -> dict[str, Any]:
     """The family's answer fields, re-derived from ``result.measured`` alone."""
 
     family = public.family_of(record)
-    result = record.get("result")
-    measured = result.get("measured") if isinstance(result, dict) else None
+    measured = _measured_of(record)
     try:
         return _LABELS[family](measured)
     except (KeyError, TypeError, IndexError) as exc:
@@ -194,5 +193,4 @@ def choice_answer_of(record: dict[str, Any]) -> Any:
     return choice_option(family, label_of(record)[tv.CHOICE_FIELD[family]])
 
 
-if __package__:
-    _expose_package_sibling(__name__)
+bind_import_twin(__name__)

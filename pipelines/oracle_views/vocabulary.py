@@ -10,29 +10,13 @@ refusal helpers.
 The view is a projection of accepted, publishable, simulated measurements into
 text. Nothing here claims training readiness, a registry row, a rights lane or
 a completed round; those remain the factory's own gates.
-
-The modules live beside ``oracle_grounded`` rather than inside it on purpose:
-``source_policy.catalog_digest`` seals every ``pipelines/oracle_grounded/*.py``
-into the reviewed procedural authority, and a text projection is not part of
-what produces or validates a measurement.
 """
 
 from __future__ import annotations
 
-import sys
-
-if __package__:
-    from . import _assert_direct_sibling, _expose_package_sibling
-
-    _assert_direct_sibling("oracle_text_view_vocabulary")
-    from .oracle_grounded import families as _families
-    from .oracle_grounded import refusals as _refusals
-else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "oracle_text_view_vocabulary"
-    )
-    from oracle_grounded import families as _families
-    from oracle_grounded import refusals as _refusals
+from ._contract import bind_import_twin
+from ._contract import families as _families
+from ._contract import refusals as _refusals
 
 VIEW_FORMAT = "oracle-text-views/1"
 SUMMARY_FILENAME = "VIEWS.json"
@@ -261,5 +245,4 @@ refuse, refuse_when, refuse_first = _refusals.helpers(TextViewRefusal)
 shown = _refusals.shown
 
 
-if __package__:
-    _expose_package_sibling(__name__)
+bind_import_twin(__name__)
