@@ -173,14 +173,9 @@ class MdbSkeletonTests(unittest.TestCase):
                 "experiments/mdb-mill-r1934.py",
             },
         )
-        self.assertEqual(
-            next(s.companion_mill_path for s in loop_sources() if s.mill_id == "mdb-loop-r1084"),
-            "experiments/mdb-mill-r1148.py",
-        )
-        self.assertEqual(
-            next(s.companion_mill_path for s in loop_sources() if s.mill_id == "mdb-loop-r776"),
-            "experiments/mdb-mill-r840.py",
-        )
+        companions = {s.mill_id: s.companion_mill_path for s in loop_sources()}
+        self.assertEqual(companions["mdb-loop-r1084"], "experiments/mdb-mill-r1148.py")
+        self.assertEqual(companions["mdb-loop-r776"], "experiments/mdb-mill-r840.py")
 
     def test_no_vendored_mill_scripts(self):
         hits = []
