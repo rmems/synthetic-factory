@@ -77,6 +77,27 @@ class HopperCliTests(unittest.TestCase):
         self.assertEqual(payload["status"], "refused")
         self.assertEqual(payload["code"], "DESTINATION_UNDER_RAW")
 
+    def _generate(self, *selectors):
+        import io
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = run(["generate", "--out", str(Path(tmp) / "fresh"), *selectors, "--json"])
+            return code, json.loads(buf.getvalue())
+
+    def test_wave_and_factory_selectors_filter_the_catalog(self):
+        code, payload = self._generate("--wave", "g46c", "--factory", "search-index-rebuild-factory")
+        self.assertEqual(code, 0)
+        self.assertGreater(payload["pairs"], 0)
+        self.assertEqual({item["wave"] for item in payload["written"]}, {"g46c"})
+        self.assertEqual({item["factory"] for item in payload["written"]},
+                         {"search-index-rebuild-factory"})
+        code, payload = self._generate("--factory", "no-such-factory")
+        self.assertEqual((code, payload["code"]), (2, "UNKNOWN_FACTORY"))
+        code, payload = self._generate("--wave", "g46c", "--slug", "no-such-slug")
+        self.assertEqual((code, payload["code"]), (2, "UNKNOWN_SLUG"))
+
     def test_unknown_slug_refused(self):
         import io
         from contextlib import redirect_stdout

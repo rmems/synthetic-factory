@@ -75,11 +75,12 @@ def _jsonable(value: Any) -> Any:
 
 
 def _dict_eval(node: ast.Dict) -> dict[Any, Any]:
-    if any(key is None for key in node.keys):
+    keys = [key for key in node.keys if key is not None]
+    if len(keys) != len(node.keys):
         raise DprExtractError("catalog dict uses unpacking")
     return {
         _const_eval(key): _const_eval(value)
-        for key, value in zip(node.keys, node.values)
+        for key, value in zip(keys, node.values)
     }
 
 
@@ -142,8 +143,8 @@ def _literal_or_none(node: ast.AST) -> Any | None:
         return None
 
 
-def _ctor_name(node: ast.AST) -> str:
-    """The constructor name of a pair side, refused unless it is a plain known call."""
+def _ctor_call(node: ast.AST) -> tuple[ast.Call, str]:
+    """A pair side's call and constructor name, refused unless it is a plain known call."""
 
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         raise DprExtractError(f"pair side is not a constructor call ({type(node).__name__})")
@@ -154,16 +155,16 @@ def _ctor_name(node: ast.AST) -> str:
         raise DprExtractError(f"{ctor}() uses starred arguments")
     if any(keyword.arg is None for keyword in node.keywords):
         raise DprExtractError(f"{ctor}() uses keyword unpacking")
-    return ctor
+    return node, ctor
 
 
 def _extract_ctor(node: ast.AST) -> dict[str, Any]:
-    ctor = _ctor_name(node)
+    call, ctor = _ctor_call(node)
     row: dict[str, Any] = {"ctor": ctor}
-    if node.args:
-        row["args"] = [_const_eval(arg) for arg in node.args]
-    if node.keywords:
-        row["kwargs"] = {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
+    if call.args:
+        row["args"] = [_const_eval(arg) for arg in call.args]
+    if call.keywords:
+        row["kwargs"] = {keyword.arg: _const_eval(keyword.value) for keyword in call.keywords}
     if "args" not in row and "kwargs" not in row:
         raise DprExtractError(f"{ctor}() has no arguments")
     return row

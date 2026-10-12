@@ -172,22 +172,27 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _dict_eval(node: ast.Dict) -> dict[Any, Any]:
+    keys = [key for key in node.keys if key is not None]
+    if len(keys) != len(node.keys):
+        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
+
+
 def _container_eval(node: ast.List | ast.Tuple | ast.Dict) -> Any:
     if isinstance(node, ast.List):
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    if any(key is None for key in node.keys):
-        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    return _dict_eval(node)
 
 
-def _is_bare_s_call(node: ast.AST) -> bool:
-    """``S(**kwargs)``: a call of the name ``S`` with keywords only."""
+def _bare_s_call(node: ast.AST) -> ast.Call | None:
+    """``S(**kwargs)``: a call of the name ``S`` with keywords only, else None."""
 
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-        return False
-    return node.func.id == "S" and not node.args
+        return None
+    return node if node.func.id == "S" and not node.args else None
 
 
 def _const_eval(node: ast.AST) -> Any:
@@ -199,8 +204,9 @@ def _const_eval(node: ast.AST) -> Any:
         return _container_eval(node)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
-    if _is_bare_s_call(node):
-        return {kw.arg: _const_eval(kw.value) for kw in node.keywords}
+    call = _bare_s_call(node)
+    if call is not None:
+        return {kw.arg: _const_eval(kw.value) for kw in call.keywords}
     raise GqlRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"plant source is not a constant ({type(node).__name__})",
@@ -458,7 +464,7 @@ def _plant_payload(row: Mapping[str, Any], where: str, shape: str, coverage: int
         payload: dict[str, Any] = {
             key: _payload_text(row, key, where)
             for key in SURFACE_ROW_KEYS
-            if key != "idx" and key != "coverage"
+            if key not in ("idx", "coverage")
         }
         payload["idx"] = _require_int(row.get("idx"), f"{where}.idx", FINDING_PLANT_FIELD_INVALID, 0)
         payload["coverage"] = coverage

@@ -10,7 +10,7 @@ import ast
 from collections.abc import Iterator
 from typing import Any
 
-from ._contract import FINDING_CATALOG_FIELD_INVALID, bind_import_twin, refuse_when
+from ._contract import FINDING_CATALOG_FIELD_INVALID, bind_import_twin, refuse
 
 MODULE_CONSTANT_NAMES = frozenset({"FACTORY", "GEN", "CATALOG_FIRST"})
 
@@ -18,13 +18,9 @@ __all__ = ["MODULE_CONSTANT_NAMES", "literal_str", "module_constants"]
 
 
 def literal_str(node: ast.AST, where: str) -> str:
-    refuse_when(
-        not isinstance(node, ast.Constant) or not isinstance(node.value, str),
-        FINDING_CATALOG_FIELD_INVALID,
-        f"{where} must be a string literal",
-    )
-    assert isinstance(node, ast.Constant)
-    return node.value
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    refuse(FINDING_CATALOG_FIELD_INVALID, f"{where} must be a string literal")
 
 
 def _is_scalar(value: Any) -> bool:
@@ -37,19 +33,23 @@ def _named_targets(node: ast.Assign) -> Iterator[str]:
     return (target.id for target in node.targets if isinstance(target, ast.Name))
 
 
+def _constant_bindings(node: ast.stmt) -> list[tuple[str, Any]]:
+    """``(name, value)`` for each constant name ``node`` binds to a str or int literal."""
+
+    if not isinstance(node, ast.Assign):
+        return []
+    value = node.value
+    if not isinstance(value, ast.Constant) or not _is_scalar(value.value):
+        return []
+    return [(name, value.value) for name in _named_targets(node) if name in MODULE_CONSTANT_NAMES]
+
+
 def module_constants(tree: ast.Module) -> dict[str, Any]:
     """Top-level ``FACTORY`` / ``GEN`` / ``CATALOG_FIRST`` str or int literals."""
 
     found: dict[str, Any] = {}
     for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        value = node.value
-        if not isinstance(value, ast.Constant) or not _is_scalar(value.value):
-            continue
-        for name in _named_targets(node):
-            if name in MODULE_CONSTANT_NAMES:
-                found[name] = value.value
+        found.update(_constant_bindings(node))
     return found
 
 

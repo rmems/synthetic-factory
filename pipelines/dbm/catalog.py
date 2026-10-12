@@ -165,45 +165,31 @@ def _plant(raw: object, where: str) -> Mapping[str, str]:
     return MappingProxyType(record)
 
 
-def _refuse_family_drift(document: Mapping[str, Any], schema_id: str) -> None:
-    """The schema id and the family identity every dbm catalog document pins."""
+def _refuse_pin_drift(
+    mapping: Mapping[str, Any], pins: tuple[tuple[str, Any, str], ...]
+) -> None:
+    """``mapping[key]`` must equal each pinned value; the first drift refuses."""
 
     refuse_first(
-        (
-            (
-                document.get("schema_id") != schema_id,
-                FINDING_CATALOG_SCHEMA,
-                f"schema_id must be {schema_id!r}",
-            ),
-            (
-                document.get("family_prefix") != FAMILY_PREFIX,
-                FINDING_CATALOG_SCHEMA,
-                f"family_prefix must be {FAMILY_PREFIX!r}",
-            ),
-            (
-                document.get("factory") != FACTORY,
-                FINDING_CATALOG_SCHEMA,
-                f"factory must be {FACTORY!r}",
-            ),
-            (
-                document.get("generator") != GENERATOR,
-                FINDING_CATALOG_SCHEMA,
-                f"generator must be {GENERATOR!r}",
-            ),
+        tuple(
+            (mapping.get(key) != expected, FINDING_CATALOG_SCHEMA, message)
+            for key, expected, message in pins
         )
     )
 
 
-def _refuse_source_drift(
-    source: Mapping[str, Any], pins: tuple[tuple[str, str, str], ...]
-) -> None:
-    """``source[key]`` must equal each pinned value; the first drift refuses."""
+def _refuse_family_drift(document: Mapping[str, Any], schema_id: str) -> None:
+    """The schema id and the family identity every dbm catalog document pins."""
 
-    refuse_first(
-        tuple(
-            (source.get(key) != expected, FINDING_CATALOG_SCHEMA, message)
-            for key, expected, message in pins
-        )
+    identity = (
+        ("schema_id", schema_id),
+        ("family_prefix", FAMILY_PREFIX),
+        ("factory", FACTORY),
+        ("generator", GENERATOR),
+    )
+    _refuse_pin_drift(
+        document,
+        tuple((key, expected, f"{key} must be {expected!r}") for key, expected in identity),
     )
 
 
@@ -276,7 +262,7 @@ def _validate_leftover3(raw: object) -> dict[str, Any]:
     _refuse_leftover3_counts(document)
     _refuse_leftover3_plants_pin(document)
     source = _require_object(_require_field(document, "source", "leftover3"), "source")
-    _refuse_source_drift(source, _LEFTOVER3_SOURCE_PINS)
+    _refuse_pin_drift(source, _LEFTOVER3_SOURCE_PINS)
     return document
 
 
@@ -411,7 +397,7 @@ def _validate_mills(raw: object) -> dict[str, Any]:
     _refuse_family_drift(document, SCHEMA_MILLS)
     _refuse_mill_totals(_mill_list(document))
     source = _require_object(_require_field(document, "source", "mills"), "mills.source")
-    _refuse_source_drift(source, _MILLS_SOURCE_PINS)
+    _refuse_pin_drift(source, _MILLS_SOURCE_PINS)
     return document
 
 

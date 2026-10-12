@@ -144,8 +144,12 @@ def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
         return None
 
 
-def _is_str_key(node: ast.AST | None) -> bool:
-    return isinstance(node, ast.Constant) and isinstance(node.value, str)
+def _str_key(node: ast.AST | None) -> str | None:
+    """The text of a string-constant dict key; None for any other key node."""
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
 
 
 def _constant_is(node: ast.AST | None, value: Any) -> bool:
@@ -165,16 +169,17 @@ def _entry_value(value_node: ast.AST, consts: Mapping[str, Any]) -> Any:
     return _dict_literal(value_node, consts)
 
 
-def _dict_literal(node: ast.AST, consts: Mapping[str, Any]) -> dict[str, Any] | None:
+def _dict_literal(node: ast.AST | None, consts: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(node, ast.Dict) or any(key is None for key in node.keys):
         return None
     row: dict[str, Any] = {}
     for key_node, value_node in zip(node.keys, node.values):
-        if not _is_str_key(key_node):
+        key = _str_key(key_node)
+        if key is None:
             continue
         value = _entry_value(value_node, consts)
         if value is not None:
-            row[key_node.value] = value
+            row[key] = value
     return row
 
 
@@ -270,10 +275,11 @@ def _language_view_dicts(returned: ast.Dict) -> Iterator[ast.Dict]:
 
 def _trajectory_key(view_node: ast.Dict) -> str | None:
     for nested_key, nested_value in zip(view_node.keys, view_node.values):
-        if not _is_str_key(nested_key) or nested_key.value in {"description", "trajectory"}:
+        key = _str_key(nested_key)
+        if key is None or key in {"description", "trajectory"}:
             continue
-        if nested_key.value.startswith("trajectory_") or _names(nested_value, "traj2"):
-            return nested_key.value
+        if key.startswith("trajectory_") or _names(nested_value, "traj2"):
+            return key
     return None
 
 
@@ -291,7 +297,7 @@ def _companion_key(returned: ast.Dict, view: Mapping[str, Any]) -> str:
 def _return_dict(node: ast.AST, assigns: Mapping[str, ast.AST]) -> ast.Dict | None:
     if not isinstance(node, ast.Return):
         return None
-    value = node.value
+    value: ast.AST | None = node.value
     if isinstance(value, ast.Name):
         value = assigns.get(value.id)
     return value if isinstance(value, ast.Dict) else None

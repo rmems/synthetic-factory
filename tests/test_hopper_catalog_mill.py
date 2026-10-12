@@ -63,6 +63,44 @@ class HopperMillCatalogLayoutTests(unittest.TestCase):
         self.assertEqual(len(tuple_mills), 4)
 
 
+_SIDE = "('{slug}', 'stack', 'unit', 'wrong', 'remedy', 'T-1', 'https://x.example', 'a/b')"
+
+
+class HopperMillExtractEdgeTests(unittest.TestCase):
+    """Module constants and string-literal sides on small in-memory mills."""
+
+    def _source(self, ok: str = "a-ok", bad: str = "a-handoff", head: str = "CATALOG_FIRST = 40\n"):
+        pair = f"({_SIDE.format(slug=ok)}, {_SIDE.format(slug=bad)})"
+        return head + f"PAIRS = [{pair}]\n"
+
+    def test_constants_are_str_or_int_literals_and_the_last_binding_wins(self):
+        head = (
+            "FACTORY = 'first-factory'\nFACTORY = GEN = 'shared'\nGEN: str = 'annotated'\n"
+            "CATALOG_FIRST = True\nCATALOG_FIRST = compute()\nCATALOG_FIRST = 12\nOTHER = 7\n"
+        )
+        rows = ast_extract_mill_pairs(self._source(head=head), source_path="x/ssl-mill-edge.py")
+        self.assertEqual((rows[0]["factory"], rows[0]["generator"], rows[0]["round"]),
+                         ("shared", "shared", 12))
+        self.assertEqual(rows[0]["mill_id"], "ssl-mill-edge")
+        swapped = ast_extract_mill_pairs(self._source(ok="b-handoff", bad="b-ok"),
+                                         source_path="ssl-mill-swap.py")
+        self.assertEqual((swapped[0]["ok"]["slug"], swapped[0]["bad"]["slug"]),
+                         ("b-ok", "b-handoff"))
+
+    def test_non_string_sides_and_a_missing_first_round_are_refused(self):
+        from hopper._contract import HopperRefusal
+
+        bad_side = self._source().replace("'T-1'", "1", 1)
+        with self.assertRaises(HopperRefusal) as caught:
+            ast_extract_mill_pairs(bad_side, source_path="ssl-mill-bad.py")
+        self.assertEqual(caught.exception.code, "CATALOG_FIELD_INVALID")
+        self.assertIn("PAIRS[0].ok[5] must be a string literal", str(caught.exception))
+        with self.assertRaises(HopperRefusal) as caught:
+            ast_extract_mill_pairs(self._source(head="CATALOG_FIRST = True\n"),
+                                   source_path="ssl-mill-bool.py")
+        self.assertIn("missing int CATALOG_FIRST", str(caught.exception))
+
+
 class HopperMillNeverExec(unittest.TestCase):
     BANNED_IMPORTS = frozenset({"subprocess", "importlib"})
 

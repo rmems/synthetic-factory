@@ -88,7 +88,7 @@ def _of_factory(rows: list, catalog: pl.Catalog, factory: str | None) -> list:
 def _with_slug(rows: list, slug: str | None) -> list:
     if slug is None:
         return rows
-    rows = [row for row in rows if row.ok["slug"] == slug or row.bad["slug"] == slug]
+    rows = [row for row in rows if slug in (row.ok["slug"], row.bad["slug"])]
     refuse_when(not rows, FINDING_UNKNOWN_SLUG, f"no hopper plant with slug {slug!r}")
     return rows
 
