@@ -524,11 +524,8 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         refuse(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    path_ids = (row.get("path_id") for row in factories if isinstance(row, dict))
+    return {path_id for path_id in path_ids if isinstance(path_id, str)}
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
