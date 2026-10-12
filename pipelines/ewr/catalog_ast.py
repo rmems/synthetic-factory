@@ -46,35 +46,64 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _is_str_constant(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and isinstance(node.value, str)
+def _str_constant(node: ast.AST) -> str | None:
+    """Return the value of a string literal node, or None for anything else."""
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
 
 
-def _is_plain_literal(node: ast.AST) -> bool:
+def _plain_literal(node: ast.AST) -> str | int | None:
+    """Return the value of a str or non-bool int literal node, or None for anything else."""
+
     if not isinstance(node, ast.Constant):
-        return False
-    return isinstance(node.value, (str, int)) and not isinstance(node.value, bool)
+        return None
+    value = node.value
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    return value
 
 
-def _is_literal_replace_call(node: ast.AST) -> bool:
-    """True for ``"base".replace("old", "new")`` with only string literals."""
+def _replace_receiver(func: ast.expr) -> str | None:
+    """Return "base" when ``func`` is ``"base".replace``, or None for anything else."""
 
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-        return False
-    if node.func.attr != "replace" or not _is_str_constant(node.func.value):
-        return False
-    return len(node.args) == 2 and all(_is_str_constant(arg) for arg in node.args)
+    if not isinstance(func, ast.Attribute) or func.attr != "replace":
+        return None
+    return _str_constant(func.value)
+
+
+def _str_constant_pair(args: list[ast.expr]) -> tuple[str, str] | None:
+    """Return the two values when ``args`` is exactly two string literals, or None."""
+
+    if len(args) != 2:
+        return None
+    old, new = _str_constant(args[0]), _str_constant(args[1])
+    if old is None or new is None:
+        return None
+    return old, new
+
+
+def _literal_replace_args(node: ast.AST) -> tuple[str, str, str] | None:
+    """Return (base, old, new) for ``"base".replace("old", "new")`` with only string literals."""
+
+    if not isinstance(node, ast.Call):
+        return None
+    base = _replace_receiver(node.func)
+    pair = _str_constant_pair(node.args)
+    if base is None or pair is None:
+        return None
+    return base, pair[0], pair[1]
 
 
 def _literal(node: ast.AST, where: str) -> str | int:
-    if _is_plain_literal(node):
-        assert isinstance(node, ast.Constant)
-        return node.value
-    if _is_literal_replace_call(node):
-        assert isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        assert isinstance(node.func.value, ast.Constant)
-        base = node.func.value.value
-        return base.replace(node.args[0].value, node.args[1].value)
+    plain = _plain_literal(node)
+    if plain is not None:
+        return plain
+    replace = _literal_replace_args(node)
+    if replace is not None:
+        base, old, new = replace
+        return base.replace(old, new)
     refuse(FINDING_CATALOG_PLANT, f"{where}: plant values must be str or int literals")
 
 
