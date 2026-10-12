@@ -17,7 +17,7 @@ from actf_test_support import cv, lineage
 _DIR = "actf-r99--fields"
 _VALID = {
     "path_key": _DIR,
-    "original_path": "/tmp/actf/gen.py",
+    "original_path": "recovered/actf/gen.py",
     "original_basename": "gen.py",
     "classification": "exact",
     "version_count": 0,

@@ -92,7 +92,7 @@ def _catalog_payload() -> dict:
     }
 
 
-def _catalog(args: argparse.Namespace) -> int:
+def _catalog(args: argparse.Namespace) -> None:
     payload = _catalog_payload()
     if args.json:
         print(dumps_exact_json(payload, indent=2))
@@ -100,38 +100,38 @@ def _catalog(args: argparse.Namespace) -> int:
         print(f"{SOURCE_MILL_ID} {FACTORY} {len(catalog.PLANTS)} plants")
         for index, plant in enumerate(catalog.PLANTS):
             print(f"{index:2d} {plant['slug']} {plant['tool']}")
-    return 0
 
 
-def _generate(args: argparse.Namespace) -> int:
+def _generate(args: argparse.Namespace) -> None:
     if args.window:
         start = SOURCE_ROUND if args.round is None else args.round
         for record in generate.generate_window(start, args.count):
             print(dumps_exact_json(record))
-        return 0
+        return
     if args.round is None:
         raise SrlError("missing_round: pass --round or --window")
     if args.count is not None:
         raise SrlError("count_requires_window")
     record = generate.episode(args.round, _plant(args.slug, args.index))
     print(dumps_exact_json(record))
-    return 0
 
 
-def _notes(args: argparse.Namespace) -> int:
+def _notes(args: argparse.Namespace) -> None:
     print(generate.notes(args.round, _plant(args.slug, args.index)), end="")
-    return 0
 
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "catalog":
-            return _catalog(args)
+            _catalog(args)
+            return 0
         if args.command == "generate":
-            return _generate(args)
+            _generate(args)
+            return 0
         if args.command == "notes":
-            return _notes(args)
+            _notes(args)
+            return 0
     except SrlError as exc:
         print(str(exc), file=sys.stderr)
         return 2
