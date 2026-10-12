@@ -18,14 +18,12 @@ from ._contract import (
     bind_import_twin,
     refuse_when,
 )
-from ._steps import BASIS_LIMIT, BASIS_PREFIXES, Observed, Scene, bash, edit, episode_record, read
+from ._steps import Observed, Scene, bash, edit, episode_record, read
 
 _LINT_SUMMARY = "Summary: 3 resources found, 0 errors.\n"
 _LINT_BLIND_SPOT = "# kubeconform does not evaluate this dataplane leftover.\n"
 
 __all__ = [
-    "BASIS_LIMIT",
-    "BASIS_PREFIXES",
     "build_handoff",
     "build_success",
 ]
