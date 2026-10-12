@@ -16,27 +16,35 @@ import curate_rewards
 
 
 class ProceduralGateFixture(GateFixture):
-    """Pass-through lanes around the real identity transform and completed batch."""
+    """Pass-through lanes around the real identity transform and completed batch.
 
-    def __init__(self, root, published_factory):
-        self.root = Path(root)
-        self.source_run = self.root / "evidence/outputs/raw/2099-01-01"
-        published_factory(self.source_run)
-        excluded = self.source_run / "thalamic-trajectory-factory/excluded.jsonl"
+    The base constructor lays out the synthetic six-lane scenario, which this
+    fixture replaces: instances come from :meth:`build` or :meth:`copy_template`.
+    """
+
+    @classmethod
+    def build(cls, root, published_factory):
+        """Lay the six lanes over a private copy of the published procedural round."""
+        fixture = cls.__new__(cls)
+        fixture.root = Path(root)
+        fixture.source_run = fixture.root / "evidence/outputs/raw/2099-01-01"
+        published_factory(fixture.source_run)
+        excluded = fixture.source_run / "thalamic-trajectory-factory/excluded.jsonl"
         excluded.parent.mkdir()
-        self.excluded_record = _thalamic("excluded-unreviewed")
-        self.excluded_record["factory"] = "unreviewed-source"
-        excluded.write_text(json.dumps(self.excluded_record) + "\n")
-        self.excluded_path = excluded.relative_to(self.source_run).as_posix()
-        self.cleaned = self.root / "cleaned-v1"
-        self.curated = self.root / "curated-v1"
+        fixture.excluded_record = _thalamic("excluded-unreviewed")
+        fixture.excluded_record["factory"] = "unreviewed-source"
+        excluded.write_text(json.dumps(fixture.excluded_record) + "\n")
+        fixture.excluded_path = excluded.relative_to(fixture.source_run).as_posix()
+        fixture.cleaned = fixture.root / "cleaned-v1"
+        fixture.curated = fixture.root / "curated-v1"
         plan = copy.deepcopy(_INTEGRATION_PLAN)
-        plan["source_run"] = self.source_run.relative_to(self.root).as_posix()
-        self.manifest_paths = []
+        plan["source_run"] = fixture.source_run.relative_to(fixture.root).as_posix()
+        fixture.manifest_paths = []
         for lane in plan["lanes"]:
-            self._write_lane(lane)
-        self.plan_path = self.root / "plan.json"
-        self.plan_path.write_text(json.dumps(plan))
+            fixture._write_lane(lane)
+        fixture.plan_path = fixture.root / "plan.json"
+        fixture.plan_path.write_text(json.dumps(plan))
+        return fixture
 
     @classmethod
     def copy_template(cls, template, root):
@@ -114,7 +122,7 @@ def _sealed_gate_template():
     from tests.code_repair_admission_test_support import copy_published_factory
     scratch = Path(tempfile.mkdtemp(prefix="procedural-gate-template-"))
     atexit.register(shutil.rmtree, scratch, True)
-    return ProceduralGateFixture(scratch, copy_published_factory)
+    return ProceduralGateFixture.build(scratch, copy_published_factory)
 
 
 def prepare_gate_template(test_case):
