@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, NamedTuple
+from collections import namedtuple
+from typing import Any
 
 if __name__.startswith("pipelines."):
     from ..curate_coding import contains_hidden_reasoning_key
@@ -109,25 +110,12 @@ def residual(p: Plant) -> str:
     return f"{s}.{p['col']} + {p['col_v2']}; leftover {p['leftover']} + {p['leftover2']}"
 
 
-class _StepNames(NamedTuple):
-    """The version, paths, commands, and residual text one episode's steps quote."""
-
-    ver: int
-    res: str
-    sname: str
-    mig: str
-    down: str
-    test: str
-    runbook: str
-    backfill: str
-    checksum: str
-    inspect_cmd: str
-    seed_cmd: str
-    abort_cmd: str
-    lock_cmd: str
-    lock_fail: str
-    expand: str
-    inspect_obs: str
+# The version, paths, commands, and residual text one episode's steps quote.
+_StepNames = namedtuple(
+    "_StepNames",
+    "ver res sname mig down test runbook backfill checksum"
+    " inspect_cmd seed_cmd abort_cmd lock_cmd lock_fail expand inspect_obs",
+)
 
 
 def _step_names(round_n: int, p: Plant, ep_idx: int) -> _StepNames:

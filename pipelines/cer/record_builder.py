@@ -4,8 +4,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
-from typing import Any
+from collections import namedtuple
 
 from . import vocabulary as cv
 
@@ -16,54 +15,26 @@ def sid(rnd: int, slug: str) -> str:
     return f"cer-r{rnd:04d}-{slug}-{h}"
 
 
-@dataclass(frozen=True)
-class _Fault:
-    """One plant's resolved fault: its files, identifiers, and fix narrative."""
-
-    p: dict
-    mod: str
-    caller: str
-    fn: str
-    src: str
-    cli: str
-    test: str
-    logp: str
-    repro: str
-    kind: str
-    n: Any
-    unit: str
-    ident: str
-    bug: str
-    naive: str
-    wrong: str
-    fix: str
-    rfc: str
-    ok: Any
+# One plant's resolved fault: its files, identifiers, and fix narrative. The
+# narrative fields take the plant keys in _NARRATIVE_KEYS order ("ok" is "success").
+_Fault = namedtuple(
+    "_Fault",
+    "p mod caller fn src cli test logp repro kind n unit ident bug naive wrong fix rfc ok",
+)
+_NARRATIVE_KEYS = ("kind", "n", "unit", "ident", "bug", "naive", "wrong", "fix", "rfc", "success")
 
 
 def _fault(p: dict) -> _Fault:
+    """Read the plant keys in the builder's original order and derive its file paths."""
     mod, caller, fn = p["mod"], p["caller"], p["fn"]
-    return _Fault(
-        p=p,
-        mod=mod,
-        caller=caller,
-        fn=fn,
-        src=f"jobs/{mod}.py",
-        cli=f"jobs/{caller}.py",
-        test=f"tests/test_{mod}.py",
-        logp=f"var/log/{mod}.log",
-        repro=f"repro_{mod}.py",
-        kind=p["kind"],
-        n=p["n"],
-        unit=p["unit"],
-        ident=p["ident"],
-        bug=p["bug"],
-        naive=p["naive"],
-        wrong=p["wrong"],
-        fix=p["fix"],
-        rfc=p["rfc"],
-        ok=p["success"],
+    files = (
+        f"jobs/{mod}.py",
+        f"jobs/{caller}.py",
+        f"tests/test_{mod}.py",
+        f"var/log/{mod}.log",
+        f"repro_{mod}.py",
     )
+    return _Fault(p, mod, caller, fn, *files, *(p[key] for key in _NARRATIVE_KEYS))
 
 
 def _inventory_steps(f: _Fault) -> list[dict]:
