@@ -161,9 +161,21 @@ def _canon_src(plant: cat.Plant) -> str:
 
 
 def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    return (
+        _success_survey_steps(plant)
+        + _success_dead_end_steps(plant)
+        + _success_adapt_steps(plant)
+        + _success_residual_steps(plant)
+    )
+
+
+def _success_survey_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-4: locate the surfaces, grep the drift, read and diff the schema."""
+
     path = _paths(plant)
-    leftover, spec, keep, deadend = plant.leftover, plant.spec, plant.keep, plant.deadend
-    extra_test = _extra_test(plant)
+    leftover = plant.leftover
+    spec = plant.spec
+    keep = plant.keep
     return [
         _step(
             1,
@@ -193,6 +205,18 @@ def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
             {"command": f"git diff origin/main -- {path['schema']} {path['host']}"},
             f"- {leftover}\n+ {spec}\n# Continue still {plant.freeze_still}",
         ),
+    ]
+
+
+def _success_dead_end_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 5-8: false-green contract tests, the RPC golden, and the dead-end."""
+
+    path = _paths(plant)
+    spec = plant.spec
+    keep = plant.keep
+    deadend = plant.deadend
+    extra_test = _extra_test(plant)
+    return [
         _step(
             5,
             "Observation: spec new; host still old (step 4). Run contract tests.",
@@ -224,6 +248,18 @@ def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
             f"Test{_canon_tail(plant)}Keep: got {deadend} want {spec}\nFAIL",
             f"Dead-end: Do not {deadend}. {plant.adapt_cmd}; keep {keep}.",
         ),
+    ]
+
+
+def _success_adapt_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 9-12: revert the dead-end, write and wire the canon, flip the fixture."""
+
+    path = _paths(plant)
+    leftover = plant.leftover
+    spec = plant.spec
+    keep = plant.keep
+    deadend = plant.deadend
+    return [
         _step(
             9,
             f"Reflection: revert dead-end (steps 7-8). {plant.adapt_cmd}; keep {keep}.",
@@ -256,6 +292,19 @@ def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
             {"command": f"pytest {path['test_py']} -q; go test ./tests/rpc ./src/server -count=1"},
             "pytest: 3 passed; Map PASS; Keep PASS; go: 6 passed",
         ),
+    ]
+
+
+def _success_residual_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 13-16: the dead-end is gone and the extra-field residual is documented."""
+
+    path = _paths(plant)
+    leftover = plant.leftover
+    spec = plant.spec
+    keep = plant.keep
+    deadend = plant.deadend
+    extra_test = _extra_test(plant)
+    return [
         _step(
             13,
             "Observation: tests green (step 12). Confirm dead-end is gone.",
@@ -289,9 +338,20 @@ def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
 
 
 def _fail_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    return (
+        _fail_survey_steps(plant)
+        + _fail_dead_end_steps(plant)
+        + _fail_server_only_steps(plant)
+        + _fail_handoff_steps(plant)
+    )
+
+
+def _fail_survey_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-4: locate the surfaces and freeze ticket, grep the drift, read and diff."""
+
     path = _paths(plant)
-    leftover, spec, keep, deadend = plant.leftover, plant.spec, plant.keep, plant.deadend
-    extra_test = _extra_test(plant)
+    leftover = plant.leftover
+    spec = plant.spec
     return [
         _step(
             1,
@@ -321,6 +381,19 @@ def _fail_steps(plant: cat.Plant) -> list[dict[str, Any]]:
             {"command": f"git diff origin/main -- {path['schema']} {path['host']}"},
             f"- {leftover}\n+ {spec}\n# Continue still {plant.freeze_still}",
         ),
+    ]
+
+
+def _fail_dead_end_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 5-8: false-green contract tests, the compensate golden, and the dead-end."""
+
+    path = _paths(plant)
+    leftover = plant.leftover
+    spec = plant.spec
+    keep = plant.keep
+    deadend = plant.deadend
+    extra_test = _extra_test(plant)
+    return [
         _step(
             5,
             "Observation: spec new; host still old (step 4). Run contract.",
@@ -351,6 +424,18 @@ def _fail_steps(plant: cat.Plant) -> list[dict[str, Any]]:
             f"Test{_canon_tail(plant)}Buffer: got {deadend} want {spec}\nFAIL",
             f"Dead-end: Do not {deadend}. {plant.adapt_cmd}; keep {keep}.",
         ),
+    ]
+
+
+def _fail_server_only_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 9-12: write the canon, read the freeze ticket, wire only the server."""
+
+    path = _paths(plant)
+    leftover = plant.leftover
+    spec = plant.spec
+    keep = plant.keep
+    deadend = plant.deadend
+    return [
         _step(
             9,
             f"Reflection: revert dead-end (steps 7-8). {plant.adapt_cmd}; keep {keep}.",
@@ -379,6 +464,18 @@ def _fail_steps(plant: cat.Plant) -> list[dict[str, Any]]:
             {"command": f"go test ./tests/rpc ./src/server -count=1; pytest {path['test_py']} -q"},
             "Buffer PASS; pytest: 2 passed; go: 6 passed",
         ),
+    ]
+
+
+def _fail_handoff_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 13-17: the frozen host still sends the old shape; hand off."""
+
+    path = _paths(plant)
+    leftover = plant.leftover
+    spec = plant.spec
+    deadend = plant.deadend
+    extra_test = _extra_test(plant)
+    return [
         _step(
             13,
             "Observation: tests green (step 12). Confirm host still old.",
@@ -521,6 +618,17 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
     if request.plant_id is not None:
         plant = loaded.plant(request.plant_id)
         return [(_require_round(request.round, plant.base_round), plant)]
+    mills = _mills_for_request(loaded, request)
+    jobs: list[tuple[int, cat.Plant]] = []
+    for mill in mills:
+        for index, plant in enumerate(loaded.mill_plants(mill.mill_id)):
+            jobs.append((mill.base_round + index, plant))
+    return jobs
+
+
+def _mills_for_request(loaded: cat.Catalog, request: GenerateRequest) -> list[cat.Mill]:
+    """Refuse a round without plant_id, then every mill or the one named."""
+
     if request.round is not None:
         raise MsdRefusal(FINDING_USAGE, "round applies only with plant_id")
     if request.mill_id is not None:
@@ -528,11 +636,7 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
         loaded.mill_plants(request.mill_id)
     else:
         mills = list(loaded.mills)
-    jobs: list[tuple[int, cat.Plant]] = []
-    for mill in mills:
-        for index, plant in enumerate(loaded.mill_plants(mill.mill_id)):
-            jobs.append((mill.base_round + index, plant))
-    return jobs
+    return mills
 
 
 def _check_destination(out_dir: Path) -> None:
