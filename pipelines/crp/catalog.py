@@ -170,11 +170,12 @@ def _base_plus_index(prefix: str, formatted: ast.expr) -> tuple[str, int] | None
     if not isinstance(formatted, ast.FormattedValue):
         return None
     inner = formatted.value
-    if isinstance(inner, ast.BinOp) and isinstance(inner.op, ast.Add):
-        if isinstance(inner.left, ast.Constant) and isinstance(inner.left.value, int):
-            if isinstance(inner.right, ast.Name) and inner.right.id == "i":
-                return prefix, inner.left.value
-    return None
+    if not isinstance(inner, ast.BinOp) or not isinstance(inner.op, ast.Add):
+        return None
+    base, index = inner.left, inner.right
+    if not isinstance(base, ast.Constant) or not isinstance(base.value, int):
+        return None
+    return (prefix, base.value) if isinstance(index, ast.Name) and index.id == "i" else None
 
 
 def _raw_rows_from_tree(tree: ast.Module) -> list[tuple[Any, ...]] | None:

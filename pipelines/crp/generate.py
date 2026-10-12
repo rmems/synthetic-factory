@@ -444,6 +444,10 @@ def _leftover3_last_round() -> int:
     return cat.WAVE_FIRST_ROUND + len(plants) // cat.PLANTS_PER_ROUND - 1
 
 
+# The one round type the waves accept: exactly ``int``, as main's ``type(x) is int`` was.
+_PLAIN_INT = frozenset({int})
+
+
 def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
     """The wave owning ``round_n``: earlier slices first, leftover3, then later slices."""
 
@@ -458,9 +462,9 @@ def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]
 
 
 def _is_round(round_n: Any) -> bool:
-    """A genuine int round: ``bool`` subclasses ``int`` but is never a round."""
+    """Only a plain ``int`` is a round; ``bool`` and every other ``int`` subclass are not."""
 
-    return isinstance(round_n, int) and not isinstance(round_n, bool)
+    return type(round_n) in _PLAIN_INT
 
 
 def _round_in_wave(round_n: int, wave: Any, after: int | None = None) -> bool:

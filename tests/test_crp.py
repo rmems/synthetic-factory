@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import enum
 import io
 import json
 import shutil
@@ -19,7 +20,7 @@ PIPELINES = REPO / "pipelines"
 sys.path.insert(0, str(PIPELINES))
 
 from crp import catalog as cat  # noqa: E402
-from crp import cli, generate  # noqa: E402
+from crp import cli, generate, wave_catalog  # noqa: E402
 from crp._contract import (  # noqa: E402
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
@@ -193,9 +194,9 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
-        with mock.patch.object(generate, "_fsync_destination", interrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                generate.run(generate.RunRequest(729, out))
+        interrupted = mock.patch.object(generate, "_fsync_destination", interrupt)
+        with interrupted, self.assertRaises(KeyboardInterrupt):
+            generate.run(generate.RunRequest(729, out))
         self.assertFalse(out.exists())
         summary = generate.run(generate.RunRequest(729, out))
         self.assertEqual(summary["records"], 3)
@@ -234,6 +235,19 @@ class RawEnumerateShapes(unittest.TestCase):
             ctx.exception.message, "_RAW expand loop has no indexed {{prefix}}{{base + i}} noun"
         )
 
+    def test_the_noun_base_must_be_an_int_plus_i(self):
+        for noun in ("f'keel{800 - i}'", "f'keel{x + i}'", "f'keel{800 + j}'"):
+            with self.subTest(noun=noun):
+                self.assertIsNone(cat._indexed_noun_base(ast.parse(noun, mode="eval").body))
+        found = cat._indexed_noun_base(ast.parse("f'atoll{12 + i}'", mode="eval").body)
+        self.assertEqual(found, ("atoll", 12))
+
+    def test_a_missing_git_is_a_coded_refusal(self):
+        with mock.patch.object(wave_catalog.shutil, "which", return_value=None):
+            with self.assertRaises(CrpRefusal) as ctx:
+                wave_catalog._git_executable()
+        self.assertEqual(ctx.exception.message, "git executable not found on PATH")
+
     def test_the_noun_loop_skips_every_non_plant_append(self):
         loop = (
             "for i in range(3):\n    PLANTS.append(P(a, b, f'keel{800 + i}'))\n"
@@ -251,7 +265,21 @@ class RawEnumerateShapes(unittest.TestCase):
         self.assertEqual(cat._raw_noun_base_from_tree(ast.parse(found)), ("reef", 805))
 
 
+class _Round(enum.IntEnum):
+    R432 = 432
+
+
 class WaveRouting(unittest.TestCase):
+    def test_only_a_plain_int_round_reaches_a_wave(self):
+        for round_n, shown in ((_Round.R432, "<_Round.R432: 432>"), (True, "True")):
+            with self.subTest(round_n=round_n), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "run"
+                with self.assertRaises(CrpRefusal) as ctx:
+                    generate.run(generate.RunRequest(round_n, out))
+                self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+                self.assertEqual(ctx.exception.message, f"round must be an int, got {shown}")
+                self.assertFalse(out.exists())
+
     def test_a_round_owned_by_no_wave_falls_through_to_the_leftover3_refusal(self):
         for round_n, message in (
             (4000, "round must lie in [729, 744], got 4000"),
