@@ -97,7 +97,7 @@ def program_id_for(upstream: Upstream, path: str, function: str) -> str:
 
 
 def _bound_names(node: ast.Import | ast.ImportFrom) -> set[str]:
-    return {_bound_name(alias) for alias in node.names}
+    return {(alias.asname or alias.name).split(".")[0] for alias in node.names}
 
 
 def _global_names(table: symtable.SymbolTable) -> set[str]:
@@ -212,10 +212,10 @@ def select_targets(text: str) -> list[str]:
 def _used_import(node: ast.Import | ast.ImportFrom, used: set[str]) -> str | None:
     """The import statement rebuilt with only the aliases the function reads (Codex on #202)."""
 
-    aliases = [a for a in node.names if _bound_name(a) in used]
+    aliases = [a for a in node.names if (a.asname or a.name).split(".")[0] in used]
     if not aliases:
         return None
-    rendered = ", ".join(_alias_source(a) for a in aliases)
+    rendered = ", ".join(a.name + (f" as {a.asname}" if a.asname else "") for a in aliases)
     if isinstance(node, ast.ImportFrom):
         return f"from {'.' * node.level}{node.module or ''} import {rendered}"
     return f"import {rendered}"
@@ -305,8 +305,8 @@ def _program_row(
     """The row for one target, or None (noted) when the original cannot be observed."""
 
     source_text = build.sources[path]
-    if (extracted := extract_module(source_text, function)) is None:
-        cv.refuse(cv.FINDING_TARGET_FUNCTION_NOT_FOUND, f"{path}::{function}")
+    extracted = extract_module(source_text, function)
+    cv.refuse_when(extracted is None, cv.FINDING_TARGET_FUNCTION_NOT_FOUND, f"{path}::{function}")
     text, span = extracted
     program_id = program_id_for(build.upstream, path, function)
     examples = cat.examples_of(text, function)
@@ -430,21 +430,6 @@ def write_catalog(
         meta["split_policy_sha256"] = build.policy.sha256
     with open(directory / cat.CATALOG_FILENAME, "x", encoding="utf-8") as handle:
         handle.write(json.dumps(meta, indent=2, sort_keys=True) + "\n")
-
-
-# --- import rendering -------------------------------------------------------------
-
-
-def _bound_name(alias: ast.alias) -> str:
-    """The top-level name one import alias binds in the importing module."""
-
-    return (alias.asname or alias.name).split(".")[0]
-
-
-def _alias_source(alias: ast.alias) -> str:
-    """One imported name as written: ``name`` or ``name as asname``."""
-
-    return alias.name + (f" as {alias.asname}" if alias.asname else "")
 
 
 bind_import_twin(__name__)
