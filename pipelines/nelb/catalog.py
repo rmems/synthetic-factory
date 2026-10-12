@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -716,18 +717,15 @@ def _load_committed_catalog(catalog_dir: Path | None = None) -> Catalog:
     return Catalog(CATALOG_ID, plants)
 
 
-_CATALOG: Catalog | None = None
-
 # Declared (never bound) so the export in ``__all__`` is visible to static
 # analysis; ``__getattr__`` below computes it from the catalog on first access.
 WAVE_ROUNDS: tuple[int, ...]
 
 
+@functools.cache
 def load_catalog() -> Catalog:
-    global _CATALOG
-    if _CATALOG is None:
-        _CATALOG = _load_committed_catalog()
-    return _CATALOG
+    """The committed catalog, loaded and pin-checked once per process."""
+    return _load_committed_catalog()
 
 
 def __getattr__(name: str) -> Any:

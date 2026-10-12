@@ -118,8 +118,9 @@ class BrwPairValidation(unittest.TestCase):
         self.assertEqual(str(caught.exception), "409 fail banned")
 
     def test_backface_reshaping_refuses_a_wrong_step_count(self):
-        visual = next(pair for pair in catalog.PAIRS if pair["css_short"] == "backface-visibility")
-        scene = generate._scene(visual)
+        visual = [pair for pair in catalog.PAIRS if pair["css_short"] == "backface-visibility"]
+        self.assertEqual(len(visual), 1)
+        scene = generate._scene(visual[0])
         steps = [{"n": index} for index in range(1, 9)]
         with self.assertRaises(BrwError) as caught:
             generate._backface_steps(scene, steps)

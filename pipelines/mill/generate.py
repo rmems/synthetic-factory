@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import catalog as cat
 from . import catalog_load
 from . import records
 from . import validation

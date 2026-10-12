@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ._contract import (
@@ -241,7 +241,7 @@ def _call_row(node: ast.Call, params: tuple[str, ...], where: str) -> dict[str, 
     return _leftover_identity(values, SHAPE_LEFTOVER_ROW, where)
 
 
-def _list_elts(node: ast.AST) -> list[ast.AST] | None:
+def _list_elts(node: ast.AST) -> Sequence[ast.AST] | None:
     return node.elts if isinstance(node, ast.List) else None
 
 
@@ -288,7 +288,7 @@ def _family_neq_filter(node: ast.ListComp) -> str | None:
     return None if generator is None else _family_neq_literal(generator.ifs[0])
 
 
-def _dict_call_rows(elts: list[ast.AST]) -> list[dict[str, Any]]:
+def _dict_call_rows(elts: Sequence[ast.AST]) -> list[dict[str, Any]]:
     return [
         _identity_keywords(elt, f"_ROWS[{index}]")
         for index, elt in enumerate(elts)
@@ -296,7 +296,7 @@ def _dict_call_rows(elts: list[ast.AST]) -> list[dict[str, Any]]:
     ]
 
 
-def _row_call_rows(elts: list[ast.AST], params: tuple[str, ...] | None) -> list[dict[str, Any]]:
+def _row_call_rows(elts: Sequence[ast.AST], params: tuple[str, ...] | None) -> list[dict[str, Any]]:
     if params is None:
         refuse(FINDING_AST_NOT_A_PLANT, "_ROWS uses _row() but no def _row is in the module")
     return [
@@ -306,7 +306,7 @@ def _row_call_rows(elts: list[ast.AST], params: tuple[str, ...] | None) -> list[
     ]
 
 
-def _dict_literal_rows(elts: list[ast.AST]) -> list[dict[str, Any]]:
+def _dict_literal_rows(elts: Sequence[ast.AST]) -> list[dict[str, Any]]:
     return [
         _identity_mapping(elt, f"_ROWS[{index}]")
         for index, elt in enumerate(elts)
@@ -321,7 +321,7 @@ def _called_name(node: ast.AST) -> str | None:
 
 
 def _identities_from_row_elts(
-    elts: list[ast.AST],
+    elts: Sequence[ast.AST],
     params: tuple[str, ...] | None,
 ) -> list[dict[str, Any]]:
     if not elts:

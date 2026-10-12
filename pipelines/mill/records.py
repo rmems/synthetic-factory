@@ -7,6 +7,7 @@ Ids use the mill prefix; meta names this family's factory and generator.
 
 from __future__ import annotations
 
+from collections import namedtuple
 from typing import Any
 
 from . import catalog as cat
@@ -81,15 +82,19 @@ def _domain(plant: cat.Plant, *, dropped: bool) -> str:
     return f"{plant.short}-{plant.identity_field}-{infix}-{plant.event_field}"
 
 
-def success_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
-    """16-step success: naive key, identity-only miss, then (identity, event) bind."""
-    src = f"src/{plant.module}.py"
-    test = f"tests/test_{plant.module}.py"
+_Bind = namedtuple("_Bind", "plant src test idf evf naive naive_return")
+
+
+def _bind_scene(plant: cat.Plant, module: str) -> _Bind:
     idf, evf, naive = plant.identity_field, plant.event_field, plant.naive_field
-    naive_return = f"    return ev[{naive!r}]"
-    half = f"    return ev.get({idf!r}) or ev[{naive!r}]"
-    bound = f"    return (ev[{idf!r}], ev[{evf!r}])"
-    steps = [
+    return _Bind(plant, f"src/{module}.py", f"tests/test_{module}.py", idf, evf, naive,
+                 f"    return ev[{naive!r}]")
+
+
+def _success_probe_steps(c: _Bind) -> list[dict[str, Any]]:
+    """Steps 1-9: list, failing test, read, grep, source, and two recovered doc fetches."""
+    plant, src, test, idf, evf, naive, naive_return = c
+    return [
         _step(1, cv.DB_PLAN, f"list src {plant.short} and tests before touching conversion or config.",
               _bash(f"ls -la src {plant.short} tests | head -40"),
               f"{src} {plant.module}/cfg.yml\n{test}",
@@ -124,6 +129,15 @@ def success_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
               _fetch(plant.docs[1]),
               f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\nDo not drop {evf}.",
               "Retry succeeded. Resume the local debug plan with that document in hand."),
+    ]
+
+
+def _success_fix_steps(c: _Bind) -> list[dict[str, Any]]:
+    """Steps 10-16: the identity-only patch stays red, then the (identity, event) bind passes."""
+    plant, src, test, idf, evf, naive, naive_return = c
+    half = f"    return ev.get({idf!r}) or ev[{naive!r}]"
+    bound = f"    return (ev[{idf!r}], ev[{evf!r}])"
+    return [
         _step(10, cv.DB_OBSERVATION, f"docs and source are in. Apply the first patch to {src}.",
               _edit(src, naive_return, half),
               f"patched {idf} (dropped {evf}; retries collide)",
@@ -149,29 +163,12 @@ def success_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
               f"diffstat for {plant.plant_id}: {src} | 9 ++++++---. No other modified paths.",
               "Diff is the review artifact. No further edits."),
     ]
-    cv.refuse_when(len(steps) != cv.SUCCESS_STEPS, cv.FINDING_STEP_COUNT_INVALID, "success step count drifted")
-    return {
-        "id": cv.record_id(round_n, plant.plant_id),
-        "goal": f"Dedupe {plant.provider} events on ({idf}, {evf}), not {naive}.",
-        "plan": f"Read {naive}-as-pk, try {idf} only, then bind ({idf}, {evf}).",
-        "steps": steps,
-        "outcome": f"Bound ({idf}, {evf}). {naive} unused (success).",
-        "reward": {
-            "success": True, "tests_passed": 3, "retries": 2, "duration_min": 610,
-            "wasted_calls": 180, "cost_steps": cv.SUCCESS_STEPS, "plan_changes": 1,
-        },
-        "meta": _meta(round_n, plant.plant_id, _domain(plant, dropped=False), f"{plant.provider} identity-bind"),
-    }
 
 
-def fail_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
-    """17-step handoff: dropping the event field stays red; ticket the grain."""
-    src = f"src/{plant.drop_module}.py"
-    test = f"tests/test_{plant.drop_module}.py"
-    idf, evf, naive = plant.identity_field, plant.event_field, plant.naive_field
-    naive_return = f"    return ev[{naive!r}]"
-    half = f"    return ev.get({idf!r})"
-    steps = [
+def _fail_probe_steps(c: _Bind) -> list[dict[str, Any]]:
+    """Steps 1-9: list, failing test, read, grep, source, and two recovered doc fetches."""
+    plant, src, test, idf, evf, naive, naive_return = c
+    return [
         _step(1, cv.DB_PLAN, f"list src {plant.dshort} and tests before touching conversion or config.",
               _bash(f"ls -la src {plant.dshort} tests | head -40"),
               f"{src} {plant.drop_module}/cfg.yml\n{test}",
@@ -206,6 +203,14 @@ def fail_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
               _fetch(plant.docs[1]),
               f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\nHandoff {plant.ticket}.",
               "Degraded path used the local fixture. Resume the local debug plan."),
+    ]
+
+
+def _fail_handoff_steps(c: _Bind) -> list[dict[str, Any]]:
+    """Steps 10-17: the patch stays red, the event grain is handed off, then lint."""
+    plant, src, test, idf, evf, naive, naive_return = c
+    half = f"    return ev.get({idf!r})"
+    return [
         _step(10, cv.DB_OBSERVATION, f"docs and source are in. Apply the first patch to {src}.",
               _edit(src, naive_return, half), f"patched {idf} (still dropped {evf})",
               "Patch applied. Re-run the failing test; do not assume green."),
@@ -236,6 +241,33 @@ def fail_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
               _bash("ruff check tests || true; echo lint-end"), "All checks passed!\nlint-end",
               "Lint clean. Episode complete."),
     ]
+
+
+def success_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
+    """16-step success: naive key, identity-only miss, then (identity, event) bind."""
+    c = _bind_scene(plant, plant.module)
+    idf, evf, naive = c.idf, c.evf, c.naive
+    steps = _success_probe_steps(c) + _success_fix_steps(c)
+    cv.refuse_when(len(steps) != cv.SUCCESS_STEPS, cv.FINDING_STEP_COUNT_INVALID, "success step count drifted")
+    return {
+        "id": cv.record_id(round_n, plant.plant_id),
+        "goal": f"Dedupe {plant.provider} events on ({idf}, {evf}), not {naive}.",
+        "plan": f"Read {naive}-as-pk, try {idf} only, then bind ({idf}, {evf}).",
+        "steps": steps,
+        "outcome": f"Bound ({idf}, {evf}). {naive} unused (success).",
+        "reward": {
+            "success": True, "tests_passed": 3, "retries": 2, "duration_min": 610,
+            "wasted_calls": 180, "cost_steps": cv.SUCCESS_STEPS, "plan_changes": 1,
+        },
+        "meta": _meta(round_n, plant.plant_id, _domain(plant, dropped=False), f"{plant.provider} identity-bind"),
+    }
+
+
+def fail_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
+    """17-step handoff: dropping the event field stays red; ticket the grain."""
+    c = _bind_scene(plant, plant.drop_module)
+    evf, naive = c.evf, c.naive
+    steps = _fail_probe_steps(c) + _fail_handoff_steps(c)
     cv.refuse_when(len(steps) != cv.FAIL_STEPS, cv.FINDING_STEP_COUNT_INVALID, "fail step count drifted")
     return {
         "id": cv.record_id(round_n, plant.fail_id),

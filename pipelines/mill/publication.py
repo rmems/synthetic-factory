@@ -42,8 +42,7 @@ def _load_run(run_dir: Path) -> dict[str, Any]:
     return payload
 
 
-def publish(request: PublishRequest) -> dict[str, Any]:
-    """Validate ``run_dir`` against the catalog and write a receipt-only copy."""
+def _refuse_request(request: PublishRequest) -> None:
     cv.refuse_when(
         request.hop_factory is not None,
         cv.FINDING_FACTORY_HOP_REFUSED,
@@ -55,14 +54,21 @@ def publish(request: PublishRequest) -> dict[str, Any]:
         f"factory {cv.shown(request.factory_id)} is not {cv.FACTORY_ID}",
     )
     _refuse_destination(request.out_dir)
-    summary = _load_run(request.run_dir)
+
+
+def _mill_run(run_dir: Path) -> dict[str, Any]:
+    summary = _load_run(run_dir)
     cv.refuse_when(
         summary.get("factory_id") != cv.FACTORY_ID,
         cv.FINDING_FACTORY_MISMATCH,
         f"run factory_id {cv.shown(summary.get('factory_id'))} is not {cv.FACTORY_ID}",
     )
-    loaded = catalog_load.load_catalog(request.catalog_dir)
-    pairs_path = request.run_dir / generate.PAIRS_FILENAME
+    return summary
+
+
+def _run_pairs(run_dir: Path, summary: dict[str, Any]) -> tuple[Path, list[str], Any, Any]:
+    """``pairs.jsonl``, its nonblank lines, and the plant ids and start round they pair with."""
+    pairs_path = run_dir / generate.PAIRS_FILENAME
     cv.refuse_when(not pairs_path.is_file(), cv.FINDING_RUN_FILE_MISSING, f"missing {generate.PAIRS_FILENAME}")
     lines = [line for line in pairs_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     plant_ids = summary.get("plant_ids")
@@ -77,6 +83,10 @@ def publish(request: PublishRequest) -> dict[str, Any]:
         cv.FINDING_RECORD_MALFORMED,
         f"start_round {cv.shown(start_round)} is not a positive integer",
     )
+    return pairs_path, lines, plant_ids, start_round
+
+
+def _check_run_pairs(loaded: Any, lines: list[str], plant_ids: list[Any], start_round: int) -> None:
     for index, plant_id in enumerate(plant_ids):
         try:
             plant = loaded.plant(plant_id)
@@ -85,12 +95,25 @@ def publish(request: PublishRequest) -> dict[str, Any]:
         success = load_strict_json(lines[index * 2])
         failure = load_strict_json(lines[index * 2 + 1])
         validation.check_pair(success, failure, plant, start_round + index)
+
+
+def _copy_run(request: PublishRequest, pairs_path: Path) -> None:
     request.out_dir.mkdir(parents=True)
     (request.out_dir / generate.PAIRS_FILENAME).write_bytes(pairs_path.read_bytes())
     (request.out_dir / generate.RUN_FILENAME).write_bytes((request.run_dir / generate.RUN_FILENAME).read_bytes())
     notes = request.run_dir / generate.NOTES_FILENAME
     if notes.is_file():
         (request.out_dir / generate.NOTES_FILENAME).write_bytes(notes.read_bytes())
+
+
+def publish(request: PublishRequest) -> dict[str, Any]:
+    """Validate ``run_dir`` against the catalog and write a receipt-only copy."""
+    _refuse_request(request)
+    summary = _mill_run(request.run_dir)
+    loaded = catalog_load.load_catalog(request.catalog_dir)
+    pairs_path, lines, plant_ids, start_round = _run_pairs(request.run_dir, summary)
+    _check_run_pairs(loaded, lines, plant_ids, start_round)
+    _copy_run(request, pairs_path)
     receipt = {
         "format": cv.PUBLICATION_FORMAT,
         "family": cv.FAMILY,
