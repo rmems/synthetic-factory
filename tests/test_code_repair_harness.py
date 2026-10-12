@@ -194,7 +194,8 @@ class TamperResistance(unittest.TestCase):
     )
     _ATEXIT_CLEAR_NOOP = "import atexit\natexit._clear = lambda: None\n" + _ATEXIT_REPORT_FD
 
-    def _run_forged_pass(self, preamble: str) -> ex.PhaseReport:
+    @staticmethod
+    def _run_forged_pass(preamble: str) -> ex.PhaseReport:
         module = preamble + "def f(n):\n    return 999\n"
         job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
         return RUNNER.run(job)

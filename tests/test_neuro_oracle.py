@@ -153,8 +153,10 @@ class Quantization(unittest.TestCase):
         _, provenance = oracle.quantize_model(_model(w_in=[[300.0, 0.0], [0.0, 0.5]]))
         self.assertEqual(provenance["saturated_parameter_count"], 1)
         entry = next(
-            item for item in provenance["parameters"] if item["parameter"] == "w_in[0][0]"
+            (item for item in provenance["parameters"] if item["parameter"] == "w_in[0][0]"),
+            None,
         )
+        self.assertIsNotNone(entry)
         self.assertTrue(entry["saturated"])
         self.assertEqual(entry["q88_value"], oracle.Q88_MAX_VALUE)
 
@@ -304,7 +306,8 @@ class Adapters(unittest.TestCase):
 
 
 class RecordedCapture(unittest.TestCase):
-    def _capture(self, tmp, **overrides):
+    @staticmethod
+    def _capture(tmp, **overrides):
         model = _model()
         stimulus = oracle.normalize_stimulus(_stimulus(), model["inputs"])
         _, quantization = oracle.quantize_model(model)

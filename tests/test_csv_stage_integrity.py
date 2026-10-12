@@ -12,7 +12,8 @@ from tests.test_csv import FIXTURE, FIRST_SLUG, invoke
 
 
 class StageIntegrity(unittest.TestCase):
-    def _request(self, root):
+    @staticmethod
+    def _request(root):
         return generate.GenerateRequest(FIXTURE, root / "run", all_plants=True)
 
     def test_replaced_stage_is_not_recursively_deleted_on_failure(self):

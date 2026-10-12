@@ -40,7 +40,8 @@ class ComposeRunLinesContract(unittest.TestCase):
         from compose_curated_run_context import ComposeRunState, SourceFileContext
 
         class Services:
-            def write_new_text(self, *args, **kwargs):
+            @staticmethod
+            def write_new_text(*args, **kwargs):
                 raise AssertionError("must not write unterminated middle records")
 
         from compose_contract import NativeRecordFrame

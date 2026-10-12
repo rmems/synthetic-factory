@@ -34,20 +34,20 @@ class RightsPolicyGuardTests(unittest.TestCase):
         class NonTupleSlots:
             __slots__ = "value"
 
-            def __setstate__(self, state):
-                del state
+            def __setstate__(self, _state):
+                """Accept and discard restored state; only the hook's presence matters."""
 
         class EmptySlots:
             __slots__ = ()
 
-            def __setstate__(self, state):
-                del state
+            def __setstate__(self, _state):
+                """Accept and discard restored state; only the hook's presence matters."""
 
         class HostileNonTupleSlots:
             __slots__ = HostileSlots()
 
-            def __setstate__(self, state):
-                del state
+            def __setstate__(self, _state):
+                """Accept and discard restored state; only the hook's presence matters."""
 
         incompatible_classes = (
             MissingSetstate,

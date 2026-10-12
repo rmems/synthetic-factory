@@ -136,14 +136,19 @@ class SimulatorExecutableClosure(unittest.TestCase):
                 payload = original(path)
                 return payload + b"\n# drift\n" if path == target else payload
 
-            with self.subTest(source=relative), patch.object(Path, "read_bytes", substituted):
-                with self.assertRaises(identity.IdentityCurationError):
-                    source_pins.require_simulator_sources()
+            with (
+                self.subTest(source=relative),
+                patch.object(Path, "read_bytes", substituted),
+                self.assertRaises(identity.IdentityCurationError),
+            ):
+                source_pins.require_simulator_sources()
 
     def test_unavailable_dependency_is_refused(self):
-        with patch.object(Path, "read_bytes", side_effect=FileNotFoundError):
-            with self.assertRaises(identity.IdentityCurationError):
-                source_pins.require_simulator_sources()
+        with (
+            patch.object(Path, "read_bytes", side_effect=FileNotFoundError),
+            self.assertRaises(identity.IdentityCurationError),
+        ):
+            source_pins.require_simulator_sources()
 
 
 class TrustedCandidateRoute(RightsPolicyTestCase):

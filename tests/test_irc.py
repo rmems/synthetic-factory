@@ -386,7 +386,7 @@ class IrcCli(unittest.TestCase):
     def test_unknown_slug_is_exit_two(self):
         root = Path(tempfile.mkdtemp(prefix="irc-miss-"))
         self.addCleanup(shutil.rmtree, root, True)
-        code, out, err = invoke(["generate", "--out", str(root / "out"), "--slug", "nope"])
+        code, _, err = invoke(["generate", "--out", str(root / "out"), "--slug", "nope"])
         self.assertEqual(code, 2)
         self.assertIn("irc.pair_not_found", err)
 
