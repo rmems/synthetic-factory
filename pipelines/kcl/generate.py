@@ -30,7 +30,8 @@ from ._contract import (
     refuse_first,
     refuse_when,
 )
-from .episode import build_handoff, build_success, notes_markdown
+from .episode import build_handoff, build_success
+from .notes import notes_markdown
 
 if __name__.startswith("pipelines."):
     from ..hopper import emit_stage, pairs_by_factory, start_by_factory

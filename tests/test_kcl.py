@@ -26,6 +26,7 @@ PACKAGE_FILES = (
     "cli.py",
     "episode.py",
     "generate.py",
+    "notes.py",
 )
 
 sys.path.insert(0, str(PIPELINES))
