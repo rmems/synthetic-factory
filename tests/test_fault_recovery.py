@@ -464,12 +464,15 @@ class FamilyChecks(unittest.TestCase):
 
     @staticmethod
     def _hard_deadline_fail_closed():
-        record = next(
-            item
-            for item in fr.build_records(seed=20260823, count=20)
-            if item["intervention"]["kind"] == "delayed_result"
-            and item["result"]["outcome"] == "fail_closed"
-        )
+        try:
+            record = next(
+                item
+                for item in fr.build_records(seed=20260823, count=20)
+                if item["intervention"]["kind"] == "delayed_result"
+                and item["result"]["outcome"] == "fail_closed"
+            )
+        except StopIteration as exc:
+            raise AssertionError("seed 20260823 has no fail-closed delayed result") from exc
         return copy.deepcopy(record)
 
     def test_renamed_implementation_cannot_escape_simulator_gates(self):

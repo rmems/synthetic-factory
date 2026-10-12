@@ -124,9 +124,12 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
     @staticmethod
     def _preferred(record: dict) -> dict:
         preferred_id = record["result"]["preference"]["preferred"]
-        return next(
-            c for c in record["result"]["candidates"] if c["id"] == preferred_id
-        )
+        try:
+            return next(
+                c for c in record["result"]["candidates"] if c["id"] == preferred_id
+            )
+        except StopIteration as exc:
+            raise AssertionError(f"no candidate has the preferred id {preferred_id!r}") from exc
 
     @staticmethod
     def _readings_for(record: dict, candidate_id: str, quantity: str):
