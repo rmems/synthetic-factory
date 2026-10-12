@@ -39,11 +39,10 @@ refusal_of = gate.refusal_of
 render_row = render.render_row
 view_findings = findings.view_findings
 
-__all__ = [
-    "PublicView", "TextViewRefusal", "chat_row", "choice_answer_of", "choice_options",
-    "choice_row", "completion_of", "is_positive", "public_view", "refusal_of", "render_prompt",
-    "render_row", "rows_for", "sft_row", "view_findings",
-]
+__all__ = (
+    "PublicView TextViewRefusal chat_row choice_answer_of choice_options choice_row completion_of "
+    "is_positive public_view refusal_of render_prompt render_row rows_for sft_row view_findings"
+).split()
 
 
 def _checked(record: dict[str, Any], kind: str) -> dict[str, Any]:
