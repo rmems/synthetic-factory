@@ -245,27 +245,31 @@ def preference_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, 
         },
         "critique": critique,
         "reward": {"success": True, "preference_margin": 0.83, "same_goal": 1.0},
-        "meta": {
-            "catalog_id": catalog_id,
-            "chosen_steps": 8,
-            "construction": "divergence-point-shared-prefix",
-            "designed": True,
-            "divergence_step": 5,
-            "factory": FACTORY,
-            "fork": f"{plant.verify} vs {plant.destroy}",
-            "generator": GENERATOR,
-            "kind": "preference",
-            "plant": "designed",
-            "plant_id": plant.plant_id,
-            "rejected_sin": "wrong tool",
-            "rejected_steps": 8,
-            "round": rnd,
-            "sim_or_real": "designed",
-            "tool": plant.bin,
-        },
+        "meta": _preference_meta(rnd, plant, catalog_id),
     }
     _refuse_banned(record)
     return record
+
+
+def _preference_meta(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
+    return {
+        "catalog_id": catalog_id,
+        "chosen_steps": 8,
+        "construction": "divergence-point-shared-prefix",
+        "designed": True,
+        "divergence_step": 5,
+        "factory": FACTORY,
+        "fork": f"{plant.verify} vs {plant.destroy}",
+        "generator": GENERATOR,
+        "kind": "preference",
+        "plant": "designed",
+        "plant_id": plant.plant_id,
+        "rejected_sin": "wrong tool",
+        "rejected_steps": 8,
+        "round": rnd,
+        "sim_or_real": "designed",
+        "tool": plant.bin,
+    }
 
 
 def notes_markdown(rnd: int, plant: cat.Plant) -> str:
