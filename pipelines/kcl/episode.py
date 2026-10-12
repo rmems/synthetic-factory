@@ -48,8 +48,7 @@ def _clip(text: str) -> str:
 def _step(
     n: int,
     basis: str,
-    name: str,
-    args: dict[str, str],
+    tool_call: dict[str, Any],
     observation: str,
     reflection: str,
 ) -> dict[str, Any]:
@@ -63,24 +62,24 @@ def _step(
     return {
         "n": n,
         "decision_basis": clipped,
-        "tool_call": {"name": name, "args": args},
+        "tool_call": tool_call,
         "observation": observation,
         "reflection": reflection,
     }
 
 
 def _bash(n: int, basis: str, cmd: str, obs: str, reflection: str) -> dict[str, Any]:
-    return _step(n, basis, "bash", {"command": cmd}, obs, reflection)
+    return _step(n, basis, {"name": "bash", "args": {"command": cmd}}, obs, reflection)
 
 
 def _read(n: int, basis: str, path: str, obs: str, reflection: str) -> dict[str, Any]:
-    return _step(n, basis, "read", {"path": path}, obs, reflection)
+    return _step(n, basis, {"name": "read", "args": {"path": path}}, obs, reflection)
 
 
-def _edit(
-    n: int, basis: str, path: str, old: str, new: str, obs: str, reflection: str
-) -> dict[str, Any]:
-    return _step(n, basis, "edit", {"path": path, "old": old, "new": new}, obs, reflection)
+def _edit(n: int, basis: str, args: dict[str, str], obs: str, reflection: str) -> dict[str, Any]:
+    """``args`` is the edit tool's own ``{"path", "old", "new"}`` argument mapping."""
+
+    return _step(n, basis, {"name": "edit", "args": args}, obs, reflection)
 
 
 def _assert_clean(obj: Any, path: str = "") -> None:
@@ -100,25 +99,14 @@ def _assert_clean(obj: Any, path: str = "") -> None:
 
 
 def _episode(
-    spec: Mapping[str, str],
-    *,
-    eid: str,
-    goal: str,
-    plan: str,
-    steps: list[dict[str, Any]],
-    outcome: str,
-    reward: dict[str, Any],
-    round_n: int,
-    mill_id: str,
-    plant_id: str,
+    episode: Mapping[str, Any], *, round_n: int, mill_id: str, plant_id: str
 ) -> dict[str, Any]:
+    """``episode`` carries the record's own fields in order: id, goal, plan, steps,
+    outcome, reward. Provenance ``meta`` is appended from the plant and round."""
+
     record = {
-        "id": eid,
-        "goal": goal,
-        "plan": plan,
-        "steps": steps,
-        "outcome": outcome,
-        "reward": dict(reward),
+        **episode,
+        "reward": dict(episode["reward"]),
         "meta": {
             "catalog_id": "kcl-plants-v1",
             "designed": True,
@@ -215,9 +203,11 @@ def _success_wrong_hide(
         _edit(
             7,
             "Observation: --wait failed. Apply the wrong first hide.",
-            f"charts/{app}/values.yaml",
-            hide[0],
-            hide[1],
+            {
+                "path": f"charts/{app}/values.yaml",
+                "old": hide[0],
+                "new": hide[1],
+            },
             f"patched {spec['hide_name']} (wrong knob; {field} still {spec['fail_val']})",
             "Hide is not the contract. Confirm then plan-change.",
         ),
@@ -239,9 +229,11 @@ def _success_plan_change(
         _edit(
             9,
             f"Reflection: {field} {spec['fix_val']} is the contract. Undo {spec['hide_name']}.",
-            f"charts/{app}/values.yaml",
-            hide_new,
-            spec["values_fix"],
+            {
+                "path": f"charts/{app}/values.yaml",
+                "old": hide_new,
+                "new": spec["values_fix"],
+            },
             f"patched {field} {spec['fix_val']}; hide undone",
             "Apply without --force.",
         ),
@@ -277,9 +269,11 @@ def _success_verify(
         _edit(
             13,
             "Observation: 6/6. Patch CI.md so the hide cannot return.",
-            f"charts/{app}/CI.md",
-            f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n",
-            f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n{spec['ci']}\n",
+            {
+                "path": f"charts/{app}/CI.md",
+                "old": f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n",
+                "new": f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n{spec['ci']}\n",
+            },
             "patched CI.md",
             "CI records the contract.",
         ),
@@ -346,26 +340,27 @@ def build_success(
     ]
     refuse_when(len(steps) != SUCCESS_STEPS, FINDING_USAGE, f"{eid} want {SUCCESS_STEPS} steps")
     return _episode(
-        spec,
-        eid=eid,
-        goal=(
-            f"{app} in designed plant {ns} is CrashLoopBackOff after leftover {field}: "
-            f"{spec['fail_val']}. {spec['seed']}. Do not toggle {spec['hide_name']} as a hide."
-        ),
-        plan=f"Read {field} vs live, template, apply, then {spec['fix_val']}.",
-        steps=steps,
-        outcome=(
-            f"kubeconform passed {spec['fail_val']}. helm --wait leftover. "
-            f"{spec['hide_name']} hid nothing. Plan change: {field} {spec['fix_val']}. "
-            "Rev 5: 2/2, 6/6."
-        ),
-        reward={
-            "success": True,
-            "apply_fails": 2,
-            "plan_changes": 1,
-            "tests_passed": 6,
-            "pods_ready": 2,
-            "cost_steps": SUCCESS_STEPS,
+        {
+            "id": eid,
+            "goal": (
+                f"{app} in designed plant {ns} is CrashLoopBackOff after leftover {field}: "
+                f"{spec['fail_val']}. {spec['seed']}. Do not toggle {spec['hide_name']} as a hide."
+            ),
+            "plan": f"Read {field} vs live, template, apply, then {spec['fix_val']}.",
+            "steps": steps,
+            "outcome": (
+                f"kubeconform passed {spec['fail_val']}. helm --wait leftover. "
+                f"{spec['hide_name']} hid nothing. Plan change: {field} {spec['fix_val']}. "
+                "Rev 5: 2/2, 6/6."
+            ),
+            "reward": {
+                "success": True,
+                "apply_fails": 2,
+                "plan_changes": 1,
+                "tests_passed": 6,
+                "pods_ready": 2,
+                "cost_steps": SUCCESS_STEPS,
+            },
         },
         round_n=round_n,
         mill_id=mill_id,
@@ -414,9 +409,11 @@ def _handoff_forced_apply(
         _edit(
             7,
             "Observation: --wait failed. Apply the wrong first hide and --force.",
-            f"charts/{app}/values.yaml",
-            spec["values_fail"],
-            values_hide,
+            {
+                "path": f"charts/{app}/values.yaml",
+                "old": spec["values_fail"],
+                "new": values_hide,
+            },
             "patched the hide; applying with --force as the ticket asked",
             "--force is the wrong applicator.",
         ),
@@ -441,10 +438,12 @@ def _handoff_forbid_force(spec: Mapping[str, str], scene: _Scene) -> list[dict[s
             9,
             f"Reflection: leftover is n2 {field} {spec['fail_val']}. "
             f"Keep git {spec['fix_val']}; do not --force.",
-            f"charts/{app}/CI.md",
-            f"helm upgrade --install {app} charts/{app} -n {ns} --wait --force\n",
-            f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n"
-            "# Never --force: three-way keeps live leftovers.\n",
+            {
+                "path": f"charts/{app}/CI.md",
+                "old": f"helm upgrade --install {app} charts/{app} -n {ns} --wait --force\n",
+                "new": f"helm upgrade --install {app} charts/{app} -n {ns} --wait\n"
+                "# Never --force: three-way keeps live leftovers.\n",
+            },
             "patched CI.md forbid --force; git now holds the real fix",
             "Git is tight. Cluster mixed.",
         ),
@@ -510,9 +509,11 @@ def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, A
         _edit(
             15,
             "Observation: tests 2/3. Write HANDOFF.md.",
-            f"charts/{app}/HANDOFF.md",
-            "",
-            spec["handoff"] + "\n",
+            {
+                "path": f"charts/{app}/HANDOFF.md",
+                "old": "",
+                "new": spec["handoff"] + "\n",
+            },
             "wrote HANDOFF.md",
             "Handoff recorded.",
         ),
@@ -541,6 +542,18 @@ def _handoff_partial(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, A
     ]
 
 
+def _handoff_steps(spec: Mapping[str, str], scene: _Scene) -> list[dict[str, Any]]:
+    values_hide = spec["values_fail"] + spec["hide_new"]
+    return [
+        *_handoff_triage(spec, scene),
+        *_values_template_lint(spec, scene, _LINT_SUMMARY),
+        *_handoff_forced_apply(spec, scene, values_hide),
+        *_handoff_forbid_force(spec, scene),
+        *_handoff_leftover_n2(spec, scene),
+        *_handoff_partial(spec, scene),
+    ]
+
+
 def build_handoff(
     spec: Mapping[str, str],
     *,
@@ -557,35 +570,28 @@ def build_handoff(
     )
     ns, app, field = scene.ns, scene.app, scene.field
     eid = f"{FAMILY_PREFIX}-r{round_n}-{spec['slug']}-n2-handoff"
-    values_hide = spec["values_fail"] + spec["hide_new"]
-    steps = [
-        *_handoff_triage(spec, scene),
-        *_values_template_lint(spec, scene, _LINT_SUMMARY),
-        *_handoff_forced_apply(spec, scene, values_hide),
-        *_handoff_forbid_force(spec, scene),
-        *_handoff_leftover_n2(spec, scene),
-        *_handoff_partial(spec, scene),
-    ]
+    steps = _handoff_steps(spec, scene)
     refuse_when(len(steps) != HANDOFF_STEPS, FINDING_USAGE, f"{eid} want {HANDOFF_STEPS} steps")
     return _episode(
-        spec,
-        eid=eid,
-        goal=f"{app} in designed plant {ns} leftover n2 still {spec['n2']}. Do not --force.",
-        plan=f"Pin {field} {spec['fix_val']} without --force; hand off n2 leftover.",
-        steps=steps,
-        outcome=(
-            f"kubeconform passed. --wait refused. --force mixed: n1 {spec['fix_val']} "
-            f"Running, n2 {spec['fail_val']} leftover. PARTIAL. Handoff {field} leftover."
-        ),
-        reward={
-            "success": False,
-            "apply_fails": 3,
-            "plan_changes": 1,
-            "tests_passed": 2,
-            "tests_failed": 1,
-            "pods_ready": 1,
-            "handoff": 1,
-            "cost_steps": HANDOFF_STEPS,
+        {
+            "id": eid,
+            "goal": f"{app} in designed plant {ns} leftover n2 still {spec['n2']}. Do not --force.",
+            "plan": f"Pin {field} {spec['fix_val']} without --force; hand off n2 leftover.",
+            "steps": steps,
+            "outcome": (
+                f"kubeconform passed. --wait refused. --force mixed: n1 {spec['fix_val']} "
+                f"Running, n2 {spec['fail_val']} leftover. PARTIAL. Handoff {field} leftover."
+            ),
+            "reward": {
+                "success": False,
+                "apply_fails": 3,
+                "plan_changes": 1,
+                "tests_passed": 2,
+                "tests_failed": 1,
+                "pods_ready": 1,
+                "handoff": 1,
+                "cost_steps": HANDOFF_STEPS,
+            },
         },
         round_n=round_n,
         mill_id=mill_id,
