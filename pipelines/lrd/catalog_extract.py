@@ -39,10 +39,14 @@ __all__ = [
 ]
 
 
+def _is_str_or_int_constant(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
+        return False
+    return isinstance(node.value, (str, int))
+
+
 def _literal(node: ast.AST, where: str) -> str | int:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)) and not isinstance(
-        node.value, bool
-    ):
+    if _is_str_or_int_constant(node):
         return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         value = _literal(node.operand, where)
@@ -70,13 +74,21 @@ def _literal_dict(node: ast.AST, where: str) -> dict[str, str | int]:
     return out
 
 
+def _is_named_call(node: ast.AST, names: frozenset[str]) -> bool:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return False
+    return node.func.id in names
+
+
+def _is_kwargs_call(node: ast.AST, names: frozenset[str]) -> bool:
+    if not _is_named_call(node, names) or node.args:
+        return False
+    return all(kw.arg is not None for kw in node.keywords)
+
+
 def _call_kwargs(node: ast.AST, where: str, names: frozenset[str]) -> dict[str, str | int]:
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id not in names
-        or node.args
-        or any(kw.arg is None for kw in node.keywords),
+        not _is_kwargs_call(node, names),
         FINDING_SOURCE_NOT_PARSEABLE,
         f"{where}: expected {names}(**kwargs)",
     )
@@ -110,11 +122,12 @@ def _refuse_hopper_defs(source: str, tree: ast.AST) -> None:
     )
 
 
+_P_CALL_NAMES = frozenset({"P"})
+
+
 def _pos_args(node: ast.Call, count: int, where: str) -> tuple[str | int, ...]:
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id != "P",
+        not _is_named_call(node, _P_CALL_NAMES),
         FINDING_SOURCE_NOT_PARSEABLE,
         f"{where}: expected P(...) call",
     )

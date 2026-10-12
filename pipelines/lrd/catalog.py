@@ -333,9 +333,15 @@ def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -
     return value
 
 
+def _is_stripped_text(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(value.strip()) and value == value.strip()
+
+
 def _require_text(value: Any, where: str, code: str) -> str:
     refuse_when(
-        not isinstance(value, str) or not value.strip() or value != value.strip(),
+        not _is_stripped_text(value),
         code,
         f"{where} must be a non-empty stripped string",
     )
