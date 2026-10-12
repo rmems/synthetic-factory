@@ -218,13 +218,17 @@ def _resolve_expr(node: ast.AST, consts: Mapping[str, Any]) -> Any:
         return node.value
     if isinstance(node, ast.Name):
         return consts.get(node.id)
+    if isinstance(node, (ast.Dict, ast.List, ast.Tuple)):
+        return _resolve_container(node, consts)
+    return _literal_or_none(node)
+
+
+def _resolve_container(node: ast.Dict | ast.List | ast.Tuple, consts: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Dict):
         return _resolve_dict(node, consts)
     if isinstance(node, ast.List):
         return [_resolve_expr(elt, consts) for elt in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_resolve_expr(elt, consts) for elt in node.elts)
-    return _literal_or_none(node)
+    return tuple(_resolve_expr(elt, consts) for elt in node.elts)
 
 
 def _collect_consts(tree: ast.Module) -> tuple[dict[str, Any], dict[str, ast.AST]]:
