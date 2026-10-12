@@ -26,7 +26,6 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
-    refuse,
     refuse_first,
     refuse_when,
 )
@@ -120,13 +119,10 @@ def _select_plants(
         return (loaded.plant(plant_id),)
     if mill_id is not None:
         return loaded.mill_plants(mill_id)
-    if all_plants:
-        selected = tuple(
-            plant for plant in loaded.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE
-        )
-        refuse_when(not selected, FINDING_USAGE, "no representative plants to generate")
-        return selected
-    refuse(FINDING_USAGE, "generate needs --plant, --mill, or --all")
+    refuse_when(not all_plants, FINDING_USAGE, "generate needs --plant, --mill, or --all")
+    selected = tuple(plant for plant in loaded.plants if plant.row_kind == ROW_KIND_REPRESENTATIVE)
+    refuse_when(not selected, FINDING_USAGE, "no representative plants to generate")
+    return selected
 
 
 def generate(

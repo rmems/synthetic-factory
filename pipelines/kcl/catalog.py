@@ -404,12 +404,15 @@ def ast_extract_plants(
     refuse_when(not MILL_ID_RE.fullmatch(mill_id), FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id}")
     tree = _parse_source(source, path)
     origin = {"mill_id": mill_id, "source": path, "base_round": base_round}
+    refuse_when(
+        shape not in (SHAPE_PAIR, SHAPE_ROW),
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{path}: unknown extract shape {shape!r}",
+    )
     if shape == SHAPE_PAIR:
         rows = _extract_pair_rows(tree, origin)
-    elif shape == SHAPE_ROW:
-        rows = _extract_mk_rows(tree, origin)
     else:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{path}: unknown extract shape {shape!r}")
+        rows = _extract_mk_rows(tree, origin)
     refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"{path} has no extractable plants")
     _refuse_duplicate_plant_ids(row["plant_id"] for row in rows)
     return tuple(rows)
@@ -488,10 +491,11 @@ def _body_row(payload_raw: dict[str, Any], fields: Mapping[str, Any], where: str
     shape = fields["shape"]
     if shape == SHAPE_PAIR:
         return _pair_row(payload_raw, fields, 0)
-    if shape == SHAPE_ROW:
-        values = [payload_raw.get(key) for key in ROW_KEYS]
-        return _row_row(values, fields, int(payload_raw.get("idx", 0)))  # type: ignore[arg-type]
-    refuse(FINDING_PLANT_FIELD_INVALID, f"{where}.shape must be pair or row")
+    refuse_when(
+        shape != SHAPE_ROW, FINDING_PLANT_FIELD_INVALID, f"{where}.shape must be pair or row"
+    )
+    values = [payload_raw.get(key) for key in ROW_KEYS]
+    return _row_row(values, fields, int(payload_raw.get("idx", 0)))  # type: ignore[arg-type]
 
 
 def _representative_plant(payload_raw: Any, fields: Mapping[str, Any], where: str) -> Plant:
