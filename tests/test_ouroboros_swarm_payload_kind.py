@@ -80,21 +80,33 @@ def _agent_ids(agents):
     """Return sorted participant ids for whichever shape ``agents`` uses."""
 
     if isinstance(agents, dict):
-        return sorted(
-            identifier
-            for identifier in agents
-            if identifier.casefold().replace("-", "_").replace(" ", "_")
-            not in AGENT_METADATA_KEYS
-        )
+        return _mapping_agent_ids(agents)
     if isinstance(agents, list):
-        ids = []
-        for entry in agents:
-            if isinstance(entry, dict):
-                ids.append(entry.get("name") or entry.get("role") or entry.get("id"))
-            else:
-                ids.append(str(entry))
-        return sorted(identifier for identifier in ids if identifier)
+        return _listed_agent_ids(agents)
     return []
+
+
+def _mapping_agent_ids(agents):
+    """Participant keys of an ``agents`` mapping, without its protocol metadata."""
+
+    return sorted(
+        identifier
+        for identifier in agents
+        if identifier.casefold().replace("-", "_").replace(" ", "_")
+        not in AGENT_METADATA_KEYS
+    )
+
+
+def _listed_agent_ids(agents):
+    """Non-empty names, roles or ids of an ``agents`` list."""
+
+    ids = []
+    for entry in agents:
+        if isinstance(entry, dict):
+            ids.append(entry.get("name") or entry.get("role") or entry.get("id"))
+        else:
+            ids.append(str(entry))
+    return sorted(identifier for identifier in ids if identifier)
 
 
 def _turn_actor(turn):
@@ -154,6 +166,92 @@ def _swarm_trajectory_paths(value, path=""):
     return sorted(set(paths))
 
 
+def _mapping_field(container, key):
+    """``container[key]`` when it is a mapping, else an empty mapping."""
+
+    return container.get(key) if isinstance(container.get(key), dict) else {}
+
+
+def _hidden_supervision_field(proposed):
+    if "internal_reasoning" in proposed:
+        return "internal_reasoning"
+    if "internal_reasoning_verbatim" in proposed:
+        return "internal_reasoning_verbatim"
+    return None
+
+
+def _record_census(record, record_id):
+    """One ``records_detail`` row for a parsed raw record."""
+
+    keys = set(record)
+    state = _mapping_field(record, "state")
+    proposed = _mapping_field(record, "proposed_action")
+    decision = _mapping_field(record, "safety_decision")
+    meta = _mapping_field(record, "meta")
+    reward = _mapping_field(record, "reward_components")
+    weights = _mapping_field(reward, "weights")
+    swarm_trajectory_paths = _swarm_trajectory_paths(record)
+    return {
+        "id": record_id,
+        "round": meta.get("round"),
+        "meta_factory": meta.get("factory"),
+        "payload_kind": (
+            "thalamic-gate-wrap"
+            if tuple(sorted(keys)) == GATE_WRAP_KEYS
+            else "other"
+        ),
+        "top_level_keys": sorted(keys),
+        "swarm_trajectory_paths": swarm_trajectory_paths,
+        "safety_decision": decision.get("decision"),
+        "multi_actor_state_keys": [
+            key for key in MULTI_ACTOR_STATE_KEYS if key in state
+        ],
+        "state_agent_ids": _agent_ids(state.get("agents")),
+        "hidden_supervision_field": _hidden_supervision_field(proposed),
+        "public_decision_basis": "decision_basis" in proposed,
+        "reward_weight_vocabulary": sorted(weights),
+    }
+
+
+def _file_census(path):
+    """(file entry, record rows, parse failures) for one raw JSONL file."""
+
+    payload = path.read_bytes()
+    rows = []
+    in_file = 0
+    parse_failures = 0
+    for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        in_file += 1
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            parse_failures += 1
+            continue
+        rows.append(_record_census(record, f"{path.name}#L{line_number}"))
+    entry = {
+        "path": path.name,
+        "bytes": len(payload),
+        "records": in_file,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    return entry, rows, parse_failures
+
+
+def _count(records, predicate):
+    return sum(1 for record in records if predicate(record))
+
+
+def _decision_counts(records):
+    decisions: dict[str, int] = {}
+    for record in records:
+        key = record["safety_decision"]
+        decisions[key] = decisions.get(key, 0) + 1
+    return dict(sorted(decisions.items()))
+
+
 def census_from_raw(root: Path) -> dict:
     """Derive the payload-kind census from the immutable raw tree, read-only."""
 
@@ -161,104 +259,35 @@ def census_from_raw(root: Path) -> dict:
     records = []
     parse_failures = 0
     for path in sorted(root.glob("*.jsonl")):
-        payload = path.read_bytes()
-        in_file = 0
-        for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
-            line = line.strip()
-            if not line:
-                continue
-            in_file += 1
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                parse_failures += 1
-                continue
-            keys = set(record)
-            state = record.get("state") if isinstance(record.get("state"), dict) else {}
-            proposed = (
-                record.get("proposed_action")
-                if isinstance(record.get("proposed_action"), dict)
-                else {}
-            )
-            decision = (
-                record.get("safety_decision")
-                if isinstance(record.get("safety_decision"), dict)
-                else {}
-            )
-            meta = record.get("meta") if isinstance(record.get("meta"), dict) else {}
-            reward = (
-                record.get("reward_components")
-                if isinstance(record.get("reward_components"), dict)
-                else {}
-            )
-            weights = reward.get("weights") if isinstance(reward.get("weights"), dict) else {}
-            swarm_trajectory_paths = _swarm_trajectory_paths(record)
-            records.append(
-                {
-                    "id": f"{path.name}#L{line_number}",
-                    "round": meta.get("round"),
-                    "meta_factory": meta.get("factory"),
-                    "payload_kind": (
-                        "thalamic-gate-wrap"
-                        if tuple(sorted(keys)) == GATE_WRAP_KEYS
-                        else "other"
-                    ),
-                    "top_level_keys": sorted(keys),
-                    "swarm_trajectory_paths": swarm_trajectory_paths,
-                    "safety_decision": decision.get("decision"),
-                    "multi_actor_state_keys": [
-                        key for key in MULTI_ACTOR_STATE_KEYS if key in state
-                    ],
-                    "state_agent_ids": _agent_ids(state.get("agents")),
-                    "hidden_supervision_field": (
-                        "internal_reasoning"
-                        if "internal_reasoning" in proposed
-                        else "internal_reasoning_verbatim"
-                        if "internal_reasoning_verbatim" in proposed
-                        else None
-                    ),
-                    "public_decision_basis": "decision_basis" in proposed,
-                    "reward_weight_vocabulary": sorted(weights),
-                }
-            )
-        files.append(
-            {
-                "path": path.name,
-                "bytes": len(payload),
-                "records": in_file,
-                "sha256": hashlib.sha256(payload).hexdigest(),
-            }
-        )
-
-    decisions: dict[str, int] = {}
-    for record in records:
-        key = record["safety_decision"]
-        decisions[key] = decisions.get(key, 0) + 1
+        entry, rows, failures = _file_census(path)
+        records.extend(rows)
+        parse_failures += failures
+        files.append(entry)
 
     return {
         "jsonl_files": len(files),
         "records": len(records),
         "parse_failures": parse_failures,
         "total_jsonl_bytes": sum(entry["bytes"] for entry in files),
-        "gate_wrap_records": sum(
-            1 for record in records if record["payload_kind"] == "thalamic-gate-wrap"
+        "gate_wrap_records": _count(
+            records, lambda record: record["payload_kind"] == "thalamic-gate-wrap"
         ),
-        "swarm_trajectory_records": sum(
-            1 for record in records if record["swarm_trajectory_paths"]
+        "swarm_trajectory_records": _count(
+            records, lambda record: record["swarm_trajectory_paths"]
         ),
         "swarm_trajectory_definition": SWARM_TRAJECTORY_DEFINITION,
         "distinct_top_level_key_sets": len(
             {tuple(record["top_level_keys"]) for record in records}
         ),
-        "safety_decisions": dict(sorted(decisions.items())),
-        "records_with_multi_actor_state": sum(
-            1 for record in records if record["multi_actor_state_keys"]
+        "safety_decisions": _decision_counts(records),
+        "records_with_multi_actor_state": _count(
+            records, lambda record: record["multi_actor_state_keys"]
         ),
-        "records_with_state_agents": sum(
-            1 for record in records if "agents" in record["multi_actor_state_keys"]
+        "records_with_state_agents": _count(
+            records, lambda record: "agents" in record["multi_actor_state_keys"]
         ),
-        "records_with_public_decision_basis": sum(
-            1 for record in records if record["public_decision_basis"]
+        "records_with_public_decision_basis": _count(
+            records, lambda record: record["public_decision_basis"]
         ),
         "files": files,
         "records_detail": records,
