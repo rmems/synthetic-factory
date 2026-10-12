@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple, TypeGuard
 
@@ -183,128 +184,7 @@ def expand_p_idtoken_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | 
         sdk, okm, failm, src, cfg, ok_fo, ok_fn, fail_fo, fail_fn,
         ok_wo, ok_wn, fail_wo, fail_wn, rg, tk, root, rv,
     )
-    return _idtoken_ok(p), _idtoken_fail(p)
-
-
-def _idtoken_ok(p: _PArgs) -> dict[str, str | int]:
-    return {
-        "slug": f"{p.sdk}-{p.okm}-idtoken",
-        "domain": f"{p.sdk}-{p.okm}-idtoken-vs-level-off",
-        "stack": f"{p.sdk} {p.okm} leftover leftover leftover id_token vs level off",
-        "seed": f"{str(p.sdk)[:6]}-{str(p.okm)[:6]}-pay-idtok-off",
-        "ticket": f"{p.tk}-9",
-        "root": f"{p.root}ok",
-        "src": p.src,
-        "cfg": p.cfg,
-        "rg": p.rg,
-        "goal": (
-            f"{p.sdk} pay-api {p.okm} dumped leftover leftover leftover id_token. "
-            f"Redact the field; do not mute the logger (that blinds warn). "
-            f"Distinct from r81 Authorization and r100-r122 Set-Cookie."
-        ),
-        "plan": f"Prove id_token dump. Try mute; if warn tests fail, redact {p.okm} id_token.",
-        "outcome": (
-            f"mute blinded warn. {p.okm} redact. Tests 3/3. Residual {p.tk}-9: one path still raw. "
-            f"Distinct from leftover3d Set-Cookie stacks."
-        ),
-        "plan_basis": (
-            f"pay-api {p.sdk} {p.okm} leaked leftover leftover leftover id_token. "
-            f"Inspect before mute."
-        ),
-        "list_obs": f"{p.src} {p.okm} id_token\nkept",
-        "test_fail": "FAIL test_no_id_token: leaked. FAIL test_keep_warn.",
-        "read1": p.ok_fo,
-        "read2": p.ok_wo,
-        "rb": "cached: omit leftover leftover leftover id_token. mute blinds warn. Not Set-Cookie leftover3d.",
-        "wrong": "mute logger",
-        "wo": p.ok_wo,
-        "wn": p.ok_wn,
-        "wto": "FAILED test_keep_warn: warn gone. leak would vanish for the wrong reason.",
-        "pc": (
-            f"Plan change: mute is the wrong layer. "
-            f"Redact leftover leftover leftover id_token in {p.okm}."
-        ),
-        "rr": f"Need {p.okm} without id_token. Restore warn.",
-        "fb": "Redact leftover leftover leftover id_token; keep warn.",
-        "fo": p.ok_fo,
-        "fn": p.ok_fn,
-        "right": f"{p.okm} redact",
-        "residual": f"one path raw; not leftover3d {p.sdk} cookie",
-        "distinct": "Distinct from leftover3d Set-Cookie stacks.",
-        "rk": "leaked",
-        "rv": p.rv,
-    }
-
-
-def _idtoken_fail(p: _PArgs) -> dict[str, str | int]:
-    return {**_idtoken_fail_episode(p), **_idtoken_fail_steps(p)}
-
-
-def _idtoken_fail_episode(p: _PArgs) -> dict[str, str | int]:
-    plat = f"platform-{p.sdk}"
-    return {
-        "slug": f"{p.sdk}-{p.failm}-idtoken-handoff",
-        "domain": f"{p.sdk}-{p.failm}-idtoken-vs-disable",
-        "stack": f"{p.sdk} {p.failm} leftover leftover leftover id_token vs disable {p.sdk}",
-        "seed": f"{str(p.sdk)[:6]}-{str(p.failm)[:6]}-pay-idtok-handoff",
-        "ticket": f"{p.tk}-10",
-        "root": f"{p.root}hf",
-        "src": p.src,
-        "cfg": p.cfg,
-        "rg": p.rg,
-        "platform": plat,
-        "goal": (
-            f"{p.sdk} pay-api {p.failm} leftover leftover leftover dumped id_token. "
-            f"Do not disable {p.sdk}. Hand off {p.failm} to {plat}."
-        ),
-        "plan": (
-            f"Prove {p.failm} dump. Try disable {p.sdk}; if tests fail, request {p.failm}. "
-            f"{p.failm} is {plat}."
-        ),
-        "outcome": (
-            f"Disabling {p.sdk} blinded {p.failm}. {p.failm} is cluster. Reverted. "
-            f"Handoff {p.tk}-10 to {plat}. Distinct from {p.okm} leftover leftover leftover."
-        ),
-        "plan_basis": (
-            f"pay-api {p.sdk} {p.failm} leaked leftover leftover leftover id_token. "
-            f"Inspect before disable."
-        ),
-    }
-
-
-def _idtoken_fail_steps(p: _PArgs) -> dict[str, str | int]:
-    plat = f"platform-{p.sdk}"
-    return {
-        "list_obs": f"{p.src} {p.failm} id_token\n# @{plat}",
-        "test_fail": f"FAIL test_no_id_token: leaked. FAIL test_keep_{p.failm}.",
-        "read1": p.fail_fo,
-        "read2": f"{p.fail_wo}  # @{plat}",
-        "rb": (
-            f"cached: omit leftover leftover leftover id_token {p.failm}. "
-            f"Disable {p.sdk} blinds {p.failm}. Distinct from {p.okm}."
-        ),
-        "wrong": f"disable {p.sdk}",
-        "wo": p.fail_wo,
-        "wn": p.fail_wn,
-        "wto": (
-            f"FAILED test_keep_{p.failm}: {p.failm} gone. "
-            f"leak would vanish for the wrong reason."
-        ),
-        "pc": f"Plan change: disabling {p.sdk} is the wrong layer. {p.failm} is {plat}.",
-        "rr": f"Need {p.failm} redact leftover leftover leftover id_token. Config is {plat}.",
-        "fb": f"Draft {p.failm}; config still unsigned.",
-        "fo": p.fail_fo,
-        "fn": p.fail_fn,
-        "slo": f"FAILED: {p.failm} unsigned. Need {plat}.",
-        "hb": (
-            f"Handoff {p.tk}-10: {plat} must not dump leftover leftover leftover id_token "
-            f"{p.failm}. Distinct from {p.okm}."
-        ),
-        "right": f"{p.failm} redact",
-        "distinct": f"Not {p.okm} leftover leftover leftover.",
-        "rk": "leaked",
-        "rv": p.rv - 1,
-    }
+    return _p_ok(p, _IDTOKEN), _p_fail(p, _IDTOKEN)
 
 
 def expand_p_cookie_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | int], dict[str, str | int]]:
@@ -325,72 +205,143 @@ def expand_p_cookie_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | i
         sdk, okm, failm, src, cfg, ok_fo, ok_fn, fail_fo, fail_fn,
         ok_wo, ok_wn, fail_wo, fail_wn, rg, tk, root, rv,
     )
-    return _cookie_ok(p), _cookie_fail(p)
+    return _p_ok(p, _COOKIE), _p_fail(p, _COOKIE)
 
 
-def _cookie_ok(p: _PArgs) -> dict[str, str | int]:
+@dataclass(frozen=True)
+class _PKind:
+    """The text that differs between the idtoken and the cookie ``P(...)`` mills."""
+
+    slug_tag: str  # OK slug suffix
+    handoff_tag: str  # FAIL slug infix before ``-handoff``
+    domain_tag: str
+    seed_tag: str
+    lore: str  # the "leftover" run in stack, goal, outcome and distinct text
+    secret: str  # the leaked field as logs show it
+    proof: str  # what the OK plan proves was dumped
+    target: str  # what the redaction removes
+    test_name: str  # the ``test_no_*`` suffix
+    ok_ticket: str
+    fail_ticket: str
+    goal_distinct: str  # last sentence of the OK goal
+    ok_rb: str  # OK runbook cache text; ``{okm}`` is the OK module
+    residual_tail: str
+    ok_distinct: str
+    handoff_redact: str  # what the FAIL request asks to redact, after "redact"
+    hb_tail: str  # tail of the FAIL handoff's "Distinct from {okm}"
+
+
+_IDTOKEN = _PKind(
+    slug_tag="idtoken",
+    handoff_tag="-idtoken",
+    domain_tag="idtoken",
+    seed_tag="idtok",
+    lore="leftover leftover leftover",
+    secret="id_token",
+    proof="id_token",
+    target="leftover leftover leftover id_token",
+    test_name="id_token",
+    ok_ticket="9",
+    fail_ticket="10",
+    goal_distinct="Distinct from r81 Authorization and r100-r122 Set-Cookie.",
+    ok_rb=(
+        "cached: omit leftover leftover leftover id_token. mute blinds warn. "
+        "Not Set-Cookie leftover3d."
+    ),
+    residual_tail=" cookie",
+    ok_distinct="Distinct from leftover3d Set-Cookie stacks.",
+    handoff_redact=" leftover leftover leftover id_token",
+    hb_tail="",
+)
+
+_COOKIE = _PKind(
+    slug_tag="cookie",
+    handoff_tag="",
+    domain_tag="setcookie",
+    seed_tag="cookie",
+    lore="leftover",
+    secret="Set-Cookie",
+    proof="cookie",
+    target="Set-Cookie",
+    test_name="set_cookie",
+    ok_ticket="7",
+    fail_ticket="8",
+    goal_distinct="Distinct from r100-r115 leftover3d stacks.",
+    ok_rb="cached: omit Set-Cookie {okm}. mute blinds warn. Distinct from leftover3d.",
+    residual_tail="",
+    ok_distinct="Distinct from leftover3d stacks.",
+    handoff_redact="",
+    hb_tail=" leftover",
+)
+
+
+def _p_ok(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
     return {
-        "slug": f"{p.sdk}-{p.okm}-cookie",
-        "domain": f"{p.sdk}-{p.okm}-setcookie-vs-level-off",
-        "stack": f"{p.sdk} {p.okm} leftover Set-Cookie vs level off",
-        "seed": f"{str(p.sdk)[:6]}-{str(p.okm)[:6]}-pay-cookie-off",
-        "ticket": f"{p.tk}-7",
+        "slug": f"{p.sdk}-{p.okm}-{kind.slug_tag}",
+        "domain": f"{p.sdk}-{p.okm}-{kind.domain_tag}-vs-level-off",
+        "stack": f"{p.sdk} {p.okm} {kind.lore} {kind.secret} vs level off",
+        "seed": f"{str(p.sdk)[:6]}-{str(p.okm)[:6]}-pay-{kind.seed_tag}-off",
+        "ticket": f"{p.tk}-{kind.ok_ticket}",
         "root": f"{p.root}ok",
         "src": p.src,
         "cfg": p.cfg,
         "rg": p.rg,
         "goal": (
-            f"{p.sdk} pay-api {p.okm} dumped Set-Cookie. Redact the field; do not mute "
-            f"the logger (that blinds warn). Distinct from r100-r115 leftover3d stacks."
+            f"{p.sdk} pay-api {p.okm} dumped {kind.target}. "
+            f"Redact the field; do not mute the logger (that blinds warn). "
+            f"{kind.goal_distinct}"
         ),
-        "plan": f"Prove cookie dump. Try mute; if warn tests fail, redact {p.okm} Set-Cookie.",
+        "plan": (
+            f"Prove {kind.proof} dump. Try mute; if warn tests fail, "
+            f"redact {p.okm} {kind.secret}."
+        ),
         "outcome": (
-            f"mute blinded warn. {p.okm} redact. Tests 3/3. Residual {p.tk}-7: one path still raw. "
-            f"Distinct from leftover3d stacks."
+            f"mute blinded warn. {p.okm} redact. Tests 3/3. "
+            f"Residual {p.tk}-{kind.ok_ticket}: one path still raw. {kind.ok_distinct}"
         ),
-        "plan_basis": f"pay-api {p.sdk} {p.okm} leaked Set-Cookie. Inspect before mute.",
-        "list_obs": f"{p.src} {p.okm} Set-Cookie\nkept",
-        "test_fail": "FAIL test_no_set_cookie: leaked. FAIL test_keep_warn.",
+        "plan_basis": f"pay-api {p.sdk} {p.okm} leaked {kind.target}. Inspect before mute.",
+        "list_obs": f"{p.src} {p.okm} {kind.secret}\nkept",
+        "test_fail": f"FAIL test_no_{kind.test_name}: leaked. FAIL test_keep_warn.",
         "read1": p.ok_fo,
         "read2": p.ok_wo,
-        "rb": f"cached: omit Set-Cookie {p.okm}. mute blinds warn. Distinct from leftover3d.",
+        "rb": kind.ok_rb.format(okm=p.okm),
         "wrong": "mute logger",
         "wo": p.ok_wo,
         "wn": p.ok_wn,
         "wto": "FAILED test_keep_warn: warn gone. leak would vanish for the wrong reason.",
-        "pc": f"Plan change: mute is the wrong layer. Redact Set-Cookie in {p.okm}.",
-        "rr": f"Need {p.okm} without Set-Cookie. Restore warn.",
-        "fb": "Redact Set-Cookie; keep warn.",
+        "pc": f"Plan change: mute is the wrong layer. Redact {kind.target} in {p.okm}.",
+        "rr": f"Need {p.okm} without {kind.secret}. Restore warn.",
+        "fb": f"Redact {kind.target}; keep warn.",
         "fo": p.ok_fo,
         "fn": p.ok_fn,
         "right": f"{p.okm} redact",
-        "residual": f"one path raw; not leftover3d {p.sdk}",
-        "distinct": "Distinct from leftover3d stacks.",
+        "residual": f"one path raw; not leftover3d {p.sdk}{kind.residual_tail}",
+        "distinct": kind.ok_distinct,
         "rk": "leaked",
         "rv": p.rv,
     }
 
 
-def _cookie_fail(p: _PArgs) -> dict[str, str | int]:
-    return {**_cookie_fail_episode(p), **_cookie_fail_steps(p)}
+def _p_fail(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
+    return {**_p_fail_episode(p, kind), **_p_fail_steps(p, kind)}
 
 
-def _cookie_fail_episode(p: _PArgs) -> dict[str, str | int]:
+def _p_fail_episode(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
     plat = f"platform-{p.sdk}"
     return {
-        "slug": f"{p.sdk}-{p.failm}-handoff",
-        "domain": f"{p.sdk}-{p.failm}-setcookie-vs-disable",
-        "stack": f"{p.sdk} {p.failm} leftover Set-Cookie vs disable {p.sdk}",
-        "seed": f"{str(p.sdk)[:6]}-{str(p.failm)[:6]}-pay-cookie-handoff",
-        "ticket": f"{p.tk}-8",
+        "slug": f"{p.sdk}-{p.failm}{kind.handoff_tag}-handoff",
+        "domain": f"{p.sdk}-{p.failm}-{kind.domain_tag}-vs-disable",
+        "stack": f"{p.sdk} {p.failm} {kind.lore} {kind.secret} vs disable {p.sdk}",
+        "seed": f"{str(p.sdk)[:6]}-{str(p.failm)[:6]}-pay-{kind.seed_tag}-handoff",
+        "ticket": f"{p.tk}-{kind.fail_ticket}",
         "root": f"{p.root}hf",
         "src": p.src,
         "cfg": p.cfg,
         "rg": p.rg,
         "platform": plat,
         "goal": (
-            f"{p.sdk} pay-api {p.failm} leftover dumped Set-Cookie. Do not disable {p.sdk}. "
-            f"Hand off {p.failm} to {plat}."
+            f"{p.sdk} pay-api {p.failm} {kind.lore} dumped {kind.secret}. "
+            f"Do not disable {p.sdk}. Hand off {p.failm} to {plat}."
         ),
         "plan": (
             f"Prove {p.failm} dump. Try disable {p.sdk}; if tests fail, request {p.failm}. "
@@ -398,22 +349,22 @@ def _cookie_fail_episode(p: _PArgs) -> dict[str, str | int]:
         ),
         "outcome": (
             f"Disabling {p.sdk} blinded {p.failm}. {p.failm} is cluster. Reverted. "
-            f"Handoff {p.tk}-8 to {plat}. Distinct from {p.okm} leftover."
+            f"Handoff {p.tk}-{kind.fail_ticket} to {plat}. Distinct from {p.okm} {kind.lore}."
         ),
-        "plan_basis": f"pay-api {p.sdk} {p.failm} leaked Set-Cookie. Inspect before disable.",
+        "plan_basis": f"pay-api {p.sdk} {p.failm} leaked {kind.target}. Inspect before disable.",
     }
 
 
-def _cookie_fail_steps(p: _PArgs) -> dict[str, str | int]:
+def _p_fail_steps(p: _PArgs, kind: _PKind) -> dict[str, str | int]:
     plat = f"platform-{p.sdk}"
     return {
-        "list_obs": f"{p.src} {p.failm} Set-Cookie\n# @{plat}",
-        "test_fail": f"FAIL test_no_set_cookie: leaked. FAIL test_keep_{p.failm}.",
+        "list_obs": f"{p.src} {p.failm} {kind.secret}\n# @{plat}",
+        "test_fail": f"FAIL test_no_{kind.test_name}: leaked. FAIL test_keep_{p.failm}.",
         "read1": p.fail_fo,
         "read2": f"{p.fail_wo}  # @{plat}",
         "rb": (
-            f"cached: omit Set-Cookie {p.failm}. Disable {p.sdk} blinds {p.failm}. "
-            f"Distinct from {p.okm}."
+            f"cached: omit {kind.target} {p.failm}. "
+            f"Disable {p.sdk} blinds {p.failm}. Distinct from {p.okm}."
         ),
         "wrong": f"disable {p.sdk}",
         "wo": p.fail_wo,
@@ -423,17 +374,17 @@ def _cookie_fail_steps(p: _PArgs) -> dict[str, str | int]:
             f"leak would vanish for the wrong reason."
         ),
         "pc": f"Plan change: disabling {p.sdk} is the wrong layer. {p.failm} is {plat}.",
-        "rr": f"Need {p.failm} redact. Config is {plat}.",
+        "rr": f"Need {p.failm} redact{kind.handoff_redact}. Config is {plat}.",
         "fb": f"Draft {p.failm}; config still unsigned.",
         "fo": p.fail_fo,
         "fn": p.fail_fn,
         "slo": f"FAILED: {p.failm} unsigned. Need {plat}.",
         "hb": (
-            f"Handoff {p.tk}-8: {plat} must not dump Set-Cookie {p.failm}. "
-            f"Distinct from {p.okm} leftover."
+            f"Handoff {p.tk}-{kind.fail_ticket}: {plat} must not dump {kind.target} "
+            f"{p.failm}. Distinct from {p.okm}{kind.hb_tail}."
         ),
         "right": f"{p.failm} redact",
-        "distinct": f"Not {p.okm} leftover.",
+        "distinct": f"Not {p.okm} {kind.lore}.",
         "rk": "leaked",
         "rv": p.rv - 1,
     }
