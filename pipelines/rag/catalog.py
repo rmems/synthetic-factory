@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -213,12 +213,8 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.value is not None
-    ):
-        return node.target.id, node.value
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 
@@ -301,12 +297,18 @@ def _catalog_first_round(
     base = inferred_base if base_round is None else base_round
     if base is None:
         base = int(mill_id[len("rag_r") :])
-    if not isinstance(base, int) or isinstance(base, bool) or base < 1:
+    if not _is_plain_int(base) or base < 1:
         raise RagRefusal(
             FINDING_PLANT_FIELD_INVALID,
             f"{source} CATALOG_FIRST must be a positive int",
         )
     return base
+
+
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _p_call_rows(
@@ -399,7 +401,7 @@ def _round_and_tokens(row: dict[str, Any], where: str, slug: str) -> tuple[int, 
     """Positive base round plus the eng/leftover tokens the slug is built from."""
 
     base_round = row.get("base_round")
-    if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
+    if not _is_plain_int(base_round) or base_round < 1:
         raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
     eng = _require_text(row.get("eng"), f"{where}.eng", FINDING_PLANT_FIELD_MISSING)
     leftover = _require_text(row.get("leftover"), f"{where}.leftover", FINDING_PLANT_FIELD_MISSING)
