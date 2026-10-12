@@ -9,9 +9,9 @@ are active only inside ``main``'s run.
 """
 
 import contextlib
+import importlib.util
 import io
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,7 +19,8 @@ from pathlib import Path
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
+SCRIPTS = REPO / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 
 import publish_grok46_hub as publisher  # noqa: E402
 import publish_hub_roots as hub_roots  # noqa: E402
@@ -27,6 +28,7 @@ import publish_hub_roots as hub_roots  # noqa: E402
 HF_ENV = hub_roots.HF_ROOT_SETTING.env
 FACTORY_ENV = hub_roots.FACTORY_ROOT_SETTING.env
 RAW = "names or aliases outputs/raw/"
+PUBLISHER_MODULES = ("publish_grok46_hub", "publish_hub_roots")
 
 
 def publisher_defaults():
@@ -390,29 +392,66 @@ class SiblingImportTests(unittest.TestCase):
         self.assertIs(publisher.active_roots, hub_roots.active_roots)
         self.assertIs(publisher.active_hf_root, hub_roots.active_hf_root)
 
-    def test_schemas_output_is_identical_without_the_script_directory_on_sys_path(self):
-        script = REPO / "scripts" / "publish_grok46_hub.py"
-        environ = {
-            key: value for key, value in os.environ.items() if key != "PYTHONSAFEPATH"
-        }
+    def test_schemas_runs_identically_without_the_script_directory_on_sys_path(self):
+        # python -I / -P / PYTHONSAFEPATH=1 leave the script's own directory off
+        # sys.path. Reproduce that in-process: unload both modules, drop every
+        # entry that names scripts/, and load the publisher by file path.
+        expected = schemas_run(publisher)
+        with without_script_directory():
+            self.assertFalse(any(names_scripts_directory(entry) for entry in sys.path))
+            isolated = load_publisher_by_path()
+            self.assertIsNot(isolated, publisher)
+            actual = schemas_run(isolated)
 
-        def run(*flags, **extra):
-            return subprocess.run(
-                [sys.executable, *flags, str(script), "schemas"],
-                cwd=REPO, env={**environ, **extra}, capture_output=True, check=False,
-            )
+        self.assertEqual(expected[0], 0)
+        self.assertTrue(expected[1])
+        self.assertEqual(actual, expected)
+        self.assertIs(sys.modules["publish_hub_roots"], hub_roots)
 
-        normal = run()
-        self.assertEqual(normal.returncode, 0, normal.stderr.decode())
-        self.assertTrue(normal.stdout)
-        for label, isolated in (
-            ("-I", run("-I")),
-            ("-P", run("-P")),
-            ("PYTHONSAFEPATH=1", run(PYTHONSAFEPATH="1")),
-        ):
-            with self.subTest(mode=label):
-                self.assertEqual(isolated.returncode, 0, isolated.stderr.decode())
-                self.assertEqual(isolated.stdout, normal.stdout)
+
+def names_scripts_directory(entry):
+    """Whether a sys.path entry ('' meaning the working directory) is scripts/."""
+    return Path(entry or os.getcwd()).resolve() == SCRIPTS
+
+
+@contextlib.contextmanager
+def without_script_directory():
+    """Take scripts/ off sys.path and unload the publisher modules; restore both."""
+    saved_path = list(sys.path)
+    saved_modules = {
+        name: sys.modules.pop(name) for name in PUBLISHER_MODULES if name in sys.modules
+    }
+    sys.path[:] = [entry for entry in sys.path if not names_scripts_directory(entry)]
+    try:
+        yield
+    finally:
+        sys.path[:] = saved_path
+        for name in PUBLISHER_MODULES:
+            sys.modules.pop(name, None)
+        sys.modules.update(saved_modules)
+
+
+def load_publisher_by_path():
+    """Execute the publisher from its file, as `python path/to/script.py` would."""
+    spec = importlib.util.spec_from_file_location(
+        "publish_grok46_hub", SCRIPTS / "publish_grok46_hub.py"
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError("cannot build an import spec for the publisher")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def schemas_run(module):
+    """Run ``schemas`` through ``module.main``; return the exit code and stdout."""
+    stdout = io.StringIO()
+    with mock.patch.object(sys, "argv", ["publish_grok46_hub.py", "schemas"]), (
+        contextlib.redirect_stdout(stdout)
+    ):
+        code = module.main()
+    return code, stdout.getvalue()
 
 
 class PublisherMainRootTests(unittest.TestCase):
