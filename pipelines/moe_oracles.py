@@ -16,7 +16,7 @@ import random
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -291,11 +291,16 @@ class TransformersMoERouter(RouterOracle):
         }
 
     def fingerprint(self) -> dict[str, Any]:
+        return dict(self._loaded_fingerprint())
+
+    def _loaded_fingerprint(self) -> dict[str, Any]:
+        """The live fingerprint dict, refused until the model has loaded."""
+
         if self._fingerprint is None:
             raise oc.OracleUnavailable(
                 self.name, "fingerprint is only available after the model loads"
             )
-        return dict(self._fingerprint)
+        return self._fingerprint
 
     def _effective_top_k(self) -> int:
         """An override may restate, but cannot contradict, checkpoint routing."""
@@ -347,11 +352,11 @@ class TransformersMoERouter(RouterOracle):
         # record would then fail `_check_layer_count`. `build_records`
         # captures the oracle block after the first route, so this
         # correction lands in the emitted fingerprint.
-        self._fingerprint["num_layers"] = len(layers)
+        self._loaded_fingerprint()["num_layers"] = len(layers)
         return _summarise(layers)
 
 
-def _valid_routing_width(declared: Any, experts: Any) -> bool:
+def _valid_routing_width(declared: int | None, experts: int | None) -> TypeGuard[int]:
     """The checkpoint must declare a top_k inside its expert count."""
 
     if declared is None or experts is None:
