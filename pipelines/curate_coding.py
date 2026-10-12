@@ -569,7 +569,7 @@ def _parse_record_line(raw_line: bytes) -> tuple[Any, str | None]:
     try:
         record = json.loads(text, parse_constant=_reject_json_constant)
         hash_value(record)
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+    except (TypeError, ValueError, RecursionError):  # json.JSONDecodeError included
         return None, REASON_INVALID_JSON
     return record, None
 

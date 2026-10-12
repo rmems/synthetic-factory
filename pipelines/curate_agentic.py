@@ -262,7 +262,7 @@ def _prefix_overlap_reasons(overlap: dict[str, Any] | None) -> list[str]:
 
 
 def _preference_exclusion_reason(
-    record: dict[str, Any], cleaned: dict[str, Any], decision: dict[str, Any]
+    record: dict[str, Any], cleaned: Any, decision: dict[str, Any]
 ) -> str | None:
     """Why a preference pair cannot be emitted; otherwise note its prefix overlap."""
     ok, goal_reason = shared_preference_goal(record)
@@ -290,7 +290,7 @@ def _safety_case_exclusion_reason(record: dict[str, Any]) -> str | None:
 
 def _kind_exclusion_reason(
     record: dict[str, Any],
-    cleaned: dict[str, Any],
+    cleaned: Any,
     kind: str,
     decision: dict[str, Any],
 ) -> str | None:
@@ -614,7 +614,7 @@ def _scan_line(scan: _SourceScan, site: _RecordSite, raw_line: bytes) -> None:
         return
     try:
         record = json.loads(text, parse_constant=reject_json_constant)
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:  # json.JSONDecodeError included
         _record_undecodable(scan, site, REASON_INVALID_JSON)
         return
 
@@ -800,7 +800,7 @@ def main(argv: list[str] | None = None) -> int:
             run["summary"]["out"] = str(args.out)
         print(json.dumps(run["summary"], ensure_ascii=False, indent=2, sort_keys=True))
         return 0
-    except (OSError, ValueError, FileExistsError, TransactionError) as exc:
+    except (OSError, ValueError, TransactionError) as exc:  # FileExistsError is an OSError
         print(f"agentic curation failed: {exc}", file=sys.stderr)
         return 1
 

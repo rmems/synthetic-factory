@@ -267,22 +267,23 @@ def _retained_by(retained_source_keys: set[tuple[str, int]] | None, source_key: 
     return retained_source_keys is None or source_key in retained_source_keys
 
 
-def _replays_content_change(
+def _replayable_source_digests(
     normalized: dict[str, Any], source_key: Any, view: RetentionView
-) -> bool:
-    """A retained output whose source digest is known can replay ``content_changed``."""
+) -> dict[tuple[str, int], str] | None:
+    """The source-digest map when this retained output can replay ``content_changed``."""
     source_record_sha256_by_key = view.source_record_sha256_by_key
     if source_record_sha256_by_key is None or source_key not in source_record_sha256_by_key:
-        return False
+        return None
     if normalized.get("output_hash") is None:
-        return False
-    return _retained_by(view.retained_source_keys, source_key)
+        return None
+    if not _retained_by(view.retained_source_keys, source_key):
+        return None
+    return source_record_sha256_by_key
 
 
 def _entry_view(entry: dict[str, Any], source_key: Any, view: RetentionView) -> dict[str, Any]:
     """The public entry with ``content_changed`` resolved against retention."""
     retained_source_keys = view.retained_source_keys
-    source_record_sha256_by_key = view.source_record_sha256_by_key
     normalized = _public_manifest_entry(entry)
     if not _retained_by(retained_source_keys, source_key):
         # ``content_changed`` is derived from a source record that is
@@ -290,10 +291,9 @@ def _entry_view(entry: dict[str, Any], source_key: Any, view: RetentionView) -> 
         # Keep the repair action/reasons, but omit this non-replayable
         # convenience field in both integration and promotion views.
         normalized.pop("content_changed", None)
-    if _replays_content_change(normalized, source_key, view):
-        normalized["content_changed"] = (
-            normalized["output_hash"] != source_record_sha256_by_key[source_key]
-        )
+    source_digests = _replayable_source_digests(normalized, source_key, view)
+    if source_digests is not None:
+        normalized["content_changed"] = normalized["output_hash"] != source_digests[source_key]
     return normalized
 
 

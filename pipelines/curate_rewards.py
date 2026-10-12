@@ -370,7 +370,7 @@ def load_units_migration_bytes(payload, *, label="<memory>"):
         raise RewardOntologyError("calibration payload must be bytes")
     try:
         document = json.loads(payload.decode("utf-8"), parse_constant=_reject_json_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:  # UnicodeDecodeError and json.JSONDecodeError included
         raise RewardOntologyError(f"{label}: invalid calibration JSON: {exc}") from exc
     return units_migration_catalog(document, label)
 

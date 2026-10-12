@@ -19,7 +19,7 @@ import errno
 import os
 import sys
 from pathlib import Path
-from typing import Any, NamedTuple, Sequence
+from typing import Any, NamedTuple, Sequence, TypeGuard
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -261,7 +261,7 @@ def _logical_source_path(value: Any, label: str) -> str:
     return Path(*parts).as_posix()
 
 
-def is_positive_line_number(value: Any) -> bool:
+def is_positive_line_number(value: Any) -> TypeGuard[int]:
     """A 1-based source line: an ``int`` that is not a ``bool`` and is at least 1."""
     if not isinstance(value, int) or isinstance(value, bool):
         return False
