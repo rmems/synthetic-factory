@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -115,7 +115,7 @@ def _check_state_demand(state: dict[str, Any], where: str) -> list[str]:
     return []
 
 
-def _numeric_caps(caps: Any) -> bool:
+def _numeric_caps(caps: Any) -> TypeGuard[list[int | float]]:
     if not isinstance(caps, list):
         return False
     if not caps:

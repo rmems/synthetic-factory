@@ -139,9 +139,9 @@ def _missing_replay_quantities(
 
 def _measured_quantities(items: list[dict[str, Any]]) -> set[str]:
     return {
-        item.get("quantity")
+        quantity
         for item in items
-        if isinstance(item.get("quantity"), str) and oc.is_true(item.get("measured"))
+        if isinstance(quantity := item.get("quantity"), str) and oc.is_true(item.get("measured"))
     }
 
 

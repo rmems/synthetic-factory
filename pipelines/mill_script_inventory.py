@@ -187,7 +187,7 @@ def _from_import_targets(node: ast.ImportFrom) -> tuple[str, ...]:
 
 def _assignment_alias_names(node: ast.AST, functions: set[str]) -> tuple[str, ...]:
     if isinstance(node, ast.Assign):
-        targets = node.targets
+        targets: Sequence[ast.expr] = node.targets
         value = node.value
     elif isinstance(node, ast.AnnAssign) and node.value is not None:
         targets = (node.target,)
