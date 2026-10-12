@@ -186,7 +186,7 @@ def _named_lists(tree: ast.AST, *names: str) -> tuple[list[Any] | None, ...]:
     found: dict[str, list[Any]] = {}
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name in names and hasattr(value, "elts"):
+        if name in names and value is not None and hasattr(value, "elts"):
             found[name] = list(value.elts)
     return tuple(found.get(name) for name in names)
 

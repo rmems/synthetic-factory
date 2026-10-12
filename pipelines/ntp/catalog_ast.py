@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 import re
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -80,7 +80,7 @@ def _container_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any] | None, ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any] | None, ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -127,20 +127,34 @@ def call_name(node: ast.AST) -> str | None:
 def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
     """Keyword arguments of a ``Name(...)`` call when every value is a literal."""
 
-    if call_name(node) is None:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return None
-    if node.args or any(keyword.arg is None for keyword in node.keywords):
+    if node.args:
+        return None
+    names = _keyword_names(node)
+    if names is None:
         return None
     values = _sequence([keyword.value for keyword in node.keywords], env, list)
     if values is UNSET:
         return None
-    return dict(zip((keyword.arg for keyword in node.keywords), values, strict=True))
+    return dict(zip(names, values, strict=True))
+
+
+def _keyword_names(node: ast.Call) -> list[str] | None:
+    """Keyword names in call order; ``None`` when the call unpacks ``**mapping``."""
+
+    names: list[str] = []
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            return None
+        names.append(keyword.arg)
+    return names
 
 
 def call_posargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> list[Any] | None:
     """Positional arguments of a ``Name(...)`` call when every value is a literal."""
 
-    if call_name(node) is None:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return None
     if node.keywords:
         return None
@@ -153,7 +167,7 @@ def joined_path_constant(node: ast.AST) -> str | None:
 
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if call_name(node) == "str" and node.args:
+    if isinstance(node, ast.Call) and call_name(node) == "str" and node.args:
         return joined_path_constant(node.args[0])
     if isinstance(node, ast.Name):
         return None
