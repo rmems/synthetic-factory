@@ -35,6 +35,7 @@ from ewr._contract import (  # noqa: E402
     LEGACY_MILL_SHA256,
     LEGACY_PLANTS,
     LEGACY_PLANTS_SHA256,
+    MAPPING_FIELDS,
     MAPPING_MILL_ID,
     N_MAPPING_PAIRS,
     N_PAIRS,
@@ -250,6 +251,86 @@ class EwrCliTests(unittest.TestCase):
             self.assertEqual(payload["episodes"], 2)
             self.assertTrue((dest / "batch-r40.jsonl").is_file())
 
+
+
+class EwrCatalogAstLiteralTests(unittest.TestCase):
+    def assert_plant_refusal(self, extract, source: str, message: str):
+        with self.assertRaises(EwrRefusal) as raised:
+            extract(source)
+        self.assertEqual(raised.exception.code, "ewr.catalog.plant")
+        self.assertEqual(raised.exception.message, message)
+
+    def test_mill_constants_accept_literal_replace_calls(self):
+        constants = ast_extract_mill_constants(
+            'FACTORY = "x-factory".replace("x", "ewr")\nSTART = 40\nN = 2\nOTHER = f()\n'
+        )
+        self.assertEqual(constants, {"FACTORY": "ewr-factory", "START": 40, "N": 2})
+
+    def test_mill_constants_refuse_non_literal_values(self):
+        message = "FACTORY: plant values must be str or int literals"
+        for value in (
+            "True",
+            "1.5",
+            "NAME",
+            "build()",
+            '"a".upper("a", "b")',
+            'NAME.replace("a", "b")',
+            '"a".replace("a")',
+            '"a".replace("a", NAME)',
+            '"a".replace(NAME, "b")',
+        ):
+            with self.subTest(value=value):
+                self.assert_plant_refusal(
+                    ast_extract_mill_constants, f"FACTORY = {value}\nSTART = 40\nN = 2\n", message
+                )
+
+    def test_mill_constants_refuse_missing_names(self):
+        self.assert_plant_refusal(
+            ast_extract_mill_constants, 'FACTORY = "f"\n', "mill source missing ['START', 'N']"
+        )
+
+    def test_plant_pairs_refuse_bad_shapes(self):
+        cases = (
+            ("X = 1\n", "plants source has no PAIRS assignment"),
+            ("PAIRS = {}\n", "PAIRS must be a list or tuple of (ok, bad) tuples"),
+            ("PAIRS = [_ok(a=1)]\n", "PAIRS[0] must be an (ok, bad) pair"),
+            ("PAIRS = [(NAME, _bad(a=1))]\n", "PAIRS[0].ok: expected _ok/_bad/_p(**kwargs)"),
+            ("PAIRS = [(_ok(1), _bad(a=1))]\n", "PAIRS[0].ok: expected _ok/_bad/_p(**kwargs)"),
+            ("PAIRS = [(_ok(a=1), x.y(a=1))]\n", "PAIRS[0].bad: expected _ok/_bad/_p(**kwargs)"),
+            (
+                "PAIRS = [(_ok(a=1), _bad(**kw))]\n",
+                "PAIRS[0].bad: expected _ok/_bad/_p(**kwargs)",
+            ),
+            (
+                "PAIRS = [(_ok(a=1.5), _bad(a=1))]\n",
+                "PAIRS[0].ok.a#0: plant values must be str or int literals",
+            ),
+        )
+        for source, message in cases:
+            with self.subTest(source=source):
+                self.assert_plant_refusal(ast_extract_plant_pairs, source, message)
+
+    def test_plant_pairs_read_keyword_literals(self):
+        pairs = ast_extract_plant_pairs(
+            'PAIRS = ((_ok(slug="a", n=1), _p(slug="b".replace("b", "c"))),)\n'
+        )
+        self.assertEqual(pairs, (({"slug": "a", "n": 1}, {"slug": "c"}),))
+
+    def test_mapping_pairs_refuse_bad_shapes(self):
+        full = ", ".join(f'{key}="v"' for key in sorted(MAPPING_FIELDS))
+        cases = (
+            ("PAIRS = ()\n", "PAIRS must be a list of dict(...) rows"),
+            ("PAIRS = [row(a=1)]\n", "PAIRS[0]: expected dict(**kwargs)"),
+            (f"PAIRS = [dict({full}, zz=1)]\n", "PAIRS[0] unexpected keys ['zz']"),
+        )
+        for source, message in cases:
+            with self.subTest(message=message):
+                self.assert_plant_refusal(ast_extract_mapping_pairs, source, message)
+        with self.assertRaises(EwrRefusal) as raised:
+            ast_extract_mapping_pairs("PAIRS = [dict(slug='a')]\n")
+        self.assertTrue(raised.exception.message.startswith("PAIRS[0] missing ["))
+        rows = ast_extract_mapping_pairs(f"PAIRS = [dict({full})]\n")
+        self.assertEqual(rows, ({key: "v" for key in sorted(MAPPING_FIELDS)},))
 
 if __name__ == "__main__":
     unittest.main()

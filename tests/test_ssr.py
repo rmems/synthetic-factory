@@ -22,6 +22,7 @@ from ssr.catalog_extract import (  # noqa: E402
     SHAPE_PLANT,
     SHAPE_S,
     SHAPE_TAILS,
+    apply_inherited_scanners,
     catalog_document,
     catalog_json_path,
     deferred_pair_rows,
@@ -39,7 +40,7 @@ from ssr.sources import (  # noqa: E402
     fast_sources,
     loop_sources,
 )
-from ssr import vocabulary as cv  # noqa: E402
+from ssr import catalog_ast, vocabulary as cv  # noqa: E402
 
 _R181_SNIPPET = """
 FACTORY = "secret-scan-remediation-factory"
@@ -325,6 +326,376 @@ class SsrLegacyExtractTests(unittest.TestCase):
             dest = Path(tmp)
             refuse_vendor_paths(dest.rglob("*") if dest.exists() else ())
             self.assertEqual(list(dest.glob("ssr-mill*.py")), [])
+
+
+
+def _doctored_catalog(tmp: Path, edit_catalog=None, edit_pairs=None) -> Path:
+    """Copy the committed catalog pair into ``tmp`` after optional edits."""
+
+    document = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+    pairs_text = pairs_jsonl_path().read_text(encoding="utf-8")
+    if edit_catalog is not None:
+        edit_catalog(document)
+    if edit_pairs is not None:
+        pairs_text = edit_pairs(pairs_text)
+    (tmp / "CATALOG.json").write_text(json.dumps(document), encoding="utf-8")
+    if pairs_text is not None:
+        (tmp / "pairs.jsonl").write_text(pairs_text, encoding="utf-8", newline="")
+    return tmp / "CATALOG.json"
+
+
+def _edit_first_pair_line(edit):
+    def apply(text: str) -> str:
+        lines = text.splitlines()
+        lines[0] = edit(lines[0])
+        return "\n".join(lines) + "\n"
+
+    return apply
+
+
+def _edit_pair_row(edit):
+    def apply(line: str) -> str:
+        row = json.loads(line)
+        edit(row)
+        return json.dumps(row, separators=(",", ":"), sort_keys=True)
+
+    return _edit_first_pair_line(apply)
+
+
+def _set_field(path: tuple[str, ...], value):
+    def apply(document):
+        target = document
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+
+    return apply
+
+
+def _drop_mill(mill_id: str):
+    def apply(document):
+        del document["mills"][mill_id]
+
+    return apply
+
+
+def _add_empty_mill(document):
+    row = dict(document["mills"]["ssr-mill-decoder"])
+    row.update({"mill_id": "ssr-mill-extra", "n_rows": 0})
+    document["mills"]["ssr-mill-extra"] = row
+
+
+class SsrLoadCatalogRefusalTests(unittest.TestCase):
+    def assert_refused(self, message, *, edit_catalog=None, edit_pairs=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _doctored_catalog(Path(tmp), edit_catalog, edit_pairs)
+            with self.assertRaisesRegex(ValueError, message):
+                load_catalog(path)
+
+    def test_unedited_copy_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loaded = load_catalog(_doctored_catalog(Path(tmp)))
+        self.assertEqual(loaded.n_pair_rows, CATALOG.n_pair_rows)
+        self.assertEqual(set(loaded.mills), set(CATALOG.mills))
+
+    def test_header_drift_is_refused(self):
+        cases = (
+            (("schema",), "ssr-catalog-extract/v0", "schema is not ssr-catalog-extract/v1"),
+            (("preserve_commit",), "0" * 40, "preserve_commit drifted from vocabulary"),
+            (("factory",), "other-factory", "factory/generator drifted from vocabulary"),
+            (("generator",), "grok-0", "factory/generator drifted from vocabulary"),
+            (("slice",), "r182", "slice drifted from vocabulary"),
+        )
+        for path, value, message in cases:
+            with self.subTest(field=path[-1]):
+                self.assert_refused(message, edit_catalog=_set_field(path, value))
+
+    def test_extract_block_drift_is_refused(self):
+        cases = (
+            (("extract",), None, "extract.exec must be false"),
+            (("extract", "exec"), True, "extract.exec must be false"),
+            (("extract", "method"), "exec", "extract.method must be ast.parse"),
+            (("extract", "source_files"), 76, "extract.source_files drifted"),
+        )
+        for path, value, message in cases:
+            with self.subTest(field=".".join(path), value=value):
+                self.assert_refused(message, edit_catalog=_set_field(path, value))
+
+    def test_pairs_framing_is_refused(self):
+        cases = (
+            (lambda text: text.rstrip("\n"), "must be LF-framed jsonl"),
+            (lambda text: "\n" + text, r"pairs.jsonl:1 is not a compact JSONL record"),
+            (lambda text: " " + text, r"pairs.jsonl:1 is not a compact JSONL record"),
+            (lambda text: "{" + text, r"pairs.jsonl:1 is not JSON"),
+        )
+        for edit, message in cases:
+            with self.subTest(message=message):
+                self.assert_refused(message, edit_pairs=edit)
+
+    def test_missing_pairs_file_is_refused(self):
+        self.assert_refused("cannot load SSR deferred pairs", edit_pairs=lambda text: None)
+
+    def test_pair_row_schema_is_refused(self):
+        self.assert_refused(
+            r"pairs.jsonl:1.fail_slug must be a non-empty string",
+            edit_pairs=_edit_pair_row(lambda row: row.update(fail_slug="")),
+        )
+        self.assert_refused(
+            "keys drifted from deferred pair schema",
+            edit_pairs=_edit_first_pair_line(lambda line: "[]"),
+        )
+
+    def test_pair_row_count_slice_and_digest_are_pinned(self):
+        self.assert_refused(
+            "pairs.jsonl has 1587 rows, expected 1588",
+            edit_pairs=lambda text: "".join(text.splitlines(keepends=True)[1:]),
+        )
+        self.assert_refused(
+            "pairs.jsonl must omit the committed r181 slice",
+            edit_pairs=_edit_pair_row(lambda row: row.update(mill_id=cv.SLICE_MILL_ID)),
+        )
+        self.assert_refused(
+            "pairs.jsonl sha256 drifted from vocabulary",
+            edit_pairs=_edit_pair_row(lambda row: row.update(fail_slug="renamed")),
+        )
+
+    def test_mill_set_drift_is_refused(self):
+        self.assert_refused(
+            r"pairs.jsonl names unknown mills: \['ssr-mill-decoder'\]",
+            edit_catalog=_drop_mill("ssr-mill-decoder"),
+        )
+        self.assert_refused(
+            r"catalog mills drifted from sources: extra=\[\] missing=\['ssr-mill-r181'\]",
+            edit_catalog=_drop_mill(cv.SLICE_MILL_ID),
+        )
+        self.assert_refused(
+            r"catalog mills drifted from sources: extra=\['ssr-mill-extra'\] missing=\[\]",
+            edit_catalog=_add_empty_mill,
+        )
+
+    def test_slice_row_drift_is_refused(self):
+        self.assert_refused(
+            "r181 slice must keep its 16 compact identities",
+            edit_catalog=_set_field(("mills", cv.SLICE_MILL_ID, "pairs"), None),
+        )
+        self.assert_refused(
+            "r181 slice n_rows does not match extracted pairs",
+            edit_catalog=_set_field(("mills", cv.SLICE_MILL_ID, "n_rows"), 17),
+        )
+        self.assert_refused(
+            "ssr-mill-r181 pin disagrees with sources.py",
+            edit_catalog=_set_field(("mills", cv.SLICE_MILL_ID, "blob_sha"), "0" * 40),
+        )
+
+    def test_deferred_mill_drift_is_refused(self):
+        decoder = ("mills", "ssr-mill-decoder")
+        cases = (
+            ("pairs", [{"success_slug": "x"}], "ssr-mill-decoder is not the first slice"),
+            ("n_rows", 26, "ssr-mill-decoder deferred pairs 27 != n_rows 26"),
+            ("first_slug", "x", "ssr-mill-decoder deferred first/last slug drifted"),
+            ("last_slug", "x", "ssr-mill-decoder deferred first/last slug drifted"),
+            ("path", "experiments/x.py", "ssr-mill-decoder deferred path drifted"),
+            ("blob_sha", "0" * 40, "ssr-mill-decoder pin disagrees with sources.py"),
+        )
+        for field, value, message in cases:
+            with self.subTest(field=field):
+                self.assert_refused(message, edit_catalog=_set_field((*decoder, field), value))
+
+
+class SsrCatalogAstTests(unittest.TestCase):
+    @staticmethod
+    def expr(source: str) -> ast.AST:
+        return ast.parse(source, mode="eval").body
+
+    def test_literal_value_resolves_names_and_expressions(self):
+        env = {"A": "gitleaks", "N": 3}
+        unset = catalog_ast.UNSET
+        cases = (
+            ("A", "gitleaks"),
+            ("MISSING", unset),
+            ("-N", -3),
+            ("-2.5", -2.5),
+            ("-A", unset),
+            ("+N", unset),
+            ("A + '-tail'", "gitleaks-tail"),
+            ("A + N", unset),
+            ("N - 1", unset),
+            ("f'{A}-{N}'", "gitleaks-3"),
+            ("f'{A!r}'", "gitleaks"),
+            ("f'{MISSING}'", unset),
+            ("f'{1.5}'", unset),
+            ("{A, 'x'}", {"gitleaks", "x"}),
+            ("{MISSING}", unset),
+            ("{**A}", unset),
+            ("{A: MISSING}", unset),
+            ("[A, (N, 'x')]", ["gitleaks", (3, "x")]),
+            ("A.upper()", unset),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(catalog_ast.literal_value(self.expr(source), env), expected)
+
+    def test_ctor_identity_reads_keywords_and_s_positionals(self):
+        cases = (
+            ("plant(slug='a', scanner='gitleaks')", {"slug": "a", "scanner": "gitleaks"}),
+            ("plant(scanner='gitleaks')", None),
+            ("plant(slug=NAME)", None),
+            ("S('a', 'gitleaks')", {"slug": "a", "scanner": "gitleaks"}),
+            ("S(slug='k', scanner='t')", {"slug": "k", "scanner": "t"}),
+            ("S('a')", {"slug": "a", "scanner": None}),
+            ("S('a', NAME)", {"slug": "a", "scanner": None}),
+            ("S(NAME, 'gitleaks')", None),
+            ("other('a', 'b')", None),
+            ("obj.plant(slug='a')", None),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(catalog_ast.ctor_identity(self.expr(source)), expected)
+
+    def test_joined_path_and_spec_file_name(self):
+        self.assertIsNone(extract_companion_path("MILL = ROOT\n"))
+        self.assertIsNone(extract_companion_path('MILL = "a" / ROOT\n'))
+        self.assertIsNone(extract_companion_path("MILL = ROOT.parent\n"))
+        self.assertIsNone(extract_companion_path("OTHER = 'x'\n"))
+        self.assertEqual(
+            extract_companion_path('MILL = "experiments" / "x.py"\n'),
+            "experiments/x.py",
+        )
+        loop = (
+            "import importlib.util\n"
+            'spec = importlib.util.spec_from_file_location("m")\n'
+            'spec = importlib.util.spec_from_file_location("m", ROOT)\n'
+            'spec = importlib.util.spec_from_file_location("m", ROOT / "ssr-mill-r9.py")\n'
+        )
+        extracted = extract_mill_catalog(loop, path="experiments/ssr-loop-r9.py")
+        self.assertEqual(extracted["exec_target"], "ssr-mill-r9.py")
+        self.assertEqual(extracted["kind"], cv.KIND_LOOP)
+
+
+class SsrExtractRefusalTests(unittest.TestCase):
+    def assert_unextractable(self, source: str):
+        with self.assertRaisesRegex(ValueError, "has no extractable SSR catalog assignment"):
+            extract_mill_catalog(source, path="experiments/ssr-mill-r9.py")
+
+    def test_non_literal_dict_pairs_fall_through(self):
+        self.assert_unextractable('PAIRS = [({"slug": NAME}, {"slug": "b"})]\n')
+
+    def test_partially_constructed_pairs_fall_through(self):
+        self.assert_unextractable(
+            "PAIRS = [\n"
+            '    (plant(slug="a", scanner="g"), plant(slug="b", scanner="t")),\n'
+            '    (plant(scanner="x"), plant(slug="c")),\n'
+            "]\n"
+        )
+
+    def test_bad_generated_rows_fall_through(self):
+        for rows in (
+            'ROWS = [("gitleaks", "a", 1)]',
+            "ROWS = [NAME]",
+            'ROWS = ["gitleaks"]',
+            'ROWS = [("gitleaks",), ("t", "b")]',
+            'ROWS = [(1, "a"), ("t", "b")]',
+        ):
+            with self.subTest(rows=rows):
+                self.assert_unextractable(rows + "\n")
+
+    def test_generated_rows_pair_successive_plants(self):
+        extracted = extract_mill_catalog(
+            'ROWS = [("gitleaks", "a", 1), ("trufflehog", "b", 2)]\n',
+            path="experiments/ssr-mill-r9.py",
+        )
+        self.assertEqual(extracted["shape"], "rows-generated")
+        self.assertEqual(extracted["catalog_first"], 9)
+        self.assertEqual(extracted["first_slug"], "gitleaks-a")
+        self.assertEqual(extracted["pairs"][0]["fail_slug"], "trufflehog-b")
+
+    def test_later_non_literal_tails_and_scan_keep_the_last_literal(self):
+        extracted = extract_mill_catalog(
+            'SCAN = {"gitleaks": 1, "trufflehog": 2}\n'
+            "SCAN = {NAME: 1}\n"
+            'TAILS = ["a", "b"]\n'
+            "TAILS = []\n"
+            "TAILS = [1, 2]\n",
+            path="experiments/ssr-mill-r9.py",
+        )
+        self.assertEqual(extracted["shape"], SHAPE_TAILS)
+        self.assertEqual(extracted["scanners"], ["gitleaks", "trufflehog"])
+        self.assertEqual(extracted["tails"], ["a", "b"])
+        self.assertEqual(extracted["first_slug"], "gitleaks-a-leftover")
+
+    def test_single_tail_is_unextractable(self):
+        self.assert_unextractable('TAILS = ["a"]\n')
+
+    def test_deferred_rows_refuse_a_pair_count_mismatch(self):
+        record = {
+            "kind": cv.KIND_PAIRS,
+            "mill_id": "ssr-mill-r9",
+            "path": "experiments/ssr-mill-r9.py",
+            "shape": SHAPE_PLANT,
+            "n_rows": 1,
+            "pairs": [],
+        }
+        with self.assertRaisesRegex(ValueError, "ssr-mill-r9 deferred pairs 0 != n_rows 1"):
+            deferred_pair_rows([record])
+        with self.assertRaisesRegex(ValueError, "deferred pair rows 0 != pin 1"):
+            deferred_pair_rows([], expected_rows=1)
+
+
+class SsrInheritedScannerTests(unittest.TestCase):
+    @staticmethod
+    def tails_record(**overrides):
+        record = {
+            "shape": SHAPE_TAILS,
+            "first_slug": None,
+            "last_slug": None,
+            "first_tail": "a",
+            "last_success_tail": "c",
+            "n_tails": 4,
+            "tails": ["a", "b", "c", "d"],
+            "scanners": [],
+            "pairs": [],
+        }
+        record.update(overrides)
+        return record
+
+    def test_non_tails_record_is_returned_unchanged(self):
+        record = {"shape": SHAPE_PLANT}
+        self.assertIs(apply_inherited_scanners(record, ["gitleaks"]), record)
+
+    def test_inherited_scanners_fill_slugs_and_pairs(self):
+        filled = apply_inherited_scanners(self.tails_record(), ["gitleaks", "trufflehog"])
+        self.assertEqual(filled["first_slug"], "gitleaks-a-leftover")
+        self.assertEqual(filled["last_slug"], "gitleaks-c-leftover")
+        self.assertEqual(len(filled["pairs"]), 2)
+
+    def test_slug_fill_skips_incomplete_records(self):
+        cases = (
+            (self.tails_record(), []),
+            (self.tails_record(first_tail=None, tails=None), ["gitleaks"]),
+            (self.tails_record(n_tails=None, tails=None), ["gitleaks"]),
+        )
+        for record, scanners in cases:
+            with self.subTest(record=record, scanners=scanners):
+                self.assertIs(apply_inherited_scanners(record, scanners), record)
+
+    def test_last_slug_needs_a_success_tail_and_two_tails(self):
+        for overrides in ({"last_success_tail": None}, {"n_tails": 1}):
+            with self.subTest(overrides=overrides):
+                filled = apply_inherited_scanners(
+                    self.tails_record(tails=["a"], **overrides), ["gitleaks"]
+                )
+                self.assertEqual(filled["first_slug"], "gitleaks-a-leftover")
+                self.assertIsNone(filled["last_slug"])
+                self.assertEqual(filled["pairs"], [])
+
+    def test_local_scanners_win_and_existing_pairs_stay(self):
+        local = apply_inherited_scanners(
+            self.tails_record(first_slug="kept", scanners=["ggshield"]), ["gitleaks"]
+        )
+        self.assertEqual(local["first_slug"], "kept")
+        self.assertEqual(local["pairs"][0]["success_scanner"], "ggshield")
+        existing = self.tails_record(first_slug="kept", pairs=[{"success_slug": "p"}])
+        self.assertIs(apply_inherited_scanners(existing, ["gitleaks"]), existing)
 
 
 if __name__ == "__main__":
