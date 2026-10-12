@@ -27,7 +27,7 @@ if str(REPO) not in sys.path:
 from pipelines.db import check, cli
 from pipelines.db import config as cfg
 from pipelines.db.episode import build_episode
-from pipelines.db.plant import make_plant
+from pipelines.db.plant import REQUIRED_KEYS, make_plant
 from pipelines.db.plants import PLANTS
 
 
@@ -323,11 +323,8 @@ class SelfCheckRefusalTests(unittest.TestCase):
             build_episode(cfg.START_ROUND, dict(PLANTS[0], slug="x-r12"), 0)
 
 
-_PLANT_FIELDS = {
-    "engine": "sqlite", "slug": "slug-x", "plant": "p", "surface": "s", "table": "t",
-    "col": "c", "col_v2": "c2", "leftover": "l", "leftover2": "l2", "seed": "seed",
-    "fail": "f", "inspect": "i", "catalog": "cat", "abort": "a", "col_type": "TEXT",
-}
+# Every required field gets a non-empty placeholder; engine and slug get real values.
+_PLANT_FIELDS = dict({key: f"<{key}>" for key in REQUIRED_KEYS}, engine="sqlite", slug="slug-x")
 
 
 class PlantConstructorTests(unittest.TestCase):
