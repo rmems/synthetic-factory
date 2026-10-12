@@ -240,7 +240,11 @@ def plants_from_source(
     except SyntaxError as exc:
         refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}")
     _refuse_hopper_defs(source, tree)
-    raw_pairs, inferred_base = _module_pairs_and_base(tree)
+    # Evaluated here, in source order (last assignment wins), so a deep literal
+    # costs the same frames below plants_from_source as before the split.
+    constants = {name: _const_eval(value) for name, value in _pairs_and_base_assignments(tree)}
+    raw_pairs: Any = constants.get("PAIRS")
+    inferred_base: Any = constants.get("BASE")
     refuse_when(
         not isinstance(raw_pairs, list) or not raw_pairs,
         FINDING_SOURCE_NOT_PARSEABLE,
@@ -261,21 +265,15 @@ def _is_positive_int(value: Any) -> bool:
     return value >= 1
 
 
-def _module_pairs_and_base(tree: ast.Module) -> tuple[Any, Any]:
-    """Constant-evaluate the module-level ``PAIRS`` and ``BASE`` (last assignment wins)."""
+def _pairs_and_base_assignments(tree: ast.Module) -> list[tuple[str, ast.AST]]:
+    """Module-level ``PAIRS`` / ``BASE`` assignments as ``(name, value)``, in source order."""
 
-    raw_pairs: Any = None
-    inferred_base: Any = None
+    assignments = []
     for node in tree.body:
         assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name == "PAIRS":
-            raw_pairs = _const_eval(value)
-        elif name == "BASE":
-            inferred_base = _const_eval(value)
-    return raw_pairs, inferred_base
+        if assigned is not None and assigned[0] in ("PAIRS", "BASE"):
+            assignments.append(assigned)
+    return assignments
 
 
 def _resolve_base(inferred_base: Any, base_round: int | None, mill_id: str, source: str) -> int:
