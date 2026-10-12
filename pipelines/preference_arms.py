@@ -1002,13 +1002,25 @@ def _run_scan(args: argparse.Namespace, source: Path) -> int:
     return _scan_verdict(scan)
 
 
+def _required_path(parser: argparse.ArgumentParser, path: Path | None, name: str) -> Path:
+    """The confined path of a subcommand's required positional.
+
+    argparse already refuses a missing positional, so ``None`` cannot reach
+    here; if it ever did, the CLI refuses rather than passing ``None`` on.
+    """
+
+    if path is None:
+        parser.error(f"{name} is required")
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     paths = _inputs(parser, args)
     if args.command == "verify-handoff":
-        return _run_verify_handoff(args, paths.staging_dir)
-    return _run_scan(args, paths.source)
+        return _run_verify_handoff(args, _required_path(parser, paths.staging_dir, "staging_dir"))
+    return _run_scan(args, _required_path(parser, paths.source, "source"))
 
 
 if __name__ == "__main__":

@@ -355,7 +355,7 @@ def _screen_preference_totals(rewards_by_pointer, arithmetic_by_pointer):
     statuses = {chosen_arithmetic["status"], rejected_arithmetic["status"]}
     if "invalid" in statuses:
         return "P02", None
-    if statuses != {"valid"}:
+    if any(status != "valid" for status in statuses):
         return "P03", None
     chosen_total = _decimal(chosen_arithmetic["source_total"])
     rejected_total = _decimal(rejected_arithmetic["source_total"])
