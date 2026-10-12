@@ -20,7 +20,6 @@ from types import MappingProxyType
 from typing import Any
 
 from . import catalog_extract as extract
-from .catalog_extract import _is_skipped_slug
 from ._contract import (
     CATALOG_FILENAME,
     CATALOG_FORMAT,
@@ -234,7 +233,7 @@ def expand_families(
     for family in families:
         for short, verify_args, destroy in family.cmds:
             slug = f"{family.bin}-{short}"
-            if _is_skipped_slug(slug, banned, prefixes):
+            if extract.is_skipped_slug(slug, banned, prefixes):
                 continue
             verify = f"{family.bin} {verify_args}".strip()
             dest = destroy if destroy.startswith(("rm ", family.bin)) else f"{family.bin} {destroy}"

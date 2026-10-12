@@ -412,7 +412,7 @@ def _round_plant_row(elt: ast.AST, label: str, mill_id: str) -> dict[str, Any]:
     }
 
 
-def _is_skipped_slug(slug: str, banned: frozenset[str], prefixes: tuple[str, ...]) -> bool:
+def is_skipped_slug(slug: str, banned: frozenset[str], prefixes: tuple[str, ...]) -> bool:
     """A banned slug or prefix, or one the mills always drop (``yq-eval*``, ``pacman*``)."""
 
     if slug in banned or any(slug.startswith(prefix) for prefix in prefixes):
@@ -439,7 +439,7 @@ def expand_family_rows(
         grep = str(family["grep"])
         for short, verify_args, destroy in family["cmds"]:
             slug = f"{bin_name}-{short}"
-            if _is_skipped_slug(slug, banned, prefixes):
+            if is_skipped_slug(slug, banned, prefixes):
                 continue
             verify = f"{bin_name} {verify_args}".strip()
             dest = destroy if str(destroy).startswith(("rm ", bin_name)) else f"{bin_name} {destroy}"
