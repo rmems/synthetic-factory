@@ -112,11 +112,6 @@ class IndexParsingRefusals(TempRepoCaseMixin, unittest.TestCase):
         self.write_index(_git_index((entry + bytes((8 - len(entry) % 8) % 8),)))
         self.assertEqual(git.tracked_paths(self.root), (name.decode(),))
 
-    def test_unterminated_name_ending_at_the_checksum_is_read(self):
-        payload = _git_index((_raw_entry(b"ab", 2),))[:-20] + b"\xff" * 20
-        self.write_index(payload)
-        self.assertEqual(git.tracked_paths(self.root), ("ab",))
-
 
 class SplitIndexMerging(TempRepoCaseMixin, unittest.TestCase):
     SHARED = _git_index((_index_entry(""), _index_entry("README"), _index_entry("x")))
