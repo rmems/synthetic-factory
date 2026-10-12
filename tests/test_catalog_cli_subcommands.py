@@ -12,17 +12,21 @@ from __future__ import annotations
 
 import contextlib
 import io
+import multiprocessing
 import shutil
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 if __package__:
+    from . import catalog_cli_import_probe as probe
     from .pipeline_import_test_support import clean_package_imports, direct_pipeline_path
 else:
+    import catalog_cli_import_probe as probe
     from pipeline_import_test_support import clean_package_imports, direct_pipeline_path
 
 from pipelines.catalog_cli import subcommands
@@ -279,11 +283,9 @@ def _flat_clis() -> dict[str, ModuleType]:
 
 
 def _shared_twins() -> tuple[ModuleType, ModuleType]:
-    import pipelines.catalog_cli.subcommands as packaged
+    """Both names of the shared module, as loaded by the ``cli`` imports above."""
 
-    import catalog_cli.subcommands as flat
-
-    return flat, packaged
+    return sys.modules["catalog_cli.subcommands"], sys.modules["pipelines.catalog_cli.subcommands"]
 
 
 class ImportForms(unittest.TestCase):
@@ -323,6 +325,26 @@ class ImportForms(unittest.TestCase):
         ):
             cli.main()
         return caught.exception.code, out.getvalue()
+
+    def test_pipelines_loaded_before_the_flat_form_gets_the_attribute(self):
+        with clean_package_imports():
+            import pipelines
+
+            with direct_pipeline_path():
+                flat = _flat_clis()
+                packaged = _package_clis()
+                self._assert_one_object_each(flat, packaged)
+                self.assertIs(pipelines.catalog_cli, sys.modules["catalog_cli"])
+
+    def test_the_parent_attribute_resolves_in_every_order_in_a_fresh_interpreter(self):
+        context = multiprocessing.get_context("spawn")
+        for order in probe.ORDERS:
+            with (
+                self.subTest(order=order),
+                ProcessPoolExecutor(max_workers=1, mp_context=context) as pool,
+            ):
+                report = pool.submit(probe.report, order).result(timeout=180)
+                self.assertEqual(report, {"attribute": True, "chain": True, "package_twin": True})
 
     def test_generate_shape_main_exits_with_the_run_code(self):
         clis = _package_clis()
