@@ -93,7 +93,11 @@ def run_commands(
 
 
 def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
-    print(dumps_exact_json(payload, ensure_ascii=True, indent=2, sort_keys=True) if as_json else text)
+    print(
+        dumps_exact_json(payload, ensure_ascii=True, indent=2, sort_keys=True)
+        if as_json
+        else text
+    )
 
 
 @dataclass(frozen=True)
@@ -151,9 +155,8 @@ class PlantCatalogCommands:
         return parser
 
     def run(self, argv: list[str] | None = None) -> int:
-        handlers = dict(
-            zip(_CATALOG_COMMANDS, (self._catalog, self._catalog_check, self._generate), strict=True)
-        )
+        handled_by = (self._catalog, self._catalog_check, self._generate)
+        handlers = dict(zip(_CATALOG_COMMANDS, handled_by, strict=True))
         return run_commands(self.build_parser(), handlers, argv)
 
     def main(self) -> None:
