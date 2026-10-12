@@ -6,7 +6,7 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, NoReturn
 
 from ._contract import (
     BAN,
@@ -52,28 +52,45 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _literal(node: ast.AST, where: str) -> Any:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float, bool)):
-        return node.value
-    if isinstance(node, ast.Constant) and node.value is None:
-        return None
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        value = _literal(node.operand, where)
-        refuse_when(
-            not isinstance(value, (int, float)) or isinstance(value, bool),
-            FINDING_CATALOG_PLANT,
-            f"{where}: unary operand must be a number",
-        )
-        return -value if isinstance(node.op, ast.USub) else value
-    if isinstance(node, ast.Dict):
-        return _literal_dict(node, where)
+def _unsupported(node: ast.AST, where: str) -> NoReturn:
+    refuse(FINDING_CATALOG_PLANT, f"{where}: unsupported {type(node).__name__}")
+
+
+def _constant_literal(node: ast.Constant, where: str) -> Any:
+    value = node.value
+    if not isinstance(value, (str, int, float, bool)) and value is not None:
+        _unsupported(node, where)
+    return value
+
+
+def _signed_literal(node: ast.UnaryOp, where: str) -> Any:
+    value = _literal(node.operand, where)
+    refuse_when(
+        not isinstance(value, (int, float)) or isinstance(value, bool),
+        FINDING_CATALOG_PLANT,
+        f"{where}: unary operand must be a number",
+    )
+    return -value if isinstance(node.op, ast.USub) else value
+
+
+def _sequence_literal(node: ast.AST, where: str) -> list[Any]:
     if isinstance(node, ast.List):
         return [_literal(elt, f"{where}[]") for elt in node.elts]
     if isinstance(node, ast.Tuple):
         return [_literal(elt, f"{where}()") for elt in node.elts]
-    if isinstance(node, ast.Set):
-        return [_literal(elt, where) for elt in node.elts]
-    refuse(FINDING_CATALOG_PLANT, f"{where}: unsupported {type(node).__name__}")
+    if not isinstance(node, ast.Set):
+        _unsupported(node, where)
+    return [_literal(elt, where) for elt in node.elts]
+
+
+def _literal(node: ast.AST, where: str) -> Any:
+    if isinstance(node, ast.Constant):
+        return _constant_literal(node, where)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        return _signed_literal(node, where)
+    if isinstance(node, ast.Dict):
+        return _literal_dict(node, where)
+    return _sequence_literal(node, where)
 
 
 def _literal_dict(node: ast.Dict, where: str) -> dict[Any, Any]:
@@ -100,15 +117,17 @@ def _call_name(func: ast.AST) -> str:
     return getattr(func, "attr", "")
 
 
-def _plants_filename(path_node: ast.AST) -> str | None:
-    if not (
-        isinstance(path_node, ast.Call)
-        and isinstance(path_node.func, ast.Name)
-        and path_node.func.id == "str"
-        and path_node.args
-    ):
+def _str_call_argument(path_node: ast.AST) -> ast.AST | None:
+    """The first argument of a ``str(...)`` call, if ``path_node`` is one."""
+    if not isinstance(path_node, ast.Call) or not isinstance(path_node.func, ast.Name):
         return None
-    joined = path_node.args[0]
+    if path_node.func.id != "str" or not path_node.args:
+        return None
+    return path_node.args[0]
+
+
+def _plants_filename(path_node: ast.AST) -> str | None:
+    joined = _str_call_argument(path_node)
     if not (isinstance(joined, ast.BinOp) and isinstance(joined.op, ast.Div)):
         return None
     right = joined.right
@@ -219,6 +238,67 @@ def ast_extract_plants(source: str) -> dict[str, Any]:
     return {"catalog_first": first, "n_pairs": len(pairs), "pairs": pairs}
 
 
+def _pinned_texts(
+    source: tuple[Any, ...], mill_sources: Mapping[str, str], plants_sources: Mapping[str, str]
+) -> tuple[str, str]:
+    """The mill and plants texts for one pinned source, refused when absent or drifted."""
+    _mill_id, path, mill_sha, plants_path, plants_sha, _first, _n_pairs = source
+    refuse_when(path not in mill_sources, FINDING_CATALOG_MILL, f"missing mill source {path}")
+    refuse_when(
+        plants_path not in plants_sources,
+        FINDING_CATALOG_MILL,
+        f"missing plants source {plants_path}",
+    )
+    mill_text = mill_sources[path]
+    plants_text = plants_sources[plants_path]
+    refuse_first(
+        (
+            (sha256_text(mill_text) != mill_sha, FINDING_CATALOG_SCHEMA, f"{path} sha256 drifted"),
+            (
+                sha256_text(plants_text) != plants_sha,
+                FINDING_CATALOG_SCHEMA,
+                f"{plants_path} sha256 drifted",
+            ),
+        )
+    )
+    return mill_text, plants_text
+
+
+def _mill_pair_rows(
+    source: tuple[Any, ...], mill_text: str, plants_text: str
+) -> list[dict[str, Any]]:
+    """AST-extract one mill's plants pointer and pairs; refuse a drifted pointer or window."""
+    mill_id, path, _mill_sha, plants_path, _plants_sha, catalog_first, n_pairs = source
+    extracted_mill = ast_extract_mill(mill_text)
+    refuse_when(
+        extracted_mill["plants"] != plants_path,
+        FINDING_CATALOG_MILL,
+        f"{path} plants pointer {extracted_mill['plants']!r} != {plants_path!r}",
+    )
+    extracted_plants = ast_extract_plants(plants_text)
+    refuse_when(
+        extracted_plants["catalog_first"] != catalog_first
+        or extracted_plants["n_pairs"] != n_pairs,
+        FINDING_CATALOG_PAIR_COUNT,
+        f"{path} catalog window {extracted_plants['catalog_first']}+{extracted_plants['n_pairs']}",
+    )
+    return [{"mill_id": mill_id, **row} for row in extracted_plants["pairs"]]
+
+
+def _mill_entry(source: tuple[Any, ...]) -> dict[str, Any]:
+    mill_id, path, mill_sha, plants_path, plants_sha, catalog_first, n_pairs = source
+    return {
+        "mill_id": mill_id,
+        "path": path,
+        "sha256": mill_sha,
+        "plants": plants_path,
+        "plants_sha256": plants_sha,
+        "catalog_first": catalog_first,
+        "n_pairs": n_pairs,
+        "ban": sorted(BAN),
+    }
+
+
 def ast_extract_catalog(
     mill_sources: Mapping[str, str],
     plants_sources: Mapping[str, str],
@@ -229,52 +309,11 @@ def ast_extract_catalog(
 
     mills: list[dict[str, Any]] = []
     pairs: list[dict[str, Any]] = []
-    for mill_id, path, mill_sha, plants_path, plants_sha, catalog_first, n_pairs in MILL_SOURCES:
-        refuse_when(path not in mill_sources, FINDING_CATALOG_MILL, f"missing mill source {path}")
-        refuse_when(
-            plants_path not in plants_sources,
-            FINDING_CATALOG_MILL,
-            f"missing plants source {plants_path}",
-        )
-        mill_text = mill_sources[path]
-        plants_text = plants_sources[plants_path]
-        refuse_first(
-            (
-                (sha256_text(mill_text) != mill_sha, FINDING_CATALOG_SCHEMA, f"{path} sha256 drifted"),
-                (
-                    sha256_text(plants_text) != plants_sha,
-                    FINDING_CATALOG_SCHEMA,
-                    f"{plants_path} sha256 drifted",
-                ),
-            )
-        )
-        extracted_mill = ast_extract_mill(mill_text)
-        refuse_when(
-            extracted_mill["plants"] != plants_path,
-            FINDING_CATALOG_MILL,
-            f"{path} plants pointer {extracted_mill['plants']!r} != {plants_path!r}",
-        )
-        extracted_plants = ast_extract_plants(plants_text)
-        refuse_when(
-            extracted_plants["catalog_first"] != catalog_first
-            or extracted_plants["n_pairs"] != n_pairs,
-            FINDING_CATALOG_PAIR_COUNT,
-            f"{path} catalog window {extracted_plants['catalog_first']}+{extracted_plants['n_pairs']}",
-        )
-        mills.append(
-            {
-                "mill_id": mill_id,
-                "path": path,
-                "sha256": mill_sha,
-                "plants": plants_path,
-                "plants_sha256": plants_sha,
-                "catalog_first": catalog_first,
-                "n_pairs": n_pairs,
-                "ban": sorted(BAN),
-            }
-        )
-        for row in extracted_plants["pairs"]:
-            pairs.append({"mill_id": mill_id, **row})
+    for source in MILL_SOURCES:
+        mill_text, plants_text = _pinned_texts(source, mill_sources, plants_sources)
+        rows = _mill_pair_rows(source, mill_text, plants_text)
+        mills.append(_mill_entry(source))
+        pairs.extend(rows)
     refuse_when(len(mills) != N_MILLS, FINDING_CATALOG_PAIR_COUNT, f"n_mills must be {N_MILLS}")
     refuse_when(len(pairs) != N_PAIRS, FINDING_CATALOG_PAIR_COUNT, f"n_pairs must be {N_PAIRS}")
     return {
