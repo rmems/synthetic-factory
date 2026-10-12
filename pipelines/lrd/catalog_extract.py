@@ -6,7 +6,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
 from ._contract import (
     FINDING_HOPPER_REFUSED,
@@ -39,15 +39,19 @@ __all__ = [
 ]
 
 
-def _is_str_or_int_constant(node: ast.AST) -> bool:
+def _str_or_int_constant(node: ast.AST) -> str | int | None:
+    """The value of a non-bool str or int constant node, else None."""
+
     if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
-        return False
-    return isinstance(node.value, (str, int))
+        return None
+    value = node.value
+    return value if isinstance(value, (str, int)) else None
 
 
 def _literal(node: ast.AST, where: str) -> str | int:
-    if _is_str_or_int_constant(node):
-        return node.value
+    constant = _str_or_int_constant(node)
+    if constant is not None:
+        return constant
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         value = _literal(node.operand, where)
         refuse_when(
@@ -74,13 +78,13 @@ def _literal_dict(node: ast.AST, where: str) -> dict[str, str | int]:
     return out
 
 
-def _is_named_call(node: ast.AST, names: frozenset[str]) -> bool:
+def _is_named_call(node: ast.AST, names: frozenset[str]) -> TypeGuard[ast.Call]:
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return False
     return node.func.id in names
 
 
-def _is_kwargs_call(node: ast.AST, names: frozenset[str]) -> bool:
+def _is_kwargs_call(node: ast.AST, names: frozenset[str]) -> TypeGuard[ast.Call]:
     if not _is_named_call(node, names) or node.args:
         return False
     return all(kw.arg is not None for kw in node.keywords)
@@ -158,25 +162,27 @@ class _PArgs(NamedTuple):
     rg: str | int
     tk: str | int
     root: str | int
-    rv: str | int
-
-
-def _p_args(args: tuple[str | int, ...], count: int, label: str) -> _PArgs:
-    refuse_when(
-        len(args) != count,
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"{label} P(...) expects {count} args",
-    )
-    p = _PArgs(*args)
-    assert all(isinstance(item, str) for item in (p.sdk, p.okm, p.failm, p.src, p.cfg))
-    assert isinstance(p.rv, int)
-    return p
+    rv: int
 
 
 def expand_p_idtoken_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | int], dict[str, str | int]]:
     """Expand ``P(...)`` from ``lrd-mill-leftover3-idtoken.py`` without executing it."""
 
-    p = _p_args(args, P_IDTOKEN_ARG_COUNT, "idtoken")
+    refuse_when(
+        len(args) != P_IDTOKEN_ARG_COUNT,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"idtoken P(...) expects {P_IDTOKEN_ARG_COUNT} args",
+    )
+    sdk, okm, failm, src, cfg = args[0:5]
+    ok_fo, ok_fn, fail_fo, fail_fn = args[5:9]
+    ok_wo, ok_wn, fail_wo, fail_wn = args[9:13]
+    rg, tk, root, rv = args[13:17]
+    assert all(isinstance(item, str) for item in (sdk, okm, failm, src, cfg))
+    assert isinstance(rv, int)
+    p = _PArgs(
+        sdk, okm, failm, src, cfg, ok_fo, ok_fn, fail_fo, fail_fn,
+        ok_wo, ok_wn, fail_wo, fail_wn, rg, tk, root, rv,
+    )
     return _idtoken_ok(p), _idtoken_fail(p)
 
 
@@ -304,7 +310,21 @@ def _idtoken_fail_steps(p: _PArgs) -> dict[str, str | int]:
 def expand_p_cookie_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | int], dict[str, str | int]]:
     """Expand ``P(...)`` from ``lrd-mill-r116.py`` without executing it."""
 
-    p = _p_args(args, P_COOKIE_ARG_COUNT, "cookie")
+    refuse_when(
+        len(args) != P_COOKIE_ARG_COUNT,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"cookie P(...) expects {P_COOKIE_ARG_COUNT} args",
+    )
+    sdk, okm, failm, src, cfg = args[0:5]
+    ok_fo, ok_fn, fail_fo, fail_fn = args[5:9]
+    ok_wo, ok_wn, fail_wo, fail_wn = args[9:13]
+    rg, tk, root, rv = args[13:17]
+    assert all(isinstance(item, str) for item in (sdk, okm, failm, src, cfg))
+    assert isinstance(rv, int)
+    p = _PArgs(
+        sdk, okm, failm, src, cfg, ok_fo, ok_fn, fail_fo, fail_fn,
+        ok_wo, ok_wn, fail_wo, fail_wn, rg, tk, root, rv,
+    )
     return _cookie_ok(p), _cookie_fail(p)
 
 
@@ -462,13 +482,9 @@ def _lll_pair_row(
 
 
 def _pair_elts(item: ast.AST, where: str, expected: str) -> list[ast.expr]:
-    refuse_when(
-        not isinstance(item, (ast.Tuple, ast.List)) or len(item.elts) != 2,
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"{where} must be {expected}",
-    )
-    assert isinstance(item, (ast.Tuple, ast.List))
-    return item.elts
+    if isinstance(item, (ast.Tuple, ast.List)) and len(item.elts) == 2:
+        return item.elts
+    refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where} must be {expected}")
 
 
 def _leftover3_item_row(
@@ -487,11 +503,8 @@ _P_CALL_SHAPES = {
 
 
 def _p_call_item_row(item: ast.AST, where: str, mill: _MillSource, shape: str) -> dict[str, Any]:
-    refuse_when(
-        not isinstance(item, ast.Call),
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"{where} must be P(...)",
-    )
+    if not isinstance(item, ast.Call):
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where} must be P(...)")
     count, expand = _P_CALL_SHAPES[shape]
     ok, fail = expand(_pos_args(item, count, where))
     return _pair_row(ok, fail, mill, shape)

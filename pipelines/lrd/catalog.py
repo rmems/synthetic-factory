@@ -181,7 +181,7 @@ def _is_keyword_dict_call(node: ast.Call) -> bool:
     return not node.args and all(keyword.arg is not None for keyword in node.keywords)
 
 
-def _const_eval_call(node: ast.Call) -> dict[str, Any]:
+def _const_eval_call(node: ast.Call) -> Any:
     if _is_keyword_dict_call(node):
         return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
     refuse(
@@ -418,7 +418,7 @@ def _legacy_plant(row: dict[str, Any], where: str, common: dict[str, Any]) -> Pl
         key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
         for key in PAIR_KEYS
     }
-    return Plant(**common, payload=None, **{key: fields[key] for key in _PLANT_TEXT_KEYS})
+    return _build_plant(common, None, fields)
 
 
 def _payload_plant(row: dict[str, Any], where: str, common: dict[str, Any]) -> Plant:
@@ -428,7 +428,31 @@ def _payload_plant(row: dict[str, Any], where: str, common: dict[str, Any]) -> P
         FINDING_PLANT_FIELD_INVALID,
         f"{where}.payload must be an object",
     )
-    return Plant(**common, payload=payload, **dict.fromkeys(_PLANT_TEXT_KEYS, ""))
+    return _build_plant(common, payload, dict.fromkeys(_PLANT_TEXT_KEYS, ""))
+
+
+def _build_plant(
+    common: dict[str, Any], payload: dict[str, Any] | None, text: Mapping[str, str]
+) -> Plant:
+    return Plant(
+        **common,
+        payload=payload,
+        mod=text["mod"],
+        drop=text["drop"],
+        stack=text["stack"],
+        field=text["field"],
+        naive=text["naive"],
+        conf=text["conf"],
+        conf2=text["conf2"],
+        oldc=text["oldc"],
+        newc=text["newc"],
+        old2=text["old2"],
+        new2=text["new2"],
+        test=text["test"],
+        ticket=text["ticket"],
+        fail=text["fail"],
+        domain=text["domain"],
+    )
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
