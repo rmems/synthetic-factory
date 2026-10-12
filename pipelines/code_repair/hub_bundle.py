@@ -74,6 +74,7 @@ __all__ = [
     "CARD_FILENAME",
     "TEXT_CONFIGS",
     "VIEWER_PATH",
+    "BundleFacts",
     "BundleRequest",
     "render_card",
     "run",
@@ -87,6 +88,33 @@ class BundleRequest:
     out_dir: Path
     dataset_id: str
     pretty_name: str | None = None
+
+
+@dataclass(frozen=True)
+class BundleFacts:
+    """Everything the card and the machine-readable companions are rendered from."""
+
+    request: BundleRequest
+    manifest: dict[str, Any]
+    manifest_sha256: str
+    ready: bool
+    freeze: dict[str, Any]
+    counts: dict[str, dict[str, int]]
+    viewer_rows: int
+    viewer_bytes: int
+    configs: list[dict[str, Any]]
+    info: list[dict[str, Any]]
+    digests: dict[str, str]
+    record_counts: dict[str, int]
+
+    @property
+    def run(self) -> dict[str, Any]:
+        return self.manifest["run"]
+
+    @property
+    def catalog(self) -> dict[str, Any]:
+        catalog = self.run.get("catalog")
+        return catalog if isinstance(catalog, dict) else {}
 
 
 # --- request and manifest ------------------------------------------------------------------
@@ -116,24 +144,34 @@ def _required_paths() -> list[str]:
     return [*text, export.AGOGE_PATH, export.EVIDENCE_PATH, export.FREEZE_PATH]
 
 
-def _manifest_shape_ok(manifest: Any) -> bool:
-    if not isinstance(manifest, dict) or manifest.get("format") != export.EXPORT_FORMAT:
+def _digest_entry_ok(path: Any, digest: Any) -> bool:
+    return isinstance(path, str) and isinstance(digest, str) and _HEX64.fullmatch(digest) is not None
+
+
+def _files_ok(files: Any) -> bool:
+    """Every pinned path has a SHA-256 digest and every required export file is pinned."""
+
+    if not isinstance(files, dict):
         return False
-    files, admission = manifest.get("files"), manifest.get("admission")
-    if not isinstance(files, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) and _HEX64.fullmatch(v) for k, v in files.items()
-    ):
-        return False
-    if not isinstance(admission, dict) or not isinstance(admission.get("blockers"), list):
-        return False
-    if admission.get("training_export") not in ("training_candidate", "blocked"):
-        return False
-    tables, run = manifest.get("tables"), manifest.get("run")
-    return (manifest.get("pipeline_status") == "complete"
+    pinned = all(_digest_entry_ok(path, digest) for path, digest in files.items())
+    return pinned and all(path in files for path in _required_paths())
+
+
+def _admission_ok(admission: Any) -> bool:
+    return (isinstance(admission, dict) and isinstance(admission.get("blockers"), list)
+            and admission.get("training_export") in ("training_candidate", "blocked"))
+
+
+def _sections_ok(manifest: dict[str, Any]) -> bool:
+    return (manifest.get("format") == export.EXPORT_FORMAT
+            and manifest.get("pipeline_status") == "complete"
             and isinstance(manifest.get("replay"), str)
-            and isinstance(tables, dict) and isinstance(run, dict)
-            and isinstance(manifest.get("rights"), dict)
-            and all(path in files for path in _required_paths()))
+            and all(isinstance(manifest.get(key), dict) for key in ("tables", "run", "rights")))
+
+
+def _manifest_shape_ok(manifest: Any) -> bool:
+    return (isinstance(manifest, dict) and _sections_ok(manifest)
+            and _files_ok(manifest.get("files")) and _admission_ok(manifest.get("admission")))
 
 
 def _load_manifest(payload: bytes) -> dict[str, Any]:
@@ -299,16 +337,15 @@ def _yaml(value: Any, indent: int = 0) -> list[str]:
     return lines
 
 
-def _front_matter(request: BundleRequest, ready: bool, configs: list[dict[str, Any]],
-                  info: list[dict[str, Any]]) -> str:
+def _front_matter(facts: BundleFacts) -> str:
     header = {
-        "pretty_name": _pretty_name(request),
+        "pretty_name": _pretty_name(facts.request),
         "license": RELEASE_LICENSE,
         "language": ["en"],
         "task_categories": ["text-generation"],
-        "tags": [*_TAGS, "training-candidate" if ready else "research-snapshot"],
-        "configs": configs,
-        "dataset_info": info,
+        "tags": [*_TAGS, "training-candidate" if facts.ready else "research-snapshot"],
+        "configs": facts.configs,
+        "dataset_info": facts.info,
     }
     return "---\n" + "\n".join(_yaml(header)) + "\n---\n"
 
@@ -396,55 +433,71 @@ def _file_table(digests: dict[str, str], counts: dict[str, int]) -> list[str]:
     return lines
 
 
-def render_card(request: BundleRequest, manifest: dict[str, Any], *, ready: bool,
-                configs: list[dict[str, Any]], info: list[dict[str, Any]],
-                counts: dict[str, dict[str, int]], viewer_rows: int, digests: dict[str, str],
-                record_counts: dict[str, int], freeze: dict[str, Any]) -> str:
-    run = manifest["run"]
-    catalog = run.get("catalog") if isinstance(run.get("catalog"), dict) else {}
-    frozen = freeze.get("canonical_ids", [])
+def _card_splits(facts: BundleFacts) -> list[str]:
+    frozen = facts.freeze.get("canonical_ids", [])
     agoge_keys = "`, `".join(export.VIEW_FORMATS["agoge"]["keys"])
-    body = [
-        f"# {_pretty_name(request)}",
-        "",
-        *_rights_lines(manifest, ready),
-        "",
-        *_verification_lines(manifest),
-        "",
+    return [
         "## Configs and splits",
         "",
         ("Splits are assigned per program group by the catalog's pinned policy "
-         f"(`{_inline_policy(run.get('split_policy'))}`), so no upstream program, structural "
-         "twin or reference sibling crosses a split. The `held_out` rows are frozen by digest in "
-         f"`{EVIDENCE_DIR}/{Path(export.FREEZE_PATH).name}` (canonical ids frozen: "
+         f"(`{_inline_policy(facts.run.get('split_policy'))}`), so no upstream program, "
+         "structural twin or reference sibling crosses a split. The `held_out` rows are frozen "
+         f"by digest in `{EVIDENCE_DIR}/{Path(export.FREEZE_PATH).name}` (canonical ids frozen: "
          f"{len(frozen) if isinstance(frozen, list) else 0}); never fit on them."),
         "",
-        *_config_table(counts, configs, viewer_rows),
+        *_config_table(facts.counts, facts.configs, facts.viewer_rows),
         "",
         (f"`{DATA_DIR}/{export.AGOGE_PATH}` carries the consumer rows (`{agoge_keys}`) for the "
          "Agoge trainer and is not declared as a config."),
         "",
+    ]
+
+
+def _card_limitations(manifest: dict[str, Any]) -> list[str]:
+    return [
         "## Evaluation limitations and prerequisites",
         "",
         *[f"- `{code}`" for code in manifest.get("evaluation_limitations", [])],
         *[f"- `{code}` (training-run prerequisite)"
           for code in manifest.get("training_run_prerequisites", [])],
         "",
-        "## Files",
-        "",
-        *_file_table(digests, record_counts),
-        "",
+    ]
+
+
+def _card_reproduce(facts: BundleFacts) -> list[str]:
+    catalog = facts.catalog
+    return [
         "## Reproduce",
         "",
         (f"From the factory repository, with the catalog `{catalog.get('catalog_id')}` "
          f"(`programs_sha256` `{str(catalog.get('programs_sha256'))[:12]}`…):"),
         "",
         "```bash",
-        *_reproduce_commands(request, run, catalog),
+        *_reproduce_commands(facts.request, facts.run, catalog),
         "```",
         "",
         "Neither this bundle nor the commands above create a Hub repository or launch a trainer.",
         "",
+    ]
+
+
+def render_card(facts: BundleFacts) -> str:
+    """The card body below the front matter, assembled from its sections."""
+
+    body = [
+        f"# {_pretty_name(facts.request)}",
+        "",
+        *_rights_lines(facts.manifest, facts.ready),
+        "",
+        *_verification_lines(facts.manifest),
+        "",
+        *_card_splits(facts),
+        *_card_limitations(facts.manifest),
+        "## Files",
+        "",
+        *_file_table(facts.digests, facts.record_counts),
+        "",
+        *_card_reproduce(facts),
     ]
     return "\n".join(body)
 
@@ -477,15 +530,13 @@ def _inline_policy(policy: Any) -> str:
 # --- machine-readable companions -----------------------------------------------------------
 
 
-def _provenance(request: BundleRequest, manifest: dict[str, Any], *, ready: bool,
-                manifest_sha256: str, digests: dict[str, str], record_counts: dict[str, int],
-                viewer_rows: int, viewer_bytes: int) -> dict[str, Any]:
-    run = manifest["run"]
+def _provenance(facts: BundleFacts) -> dict[str, Any]:
+    manifest, run, catalog, ready = facts.manifest, facts.run, facts.catalog, facts.ready
     generator = run.get("generator") if isinstance(run.get("generator"), dict) else {}
-    catalog = run.get("catalog") if isinstance(run.get("catalog"), dict) else {}
+    digests = facts.digests
     return {
         "schema_version": "1.0.0",
-        "dataset_id": request.dataset_id,
+        "dataset_id": facts.request.dataset_id,
         "purpose": ("Deterministic Python function-repair records: a project-owned mutator breaks "
                     "real MIT-licensed programs, the harness executes original, mutant, repaired "
                     "and reference phases, and every positive is re-verified by fresh replay"),
@@ -510,10 +561,10 @@ def _provenance(request: BundleRequest, manifest: dict[str, Any], *, ready: bool
                          "programs_sha256": catalog.get("programs_sha256"),
                          "program_count": catalog.get("program_count")},
         "source_license_evidence": dict(sp.POLICY["source_license_evidence"]),
-        "export_manifest_sha256": manifest_sha256,
-        "files": [{"path": path, "sha256": digests[path], "records": record_counts.get(path)}
-                  for path in sorted(digests)],
-        "viewer": {"path": VIEWER_PATH, "rows": viewer_rows, "bytes": viewer_bytes,
+        "export_manifest_sha256": facts.manifest_sha256,
+        "files": [{"path": path, "sha256": digests[path],
+                   "records": facts.record_counts.get(path)} for path in sorted(digests)],
+        "viewer": {"path": VIEWER_PATH, "rows": facts.viewer_rows, "bytes": facts.viewer_bytes,
                    "sha256": digests[VIEWER_PATH],
                    "writer": "synthetic-factory export_viewer (stdlib PLAIN parquet)"},
         "rights": manifest["rights"],
@@ -522,10 +573,11 @@ def _provenance(request: BundleRequest, manifest: dict[str, Any], *, ready: bool
     }
 
 
-def _release_status(request: BundleRequest, manifest: dict[str, Any], ready: bool) -> dict:
+def _release_status(facts: BundleFacts) -> dict[str, Any]:
+    manifest, ready = facts.manifest, facts.ready
     return {
         "schema_version": "1.0.0",
-        "dataset_id": request.dataset_id,
+        "dataset_id": facts.request.dataset_id,
         "release_stage": STAGE_ADMITTED if ready else STAGE_BLOCKED,
         "visibility": "not_uploaded",
         "payload_published": False,
@@ -581,24 +633,20 @@ def _bundle_files(files: dict[str, bytes], manifest_bytes: bytes) -> dict[str, b
     return bundled
 
 
-def run(request: BundleRequest) -> dict[str, Any]:
-    """Build the bundle into a brand-new directory; returns the summary written as BUNDLE.json."""
+def _load_export(export_dir: Path) -> tuple[bytes, dict[str, Any], dict[str, bytes], dict]:
+    """The manifest bytes and object, every pinned file's verified bytes, and the freeze."""
 
-    _check_request(request)
-    export_dir = Path(request.export_dir)
     manifest_bytes = (export_dir / export.MANIFEST_FILENAME).read_bytes()
     manifest = _load_manifest(manifest_bytes)
     files = _verified_files(export_dir, manifest)
-    ready = training_ready(manifest)
     freeze = load_strict_json(files[export.FREEZE_PATH])
     cv.refuse_when(not isinstance(freeze, dict), cv.FINDING_BUNDLE_MANIFEST_INVALID,
                    "the held-out freeze is not an object")
-    viewer_bytes, viewer_rows = _viewer_parquet(files[export.EVIDENCE_PATH])
-    bundled = _bundle_files(files, manifest_bytes)
-    bundled[VIEWER_PATH] = viewer_bytes
-    bundled[LICENSE_FILENAME] = _release_license()
-    counts = _text_counts(files)
-    sizes = {path: len(payload) for path, payload in bundled.items()}
+    return manifest_bytes, manifest, files, freeze
+
+
+def _record_counts(files: dict[str, bytes], counts: dict[str, dict[str, int]],
+                   viewer_rows: int) -> dict[str, int]:
     record_counts = {
         _data_path(directory, split): counts[name][split]
         for name, directory in TEXT_CONFIGS for split in lineage.SPLITS
@@ -606,27 +654,57 @@ def run(request: BundleRequest) -> dict[str, Any]:
     record_counts[f"{EVIDENCE_DIR}/{VIEWER_SOURCE_FILE}"] = viewer_rows
     record_counts[VIEWER_PATH] = viewer_rows
     record_counts[f"{DATA_DIR}/{export.AGOGE_PATH}"] = _row_count(files[export.AGOGE_PATH])
+    return record_counts
+
+
+def _assemble(request: BundleRequest) -> tuple[dict[str, bytes], BundleFacts]:
+    """The bundle's data files at their paths, and the facts its companions describe."""
+
+    manifest_bytes, manifest, files, freeze = _load_export(Path(request.export_dir))
+    viewer_bytes, viewer_rows = _viewer_parquet(files[export.EVIDENCE_PATH])
+    bundled = _bundle_files(files, manifest_bytes)
+    bundled[VIEWER_PATH] = viewer_bytes
+    bundled[LICENSE_FILENAME] = _release_license()
+    counts = _text_counts(files)
     configs = _configs(counts, viewer_rows)
-    info = _dataset_info(configs, counts, sizes, viewer_rows, len(viewer_bytes))
-    digests = {path: _sha(payload) for path, payload in bundled.items()}
-    manifest_sha256 = _sha(manifest_bytes)
-    bundled[PROVENANCE_FILENAME] = _json_bytes(_provenance(
-        request, manifest, ready=ready, manifest_sha256=manifest_sha256, digests=digests,
-        record_counts=record_counts, viewer_rows=viewer_rows, viewer_bytes=len(viewer_bytes),
-    ))
-    bundled[RELEASE_STATUS_FILENAME] = _json_bytes(_release_status(request, manifest, ready))
-    card = _front_matter(request, ready, configs, info) + "\n" + render_card(
-        request, manifest, ready=ready, configs=configs, info=info, counts=counts,
-        viewer_rows=viewer_rows, digests=digests, record_counts=record_counts, freeze=freeze,
+    sizes = {path: len(payload) for path, payload in bundled.items()}
+    facts = BundleFacts(
+        request=request, manifest=manifest, manifest_sha256=_sha(manifest_bytes),
+        ready=training_ready(manifest), freeze=freeze, counts=counts, viewer_rows=viewer_rows,
+        viewer_bytes=len(viewer_bytes), configs=configs,
+        info=_dataset_info(configs, counts, sizes, viewer_rows, len(viewer_bytes)),
+        digests={path: _sha(payload) for path, payload in bundled.items()},
+        record_counts=_record_counts(files, counts, viewer_rows),
     )
-    bundled[CARD_FILENAME] = card.encode("utf-8")
-    summary = {
-        "format": BUNDLE_FORMAT, "dataset_id": request.dataset_id, "training_ready": ready,
-        "export_manifest_sha256": manifest_sha256,
-        "configs": [config["config_name"] for config in configs],
-        "rows": {**counts, VIEWER_CONFIG: {"train": viewer_rows}},
+    return bundled, facts
+
+
+def _companions(facts: BundleFacts) -> dict[str, bytes]:
+    card = _front_matter(facts) + "\n" + render_card(facts)
+    return {
+        PROVENANCE_FILENAME: _json_bytes(_provenance(facts)),
+        RELEASE_STATUS_FILENAME: _json_bytes(_release_status(facts)),
+        CARD_FILENAME: card.encode("utf-8"),
+    }
+
+
+def _summary(facts: BundleFacts, bundled: dict[str, bytes]) -> dict[str, Any]:
+    return {
+        "format": BUNDLE_FORMAT, "dataset_id": facts.request.dataset_id,
+        "training_ready": facts.ready, "export_manifest_sha256": facts.manifest_sha256,
+        "configs": [config["config_name"] for config in facts.configs],
+        "rows": {**facts.counts, VIEWER_CONFIG: {"train": facts.viewer_rows}},
         "files": {path: _sha(payload) for path, payload in sorted(bundled.items())},
     }
+
+
+def run(request: BundleRequest) -> dict[str, Any]:
+    """Build the bundle into a brand-new directory; returns the summary written as BUNDLE.json."""
+
+    _check_request(request)
+    bundled, facts = _assemble(request)
+    bundled.update(_companions(facts))
+    summary = _summary(facts, bundled)
     root = Path(request.out_dir)
     root.mkdir(parents=True, exist_ok=False)
     for relative, payload in bundled.items():

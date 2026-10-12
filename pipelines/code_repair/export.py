@@ -336,11 +336,17 @@ def _digests(root: Path, relatives: list[str]) -> dict[str, str]:
     return {r: hashlib.sha256((root / r).read_bytes()).hexdigest() for r in relatives}
 
 
-def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
+def _renderings(corpus: _Corpus) -> tuple[tuple[str, dict[str, list[dict[str, Any]]]], ...]:
+    """Each text rendering's directory and its rows per split."""
+
+    return ((SFT_DIR, corpus.rows), (CHAT_DIR, corpus.chat_rows), (EDIT_DIR, corpus.edit_rows))
+
+
+def _write_evidence(root: Path, corpus: _Corpus) -> list[str]:
+    """The attribution notices of an admitted export and the exact candidate bytes."""
+
     notices = publication_export.attribution_files() if corpus.completion is not None else {}
-    root = Path(request.out_dir)
-    root.mkdir(parents=True, exist_ok=False)
-    written = [EVIDENCE_PATH, AGOGE_PATH]
+    written = []
     for name, payload in notices.items():
         with (root / name).open("xb") as handle:
             handle.write(payload)
@@ -349,26 +355,42 @@ def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
     evidence.parent.mkdir(parents=True, exist_ok=True)
     with evidence.open('xb') as handle:
         handle.write(corpus.candidate_bytes)
-    renderings = (
-        (SFT_DIR, corpus.rows), (CHAT_DIR, corpus.chat_rows), (EDIT_DIR, corpus.edit_rows),
-    )
-    for name, rows_by_split in renderings:
+    return [EVIDENCE_PATH, *written]
+
+
+def _write_rows(root: Path, corpus: _Corpus) -> list[str]:
+    """Every rendering per split, then the consumer rows in split order."""
+
+    written = []
+    for name, rows_by_split in _renderings(corpus):
         for split in lineage.SPLITS:
             _write_jsonl(root, f"{name}/{split}.jsonl", rows_by_split.get(split, []))
             written.append(f"{name}/{split}.jsonl")
     agoge = [row for split in lineage.SPLITS for row in corpus.agoge_rows.get(split, [])]
     _write_jsonl(root, AGOGE_PATH, agoge)
+    return [*written, AGOGE_PATH]
+
+
+def _write_freeze(root: Path, corpus: _Corpus) -> str:
+    """The held-out ids and every rendering's held-out digest."""
+
     held = corpus.agoge_rows.get("held_out", [])
-    held_digests = _digests(root, [f"{name}/held_out.jsonl" for name, _rows in renderings])
+    names = [name for name, _rows in _renderings(corpus)]
+    digests = _digests(root, [f"{name}/held_out.jsonl" for name in names])
     _write_json(root, FREEZE_PATH, {
         "format": EXPORT_FORMAT, "split": "held_out",
         "canonical_ids": [row["canonical_id"] for row in held],
-        "sft_sha256": held_digests[f"{SFT_DIR}/held_out.jsonl"],
-        "chat_sha256": held_digests[f"{CHAT_DIR}/held_out.jsonl"],
-        "edit_sha256": held_digests[f"{EDIT_DIR}/held_out.jsonl"],
+        **{f"{name}_sha256": digests[f"{name}/held_out.jsonl"] for name in names},
         "policy_sha256": None if corpus.policy is None else corpus.policy.sha256,
     })
-    written.append(FREEZE_PATH)
+    return FREEZE_PATH
+
+
+def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
+    root = Path(request.out_dir)
+    root.mkdir(parents=True, exist_ok=False)
+    written = [*_write_evidence(root, corpus), *_write_rows(root, corpus),
+               _write_freeze(root, corpus)]
     manifest = _manifest(request, corpus, _digests(root, written))
     _write_json(root, MANIFEST_FILENAME, manifest)
     return manifest

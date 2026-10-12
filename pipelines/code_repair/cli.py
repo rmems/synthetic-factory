@@ -79,7 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("run_dir", type=Path)
     render.add_argument("record_id")
     render.add_argument("--json", action="store_true")
+    _add_hub_bundle(commands)
+    return parser
 
+
+def _add_hub_bundle(commands: Any) -> None:
     bundle = commands.add_parser(
         "hub-bundle", help="a Hub-ready dataset directory with typed configs from a complete export"
     )
@@ -88,7 +92,6 @@ def build_parser() -> argparse.ArgumentParser:
     bundle.add_argument("--dataset-id", required=True, help="owner/name of the Hub dataset")
     bundle.add_argument("--pretty-name", default=None)
     bundle.add_argument("--json", action="store_true")
-    return parser
 
 
 def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:

@@ -55,6 +55,84 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
+class BuiltBundle(unittest.TestCase):
+    """One replayed export bundled once; each test reads one aspect of the result."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(tempfile.mkdtemp(prefix="code-repair-hub-bundle-built-"))
+        cls.manifest, cls.out, cls.records, _run_dir = exported(cls.root)
+        cls.bundle = cls.root / "bundle"
+        cls.summary = hub_bundle.run(hub_bundle.BundleRequest(cls.out, cls.bundle, DATASET))
+        card = (cls.bundle / hub_bundle.CARD_FILENAME).read_text(encoding="utf-8")
+        cls.card = card
+        cls.head, cls.body = card.split("\n---\n", 1)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.root, True)
+
+    def read_json(self, relative):
+        return json.loads((self.bundle / relative).read_text())
+
+    def test_summary_lists_typed_configs_and_pins_every_file(self):
+        self.assertEqual(self.summary["configs"], ["sft", "chat", "edit", "viewer"])
+        self.assertFalse(self.summary["training_ready"])
+        self.assertEqual(self.read_json(hub_bundle.BUNDLE_FILENAME), self.summary)
+        for relative, digest in self.summary["files"].items():
+            self.assertEqual(sha(self.bundle / relative), digest, relative)
+
+    def test_export_bytes_are_copied_unchanged(self):
+        pairs = [(f"data/{directory}/{split}.jsonl", f"{directory}/{split}.jsonl")
+                 for _name, directory in hub_bundle.TEXT_CONFIGS for split in lineage.SPLITS]
+        pairs += [("evidence/candidates.jsonl", export.EVIDENCE_PATH),
+                  ("evidence/MANIFEST.json", export.MANIFEST_FILENAME),
+                  ("evidence/FREEZE.json", export.FREEZE_PATH)]
+        for bundled, exported_path in pairs:
+            self.assertEqual((self.bundle / bundled).read_bytes(),
+                             (self.out / exported_path).read_bytes(), bundled)
+        self.assertIn(b"Apache License", (self.bundle / hub_bundle.LICENSE_FILENAME).read_bytes())
+
+    def test_front_matter_declares_exactly_the_nonempty_splits(self):
+        self.assertTrue(self.card.startswith("---\n"))
+        for fragment in ("license: apache-2.0", "- research-snapshot", "- config_name: viewer",
+                         f"num_examples: {len(self.records)}"):
+            self.assertIn(fragment, self.head)
+        for name, directory in hub_bundle.TEXT_CONFIGS:
+            self.assertIn(f"- config_name: {name}", self.head)
+            for split in lineage.SPLITS:
+                declared = f"path: data/{directory}/{split}.jsonl" in self.head
+                self.assertEqual(declared, self.summary["rows"][name][split] > 0, (name, split))
+
+    def test_card_body_states_the_blockers_and_no_unreal_catalog_path(self):
+        self.assertIn("**not training-ready.**", self.body)
+        for code in self.manifest["admission"]["blockers"]:
+            self.assertIn(f"`{code}`", self.body)
+        self.assertNotIn("catalogs/code-repair-fixture-v1", self.body)
+
+    def test_viewer_is_a_lossless_projection_of_the_evidence(self):
+        rows = hub_bundle.read_viewer_parquet((self.bundle / hub_bundle.VIEWER_PATH).read_bytes())
+        lines = (self.out / export.EVIDENCE_PATH).read_text(encoding="utf-8").split("\n")[:-1]
+        self.assertEqual([row.record_json for row in rows], lines)
+        self.assertEqual([(row.source_file, row.source_line) for row in rows],
+                         [("candidates.jsonl", number) for number in range(1, len(lines) + 1)])
+        self.assertEqual(json.loads(lines[0])["id"], self.records[0]["id"])
+
+    def test_companions_follow_the_manifest(self):
+        status = self.read_json(hub_bundle.RELEASE_STATUS_FILENAME)
+        observed = (status["training_ready"], status["release_stage"], status["payload_published"])
+        self.assertEqual(observed, (False, hub_bundle.STAGE_BLOCKED, False))
+        self.assertEqual(status["admission"], self.manifest["admission"])
+        provenance = self.read_json(hub_bundle.PROVENANCE_FILENAME)
+        self.assertEqual(provenance["export_manifest_sha256"],
+                         sha(self.out / export.MANIFEST_FILENAME))
+        self.assertFalse(provenance["training_ready"])
+        companions = {hub_bundle.PROVENANCE_FILENAME, hub_bundle.RELEASE_STATUS_FILENAME,
+                      hub_bundle.CARD_FILENAME}
+        self.assertEqual({entry["path"] for entry in provenance["files"]},
+                         set(self.summary["files"]) - companions)
+
+
 class Bundle(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="code-repair-hub-bundle-"))
@@ -62,60 +140,6 @@ class Bundle(unittest.TestCase):
 
     def request(self, export_dir, name="bundle", dataset=DATASET, pretty=None):
         return hub_bundle.BundleRequest(export_dir, self.root / name, dataset, pretty)
-
-    def test_typed_configs_real_splits_and_verified_bytes(self):
-        manifest, out, records, _run_dir = exported(self.root)
-        summary = hub_bundle.run(self.request(out))
-        bundle = self.root / "bundle"
-        self.assertEqual(summary["configs"], ["sft", "chat", "edit", "viewer"])
-        self.assertFalse(summary["training_ready"])
-        self.assertEqual(json.loads((bundle / hub_bundle.BUNDLE_FILENAME).read_text()), summary)
-        for relative, digest in summary["files"].items():
-            self.assertEqual(sha(bundle / relative), digest, relative)
-        for _name, directory in hub_bundle.TEXT_CONFIGS:
-            for split in lineage.SPLITS:
-                self.assertEqual((bundle / f"data/{directory}/{split}.jsonl").read_bytes(),
-                                 (out / f"{directory}/{split}.jsonl").read_bytes())
-        self.assertEqual((bundle / "evidence/candidates.jsonl").read_bytes(),
-                         (out / export.EVIDENCE_PATH).read_bytes())
-        self.assertEqual((bundle / "evidence/MANIFEST.json").read_bytes(),
-                         (out / export.MANIFEST_FILENAME).read_bytes())
-        self.assertEqual((bundle / "evidence/FREEZE.json").read_bytes(),
-                         (out / export.FREEZE_PATH).read_bytes())
-        self.assertIn(b"Apache License", (bundle / hub_bundle.LICENSE_FILENAME).read_bytes())
-        card = (bundle / hub_bundle.CARD_FILENAME).read_text(encoding="utf-8")
-        self.assertTrue(card.startswith("---\n"))
-        head, body = card.split("\n---\n", 1)
-        self.assertIn("license: apache-2.0", head)
-        self.assertIn("- research-snapshot", head)
-        self.assertIn("- config_name: viewer", head)
-        self.assertIn(f"num_examples: {len(records)}", head)
-        for name, directory in hub_bundle.TEXT_CONFIGS:
-            self.assertIn(f"- config_name: {name}", head)
-            for split in lineage.SPLITS:
-                declared = f"path: data/{directory}/{split}.jsonl" in head
-                self.assertEqual(declared, summary["rows"][name][split] > 0, (name, split))
-        self.assertIn("**not training-ready.**", body)
-        for code in manifest["admission"]["blockers"]:
-            self.assertIn(f"`{code}`", body)
-        self.assertNotIn("catalogs/code-repair-fixture-v1", body)
-        rows = hub_bundle.read_viewer_parquet((bundle / hub_bundle.VIEWER_PATH).read_bytes())
-        lines = (out / export.EVIDENCE_PATH).read_text(encoding="utf-8").split("\n")[:-1]
-        self.assertEqual([row.record_json for row in rows], lines)
-        self.assertEqual([(row.source_file, row.source_line) for row in rows],
-                         [("candidates.jsonl", number) for number in range(1, len(lines) + 1)])
-        self.assertEqual(json.loads(lines[0])["id"], records[0]["id"])
-        status = json.loads((bundle / hub_bundle.RELEASE_STATUS_FILENAME).read_text())
-        observed = (status["training_ready"], status["release_stage"], status["payload_published"])
-        self.assertEqual(observed, (False, hub_bundle.STAGE_BLOCKED, False))
-        self.assertEqual(status["admission"], manifest["admission"])
-        provenance = json.loads((bundle / hub_bundle.PROVENANCE_FILENAME).read_text())
-        self.assertEqual(provenance["export_manifest_sha256"], sha(out / export.MANIFEST_FILENAME))
-        self.assertFalse(provenance["training_ready"])
-        companions = {hub_bundle.PROVENANCE_FILENAME, hub_bundle.RELEASE_STATUS_FILENAME,
-                      hub_bundle.CARD_FILENAME}
-        self.assertEqual({entry["path"] for entry in provenance["files"]},
-                         set(summary["files"]) - companions)
 
     def test_a_blocked_export_without_replay_declares_only_the_viewer(self):
         _manifest, out, _records, _run_dir = exported(self.root, replayed=False)

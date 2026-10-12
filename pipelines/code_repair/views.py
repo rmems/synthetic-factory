@@ -131,22 +131,24 @@ def chat_row(record: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _message_text(message: Any, role: str) -> str | None:
+    """The content of a ``{"role", "content"}`` message with this role, else ``None``."""
+
+    if not isinstance(message, dict) or set(message) != {"role", "content"}:
+        return None
+    content = message["content"]
+    return content if message["role"] == role and isinstance(content, str) else None
+
+
 def chat_pair(row: Any) -> tuple[str, str] | None:
     """The ``(prompt, completion)`` a well-formed chat row carries, else ``None``."""
 
-    if not isinstance(row, dict) or set(row) != CHAT_KEYS:
-        return None
-    messages = row["messages"]
+    messages = row.get("messages") if isinstance(row, dict) and set(row) == CHAT_KEYS else None
     if not isinstance(messages, list) or len(messages) != 2:
         return None
-    user, assistant = messages
-    shaped = all(
-        isinstance(m, dict) and set(m) == {"role", "content"} and isinstance(m["content"], str)
-        for m in (user, assistant)
-    )
-    if not shaped or user["role"] != ROLE_USER or assistant["role"] != ROLE_ASSISTANT:
-        return None
-    return user["content"], assistant["content"]
+    prompt = _message_text(messages[0], ROLE_USER)
+    completion = _message_text(messages[1], ROLE_ASSISTANT)
+    return None if prompt is None or completion is None else (prompt, completion)
 
 
 def chat_findings(record: dict[str, Any], row: Any) -> list[str]:

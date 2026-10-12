@@ -105,19 +105,30 @@ def parse_block(completion: Any) -> tuple[str, str] | None:
     a marker, and both sides are nonempty.
     """
 
+    body = _block_body(completion)
+    sides = None if body is None else _divided(body)
+    if sides is None or not all(sides) or not _framed(*sides):
+        return None
+    return sides
+
+
+def _block_body(completion: Any) -> list[str] | None:
+    """The lines between the opening and closing markers, else ``None``."""
+
     if not isinstance(completion, str):
         return None
     lines = completion.splitlines(keepends=True)
-    if len(lines) < 4 or lines[0] != _SEARCH or lines[-1] != _REPLACE:
-        return None
-    body = lines[1:-1]
+    opened = len(lines) >= 4 and lines[0] == _SEARCH and lines[-1] == _REPLACE
+    return lines[1:-1] if opened else None
+
+
+def _divided(body: list[str]) -> tuple[str, str] | None:
+    """``(search, replace)`` around the one divider when no other marker line is present."""
+
     dividers = [i for i, line in enumerate(body) if line == _DIVIDER]
     if len(dividers) != 1 or any(line in (_SEARCH, _REPLACE) for line in body):
         return None
-    search, replace = "".join(body[:dividers[0]]), "".join(body[dividers[0] + 1:])
-    if not search or not replace or not _framed(search, replace):
-        return None
-    return search, replace
+    return "".join(body[:dividers[0]]), "".join(body[dividers[0] + 1:])
 
 
 def apply_block(broken: str, completion: Any) -> tuple[str | None, str | None]:
