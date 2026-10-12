@@ -20,7 +20,8 @@ from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
 class CheckRecordsPhysicalFraming(unittest.TestCase):
-    def check_payload(self, payload):
+    @staticmethod
+    def check_payload(payload):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "batch.jsonl"
             path.write_bytes(payload)

@@ -58,10 +58,11 @@ def source_file(**overrides):
     return row
 
 
-class AuditDriftCase(unittest.TestCase):
+class AuditDriftMixin:
     """One shape for every case: alter the audit, then expect it reported."""
 
-    def drift_after(self, actual, alter):
+    @staticmethod
+    def drift_after(actual, alter):
         """Differences reported once ``alter`` has edited the expected copy."""
 
         expected = copy.deepcopy(actual)
@@ -75,7 +76,7 @@ class AuditDriftCase(unittest.TestCase):
         )
 
 
-class MissingAuditFieldsAreDrift(AuditDriftCase):
+class MissingAuditFieldsAreDrift(AuditDriftMixin, unittest.TestCase):
     """A dropped key must not read as a present ``null``."""
 
     def test_a_dropped_record_id_is_drift_against_an_anonymous_pair(self):
@@ -112,7 +113,7 @@ class MissingAuditFieldsAreDrift(AuditDriftCase):
         self.assertEqual(self.drift_after(actual, lambda doc: None), [])
 
 
-class DuplicateLocationsAreRejected(AuditDriftCase):
+class DuplicateLocationsAreRejected(AuditDriftMixin, unittest.TestCase):
     """An inventory that lists one location twice no longer reconciles."""
 
     def test_two_expected_pairs_at_one_location_are_reported(self):
@@ -138,7 +139,7 @@ class DuplicateLocationsAreRejected(AuditDriftCase):
         self.assert_reports(differences, "more than once")
 
 
-class UnexpectedMembersAreRejected(AuditDriftCase):
+class UnexpectedMembersAreRejected(AuditDriftMixin, unittest.TestCase):
     """A member the schema does not declare is evidence nobody checked."""
 
     def test_an_unknown_member_on_a_pair_row_is_reported(self):
@@ -177,7 +178,7 @@ class UnexpectedMembersAreRejected(AuditDriftCase):
         )
 
 
-class CollectionsThemselvesAreValidated(AuditDriftCase):
+class CollectionsThemselvesAreValidated(AuditDriftMixin, unittest.TestCase):
     """An absent collection reads as "no rows"; on a pure corpus that matches."""
 
     def test_a_deleted_impure_pairs_collection_is_drift(self):
@@ -207,7 +208,7 @@ class CollectionsThemselvesAreValidated(AuditDriftCase):
         self.assertEqual(self.drift_after(audit_document(), lambda doc: None), [])
 
 
-class MalformedRowsAreRejected(AuditDriftCase):
+class MalformedRowsAreRejected(AuditDriftMixin, unittest.TestCase):
     """A row the comparison cannot read is drift, not a row to skip."""
 
     def test_a_non_object_pair_row_is_reported(self):
@@ -243,7 +244,7 @@ class MalformedRowsAreRejected(AuditDriftCase):
         self.assertTrue(differences, "a non-list impure_pairs reconciled cleanly")
 
 
-class JsonTypesAreComparedNotJustValues(AuditDriftCase):
+class JsonTypesAreComparedNotJustValues(AuditDriftMixin, unittest.TestCase):
     """``False`` is not ``0`` and ``True`` is not line ``1``."""
 
     def rewrite_pair_field(self, field_name, published, rewritten):
@@ -292,7 +293,8 @@ class JsonTypesAreComparedNotJustValues(AuditDriftCase):
 class DuplicateJsonMembersAreRejected(unittest.TestCase):
     """``json.loads`` keeps the last of a repeated member; the audit must not."""
 
-    def expect_file(self, directory, mutate):
+    @staticmethod
+    def expect_file(directory, mutate):
         """A published audit of the fixtures, with ``mutate`` applied to its text."""
 
         audit = curate_preferences.build_audit(
@@ -303,7 +305,8 @@ class DuplicateJsonMembersAreRejected(unittest.TestCase):
         path.write_text(mutate(text), encoding="utf-8")
         return path
 
-    def run_expect(self, path):
+    @staticmethod
+    def run_expect(path):
         return run_cli("audit", str(PURITY_FIXTURES), "--expect", str(path))
 
     def test_an_unmodified_published_audit_still_verifies(self):
@@ -338,7 +341,7 @@ class DuplicateJsonMembersAreRejected(unittest.TestCase):
         self.assertIn("duplicate", stderr.lower())
 
 
-class RealAuditsStillVerify(AuditDriftCase):
+class RealAuditsStillVerify(AuditDriftMixin, unittest.TestCase):
     """The stricter check must not invent drift in a genuine audit."""
 
     def test_a_json_round_trip_of_a_real_scan_reports_no_drift(self):

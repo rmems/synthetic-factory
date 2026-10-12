@@ -462,7 +462,8 @@ class FamilyChecks(unittest.TestCase):
             any("OUTCOME_NOT_REPRODUCIBLE" in e for e in errors), errors
         )
 
-    def _hard_deadline_fail_closed(self):
+    @staticmethod
+    def _hard_deadline_fail_closed():
         record = next(
             item
             for item in fr.build_records(seed=20260823, count=20)

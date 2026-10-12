@@ -121,13 +121,15 @@ class EnergyMeterAndDerivationGaps(unittest.TestCase):
         with self.assertRaises(oc.OracleUnavailable):
             ep.build_records(21, 1, default_spec)
 
-    def _preferred(self, record: dict) -> dict:
+    @staticmethod
+    def _preferred(record: dict) -> dict:
         preferred_id = record["result"]["preference"]["preferred"]
         return next(
             c for c in record["result"]["candidates"] if c["id"] == preferred_id
         )
 
-    def _readings_for(self, record: dict, candidate_id: str, quantity: str):
+    @staticmethod
+    def _readings_for(record: dict, candidate_id: str, quantity: str):
         yield from measurements_for(record, candidate_id, quantity)
 
     def test_a_cost_reading_marked_unmeasured_is_a_finding(self):
@@ -283,7 +285,8 @@ class SixthRoundEnergyGaps(unittest.TestCase):
 class NinthRoundEnergyGaps(unittest.TestCase):
     """Energy-preference findings of the ninth review pass."""
 
-    def _record(self):
+    @staticmethod
+    def _record():
         meter, probe = ep.select_meter(prefer_energy=False)
         return clone(
             ep.build_records(
@@ -328,7 +331,8 @@ class NinthRoundEnergyGaps(unittest.TestCase):
                 with self.assertRaises(oc.ContractError):
                     ep.build_records(20260823, 1, spec)
 
-    def _restated_candidate(self, candidate: dict, evaluation) -> None:
+    @staticmethod
+    def _restated_candidate(candidate: dict, evaluation) -> None:
         """Re-derive a candidate's quality/safety fields from an evaluation."""
 
         candidate["task_quality"] = evaluation.task_quality
@@ -336,7 +340,8 @@ class NinthRoundEnergyGaps(unittest.TestCase):
         candidate["safety_violations"] = list(evaluation.violations)
         candidate["success"] = evaluation.success
 
-    def _restated_feasible(self, record: dict) -> None:
+    @staticmethod
+    def _restated_feasible(record: dict) -> None:
         """Re-derive the preference's feasible list after a candidate swap."""
 
         preference = record["result"].get("preference")
@@ -346,7 +351,8 @@ class NinthRoundEnergyGaps(unittest.TestCase):
         feasible = ep._feasible_candidates(record["result"]["candidates"], floor)
         preference["feasible"] = sorted(c["id"] for c in feasible)
 
-    def _swap_for_evaluation(self, record: dict):
+    @staticmethod
+    def _swap_for_evaluation(record: dict):
         """Put analytic_kkt's allocation on coarse_grid, scored as stated."""
 
         by_id = {c["id"]: c for c in record["result"]["candidates"]}
