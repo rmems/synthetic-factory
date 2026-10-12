@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -105,7 +105,7 @@ def dumps_catalog(payload: Mapping[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def dumps_rows(rows: list[Mapping[str, Any]]) -> str:
+def dumps_rows(rows: Sequence[Mapping[str, Any]]) -> str:
     """One pair row per line, sorted keys, so ``rows_sha256`` is stable."""
 
     lines = [
@@ -215,17 +215,23 @@ def plant_from_mapping(payload: Mapping[str, Any], *, success: bool | None = Non
     flag = payload.get("success") if success is None else success
     return Plant(
         slug=str(payload["slug"]),
-        domain=str(payload.get("domain") or ""),
+        domain=_text(payload, "domain"),
         success=bool(flag),
-        field=str(payload.get("field") or ""),
-        old=str(payload.get("old") or ""),
-        new=str(payload.get("new") or ""),
-        name=str(payload.get("name") or ""),
-        fail_err=str(payload.get("fail_err") or ""),
-        vs=str(payload.get("vs") or ""),
-        fetch1=str(payload.get("fetch1") or ""),
-        fetch2=str(payload.get("fetch2") or ""),
+        field=_text(payload, "field"),
+        old=_text(payload, "old"),
+        new=_text(payload, "new"),
+        name=_text(payload, "name"),
+        fail_err=_text(payload, "fail_err"),
+        vs=_text(payload, "vs"),
+        fetch1=_text(payload, "fetch1"),
+        fetch2=_text(payload, "fetch2"),
     )
+
+
+def _text(payload: Mapping[str, Any], key: str) -> str:
+    """``payload[key]`` as text; a missing or falsy value is the empty string."""
+
+    return str(payload.get(key) or "")
 
 
 def row_from_pair(pair: Pair) -> dict[str, Any]:
@@ -325,12 +331,18 @@ def _check_row(row: object, slugs: set[str]) -> None:
     if success == fail:
         raise ValueError(f"pair slugs are not distinct: {success}")
     for slug in (success, fail):
-        if slug in slugs:
-            raise ValueError(f"duplicate slug {slug}")
-        slugs.add(slug)
-        for needle in WRAP_NEEDLES:
-            if needle in slug:
-                raise ValueError(f"banned needle {needle!r} in {slug}")
+        _claim_slug(slug, slugs)
+
+
+def _claim_slug(slug: str, slugs: set[str]) -> None:
+    """Record ``slug`` as taken; refuse a repeat, then a wrap-mill needle in it."""
+
+    if slug in slugs:
+        raise ValueError(f"duplicate slug {slug}")
+    slugs.add(slug)
+    for needle in WRAP_NEEDLES:
+        if needle in slug:
+            raise ValueError(f"banned needle {needle!r} in {slug}")
 
 
 def _require(payload: Mapping[str, Any], key: str, expected: object) -> None:
