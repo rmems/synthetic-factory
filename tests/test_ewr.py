@@ -89,14 +89,6 @@ class EwrFamilyLayoutTests(unittest.TestCase):
         self.assertFalse((EWR_DIR / "ewr_leftover3_plants.py").exists())
 
 
-def _any_legacy_source_missing(plants, mill, mapping_sources):
-    return (
-        plants is None
-        or mill is None
-        or any(source is None for source in mapping_sources.values())
-    )
-
-
 class EwrCatalogTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[FAMILY_PREFIX], FACTORY)
@@ -141,7 +133,7 @@ class EwrCatalogTests(unittest.TestCase):
             LEGACY_MAPPING_MILL_R91,
         )
         mapping_sources = {path: _legacy_source(path) for path in mapping_paths}
-        if _any_legacy_source_missing(plants, mill, mapping_sources):
+        if plants is None or mill is None or any(mapping_sources[path] is None for path in mapping_paths):
             self.skipTest("legacy-mill-lane ewr sources are not available")
         self.assertEqual(sha256_text(plants), LEGACY_PLANTS_SHA256)
         self.assertEqual(sha256_text(mill), LEGACY_MILL_SHA256)
