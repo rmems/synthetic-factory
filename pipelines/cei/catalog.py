@@ -14,7 +14,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple, TypeGuard
@@ -348,52 +348,28 @@ def expand_leftover3(args: Mapping[str, Any], *, ticket_required: bool) -> dict[
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. Never exec, compile, or eval."""
 
-    for node_type, evaluate in _CONST_EVALUATORS:
-        if isinstance(node, node_type):
-            return evaluate(node)
-    raise _not_a_constant(node)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.List):
+        return [_const_eval(item) for item in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
+    return _const_dict_or_negated(node)
 
 
-def _not_a_constant(node: ast.AST) -> CeiRefusal:
-    return CeiRefusal(
+def _const_dict_or_negated(node: ast.AST) -> Any:
+    """A dict display without ``**`` unpacking or a negated constant; anything else refuses."""
+
+    if isinstance(node, ast.Dict):
+        if any(key is None for key in node.keys):
+            raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
+        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_const_eval(node.operand)
+    raise CeiRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"pair source is not a constant ({type(node).__name__})",
     )
-
-
-def _const_value(node: ast.Constant) -> Any:
-    return node.value
-
-
-def _const_list(node: ast.List) -> list[Any]:
-    return [_const_eval(item) for item in node.elts]
-
-
-def _const_tuple(node: ast.Tuple) -> tuple[Any, ...]:
-    return tuple(_const_eval(item) for item in node.elts)
-
-
-def _const_dict(node: ast.Dict) -> dict[Any, Any]:
-    keys = [key for key in node.keys if key is not None]
-    if len(keys) != len(node.keys):
-        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
-
-
-def _const_negated(node: ast.UnaryOp) -> Any:
-    if not isinstance(node.op, ast.USub):
-        raise _not_a_constant(node)
-    return -_const_eval(node.operand)
-
-
-# One evaluator per literal node type; any other node is refused as not a constant.
-_CONST_EVALUATORS: tuple[tuple[type[ast.AST], Callable[[Any], Any]], ...] = (
-    (ast.Constant, _const_value),
-    (ast.List, _const_list),
-    (ast.Tuple, _const_tuple),
-    (ast.Dict, _const_dict),
-    (ast.UnaryOp, _const_negated),
-)
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -937,11 +913,67 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     catalog_dir = Path(default_catalog_dir() if directory is None else directory)
+    meta_path = catalog_dir / CATALOG_FILENAME
     plants_path = catalog_dir / PLANTS_FILENAME
-    meta = _read_meta(catalog_dir / CATALOG_FILENAME)
-    catalog_id, factory = _check_meta_header(meta)
+    try:
+        meta_text = meta_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CeiRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
+    try:
+        meta = load_strict_json(meta_text)
+    except ValueError as exc:
+        raise CeiRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
+        ) from exc
+    return _catalog_from_meta(catalog_dir, plants_path, meta)
+
+
+def _meta_pins(meta: Any) -> tuple[str, str, int, str]:
+    """The header pins, then the plant count and plants digest the header declares."""
+
+    catalog_id = _require_text(
+        _field(meta, "catalog_id", str, CATALOG_FILENAME),
+        f"{CATALOG_FILENAME}.catalog_id",
+        FINDING_CATALOG_FIELD_INVALID,
+    )
+    fmt = _field(meta, "format", str, CATALOG_FILENAME)
+    if fmt != CATALOG_FORMAT:
+        raise CeiRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
+        )
+    factory = _field(meta, "factory", str, CATALOG_FILENAME)
+    if factory != FACTORY:
+        raise CeiRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
+        )
+    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
+    if prefix != MILL_PREFIX:
+        raise CeiRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
+        )
+    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
+    if kind != RECORD_KIND:
+        raise CeiRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
+        )
+    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
+    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
+        raise CeiRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
+        )
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
     plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
+    return catalog_id, factory, plant_count, plants_sha256
+
+
+def _catalog_from_meta(catalog_dir: Path, plants_path: Path, meta: Any) -> Catalog:
+    """Bind the plants file to the pins ``CATALOG.json`` declares."""
+
+    catalog_id, factory, plant_count, plants_sha256 = _meta_pins(meta)
     mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
     mills = tuple(
         _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
@@ -969,49 +1001,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         mills=mills,
         meta=meta,
     )
-
-
-def _read_meta(meta_path: Path) -> Any:
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise CeiRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        return load_strict_json(meta_text)
-    except ValueError as exc:
-        raise CeiRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-
-
-def _pinned_text(meta: Any, key: str, expected: str) -> str:
-    value = _field(meta, key, str, CATALOG_FILENAME)
-    if value != expected:
-        raise CeiRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.{key} must be {expected}"
-        )
-    return value
-
-
-def _check_meta_header(meta: Any) -> tuple[str, str]:
-    """``catalog_id`` and ``factory`` once format, factory, prefix, kind, and quota hold."""
-
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    _pinned_text(meta, "format", CATALOG_FORMAT)
-    factory = _pinned_text(meta, "factory", FACTORY)
-    _pinned_text(meta, "mill_prefix", MILL_PREFIX)
-    _pinned_text(meta, "record_kind", RECORD_KIND)
-    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
-    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
-        raise CeiRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
-        )
-    return catalog_id, factory
 
 
 def _pinned_plants_digest(plants_path: Path, plants_sha256: str) -> str:

@@ -358,7 +358,7 @@ def _plant_job(
             FINDING_SHAPE_UNSUPPORTED,
             f"generate refuses leftover-spec plant {plant.plant_id}",
         )
-    return (_require_round(round_n, plant.base_round), plant)
+    return _require_round(round_n, plant.base_round), plant
 
 
 def _selected_plants(loaded: cat.Catalog, request: GenerateRequest) -> tuple[cat.Plant, ...]:

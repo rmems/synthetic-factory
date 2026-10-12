@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -223,49 +223,35 @@ def sha256_bytes(payload: bytes) -> str:
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. Other calls refuse."""
 
-    for node_type, evaluate in _CONST_EVALUATORS:
-        if isinstance(node, node_type):
-            return evaluate(node)
-    raise _not_a_constant(node)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.List):
+        return [_const_eval(item) for item in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, ast.Set):
+        return {_const_eval(item) for item in node.elts}
+    return _const_mapping_or_negative(node)
+
+def _const_mapping_or_negative(node: ast.AST) -> Any:
+    """A dict display without ``**`` unpacking or ``-constant``; anything else refuses."""
+
+    if isinstance(node, ast.Dict):
+        if any(key is None for key in node.keys):
+            raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_const_eval(node.operand)
+    raise ObsRefusal(
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"plant source is not a constant ({type(node).__name__})",
+    )
 
 def _not_a_constant(node: ast.AST) -> ObsRefusal:
     return ObsRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"plant source is not a constant ({type(node).__name__})",
     )
-
-def _const_value(node: ast.Constant) -> Any:
-    return node.value
-
-def _const_list(node: ast.List) -> list[Any]:
-    return [_const_eval(item) for item in node.elts]
-
-def _const_tuple(node: ast.Tuple) -> tuple[Any, ...]:
-    return tuple(_const_eval(item) for item in node.elts)
-
-def _const_set(node: ast.Set) -> set[Any]:
-    return {_const_eval(item) for item in node.elts}
-
-def _const_dict(node: ast.Dict) -> dict[Any, Any]:
-    keys = [key for key in node.keys if key is not None]
-    if len(keys) != len(node.keys):
-        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
-
-def _const_negated(node: ast.UnaryOp) -> Any:
-    if not isinstance(node.op, ast.USub):
-        raise _not_a_constant(node)
-    return -_const_eval(node.operand)
-
-# One evaluator per literal node type; any other node is refused as not a constant.
-_CONST_EVALUATORS: tuple[tuple[type[ast.AST], Callable[[Any], Any]], ...] = (
-    (ast.Constant, _const_value),
-    (ast.List, _const_list),
-    (ast.Tuple, _const_tuple),
-    (ast.Set, _const_set),
-    (ast.Dict, _const_dict),
-    (ast.UnaryOp, _const_negated),
-)
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
@@ -289,170 +275,145 @@ def _require_int(value: Any, where: str, code: str, minimum: int = 0) -> int:
         raise ObsRefusal(code, f"{where} must be an int >= {minimum}")
     return value
 
-def _tempo_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'{{resource.service.name="{svc}"}}',
-        f'{{resource.service.name="{lsvc}"}}',
+# r401 ``_kind_bits`` rows as ``str.format`` templates, one per kind, in ``_KIND_BIT_KEYS``
+# order. Fields: ``svc``, ``lsvc``, ``fail_val``, ``ns`` (the service's first ``-`` part) and
+# ``svc6`` (its first six characters); literal braces are doubled. An unknown kind reads as ``am``.
+_KIND_TEMPLATES: dict[str, tuple[str, ...]] = {
+    "tempo": (
+        '{{resource.service.name="{svc}"}}',
+        '{{resource.service.name="{lsvc}"}}',
         "/api/search",
-        f'{{"traces":[],"error":"max concurrent {fail_val}"}}',
-        f"tempo empty {fail_val}",
-        '{"traces":[{"traceID":"r401a"}]}',
-        '{"name":"Traces"}',
-        f"kubectl -n {ns} logs deploy/{svc} --tail=30 | grep -c otlp",
+        '{{"traces":[],"error":"max concurrent {fail_val}"}}',
+        "tempo empty {fail_val}",
+        '{{"traces":[{{"traceID":"r401a"}}]}}',
+        '{{"name":"Traces"}}',
+        "kubectl -n {ns} logs deploy/{svc} --tail=30 | grep -c otlp",
         "18",
-    )
-
-def _loki_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'{{job="{svc}"}}',
-        f'{{job="{lsvc}"}}',
+    ),
+    "loki": (
+        '{{job="{svc}"}}',
+        '{{job="{lsvc}"}}',
         "/loki/api/v1/query_range",
-        f'{{"status":"error","error":"loki {fail_val}"}}',
-        f"loki {fail_val}",
-        '{"status":"success","data":{"result":[{"values":[["1","ok"]]}]}}',
-        '{"name":"Logs"}',
-        f"kubectl -n loki logs deploy/ingester --tail=20 | grep -c {svc}",
+        '{{"status":"error","error":"loki {fail_val}"}}',
+        "loki {fail_val}",
+        '{{"status":"success","data":{{"result":[{{"values":[["1","ok"]]}}]}}}}',
+        '{{"name":"Logs"}}',
+        "kubectl -n loki logs deploy/ingester --tail=20 | grep -c {svc}",
         "11",
-    )
-
-def _prom_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'http_requests_total{{job="{svc}"}}',
-        f'http_requests_total{{job="{lsvc}"}}',
+    ),
+    "prom": (
+        'http_requests_total{{job="{svc}"}}',
+        'http_requests_total{{job="{lsvc}"}}',
         PROM_QUERY_PATH,
-        f'{{"status":"error","error":"prom {fail_val}"}}',
-        f"prom {fail_val}",
-        '{"status":"success","data":{"result":[{"value":[1,"7"]}]}}',
-        '{"name":"Prom"}',
-        f"curl -sS $APP/metrics | grep -c {ns}",
+        '{{"status":"error","error":"prom {fail_val}"}}',
+        "prom {fail_val}",
+        '{{"status":"success","data":{{"result":[{{"value":[1,"7"]}}]}}}}',
+        '{{"name":"Prom"}}',
+        "curl -sS $APP/metrics | grep -c {ns}",
         "9",
-    )
-
-def _mimir_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'http_requests_total{{service="{svc}"}}',
-        f'http_requests_total{{service="{lsvc}"}}',
+    ),
+    "mimir": (
+        'http_requests_total{{service="{svc}"}}',
+        'http_requests_total{{service="{lsvc}"}}',
         "/prometheus/api/v1/query",
-        f'{{"status":"error","error":"mimir {fail_val}"}}',
-        f"mimir {fail_val}",
-        '{"status":"success","data":{"result":[{"value":[1,"6"]}]}}',
-        '{"name":"Mimir"}',
+        '{{"status":"error","error":"mimir {fail_val}"}}',
+        "mimir {fail_val}",
+        '{{"status":"success","data":{{"result":[{{"value":[1,"6"]}}]}}}}',
+        '{{"name":"Mimir"}}',
         "curl -sS $MIMIR/ready | head -1",
         "ready",
-    )
-
-def _otel_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'{{resource.service.name="{svc}"}}',
-        f'{{resource.service.name="{lsvc}"}}',
+    ),
+    "otel": (
+        '{{resource.service.name="{svc}"}}',
+        '{{resource.service.name="{lsvc}"}}',
         "/api/search",
-        '{"traces":[]}',
-        f"otel {fail_val}",
-        '{"traces":[{"traceID":"otel401"}]}',
-        '{"name":"OTel"}',
-        f"kubectl -n otel logs deploy/otelcol --tail=40 | grep -c {svc}",
+        '{{"traces":[]}}',
+        "otel {fail_val}",
+        '{{"traces":[{{"traceID":"otel401"}}]}}',
+        '{{"name":"OTel"}}',
+        "kubectl -n otel logs deploy/otelcol --tail=40 | grep -c {svc}",
         "15",
-    )
-
-def _grafana_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'{{resource.service.name="{svc}"}}',
-        f'{{resource.service.name="{lsvc}"}}',
+    ),
+    "grafana": (
+        '{{resource.service.name="{svc}"}}',
+        '{{resource.service.name="{lsvc}"}}',
         "/api/ds/query",
-        f'{{"message":"grafana {fail_val}"}}',
-        f"grafana {fail_val}",
-        '{"results":{"A":{"frames":[{"schema":{"fields":[{"name":"Time"}]}}]}}}',
-        '{"name":"Panel"}',
-        f"curl -sS $GRAFANA/api/dashboards/uid/{svc[:6]} | jq '.dashboard.panels|length'",
+        '{{"message":"grafana {fail_val}"}}',
+        "grafana {fail_val}",
+        '{{"results":{{"A":{{"frames":[{{"schema":{{"fields":[{{"name":"Time"}}]}}}}]}}}}}}',
+        '{{"name":"Panel"}}',
+        "curl -sS $GRAFANA/api/dashboards/uid/{svc6} | jq '.dashboard.panels|length'",
         "2",
-    )
-
-def _thanos_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'http_requests_total{{job="{svc}"}}',
-        f'http_requests_total{{job="{lsvc}"}}',
+    ),
+    "thanos": (
+        'http_requests_total{{job="{svc}"}}',
+        'http_requests_total{{job="{lsvc}"}}',
         PROM_QUERY_PATH,
-        f'{{"status":"error","error":"thanos {fail_val}"}}',
-        f"thanos {fail_val}",
-        '{"status":"success","data":{"result":[{"value":[1,"4"]}]}}',
-        '{"name":"Thanos"}',
+        '{{"status":"error","error":"thanos {fail_val}"}}',
+        "thanos {fail_val}",
+        '{{"status":"success","data":{{"result":[{{"value":[1,"4"]}}]}}}}',
+        '{{"name":"Thanos"}}',
         "curl -sS $THANOS/-/ready",
         "OK",
-    )
-
-def _pyro_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'process_cpu{{service_name="{svc}"}}',
-        f'process_cpu{{service_name="{lsvc}"}}',
+    ),
+    "pyro": (
+        'process_cpu{{service_name="{svc}"}}',
+        'process_cpu{{service_name="{lsvc}"}}',
         "/pyroscope/render",
         "0",
-        f"pyro {fail_val}",
+        "pyro {fail_val}",
         "36",
-        '{"name":"Flame"}',
+        '{{"name":"Flame"}}',
         "curl -sS $APP/debug/pprof/profile?seconds=1 | wc -c",
         "4096",
-    )
-
-def _vm_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'http_requests_total{{job="{svc}"}}',
-        f'http_requests_total{{job="{lsvc}"}}',
+    ),
+    "vm": (
+        'http_requests_total{{job="{svc}"}}',
+        'http_requests_total{{job="{lsvc}"}}',
         PROM_QUERY_PATH,
-        f'{{"status":"error","error":"vm {fail_val}"}}',
-        f"vm {fail_val}",
-        '{"status":"success","data":{"result":[{"value":[1,"8"]}]}}',
-        '{"name":"VM"}',
+        '{{"status":"error","error":"vm {fail_val}"}}',
+        "vm {fail_val}",
+        '{{"status":"success","data":{{"result":[{{"value":[1,"8"]}}]}}}}',
+        '{{"name":"VM"}}',
         "curl -sS $VM/health",
         "OK",
-    )
-
-def _ch_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f"{_CH_WHERE}'{svc}'",
-        f"{_CH_WHERE}'{lsvc}'",
+    ),
+    "ch": (
+        _CH_WHERE + "'{svc}'",
+        _CH_WHERE + "'{lsvc}'",
         "/",
         "0\n",
-        f"ch {fail_val}",
+        "ch {fail_val}",
         "88\n",
-        '{"name":"SQL"}',
-        f"clickhouse-client -q \"{_CH_WHERE}'{svc}' SETTINGS max_result_rows=100\"",
+        '{{"name":"SQL"}}',
+        "clickhouse-client -q \"" + _CH_WHERE + "'{svc}' SETTINGS max_result_rows=100\"",
         "88",
-    )
-
-def _am_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
-    return (
-        f'alerts{{service="{svc}"}}',
-        f'alerts{{service="{lsvc}"}}',
+    ),
+    "am": (
+        'alerts{{service="{svc}"}}',
+        'alerts{{service="{lsvc}"}}',
         "/api/v2/alerts",
         "[]",
-        f"am {fail_val}",
-        '[{"labels":{"alertname":"X"}}]',
-        '{"name":"AM"}',
+        "am {fail_val}",
+        '[{{"labels":{{"alertname":"X"}}}}]',
+        '{{"name":"AM"}}',
         "curl -sS $AM/-/ready",
         "OK",
-    )
-
-# r401 ``_kind_bits`` rows per kind; an unknown kind reads as ``am``.
-_KIND_BITS = {
-    "tempo": _tempo_bits,
-    "loki": _loki_bits,
-    "prom": _prom_bits,
-    "mimir": _mimir_bits,
-    "otel": _otel_bits,
-    "grafana": _grafana_bits,
-    "thanos": _thanos_bits,
-    "pyro": _pyro_bits,
-    "vm": _vm_bits,
-    "ch": _ch_bits,
-    "am": _am_bits,
+    ),
 }
 
 def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
     """Reconstruct r401 ``_kind_bits`` from extracted constants. Never exec."""
 
-    ns = svc.split("-")[0]
-    bits = _KIND_BITS.get(kind, _am_bits)(svc, lsvc, fail_val, ns)
-    return dict(zip(_KIND_BIT_KEYS, bits))
+    fields = {
+        "svc": svc,
+        "lsvc": lsvc,
+        "fail_val": fail_val,
+        "ns": svc.split("-")[0],
+        "svc6": svc[:6],
+    }
+    templates = _KIND_TEMPLATES.get(kind, _KIND_TEMPLATES["am"])
+    return {key: text.format(**fields) for key, text in zip(_KIND_BIT_KEYS, templates)}
 
 def _apply_hop_defaults(row: dict[str, Any]) -> dict[str, Any]:
     kind = _require_text(row.get("kind"), "P().kind", FINDING_SOURCE_NOT_PARSEABLE)
@@ -643,16 +604,29 @@ def _with_raw_keys(row: dict[str, Any], raw: Mapping[str, Any]) -> dict[str, Any
             row[key] = value
     return row
 
-def _pair_from_raw(raw: Any, origin: _Origin, index: int, shape: str) -> dict[str, Any]:
-    where = f"{origin.source}[{index}]"
+def _raw_object(raw: Any, where: str) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not an object")
-    missing = [key for key in HOP_REQUIRED if key not in raw]
+    return raw
+
+def _refuse_missing(row: Mapping[str, Any], required: tuple[str, ...], where: str) -> None:
+    missing = [key for key in required if key not in row]
     if missing:
         raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
-    slug = _require_text(raw.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_MISSING)
+
+def _raw_slug(raw: Mapping[str, Any], where: str, key: str, noun: str) -> str:
+    """``raw[key]`` as a stripped slug; ``noun`` names what it must be in the refusal."""
+
+    slug = _require_text(raw.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
     if not SLUG_RE.fullmatch(slug):
-        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.{key} is not {noun}")
+    return slug
+
+def _pair_from_raw(raw: Any, origin: _Origin, index: int, shape: str) -> dict[str, Any]:
+    where = f"{origin.source}[{index}]"
+    checked = _raw_object(raw, where)
+    _refuse_missing(checked, HOP_REQUIRED, where)
+    slug = _raw_slug(checked, where, "slug", "a plant slug")
     row = {
         "base_round": origin.base_round,
         "mill_id": origin.mill_id,
@@ -661,7 +635,7 @@ def _pair_from_raw(raw: Any, origin: _Origin, index: int, shape: str) -> dict[st
         "slug": slug,
         "source": origin.source,
     }
-    return _with_raw_keys(row, raw)
+    return _with_raw_keys(row, checked)
 
 def _spec_mapping(raw: Any, where: str) -> Any:
     """A positional spec tuple as its keyed mapping; anything else unchanged."""
@@ -677,15 +651,9 @@ def _spec_mapping(raw: Any, where: str) -> Any:
 
 def _spec_from_raw(raw: Any, origin: _Origin, index: int, family: str) -> dict[str, Any]:
     where = f"{origin.source}[{index}]"
-    raw = _spec_mapping(raw, where)
-    if not isinstance(raw, dict):
-        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not an object")
-    missing = [key for key in SPEC_REQUIRED if key not in raw]
-    if missing:
-        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
-    slug = _require_text(raw.get("ok_slug"), f"{where}.ok_slug", FINDING_PLANT_FIELD_MISSING)
-    if not SLUG_RE.fullmatch(slug):
-        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.ok_slug is not a slug")
+    checked = _raw_object(_spec_mapping(raw, where), where)
+    _refuse_missing(checked, SPEC_REQUIRED, where)
+    slug = _raw_slug(checked, where, "ok_slug", "a slug")
     row = {
         "base_round": origin.base_round,
         "family": family,
@@ -695,7 +663,7 @@ def _spec_from_raw(raw: Any, origin: _Origin, index: int, family: str) -> dict[s
         "slug": slug,
         "source": origin.source,
     }
-    return _with_raw_keys(row, raw)
+    return _with_raw_keys(row, checked)
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
     if not isinstance(mapping, dict):
@@ -717,9 +685,7 @@ def _required_shape_keys(shape: str, where: str) -> tuple[str, ...]:
     raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape is not a reviewed shape")
 
 def _refuse_missing_shape_keys(row: Mapping[str, Any], shape: str, where: str) -> None:
-    missing = [key for key in _required_shape_keys(shape, where) if key not in row]
-    if missing:
-        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
+    _refuse_missing(row, _required_shape_keys(shape, where), where)
 
 def _plant_from_row(row: Any, where: str) -> Plant:
     if not isinstance(row, dict):
@@ -962,8 +928,64 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta = _read_meta(catalog_dir / CATALOG_FILENAME)
-    catalog_id, factory = _check_meta_header(meta)
+    meta_path = catalog_dir / CATALOG_FILENAME
+    try:
+        meta_text = meta_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
+    try:
+        meta = load_strict_json(meta_text)
+    except ValueError as exc:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
+        ) from exc
+    catalog_id, factory = _header_identity(meta)
+    return _catalog_from_members(catalog_dir, meta, catalog_id, factory)
+
+def _header_identity(meta: Any) -> tuple[str, str]:
+    """``catalog_id`` and ``factory`` once every pinned header field holds."""
+
+    catalog_id = _require_text(
+        _field(meta, "catalog_id", str, CATALOG_FILENAME),
+        f"{CATALOG_FILENAME}.catalog_id",
+        FINDING_CATALOG_FIELD_INVALID,
+    )
+    fmt = _field(meta, "format", str, CATALOG_FILENAME)
+    if fmt != CATALOG_FORMAT:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
+        )
+    factory = _field(meta, "factory", str, CATALOG_FILENAME)
+    if factory != FACTORY:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
+        )
+    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
+    if prefix != MILL_PREFIX:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
+        )
+    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
+    if kind != RECORD_KIND:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
+        )
+    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
+    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
+        )
+    return catalog_id, factory
+
+def _catalog_from_members(
+    catalog_dir: Path, meta: Any, catalog_id: str, factory: str
+) -> Catalog:
+    """Load the member files and bind every plant to its mill pin."""
+
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
     mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
     mills = tuple(
@@ -992,46 +1014,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         meta=meta,
         leftover_spec_index=spec_index,
     )
-
-def _read_meta(meta_path: Path) -> Any:
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        return load_strict_json(meta_text)
-    except ValueError as exc:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-
-def _pinned_text(meta: Any, key: str, expected: str) -> str:
-    value = _field(meta, key, str, CATALOG_FILENAME)
-    if value != expected:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.{key} must be {expected}"
-        )
-    return value
-
-def _check_meta_header(meta: Any) -> tuple[str, str]:
-    """``catalog_id`` and ``factory`` once format, factory, prefix, kind, and quota hold."""
-
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    _pinned_text(meta, "format", CATALOG_FORMAT)
-    factory = _pinned_text(meta, "factory", FACTORY)
-    _pinned_text(meta, "mill_prefix", MILL_PREFIX)
-    _pinned_text(meta, "record_kind", RECORD_KIND)
-    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
-    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
-        )
-    return catalog_id, factory
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
     """Load the catalog. An invalid catalog is a refusal, not a finding list."""
