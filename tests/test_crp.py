@@ -194,11 +194,12 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
+        request = generate.RunRequest(729, out)
         interrupted = mock.patch.object(generate, "_fsync_destination", interrupt)
         with interrupted, self.assertRaises(KeyboardInterrupt):
-            generate.run(generate.RunRequest(729, out))
+            generate.run(request)
         self.assertFalse(out.exists())
-        summary = generate.run(generate.RunRequest(729, out))
+        summary = generate.run(request)
         self.assertEqual(summary["records"], 3)
 
     def test_batch_jsonl_uses_literal_lf_record_boundaries(self):
@@ -243,9 +244,9 @@ class RawEnumerateShapes(unittest.TestCase):
         self.assertEqual(found, ("atoll", 12))
 
     def test_a_missing_git_is_a_coded_refusal(self):
-        with mock.patch.object(wave_catalog.shutil, "which", return_value=None):
-            with self.assertRaises(CrpRefusal) as ctx:
-                wave_catalog._git_executable()
+        no_git = mock.patch.object(wave_catalog.shutil, "which", return_value=None)
+        with no_git, self.assertRaises(CrpRefusal) as ctx:
+            wave_catalog._git_executable()
         self.assertEqual(ctx.exception.message, "git executable not found on PATH")
 
     def test_the_noun_loop_skips_every_non_plant_append(self):
@@ -274,8 +275,9 @@ class WaveRouting(unittest.TestCase):
         for round_n, shown in ((_Round.R432, "<_Round.R432: 432>"), (True, "True")):
             with self.subTest(round_n=round_n), tempfile.TemporaryDirectory() as tmp:
                 out = Path(tmp) / "run"
+                request = generate.RunRequest(round_n, out)
                 with self.assertRaises(CrpRefusal) as ctx:
-                    generate.run(generate.RunRequest(round_n, out))
+                    generate.run(request)
                 self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
                 self.assertEqual(ctx.exception.message, f"round must be an int, got {shown}")
                 self.assertFalse(out.exists())

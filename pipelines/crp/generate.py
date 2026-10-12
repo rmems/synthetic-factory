@@ -482,7 +482,7 @@ def _last_round(wave: Any) -> int:
 
 
 def _wave(module: Any, round_n: int, stretch: str) -> tuple[tuple[cat.Plant, ...], str, str, str]:
-    return (module.plants_for_round(round_n), module.CATALOG_ID, module.RUN_FORMAT, stretch)
+    return module.plants_for_round(round_n), module.CATALOG_ID, module.RUN_FORMAT, stretch
 
 
 def _leftover3_wave(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
