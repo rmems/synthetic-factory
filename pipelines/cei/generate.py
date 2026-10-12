@@ -258,90 +258,69 @@ def _investigation_steps(ws: _Workspace) -> list[dict[str, Any]]:
     ]
 
 
-def _success_docs_steps(url: str, doc: str, url2: str, doc2: str) -> list[dict[str, Any]]:
-    """Steps 6-9 of a success episode: a 502 recovered by backoff, then a 429 by retry."""
+# Docs fetches sit at steps 6-7 and 8-9; what the agent says depends on which pair it is.
+_DOCS_NEED = {
+    6: "Observation: local files are in. Need the changelog/registry before editing.",
+    8: "Observation: local files are in. Need the second remote document before editing.",
+}
+_GATEWAY_RESUME = {
+    6: "Degraded path used the local fixture. Continue with that content.",
+    8: "Degraded path used the local fixture. Resume the local debug plan.",
+}
+_RATE_LIMIT_RETRY_AFTER = {6: 6, 8: 5}
+_RATE_LIMIT_RESUME = {
+    6: "Retry succeeded. Continue with that document.",
+    8: "Retry succeeded. Resume the local debug plan with that document in hand.",
+}
+
+
+def _gateway_recovery_steps(n: int, url: str, doc: str) -> list[dict[str, Any]]:
+    """Step ``n`` fetches ``url`` into a 502; step ``n + 1`` recovers it with backoff."""
 
     return [
         _step(
-            6,
-            "Observation: local files are in. Need the changelog/registry before editing.",
+            n,
+            _DOCS_NEED[n],
             _fetch(url),
             f"GET {url}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
             "Call failed with upstream gateway failure. Recover with backoff.",
         ),
         _step(
-            7,
+            n + 1,
             (
                 "Observation: the prior call returned an upstream gateway failure. "
                 "Retry once with 2s backoff."
             ),
             _fetch(url),
             f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{doc}",
-            "Degraded path used the local fixture. Continue with that content.",
-        ),
-        _step(
-            8,
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(url2),
-            (
-                f"GET {url2}\nHTTP/1.1 429 Too Many Requests\n"
-                "Retry-After: 5\nX-RateLimit-Remaining: 0"
-            ),
-            "Call failed with rate-limit status with Retry-After. Recover with backoff.",
-        ),
-        _step(
-            9,
-            (
-                "Observation: the prior call returned rate-limit status with Retry-After. "
-                "Sleep then retry."
-            ),
-            _fetch(url2),
-            f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{doc2}",
-            "Retry succeeded. Resume the local debug plan with that document in hand.",
+            _GATEWAY_RESUME[n],
         ),
     ]
 
 
-def _handoff_docs_steps(url: str, doc: str, url2: str, doc2: str) -> list[dict[str, Any]]:
-    """Steps 6-9 of a handoff episode: a 429 recovered by retry, then a 502 by backoff."""
+def _rate_limit_recovery_steps(n: int, url: str, doc: str) -> list[dict[str, Any]]:
+    """Step ``n`` fetches ``url`` into a 429; step ``n + 1`` sleeps and retries it."""
 
     return [
         _step(
-            6,
-            "Observation: local files are in. Need the changelog/registry before editing.",
+            n,
+            _DOCS_NEED[n],
             _fetch(url),
             (
                 f"GET {url}\nHTTP/1.1 429 Too Many Requests\n"
-                "Retry-After: 6\nX-RateLimit-Remaining: 0"
+                f"Retry-After: {_RATE_LIMIT_RETRY_AFTER[n]}\nX-RateLimit-Remaining: 0"
             ),
             "Call failed with rate-limit status with Retry-After. Recover with backoff.",
         ),
         _step(
-            7,
+            n + 1,
             (
                 "Observation: the prior call returned rate-limit status with Retry-After. "
                 "Sleep then retry."
             ),
             _fetch(url),
             f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{doc}",
-            "Retry succeeded. Continue with that document.",
-        ),
-        _step(
-            8,
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(url2),
-            f"GET {url2}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-            "Call failed with upstream gateway failure. Recover with backoff.",
-        ),
-        _step(
-            9,
-            (
-                "Observation: the prior call returned an upstream gateway failure. "
-                "Retry once with 2s backoff."
-            ),
-            _fetch(url2),
-            f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{doc2}",
-            "Degraded path used the local fixture. Resume the local debug plan.",
+            _RATE_LIMIT_RESUME[n],
         ),
     ]
 
@@ -516,7 +495,8 @@ def build_success(
     ws = _hop_workspace(side)
     steps = [
         *_investigation_steps(ws),
-        *_success_docs_steps(side.docs_url, side.docs_ok, side.docs_url2, side.docs_ok2),
+        *_gateway_recovery_steps(6, side.docs_url, side.docs_ok),
+        *_rate_limit_recovery_steps(8, side.docs_url2, side.docs_ok2),
         _first_patch_step(ws, _edit(ws.src, side.first_old, side.first_new), side.first_obs),
         _still_red_step(ws),
         _reread_step(ws, side.reread_obs, f"Plan change: {side.plan_change}"),
@@ -552,7 +532,8 @@ def build_fail(
     ticket = side.ticket
     steps = [
         *_investigation_steps(ws),
-        *_handoff_docs_steps(side.docs_url, side.docs_ok, side.docs_url2, side.docs_ok2),
+        *_rate_limit_recovery_steps(6, side.docs_url, side.docs_ok),
+        *_gateway_recovery_steps(8, side.docs_url2, side.docs_ok2),
         _first_patch_step(ws, _edit(ws.src, side.first_old, side.first_new), side.first_obs),
         _still_red_step(ws),
         _reread_step(ws, side.reread_obs, f"Plan change: {side.plan_change}"),
@@ -604,7 +585,8 @@ def build_leftover3_success(
     first_new = f"    return {side.wrong2}"
     steps = [
         *_investigation_steps(ws),
-        *_success_docs_steps(side.url, side.doc, side.url2, side.doc2),
+        *_gateway_recovery_steps(6, side.url, side.doc),
+        *_rate_limit_recovery_steps(8, side.url2, side.doc2),
         _first_patch_step(
             ws,
             _edit(ws.src, f"    return {side.wrong}", first_new),
@@ -646,7 +628,8 @@ def build_leftover3_fail(
     ticket = side.ticket
     steps = [
         *_investigation_steps(ws),
-        *_handoff_docs_steps(side.url, side.doc, side.url2, side.doc2),
+        *_rate_limit_recovery_steps(6, side.url, side.doc),
+        *_gateway_recovery_steps(8, side.url2, side.doc2),
         _first_patch_step(
             ws,
             _edit(
