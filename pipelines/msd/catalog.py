@@ -197,12 +197,11 @@ def _const_eval(node: ast.AST) -> Any:
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.List):
-        return list(map(_const_eval, node.elts))
+    if isinstance(node, (ast.List, ast.Set)):
+        collect = set if isinstance(node, ast.Set) else list
+        return collect(map(_const_eval, node.elts))
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    if isinstance(node, ast.Set):
-        return set(map(_const_eval, node.elts))
     entries = _dict_entries(node)
     if entries is not None:
         return dict(zip(map(_const_eval, entries[0]), map(_const_eval, entries[1])))
@@ -235,17 +234,26 @@ def _refusal_message(node: ast.AST) -> str:
 
 
 def _call_kwargs(node: ast.AST, where: str) -> dict[str, Any]:
+    keywords = _plant_call_keywords(node)
+    if keywords is None:
+        raise MsdRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not a constant P()/dict() call"
+        )
+    return {name: _const_eval(value) for name, value in keywords}
+
+
+def _plant_call_keywords(node: ast.AST) -> list[tuple[str, ast.expr]] | None:
+    """``(name, value)`` keywords of a keyword-only ``P(...)``/``dict(...)`` call, else None."""
+
     if (
         not isinstance(node, ast.Call)
         or not isinstance(node.func, ast.Name)
         or node.func.id not in PLANT_CALLS
         or node.args
-        or any(kw.arg is None for kw in node.keywords)
     ):
-        raise MsdRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not a constant P()/dict() call"
-        )
-    return {kw.arg: _const_eval(kw.value) for kw in node.keywords}
+        return None
+    named = [(kw.arg, kw.value) for kw in node.keywords if kw.arg is not None]
+    return named if len(named) == len(node.keywords) else None
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -253,9 +261,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -566,9 +577,9 @@ def _registry_factory_ids() -> set[str]:
     if not isinstance(factories, list):
         raise MsdRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
     return {
-        row.get("path_id")
+        path_id
         for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
+        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str)
     }
 
 

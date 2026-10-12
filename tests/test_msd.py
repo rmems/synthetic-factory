@@ -236,6 +236,20 @@ class SurfaceShapes(unittest.TestCase):
                     )
                 self.assertEqual((caught.exception.code, caught.exception.message), (code, message))
 
+    def test_an_annotated_start_and_positional_plant_calls(self):
+        chained = TINY_R747.replace("START = 9", "START: int = 11")
+        rows = catalog.plants_from_source(chained, mill_id="msd_r0009", source="t.py")
+        self.assertEqual(rows[0]["base_round"], 11)
+        for call in ("P('x')", "P(**extra)"):
+            with self.subTest(call=call):
+                with self.assertRaises(MsdRefusal) as caught:
+                    catalog.plants_from_source(
+                        f"PAIRS = [{call}]\n", mill_id="msd_r0001", source="t.py"
+                    )
+                self.assertEqual(
+                    caught.exception.message, "t.py PAIRS[0] is not a constant P()/dict() call"
+                )
+
     def test_a_plants_object_reads_like_the_dict_call_it_spells(self):
         as_object = """
 START = 9
