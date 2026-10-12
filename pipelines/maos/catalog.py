@@ -161,9 +161,10 @@ def _assigned(node: ast.AST) -> tuple[str, ast.AST] | None:
 
 def _resolve_negation(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
     value = _resolve(node.operand, env)
-    if isinstance(value, (int, float)):
-        return -value
-    refuse(FINDING_AST_NOT_A_PLANT, "unary minus is not numeric")
+    refuse_when(
+        not isinstance(value, (int, float)), FINDING_AST_NOT_A_PLANT, "unary minus is not numeric"
+    )
+    return -value
 
 
 def _resolve_binop(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
@@ -172,9 +173,10 @@ def _resolve_binop(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
         return left + right
     if isinstance(node.op, ast.Sub):
         return left - right
-    if isinstance(node.op, ast.Mult):
-        return left * right
-    refuse(FINDING_AST_NOT_A_PLANT, "unsupported binary operator")
+    refuse_when(
+        not isinstance(node.op, ast.Mult), FINDING_AST_NOT_A_PLANT, "unsupported binary operator"
+    )
+    return left * right
 
 
 def _resolve_dict(node: ast.Dict, env: Mapping[str, Any]) -> dict[Any, Any]:
@@ -191,9 +193,9 @@ def _resolve_container(node: ast.AST, env: Mapping[str, Any]) -> Any:
         return [_resolve(elt, env) for elt in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_resolve(elt, env) for elt in node.elts)
-    if isinstance(node, ast.Dict):
-        return _resolve_dict(node, env)
-    refuse(FINDING_AST_NOT_A_PLANT, f"catalog argument is not a literal: {type(node).__name__}")
+    if not isinstance(node, ast.Dict):
+        refuse(FINDING_AST_NOT_A_PLANT, f"catalog argument is not a literal: {type(node).__name__}")
+    return _resolve_dict(node, env)
 
 
 def _resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
@@ -276,7 +278,17 @@ def _count(value: Any) -> int:
 
 
 def _rec_section(rec: Mapping[str, Any], key: str) -> Mapping[str, Any]:
-    return rec.get(key) if isinstance(rec.get(key), dict) else {}
+    value = rec.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _positive_round(value: Any, source_name: str) -> int:
+    refuse_when(
+        type(value) is not int or value < 1,
+        FINDING_FIELD_INVALID,
+        f"{source_name} meta.round is not a positive int",
+    )
+    return value
 
 
 def _rec_identity(
@@ -284,13 +296,8 @@ def _rec_identity(
 ) -> tuple[str, int, str, str]:
     """The record id, round, factory and generator a recovered ``rec`` must carry."""
     record_id = _text(rec.get("id"))
-    round_n = meta.get("round")
     refuse_when(not record_id, FINDING_FIELD_MISSING, f"{source_name} rec.id is missing")
-    refuse_when(
-        type(round_n) is not int or round_n < 1,
-        FINDING_FIELD_INVALID,
-        f"{source_name} meta.round is not a positive int",
-    )
+    round_n = _positive_round(meta.get("round"), source_name)
     factory = _text(meta.get("factory")) or FACTORY
     generator = _text(meta.get("generator")) or GENERATOR
     refuse_when(

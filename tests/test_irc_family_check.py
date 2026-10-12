@@ -9,7 +9,6 @@ exercised offline, exactly as main behaves.
 from __future__ import annotations
 
 import hashlib
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -39,27 +38,45 @@ def _rows(*indexes, pipe="p"):
     )
 
 
+def _family_check(sources, spec_rows, *, live_legacy=True, ref="present"):
+    """Run the check with stubbed git; ``ref`` is "present", "unknown" or "no-git".
+
+    Returns (result is the loaded catalog, rev-parse commands, legacy paths read).
+    """
+    catalog = pc.FamilyCatalog(catalog_id="fixture", sources=tuple(sources), spec_rows=spec_rows)
+    probes: list[list[str]] = []
+    shown: list[str] = []
+
+    def rev_parse(cmd, **kwargs):
+        probes.append(cmd)
+        if ref == "no-git":
+            raise FileNotFoundError("git")
+        if ref == "unknown":
+            raise pc.subprocess.CalledProcessError(128, cmd)
+        return b""
+
+    def legacy(path):
+        shown.append(path)
+        return _LIVE
+
+    which = None if ref == "no-git" else "/usr/bin/git"
+    with (
+        mock.patch.object(pc, "load_family_catalog", return_value=catalog),
+        mock.patch.object(pc.subprocess, "check_output", side_effect=rev_parse),
+        mock.patch("shutil.which", return_value=which),
+        mock.patch.object(pc, "_legacy_source", side_effect=legacy),
+    ):
+        result = pc.catalog_family_check(live_legacy)
+    return result is catalog, probes, shown
+
+
 class CatalogFamilyCheckTests(unittest.TestCase):
-    def _check(self, sources, spec_rows, *, live_legacy=True, ref_ok=True):
-        catalog = pc.FamilyCatalog(catalog_id="fixture", sources=tuple(sources), spec_rows=spec_rows)
-        shown: list[str] = []
-
-        def rev_parse(cmd, **kwargs):
-            self.assertEqual(cmd[:2], ["git", "rev-parse"])
-            if not ref_ok:
-                raise subprocess.CalledProcessError(128, cmd)
-            return b""
-
-        def legacy(path):
-            shown.append(path)
-            return _LIVE
-
-        with (
-            mock.patch.object(pc, "load_family_catalog", return_value=catalog),
-            mock.patch.object(pc.subprocess, "check_output", side_effect=rev_parse),
-            mock.patch.object(pc, "_legacy_source", side_effect=legacy),
-        ):
-            self.assertIs(pc.catalog_family_check(live_legacy), catalog)
+    def _check(self, sources, spec_rows, *, live_legacy=True, ref="present"):
+        same, probes, shown = _family_check(sources, spec_rows, live_legacy=live_legacy, ref=ref)
+        self.assertTrue(same)
+        for cmd in probes:
+            self.assertEqual(Path(cmd[0]).name, "git")
+            self.assertEqual(cmd[1:], ["rev-parse", pc.SOURCE_REF])
         return shown
 
     def test_committed_mill_sources_are_rechecked_against_the_legacy_ref(self):
@@ -94,7 +111,23 @@ class CatalogFamilyCheckTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), "irc.catalog_field_invalid: mill 3400 index gap")
         # Behaviour on main: the early returns skip the index check entirely.
         self.assertEqual(self._check([_source()], _rows(0, 2), live_legacy=False), [])
-        self.assertEqual(self._check([_source()], _rows(0, 2), ref_ok=False), [])
+        self.assertEqual(self._check([_source()], _rows(0, 2), ref="unknown"), [])
+
+    def test_missing_git_skips_the_live_check(self):
+        same, _probes, shown = _family_check([_source(sha256="0" * 64)], _rows(0, 2), ref="no-git")
+        self.assertTrue(same)
+        self.assertEqual(shown, [])
+
+    def test_git_is_invoked_by_absolute_path(self):
+        calls: list[list[str]] = []
+        with (
+            mock.patch("shutil.which", return_value="/opt/bin/git"),
+            mock.patch.object(pc.subprocess, "check_output", side_effect=lambda cmd, **kw: calls.append(cmd) or "x"),
+        ):
+            self.assertEqual(pc._legacy_source(_PATH), "x")
+        self.assertEqual(calls, [["/opt/bin/git", "show", f"{pc.SOURCE_REF}:{_PATH}"]])
+        with mock.patch("shutil.which", return_value=None), self.assertRaises(FileNotFoundError):
+            pc._legacy_source(_PATH)
 
     def test_spec_row_pipe_text_is_not_compared_with_the_live_source(self):
         # Behaviour on main: only the digest, field name and row count are compared.

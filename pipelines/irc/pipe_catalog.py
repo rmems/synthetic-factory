@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import shutil
 import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -195,12 +196,20 @@ def load_family_catalog() -> FamilyCatalog:
     return FamilyCatalog(catalog_id=CATALOG_ID, sources=sources, spec_rows=spec_rows)
 
 
-def _pipe_field_target(node: ast.stmt) -> str | None:
+def _pipe_field_assign(node: ast.stmt) -> tuple[str, ast.Assign] | None:
     if not isinstance(node, ast.Assign):
         return None
     targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
     if targets and targets[0] in PIPE_FIELD_NAMES:
-        return targets[0]
+        return targets[0], node
+    return None
+
+
+def _first_pipe_field(tree: ast.Module) -> tuple[str, ast.Assign] | None:
+    for node in tree.body:
+        found = _pipe_field_assign(node)
+        if found is not None:
+            return found
     return None
 
 
@@ -222,16 +231,24 @@ def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
-    for node in tree.body:
-        field = _pipe_field_target(node)
-        if field is not None:
-            return field, _pipe_rows_literal(node)
-    refuse(FINDING_SOURCE_NOT_PARSEABLE, f"missing one of {PIPE_FIELD_NAMES}")
+    found = _first_pipe_field(tree)
+    if found is None:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"missing one of {PIPE_FIELD_NAMES}")
+    field, assign = found
+    return field, _pipe_rows_literal(assign)
+
+
+def _git_command(*args: str) -> list[str]:
+    """``git`` resolved to its absolute path; FileNotFoundError when it is not installed."""
+    git = shutil.which("git")
+    if git is None:
+        raise FileNotFoundError("git")
+    return [git, *args]
 
 
 def _legacy_source(path: str) -> str:
     return subprocess.check_output(
-        ["git", "show", f"{SOURCE_REF}:{path}"],
+        _git_command("show", f"{SOURCE_REF}:{path}"),
         text=True,
         cwd=repo_root(),
         stderr=subprocess.DEVNULL,
@@ -240,24 +257,28 @@ def _legacy_source(path: str) -> str:
 
 def _legacy_ref_available() -> bool:
     try:
-        subprocess.check_output(["git", "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL)
+        subprocess.check_output(
+            _git_command("rev-parse", SOURCE_REF), cwd=repo_root(), stderr=subprocess.DEVNULL
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
     return True
 
 
-def _is_committed_mill_source(source: Mapping[str, Any]) -> bool:
+def _committed_mill_path(source: Mapping[str, Any]) -> str | None:
+    """The source path when it is a committed ``irc-mill-r*`` source with a pinned digest."""
     path = source.get("path")
     expected = source.get("sha256")
     if not isinstance(path, str) or not isinstance(expected, str):
-        return False
+        return None
     if not path.startswith("experiments/irc-mill-r"):
-        return False
-    return source.get("committed") is True
+        return None
+    if source.get("committed") is not True:
+        return None
+    return path
 
 
-def _verify_live_source(source: Mapping[str, Any]) -> None:
-    path = source.get("path")
+def _verify_live_source(source: Mapping[str, Any], path: str) -> None:
     live = _legacy_source(path)
     digest = _sha256_text(live)
     refuse_when(digest != source.get("sha256"), FINDING_CATALOG_SHA256_MISMATCH, path)
@@ -283,8 +304,9 @@ def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
     if not _legacy_ref_available():
         return catalog
     for source in catalog.sources:
-        if _is_committed_mill_source(source):
-            _verify_live_source(source)
+        path = _committed_mill_path(source)
+        if path is not None:
+            _verify_live_source(source, path)
     _verify_spec_indexes(catalog.spec_rows)
     return catalog
 

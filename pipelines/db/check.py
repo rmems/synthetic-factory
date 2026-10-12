@@ -19,19 +19,25 @@ def _refuse_bad_slug(slug: str) -> None:
         raise ValueError(f"recycle suffix slug {slug}")
 
 
+def _require(holds: bool) -> None:
+    """An ``assert`` that still runs under ``python -O``: the same bare AssertionError."""
+    if not holds:
+        raise AssertionError
+
+
 def _assert_built_pair(round_n: int) -> None:
     ea, eb, notes = build_pair(round_n)
     for ep in (ea, eb):
-        assert ep["reward"]["success"] is True
-        assert ep["reward"]["apply_fails"] == 2
-        assert ep["reward"]["plan_changes"] == 1
-        assert ep["reward"]["lock_timeouts"] == 1
-        assert len(ep["steps"]) == 16
-        assert ep["meta"]["generator"] == cfg.GENERATOR
-        assert ep["meta"]["sim_or_real"] == "designed"
-        assert not cfg.RECYCLE_SUFFIX.search(ep["id"])
-    assert notes.startswith("# NOTES-")
-    assert "Novel coverage:" in notes
+        _require(ep["reward"]["success"] is True)
+        _require(ep["reward"]["apply_fails"] == 2)
+        _require(ep["reward"]["plan_changes"] == 1)
+        _require(ep["reward"]["lock_timeouts"] == 1)
+        _require(len(ep["steps"]) == 16)
+        _require(ep["meta"]["generator"] == cfg.GENERATOR)
+        _require(ep["meta"]["sim_or_real"] == "designed")
+        _require(not cfg.RECYCLE_SUFFIX.search(ep["id"]))
+    _require(notes.startswith("# NOTES-"))
+    _require("Novel coverage:" in notes)
 
 
 def _refuse_duplicates(columns: tuple[tuple[str, list], ...]) -> None:

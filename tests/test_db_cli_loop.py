@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import types
@@ -233,7 +234,8 @@ class MainDispatchTests(unittest.TestCase):
 
 
 class SelfCheckRefusalTests(unittest.TestCase):
-    def _self_check(self, plants):
+    @staticmethod
+    def _self_check(plants):
         with mock.patch.object(check, "PLANTS", plants), contextlib.redirect_stdout(io.StringIO()):
             check.self_check()
 
@@ -253,6 +255,55 @@ class SelfCheckRefusalTests(unittest.TestCase):
     def test_odd_plant_count_is_refused_after_duplicate_checks(self):
         with self.assertRaisesRegex(ValueError, "^odd plant count$"):
             self._self_check(PLANTS[:3])
+
+    def test_each_built_pair_invariant_fails_the_self_check(self):
+        good_a, good_b, good_notes = check.build_pair(cfg.START_ROUND)
+        broken = (
+            {"reward": dict(good_a["reward"], success=False)},
+            {"reward": dict(good_a["reward"], apply_fails=1)},
+            {"reward": dict(good_a["reward"], plan_changes=0)},
+            {"reward": dict(good_a["reward"], lock_timeouts=2)},
+            {"steps": good_a["steps"][:-1]},
+            {"meta": dict(good_a["meta"], generator="other")},
+            {"meta": dict(good_a["meta"], sim_or_real="real")},
+            {"id": good_a["id"] + "-r12"},
+        )
+        for override in broken:
+            with self.subTest(override=sorted(override)):
+                pair = (good_a, dict(good_b, **override), good_notes)
+                with (
+                    mock.patch.object(check, "build_pair", return_value=pair),
+                    self.assertRaises(AssertionError) as caught,
+                ):
+                    self._self_check(PLANTS[:2])
+                self.assertEqual(caught.exception.args, ())
+        for notes in ("Novel coverage: 1%", "# NOTES-r845 without coverage"):
+            with self.subTest(notes=notes):
+                pair = (good_a, good_b, notes)
+                with (
+                    mock.patch.object(check, "build_pair", return_value=pair),
+                    self.assertRaises(AssertionError),
+                ):
+                    self._self_check(PLANTS[:2])
+
+    def test_built_pair_invariants_still_fail_under_python_optimize(self):
+        code = (
+            "import sys\n"
+            "sys.path.insert(0, '.')\n"
+            "from pipelines.db import check\n"
+            "a, b, notes = check.build_pair(845)\n"
+            "check.build_pair = lambda rnd: (a, dict(b, steps=[]), notes)\n"
+            "check.self_check()\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-O", "-c", code],
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(proc.stderr.strip().splitlines()[-1], "AssertionError")
 
     def test_recycle_suffix_in_an_episode_id_is_refused(self):
         with self.assertRaisesRegex(ValueError, "^recycle suffix in id: dbm-r845-x-r12$"):

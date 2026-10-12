@@ -52,7 +52,8 @@ class DynamicPairsTests(unittest.TestCase):
 
 
 class SpecReaderTests(unittest.TestCase):
-    def _plants(self, ok_spec: str, fail_spec: str) -> tuple:
+    @staticmethod
+    def _plants(ok_spec: str, fail_spec: str) -> tuple:
         source = (
             "CATALOG_FIRST = 9\n"
             f"def _pairs():\n    return [('cosign_reusable', {ok_spec}, 'fail_leftover', {fail_spec})]\n"

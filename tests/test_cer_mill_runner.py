@@ -26,6 +26,8 @@ from cer import record_builder as rb
 from cer import usage_burst_plan as ubp
 from cer import vocabulary as cv
 
+_CALLER_STAGE = "abc"
+_UNSTAGED = "zzz"
 _PLAN = json.loads((REPO / cv.DEFAULT_PLAN_PATH).read_text(encoding="utf-8"))
 
 
@@ -78,7 +80,8 @@ class PublishBurstMillTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         self.addCleanup(self._tmp.cleanup)
 
-    def _publish(self, txn, **kwargs):
+    @staticmethod
+    def _publish(txn, **kwargs):
         with mock.patch.object(mr, "_txn", txn):
             return mr.publish_burst_mill("cer_r1901", run_label="lbl", **kwargs)
 
@@ -114,21 +117,21 @@ class PublishBurstMillTests(unittest.TestCase):
         mr.time.sleep.assert_any_call(0.25)
 
     def test_caller_token_reuses_its_existing_staging_directory(self):
-        stage = self.root / "outputs/staging" / "lbl" / cv.FACTORY / "r1901-abc"
+        stage = self.root / "outputs/staging" / "lbl" / cv.FACTORY / f"r1901-{_CALLER_STAGE}"
         stage.mkdir(parents=True)
         txn = _Txn(self.root, range(1901, 1917))
-        self._publish(txn, first_token="abc")
+        self._publish(txn, first_token=_CALLER_STAGE)
         self.assertEqual([call[0] for call in txn.calls[:2]], ["frontier", "publish"])
-        self.assertEqual(txn.calls[1][-1], "abc")
+        self.assertEqual(txn.calls[1][-1], _CALLER_STAGE)
         self.assertTrue((stage / "batch-r1901.jsonl").is_file())
         self.assertEqual(txn.calls[3][0], "reserve")
 
     def test_caller_token_without_staging_directory_is_refused(self):
         txn = _Txn(self.root, [1901])
         with self.assertRaises(FileNotFoundError) as caught:
-            self._publish(txn, first_token="zzz")
+            self._publish(txn, first_token=_UNSTAGED)
         self.assertEqual(
-            Path(str(caught.exception)), self.root / "outputs/staging" / "lbl" / cv.FACTORY / "r1901-zzz"
+            Path(str(caught.exception)), self.root / "outputs/staging" / "lbl" / cv.FACTORY / f"r1901-{_UNSTAGED}"
         )
         self.assertEqual([call[0] for call in txn.calls], ["frontier"])
 
@@ -151,13 +154,15 @@ class PublishBurstMillTests(unittest.TestCase):
 
 
 class BurstPlanRefusalTests(unittest.TestCase):
-    def _load(self, plan, **kwargs):
+    @staticmethod
+    def _load(plan, **kwargs):
         with tempfile.TemporaryDirectory(prefix="cer-plan-") as td:
             path = Path(td) / "plan.json"
             path.write_text(json.dumps(plan), encoding="utf-8")
             return ubp.load_mill_usage_burst_plan(path, repo_root=REPO, **kwargs)
 
-    def _variant(self, mutate):
+    @staticmethod
+    def _variant(mutate):
         plan = copy.deepcopy(_PLAN)
         mutate(plan)
         return plan
