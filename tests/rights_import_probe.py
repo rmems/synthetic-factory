@@ -27,19 +27,29 @@ TWINS = (
 )
 
 
-def _forget_repository_modules() -> None:
-    """Drop every module and path entry this child inherited from the repository."""
+def _from_repository(module: object) -> bool:
+    return (getattr(module, "__file__", None) or "").startswith(str(REPO))
 
+
+def _drop_loaded_repository_modules() -> None:
     stale = [
-        name
-        for name, module in sys.modules.items()
-        if name != __name__ and (getattr(module, "__file__", None) or "").startswith(str(REPO))
+        name for name, module in sys.modules.items()
+        if name != __name__ and _from_repository(module)
     ]
     for name in stale:
         del sys.modules[name]
-    sys.path[:] = [
-        entry for entry in sys.path if Path(entry or ".").resolve() not in (REPO, PIPELINES)
-    ]
+
+
+def _drop_repository_paths() -> None:
+    keep = (REPO, PIPELINES)
+    sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() not in keep]
+
+
+def _forget_repository_modules() -> None:
+    """Drop every module and path entry this child inherited from the repository."""
+
+    _drop_loaded_repository_modules()
+    _drop_repository_paths()
 
 
 def _cli_form() -> ModuleType:
