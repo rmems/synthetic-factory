@@ -1,0 +1,154 @@
+"""Per-invariant findings of the memory and credit-assignment family checks.
+
+Each case copies one accepted reference record, edits a single retained value
+under ``result.measured``, re-hashes the result, and asserts that
+``record.validate_record`` reports the exact finding the family check emits
+today. Two groups of family-check lines are not driven because an earlier gate
+decides first: any scenario edit fails the generator-seed reproduction check, and
+any edit that breaks the family JSON schema (a negative latency, a missing
+control, an unknown response or neuron id, a non-object stage) is reported by
+the schema validator before the family checks run.
+"""
+
+import copy
+import unittest
+
+from tests.test_oracle_grounded_record import accepted_reference, families, result_findings
+
+_REFERENCES = {}
+
+
+def _reference(family):
+    if family not in _REFERENCES:
+        _REFERENCES[family] = accepted_reference(family)
+    return copy.deepcopy(_REFERENCES[family])
+
+
+def _parent(item, path):
+    node = item["result"]["measured"]
+    for key in path[:-1]:
+        node = node[key]
+    return node
+
+
+def _put(path, value):
+    def edit(item):
+        _parent(item, path)[path[-1]] = copy.deepcopy(value)
+
+    return edit
+
+
+def _shift(path, by):
+    def edit(item):
+        _parent(item, path)[path[-1]] += by
+
+    return edit
+
+
+def _drop(path):
+    def edit(item):
+        del _parent(item, path)[path[-1]]
+
+    return edit
+
+
+def _reverse(path):
+    def edit(item):
+        _parent(item, path)[path[-1]].reverse()
+
+    return edit
+
+
+BASE = ("baseline",)
+CRITIC = ("critic",)
+PLASTIC = ("plasticity",)
+PRE = PLASTIC + ("pre_update_behavior",)
+DEPENDENCE = ("temporal_dependence",)
+
+# (label, edit(record), finding the memory checks must report)
+MEMORY_CASES = (
+    ("measured delay", _shift(("delay_ms",), 1.0),
+     "result.measured.delay_ms does not match the scenario delay"),
+    ("response vs counts", _put(BASE + ("response",), "A"),
+     "baseline.response does not match output_spike_counts"),
+    ("response vs latency", _put(BASE + ("response",), "A"),
+     "baseline.response and response_latency_ms disagree"),
+    ("ambiguity vs counts", _put(BASE + ("response_ambiguous",), True),
+     "baseline.response_ambiguous does not match output_spike_counts"),
+    ("ambiguous response", _put(BASE + ("response_ambiguous",), True),
+     "baseline has an ambiguous response"),
+    ("late latency", _put(BASE + ("response_latency_ms",), 1.0e6),
+     "baseline.response_latency_ms leaves the response window"),
+    ("spike budget", _put(BASE + ("spike_budget_exhausted",), True),
+     "baseline hit the spike budget; the trajectory is truncated"),
+    ("latch window", _put(BASE + ("latch_last_spike_ms",), {"MA": None, "MB": 1.0e6}),
+     "baseline.latch_last_spike_ms leaves the retained probe window"),
+    ("energy", _shift(BASE + ("energy_pJ",), 1.0), "baseline.energy_pJ does not match total_spikes"),
+    ("duration", _shift(BASE + ("duration_ms",), 1.0),
+     "baseline.duration_ms does not match the task configuration"),
+    ("retention", _put(BASE + ("state_retained_at_probe",), True),
+     "baseline.state_retained_at_probe does not match latch_last_spike_ms"),
+    ("dependence flag", _put(DEPENDENCE + ("demonstrated",), False),
+     "temporal_dependence.demonstrated does not match the ablation responses"),
+    ("dependence controls", _put(DEPENDENCE + ("changed_by",), []),
+     "temporal_dependence.changed_by does not match the changed controls"),
+    ("control set", _drop(("probes", "reset_ablation")),
+     "memory control probes do not match the scenario controls"),
+    ("distractor control", _put(("distractor_invariant",), False),
+     "distractor_invariant does not match the distractor control"),
+)
+
+# (label, edit(record), finding the credit-assignment checks must report)
+CREDIT_CASES = (
+    ("critic level", _shift(CRITIC + ("dopamine",), 0.5),
+     ("critic.dopamine does not match the value derived from the scenario outcome and critic "
+      "configuration")),
+    ("weight delta", _shift(PLASTIC + ("weight_deltas", 0), 0.1),
+     ("weight 0 delta does not match learning_rate * eligibility * dopamine_phasic * "
+      "modulatory_gain with configured bounds")),
+    ("weight after", _shift(PLASTIC + ("weights_after", 0), 0.1),
+     "weight 0 does not satisfy after = before + delta derived from the retained learning rule"),
+    ("weights before", _shift(PLASTIC + ("weights_before", 0), 0.1),
+     "plasticity.weights_before does not match scenario.initial_weights"),
+    ("vector lengths", _put(PLASTIC + ("eligibility",), [1.0]),
+     "plasticity weight vectors have inconsistent lengths"),
+    ("eligibility", _shift(PLASTIC + ("eligibility", 0), 0.5),
+     ("weight 0 eligibility does not match the STDP trace derived from the pre-synaptic trains "
+      "and pre-update spikes")),
+    ("spike order", _reverse(PRE + ("spike_times_ms",)),
+     "plasticity.pre_update_behavior.spike_times_ms is not ordered"),
+    ("spike summary", _shift(PRE + ("spike_count",), 1),
+     "plasticity.pre_update_behavior.spike_count does not match spike_times_ms"),
+    ("delta value", _shift(PLASTIC + ("behavior_delta", "spike_count_delta"), 1),
+     "plasticity.behavior_delta.spike_count_delta does not match the pre/post behavior"),
+    ("modulatory gain", _shift(PLASTIC + ("modulatory_gain",), 0.1),
+     "plasticity.modulatory_gain does not match critic modulators"),
+    ("update rule", _put(PLASTIC + ("update_rule",), "dw = 0"),
+     "plasticity.update_rule does not name the executed update"),
+    ("update flag", _put(PLASTIC + ("update_applied",), False),
+     "plasticity.update_applied disagrees with the weight deltas"),
+)
+
+
+class FamilyInvariantFindings(unittest.TestCase):
+    def _assert_findings(self, family, cases):
+        for label, edit, expected in cases:
+            with self.subTest(label):
+                item = _reference(family)
+                edit(item)
+                self.assertIn(expected, result_findings(item))
+
+    def test_reference_records_start_clean(self):
+        for family in (families.MEMORY_FAMILY, families.CREDIT_FAMILY):
+            with self.subTest(family):
+                self.assertEqual(result_findings(_reference(family)), [])
+
+    def test_memory_invariants(self):
+        self._assert_findings(families.MEMORY_FAMILY, MEMORY_CASES)
+
+    def test_credit_assignment_invariants(self):
+        self._assert_findings(families.CREDIT_FAMILY, CREDIT_CASES)
+
+
+if __name__ == "__main__":
+    unittest.main()
