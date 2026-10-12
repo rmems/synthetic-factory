@@ -189,38 +189,49 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Refuses names, starred dicts, and unknown calls."""
+    """Literal values only. Refuses names, starred dicts, and unknown calls.
+
+    The recursion stays in this function: one frame per nested value (two for a
+    tuple's generator), the same as before the helpers below were split out.
+    """
 
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
+        return list(map(_const_eval, node.elts))
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    return _const_set_or_dict(node)
-
-
-def _const_set_or_dict(node: ast.AST) -> Any:
-    """Literal sets and dicts."""
-
     if isinstance(node, ast.Set):
-        return {_const_eval(item) for item in node.elts}
+        return set(map(_const_eval, node.elts))
+    entries = _dict_entries(node)
+    if entries is not None:
+        return dict(zip(map(_const_eval, entries[0]), map(_const_eval, entries[1])))
+    operand = _negation_operand(node)
+    if operand is None:
+        raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, _refusal_message(node))
+    return -_const_eval(operand)
+
+
+def _dict_entries(node: ast.AST) -> tuple[list[ast.expr], list[ast.expr]] | None:
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
-    return _const_negative(node)
+        keys = [key for key in node.keys if key is not None]
+        if len(keys) == len(node.keys):
+            return keys, node.values
+    return None
 
 
-def _const_negative(node: ast.AST) -> Any:
-    """A negated number; anything else is not a constant."""
+def _negation_operand(node: ast.AST) -> ast.expr | None:
+    if not isinstance(node, ast.UnaryOp) or not isinstance(node.op, ast.USub):
+        return None
+    return node.operand
 
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    raise MsdRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+
+def _refusal_message(node: ast.AST) -> str:
+    """A dict can only get here through ``**`` unpacking; anything else is not a constant."""
+
+    if not isinstance(node, ast.Dict):
+        return f"plant source is not a constant ({type(node).__name__})"
+    return "plant source uses dict unpacking"
 
 
 def _call_kwargs(node: ast.AST, where: str) -> dict[str, Any]:

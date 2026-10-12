@@ -160,95 +160,144 @@ def _canon_src(plant: cat.Plant) -> str:
     )
 
 
-def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
-    return (
-        _success_survey_steps(plant)
-        + _success_dead_end_steps(plant)
-        + _success_adapt_steps(plant)
-        + _success_residual_steps(plant)
-    )
+# Per-outcome wording of the survey (steps 1-4) and dead-end (steps 5-8) phases;
+# every other word of those eight steps is shared by both episodes.
+_SURVEY_TEXT = {
+    "success": {
+        "plan": "Plan: locate Map {leftover} leftover → {spec}; keep {keep}.",
+        "dirs": "tests",
+        "listing": "{schema}  {server}  {host}  {test_py}",
+        "grep": "{schema}: {method} {spec} required; {leftover} leftover removed",
+        "schema": "{spec}: required\n{schema_note}\n# keep {keep}",
+    },
+    "fail": {
+        "plan": "Plan: locate Buffer {leftover} leftover→{spec}, host, and freeze ticket.",
+        "dirs": "tests tickets",
+        "listing": "{schema}  {host}  {ticket}",
+        "grep": "{host}: {freeze_still}",
+        "schema": "{method} requires {spec}\n{schema_note}",
+    },
+}
+_DEAD_END_TEXT = {
+    "success": {
+        "contract": "Run contract tests.",
+        "golden": "JSON pins reject the old shape (step 5). Run RPC golden.",
+        "golden_obs": "Test{tail}Map FAIL missing {spec}; Test{tail}Keep PASS",
+        "rejected": "-32602",
+        "rerun": "RPC",
+        "test": "Keep",
+    },
+    "fail": {
+        "contract": "Run contract.",
+        "golden": "JSON only tests the new shape (step 5). Run compensate golden.",
+        "golden_obs": "Test{tail}Buffer FAIL got old {leftover} want {spec}",
+        "rejected": "rejected",
+        "rerun": "golden",
+        "test": "Buffer",
+    },
+}
 
 
-def _success_survey_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+def _survey_steps(plant: cat.Plant, outcome: str) -> list[dict[str, Any]]:
     """Steps 1-4: locate the surfaces, grep the drift, read and diff the schema."""
 
+    text = _SURVEY_TEXT[outcome]
     path = _paths(plant)
-    leftover = plant.leftover
-    spec = plant.spec
-    keep = plant.keep
+    fields = {
+        **path,
+        "leftover": plant.leftover,
+        "spec": plant.spec,
+        "keep": plant.keep,
+        "method": plant.method,
+        "schema_note": plant.schema_note,
+        "freeze_still": plant.freeze_still,
+    }
     return [
         _step(
             1,
-            f"Plan: locate Map {leftover} leftover → {spec}; keep {keep}.",
+            text["plan"].format_map(fields),
             "bash",
-            {"command": "ls -la spec src/server src/host/continue tests | sed -n '1,50p'"},
-            f"{path['schema']}  {path['server']}  {path['host']}  {path['test_py']}",
+            {
+                "command": (
+                    f"ls -la spec src/server src/host/continue {text['dirs']} | sed -n '1,50p'"
+                )
+            },
+            text["listing"].format_map(fields),
         ),
         _step(
             2,
             "Observation: files present (step 1). Grep the before/after tokens.",
             "grep",
             {"path": ".", "pattern": plant.grep},
-            f"{path['schema']}: {plant.method} {spec} required; {leftover} leftover removed",
+            text["grep"].format_map(fields),
         ),
         _step(
             3,
             "Observation: drift confirmed (step 2). Read schema.",
             "read",
             {"path": path["schema"]},
-            f"{spec}: required\n{plant.schema_note}\n# keep {keep}",
+            text["schema"].format_map(fields),
         ),
         _step(
             4,
             "Observation: schema closed (step 3). Diff versus origin/main.",
             "bash",
             {"command": f"git diff origin/main -- {path['schema']} {path['host']}"},
-            f"- {leftover}\n+ {spec}\n# Continue still {plant.freeze_still}",
+            f"- {plant.leftover}\n+ {plant.spec}\n# Continue still {plant.freeze_still}",
         ),
     ]
 
 
-def _success_dead_end_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+def _dead_end_steps(plant: cat.Plant, outcome: str) -> list[dict[str, Any]]:
     """Steps 5-8: false-green contract tests, the RPC golden, and the dead-end."""
 
+    text = _DEAD_END_TEXT[outcome]
     path = _paths(plant)
     spec = plant.spec
-    keep = plant.keep
     deadend = plant.deadend
-    extra_test = _extra_test(plant)
+    tail = _canon_tail(plant)
     return [
         _step(
             5,
-            "Observation: spec new; host still old (step 4). Run contract tests.",
+            f"Observation: spec new; host still old (step 4). {text['contract']}",
             "bash",
             {"command": f"pytest {path['test_py']} -q --tb=short"},
-            _contract_obs(plant, extra_test),
+            _contract_obs(plant, _extra_test(plant)),
             f"False-green: extra {plant.extra} dropped.",
         ),
         _step(
             6,
-            "Observation: JSON pins reject the old shape (step 5). Run RPC golden.",
+            f"Observation: {text['golden']}",
             "bash",
-            {"command": f"go test ./tests/rpc -run {_canon_tail(plant)} -count=1 -v"},
-            f"Test{_canon_tail(plant)}Map FAIL missing {spec}; "
-            f"Test{_canon_tail(plant)}Keep PASS",
+            {"command": f"go test ./tests/rpc -run {tail} -count=1 -v"},
+            text["golden_obs"].format(tail=tail, spec=spec, leftover=plant.leftover),
         ),
         _step(
             7,
-            "Observation: old shape -32602 (step 6). Dead-end — apply the wrong compensation.",
+            f"Observation: old shape {text['rejected']} (step 6). "
+            "Dead-end — apply the wrong compensation.",
             "edit",
             _deadend_edit(path["server"], spec, deadend),
             f"{deadend} applied. Golden wants {spec}.",
         ),
         _step(
             8,
-            "Observation: dead-end applied (step 7). Re-run RPC.",
+            f"Observation: dead-end applied (step 7). Re-run {text['rerun']}.",
             "bash",
-            {"command": f"go test ./tests/rpc -run {_canon_tail(plant)} -count=1"},
-            f"Test{_canon_tail(plant)}Keep: got {deadend} want {spec}\nFAIL",
-            f"Dead-end: Do not {deadend}. {plant.adapt_cmd}; keep {keep}.",
+            {"command": f"go test ./tests/rpc -run {tail} -count=1"},
+            f"Test{tail}{text['test']}: got {deadend} want {spec}\nFAIL",
+            f"Dead-end: Do not {deadend}. {plant.adapt_cmd}; keep {plant.keep}.",
         ),
     ]
+
+
+def _success_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    return (
+        _survey_steps(plant, "success")
+        + _dead_end_steps(plant, "success")
+        + _success_adapt_steps(plant)
+        + _success_residual_steps(plant)
+    )
 
 
 def _success_adapt_steps(plant: cat.Plant) -> list[dict[str, Any]]:
@@ -339,92 +388,11 @@ def _success_residual_steps(plant: cat.Plant) -> list[dict[str, Any]]:
 
 def _fail_steps(plant: cat.Plant) -> list[dict[str, Any]]:
     return (
-        _fail_survey_steps(plant)
-        + _fail_dead_end_steps(plant)
+        _survey_steps(plant, "fail")
+        + _dead_end_steps(plant, "fail")
         + _fail_server_only_steps(plant)
         + _fail_handoff_steps(plant)
     )
-
-
-def _fail_survey_steps(plant: cat.Plant) -> list[dict[str, Any]]:
-    """Steps 1-4: locate the surfaces and freeze ticket, grep the drift, read and diff."""
-
-    path = _paths(plant)
-    leftover = plant.leftover
-    spec = plant.spec
-    return [
-        _step(
-            1,
-            f"Plan: locate Buffer {leftover} leftover→{spec}, host, and freeze ticket.",
-            "bash",
-            {"command": "ls -la spec src/server src/host/continue tests tickets | sed -n '1,50p'"},
-            f"{path['schema']}  {path['host']}  {path['ticket']}",
-        ),
-        _step(
-            2,
-            "Observation: files present (step 1). Grep the before/after tokens.",
-            "grep",
-            {"path": ".", "pattern": plant.grep},
-            f"{path['host']}: {plant.freeze_still}",
-        ),
-        _step(
-            3,
-            "Observation: drift confirmed (step 2). Read schema.",
-            "read",
-            {"path": path["schema"]},
-            f"{plant.method} requires {spec}\n{plant.schema_note}",
-        ),
-        _step(
-            4,
-            "Observation: schema closed (step 3). Diff versus origin/main.",
-            "bash",
-            {"command": f"git diff origin/main -- {path['schema']} {path['host']}"},
-            f"- {leftover}\n+ {spec}\n# Continue still {plant.freeze_still}",
-        ),
-    ]
-
-
-def _fail_dead_end_steps(plant: cat.Plant) -> list[dict[str, Any]]:
-    """Steps 5-8: false-green contract tests, the compensate golden, and the dead-end."""
-
-    path = _paths(plant)
-    leftover = plant.leftover
-    spec = plant.spec
-    keep = plant.keep
-    deadend = plant.deadend
-    extra_test = _extra_test(plant)
-    return [
-        _step(
-            5,
-            "Observation: spec new; host still old (step 4). Run contract.",
-            "bash",
-            {"command": f"pytest {path['test_py']} -q --tb=short"},
-            _contract_obs(plant, extra_test),
-            f"False-green: extra {plant.extra} dropped.",
-        ),
-        _step(
-            6,
-            "Observation: JSON only tests the new shape (step 5). Run compensate golden.",
-            "bash",
-            {"command": f"go test ./tests/rpc -run {_canon_tail(plant)} -count=1 -v"},
-            f"Test{_canon_tail(plant)}Buffer FAIL got old {leftover} want {spec}",
-        ),
-        _step(
-            7,
-            "Observation: old shape rejected (step 6). Dead-end — apply the wrong compensation.",
-            "edit",
-            _deadend_edit(path["server"], spec, deadend),
-            f"{deadend} applied. Golden wants {spec}.",
-        ),
-        _step(
-            8,
-            "Observation: dead-end applied (step 7). Re-run golden.",
-            "bash",
-            {"command": f"go test ./tests/rpc -run {_canon_tail(plant)} -count=1"},
-            f"Test{_canon_tail(plant)}Buffer: got {deadend} want {spec}\nFAIL",
-            f"Dead-end: Do not {deadend}. {plant.adapt_cmd}; keep {keep}.",
-        ),
-    ]
 
 
 def _fail_server_only_steps(plant: cat.Plant) -> list[dict[str, Any]]:

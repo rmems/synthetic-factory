@@ -216,6 +216,26 @@ class AstExtract(unittest.TestCase):
 
 
 class SurfaceShapes(unittest.TestCase):
+    def test_a_600_deep_minus_chain_is_still_a_start_round(self):
+        chained = TINY_R747.replace("START = 9", "START = " + "-" * 600 + "9")
+        self.assertEqual(
+            catalog.plants_from_source(chained, mill_id="msd_r0009", source="t.py"),
+            catalog.plants_from_source(TINY_R747, mill_id="msd_r0009", source="t.py"),
+        )
+
+    def test_start_constants_evaluate_or_refuse_like_any_literal(self):
+        for start, code, message in (
+            ("[1, {2: 3}]", FINDING_PLANT_FIELD_INVALID, "BASE/START must be a positive int"),
+            ("{**x}", FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking"),
+            ("x", FINDING_SOURCE_NOT_PARSEABLE, "plant source is not a constant (Name)"),
+        ):
+            with self.subTest(start=start):
+                with self.assertRaises(MsdRefusal) as caught:
+                    catalog.plants_from_source(
+                        f"PAIRS = [1]\nSTART = {start}\n", mill_id="msd_r0001", source="t.py"
+                    )
+                self.assertEqual((caught.exception.code, caught.exception.message), (code, message))
+
     def test_a_plants_object_reads_like_the_dict_call_it_spells(self):
         as_object = """
 START = 9
