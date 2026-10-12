@@ -34,7 +34,7 @@ def hid(slug: str) -> str:
 
     if type(slug) is not str or not slug:
         raise SrlError(f"unknown_plant: {slug!r}")
-    return hashlib.sha1(slug.encode(), usedforsecurity=False).hexdigest()[:4]
+    return hashlib.sha1(slug.encode()).hexdigest()[:4]
 
 
 def record_id(rnd: int, slug: str) -> str:
