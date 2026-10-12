@@ -10,7 +10,6 @@ from typing import Any
 from ._contract import (
     FACTORY,
     FAMILY_PREFIX,
-    FINDING_GENERATE_GOAL,
     GENERATOR,
     HANDOFF_STEPS,
     SUCCESS_STEPS,
