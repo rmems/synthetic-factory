@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, NamedTuple
 
 if __name__.startswith("pipelines."):
     from ..curate_coding import contains_hidden_reasoning_key
@@ -109,26 +109,64 @@ def residual(p: Plant) -> str:
     return f"{s}.{p['col']} + {p['col_v2']}; leftover {p['leftover']} + {p['leftover2']}"
 
 
-def build_episode(round_n: int, p: Plant, ep_idx: int) -> dict:
-    """Build one 16-step designed episode for plant ``p``."""
+class _StepNames(NamedTuple):
+    """The version, paths, commands, and residual text one episode's steps quote."""
+
+    ver: int
+    res: str
+    sname: str
+    mig: str
+    down: str
+    test: str
+    runbook: str
+    backfill: str
+    checksum: str
+    inspect_cmd: str
+    seed_cmd: str
+    abort_cmd: str
+    lock_cmd: str
+    lock_fail: str
+    expand: str
+    inspect_obs: str
+
+
+def _step_names(round_n: int, p: Plant, ep_idx: int) -> _StepNames:
     ver = 2200 + (round_n - cfg.START_ROUND) * 2 + ep_idx
-    slug, table, col, col_v2 = p["slug"], p["table"], p["col"], p["col_v2"]
+    slug, table = p["slug"], p["table"]
     stem = slug.replace("-", "_")
-    leftover, leftover2, res, sname = p["leftover"], p["leftover2"], residual(p), short_name(p)
-    mig, down, test = f"migrations/{ver}_{stem}.sql", f"migrations/{ver}_{stem}.down.sql", f"tests/test_{stem}.py"
-    runbook, backfill, checksum = f"docs/{slug}.md", f"jobs/backfill_{stem}.py", f"jobs/checksum_{stem}.py"
-    inspect_cmd, seed_cmd = db_sql.engine_cmd(p, p["inspect"]), db_sql.seed_cmd_for(p)
-    abort_cmd = db_sql.engine_cmd(p, p["abort"])
-    lock_cmd, lock_fail, expand = db_sql.engine_cmd(p, db_sql.lock_sql(p)), db_sql.default_lock_fail(p), db_sql.expand_sql(p)
-    inspect_obs = (f"{table} present\npending: {p['fail']}\nshape now: {res}\n"
-                   f"catalog: {p['catalog']}\nlocks/mutations: 1 active; dual leftover objects")
-    eid = f"dbm-r{round_n}-{slug}"
-    if cfg.RECYCLE_SUFFIX.search(eid):
-        raise ValueError(f"recycle suffix in id: {eid}")
-    goal = _goal_ok(f"{p['plant']}: {p['engine']} {seed_cmd} on {table}.{col} failed "
-                    f"({p['fail'][:120]}). Expand {col_v2}, backfill, residual {res}.")
-    plan = f"Abort in-place rewrite; expand-contract via {expand}; keep {col}; dual leftover objects."
-    steps = [
+    res, sname = residual(p), short_name(p)
+    return _StepNames(
+        ver=ver,
+        res=res,
+        sname=sname,
+        mig=f"migrations/{ver}_{stem}.sql",
+        down=f"migrations/{ver}_{stem}.down.sql",
+        test=f"tests/test_{stem}.py",
+        runbook=f"docs/{slug}.md",
+        backfill=f"jobs/backfill_{stem}.py",
+        checksum=f"jobs/checksum_{stem}.py",
+        inspect_cmd=db_sql.engine_cmd(p, p["inspect"]),
+        seed_cmd=db_sql.seed_cmd_for(p),
+        abort_cmd=db_sql.engine_cmd(p, p["abort"]),
+        lock_cmd=db_sql.engine_cmd(p, db_sql.lock_sql(p)),
+        lock_fail=db_sql.default_lock_fail(p),
+        expand=db_sql.expand_sql(p),
+        inspect_obs=(f"{table} present\npending: {p['fail']}\nshape now: {res}\n"
+                     f"catalog: {p['catalog']}\nlocks/mutations: 1 active; dual leftover objects"),
+    )
+
+
+def _episode_steps(p: Plant, names: _StepNames) -> list[dict]:
+    """Failed apply, plan change, lock retry, expand-contract, then verification."""
+    slug, table, col, col_v2 = p["slug"], p["table"], p["col"], p["col_v2"]
+    leftover, leftover2 = p["leftover"], p["leftover2"]
+    ver, res, sname = names.ver, names.res, names.sname
+    mig, down, test = names.mig, names.down, names.test
+    runbook, backfill, checksum = names.runbook, names.backfill, names.checksum
+    inspect_cmd, seed_cmd, abort_cmd = names.inspect_cmd, names.seed_cmd, names.abort_cmd
+    lock_cmd, lock_fail, expand = names.lock_cmd, names.lock_fail, names.expand
+    inspect_obs = names.inspect_obs
+    return [
         _step(1, f"Plan: inspect {p['engine']} catalog for {table} before apply {ver} ({slug}).", _bash(inspect_cmd), inspect_obs),
         _step(2, f"Plan: apply naive catalog change on {table}.{col}.", _bash(seed_cmd), p["fail"]),
         _step(3, (f"Observation: first apply failed ({p['fail'][:90]}). Plan change: abort in-place rewrite; "
@@ -157,6 +195,20 @@ def build_episode(round_n: int, p: Plant, ep_idx: int) -> dict:
         _step(15, f"Plan: confirm no active locks/mutations on {sname}.", _bash(inspect_cmd), "0 blockers; dual objects still present"),
         _step(16, f"Plan: stamp schema version {ver}.", _bash(f"echo {ver}"), str(ver)),
     ]
+
+
+def build_episode(round_n: int, p: Plant, ep_idx: int) -> dict:
+    """Build one 16-step designed episode for plant ``p``."""
+    names = _step_names(round_n, p, ep_idx)
+    slug, table, col, col_v2 = p["slug"], p["table"], p["col"], p["col_v2"]
+    res, seed_cmd, expand = names.res, names.seed_cmd, names.expand
+    eid = f"dbm-r{round_n}-{slug}"
+    if cfg.RECYCLE_SUFFIX.search(eid):
+        raise ValueError(f"recycle suffix in id: {eid}")
+    goal = _goal_ok(f"{p['plant']}: {p['engine']} {seed_cmd} on {table}.{col} failed "
+                    f"({p['fail'][:120]}). Expand {col_v2}, backfill, residual {res}.")
+    plan = f"Abort in-place rewrite; expand-contract via {expand}; keep {col}; dual leftover objects."
+    steps = _episode_steps(p, names)
     if len(steps) != 16:
         raise ValueError(f"{eid} expected 16 steps")
     ep = assemble_episode(EpisodeAssembly(
