@@ -17,6 +17,8 @@ import json
 if __name__.startswith("pipelines."):
     from ..exact_json import ExactJSONFloat, dumps_exact_json, exact_fraction
     from ..curate_coding import contains_hidden_reasoning_key
+    from ..export_contract import ViewerRow
+    from ..export_viewer import read_viewer_parquet, write_viewer_parquet
     from ..oracle_grounded import distill_contract as oc
     from ..oracle_grounded import distill_vocabulary as vocab
     from ..oracle_grounded import envelope, refusals, rng
@@ -27,6 +29,8 @@ if __name__.startswith("pipelines."):
 else:
     from exact_json import ExactJSONFloat, dumps_exact_json, exact_fraction
     from curate_coding import contains_hidden_reasoning_key
+    from export_contract import ViewerRow
+    from export_viewer import read_viewer_parquet, write_viewer_parquet
     from oracle_grounded import distill_contract as oc
     from oracle_grounded import distill_vocabulary as vocab
     from oracle_grounded import envelope, refusals, rng
@@ -37,6 +41,7 @@ else:
 
 __all__ = [
     "ExactJSONFloat",
+    "ViewerRow",
     "bind_import_twin",
     "contains_hidden_reasoning_key",
     "check_provenance_publish",
@@ -46,9 +51,11 @@ __all__ = [
     "is_under_raw",
     "load_strict_json",
     "oc",
+    "read_viewer_parquet",
     "refusals",
     "rng",
     "vocab",
+    "write_viewer_parquet",
 ]
 
 def load_strict_json(payload: str | bytes):

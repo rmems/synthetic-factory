@@ -22,14 +22,19 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin, contains_hidden_reasoning_key, oc
 
 VIEW_KEYS = frozenset({"prompt", "completion"})
+CHAT_KEYS = frozenset({"messages"})
+ROLE_USER = "user"
+ROLE_ASSISTANT = "assistant"
 PROMPT_TEMPLATE = (
     "{task}\n\n### Module: program.py\n```python\n{program}```\n\n"
     "### Failing doctest examples\n{evidence}\n\n### Instructions\n{instructions}\n"
 )
 
 __all__ = [
-    "PROMPT_TEMPLATE", "PublicView", "VIEW_KEYS", "agoge_row", "completion_of", "is_positive",
-    "public_view", "render_prompt", "sft_row", "view_findings", "evidence_findings",
+    "CHAT_KEYS", "PROMPT_TEMPLATE", "PublicView", "ROLE_ASSISTANT", "ROLE_USER", "VIEW_KEYS",
+    "agoge_row", "chat_candidate", "chat_findings", "chat_pair", "chat_row", "completion_of",
+    "is_positive", "public_view", "render_prompt", "sft_row", "view_findings",
+    "evidence_findings",
 ]
 
 
@@ -56,10 +61,12 @@ def public_view(record: dict[str, Any]) -> PublicView:
     )
 
 
-def render_prompt(view: PublicView) -> str:
+def render_prompt(view: PublicView, instructions: str = cv.PROMPT_INSTRUCTIONS) -> str:
+    """The prompt: task, broken module and bounded evidence, then one instruction line."""
+
     return PROMPT_TEMPLATE.format(
         task=view.task_specification, program=view.program_text, evidence=view.evidence_text,
-        instructions=cv.PROMPT_INSTRUCTIONS,
+        instructions=instructions,
     )
 
 
@@ -99,6 +106,61 @@ def sft_row(record: dict[str, Any]) -> dict[str, str]:
     cv.refuse_when(bool(findings), cv.FINDING_RECORD_MALFORMED,
                    "record fails public view validation: " + ", ".join(findings))
     return row
+
+
+def chat_candidate(record: dict[str, Any]) -> dict[str, Any]:
+    """The chat rendering of a record's pair, before any leak check."""
+
+    prompt = render_prompt(public_view(record))
+    return {"messages": [{"role": ROLE_USER, "content": prompt},
+                         {"role": ROLE_ASSISTANT, "content": completion_of(record)}]}
+
+
+def chat_row(record: dict[str, Any]) -> dict[str, Any]:
+    """``{"messages": [user, assistant]}`` for a positive record; refused otherwise.
+
+    The user turn is the SFT prompt and the assistant turn the verified module,
+    so a chat-template trainer consumes exactly the pair ``sft_row`` renders.
+    """
+
+    sft_row(record)
+    row = chat_candidate(record)
+    findings = chat_findings(record, row)
+    cv.refuse_when(bool(findings), cv.FINDING_RECORD_MALFORMED,
+                   "record fails chat view validation: " + ", ".join(findings))
+    return row
+
+
+def chat_pair(row: Any) -> tuple[str, str] | None:
+    """The ``(prompt, completion)`` a well-formed chat row carries, else ``None``."""
+
+    if not isinstance(row, dict) or set(row) != CHAT_KEYS:
+        return None
+    messages = row["messages"]
+    if not isinstance(messages, list) or len(messages) != 2:
+        return None
+    user, assistant = messages
+    shaped = all(
+        isinstance(m, dict) and set(m) == {"role", "content"} and isinstance(m["content"], str)
+        for m in (user, assistant)
+    )
+    if not shaped or user["role"] != ROLE_USER or assistant["role"] != ROLE_ASSISTANT:
+        return None
+    return user["content"], assistant["content"]
+
+
+def chat_findings(record: dict[str, Any], row: Any) -> list[str]:
+    """Every declared leak code a chat row violates against its record."""
+
+    if not isinstance(row, dict) or set(row) != CHAT_KEYS:
+        return [cv.LEAK_VIEW_EXTRA_KEYS]
+    pair = chat_pair(row)
+    if pair is None:
+        return [cv.LEAK_CHAT_MESSAGES_MALFORMED]
+    findings = view_findings(record, {"prompt": pair[0], "completion": pair[1]})
+    if contains_hidden_reasoning_key(row) and cv.LEAK_HIDDEN_REASONING_KEY not in findings:
+        findings.append(cv.LEAK_HIDDEN_REASONING_KEY)
+    return findings
 
 
 def agoge_row(record: dict[str, Any]) -> dict[str, Any]:

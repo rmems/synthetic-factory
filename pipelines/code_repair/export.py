@@ -32,6 +32,7 @@ from . import publication_export
 from . import selection
 from . import validation
 from . import views
+from . import views_edit
 from . import vocabulary as cv
 from ._contract import (
     bind_import_twin,
@@ -46,14 +47,32 @@ EXPORT_FORMAT = "code-repair-export/1"
 MANIFEST_FILENAME = "MANIFEST.json"
 EVIDENCE_PATH = "evidence/candidates.jsonl"
 SFT_DIR = "sft"
+CHAT_DIR = "chat"
+EDIT_DIR = "edit"
 AGOGE_PATH = "agoge/code_repair_v1.jsonl"
+# One verified pair, three consumer renderings; every row of every rendering is
+# leak-checked against its record before it is written.
+VIEW_FORMATS = {
+    "sft": {"path": f"{SFT_DIR}/<split>.jsonl", "keys": ["prompt", "completion"],
+            "completion": "the complete corrected module, byte-equal to the text the harness ran"},
+    "chat": {"path": f"{CHAT_DIR}/<split>.jsonl", "keys": ["messages"],
+             "completion": "the same pair as a user turn and an assistant turn"},
+    "edit": {"path": f"{EDIT_DIR}/<split>.jsonl", "keys": ["prompt", "completion"],
+             "completion": "one SEARCH/REPLACE block that applies to the broken module and "
+                           "reproduces the corrected module byte for byte"},
+    "agoge": {"path": AGOGE_PATH,
+              "keys": ["canonical_id", "lineage_id", "group_id", "split", "text",
+                       "completion_start_char"],
+              "completion": "the sft pair pre-rendered into one text with its boundary offset"},
+}
 FREEZE_PATH = "held_out/FREEZE.json"
 DEFAULT_LINEAGE_CAP = selection.DEFAULT_LINEAGE_CAP
 DECISIONS_NEEDED = ("D-A", "D-B", "D-C", "D-D", "D-E")
 
 __all__ = [
-    "AGOGE_PATH", "DEFAULT_LINEAGE_CAP", "EVIDENCE_PATH", "EXPORT_FORMAT", "ExportRequest",
-    "FREEZE_PATH", "MANIFEST_FILENAME", "SFT_DIR", "admission_blockers", "run",
+    "AGOGE_PATH", "CHAT_DIR", "DEFAULT_LINEAGE_CAP", "EDIT_DIR", "EVIDENCE_PATH", "EXPORT_FORMAT",
+    "ExportRequest", "FREEZE_PATH", "MANIFEST_FILENAME", "SFT_DIR", "VIEW_FORMATS",
+    "admission_blockers", "run",
 ]
 
 
@@ -86,6 +105,8 @@ class _Corpus:
     replay_entries: dict[str, dict[str, Any]] | None
     positives: list[dict[str, Any]] = field(default_factory=list)
     rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    chat_rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    edit_rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     agoge_rows: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     dispositions: Counter = field(default_factory=Counter)
     per_lineage: Counter = field(default_factory=Counter)
@@ -223,13 +244,17 @@ def _materialize_rows(corpus: _Corpus, selected: list[dict[str, Any]]) -> None:
 
     for record in selected:
         row = views.sft_row(record)
-        leaks = views.view_findings(record, row)
+        chat, edit = views.chat_candidate(record), views_edit.edit_candidate(record)
+        leaks = (views.view_findings(record, row) + views.chat_findings(record, chat)
+                 + views_edit.edit_findings(record, edit))
         cv.refuse_when(
             bool(leaks), cv.FINDING_EXPORT_INTEGRITY,
             f"record {cv.shown(record['id'])} leaks: {cv.shown(leaks)}"
         )
         split = _lineage_of(record)["split"]
         corpus.rows.setdefault(split, []).append(row)
+        corpus.chat_rows.setdefault(split, []).append(chat)
+        corpus.edit_rows.setdefault(split, []).append(edit)
         corpus.agoge_rows.setdefault(split, []).append(views.agoge_row(record))
         corpus.dispositions["exported"] += 1
 
@@ -324,16 +349,23 @@ def _write(request: ExportRequest, corpus: _Corpus) -> dict[str, Any]:
     evidence.parent.mkdir(parents=True, exist_ok=True)
     with evidence.open('xb') as handle:
         handle.write(corpus.candidate_bytes)
-    for split in lineage.SPLITS:
-        _write_jsonl(root, f"{SFT_DIR}/{split}.jsonl", corpus.rows.get(split, []))
-        written.append(f"{SFT_DIR}/{split}.jsonl")
+    renderings = (
+        (SFT_DIR, corpus.rows), (CHAT_DIR, corpus.chat_rows), (EDIT_DIR, corpus.edit_rows),
+    )
+    for name, rows_by_split in renderings:
+        for split in lineage.SPLITS:
+            _write_jsonl(root, f"{name}/{split}.jsonl", rows_by_split.get(split, []))
+            written.append(f"{name}/{split}.jsonl")
     agoge = [row for split in lineage.SPLITS for row in corpus.agoge_rows.get(split, [])]
     _write_jsonl(root, AGOGE_PATH, agoge)
     held = corpus.agoge_rows.get("held_out", [])
+    held_digests = _digests(root, [f"{name}/held_out.jsonl" for name, _rows in renderings])
     _write_json(root, FREEZE_PATH, {
         "format": EXPORT_FORMAT, "split": "held_out",
         "canonical_ids": [row["canonical_id"] for row in held],
-        "sft_sha256": _digests(root, [f"{SFT_DIR}/held_out.jsonl"])[f"{SFT_DIR}/held_out.jsonl"],
+        "sft_sha256": held_digests[f"{SFT_DIR}/held_out.jsonl"],
+        "chat_sha256": held_digests[f"{CHAT_DIR}/held_out.jsonl"],
+        "edit_sha256": held_digests[f"{EDIT_DIR}/held_out.jsonl"],
         "policy_sha256": None if corpus.policy is None else corpus.policy.sha256,
     })
     written.append(FREEZE_PATH)
@@ -357,7 +389,7 @@ def _manifest(request: ExportRequest, corpus: _Corpus, digests: dict[str, str]) 
         "run": {k: run_summary.get(k) for k in ("seed", "count", "produced_at", "catalog", "generator",
                                         "harness_sha256", "split_policy", "timeout_s")},
         "lineage_cap": request.lineage_cap, "tables": tables, "files": digests,
-        "replay": replay_status,
+        "views": VIEW_FORMATS, "replay": replay_status,
         "admission": {
             "training_export": "training_candidate" if admitted else "blocked", "blockers": blockers,
             "decisions_needed": [] if admitted else list(DECISIONS_NEEDED),
