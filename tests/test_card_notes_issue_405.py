@@ -167,7 +167,8 @@ class ObservabilityCardTests(unittest.TestCase):
             render_observability_card(notes=["NOTES-r01.md"])
 
     def test_card_carries_no_hub_tip_or_reindex_framing(self):
-        card = render_observability_card(notes=card_notes.notes_coverage(PUBLISHED_ROUNDS, NOTED_ROUNDS))
+        coverage = card_notes.notes_coverage(PUBLISHED_ROUNDS, NOTED_ROUNDS)
+        card = render_observability_card(notes=coverage)
 
         for phrase in HUB_STATE_PHRASES:
             with self.subTest(phrase=phrase):

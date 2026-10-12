@@ -1267,6 +1267,7 @@ def render_card(item: dict, **keywords: object) -> str:
         "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
     )
     notes_sentence = card_notes.render_notes_sentence(card_notes.pop_notes_keyword(keywords))
+    source_tree = f"outputs/raw/2026-08-19-agentic/{item['slug']}/"
     summary = resolve_payload_summary(keywords)
     tags = "\n".join(f"- {t}" for t in item["tags"])
     records = summary.records
@@ -1313,7 +1314,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 ## Published raw payload
 
 {payload}
-`outputs/raw/2026-08-19-agentic/{item['slug']}/`. {notes_sentence} The factory source remains the write destination; this Hub
+`{source_tree}`. {notes_sentence} The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
 {quarantine}

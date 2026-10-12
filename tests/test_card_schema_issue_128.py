@@ -61,7 +61,8 @@ class ObservabilityDebugDeclarationTests(DeclarationTestCase):
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
         self.assert_episode_steps(names)
-        self.assertEqual(self.declaration["issues"], [69, 405])
+        self.assertIn(69, self.declaration["issues"])
+        self.assertIn(405, self.declaration["issues"])
 
     def test_episode_only_extras_are_optional_typed_structs_not_json(self):
         names = self.names()

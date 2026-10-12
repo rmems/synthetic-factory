@@ -6,6 +6,7 @@ from collections.abc import Callable
 from types import ModuleType
 
 _MODULES = (
+    "card_notes",
     "census",
     "check_records",
     "coding_constants",

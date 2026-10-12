@@ -16,7 +16,17 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import sys
 from collections.abc import Iterable
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_notes")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_notes"
+    )
 
 # The sentence every card carried before coverage was reported. It is still
 # rendered when a caller supplies no coverage, so legacy callers keep
@@ -119,3 +129,9 @@ def _describe_span(first: int, last: int) -> str:
     if first == last:
         return f"`r{first:02d}`"
     return f"`r{first:02d}`–`r{last:02d}` ({last - first + 1} rounds)"
+
+
+if __package__:
+    # One module object for both import forms, so NotesCoverage keeps one class
+    # identity and pop_notes_keyword accepts it whichever form loaded first.
+    _expose_package_sibling(__name__)
