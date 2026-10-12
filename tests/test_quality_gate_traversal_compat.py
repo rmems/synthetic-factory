@@ -106,6 +106,28 @@ def symlink_aware_stat_unavailable():
 
 
 @contextmanager
+def no_follow_stat_fails_on(target, failing_call):
+    """Raise NotImplementedError on the ``failing_call``-th no-follow stat of ``target``.
+
+    No real host loses lstat mid-run, so a host without it never reaches the
+    later re-check sites; this reaches them to prove none of them can raise.
+    """
+    real_stat = os.stat
+    calls = 0
+
+    def stat(path, *, dir_fd=None, follow_symlinks=True):
+        nonlocal calls
+        if not follow_symlinks and Path(path) == target:
+            calls += 1
+            if calls == failing_call:
+                raise NotImplementedError("stat: follow_symlinks unavailable on this platform")
+        return real_stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+
+    with patch.object(os, "stat", stat):
+        yield
+
+
+@contextmanager
 def binary_flag_platform(opened_flags):
     """Define O_BINARY as a Windows-style host would; strip it before the real open."""
     real_open = os.open
@@ -123,7 +145,13 @@ def binary_flag_platform(opened_flags):
 class RootAliasCases:
     """Root-alias contract, run once per traversal mode."""
 
-    traversal = staticmethod(nullcontext)
+    simulate_missing_descriptor_apis = False
+
+    def traversal(self):
+        """The host the audit runs on: native, or simulated without descriptor APIs."""
+        if self.simulate_missing_descriptor_apis:
+            return descriptor_apis_unavailable()
+        return nullcontext()
 
     def audit_dir(self, run_dir):
         with self.traversal():
@@ -261,7 +289,7 @@ class DescriptorCapabilityProbe(unittest.TestCase):
 class PathTraversal(RootAliasCases, integrity.QualityGateInputIntegrity):
     """Every input-integrity case, re-run where descriptor APIs are unavailable."""
 
-    traversal = staticmethod(descriptor_apis_unavailable)
+    simulate_missing_descriptor_apis = True
 
     def audit(self):
         with self.traversal():
@@ -319,8 +347,28 @@ class PathTraversal(RootAliasCases, integrity.QualityGateInputIntegrity):
                 (example["file"], example["error"].split(":", 1)[0])
                 for example in report["errors"]["unreadable_examples"]
             ],
-            [("batch.jsonl", "NotImplementedError"), ("lane", "NotImplementedError")],
+            [("batch.jsonl", "OSError"), ("lane", "OSError")],
         )
+        for example in report["errors"]["unreadable_examples"]:
+            self.assertIn("cannot stat without following symlinks", example["error"])
+
+    def assert_stat_capability_error_recorded(self, failing_call, unreadable):
+        lane = self.write("lane/batch.jsonl").parent
+
+        with no_follow_stat_fails_on(lane, failing_call):
+            report = self.audit()
+
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["counts"]["total"], 0)
+        examples = report["errors"]["unreadable_examples"]
+        self.assertEqual([example["file"] for example in examples], [unreadable])
+        self.assertIn("OSError: cannot stat without following symlinks", examples[0]["error"])
+
+    def test_listing_recheck_records_a_stat_capability_error(self):
+        self.assert_stat_capability_error_recorded(2, "lane")
+
+    def test_read_recheck_records_a_stat_capability_error(self):
+        self.assert_stat_capability_error_recorded(3, "lane/batch.jsonl")
 
     def test_cli_reports_the_path_traversal_warning(self):
         self.write("batch.jsonl")

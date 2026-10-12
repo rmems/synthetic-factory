@@ -456,9 +456,17 @@ def _open_root(run_dir, expected_identity):
     return _pinned_directory(descriptor, expected_identity, run_dir)
 
 
+def _traversal_stat(target, *, dir_fd=None, follow_symlinks):
+    try:
+        return os.stat(target, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+    except NotImplementedError as exc:
+        # No lstat/fstatat: a link cannot be told apart, so the input is unreadable.
+        raise OSError(f"cannot stat without following symlinks: {exc}") from exc
+
+
 def _verify_by_path(directory, expected_identity, *, follow):
     # A type check as well: a replacement can reuse the freed inode number.
-    metadata = os.stat(directory, follow_symlinks=follow)
+    metadata = _traversal_stat(directory, follow_symlinks=follow)
     if _directory_identity(metadata) != expected_identity:
         raise OSError(f"directory changed after discovery: {directory}")
 
@@ -472,9 +480,8 @@ def _directory_entry(directory, name, descriptor):
     path = directory / name
     target = path if descriptor is None else name
     try:
-        child = os.stat(target, dir_fd=descriptor, follow_symlinks=False)
-    except (OSError, NotImplementedError) as exc:
-        # NotImplementedError: no lstat/fstatat, so a link cannot be told apart.
+        child = _traversal_stat(target, dir_fd=descriptor, follow_symlinks=False)
+    except OSError as exc:
         return path, None, exc
     return path, _directory_identity(child), None
 
