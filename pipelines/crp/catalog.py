@@ -126,24 +126,27 @@ def _call_values(node: ast.Call) -> dict[str, Any] | None:
 
     if any(isinstance(arg, ast.Starred) for arg in node.args):
         return None
-    if any(keyword.arg is None for keyword in node.keywords):
+    keywords = [(kw.arg, kw.value) for kw in node.keywords if kw.arg is not None]
+    if len(keywords) != len(node.keywords):
         return None
-    return _literal_call_values(node)
+    return _literal_call_values(node.args, keywords)
 
 
-def _literal_call_values(node: ast.Call) -> dict[str, Any] | None:
+def _literal_call_values(
+    args: list[ast.expr], keywords: list[tuple[str, ast.expr]]
+) -> dict[str, Any] | None:
     """Positional literals named by ``PLANT_FIELDS``, then keyword literals."""
 
     values: dict[str, Any] = {}
-    for index, arg in enumerate(node.args):
+    for index, arg in enumerate(args):
         if index >= len(PLANT_FIELDS):
             refuse(FINDING_AST_NOT_A_PLANT, "P() has extra positional arguments")
         literal = _literal_or_none(arg)
         if literal is None:
             return None
         values[PLANT_FIELDS[index]] = literal
-    for keyword in node.keywords:
-        values[keyword.arg] = _literal(keyword.value)
+    for name, value in keywords:
+        values[name] = _literal(value)
     return values
 
 
@@ -209,7 +212,7 @@ def _tuple_rows(resolved: Any) -> list[tuple[Any, ...]] | None:
 
 
 def _raw_noun_base_from_tree(tree: ast.Module) -> tuple[str, int] | None:
-    """The ``{{prefix}}{{base + i}}`` noun of a ``for ... in enumerate(...)`` that appends plants."""
+    """The ``{{prefix}}{{base + i}}`` noun of the ``enumerate`` loop that appends plants."""
 
     for node in tree.body:
         if not isinstance(node, ast.For) or not _iterates_enumerate(node):
@@ -256,18 +259,17 @@ def _is_plants_append(func: ast.expr) -> bool:
     return isinstance(func.value, ast.Name) and func.value.id == "PLANTS"
 
 
-def _plants_from_raw_enumerate(tree: ast.AST) -> tuple[Plant, ...] | None:
+def _plants_from_raw_enumerate(tree: ast.Module) -> tuple[Plant, ...] | None:
     """Expand literal ``_RAW`` rows using the pinned ``{{prefix}}{{base + i}}`` loop shape."""
 
     rows = _raw_rows_from_tree(tree)
     if rows is None:
         return None
     indexed = _raw_noun_base_from_tree(tree)
-    refuse_when(
-        indexed is None,
-        FINDING_AST_NOT_A_PLANT,
-        "_RAW expand loop has no indexed {{prefix}}{{base + i}} noun",
-    )
+    if indexed is None:
+        refuse(
+            FINDING_AST_NOT_A_PLANT, "_RAW expand loop has no indexed {{prefix}}{{base + i}} noun"
+        )
     prefix, base = indexed
     ordered: list[Plant] = []
     for index, row in enumerate(rows):

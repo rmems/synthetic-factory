@@ -457,10 +457,16 @@ def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]
     return _leftover3_wave(round_n)
 
 
+def _is_round(round_n: Any) -> bool:
+    """A genuine int round: ``bool`` subclasses ``int`` but is never a round."""
+
+    return isinstance(round_n, int) and not isinstance(round_n, bool)
+
+
 def _round_in_wave(round_n: int, wave: Any, after: int | None = None) -> bool:
     """``round_n`` is an int inside ``wave``'s rounds and, when given, past ``after``."""
 
-    if type(round_n) is not int:
+    if not _is_round(round_n):
         return False
     if not wave.WAVE_FIRST_ROUND <= round_n <= wave.WAVE_LAST_ROUND:
         return False
@@ -505,7 +511,7 @@ def _wave_from_leftover3(
 ) -> tuple[tuple[cat.Plant, ...], str, str, str] | None:
     """leftover3 itself, then r729, r817, and r995, each only past the previous wave."""
 
-    if type(round_n) is int and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last:
+    if _is_round(round_n) and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last:
         return _leftover3_wave(round_n)
     later = (
         (r729_cat, leftover3_last, "r729 commerce/platform stretch"),

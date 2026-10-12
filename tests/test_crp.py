@@ -227,6 +227,13 @@ class RawEnumerateShapes(unittest.TestCase):
         tree = ast.parse("other: int = 3\n_RAW: list = [('fam', 1)]\n")
         self.assertEqual(cat._raw_rows_from_tree(tree), [("fam", 1)])
 
+    def test_raw_rows_without_an_indexed_noun_loop_are_refused(self):
+        with self.assertRaises(CrpRefusal) as ctx:
+            cat.plants_from_source("P(**row)\n_RAW = [('fam',)]\n")
+        self.assertEqual(
+            ctx.exception.message, "_RAW expand loop has no indexed {{prefix}}{{base + i}} noun"
+        )
+
     def test_the_noun_loop_skips_every_non_plant_append(self):
         loop = (
             "for i in range(3):\n    PLANTS.append(P(a, b, f'keel{800 + i}'))\n"
