@@ -21,11 +21,17 @@ from typing import NamedTuple
 from unittest import mock
 
 from pipelines.family_cli import runner
+from pipelines.ffpc import cli as ffpc_cli
+from pipelines.maos import cli as maos_cli
+from pipelines.mill import cli as mill_cli
+from pipelines.nelb import cli as nelb_cli
 from pipelines.oracle_grounded import envelope, refusals
+from pipelines.pkg import cli as pkg_cli
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 MILL_CATALOG = REPO / "catalogs" / "mill"
+PINNED_AT = "2026-09-15T00:00:00.000Z"
 
 ROUND_CODE = "ROUND_OUT_OF_DOMAIN"
 REFUSED_JSON = (
@@ -71,32 +77,33 @@ def crash(_args):
     raise RuntimeError("not a contract refusal")
 
 
-class RunCommands(unittest.TestCase):
-    def run_go(self, handler, argv, **kwargs):
-        parser = go_parser(with_json=kwargs.pop("with_json", True))
-        return capture(runner.run_commands, parser, {"go": handler}, argv, **kwargs)
+def run_go(handler, argv, **kwargs):
+    parser = go_parser(with_json=kwargs.pop("with_json", True))
+    return capture(runner.run_commands, parser, {"go": handler}, argv, **kwargs)
 
+
+class RunCommands(unittest.TestCase):
     def test_a_returning_handler_exits_zero(self):
-        self.assertEqual(self.run_go(say_ok, ["go"]), (runner.EXIT_OK, "ok\n", ""))
+        self.assertEqual(run_go(say_ok, ["go"]), (runner.EXIT_OK, "ok\n", ""))
         self.assertEqual(runner.EXIT_OK, 0)
 
     def test_a_refusal_under_json_prints_one_sorted_object_on_stdout(self):
-        self.assertEqual(self.run_go(refuse_round, ["go", "--json"]), (2, REFUSED_JSON, ""))
+        self.assertEqual(run_go(refuse_round, ["go", "--json"]), (2, REFUSED_JSON, ""))
         self.assertEqual(runner.EXIT_REFUSED, 2)
 
     def test_a_refusal_without_json_prints_its_prose_on_stderr(self):
-        self.assertEqual(self.run_go(refuse_round, ["go"]), (2, "", REFUSED_TEXT))
+        self.assertEqual(run_go(refuse_round, ["go"]), (2, "", REFUSED_TEXT))
 
     def test_json_refusals_off_keeps_a_refusal_on_stderr_under_json(self):
-        result = self.run_go(refuse_round, ["go", "--json"], json_refusals=False)
+        result = run_go(refuse_round, ["go", "--json"], json_refusals=False)
         self.assertEqual(result, (2, "", REFUSED_TEXT))
 
     def test_a_command_without_a_json_flag_reports_on_stderr(self):
-        result = self.run_go(refuse_round, ["go"], with_json=False)
+        result = run_go(refuse_round, ["go"], with_json=False)
         self.assertEqual(result, (2, "", REFUSED_TEXT))
 
     def test_an_uncoded_contract_error_reports_a_null_code(self):
-        code, out, err = self.run_go(refuse_uncoded, ["go", "--json"])
+        code, out, err = run_go(refuse_uncoded, ["go", "--json"])
         self.assertEqual((code, err), (2, ""))
         self.assertEqual(
             json.loads(out),
@@ -105,11 +112,11 @@ class RunCommands(unittest.TestCase):
 
     def test_any_other_exception_propagates(self):
         with self.assertRaisesRegex(RuntimeError, "not a contract refusal"):
-            self.run_go(crash, ["go"])
+            run_go(crash, ["go"])
 
     def test_a_usage_error_exits_two_through_argparse(self):
         with self.assertRaises(SystemExit) as caught:
-            self.run_go(say_ok, ["stop"])
+            run_go(say_ok, ["stop"])
         self.assertEqual(caught.exception.code, 2)
 
 
@@ -206,7 +213,8 @@ class PlantCatalogParser(unittest.TestCase):
     def test_generate_takes_round_then_out_then_json(self):
         code, out = self.help_of("generate")
         self.assertEqual(code, 0)
-        self.assertTrue(out.startswith("usage: fam generate [-h] --round ROUND [--out OUT] [--json]\n"))
+        usage = "usage: fam generate [-h] --round ROUND [--out OUT] [--json]\n"
+        self.assertTrue(out.startswith(usage))
         self.assertIn("new destination; omit to print JSONL", out)
 
     def test_catalog_and_check_take_only_json(self):
@@ -273,7 +281,8 @@ class PlantCatalogCommands(unittest.TestCase):
         self.assertEqual(result, (2, "", "ROUND_OUT_OF_DOMAIN: round 3\n"))
 
     def test_main_exits_with_the_run_code(self):
-        for argv, expected in ((["fam", "catalog-check"], 0), (["fam", "generate", "--round", "9"], 2)):
+        runs = ((["fam", "catalog-check"], 0), (["fam", "generate", "--round", "9"], 2))
+        for argv, expected in runs:
             with self.subTest(argv=argv):
                 sink = io.StringIO()
                 with (
@@ -291,14 +300,19 @@ class PlantCatalogCommands(unittest.TestCase):
 
 
 FAMILY_KEYS = frozenset({"command", "source_ref", "source_commit", "family_prefix", "factory"})
+# Each catalog adopter's cli, bound by a literal import, with the identity keys it adds.
+CATALOG_ADOPTERS: tuple[tuple[str, types.ModuleType, frozenset[str]], ...] = (
+    ("nelb", nelb_cli, frozenset({"source_slice"})),
+    ("maos", maos_cli, frozenset()),
+    ("pkg", pkg_cli, frozenset()),
+    ("ffpc", ffpc_cli, frozenset()),
+)
 
 
 class Adopters(unittest.TestCase):
     def test_each_family_lists_its_catalog_under_its_own_identity(self):
-        extras = {"nelb": {"source_slice"}, "maos": set(), "pkg": set(), "ffpc": set()}
-        for name, extra in extras.items():
+        for name, cli, extra in CATALOG_ADOPTERS:
             with self.subTest(family=name):
-                cli = importlib.import_module(f"pipelines.{name}.cli")
                 code, out, err = capture(cli.run, ["catalog", "--json"])
                 self.assertEqual((code, err), (0, ""))
                 keys = set(json.loads(out)) - {"catalog_id", "plants"}
@@ -306,23 +320,20 @@ class Adopters(unittest.TestCase):
                 self.assertEqual(cli.build_parser().prog, name)
 
     def test_mill_keeps_a_refusal_on_stderr_under_json(self):
-        from pipelines.mill import cli
-
-        code, out, err = capture(cli.run, ["render", "no-such-run-dir", "any-id", "--json"])
+        code, out, err = capture(mill_cli.run, ["render", "no-such-run-dir", "any-id", "--json"])
         self.assertEqual((code, out), (2, ""))
         self.assertEqual(err, "RUN_FILE_MISSING: missing pairs.jsonl\n")
 
     def test_mill_publish_prints_its_receipt_and_refuses_an_existing_destination(self):
-        from pipelines.mill import cli
-
         catalog = ["--catalog", str(MILL_CATALOG)]
         with tempfile.TemporaryDirectory() as scratch:
             run_dir, published = Path(scratch) / "run", Path(scratch) / "published"
-            seeded = ["--seed", "20260915", "--count", "2", "--produced-at", "2026-09-15T00:00:00.000Z"]
-            generated = capture(cli.run, ["generate", *catalog, *seeded, "--out", str(run_dir)])
+            seeded = ["--seed", "20260915", "--count", "2", "--produced-at", PINNED_AT]
+            generate = ["generate", *catalog, *seeded, "--out", str(run_dir)]
+            generated = capture(mill_cli.run, generate)
             publish = ["publish", "--run", str(run_dir), *catalog, "--out", str(published)]
-            first = capture(cli.run, publish)
-            again = capture(cli.run, [*publish, "--json"])
+            first = capture(mill_cli.run, publish)
+            again = capture(mill_cli.run, [*publish, "--json"])
         self.assertEqual(generated[0], 0)
         code, out, err = first
         self.assertEqual((code, err), (0, ""))
