@@ -198,17 +198,22 @@ def _module_pairs_list(tree: ast.Module) -> ast.List | None:
     return None
 
 
+def _appended_tuple(stmt: ast.stmt) -> ast.Tuple | None:
+    """The tuple literal in an ``x.append((...))`` expression statement, if any."""
+    if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+        return None
+    call = stmt.value
+    if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
+        return None
+    if not call.args or not isinstance(call.args[0], ast.Tuple):
+        return None
+    return call.args[0]
+
+
 def _append_kinds(add_fn: ast.FunctionDef) -> tuple[str, str] | None:
     for stmt in add_fn.body:
-        if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
-            continue
-        call = stmt.value
-        if not isinstance(call.func, ast.Attribute) or call.func.attr != "append":
-            continue
-        if not call.args or not isinstance(call.args[0], ast.Tuple):
-            continue
-        tup = call.args[0]
-        if len(tup.elts) != 4:
+        tup = _appended_tuple(stmt)
+        if tup is None or len(tup.elts) != 4:
             continue
         return _kind_name(tup.elts[0]), _kind_name(tup.elts[2])
     return None
@@ -259,30 +264,38 @@ def _pair_elts(tree: ast.Module) -> list[ast.Tuple | tuple[str, ast.AST, str, as
     return rows
 
 
+def _dict_spec_strings(node: ast.Dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key_node, value_node in zip(node.keys, node.values):
+        if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+            continue
+        resolved = _optional_literal(value_node)
+        if isinstance(resolved, str):
+            out[key_node.value] = resolved
+    return out
+
+
+def _call_spec_strings(node: ast.Call) -> dict[str, str]:
+    refuse_when(
+        node.func.id not in _SPEC_CALL_NAMES,
+        FINDING_AST_NOT_A_PLANT,
+        f"spec call must be one of {sorted(_SPEC_CALL_NAMES)}, got {node.func.id}",
+    )
+    out: dict[str, str] = {}
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            continue
+        resolved = _optional_literal(keyword.value)
+        if isinstance(resolved, str):
+            out[keyword.arg] = resolved
+    return out
+
+
 def _spec_strings(node: ast.AST) -> dict[str, str]:
     if isinstance(node, ast.Dict):
-        out: dict[str, str] = {}
-        for key_node, value_node in zip(node.keys, node.values):
-            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
-                continue
-            resolved = _optional_literal(value_node)
-            if isinstance(resolved, str):
-                out[key_node.value] = resolved
-        return out
+        return _dict_spec_strings(node)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        refuse_when(
-            node.func.id not in _SPEC_CALL_NAMES,
-            FINDING_AST_NOT_A_PLANT,
-            f"spec call must be one of {sorted(_SPEC_CALL_NAMES)}, got {node.func.id}",
-        )
-        out: dict[str, str] = {}
-        for keyword in node.keywords:
-            if keyword.arg is None:
-                continue
-            resolved = _optional_literal(keyword.value)
-            if isinstance(resolved, str):
-                out[keyword.arg] = resolved
-        return out
+        return _call_spec_strings(node)
     refuse(FINDING_AST_NOT_A_PLANT, "spec must be a dict or _ok/_fail call")
 
 
@@ -292,42 +305,37 @@ def _kind_name(node: ast.AST) -> str:
     return value
 
 
-def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
-    missing = [field for field in PLANT_FIELDS if field not in values]
-    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
-    checked: dict[str, Any] = {}
-    for field in PLANT_FIELDS:
-        value = values[field]
-        if field == "source_round":
-            refuse_when(
-                type(value) is not int or value < 1,
-                FINDING_FIELD_INVALID,
-                f"{where}.source_round must be a positive int, got {shown(value)}",
-            )
-            checked[field] = value
-            continue
-        if field == "index":
-            refuse_when(
-                type(value) is not int or value not in (1, 2),
-                FINDING_FIELD_INVALID,
-                f"{where}.index must be 1 or 2, got {shown(value)}",
-            )
-            checked[field] = value
-            continue
+def _checked_field(field: str, value: Any, where: str) -> Any:
+    if field == "source_round":
         refuse_when(
-            not isinstance(value, str),
+            type(value) is not int or value < 1,
             FINDING_FIELD_INVALID,
-            f"{where}.{field} must be a string, got {shown(value)}",
+            f"{where}.source_round must be a positive int, got {shown(value)}",
         )
-        if field in ("leftover", "goal", "plan"):
-            checked[field] = value
-            continue
+        return value
+    if field == "index":
         refuse_when(
-            not value,
+            type(value) is not int or value not in (1, 2),
             FINDING_FIELD_INVALID,
-            f"{where}.{field} must be a non-empty string, got {shown(value)}",
+            f"{where}.index must be 1 or 2, got {shown(value)}",
         )
-        checked[field] = value
+        return value
+    refuse_when(
+        not isinstance(value, str),
+        FINDING_FIELD_INVALID,
+        f"{where}.{field} must be a string, got {shown(value)}",
+    )
+    if field in ("leftover", "goal", "plan"):
+        return value
+    refuse_when(
+        not value,
+        FINDING_FIELD_INVALID,
+        f"{where}.{field} must be a non-empty string, got {shown(value)}",
+    )
+    return value
+
+
+def _check_role_kind(checked: Mapping[str, Any], where: str) -> None:
     refuse_when(
         checked["role"] not in ROLES,
         FINDING_FIELD_INVALID,
@@ -345,7 +353,16 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
             FINDING_FIELD_INVALID,
             f"{where}.kind must be {FAIL_KIND}, got {shown(checked['kind'])}",
         )
-    expected = f"pkg-r{checked['source_round']}-{checked['slug']}"
+
+
+def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
+    missing = [field for field in PLANT_FIELDS if field not in values]
+    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
+    checked: dict[str, Any] = {}
+    for field in PLANT_FIELDS:
+        checked[field] = _checked_field(field, values[field], where)
+    _check_role_kind(checked, where)
+    expected =f"pkg-r{checked['source_round']}-{checked['slug']}"
     refuse_when(
         checked["record_id"] != expected,
         FINDING_FIELD_INVALID,
