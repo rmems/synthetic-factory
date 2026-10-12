@@ -688,18 +688,25 @@ def _bridge_event_preflight(record: Any) -> tuple[list[Any] | None, list[str], d
     return events, [], {}
 
 
+def _require_non_empty_string(value: Any, name: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise BridgeCurationError(f"{name} must be a non-empty string")
+
+
+def _require_positive_source_line(value: Any) -> None:
+    if not isinstance(value, int):
+        raise BridgeCurationError(_SOURCE_LINE_ERROR)
+    if isinstance(value, bool):
+        raise BridgeCurationError(_SOURCE_LINE_ERROR)
+    if value < 1:
+        raise BridgeCurationError(_SOURCE_LINE_ERROR)
+
+
 def _require_source_coordinates(source: _SourceLine) -> None:
     """Refuse a caller-supplied source path, line, or hash that cannot locate a record."""
-    if not isinstance(source.source_path, str) or not source.source_path:
-        raise BridgeCurationError("source_path must be a non-empty string")
-    if not isinstance(source.source_line, int):
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if isinstance(source.source_line, bool):
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if source.source_line < 1:
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if not isinstance(source.source_hash, str) or not source.source_hash:
-        raise BridgeCurationError("source_hash must be a non-empty string")
+    _require_non_empty_string(source.source_path, "source_path")
+    _require_positive_source_line(source.source_line)
+    _require_non_empty_string(source.source_hash, "source_hash")
 
 
 def _scan_event_time(scan: _EventTimeScan, index: int, key: str, value: Any) -> None:

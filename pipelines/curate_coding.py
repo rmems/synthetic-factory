@@ -652,8 +652,10 @@ def curate_jsonl(
     return {"records": records, "manifest": manifests, "summary": summary}
 
 if __package__:
+    from . import coding_run_io as _run_io
     from .coding_verify import verify_curation, verify_manifest
 else:
+    import coding_run_io as _run_io
     from coding_verify import verify_curation, verify_manifest
 
 __all__ = [
@@ -700,49 +702,16 @@ __all__ = [
 ]
 
 
-def _is_under_raw(path: Path) -> bool:
-    parts = path.resolve(strict=False).parts
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
-
-
-def _created_file_identity(descriptor: int) -> tuple[int, int]:
-    metadata = os.fstat(descriptor)
-    return metadata.st_dev, metadata.st_ino
-
-
-def _created_directory_identity(path: Path) -> tuple[int, int]:
-    metadata = os.lstat(path)
-    return metadata.st_dev, metadata.st_ino
-
-
-def _unlink_created_file(path: Path, identity: tuple[int, int]) -> bool:
-    """Remove ``path`` only while it still names the file this process created."""
-    try:
-        metadata = os.lstat(path)
-    except FileNotFoundError:
-        return False
-    if (metadata.st_dev, metadata.st_ino) != identity:
-        return False
-    path.unlink()
-    return True
-
-
-def _rmdir_created_directory(path: Path, identity: tuple[int, int]) -> bool:
-    """Remove an empty directory only while its pathname retains our inode."""
-    try:
-        metadata = os.lstat(path)
-    except FileNotFoundError:
-        return False
-    if (metadata.st_dev, metadata.st_ino) != identity:
-        return False
-    try:
-        path.rmdir()
-    except OSError:
-        return False
-    return True
+_is_under_raw = _run_io.is_under_raw
+_created_file_identity = _run_io.created_file_identity
+_created_directory_identity = _run_io.created_directory_identity
+_unlink_created_file = _run_io.unlink_created_file
+_rmdir_created_directory = _run_io.rmdir_created_directory
+_preflight_destinations = _run_io.preflight_destinations
+_source_jsonl_paths = _run_io.source_jsonl_paths
+_new_run_destination = _run_io.new_run_destination
+_make_output_directories = _run_io.make_output_directories
+_rollback_created = _run_io.rollback_created
 
 
 def _write_new_jsonl(
@@ -766,67 +735,6 @@ def _write_new_jsonl(
     return identity
 
 
-def _preflight_destinations(paths: list[Path]) -> None:
-    resolved = [path.resolve(strict=False) for path in paths]
-    if len(set(resolved)) != len(resolved):
-        raise ValueError("output destinations must be distinct")
-    for path in paths:
-        if _is_under_raw(path):
-            raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
-        if path.exists():
-            raise FileExistsError(f"refusing to replace existing destination: {path}")
-
-
-def _resolved_source_directory(source_root: Path) -> Path:
-    """Resolve the declared source run, refusing a symlink or a non-directory."""
-    declared = Path(os.path.abspath(source_root))
-    if declared.is_symlink():
-        raise ValueError(f"source run must not be a symlink: {declared}")
-    try:
-        resolved = declared.resolve(strict=True)
-    except OSError as exc:
-        raise ValueError(f"source run is not a directory: {declared}") from exc
-    if not resolved.is_dir():
-        raise ValueError(f"source run is not a directory: {declared}")
-    return resolved
-
-
-def _discover_jsonl_paths(resolved: Path) -> list[Path]:
-    """Every JSONL file beneath ``resolved`` in relative-path order; no symlinks anywhere."""
-    paths = []
-    for path in resolved.rglob("*"):
-        if path.is_symlink():
-            raise ValueError(f"source run contains a symlinked path: {path}")
-        if path.is_file() and path.suffix == ".jsonl":
-            paths.append(path)
-    paths.sort(key=lambda jsonl_path: jsonl_path.relative_to(resolved).as_posix())
-    return paths
-
-
-def _source_jsonl_paths(source_root: Path) -> tuple[Path, list[Path]]:
-    resolved = _resolved_source_directory(source_root)
-    paths = _discover_jsonl_paths(resolved)
-    if not paths:
-        raise ValueError(f"source run holds no JSONL files: {resolved}")
-    if resolved / RUN_MANIFEST_FILENAME in paths:
-        raise ValueError(
-            f"source JSONL conflicts with aggregate manifest name: {RUN_MANIFEST_FILENAME}"
-        )
-    return resolved, paths
-
-
-def _new_run_destination(destination: Path, source_root: Path) -> Path:
-    declared = Path(os.path.abspath(destination))
-    if _is_under_raw(declared):
-        raise ValueError(f"refusing to write inside immutable raw evidence: {declared}")
-    if os.path.lexists(declared):
-        raise FileExistsError(f"refusing to replace existing destination: {declared}")
-    resolved = declared.resolve(strict=False)
-    if resolved == source_root or source_root in resolved.parents:
-        raise ValueError(f"output directory must be outside the source run: {declared}")
-    return declared
-
-
 _RUN_SUMMARY_TOTALS = (
     "input_records",
     "output_records",
@@ -838,30 +746,6 @@ _RUN_SUMMARY_TOTALS = (
     "hidden_reasoning_fields_removed",
     "wrap_records",
 )
-
-
-def _make_output_directories(
-    output_root: Path,
-    source_root: Path,
-    source_paths: list[Path],
-    created_directories: list[tuple[Path, tuple[int, int]]],
-) -> None:
-    """Create every mirrored subdirectory, parents first, recording each one created."""
-    relative_directories = {
-        parent
-        for source_path in source_paths
-        for parent in source_path.relative_to(source_root).parents
-        if parent != Path(".")
-    }
-    for relative in sorted(
-        relative_directories,
-        key=lambda relative_path: (len(relative_path.parts), relative_path.parts),
-    ):
-        directory = output_root / relative
-        directory.mkdir()
-        created_directories.append(
-            (directory, _created_directory_identity(directory))
-        )
 
 
 def _write_curated_files(
@@ -885,17 +769,6 @@ def _write_curated_files(
         manifests.extend(result["manifest"])
         summaries.append(result["summary"])
     return manifests, summaries
-
-
-def _rollback_created(
-    created_files: list[tuple[Path, tuple[int, int]]],
-    created_directories: list[tuple[Path, tuple[int, int]]],
-) -> None:
-    """Remove what this run created, newest first, without touching replaced pathnames."""
-    for path, identity in reversed(created_files):
-        _unlink_created_file(path, identity)
-    for path, identity in reversed(created_directories):
-        _rmdir_created_directory(path, identity)
 
 
 def _run_summary(
