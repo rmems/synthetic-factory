@@ -169,43 +169,36 @@ class _PArgs(NamedTuple):
 def expand_p_idtoken_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | int], dict[str, str | int]]:
     """Expand ``P(...)`` from ``lrd-mill-leftover3-idtoken.py`` without executing it."""
 
-    refuse_when(
-        len(args) != P_IDTOKEN_ARG_COUNT,
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"idtoken P(...) expects {P_IDTOKEN_ARG_COUNT} args",
-    )
-    sdk, okm, failm, src, cfg = args[0:5]
-    ok_fo, ok_fn, fail_fo, fail_fn = args[5:9]
-    ok_wo, ok_wn, fail_wo, fail_wn = args[9:13]
-    rg, tk, root, rv = args[13:17]
-    assert all(isinstance(item, str) for item in (sdk, okm, failm, src, cfg))
-    assert isinstance(rv, int)
-    p = _PArgs(
-        sdk, okm, failm, src, cfg, ok_fo, ok_fn, fail_fo, fail_fn,
-        ok_wo, ok_wn, fail_wo, fail_wn, rg, tk, root, rv,
-    )
-    return _p_ok(p, _IDTOKEN), _p_fail(p, _IDTOKEN)
+    return _expand_p_call(args, P_IDTOKEN_ARG_COUNT, "idtoken", _IDTOKEN)
 
 
 def expand_p_cookie_call(args: tuple[str | int, ...]) -> tuple[dict[str, str | int], dict[str, str | int]]:
     """Expand ``P(...)`` from ``lrd-mill-r116.py`` without executing it."""
 
+    return _expand_p_call(args, P_COOKIE_ARG_COUNT, "cookie", _COOKIE)
+
+
+def _expand_p_call(
+    args: tuple[str | int, ...], arg_count: int, label: str, kind: _PKind
+) -> tuple[dict[str, str | int], dict[str, str | int]]:
     refuse_when(
-        len(args) != P_COOKIE_ARG_COUNT,
+        len(args) != arg_count,
         FINDING_SOURCE_NOT_PARSEABLE,
-        f"cookie P(...) expects {P_COOKIE_ARG_COUNT} args",
+        f"{label} P(...) expects {arg_count} args",
     )
     sdk, okm, failm, src, cfg = args[0:5]
     ok_fo, ok_fn, fail_fo, fail_fn = args[5:9]
     ok_wo, ok_wn, fail_wo, fail_wn = args[9:13]
     rg, tk, root, rv = args[13:17]
-    assert all(isinstance(item, str) for item in (sdk, okm, failm, src, cfg))
-    assert isinstance(rv, int)
+    # The legacy expanders asserted these types; raise the same bare AssertionError.
+    strings_ok = all(isinstance(item, str) for item in (sdk, okm, failm, src, cfg))
+    if not (strings_ok and isinstance(rv, int)):
+        raise AssertionError
     p = _PArgs(
         sdk, okm, failm, src, cfg, ok_fo, ok_fn, fail_fo, fail_fn,
         ok_wo, ok_wn, fail_wo, fail_wn, rg, tk, root, rv,
     )
-    return _p_ok(p, _COOKIE), _p_fail(p, _COOKIE)
+    return _p_ok(p, kind), _p_fail(p, kind)
 
 
 @dataclass(frozen=True)
