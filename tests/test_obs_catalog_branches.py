@@ -212,7 +212,7 @@ class RegistryRefusals(CatalogTreeMixin, unittest.TestCase):
         fake = self.root / "repo"
         (fake / "config").mkdir(parents=True, exist_ok=True)
         (fake / "config" / "FACTORY-REGISTRY.json").write_text(text, encoding="utf-8")
-        self.enterContext(mock.patch.object(catalog, "repo_root", lambda: fake))
+        self.enterContext(mock.patch.object(catalog, "repo_root", return_value=fake))
         return directory
 
     def test_registry_refusals(self):

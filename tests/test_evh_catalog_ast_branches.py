@@ -115,12 +115,14 @@ class RequireTests(unittest.TestCase):
         self.assertEqual(require(expr("n"), ENV, "ctx"), 7)
 
     def test_require_refuses_unresolved_with_line(self) -> None:
+        node = expr("x")
         with self.assertRaisesRegex(ValueError, r"^catalog: cannot resolve AST at line 1$"):
-            require(expr("x"), ENV, "catalog")
+            require(node, ENV, "catalog")
 
     def test_require_without_lineno_reports_question_mark(self) -> None:
+        node = ast.Name(id="x")
         with self.assertRaisesRegex(ValueError, r"at line \?$"):
-            require(ast.Name(id="x"), ENV, "catalog")
+            require(node, ENV, "catalog")
 
 
 class JoinedPathTests(unittest.TestCase):

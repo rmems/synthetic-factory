@@ -170,10 +170,9 @@ class CompletionMarkerSealing(TempCaseMixin, unittest.TestCase):
 
     def test_writable_v2_marker_is_refused_only_on_the_preference_lane(self):
         rtp._completed_preference_marker_is_sealed(self.review("other", 0o644))
+        writable = self.review(round_txn.PREFERENCE_ISOLATION_FACTORY, 0o644)
         with self.assertRaisesRegex(TransactionError, "completion marker is writable"):
-            rtp._completed_preference_marker_is_sealed(
-                self.review(round_txn.PREFERENCE_ISOLATION_FACTORY, 0o644)
-            )
+            rtp._completed_preference_marker_is_sealed(writable)
 
 
 class LinkVerifiedCompletionMarker(TempCaseMixin, unittest.TestCase):
@@ -267,9 +266,10 @@ class ExpectedInodeReads(TempCaseMixin, unittest.TestCase):
             (link, "marker changed during commit"),
             (self.root, "marker changed during commit"),
         )
+        expected = plan.lstat()
         for path, pattern in cases:
             with self.subTest(path=path.name), self.assertRaisesRegex(TransactionError, pattern):
-                rtp._require_expected_path_identity(path, plan.lstat(), label="marker")
+                rtp._require_expected_path_identity(path, expected, label="marker")
 
     def test_open_flags_without_o_nofollow(self):
         with mock.patch.object(rtp, "os", SimpleNamespace(O_RDONLY=os.O_RDONLY)):
@@ -301,8 +301,9 @@ class CommittedRoundRecheck(TempCaseMixin, unittest.TestCase):
                 rtp._completed_preference_isolation_matches(committed)
 
     def test_invalid_reservation_token_is_refused(self):
+        committed = self.committed(token=MALFORMED)
         with self.assertRaisesRegex(TransactionError, "invalid reservation token"):
-            rtp._require_recorded_diagnosis_handoff(self.committed(token=MALFORMED))
+            rtp._require_recorded_diagnosis_handoff(committed)
 
     def test_handoff_must_match_the_recorded_receipt(self):
         committed = self.committed(token=TOKEN, preference_diagnosis_handoff={"old": 1})

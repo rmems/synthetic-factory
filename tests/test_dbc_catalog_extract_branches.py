@@ -199,11 +199,12 @@ class DeferredPairTests(unittest.TestCase):
         self.assertEqual(text, '{"a":2,"b":1}\n{"c":3}\n')
 
     def test_key_drift_refuses(self) -> None:
+        row = pair("a")
         with (
             mock.patch.object(ce, "PAIR_JSONL_KEYS", ("only",)),
             self.assertRaisesRegex(ValueError, "^deferred pair keys drifted: "),
         ):
-            ce.compact_deferred_pair(pair("a"), mill_id="m", source_path="m.py")
+            ce.compact_deferred_pair(row, mill_id="m", source_path="m.py")
 
 
 if __name__ == "__main__":
