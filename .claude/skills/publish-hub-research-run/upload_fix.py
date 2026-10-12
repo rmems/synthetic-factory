@@ -49,9 +49,10 @@ def _known_repo(name: str) -> str:
 
 
 def _bundle_dir(root: Path, name: str) -> Path:
-    """``root/<name>``: an existing directory that resolves directly inside ``root``."""
+    """``root/<name>``: an existing real directory (not a symlink) exactly at ``root/<name>``."""
     bundle = root / name
-    _require(bundle.resolve().parent == root.resolve(), f"bundle path leaves {root}: {bundle}")
+    _require(not bundle.is_symlink(), f"bundle path is a symlink: {bundle}")
+    _require(bundle.resolve() == root.resolve() / name, f"bundle path leaves {root}: {bundle}")
     _require(bundle.is_dir(), f"no bundle directory at {bundle}")
     return bundle
 
@@ -154,9 +155,11 @@ def main(argv: list[str] | None = None) -> int:
         "repo": repo, "exit": proc.returncode, "commit_message": message, "urls": urls,
         "stdout": proc.stdout[-3000:], "stderr": proc.stderr[-3000:],
     }
-    if proc.returncode == 0:
-        result["pull_requests"] = _pull_requests(repo, message)
-    (BASE / f"work/fix-pr-{name}.json").write_text(json.dumps(result, indent=1))
+    try:
+        if proc.returncode == 0:
+            result["pull_requests"] = _pull_requests(repo, message)
+    finally:  # the upload already ran: keep its record even if the read-only lookup fails
+        (BASE / f"work/fix-pr-{name}.json").write_text(json.dumps(result, indent=1))
     print(json.dumps({k: result[k] for k in result if k not in ("stdout", "stderr")}))
     if proc.returncode != 0:
         print(proc.stderr[-2000:], file=sys.stderr)

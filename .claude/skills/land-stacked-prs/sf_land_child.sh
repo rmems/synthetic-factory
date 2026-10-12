@@ -16,6 +16,8 @@ WT=$(git -C "$ROOT" worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '/
 cd "$WT" || exit 2
 [ -z "$(git status --porcelain)" ] || { echo "ABORT: dirty worktree $WT"; git status --short | head; exit 2; }
 if ! { git fetch -q origin && git pull -q --no-rebase origin "$BRANCH"; }; then
+  # a conflicted pull leaves a merge in progress; undo it so the worktree stays clean
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null; then git merge --abort; fi
   echo "ABORT: pull failed"; exit 2
 fi
 BEFORE=$(git rev-parse --short HEAD)
@@ -30,7 +32,9 @@ else
       ok=0; for t in "${TAKE_MAIN[@]:-}"; do [ "$t" = "$f" ] && ok=1; done
       [ $ok = 1 ] || { echo "ABORT: unexpected conflict in $f (hand merge required)"; git merge --abort; exit 3; }
     done
-    git checkout origin/main -- "${CONFLICT_FILES[@]}" && git add "${CONFLICT_FILES[@]}"
+    if ! { git checkout origin/main -- "${CONFLICT_FILES[@]}" && git add "${CONFLICT_FILES[@]}"; }; then
+      echo "ABORT: could not take main's bytes for: $CONFLICTS"; git merge --abort; exit 3
+    fi
     echo "took main's bytes for: $CONFLICTS"
   fi
   OWN=$(git diff --cached --name-only origin/main | tr '\n' ' ')

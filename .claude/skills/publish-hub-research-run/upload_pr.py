@@ -51,9 +51,10 @@ def _known_repo(name: str) -> str:
 
 
 def _bundle_dir(root: Path, name: str) -> Path:
-    """``root/<name>``: an existing directory that resolves directly inside ``root``."""
+    """``root/<name>``: an existing real directory (not a symlink) exactly at ``root/<name>``."""
     bundle = root / name
-    _require(bundle.resolve().parent == root.resolve(), f"bundle path leaves {root}: {bundle}")
+    _require(not bundle.is_symlink(), f"bundle path is a symlink: {bundle}")
+    _require(bundle.resolve() == root.resolve() / name, f"bundle path leaves {root}: {bundle}")
     _require(bundle.is_dir(), f"no bundle directory at {bundle}")
     return bundle
 
