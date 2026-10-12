@@ -207,7 +207,8 @@ class SignatureEscapingTests(unittest.TestCase):
 class FactoryNameContractTests(unittest.TestCase):
     def _validate_factory(self, name):
         entry = {"records": 1, "comparability": {"class": 1}, "reason_codes": {"reason": 1}}
-        return reward_vocabulary._validate_factory_entry(name, entry, "policy", {"class"}, {"reason"})
+        catalogues = reward_vocabulary._ClassificationCatalogues({"class"}, {"reason"})
+        return reward_vocabulary._validate_factory_entry(name, entry, "policy", catalogues)
 
     def test_factory_names_follow_the_existing_schema_pattern(self):
         for name in (" ", "\t", "Factory", "factory_name", "factory/name", "-factory", "factory\n"):

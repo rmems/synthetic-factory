@@ -155,7 +155,8 @@ def _pointer(tokens) -> str:
     return "/" + "/".join(_pointer_escape(token) for token in tokens)
 
 
-def _policy_disposition(key, observed_types, arithmetic):
+def _declared_group_disposition(key, arithmetic):
+    """The disposition a non-component key group assigns to ``key``, or None."""
     groups = arithmetic["non_component_keys"]
     if key == arithmetic["declared_total_field"]:
         return DISPOSITION_DECLARED_TOTAL
@@ -163,6 +164,13 @@ def _policy_disposition(key, observed_types, arithmetic):
         return DISPOSITION_UNIT_CALIBRATION
     if key in groups[DISPOSITION_NARRATIVE]:
         return DISPOSITION_NARRATIVE
+    return None
+
+
+def _policy_disposition(key, observed_types, arithmetic):
+    declared = _declared_group_disposition(key, arithmetic)
+    if declared is not None:
+        return declared
     types = set(observed_types)
     if types <= {"number", "value-object"}:
         return DISPOSITION_MAGNITUDE_TERM
