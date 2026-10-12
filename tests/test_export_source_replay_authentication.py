@@ -91,13 +91,17 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
     def _documents_of(path):
         return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line]
 
-    @classmethod
-    def _reseal_documents(cls, ctx, path, documents, descriptor_key):
+    @staticmethod
+    def _write_documents(path, documents):
         payload = "".join(
             json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
             for item in documents
         ).encode("utf-8")
         path.write_bytes(payload)
+        return payload
+
+    @classmethod
+    def _reseal_descriptor(cls, ctx, descriptor_key, payload):
         ctx["summary"][descriptor_key]["sha256"] = hashlib.sha256(payload).hexdigest()
         cls._write_summary(ctx)
 
@@ -105,7 +109,8 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
     def _tamper_manifest(cls, ctx, edit):
         documents = cls._documents_of(ctx["manifest_path"])
         edit(documents)
-        cls._reseal_documents(ctx, ctx["manifest_path"], documents, "manifest")
+        payload = cls._write_documents(ctx["manifest_path"], documents)
+        cls._reseal_descriptor(ctx, "manifest", payload)
 
     @classmethod
     def _mutate_output_digest(cls, ctx):
@@ -173,7 +178,8 @@ class ExportSourceReplayAuthentication(ResearchExportAllowed, unittest.TestCase)
     def _mutate_coordinated_sidecar_content(cls, ctx):
         documents = cls._documents_of(ctx["sidecar_path"])
         documents[0]["classification"]["reason_codes"].append("tampered")
-        cls._reseal_documents(ctx, ctx["sidecar_path"], documents, "reward_sidecars")
+        payload = cls._write_documents(ctx["sidecar_path"], documents)
+        cls._reseal_descriptor(ctx, "reward_sidecars", payload)
 
     def test_duplicate_captured_output_paths_are_refused(self):
         """One compose path must bind to exactly one captured byte snapshot."""
