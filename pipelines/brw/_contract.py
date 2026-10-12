@@ -9,6 +9,8 @@ mill scripts are not vendored and are never executed.
 
 from __future__ import annotations
 
+from typing import TypeGuard
+
 if __name__.startswith("pipelines."):
     from ..exact_json import dumps_exact_json
 else:
@@ -285,9 +287,15 @@ class BrwError(ValueError):
     """Fail-closed refusal from the browser-tool-use family."""
 
 
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def require_round(rnd: int) -> int:
     """Accept a positive integer round token. Booleans are not rounds."""
 
-    if type(rnd) is not int or rnd < 1:
+    if not _is_plain_int(rnd) or rnd < 1:
         raise BrwError(f"invalid_round: {rnd!r}")
     return rnd

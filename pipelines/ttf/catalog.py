@@ -16,7 +16,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -41,6 +41,7 @@ from ._contract import (
     SLICE_IDS,
     SOURCE_CATALOGS,
     TtfRefusal,
+    _is_plain_int,
     bind_import_twin,
     default_catalog_dir,
     load_strict_json,
@@ -235,8 +236,8 @@ def slice_from_record_id(record_id: str) -> str:
         FINDING_FIELD_INVALID,
         f"record_id must be a ttf-r id, got {shown(record_id)}",
     )
-    assert match is not None
-    return f"r{match.group('round')}{match.group('suffix')}"
+    found = cast(re.Match[str], match)  # refuse_when raised for a None match
+    return f"r{found.group('round')}{found.group('suffix')}"
 
 
 def _plant_draft(
@@ -262,7 +263,7 @@ def _plant_draft(
     parsed_round = _round_from_id(ident)
     return {
         "record_id": ident,
-        "source_round": source_round if type(source_round) is int else parsed_round,
+        "source_round": source_round if _is_plain_int(source_round) else parsed_round,
         "index": index,
         "title": _text(title),
         "domain": _text(domain),
@@ -391,13 +392,13 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
     )
     source_round = values["source_round"]
     refuse_when(
-        type(source_round) is not int or source_round < 1,
+        not _is_plain_int(source_round) or source_round < 1,
         FINDING_FIELD_INVALID,
         f"{where}.source_round must be a positive int, got {shown(source_round)}",
     )
     index = values["index"]
     refuse_when(
-        type(index) is not int or not 1 <= index <= QUOTA_PER_ROUND,
+        not _is_plain_int(index) or not 1 <= index <= QUOTA_PER_ROUND,
         FINDING_FIELD_INVALID,
         f"{where}.index must be 1..{QUOTA_PER_ROUND}, got {shown(index)}",
     )
@@ -542,12 +543,12 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
     refuse_first(
         (
             (
-                type(round_n) is not int,
+                not _is_plain_int(round_n),
                 FINDING_ROUND_OUT_OF_DOMAIN,
                 f"round must be an int, got {shown(round_n)}",
             ),
             (
-                type(round_n) is int and round_n not in rounds,
+                _is_plain_int(round_n) and round_n not in rounds,
                 FINDING_ROUND_OUT_OF_DOMAIN,
                 f"round must be one of {list(rounds)}, got {shown(round_n)}",
             ),

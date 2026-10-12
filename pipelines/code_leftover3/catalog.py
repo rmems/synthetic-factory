@@ -19,7 +19,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     FINDING_AST_NOT_A_PLANT,
@@ -239,6 +239,12 @@ def _call_values(node: ast.Call) -> dict[str, Any] | None:
     return values
 
 
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
     missing = [field for field in PLANT_FIELDS if field not in values]
     refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
@@ -250,7 +256,7 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
     )
     line = values["line"]
     refuse_when(
-        type(line) is not int,
+        not _is_plain_int(line),
         FINDING_FIELD_INVALID,
         f"{where}.line must be an int, got {shown(line)}",
     )
@@ -376,9 +382,9 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
     items = load_catalog().plants if plants is None else plants
     last = WAVE_FIRST_ROUND + len(items) // PLANTS_PER_ROUND - 1
     refuse_first((
-        (type(round_n) is not int, FINDING_ROUND_OUT_OF_DOMAIN,
+        (not _is_plain_int(round_n), FINDING_ROUND_OUT_OF_DOMAIN,
          f"round must be an int, got {shown(round_n)}"),
-        (type(round_n) is int and not WAVE_FIRST_ROUND <= round_n <= last,
+        (_is_plain_int(round_n) and not WAVE_FIRST_ROUND <= round_n <= last,
          FINDING_ROUND_OUT_OF_DOMAIN,
          f"round must lie in [{WAVE_FIRST_ROUND}, {last}], got {shown(round_n)}"),
     ))

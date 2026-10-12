@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from pathlib import Path
+from typing import TypeGuard
 
 if __name__.startswith("pipelines."):
     from ..exact_json import ExactJSONFloat, dumps_exact_json
@@ -122,8 +123,14 @@ def refuse_vendor_paths(paths: Iterable[Path | str]) -> None:
             refuse(FINDING_VENDOR_PATH, f"refusing to vendor {name}")
 
 
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool`` (``bool`` subclasses ``int``)."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def require_round(rnd: object) -> int:
-    refuse_when(type(rnd) is not int or rnd < 1, FINDING_ROUND_INVALID, shown(rnd))
+    refuse_when(not _is_plain_int(rnd) or rnd < 1, FINDING_ROUND_INVALID, shown(rnd))
     return rnd  # type: ignore[return-value]
 
 
