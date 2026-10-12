@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -223,24 +223,48 @@ def sha256_bytes(payload: bytes) -> str:
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. Other calls refuse."""
 
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
-    if isinstance(node, ast.Set):
-        return {_const_eval(item) for item in node.elts}
-    if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    raise ObsRefusal(
+    for node_type, evaluate in _CONST_EVALUATORS:
+        if isinstance(node, node_type):
+            return evaluate(node)
+    raise _not_a_constant(node)
+
+def _not_a_constant(node: ast.AST) -> ObsRefusal:
+    return ObsRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"plant source is not a constant ({type(node).__name__})",
     )
+
+def _const_value(node: ast.Constant) -> Any:
+    return node.value
+
+def _const_list(node: ast.List) -> list[Any]:
+    return [_const_eval(item) for item in node.elts]
+
+def _const_tuple(node: ast.Tuple) -> tuple[Any, ...]:
+    return tuple(_const_eval(item) for item in node.elts)
+
+def _const_set(node: ast.Set) -> set[Any]:
+    return {_const_eval(item) for item in node.elts}
+
+def _const_dict(node: ast.Dict) -> dict[Any, Any]:
+    if any(key is None for key in node.keys):
+        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+
+def _const_negated(node: ast.UnaryOp) -> Any:
+    if not isinstance(node.op, ast.USub):
+        raise _not_a_constant(node)
+    return -_const_eval(node.operand)
+
+# One evaluator per literal node type; any other node is refused as not a constant.
+_CONST_EVALUATORS = (
+    (ast.Constant, _const_value),
+    (ast.List, _const_list),
+    (ast.Tuple, _const_tuple),
+    (ast.Set, _const_set),
+    (ast.Dict, _const_dict),
+    (ast.UnaryOp, _const_negated),
+)
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
@@ -264,134 +288,170 @@ def _require_int(value: Any, where: str, code: str, minimum: int = 0) -> int:
         raise ObsRefusal(code, f"{where} must be an int >= {minimum}")
     return value
 
+def _tempo_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'{{resource.service.name="{svc}"}}',
+        f'{{resource.service.name="{lsvc}"}}',
+        "/api/search",
+        f'{{"traces":[],"error":"max concurrent {fail_val}"}}',
+        f"tempo empty {fail_val}",
+        '{"traces":[{"traceID":"r401a"}]}',
+        '{"name":"Traces"}',
+        f"kubectl -n {ns} logs deploy/{svc} --tail=30 | grep -c otlp",
+        "18",
+    )
+
+def _loki_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'{{job="{svc}"}}',
+        f'{{job="{lsvc}"}}',
+        "/loki/api/v1/query_range",
+        f'{{"status":"error","error":"loki {fail_val}"}}',
+        f"loki {fail_val}",
+        '{"status":"success","data":{"result":[{"values":[["1","ok"]]}]}}',
+        '{"name":"Logs"}',
+        f"kubectl -n loki logs deploy/ingester --tail=20 | grep -c {svc}",
+        "11",
+    )
+
+def _prom_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'http_requests_total{{job="{svc}"}}',
+        f'http_requests_total{{job="{lsvc}"}}',
+        PROM_QUERY_PATH,
+        f'{{"status":"error","error":"prom {fail_val}"}}',
+        f"prom {fail_val}",
+        '{"status":"success","data":{"result":[{"value":[1,"7"]}]}}',
+        '{"name":"Prom"}',
+        f"curl -sS $APP/metrics | grep -c {ns}",
+        "9",
+    )
+
+def _mimir_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'http_requests_total{{service="{svc}"}}',
+        f'http_requests_total{{service="{lsvc}"}}',
+        "/prometheus/api/v1/query",
+        f'{{"status":"error","error":"mimir {fail_val}"}}',
+        f"mimir {fail_val}",
+        '{"status":"success","data":{"result":[{"value":[1,"6"]}]}}',
+        '{"name":"Mimir"}',
+        "curl -sS $MIMIR/ready | head -1",
+        "ready",
+    )
+
+def _otel_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'{{resource.service.name="{svc}"}}',
+        f'{{resource.service.name="{lsvc}"}}',
+        "/api/search",
+        '{"traces":[]}',
+        f"otel {fail_val}",
+        '{"traces":[{"traceID":"otel401"}]}',
+        '{"name":"OTel"}',
+        f"kubectl -n otel logs deploy/otelcol --tail=40 | grep -c {svc}",
+        "15",
+    )
+
+def _grafana_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'{{resource.service.name="{svc}"}}',
+        f'{{resource.service.name="{lsvc}"}}',
+        "/api/ds/query",
+        f'{{"message":"grafana {fail_val}"}}',
+        f"grafana {fail_val}",
+        '{"results":{"A":{"frames":[{"schema":{"fields":[{"name":"Time"}]}}]}}}',
+        '{"name":"Panel"}',
+        f"curl -sS $GRAFANA/api/dashboards/uid/{svc[:6]} | jq '.dashboard.panels|length'",
+        "2",
+    )
+
+def _thanos_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'http_requests_total{{job="{svc}"}}',
+        f'http_requests_total{{job="{lsvc}"}}',
+        PROM_QUERY_PATH,
+        f'{{"status":"error","error":"thanos {fail_val}"}}',
+        f"thanos {fail_val}",
+        '{"status":"success","data":{"result":[{"value":[1,"4"]}]}}',
+        '{"name":"Thanos"}',
+        "curl -sS $THANOS/-/ready",
+        "OK",
+    )
+
+def _pyro_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'process_cpu{{service_name="{svc}"}}',
+        f'process_cpu{{service_name="{lsvc}"}}',
+        "/pyroscope/render",
+        "0",
+        f"pyro {fail_val}",
+        "36",
+        '{"name":"Flame"}',
+        "curl -sS $APP/debug/pprof/profile?seconds=1 | wc -c",
+        "4096",
+    )
+
+def _vm_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'http_requests_total{{job="{svc}"}}',
+        f'http_requests_total{{job="{lsvc}"}}',
+        PROM_QUERY_PATH,
+        f'{{"status":"error","error":"vm {fail_val}"}}',
+        f"vm {fail_val}",
+        '{"status":"success","data":{"result":[{"value":[1,"8"]}]}}',
+        '{"name":"VM"}',
+        "curl -sS $VM/health",
+        "OK",
+    )
+
+def _ch_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f"{_CH_WHERE}'{svc}'",
+        f"{_CH_WHERE}'{lsvc}'",
+        "/",
+        "0\n",
+        f"ch {fail_val}",
+        "88\n",
+        '{"name":"SQL"}',
+        f"clickhouse-client -q \"{_CH_WHERE}'{svc}' SETTINGS max_result_rows=100\"",
+        "88",
+    )
+
+def _am_bits(svc: str, lsvc: str, fail_val: str, ns: str) -> tuple[str, ...]:
+    return (
+        f'alerts{{service="{svc}"}}',
+        f'alerts{{service="{lsvc}"}}',
+        "/api/v2/alerts",
+        "[]",
+        f"am {fail_val}",
+        '[{"labels":{"alertname":"X"}}]',
+        '{"name":"AM"}',
+        "curl -sS $AM/-/ready",
+        "OK",
+    )
+
+# r401 ``_kind_bits`` rows per kind; an unknown kind reads as ``am``.
+_KIND_BITS = {
+    "tempo": _tempo_bits,
+    "loki": _loki_bits,
+    "prom": _prom_bits,
+    "mimir": _mimir_bits,
+    "otel": _otel_bits,
+    "grafana": _grafana_bits,
+    "thanos": _thanos_bits,
+    "pyro": _pyro_bits,
+    "vm": _vm_bits,
+    "ch": _ch_bits,
+    "am": _am_bits,
+}
+
 def _kind_bits(kind: str, svc: str, lsvc: str, fail_val: str) -> dict[str, str]:
     """Reconstruct r401 ``_kind_bits`` from extracted constants. Never exec."""
 
     ns = svc.split("-")[0]
-    rows = {
-        "tempo": (
-            f'{{resource.service.name="{svc}"}}',
-            f'{{resource.service.name="{lsvc}"}}',
-            "/api/search",
-            f'{{"traces":[],"error":"max concurrent {fail_val}"}}',
-            f"tempo empty {fail_val}",
-            '{"traces":[{"traceID":"r401a"}]}',
-            '{"name":"Traces"}',
-            f"kubectl -n {ns} logs deploy/{svc} --tail=30 | grep -c otlp",
-            "18",
-        ),
-        "loki": (
-            f'{{job="{svc}"}}',
-            f'{{job="{lsvc}"}}',
-            "/loki/api/v1/query_range",
-            f'{{"status":"error","error":"loki {fail_val}"}}',
-            f"loki {fail_val}",
-            '{"status":"success","data":{"result":[{"values":[["1","ok"]]}]}}',
-            '{"name":"Logs"}',
-            f"kubectl -n loki logs deploy/ingester --tail=20 | grep -c {svc}",
-            "11",
-        ),
-        "prom": (
-            f'http_requests_total{{job="{svc}"}}',
-            f'http_requests_total{{job="{lsvc}"}}',
-            PROM_QUERY_PATH,
-            f'{{"status":"error","error":"prom {fail_val}"}}',
-            f"prom {fail_val}",
-            '{"status":"success","data":{"result":[{"value":[1,"7"]}]}}',
-            '{"name":"Prom"}',
-            f"curl -sS $APP/metrics | grep -c {ns}",
-            "9",
-        ),
-        "mimir": (
-            f'http_requests_total{{service="{svc}"}}',
-            f'http_requests_total{{service="{lsvc}"}}',
-            "/prometheus/api/v1/query",
-            f'{{"status":"error","error":"mimir {fail_val}"}}',
-            f"mimir {fail_val}",
-            '{"status":"success","data":{"result":[{"value":[1,"6"]}]}}',
-            '{"name":"Mimir"}',
-            "curl -sS $MIMIR/ready | head -1",
-            "ready",
-        ),
-        "otel": (
-            f'{{resource.service.name="{svc}"}}',
-            f'{{resource.service.name="{lsvc}"}}',
-            "/api/search",
-            '{"traces":[]}',
-            f"otel {fail_val}",
-            '{"traces":[{"traceID":"otel401"}]}',
-            '{"name":"OTel"}',
-            f"kubectl -n otel logs deploy/otelcol --tail=40 | grep -c {svc}",
-            "15",
-        ),
-        "grafana": (
-            f'{{resource.service.name="{svc}"}}',
-            f'{{resource.service.name="{lsvc}"}}',
-            "/api/ds/query",
-            f'{{"message":"grafana {fail_val}"}}',
-            f"grafana {fail_val}",
-            '{"results":{"A":{"frames":[{"schema":{"fields":[{"name":"Time"}]}}]}}}',
-            '{"name":"Panel"}',
-            f"curl -sS $GRAFANA/api/dashboards/uid/{svc[:6]} | jq '.dashboard.panels|length'",
-            "2",
-        ),
-        "thanos": (
-            f'http_requests_total{{job="{svc}"}}',
-            f'http_requests_total{{job="{lsvc}"}}',
-            PROM_QUERY_PATH,
-            f'{{"status":"error","error":"thanos {fail_val}"}}',
-            f"thanos {fail_val}",
-            '{"status":"success","data":{"result":[{"value":[1,"4"]}]}}',
-            '{"name":"Thanos"}',
-            "curl -sS $THANOS/-/ready",
-            "OK",
-        ),
-        "pyro": (
-            f'process_cpu{{service_name="{svc}"}}',
-            f'process_cpu{{service_name="{lsvc}"}}',
-            "/pyroscope/render",
-            "0",
-            f"pyro {fail_val}",
-            "36",
-            '{"name":"Flame"}',
-            "curl -sS $APP/debug/pprof/profile?seconds=1 | wc -c",
-            "4096",
-        ),
-        "vm": (
-            f'http_requests_total{{job="{svc}"}}',
-            f'http_requests_total{{job="{lsvc}"}}',
-            PROM_QUERY_PATH,
-            f'{{"status":"error","error":"vm {fail_val}"}}',
-            f"vm {fail_val}",
-            '{"status":"success","data":{"result":[{"value":[1,"8"]}]}}',
-            '{"name":"VM"}',
-            "curl -sS $VM/health",
-            "OK",
-        ),
-        "ch": (
-            f"{_CH_WHERE}'{svc}'",
-            f"{_CH_WHERE}'{lsvc}'",
-            "/",
-            "0\n",
-            f"ch {fail_val}",
-            "88\n",
-            '{"name":"SQL"}',
-            f"clickhouse-client -q \"{_CH_WHERE}'{svc}' SETTINGS max_result_rows=100\"",
-            "88",
-        ),
-        "am": (
-            f'alerts{{service="{svc}"}}',
-            f'alerts{{service="{lsvc}"}}',
-            "/api/v2/alerts",
-            "[]",
-            f"am {fail_val}",
-            '[{"labels":{"alertname":"X"}}]',
-            '{"name":"AM"}',
-            "curl -sS $AM/-/ready",
-            "OK",
-        ),
-    }
-    return dict(zip(_KIND_BIT_KEYS, rows.get(kind, rows["am"])))
+    bits = _KIND_BITS.get(kind, _am_bits)(svc, lsvc, fail_val, ns)
+    return dict(zip(_KIND_BIT_KEYS, bits))
 
 def _apply_hop_defaults(row: dict[str, Any]) -> dict[str, Any]:
     kind = _require_text(row.get("kind"), "P().kind", FINDING_SOURCE_NOT_PARSEABLE)
@@ -446,18 +506,29 @@ def _eval_plant_node(node: ast.AST, kind_ns: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        name = node.func.id
-        if name == "dict" and not node.args:
-            return {kw.arg: _const_eval(kw.value) for kw in node.keywords if kw.arg}
-        if name in {"P", "_P"} and node.keywords and not node.args:
-            raw = {kw.arg: _const_eval(kw.value) for kw in node.keywords if kw.arg}
-            return _apply_hop_defaults(raw)
-        if name == "P" and node.args and not node.keywords:
-            return _expand_r401([_const_eval(item) for item in node.args], kind_ns)
-    raise ObsRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+        return _eval_plant_call(node, kind_ns)
+    raise _not_a_constant(node)
+
+def _keyword_values(node: ast.Call) -> dict[str, Any]:
+    return {kw.arg: _const_eval(kw.value) for kw in node.keywords if kw.arg}
+
+def _eval_plant_call(node: ast.Call, kind_ns: Mapping[str, Any]) -> Any:
+    """``dict(k=v)``, keyword ``P(...)``/``_P(...)`` with hop defaults, or positional r401 ``P``."""
+
+    name = node.func.id
+    if name == "dict" and not node.args:
+        return _keyword_values(node)
+    if name in {"P", "_P"} and _is_keyword_only_call(node):
+        return _apply_hop_defaults(_keyword_values(node))
+    if name == "P" and _is_positional_only_call(node):
+        return _expand_r401([_const_eval(item) for item in node.args], kind_ns)
+    raise _not_a_constant(node)
+
+def _is_keyword_only_call(node: ast.Call) -> bool:
+    return bool(node.keywords) and not node.args
+
+def _is_positional_only_call(node: ast.Call) -> bool:
+    return bool(node.args) and not node.keywords
 
 def _literal_names(mill_id: str) -> tuple[str, ...]:
     if mill_id == "obs_leftover14":
@@ -487,6 +558,13 @@ def _source_assignments(tree: ast.AST) -> tuple[dict[str, ast.AST], Any, Mapping
             found[name] = value
     return found, inferred_base, kind_ns
 
+class _Origin(NamedTuple):
+    """Where one source's plant rows come from: mill, source path, and base round."""
+
+    mill_id: str
+    source: str
+    base_round: int
+
 def plants_from_source(
     text: str,
     *,
@@ -498,13 +576,32 @@ def plants_from_source(
 ) -> tuple[dict[str, Any], ...]:
     """AST-extract plant literals from mill source text. Never exec."""
 
+    tree = _parse_source(text, source)
+    found, inferred_base, kind_ns = _source_assignments(tree)
+    raw_name, raw_node = _plant_literal(found, mill_id, source)
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not obs_*")
+    base = _base_round(inferred_base if base_round is None else base_round, mill_id, source)
+    origin = _Origin(mill_id, source, base)
+    resolved_shape = shape or (SHAPE_LEFTOVER_SPEC if raw_name != "PAIRS" else SHAPE_HOP)
+    if resolved_shape == SHAPE_LEFTOVER_SPEC:
+        spec_family = family or mill_id.removeprefix("obs_")
+        return _spec_rows(raw_node.elts, origin, spec_family, kind_ns)
+    return _pair_rows(raw_node.elts, origin, resolved_shape, kind_ns)
+
+def _parse_source(text: str, source: str) -> ast.Module:
     try:
-        tree = ast.parse(text)
+        return ast.parse(text)
     except SyntaxError as exc:
         raise ObsRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
         ) from exc
-    found, inferred_base, kind_ns = _source_assignments(tree)
+
+def _plant_literal(
+    found: Mapping[str, ast.AST], mill_id: str, source: str
+) -> tuple[str, ast.List]:
+    """The first of the mill's literal names bound in the source, as a non-empty list."""
+
     wanted = _literal_names(mill_id)
     raw_name = next((name for name in wanted if name in found), None)
     if raw_name is None:
@@ -512,130 +609,93 @@ def plants_from_source(
     raw_node = found[raw_name]
     if not isinstance(raw_node, ast.List) or not raw_node.elts:
         raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} plant literal is empty")
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not obs_*")
-    base = inferred_base if base_round is None else base_round
+    return raw_name, raw_node
+
+def _base_round(base: Any, mill_id: str, source: str) -> int:
+    """The given round, else the digits of the mill id, else 1; an int of at least 1."""
+
     if base is None:
         digits = "".join(ch for ch in mill_id if ch.isdigit())
         base = int(digits) if digits else 1
-    base = _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
-    resolved_shape = shape or (SHAPE_LEFTOVER_SPEC if raw_name != "PAIRS" else SHAPE_HOP)
-    return _rows_from_nodes(
-        raw_node.elts,
-        mill_id=mill_id,
-        source=source,
-        base_round=base,
-        shape=resolved_shape,
-        family=family,
-        kind_ns=kind_ns,
+    return _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
+
+def _spec_rows(
+    nodes: list[ast.AST], origin: _Origin, family: str, kind_ns: Mapping[str, Any]
+) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _spec_from_raw(_eval_plant_node(node, kind_ns), origin, index, family)
+        for index, node in enumerate(nodes)
     )
 
-def _rows_from_nodes(
-    nodes: list[ast.AST],
-    *,
-    mill_id: str,
-    source: str,
-    base_round: int,
-    shape: str,
-    family: str | None,
-    kind_ns: Mapping[str, Any],
+def _pair_rows(
+    nodes: list[ast.AST], origin: _Origin, shape: str, kind_ns: Mapping[str, Any]
 ) -> tuple[dict[str, Any], ...]:
-    rows: list[dict[str, Any]] = []
-    for index, node in enumerate(nodes):
-        raw = _eval_plant_node(node, kind_ns)
-        if shape == SHAPE_LEFTOVER_SPEC:
-            rows.append(
-                _spec_from_raw(
-                    raw,
-                    mill_id=mill_id,
-                    source=source,
-                    base_round=base_round,
-                    index=index,
-                    family=family or mill_id.removeprefix("obs_"),
-                )
-            )
-            continue
-        rows.append(
-            _pair_from_raw(
-                raw,
-                mill_id=mill_id,
-                source=source,
-                base_round=base_round,
-                index=index,
-                shape=shape,
-            )
-        )
-    return tuple(rows)
+    return tuple(
+        _pair_from_raw(_eval_plant_node(node, kind_ns), origin, index, shape)
+        for index, node in enumerate(nodes)
+    )
 
-def _pair_from_raw(
-    raw: Any,
-    *,
-    mill_id: str,
-    source: str,
-    base_round: int,
-    index: int,
-    shape: str,
-) -> dict[str, Any]:
+def _with_raw_keys(row: dict[str, Any], raw: Mapping[str, Any]) -> dict[str, Any]:
+    """The identity row, then every raw key it does not already carry, in raw order."""
+
+    for key, value in raw.items():
+        if key not in row:
+            row[key] = value
+    return row
+
+def _pair_from_raw(raw: Any, origin: _Origin, index: int, shape: str) -> dict[str, Any]:
+    where = f"{origin.source}[{index}]"
     if not isinstance(raw, dict):
-        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source}[{index}] is not an object")
+        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not an object")
     missing = [key for key in HOP_REQUIRED if key not in raw]
     if missing:
-        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{source}[{index}] missing {missing[0]}")
-    slug = _require_text(raw.get("slug"), f"{source}[{index}].slug", FINDING_PLANT_FIELD_MISSING)
+        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
+    slug = _require_text(raw.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_MISSING)
     if not SLUG_RE.fullmatch(slug):
-        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{source}[{index}].slug is not a plant slug")
+        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
     row = {
-        "base_round": base_round,
-        "mill_id": mill_id,
-        "plant_id": f"{mill_id}:{slug}",
+        "base_round": origin.base_round,
+        "mill_id": origin.mill_id,
+        "plant_id": f"{origin.mill_id}:{slug}",
         "shape": shape,
         "slug": slug,
-        "source": source,
+        "source": origin.source,
     }
-    for key, value in raw.items():
-        if key not in row:
-            row[key] = value
-    return row
+    return _with_raw_keys(row, raw)
 
-def _spec_from_raw(
-    raw: Any,
-    *,
-    mill_id: str,
-    source: str,
-    base_round: int,
-    index: int,
-    family: str,
-) -> dict[str, Any]:
-    if isinstance(raw, tuple):
-        if len(raw) != len(SPEC_TUPLE_KEYS):
-            raise ObsRefusal(
-                FINDING_SOURCE_NOT_PARSEABLE,
-                f"{source}[{index}] is not a {len(SPEC_TUPLE_KEYS)}-tuple",
-            )
-        raw = dict(zip(SPEC_TUPLE_KEYS, raw))
+def _spec_mapping(raw: Any, where: str) -> Any:
+    """A positional spec tuple as its keyed mapping; anything else unchanged."""
+
+    if not isinstance(raw, tuple):
+        return raw
+    if len(raw) != len(SPEC_TUPLE_KEYS):
+        raise ObsRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"{where} is not a {len(SPEC_TUPLE_KEYS)}-tuple",
+        )
+    return dict(zip(SPEC_TUPLE_KEYS, raw))
+
+def _spec_from_raw(raw: Any, origin: _Origin, index: int, family: str) -> dict[str, Any]:
+    where = f"{origin.source}[{index}]"
+    raw = _spec_mapping(raw, where)
     if not isinstance(raw, dict):
-        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source}[{index}] is not an object")
+        raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not an object")
     missing = [key for key in SPEC_REQUIRED if key not in raw]
     if missing:
-        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{source}[{index}] missing {missing[0]}")
-    slug = _require_text(
-        raw.get("ok_slug"), f"{source}[{index}].ok_slug", FINDING_PLANT_FIELD_MISSING
-    )
+        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
+    slug = _require_text(raw.get("ok_slug"), f"{where}.ok_slug", FINDING_PLANT_FIELD_MISSING)
     if not SLUG_RE.fullmatch(slug):
-        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{source}[{index}].ok_slug is not a slug")
+        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.ok_slug is not a slug")
     row = {
-        "base_round": base_round,
+        "base_round": origin.base_round,
         "family": family,
-        "mill_id": mill_id,
-        "plant_id": f"{mill_id}:{slug}",
+        "mill_id": origin.mill_id,
+        "plant_id": f"{origin.mill_id}:{slug}",
         "shape": SHAPE_LEFTOVER_SPEC,
         "slug": slug,
-        "source": source,
+        "source": origin.source,
     }
-    for key, value in raw.items():
-        if key not in row:
-            row[key] = value
-    return row
+    return _with_raw_keys(row, raw)
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
     if not isinstance(mapping, dict):
@@ -648,6 +708,18 @@ def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -
     if not isinstance(value, kinds):
         raise ObsRefusal(FINDING_CATALOG_FIELD_INVALID, f"{where}.{key} has the wrong type")
     return value
+
+def _required_shape_keys(shape: str, where: str) -> tuple[str, ...]:
+    if shape in {SHAPE_HOP, SHAPE_LEFTOVER3}:
+        return HOP_REQUIRED
+    if shape == SHAPE_LEFTOVER_SPEC:
+        return SPEC_REQUIRED
+    raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape is not a reviewed shape")
+
+def _refuse_missing_shape_keys(row: Mapping[str, Any], shape: str, where: str) -> None:
+    missing = [key for key in _required_shape_keys(shape, where) if key not in row]
+    if missing:
+        raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
 
 def _plant_from_row(row: Any, where: str) -> Plant:
     if not isinstance(row, dict):
@@ -667,16 +739,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     )
     shape = _require_text(row.get("shape"), f"{where}.shape", FINDING_PLANT_FIELD_INVALID)
     source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
-    if shape in {SHAPE_HOP, SHAPE_LEFTOVER3}:
-        missing = [key for key in HOP_REQUIRED if key not in row]
-        if missing:
-            raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
-    elif shape == SHAPE_LEFTOVER_SPEC:
-        missing = [key for key in SPEC_REQUIRED if key not in row]
-        if missing:
-            raise ObsRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
-    else:
-        raise ObsRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape is not a reviewed shape")
+    _refuse_missing_shape_keys(row, shape, where)
     payload = {key: value for key, value in row.items()}
     return Plant(
         plant_id=plant_id,
@@ -823,25 +886,17 @@ def _refuse_count(mill: Mill, actual: int) -> None:
             f"{mill.mill_id} plant_count {mill.plant_count} != {actual}",
         )
 
-def _refuse_mill_pins(
-    mills: tuple[Mill, ...],
-    plants: tuple[Plant, ...],
-    spec_index: Mapping[str, Any] | None,
-) -> None:
+def _plants_per_mill(plants: tuple[Plant, ...]) -> dict[str, int]:
     by_mill: dict[str, int] = {}
     for plant in plants:
         by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    mill_ids = {mill.mill_id for mill in mills}
-    spec_mill_ids = {mill.mill_id for mill in mills if mill.shape == SHAPE_LEFTOVER_SPEC}
-    expected = mill_ids if spec_index is None else mill_ids - spec_mill_ids
-    if expected != set(by_mill):
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-        )
-    if spec_index is None:
-        for mill in mills:
-            _refuse_count(mill, by_mill[mill.mill_id])
-        return
+    return by_mill
+
+def _indexed_spec_mills(
+    spec_index: Mapping[str, Any], spec_mill_ids: set[str]
+) -> dict[str, Any]:
+    """The leftover-spec index rows by mill id; they must name exactly the spec mills."""
+
     indexed_rows = _field(spec_index, "mills", list, f"{LEFTOVER_SPECS_FILENAME}.mills")
     indexed = {
         _require_text(
@@ -856,77 +911,59 @@ def _refuse_mill_pins(
             FINDING_CATALOG_FIELD_INVALID,
             "leftover-spec index mills do not match catalog leftover_spec mills",
         )
+    return indexed
+
+def _refuse_spec_pin(mill: Mill, pin: Any) -> None:
+    count = _field(pin, "count", int, f"{LEFTOVER_SPECS_FILENAME}.mills")
+    first = _require_text(
+        _field(pin, "first", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
+        f"{LEFTOVER_SPECS_FILENAME}.mills.first",
+        FINDING_CATALOG_FIELD_INVALID,
+    )
+    last = _require_text(
+        _field(pin, "last", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
+        f"{LEFTOVER_SPECS_FILENAME}.mills.last",
+        FINDING_CATALOG_FIELD_INVALID,
+    )
+    if count != mill.plant_count or not first or not last:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{mill.mill_id} leftover-spec index does not match mill pin",
+        )
+
+def _refuse_mill_pins(
+    mills: tuple[Mill, ...],
+    plants: tuple[Plant, ...],
+    spec_index: Mapping[str, Any] | None,
+) -> None:
+    by_mill = _plants_per_mill(plants)
+    mill_ids = {mill.mill_id for mill in mills}
+    spec_mill_ids = {mill.mill_id for mill in mills if mill.shape == SHAPE_LEFTOVER_SPEC}
+    expected = mill_ids if spec_index is None else mill_ids - spec_mill_ids
+    if expected != set(by_mill):
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
+        )
+    indexed = None if spec_index is None else _indexed_spec_mills(spec_index, spec_mill_ids)
     for mill in mills:
-        if mill.shape != SHAPE_LEFTOVER_SPEC:
-            _refuse_count(mill, by_mill[mill.mill_id])
-            continue
-        pin = indexed[mill.mill_id]
-        count = _field(pin, "count", int, f"{LEFTOVER_SPECS_FILENAME}.mills")
-        first = _require_text(
-            _field(pin, "first", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
-            f"{LEFTOVER_SPECS_FILENAME}.mills.first",
-            FINDING_CATALOG_FIELD_INVALID,
-        )
-        last = _require_text(
-            _field(pin, "last", str, f"{LEFTOVER_SPECS_FILENAME}.mills"),
-            f"{LEFTOVER_SPECS_FILENAME}.mills.last",
-            FINDING_CATALOG_FIELD_INVALID,
-        )
-        if count != mill.plant_count or not first or not last:
-            raise ObsRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} leftover-spec index does not match mill pin",
-            )
+        _refuse_mill_pin(mill, by_mill, indexed)
+
+def _refuse_mill_pin(
+    mill: Mill, by_mill: Mapping[str, int], indexed: Mapping[str, Any] | None
+) -> None:
+    """A spec mill (when indexed) matches its index pin; any other mill its plant count."""
+
+    if indexed is None or mill.shape != SHAPE_LEFTOVER_SPEC:
+        _refuse_count(mill, by_mill[mill.mill_id])
+    else:
+        _refuse_spec_pin(mill, indexed[mill.mill_id])
 
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta_path = catalog_dir / CATALOG_FILENAME
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        meta = load_strict_json(meta_text)
-    except ValueError as exc:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    fmt = _field(meta, "format", str, CATALOG_FILENAME)
-    if fmt != CATALOG_FORMAT:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
-        )
-    factory = _field(meta, "factory", str, CATALOG_FILENAME)
-    if factory != FACTORY:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
-        )
-    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
-    if prefix != MILL_PREFIX:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
-        )
-    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
-    if kind != RECORD_KIND:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
-        )
-    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
-    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
-        raise ObsRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
-        )
+    meta = _read_meta(catalog_dir / CATALOG_FILENAME)
+    catalog_id, factory = _check_meta_header(meta)
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
     mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
     mills = tuple(
@@ -955,6 +992,46 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         meta=meta,
         leftover_spec_index=spec_index,
     )
+
+def _read_meta(meta_path: Path) -> Any:
+    try:
+        meta_text = meta_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ObsRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
+    try:
+        return load_strict_json(meta_text)
+    except ValueError as exc:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
+        ) from exc
+
+def _pinned_text(meta: Any, key: str, expected: str) -> str:
+    value = _field(meta, key, str, CATALOG_FILENAME)
+    if value != expected:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.{key} must be {expected}"
+        )
+    return value
+
+def _check_meta_header(meta: Any) -> tuple[str, str]:
+    """``catalog_id`` and ``factory`` once format, factory, prefix, kind, and quota hold."""
+
+    catalog_id = _require_text(
+        _field(meta, "catalog_id", str, CATALOG_FILENAME),
+        f"{CATALOG_FILENAME}.catalog_id",
+        FINDING_CATALOG_FIELD_INVALID,
+    )
+    _pinned_text(meta, "format", CATALOG_FORMAT)
+    factory = _pinned_text(meta, "factory", FACTORY)
+    _pinned_text(meta, "mill_prefix", MILL_PREFIX)
+    _pinned_text(meta, "record_kind", RECORD_KIND)
+    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
+    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
+        raise ObsRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
+        )
+    return catalog_id, factory
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
     """Load the catalog. An invalid catalog is a refusal, not a finding list."""
