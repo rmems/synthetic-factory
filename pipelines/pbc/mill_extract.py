@@ -9,7 +9,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 if __package__:
     from . import _contract
@@ -79,38 +79,47 @@ def _legacy_text(path: str) -> str:
     raise FileNotFoundError(f"git show failed for {path} at {SOURCE_REF} and {LEGACY}")
 
 
-def _name_const(node: ast.Name, where: str, env: dict[str, Any] | None) -> Any:
-    if env is not None and node.id in env:
-        return env[node.id]
-    raise ValueError(f"{where}: not a constant literal")
+def _const(node: ast.AST, where: str, *, env: dict[str, Any] | None = None) -> Any:
+    # Recursion stays here, so a `+` / list / set level costs one frame and a tuple level
+    # two (``_const_tuple`` is the frame its generator cost), as before the helpers were
+    # split out. The other helpers below never recurse.
+    if isinstance(node, ast.Constant):
+        return node.value
+    if _is_concatenation(node):
+        left = _const(node.left, where, env=env)
+        return _concatenated(left, _const(node.right, where, env=env), where)
+    if isinstance(node, ast.Tuple):
+        return _const_tuple(node, where, env)
+    if isinstance(node, (ast.List, ast.Set)):
+        return (
+            [_const(elt, where, env=env) for elt in node.elts]
+            if isinstance(node, ast.List)
+            else {_const(elt, where, env=env) for elt in node.elts}
+        )
+    return _bound_name(node, where, env)
 
 
-def _concat_const(node: ast.BinOp, where: str, env: dict[str, Any] | None) -> str:
-    left = _const(node.left, where, env=env)
-    right = _const(node.right, where, env=env)
+def _const_tuple(node: ast.Tuple, where: str, env: dict[str, Any] | None) -> tuple[Any, ...]:
+    return tuple([_const(elt, where, env=env) for elt in node.elts])
+
+
+def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _concatenated(left: Any, right: Any, where: str) -> str:
     if isinstance(left, str) and isinstance(right, str):
         return left + right
     raise ValueError(f"{where}: not a constant literal")
 
 
-def _collection_const(node: ast.AST, where: str, env: dict[str, Any] | None) -> Any:
-    if isinstance(node, ast.Tuple):
-        return tuple(_const(elt, where, env=env) for elt in node.elts)
-    if isinstance(node, ast.List):
-        return [_const(elt, where, env=env) for elt in node.elts]
-    if isinstance(node, ast.Set):
-        return {_const(elt, where, env=env) for elt in node.elts}
+def _bound_name(node: ast.AST, where: str, env: dict[str, Any] | None) -> Any:
+    """A name bound in ``env``; any other node is not a constant literal."""
+
+    names = env if env is not None else {}
+    if isinstance(node, ast.Name) and node.id in names:
+        return names[node.id]
     raise ValueError(f"{where}: not a constant literal")
-
-
-def _const(node: ast.AST, where: str, *, env: dict[str, Any] | None = None) -> Any:
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return _name_const(node, where, env)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _concat_const(node, where, env)
-    return _collection_const(node, where, env)
 
 
 def _simple_assignment(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
