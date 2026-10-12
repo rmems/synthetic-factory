@@ -75,15 +75,24 @@ def rmdir_created_directory(path: Path, identity: _PathIdentity) -> bool:
     return True
 
 
-def preflight_destinations(paths: list[Path]) -> None:
+def _assert_distinct_destinations(paths: list[Path]) -> None:
     resolved = [path.resolve(strict=False) for path in paths]
     if len(set(resolved)) != len(resolved):
         raise ValueError("output destinations must be distinct")
+
+
+def _assert_fresh_destination(path: Path) -> None:
+    if is_under_raw(path):
+        raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
+    if path.exists():
+        raise FileExistsError(f"refusing to replace existing destination: {path}")
+
+
+def preflight_destinations(paths: list[Path]) -> None:
+    """Refuse aliased destinations first, then any under ``outputs/raw/`` or already present."""
+    _assert_distinct_destinations(paths)
     for path in paths:
-        if is_under_raw(path):
-            raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
-        if path.exists():
-            raise FileExistsError(f"refusing to replace existing destination: {path}")
+        _assert_fresh_destination(path)
 
 
 def _resolved_source_directory(source_root: Path) -> Path:
