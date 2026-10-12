@@ -59,8 +59,9 @@ def _plants_table(tree: ast.AST) -> tuple[dict[str, dict[str, Any]], str | None]
 def _p_identity(node: ast.AST) -> dict[str, Any] | None:
     kwargs = call_kwargs(node)
     args = call_positional_literals(node)
-    missing = kwargs is None or "slug" not in kwargs or "plant" not in kwargs
-    if missing:
+    if kwargs is None:
+        return None
+    if "slug" not in kwargs or "plant" not in kwargs:
         return None
     ok = args[0] if args else kwargs.get("ok")
     return {"slug": kwargs["slug"], "plant": kwargs["plant"], "ok": ok, "key": None}

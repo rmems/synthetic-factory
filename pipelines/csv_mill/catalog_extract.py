@@ -158,7 +158,7 @@ def plants_from_source(
     pairs = _source_pairs(assignments, source)
     base = _source_base(assignments, mill_id, source, base_round)
     rows = []
-    seen = {key: set() for key in ("slug", "fail", "ticket")}
+    seen: dict[str, set[str]] = {key: set() for key in ("slug", "fail", "ticket")}
     for index, item in enumerate(pairs):
         _require_bounded_int(base + index, f"{source} effective_round", FINDING_PLANT_FIELD_INVALID)
         fields = _pair_fields(item, f"{source} PAIRS[{index}]")

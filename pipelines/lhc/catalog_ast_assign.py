@@ -6,19 +6,19 @@ from __future__ import annotations
 import ast
 
 
-def _ann_target_name(node: ast.stmt) -> str | None:
+def _ann_target_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
         return node.target.id
     return None
 
 
-def _single_assign_target(node: ast.stmt) -> ast.AST | None:
+def _single_assign_target(node: ast.AST) -> ast.AST | None:
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
         return node.targets[0]
     return None
 
 
-def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
+def assignment_of(node: ast.AST) -> tuple[str | None, ast.AST | None]:
     """Return ``(name, value)`` for a simple ``NAME = value`` statement."""
 
     ann = _ann_target_name(node)
@@ -41,7 +41,7 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
     return tuple(names)
 
 
-def tuple_target_names(node: ast.stmt) -> tuple[str, ...]:
+def tuple_target_names(node: ast.AST) -> tuple[str, ...]:
     """``fa, fb = ...`` → ``('fa', 'fb')``."""
 
     target = _single_assign_target(node)

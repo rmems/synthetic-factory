@@ -25,7 +25,7 @@ OBSERVABLE_BASIS_RE = re.compile(
 )
 
 
-def _normalized_hidden_key(key):
+def _normalized_hidden_key(key: object) -> str:
     camel = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
     return re.sub(r"[^a-z0-9]+", "_", camel.casefold()).strip("_")
 
