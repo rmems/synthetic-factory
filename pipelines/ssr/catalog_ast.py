@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -38,14 +38,32 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
     bound = env or {}
-    for node_type, resolve in _LITERAL_RESOLVERS:
-        if isinstance(node, node_type):
-            return resolve(node, bound)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return bound.get(node.id, UNSET)
+    if isinstance(node, ast.UnaryOp):
+        return _negated(node, bound)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set, ast.Dict)):
+        return _container_value(node, bound)
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string(node, bound)
+    if isinstance(node, ast.BinOp):
+        return _concatenated(node, bound)
     return UNSET
 
 
-def _name_value(node: ast.Name, env: Mapping[str, Any]) -> Any:
-    return env.get(node.id, UNSET)
+def _container_value(
+    node: ast.Tuple | ast.List | ast.Set | ast.Dict, env: Mapping[str, Any]
+) -> Any:
+    if isinstance(node, ast.Tuple):
+        return _sequence(node.elts, env, tuple)
+    if isinstance(node, ast.List):
+        return _sequence(node.elts, env, list)
+    if isinstance(node, ast.Set):
+        values = _sequence(node.elts, env, list)
+        return set(values) if values is not UNSET else UNSET
+    return _mapping(node, env)
 
 
 def _negated(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
@@ -53,11 +71,6 @@ def _negated(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
         return UNSET
     inner = literal_value(node.operand, env)
     return -inner if isinstance(inner, (int, float)) else UNSET
-
-
-def _set_value(node: ast.Set, env: Mapping[str, Any]) -> Any:
-    values = _sequence(node.elts, env, list)
-    return set(values) if values is not UNSET else UNSET
 
 
 def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
@@ -70,7 +83,7 @@ def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.expr], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -106,19 +119,6 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
             return UNSET
         parts.append(str(inner))
     return "".join(parts)
-
-
-_LITERAL_RESOLVERS = (
-    (ast.Constant, lambda node, env: node.value),
-    (ast.Name, _name_value),
-    (ast.UnaryOp, _negated),
-    (ast.Tuple, lambda node, env: _sequence(node.elts, env, tuple)),
-    (ast.List, lambda node, env: _sequence(node.elts, env, list)),
-    (ast.Set, _set_value),
-    (ast.Dict, _mapping),
-    (ast.JoinedStr, _joined_string),
-    (ast.BinOp, _concatenated),
-)
 
 
 def call_name(node: ast.AST) -> str | None:
