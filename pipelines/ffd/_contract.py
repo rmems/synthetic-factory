@@ -101,6 +101,12 @@ def default_catalog_dir() -> Path:
     return Path(__file__).resolve().parents[2].joinpath(*DEFAULT_CATALOG_REL)
 
 
+def finding_row(code: str, source: str, detail: str) -> dict[str, str]:
+    """One catalog-check finding in the family's ``code`` / ``source`` / ``detail`` shape."""
+
+    return {"code": code, "source": source, "detail": detail}
+
+
 __all__ = [
     "BANNED_KEYS",
     "CATALOG_FORMAT",
@@ -120,6 +126,7 @@ __all__ = [
     "default_catalog_dir",
     "dumps_exact_json",
     "envelope",
+    "finding_row",
     "is_under_raw",
     "load_strict_json",
     "refuse",
