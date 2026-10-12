@@ -358,7 +358,7 @@ def _const_eval(node: ast.AST) -> Any:
 
 
 def _const_dict_or_negated(node: ast.AST) -> Any:
-    """A dict display without ``**`` unpacking or a negated constant; anything else refuses."""
+    """A dict display (``**`` unpacking refused) or ``-operand``; other node types are refused."""
 
     if isinstance(node, ast.Dict):
         if any(key is None for key in node.keys):
@@ -806,13 +806,17 @@ def _plant_sides(
 ) -> tuple[str, Side | Leftover3Side, Side | Leftover3Side]:
     shape = row.get("shape", SHAPE_OK_BAD)
     if shape == LEFTOVER3_SHAPE:
-        ok = _leftover3_side_from_row(row.get("ok"), LEFTOVER3_OK_KEYS, f"{where}.ok")
-        bad = _leftover3_side_from_row(row.get("bad"), LEFTOVER3_BAD_KEYS, f"{where}.bad")
-        return shape, ok, bad
+        return (
+            shape,
+            _leftover3_side_from_row(row.get("ok"), LEFTOVER3_OK_KEYS, f"{where}.ok"),
+            _leftover3_side_from_row(row.get("bad"), LEFTOVER3_BAD_KEYS, f"{where}.bad"),
+        )
     if shape == SHAPE_OK_BAD:
-        ok = _side_from_row(row.get("ok"), OK_SIDE_KEYS, f"{where}.ok")
-        bad = _side_from_row(row.get("bad"), BAD_SIDE_KEYS, f"{where}.bad")
-        return shape, ok, bad
+        return (
+            shape,
+            _side_from_row(row.get("ok"), OK_SIDE_KEYS, f"{where}.ok"),
+            _side_from_row(row.get("bad"), BAD_SIDE_KEYS, f"{where}.bad"),
+        )
     raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape {shape!r} is not a CEI shape")
 
 

@@ -234,7 +234,7 @@ def _const_eval(node: ast.AST) -> Any:
     return _const_mapping_or_negative(node)
 
 def _const_mapping_or_negative(node: ast.AST) -> Any:
-    """A dict display without ``**`` unpacking or ``-constant``; anything else refuses."""
+    """A dict display (``**`` unpacking refused) or ``-operand``; other node types are refused."""
 
     if isinstance(node, ast.Dict):
         if any(key is None for key in node.keys):
@@ -242,10 +242,7 @@ def _const_mapping_or_negative(node: ast.AST) -> Any:
         return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
-    raise ObsRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+    raise _not_a_constant(node)
 
 def _not_a_constant(node: ast.AST) -> ObsRefusal:
     return ObsRefusal(
@@ -706,7 +703,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     shape = _require_text(row.get("shape"), f"{where}.shape", FINDING_PLANT_FIELD_INVALID)
     source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
     _refuse_missing_shape_keys(row, shape, where)
-    payload = {key: value for key, value in row.items()}
+    payload = dict(row.items())
     return Plant(
         plant_id=plant_id,
         mill_id=mill_id,
