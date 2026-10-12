@@ -27,6 +27,8 @@ PAIR0 = "catalog.catalogs[0].pairs[0]"
 IDENTITY = "catalog identity does not match the reviewed RLB family"
 CATALOGS_LIST = "catalog.catalogs must be a non-empty list"
 LOAD_FAILED = "cannot load RLB catalog "
+SUCCESS = "success"
+HANDOFF = "handoff"
 
 
 def _pairs_text(rows):
@@ -59,7 +61,7 @@ def _unchanged(_header, _rows):
 
 
 def _shared_slug(_header, rows):
-    rows[0]["handoff"]["slug"] = rows[0]["success"]["slug"]
+    rows[0][HANDOFF]["slug"] = rows[0][SUCCESS]["slug"]
 
 
 def _gapped_round(_header, rows):
@@ -88,28 +90,28 @@ def _overlapping_rounds(header, rows):
 
 # (label, edit(header, rows), exact CatalogError message)
 EDIT_CASES = (
-    ("case is not an object", _row_value("success", []), f"{PAIR0}.success must be an object"),
-    ("blank slug", _row_field("success", "slug", " "),
+    ("case is not an object", _row_value(SUCCESS, []), f"{PAIR0}.success must be an object"),
+    ("blank slug", _row_field(SUCCESS, "slug", " "),
      f"{PAIR0}.success.slug must be a non-empty string"),
-    ("slug format", _row_field("success", "slug", "Bad_Slug"),
+    ("slug format", _row_field(SUCCESS, "slug", "Bad_Slug"),
      f"{PAIR0}.success.slug has invalid format: 'Bad_Slug'"),
-    ("module format", _row_field("handoff", "module", "mod-x"),
+    ("module format", _row_field(HANDOFF, "module", "mod-x"),
      f"{PAIR0}.handoff.module has invalid format: 'mod-x'"),
-    ("coverage type", _row_field("success", "coverage", "80"),
+    ("coverage type", _row_field(SUCCESS, "coverage", "80"),
      f"{PAIR0}.success.coverage must be an integer"),
-    ("coverage bool", _row_field("handoff", "coverage", True),
+    ("coverage bool", _row_field(HANDOFF, "coverage", True),
      f"{PAIR0}.handoff.coverage must be an integer"),
-    ("coverage floor", _row_field("success", "coverage", -1),
+    ("coverage floor", _row_field(SUCCESS, "coverage", -1),
      f"{PAIR0}.success.coverage out of range: -1"),
-    ("coverage ceiling", _row_field("handoff", "coverage", 101),
+    ("coverage ceiling", _row_field(HANDOFF, "coverage", 101),
      f"{PAIR0}.handoff.coverage out of range: 101"),
-    ("scalar type", _row_field("success", "expected_value", True),
+    ("scalar type", _row_field(SUCCESS, "expected_value", True),
      f"{PAIR0}.success.expected_value must be an integer or string"),
-    ("scalar empty", _row_field("success", "naive_value", ""),
+    ("scalar empty", _row_field(SUCCESS, "naive_value", ""),
      f"{PAIR0}.success.naive_value must not be empty"),
-    ("docs arity", _row_field("success", "docs", ["https://example.com"]),
+    ("docs arity", _row_field(SUCCESS, "docs", ["https://example.com"]),
      f"{PAIR0}.success.docs must contain exactly two URLs"),
-    ("docs scheme", _row_field("handoff", "docs", ["https://a.example", "http://b.example"]),
+    ("docs scheme", _row_field(HANDOFF, "docs", ["https://a.example", "http://b.example"]),
      f"{PAIR0}.handoff.docs URLs must use https"),
     ("shared slug", _shared_slug, f"{PAIR0} repeats one slug on both outcomes"),
     ("round floor", _row_value("round", 0), f"{PAIR0}.round out of range: 0"),

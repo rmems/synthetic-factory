@@ -1,4 +1,4 @@
-"""Per-invariant findings of the memory and credit-assignment family checks.
+"""Per-invariant findings of the memory, credit-assignment and mesh family checks.
 
 Each case copies one accepted reference record, edits a single retained value
 under ``result.measured``, re-hashes the result, and asserts that
@@ -52,6 +52,13 @@ def _drop(path):
     return edit
 
 
+def _append(path, value):
+    def edit(item):
+        _parent(item, path)[path[-1]].append(value)
+
+    return edit
+
+
 def _reverse(path):
     def edit(item):
         _parent(item, path)[path[-1]].reverse()
@@ -64,6 +71,8 @@ CRITIC = ("critic",)
 PLASTIC = ("plasticity",)
 PRE = PLASTIC + ("pre_update_behavior",)
 DEPENDENCE = ("temporal_dependence",)
+BEFORE = ("before",)
+DELTA_DERIVED = "does not match the value derived from before/after states"
 
 # (label, edit(record), finding the memory checks must report)
 MEMORY_CASES = (
@@ -129,6 +138,39 @@ CREDIT_CASES = (
      "plasticity.update_applied disagrees with the weight deltas"),
 )
 
+# (label, edit(record), finding the mesh-propagation checks must report)
+MESH_CASES = (
+    ("source", _put(BEFORE + ("source",), "N9"), "before.source does not match scenario.source"),
+    ("sink", _put(BEFORE + ("sink",), "N9"), "before.sink does not match scenario.sink"),
+    ("arrival nodes", _put(BEFORE + ("first_arrival_ms", "N9"), None),
+     "before.first_arrival_ms keys do not match scenario.nodes"),
+    ("count nodes", _put(BEFORE + ("spike_counts", "N9"), 0),
+     "before.spike_counts keys do not match scenario.nodes"),
+    ("unknown firing node", _append(BEFORE + ("firing_order",), "N9"),
+     "before.firing_order names unknown nodes: ['N9']"),
+    ("arrival without spikes", _put(BEFORE + ("first_arrival_ms", "N3"), 40.0),
+     "before.first_arrival_ms[N3] disagrees with spike_counts"),
+    ("arrival after duration", _put(BEFORE + ("first_arrival_ms", "N1"), 1.0e6),
+     "before.first_arrival_ms[N1] lies outside the simulated duration"),
+    ("firing order", _reverse(BEFORE + ("firing_order",)),
+     "before.firing_order does not match first_arrival_ms"),
+    ("activation", _put(BEFORE + ("downstream_activation",), []),
+     "before.downstream_activation does not match spike_counts"),
+    ("total spikes", _shift(BEFORE + ("total_spikes",), 1),
+     "before.total_spikes does not match spike_counts"),
+    ("energy", _shift(BEFORE + ("energy_pJ",), 1.0), "before.energy_pJ does not match total_spikes"),
+    ("sink reached", _put(BEFORE + ("sink_reached",), True),
+     "before.sink_reached disagrees with first_arrival_ms[N5]"),
+    ("spike budget", _put(BEFORE + ("spike_budget_exhausted",), True),
+     "before hit the spike budget; the trajectory is truncated"),
+    ("propagation delay", _put(BEFORE + ("propagation_delay_ms",), 5.0),
+     "before.propagation_delay_ms does not match sink minus source arrival"),
+    ("delay delta", _put(BEFORE + ("propagation_delay_ms",), 5.0),
+     "delta.propagation_delay_delta_ms does not match the before/after delays"),
+    ("derived delta", _put(("delta", "firing_order_changed"), False),
+     f"delta.firing_order_changed {DELTA_DERIVED}"),
+)
+
 
 class FamilyInvariantFindings(unittest.TestCase):
     def _assert_findings(self, family, cases):
@@ -139,7 +181,7 @@ class FamilyInvariantFindings(unittest.TestCase):
                 self.assertIn(expected, result_findings(item))
 
     def test_reference_records_start_clean(self):
-        for family in (families.MEMORY_FAMILY, families.CREDIT_FAMILY):
+        for family in (families.MEMORY_FAMILY, families.CREDIT_FAMILY, families.MESH_FAMILY):
             with self.subTest(family):
                 self.assertEqual(result_findings(_reference(family)), [])
 
@@ -148,6 +190,9 @@ class FamilyInvariantFindings(unittest.TestCase):
 
     def test_credit_assignment_invariants(self):
         self._assert_findings(families.CREDIT_FAMILY, CREDIT_CASES)
+
+    def test_mesh_propagation_invariants(self):
+        self._assert_findings(families.MESH_FAMILY, MESH_CASES)
 
 
 if __name__ == "__main__":

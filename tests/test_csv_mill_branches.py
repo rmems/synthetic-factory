@@ -39,6 +39,8 @@ PLANT_INVALID = "PLANT_FIELD_INVALID"
 DUPLICATE = "PLANT_DUPLICATE"
 UNPARSEABLE = "SOURCE_NOT_PARSEABLE"
 SOURCE = "literal.py"
+MILL = "csv_r114"
+SECOND_MILL = "csv_r115"
 
 
 def _payload(rows):
@@ -87,7 +89,7 @@ def _plant_value(key, value):
 
 
 def _renamed_mill(meta, _rows):
-    meta["mills"][0].update(mill_id="csv_r115", base_round=115)
+    meta["mills"][0].update(mill_id=SECOND_MILL, base_round=115)
 
 
 def _copied_plant(_meta, rows):
@@ -96,9 +98,9 @@ def _copied_plant(_meta, rows):
 
 def _two_overlapping_mills(meta, rows):
     for offset, row in enumerate(rows[8:]):
-        row.update(mill_id="csv_r115", base_round=115, index=offset,
-                   plant_id=f"csv_r115:{row['slug']}")
-    second = {**meta["mills"][0], "mill_id": "csv_r115", "base_round": 115, "plant_count": 8}
+        row.update(mill_id=SECOND_MILL, base_round=115, index=offset,
+                   plant_id=f"{SECOND_MILL}:{row['slug']}")
+    second = {**meta["mills"][0], "mill_id": SECOND_MILL, "base_round": 115, "plant_count": 8}
     meta["mills"] = [{**meta["mills"][0], "plant_count": 8}, second]
 
 
@@ -144,21 +146,21 @@ def _source(pair=None, *, prefix=RECORD_PREFIX, before=""):
 
 # (label, source text, mill_id, refusal code, exact refusal prose)
 EXTRACT_CASES = (
-    ("non-constant value", _source().replace(f"mod={PAIR['mod']!r}", "mod=unbound"), "csv_r114",
+    ("non-constant value", _source().replace(f"mod={PAIR['mod']!r}", "mod=unbound"), MILL,
      UNPARSEABLE, "plant source is not a constant (Name)"),
     ("keyword unpacking",
      f"FAC = {FACTORY!r}\nPREFIX = {RECORD_PREFIX!r}\nBASE = dict(slug='x')\nPAIRS = [dict(**BASE)]\n",
-     "csv_r114", UNPARSEABLE, "literal catalog uses keyword unpacking"),
-    ("prefix pin", _source(prefix="other"), "csv_r114", UNPARSEABLE,
+     MILL, UNPARSEABLE, "literal catalog uses keyword unpacking"),
+    ("prefix pin", _source(prefix="other"), MILL, UNPARSEABLE,
      f"{SOURCE} PREFIX must be {RECORD_PREFIX}"),
-    ("empty pairs", _source().split("PAIRS = ")[0] + "PAIRS = []\n", "csv_r114", UNPARSEABLE,
+    ("empty pairs", _source().split("PAIRS = ")[0] + "PAIRS = []\n", MILL, UNPARSEABLE,
      f"{SOURCE} has no PAIRS list"),
     ("mill id syntax", _source(), "csv_x", PLANT_INVALID, "mill_id 'csv_x' is not csv_rNNN"),
-    ("missing pair key", _source({k: v for k, v in PAIR.items() if k != "mod"}), "csv_r114",
+    ("missing pair key", _source({k: v for k, v in PAIR.items() if k != "mod"}), MILL,
      UNPARSEABLE, f"{SOURCE} PAIRS[0] missing mod"),
-    ("extra pair key", _source({**PAIR, "zzz": "extra"}), "csv_r114", UNPARSEABLE,
+    ("extra pair key", _source({**PAIR, "zzz": "extra"}), MILL, UNPARSEABLE,
      f"{SOURCE} PAIRS[0] has extra zzz"),
-    ("subscript annotation", _source(before="X: list[int] = [1]\n"), "csv_r114", UNPARSEABLE,
+    ("subscript annotation", _source(before="X: list[int] = [1]\n"), MILL, UNPARSEABLE,
      "unproven definition-time annotation in literal catalog"),
 )
 
@@ -173,7 +175,7 @@ GENERATE_CASES = (
      "round must be a positive integer"),
     ("round ceiling", {"plant_id": FIRST_PLANT, "round": 10**4096}, "ROUND_INVALID",
      "round exceeds the exact-JSON integer domain"),
-    ("round without plant", {"mill_id": "csv_r114", "round": 120}, "USAGE",
+    ("round without plant", {"mill_id": MILL, "round": 120}, "USAGE",
      "round applies only with plant_id"),
     ("unknown mill", {"mill_id": "csv_r999"}, "MILL_NOT_FOUND", "no mill 'csv_r999' in the catalog"),
 )
@@ -232,7 +234,7 @@ class CsvExtractRefusals(RefusalAssertions, unittest.TestCase):
 
     def test_annotated_pins_and_inert_statements_extract(self):
         text = _source(before="pass\nNOTE: str = 'inert'\n").replace("PREFIX =", "PREFIX: str =")
-        rows = catalog.plants_from_source(text, mill_id="csv_r114", source=SOURCE)
+        rows = catalog.plants_from_source(text, mill_id=MILL, source=SOURCE)
         self.assertEqual([row["plant_id"] for row in rows], [FIRST_PLANT])
 
 
