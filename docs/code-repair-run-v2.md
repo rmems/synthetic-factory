@@ -75,7 +75,8 @@ python3 pipelines/code_repair_cli.py dedup --run outputs/code-repair/<seed-a> \
 ```
 
 A run is refused unless its `RUN.json` `candidates_sha256` binds its
-`candidates.jsonl`. Only positives are compared, keep-first by `--run` order and
+`candidates.jsonl` and every record passes the export's per-record integrity
+check (the catalog binding aside). Only positives are compared, keep-first by `--run` order and
 then sorted record id, against the kept positives of earlier runs; a later
 positive is reported as `CROSS_RUN_DUPLICATE_EXACT` (same broken bytes),
 `CROSS_RUN_DUPLICATE_STRUCTURAL` (the export's canonical-structure digest) or

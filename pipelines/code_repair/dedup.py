@@ -3,8 +3,9 @@
 Generation skips ``DUPLICATE_MUTANT_IN_RUN`` and the export deduplicates
 within one run; neither sees a second seed. This module takes run directories
 in keep-first order, binds each ``candidates.jsonl`` to the
-``candidates_sha256`` its ``RUN.json`` pins (a run whose binding fails is
-refused), keeps only positive records and reports every positive that repeats
+``candidates_sha256`` its ``RUN.json`` pins and re-checks every record's
+integrity as the export does, catalog aside (a run failing either is refused),
+keeps only positive records and reports every positive that repeats
 a kept positive of an earlier run under three codes: the same broken bytes, the
 same canonical structure (the export's own digest) or the same mutation site of
 the same program. Within a run the order is sorted record id, as in the
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import generate, run_validation, selection, views
+from . import generate, run_validation, selection, validation, views
 from . import vocabulary as cv
 from ._contract import bind_import_twin, dumps_exact_json, is_under_raw
 from .candidate_io import load_candidate_records, load_run_summary
@@ -116,8 +117,26 @@ def load_run(run_dir: Path) -> LoadedRun:
         "does not bind candidates.jsonl)",
     )
     records = load_candidate_records(candidate_bytes)
+    _refuse_failing_records(run_dir, records)
     positives = sorted((r for r in records if views.is_positive(r)), key=lambda r: r["id"])
     return LoadedRun(run_dir, run, records, digest, positives)
+
+
+def _refuse_failing_records(run_dir: Path, records: list[dict[str, Any]]) -> None:
+    """The export's per-record integrity check, catalog aside: one failure refuses the run.
+
+    ``views.is_positive`` alone accepts a rehashed record whose stored failure evidence no
+    longer matches its rows; such a record must not claim a key a later run is judged by.
+    """
+
+    for record in records:
+        findings = validation.validate_record(record)
+        if findings:
+            raise cv.RepairRefusal(
+                cv.FINDING_EXPORT_INTEGRITY,
+                f"{cv.shown(run_dir)}: record {cv.shown(record.get('id'))} fails integrity "
+                f"({cv.shown(findings[0])})",
+            )
 
 
 def _keys(record: dict[str, Any]) -> _Keys:
@@ -139,31 +158,40 @@ def _keys(record: dict[str, Any]) -> _Keys:
     )
 
 
-def _first_match(seen: dict[str, dict[Any, str]], keys: _Keys) -> tuple[str, str] | None:
-    return next(((seen[code][key], code) for code, key in keys if key in seen[code]), None)
+_Seen = dict[str, dict[Any, str]]
+_Judged = list[tuple[Decision, _Keys]]
+
+
+def _judge(seen: _Seen, index: int, record: dict[str, Any]) -> tuple[Decision, _Keys]:
+    """The record's decision against keys already claimed, and its own keys."""
+
+    keys = _keys(record)
+    earlier = ((seen[code][key], code) for code, key in keys if key in seen[code])
+    duplicate_of, code = next(earlier, (None, None))
+    return Decision(index, record, duplicate_of, code), keys
+
+
+def _claim(seen: _Seen, judged: _Judged) -> None:
+    """Kept records claim their keys; the first kept claimant of a key keeps it."""
+
+    kept = ((decision.record["id"], keys) for decision, keys in judged if decision.code is None)
+    for identity, keys in kept:
+        for code, key in keys:
+            seen[code].setdefault(key, identity)
 
 
 def decisions(runs: Sequence[LoadedRun]) -> Iterator[Decision]:
     """Keep-first over run order, then sorted id, against kept positives of earlier runs.
 
-    A kept record claims its keys only once its run is done, so two positives of one
-    run never meet here; the first kept claimant of a key stays its ``duplicate_of``.
+    A run's kept records claim their keys only once the whole run is judged, so two
+    positives of one run never meet here.
     """
 
-    seen: dict[str, dict[Any, str]] = {code: {} for code in cv.DEDUP_CODES}
+    seen: _Seen = {code: {} for code in cv.DEDUP_CODES}
     for index, loaded in enumerate(runs):
-        claims: list[tuple[str, _Keys]] = []
-        for record in loaded.positives:
-            keys = _keys(record)
-            match = _first_match(seen, keys)
-            if match is None:
-                claims.append((record["id"], keys))
-                yield Decision(index, record)
-            else:
-                yield Decision(index, record, *match)
-        for identity, keys in claims:
-            for code, key in keys:
-                seen[code].setdefault(key, identity)
+        judged = [_judge(seen, index, record) for record in loaded.positives]
+        yield from (decision for decision, _ in judged)
+        _claim(seen, judged)
 
 
 def _refuse_id_collisions(kept: list[str]) -> None:

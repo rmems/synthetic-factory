@@ -26,6 +26,7 @@ from code_repair_test_support import (
     generate,
     oc,
     refusal,
+    required_item,
     smoke_run,
     verify,
     views,
@@ -75,19 +76,37 @@ def broken_text(record):
     return record["scenario"]["broken_program"]["files"][cv.PROGRAM_FILENAME]
 
 
+def function_node(text, function):
+    """The module's ``def`` of this name."""
+
+    return required_item(n for n in ast.walk(ast.parse(text))
+                         if isinstance(n, ast.FunctionDef) and n.name == function)
+
+
+def docstring_lines(node):
+    """The line numbers of the function's docstring, which a rename leaves alone."""
+
+    if ast.get_docstring(node) is None:
+        return range(0)
+    return range(node.body[0].lineno, node.body[0].end_lineno + 1)
+
+
+def local_names(node):
+    """The function's parameters and the names it binds."""
+
+    names = (n for n in ast.walk(node) if isinstance(n, ast.Name))
+    return {a.arg for a in node.args.args} | {n.id for n in names if isinstance(n.ctx, ast.Store)}
+
+
 def rename_identifiers(text, function):
     """The function's parameters and locals renamed consistently everywhere but its docstring."""
 
-    tree = ast.parse(text)
-    node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function)
-    doc = node.body[0] if ast.get_docstring(node) is not None else None
-    protected = range(doc.lineno, doc.end_lineno + 1) if doc is not None else range(0)
-    names = {a.arg for a in node.args.args} | {
-        n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
-    }
-    pattern = re.compile(r"\b(" + "|".join(sorted(names, key=len, reverse=True)) + r")\b")
+    node = function_node(text, function)
+    protected = docstring_lines(node)
+    names = sorted(local_names(node), key=len, reverse=True)
+    pattern = re.compile(r"\b(" + "|".join(names) + r")\b")
     return "\n".join(
-        line if number in protected else pattern.sub(lambda m: m.group(1) + "_renamed", line)
+        line if number in protected else pattern.sub(r"\1_renamed", line)
         for number, line in enumerate(text.split("\n"), 1)
     )
 
@@ -106,7 +125,7 @@ def rebind_broken(record, text):
 
 
 def first_positive(records):
-    return next(r for r in sorted(records, key=lambda r: r["id"]) if views.is_positive(r))
+    return required_item(r for r in sorted(records, key=lambda r: r["id"]) if views.is_positive(r))
 
 
 class RunCopies:
@@ -299,6 +318,20 @@ class Refusals(unittest.TestCase):
         with refusal(self, cv.FINDING_EXPORT_INTEGRITY, "candidates_sha256"):
             report(unpinned)
 
+    def test_a_rehashed_record_whose_evidence_disagrees_with_its_rows_refuses_its_run(self):
+        run_a, _run_b = runs()
+
+        def edit(records):
+            target = first_positive(records)
+            required_item(target["result"]["public_failure_evidence"])["got"] += "drift"
+            target["provenance"]["record_sha256"] = envelope.record_digest(target)
+            self.assertTrue(views.is_positive(target))
+
+        drifted = self.copies.copy("drifted", edit)
+        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, "fails integrity", drifted.name,
+                     cv.EXPORT_RECORD_FAILS_CONTRACT):
+            report(run_a, drifted)
+
     def test_missing_run_files_and_a_foreign_summary_are_refused(self):
         empty = self.copies.root / "empty"
         empty.mkdir()
@@ -311,6 +344,11 @@ class Refusals(unittest.TestCase):
         legacy = self.copies.copy("legacy", run_edit=lambda s: s.update(format="code-repair-run/1"))
         with refusal(self, cv.FINDING_RUN_FILE_MISSING, "not a code-repair"):
             report(legacy)
+        for name, payload in (("garbled", b"{not json"), ("deep", b"[" * 100_000 + b"]" * 100_000)):
+            unreadable = self.copies.copy(name)
+            (unreadable / generate.RUN_FILENAME).write_bytes(payload)
+            with self.subTest(name=name), refusal(self, cv.FINDING_RUN_FILE_MISSING, "not JSON"):
+                report(unreadable)
         with refusal(self, cv.FINDING_RUN_FILE_MISSING, "at least one"):
             report()
 
@@ -375,7 +413,8 @@ class ReadOnlyAndWriting(unittest.TestCase):
         before = (tree_digests(run_a), tree_digests(run_b))
         out = self.root / "reports" / "stacked.json"
         manifest = report(run_a, run_b, out=out)
-        self.assertEqual((tree_digests(run_a), tree_digests(run_b)), before)
+        after = (tree_digests(run_a), tree_digests(run_b))
+        self.assertEqual(after, before)
         expected = dumps_exact_json(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
         self.assertEqual(out.read_text(encoding="utf-8"), expected)
         self.assertEqual(load_strict_json(out.read_bytes()), manifest)

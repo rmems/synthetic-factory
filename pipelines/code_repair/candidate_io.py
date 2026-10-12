@@ -30,7 +30,7 @@ def load_run_summary(data: bytes) -> dict[str, Any]:
     """``RUN.json`` with exact decimals; refused unless it is a code-repair run summary."""
     try:
         metadata = load_strict_json(data)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise cv.RepairRefusal(
             cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {cv.shown(exc)}"
         ) from exc

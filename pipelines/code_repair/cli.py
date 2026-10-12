@@ -75,18 +75,24 @@ def build_parser() -> argparse.ArgumentParser:
     pub.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
     pub.add_argument("--json", action="store_true")
 
-    dup = commands.add_parser("dedup", help="read-only duplicate report over stacked runs")
-    dup.add_argument("--run", dest="runs", type=Path, action="append", required=True,
-                     help="a run directory; repeat in keep-first order")
-    dup.add_argument("--out", type=Path, default=None,
-                     help="a brand-new file for the manifest, outside every run directory")
-    dup.add_argument("--json", action="store_true")
+    _add_dedup_parser(commands)
 
     render = commands.add_parser("render", help="the SFT prompt/completion of one record")
     render.add_argument("run_dir", type=Path)
     render.add_argument("record_id")
     render.add_argument("--json", action="store_true")
     return parser
+
+
+def _add_dedup_parser(commands: Any) -> None:
+    """``dedup``: run directories in keep-first order and an optional brand-new file."""
+
+    dup =commands.add_parser("dedup", help="read-only duplicate report over stacked runs")
+    dup.add_argument("--run", dest="runs", type=Path, action="append", required=True,
+                     help="a run directory; repeat in keep-first order")
+    dup.add_argument("--out", type=Path, default=None,
+                     help="a brand-new file for the manifest, outside every run directory")
+    dup.add_argument("--json", action="store_true")
 
 
 def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
