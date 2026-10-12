@@ -8,7 +8,9 @@ reserved or written under the real ``outputs/raw/``.
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import sys
 import tempfile
@@ -20,6 +22,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from cer import cli as cer_cli
 from cer import mill_runner as mr
 from cer import plants_r1901
 from cer import record_builder as rb
@@ -219,6 +222,24 @@ class BurstPlanRefusalTests(unittest.TestCase):
         ):
             self._load(plan)
         self.assertEqual(self._load(plan, validate_plants=False).mills[0].plants_module, "cer_short_plants")
+
+
+class PlanCliTests(unittest.TestCase):
+    @staticmethod
+    def _run(*argv: str) -> tuple[int, str]:
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            status = cer_cli.run(list(argv))
+        return status, printed.getvalue()
+
+    def test_plan_prints_counts_as_text_and_as_json(self):
+        status, text = self._run("plan")
+        self.assertEqual(status, 0)
+        self.assertRegex(text, r"^slice \S+ .+: \d+ mills, \d+ rounds, \d+ episodes\n$")
+        status, raw = self._run("plan", "--json")
+        payload = json.loads(raw)
+        self.assertEqual(status, 0)
+        self.assertEqual(len(payload["mills"]), payload["counts"]["mills"])
 
 
 if __name__ == "__main__":

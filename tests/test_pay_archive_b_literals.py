@@ -8,13 +8,16 @@ rule that only top-level ``PAIRS.append`` statements become catalog rows.
 from __future__ import annotations
 
 import ast
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from pay import archive_b_deferred as deferred
 from pay import archive_b_extract as extract
 from pay._contract import FINDING_AST_NOT_A_PAIR, FINDING_SOURCE_NOT_PARSEABLE, PayRefusal
 
@@ -121,6 +124,30 @@ class PairsFromSourceTests(unittest.TestCase):
         with self.assertRaises(PayRefusal) as caught:
             extract.pairs_from_source(source, source="plants.py")
         self.assertEqual(caught.exception.code, FINDING_AST_NOT_A_PAIR)
+
+
+class DeferredSourcesMetaTests(unittest.TestCase):
+    def test_extract_and_deferred_sources_must_have_the_right_shape(self):
+        committed = json.loads((REPO / "pipelines" / "pay" / "CATALOG.json").read_text(encoding="utf-8"))
+        cases = (
+            (lambda c: c.update(extract=[]), "extract must be object"),
+            (lambda c: c["extract"].update(deferred_sources={}), "deferred_sources must be a list"),
+            (lambda c: c["extract"].update(deferred_sources=["x"]), "deferred_sources[0] must be object"),
+        )
+        for mutate, message in cases:
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                catalog = json.loads(json.dumps(committed))
+                mutate(catalog)
+                path = Path(tmp) / "CATALOG.json"
+                path.write_text(json.dumps(catalog), encoding="utf-8")
+                with self.assertRaises(PayRefusal) as caught:
+                    deferred.load_deferred_sources_meta(path)
+                self.assertTrue(str(caught.exception).endswith(message), str(caught.exception))
+
+    def test_committed_deferred_sources_load(self):
+        rows = deferred.load_deferred_sources_meta()
+        self.assertTrue(rows)
+        self.assertTrue(all("path" in row and "n_pairs" in row for row in rows))
 
 
 if __name__ == "__main__":

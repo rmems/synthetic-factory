@@ -27,6 +27,7 @@ if str(REPO) not in sys.path:
 from pipelines.db import check, cli
 from pipelines.db import config as cfg
 from pipelines.db.episode import build_episode
+from pipelines.db.plant import make_plant
 from pipelines.db.plants import PLANTS
 
 
@@ -320,6 +321,29 @@ class SelfCheckRefusalTests(unittest.TestCase):
     def test_recycle_suffix_in_an_episode_id_is_refused(self):
         with self.assertRaisesRegex(ValueError, "^recycle suffix in id: dbm-r845-x-r12$"):
             build_episode(cfg.START_ROUND, dict(PLANTS[0], slug="x-r12"), 0)
+
+
+_PLANT_FIELDS = {
+    "engine": "sqlite", "slug": "slug-x", "plant": "p", "surface": "s", "table": "t",
+    "col": "c", "col_v2": "c2", "leftover": "l", "leftover2": "l2", "seed": "seed",
+    "fail": "f", "inspect": "i", "catalog": "cat", "abort": "a", "col_type": "TEXT",
+}
+
+
+class PlantConstructorTests(unittest.TestCase):
+    def test_a_complete_plant_is_built_with_defaults(self):
+        record = make_plant(**_PLANT_FIELDS)
+        self.assertEqual((record["slug"], record["lock_fail"], record["db"]), ("slug-x", "", "app.db"))
+
+    def test_an_empty_required_field_or_unknown_engine_is_refused(self):
+        for field, value, message in (
+            ("seed", "", "empty seed in 'slug-x'"),
+            ("col_type", "", "empty col_type in 'slug-x'"),
+            ("engine", "nosuchdb", "unknown engine 'nosuchdb' in 'slug-x'"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError) as caught:
+                make_plant(**dict(_PLANT_FIELDS, **{field: value}))
+            self.assertEqual(str(caught.exception), message)
 
 
 if __name__ == "__main__":

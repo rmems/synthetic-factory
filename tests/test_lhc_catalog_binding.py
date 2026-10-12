@@ -6,6 +6,7 @@ directory, perturbs one thing, and checks the refusal that fires first.
 
 from __future__ import annotations
 
+import ast
 import copy
 import dataclasses
 import json
@@ -18,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from lhc import catalog as lhc_catalog
+from lhc import catalog_extract_plants as plants_extract
 from lhc.catalog import load_catalog
 from lhc.catalog_extract_jsonl import load_pair_rows
 from lhc.sources import catalog_sources
@@ -164,6 +166,27 @@ class PairRowsFramingTests(unittest.TestCase):
 
     def test_committed_rows_load_in_order(self):
         self.assertEqual(load_pair_rows(_PACKAGE / "pairs.jsonl"), _PAIRS)
+
+
+class PlantIdentityTests(unittest.TestCase):
+    def test_p_constructor_identity_needs_literal_slug_and_plant(self):
+        cases = {
+            "P(slug='s')": None,
+            "P(**spec)": None,
+            "P(slug=name, plant='p')": None,
+            "P('ok', slug='s', plant='p')": {"slug": "s", "plant": "p", "ok": "ok", "key": None},
+            "P(slug='s', plant='p', ok=1)": {"slug": "s", "plant": "p", "ok": 1, "key": None},
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                node = ast.parse(source, mode="eval").body
+                self.assertEqual(plants_extract._p_identity(node), expected)
+
+    def test_a_plants_table_with_a_spread_entry_is_not_read(self):
+        spread = plants_extract.plants_context(ast.parse("PLANTS = {**base, 'a': P(slug='s', plant='p')}"))
+        plain = plants_extract.plants_context(ast.parse("PLANTS = {'a': P(slug='s', plant='p')}"))
+        self.assertEqual(spread[:2], ({}, None))
+        self.assertEqual(plain[:2], ({"a": {"slug": "s", "plant": "p", "ok": None, "key": None}}, "P"))
 
 
 if __name__ == "__main__":

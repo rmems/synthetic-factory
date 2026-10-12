@@ -12,6 +12,7 @@ from ._contract import (
     FINDING_CATALOG_FIELD_INVALID,
     SOURCE_BYTES_COMMIT,
     SOURCE_BYTES_REF,
+    PayRefusal,
     bind_import_twin,
     load_strict_json,
     package_dir,
@@ -35,9 +36,11 @@ def load_deferred_sources_meta(catalog_path: Path | None = None) -> tuple[Mappin
     path = package_dir() / "CATALOG.json" if catalog_path is None else catalog_path
     meta = load_strict_json(path)
     extract = meta.get("extract")
-    refuse_when(not isinstance(extract, dict), FINDING_CATALOG_FIELD_INVALID, "extract must be object")
+    if not isinstance(extract, dict):
+        raise PayRefusal(FINDING_CATALOG_FIELD_INVALID, "extract must be object")
     raw = extract.get("deferred_sources")
-    refuse_when(not isinstance(raw, list), FINDING_CATALOG_FIELD_INVALID, "deferred_sources must be a list")
+    if not isinstance(raw, list):
+        raise PayRefusal(FINDING_CATALOG_FIELD_INVALID, "deferred_sources must be a list")
     rows: list[Mapping[str, Any]] = []
     for index, entry in enumerate(raw):
         refuse_when(
