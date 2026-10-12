@@ -189,9 +189,14 @@ def _bash(command: str) -> dict[str, Any]:
     return {"name": "bash", "args": {"command": command}}
 
 
-def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+def _feature(plant: cat.Plant) -> str:
+    return plant.title.split(":", 1)[-1].strip()
+
+
+def _inventory_steps(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    """Steps 1-3: inventory the PR, diff the core hunk, read the implementation."""
     repo, core, boot, test = plant.repo, plant.core, plant.boot, plant.test
-    feat = plant.title.split(":", 1)[-1].strip()
+    feat = _feature(plant)
     return [
         _step(
             1,
@@ -224,6 +229,14 @@ def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
             ),
             "Confirm callers and tests before verdict.",
         ),
+    ]
+
+
+def _context_steps(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    """Steps 4-7: reachability, the tests as their own object, the search, the PR body."""
+    repo, core, boot, test = plant.repo, plant.core, plant.boot, plant.test
+    feat = _feature(plant)
+    return [
         _step(
             4,
             (
@@ -271,6 +284,10 @@ def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
     ]
 
 
+def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    return [*_inventory_steps(plant, pr), *_context_steps(plant, pr)]
+
+
 def _chosen_tail(plant: cat.Plant, pr: int, rid: int) -> list[dict[str, Any]]:
     return crp_tail.chosen_tail(plant, pr, rid)
 
@@ -284,19 +301,69 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
 
     pr = 1900 + (round_n - cat.PAIR_FIRST_ROUND) * 3 + slot
     rid = 900000 + pr
-    pq = round(0.86 + (slot * 0.02) + ((round_n % 5) * 0.002), 3)
-    vr = round(0.87 + (slot * 0.01) + ((round_n % 7) * 0.001), 3)
-    ds = round(0.88 + (slot * 0.015), 3)
+    chosen_reward = _chosen_reward(round_n, slot)
     margin = round(0.72 + (slot * 0.03) + ((round_n % 4) * 0.01), 3)
-    feat = plant.title.split(":", 1)[-1].strip()
+    chosen_steps, rejected_steps = _side_steps(plant, pr, rid, slot)
+    critique = _critique(plant, pr)
+    return {
+        "id": f"{cat.ID_PREFIX}-r{round_n}-{plant.slug}",
+        "goal": (
+            f"Review designed {plant.repo} PR #{pr} ({plant.title}) and post a "
+            f"merge-blocking review if {plant.missing} is not enforced."
+        ),
+        "outcome": (
+            f"Chosen: REQUEST_CHANGES on {plant.defect}; required {plant.fix} + "
+            f"{plant.missing}. Rejected: Nit on the {plant.nit} name, APPROVE. "
+            f"Missed {plant.defect}. Quality delta at first fork "
+            f"(missed race or real bug vs nit/LGTM)."
+        ),
+        "chosen": {
+            "steps": chosen_steps,
+            "outcome": (
+                f"REQUEST_CHANGES on {plant.defect}; required {plant.fix} + {plant.missing}."
+            ),
+            "reward": chosen_reward,
+        },
+        "rejected": {
+            "steps": rejected_steps,
+            "outcome": f"Nit on the {plant.nit} name, APPROVE. Missed {plant.defect}.",
+            "reward": {
+                "success": False,
+                "process_quality": 0.16,
+                "verify_rigor": 0.07,
+                "defect_specificity": 0.05,
+            },
+        },
+        "critique": critique,
+        "reward": {"success": True, "preference_margin": margin, "same_goal": 1.0},
+        "meta": _pair_meta(plant, round_n),
+    }
+
+
+def _chosen_reward(round_n: int, slot: int) -> dict[str, Any]:
+    return {
+        "success": True,
+        "process_quality": round(0.86 + (slot * 0.02) + ((round_n % 5) * 0.002), 3),
+        "verify_rigor": round(0.87 + (slot * 0.01) + ((round_n % 7) * 0.001), 3),
+        "defect_specificity": round(0.88 + (slot * 0.015), 3),
+    }
+
+
+def _side_steps(
+    plant: cat.Plant, pr: int, rid: int, slot: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The shared seven-step prefix, then the chosen and rejected tails."""
     prefix = _prefix(plant, pr)
     prefix[0]["observation"] = (
         f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8 + slot},'
         f'"files":[{{"path": "{plant.core}"}}, {{"path": "{plant.boot}"}}, '
         f'{{"path": "{plant.test}"}}],"headRefName":"feat/{plant.slug}"}}'
     )
-    chosen_steps = prefix + _chosen_tail(plant, pr, rid)
-    rejected_steps = prefix + _rejected_tail(plant, pr)
+    return prefix + _chosen_tail(plant, pr, rid), prefix + _rejected_tail(plant, pr)
+
+
+def _critique(plant: cat.Plant, pr: int) -> str:
+    feat = _feature(plant)
     critique = (
         f"Same {plant.repo} PR {pr} and the same seven-step prefix: pr view, {feat}, "
         f"{plant.defect}, {plant.reach}, tests resolve, rg, PR body. Divergence is "
@@ -316,59 +383,26 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
         FINDING_CRITIQUE_TOO_SHORT,
         f"critique too short for {plant.slug}: {len(critique)}",
     )
+    return critique
+
+
+def _pair_meta(plant: cat.Plant, round_n: int) -> dict[str, Any]:
     return {
-        "id": f"{cat.ID_PREFIX}-r{round_n}-{plant.slug}",
-        "goal": (
-            f"Review designed {plant.repo} PR #{pr} ({plant.title}) and post a "
-            f"merge-blocking review if {plant.missing} is not enforced."
-        ),
-        "outcome": (
-            f"Chosen: REQUEST_CHANGES on {plant.defect}; required {plant.fix} + "
-            f"{plant.missing}. Rejected: Nit on the {plant.nit} name, APPROVE. "
-            f"Missed {plant.defect}. Quality delta at first fork "
-            f"(missed race or real bug vs nit/LGTM)."
-        ),
-        "chosen": {
-            "steps": chosen_steps,
-            "outcome": (
-                f"REQUEST_CHANGES on {plant.defect}; required {plant.fix} + {plant.missing}."
-            ),
-            "reward": {
-                "success": True,
-                "process_quality": pq,
-                "verify_rigor": vr,
-                "defect_specificity": ds,
-            },
-        },
-        "rejected": {
-            "steps": rejected_steps,
-            "outcome": f"Nit on the {plant.nit} name, APPROVE. Missed {plant.defect}.",
-            "reward": {
-                "success": False,
-                "process_quality": 0.16,
-                "verify_rigor": 0.07,
-                "defect_specificity": 0.05,
-            },
-        },
-        "critique": critique,
-        "reward": {"success": True, "preference_margin": margin, "same_goal": 1.0},
-        "meta": {
-            "factory": cat.FACTORY,
-            "round": round_n,
-            "generator": cat.GENERATOR,
-            "kind": "preference",
-            "plant": "designed",
-            "rejected_sin": "missed defect / nitpicks",
-            "divergence_step": 8,
-            "construction": "divergence-point-shared-prefix",
-            "chosen_steps": 13,
-            "rejected_steps": 12,
-            "review_lesson": f"{plant.family}-blocking-vs-nit",
-            "family": plant.family,
-            "noun": plant.noun,
-            "slug": plant.slug,
-            "wave": cat.CATALOG_ID,
-        },
+        "factory": cat.FACTORY,
+        "round": round_n,
+        "generator": cat.GENERATOR,
+        "kind": "preference",
+        "plant": "designed",
+        "rejected_sin": "missed defect / nitpicks",
+        "divergence_step": 8,
+        "construction": "divergence-point-shared-prefix",
+        "chosen_steps": 13,
+        "rejected_steps": 12,
+        "review_lesson": f"{plant.family}-blocking-vs-nit",
+        "family": plant.family,
+        "noun": plant.noun,
+        "slug": plant.slug,
+        "wave": cat.CATALOG_ID,
     }
 
 
