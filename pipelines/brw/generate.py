@@ -131,6 +131,18 @@ def _eval_expr(p: dict) -> str:
     )
 
 
+_API_RECEIPT_BASIS = "Observation: GET api receipt."
+
+
+def _api_receipt(n: int, p: dict, detail: str) -> dict:
+    """Step ``n``: GET the kept item's API receipt; ``detail`` is its last JSON member."""
+    verb = p["verb"].lower()
+    api, keep = site("api", p["ok_host"]), p["ok_id"]
+    return st(n, _API_RECEIPT_BASIS,
+              "http_request", {"method": "GET", "url": f"https://{api}/{verb}s/{keep}", "headers": {"Accept": "application/json"}},
+              f"200 {{\"{verb}_id\":\"{keep}\",\"item\":\"{p['item']}\",{detail}}}")
+
+
 def build_success(n: int, p: dict) -> dict:
     host = p["ok_host"]
     s = site(p["sub"], host)
@@ -225,9 +237,7 @@ def build_success(n: int, p: dict) -> dict:
             st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
                "browser_click", {"ref": p["act_ref"]},
                f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, "Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"via\":\"a11y_ref\"}}"),
+            _api_receipt(12, p, '"via":"a11y_ref"'),
             st(13, f"Observation: snapshot {keep}.",
                "browser_snapshot", {"interactive": True},
                f"[a11y]\n- status 'Kept {keep}' ref=s1"),
@@ -302,9 +312,7 @@ def build_success(n: int, p: dict) -> dict:
             st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
                "browser_click", {"ref": p["act_ref"]},
                f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, "Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"overlay\":\"cleared\"}}"),
+            _api_receipt(12, p, '"overlay":"cleared"'),
             st(13, f"Observation: snapshot {keep}.",
                "browser_snapshot", {"interactive": True},
                f"[a11y]\n- status 'Kept {keep}' ref=s1"),
@@ -350,9 +358,7 @@ def build_success(n: int, p: dict) -> dict:
             st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
                "browser_click", {"ref": p["act_ref"]},
                f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, "Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"unit\":{p['to_v']!r}}}"),
+            _api_receipt(12, p, f'"unit":{p["to_v"]!r}'),
             st(13, f"Observation: snapshot {keep}.",
                "browser_snapshot", {"interactive": True},
                f"[a11y]\n- status 'Kept {keep}' ref=s1"),
@@ -394,9 +400,7 @@ def build_success(n: int, p: dict) -> dict:
             st(10, f"Observation: click {p['verb']} {p['act_ref']} by ref under wrap.",
                "browser_click", {"ref": p["act_ref"]},
                f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(11, "Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"token\":\"full\"}}"),
+            _api_receipt(11, p, '"token":"full"'),
             st(12, "Observation: GET OpenAPI 415 clause.",
                "http_request", {"method": "GET", "url": f"https://{api}/openapi.json", "headers": {"Accept": "application/json"}},
                f"200\nPOST /{p['sub']} 415 phrase_ocr if token is a wrap fragment"),
@@ -444,9 +448,7 @@ def build_success(n: int, p: dict) -> dict:
             st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
                "browser_click", {"ref": p["act_ref"]},
                f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, "Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"box\":\"child\"}}"),
+            _api_receipt(12, p, '"box":"child"'),
             st(13, f"Observation: snapshot {keep}.",
                "browser_snapshot", {"interactive": True},
                f"[a11y]\n- status 'Kept {keep}' ref=s1"),
