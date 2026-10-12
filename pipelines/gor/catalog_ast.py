@@ -7,8 +7,9 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
+from typing import Any, TypeGuard
 
 from .vocabulary import CTOR_POSARGS
 
@@ -36,36 +37,65 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    Recursion stays here (``-x``, ``a + b``) and in the container readers, exactly
+    one frame per ``-``/``+`` level; the predicates and readers chosen below do not
+    call back into it.
+    """
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
         return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
+    if not isinstance(
+        node, (ast.UnaryOp, ast.BinOp, ast.Tuple, ast.List, ast.Set, ast.Dict, ast.JoinedStr)
+    ):
+        return UNSET
+    if _minus(node):
+        return _negative_number(literal_value(node.operand, bound))
+    if _plus(node):
+        return _string_sum(literal_value(node.left, bound), literal_value(node.right, bound))
+    return _read_container(node)(bound)
+
+
+def _minus(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+
+
+def _plus(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _negative_number(operand: Any) -> Any:
+    return UNSET if not isinstance(operand, (int, float)) else -operand
+
+
+def _string_sum(left: Any, right: Any) -> Any:
+    if not isinstance(left, str) or not isinstance(right, str):
+        return UNSET
+    return left + right
+
+
+def _read_container(node: ast.AST) -> Callable[[Mapping[str, Any]], Any]:
+    """Bind the reader for a sequence, dict, or f-string node; it does the recursing."""
+
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        ctor = tuple if isinstance(node, ast.Tuple) else set if isinstance(node, ast.Set) else list
+        return partial(_sequence, node.elts, ctor=ctor)
     if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+        return partial(_joined_string, node)
+    if isinstance(node, ast.Dict):
+        return partial(_mapping, node)
+    return _nothing
+
+
+def _nothing(_bound: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -120,6 +150,12 @@ def ctor_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str
         return None
     name = node.func.id
     bound = env or {}
+    return _ctor_values(node, name, bound)
+
+
+def _ctor_values(node: ast.Call, name: str, bound: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Positional literals named by ``CTOR_POSARGS``, then the keyword literals."""
+
     out: dict[str, Any] = {}
     pos_names = CTOR_POSARGS.get(name)
     if node.args:
@@ -130,6 +166,12 @@ def ctor_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str
             if value is UNSET:
                 return None
             out[key] = value
+    return _with_keyword_values(node, bound, out)
+
+
+def _with_keyword_values(
+    node: ast.Call, bound: Mapping[str, Any], out: dict[str, Any]
+) -> dict[str, Any] | None:
     for keyword in node.keywords:
         value = literal_value(keyword.value, bound)
         if keyword.arg is None or value is UNSET:

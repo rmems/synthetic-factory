@@ -124,64 +124,93 @@ def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:
 
 
 def _listed_pairs(tree: ast.AST) -> dict[str, Any] | None:
-    collected: list[dict[str, Any]] = []
-    n_new = 0
-    n_more = 0
-    shape: str | None = None
+    listed = _ListedPairs()
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
         if name not in _PAIR_LISTS or not isinstance(value, ast.List):
             continue
         if not value.elts:
             continue
-        rows: list[dict[str, Any]] = []
-        for elt in value.elts:
-            row = _pair_identity(elt)
-            if row is None:
-                return None
-            rows.append(row)
-        if not rows:
-            continue
-        found = _shape_for_element(value.elts[0])
-        if found is None:
+        if not listed.add(name, value.elts):
             return None
-        if shape is None:
-            shape = found
-        elif shape != found and {shape, found} != {SHAPE_LEFTOVER_PLANT, SHAPE_PLANT}:
-            # r1127 leftover_plant lists stay leftover; mixed plant+leftover
-            # is leftover-plant (the later constructor wraps plant).
-            shape = SHAPE_LEFTOVER_PLANT if "leftover" in (shape, found) else found
-        collected.extend(rows)
+    return listed.record()
+
+
+class _ListedPairs:
+    """Pairs declared across ``PAIRS`` / ``NEW_PAIRS`` / ``MORE_PAIRS`` / ``MORE`` lists."""
+
+    def __init__(self) -> None:
+        self.collected: list[dict[str, Any]] = []
+        self.n_new = 0
+        self.n_more = 0
+        self.shape: str | None = None
+
+    def add(self, name: str, elts: list[ast.expr]) -> bool:
+        """Fold one non-empty list in; False when an element is not a pair identity."""
+
+        rows = _collect_or_none(elts, _pair_identity)
+        if rows is None:
+            return False
+        found = _shape_for_element(elts[0])
+        if found is None:
+            return False
+        self.shape = _merged_shape(self.shape, found)
+        self.collected.extend(rows)
         if name == "NEW_PAIRS":
-            n_new += len(rows)
+            self.n_new += len(rows)
         elif name in {"MORE_PAIRS", "MORE"}:
-            n_more += len(rows)
-    if not collected or shape is None:
-        return None
-    record = _rows_record(shape, collected)
-    if n_new or n_more:
-        record["n_new"] = n_new
-        record["n_more"] = n_more
-    return record
+            self.n_more += len(rows)
+        return True
+
+    def record(self) -> dict[str, Any] | None:
+        if not self.collected or self.shape is None:
+            return None
+        record = _rows_record(self.shape, self.collected)
+        if self.n_new or self.n_more:
+            record["n_new"] = self.n_new
+            record["n_more"] = self.n_more
+        return record
+
+
+def _merged_shape(shape: str | None, found: str) -> str:
+    if shape is None:
+        return found
+    if shape == found or {shape, found} == {SHAPE_LEFTOVER_PLANT, SHAPE_PLANT}:
+        return shape
+    # r1127 leftover_plant lists stay leftover; mixed plant+leftover
+    # is leftover-plant (the later constructor wraps plant).
+    return SHAPE_LEFTOVER_PLANT if "leftover" in (shape, found) else found
+
+
+def _collect_or_none(items, convert) -> list[Any] | None:
+    """``convert`` every item, or None as soon as one item does not convert."""
+
+    out: list[Any] = []
+    for item in items:
+        converted = convert(item)
+        if converted is None:
+            return None
+        out.append(converted)
+    return out
 
 
 def _add_pairs(tree: ast.AST) -> dict[str, Any] | None:
-    rows: list[dict[str, Any]] = []
-    for node in getattr(tree, "body", ()):
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-            continue
-        if call_name(node.value) != "add":
-            continue
-        args = call_positional(node.value)
-        if args is None or len(args) != 2:
-            return None
-        row = _specs_identity(args[0], args[1])
-        if row is None:
-            return None
-        rows.append(row)
+    calls = (node.value for node in getattr(tree, "body", ()) if _is_add_call(node))
+    rows = _collect_or_none(calls, _add_call_identity)
     if not rows:
         return None
     return _rows_record(SHAPE_ADD, rows)
+
+
+def _is_add_call(node: ast.stmt) -> bool:
+    return isinstance(node, ast.Expr) and call_name(node.value) == "add"
+
+
+def _add_call_identity(call: ast.Call) -> dict[str, Any] | None:
+    args = call_positional(call)
+    if args is None or len(args) != 2:
+        return None
+    return _specs_identity(args[0], args[1])
 
 
 def _pair_identity(node: ast.AST) -> dict[str, Any] | None:
@@ -221,34 +250,41 @@ def _spec_identity(node: ast.AST) -> dict[str, Any] | None:
     return kwargs
 
 
+# ``_pair(ctor(...), ...)``: the first constructor names the shape; any other is ``add``.
+_PAIR_CALL_SHAPES: dict[str | None, str] = {
+    "gitcfg": SHAPE_GITCFG,
+    "_cfg": SHAPE_GITCFG,
+    "cmdplant": SHAPE_LEFTOVER_PLANT,
+    "_cmd": SHAPE_LEFTOVER_PLANT,
+    "leftover_plant": SHAPE_LEFTOVER_PLANT,
+    "plant": SHAPE_PLANT,
+}
+# ``(ctor(...), ctor(...))`` tuples: an unlisted constructor has no shape.
+_TUPLE_CTOR_SHAPES: dict[str | None, str] = {
+    "_S": SHAPE_S_H,
+    "plant": SHAPE_PLANT,
+    "leftover_plant": SHAPE_LEFTOVER_PLANT,
+    "gitcfg": SHAPE_GITCFG,
+    "_cfg": SHAPE_GITCFG,
+}
+
+
 def _shape_for_element(node: ast.AST) -> str | None:
     if call_name(node) == "_pair":
-        args = call_positional(node)
-        if args is None or not args:
-            return None
-        name = call_name(args[0])
-        if name in {"gitcfg", "_cfg"}:
-            return SHAPE_GITCFG
-        if name in {"cmdplant", "_cmd", "leftover_plant"}:
-            return SHAPE_LEFTOVER_PLANT
-        if name == "plant":
-            return SHAPE_PLANT
-        return SHAPE_ADD
+        return _pair_call_shape(node)
     if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
         return None
     left = node.elts[0]
     if isinstance(left, ast.Dict):
         return SHAPE_LITERAL
-    name = call_name(left)
-    if name == "_S":
-        return SHAPE_S_H
-    if name == "plant":
-        return SHAPE_PLANT
-    if name == "leftover_plant":
-        return SHAPE_LEFTOVER_PLANT
-    if name in {"gitcfg", "_cfg"}:
-        return SHAPE_GITCFG
-    return None
+    return _TUPLE_CTOR_SHAPES.get(call_name(left))
+
+
+def _pair_call_shape(node: ast.AST) -> str | None:
+    args = call_positional(node)
+    if not args:
+        return None
+    return _PAIR_CALL_SHAPES.get(call_name(args[0]), SHAPE_ADD)
 
 
 def _rows_record(shape: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -380,22 +416,29 @@ def load_pair_rows(path: Path | None = None) -> list[dict[str, Any]]:
         raise ValueError(f"cannot load GOR pairs {destination}: {exc}") from exc
     if "\r" in text or not text.endswith("\n"):
         raise ValueError(f"{destination.name} must be LF-framed jsonl")
-    rows: list[dict[str, Any]] = []
-    for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise ValueError(f"{destination.name}:{index} is empty")
-        if line.startswith((" ", "\t")):
-            raise ValueError(f"{destination.name}:{index} is not compact")
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{destination.name}:{index} is not JSON: {exc}") from exc
-        if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
-            raise ValueError(f"{destination.name}:{index} keys differ")
-        rows.append(row)
+    rows = [
+        _pair_row_from_line(destination.name, index, line)
+        for index, line in enumerate(text.splitlines(), start=1)
+    ]
     if not rows:
         raise ValueError(f"{destination.name} must contain deferred pair identities")
     return rows
+
+
+def _pair_row_from_line(name: str, index: int, line: str) -> dict[str, Any]:
+    """One compact JSON object carrying exactly ``PAIR_ROW_KEYS``."""
+
+    if not line:
+        raise ValueError(f"{name}:{index} is empty")
+    if line.startswith((" ", "\t")):
+        raise ValueError(f"{name}:{index} is not compact")
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name}:{index} is not JSON: {exc}") from exc
+    if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
+        raise ValueError(f"{name}:{index} keys differ")
+    return row
 
 
 def write_catalog_document(document: Mapping[str, Any], path: Path | None = None) -> Path:
