@@ -52,7 +52,9 @@ class RightsAuditBinding(unittest.TestCase):
                 return report, summary
 
             request = export_hf.ExportRequest(curated, root / "export")
-            with patch.object(export_hf, "_training_ready_audit", mismatched_audit):
-                with self.assertRaisesRegex(export_hf.ExportError, "rights.*manifest"):
-                    export_hf.export_run(request)
+            with (
+                patch.object(export_hf, "_training_ready_audit", mismatched_audit),
+                self.assertRaisesRegex(export_hf.ExportError, "rights.*manifest"),
+            ):
+                export_hf.export_run(request)
             self.assertFalse((root / "export").exists())

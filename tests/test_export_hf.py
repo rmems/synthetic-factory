@@ -255,11 +255,13 @@ class ExportCorpusGating(ResearchExportAllowed, unittest.TestCase):
             }
 
             request = export_hf.ExportRequest(curated, root / "export")
-            with mock.patch.object(
-                export_hf.training_audit, "audit_run", return_value=blocked_report
+            with (
+                mock.patch.object(
+                    export_hf.training_audit, "audit_run", return_value=blocked_report
+                ),
+                self.assertRaises(export_hf.ExportError) as caught,
             ):
-                with self.assertRaises(export_hf.ExportError) as caught:
-                    export_hf.export_run(request)
+                export_hf.export_run(request)
             self.assertIn("not training_ready", str(caught.exception))
             self.assertFalse((root / "export").exists())
 

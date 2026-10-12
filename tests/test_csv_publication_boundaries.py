@@ -195,9 +195,12 @@ class StagePublicationBoundaries(unittest.TestCase):
                 raise OSError("injected opened stage verification failure")
             return original_fstat(descriptor)
 
-        with patch.object(os, "open", open_stage), patch.object(os, "fstat", fstat):
-            with self.assertRaisesRegex(CsvRefusal, "opened stage verification failure"):
-                self._run()
+        with (
+            patch.object(os, "open", open_stage),
+            patch.object(os, "fstat", fstat),
+            self.assertRaisesRegex(CsvRefusal, "opened stage verification failure"),
+        ):
+            self._run()
         self.assertEqual(len(opened), 1)
         with self.assertRaises(OSError):
             os.fstat(opened[0])
