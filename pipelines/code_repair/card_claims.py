@@ -100,20 +100,32 @@ def _counted(values: list[Any]) -> Tally:
     return tuple(sorted(Counter(str(v) for v in values).items()))
 
 
-def _not_replayed_entries(replay: dict[str, Any], expected: int) -> list[dict[str, Any]]:
+def _entry_kind(entry: Any) -> str:
+    status = entry.get("status") if isinstance(entry, dict) else None
+    if status == "not_replayed":
+        return "not_replayed"
+    if status != "replayed":
+        return "malformed"
+    return "passed" if entry.get("code") == cv.REPLAY_PASSED else "failed"
+
+
+def _listed_entries(replay: dict[str, Any], counts: dict[str, int]) -> list[dict[str, Any]]:
+    """The per-record list, refused unless it reconciles with every summary count."""
+
     entries = replay.get("records")
     if not isinstance(entries, list):
         raise CardClaimError(f"{REPLAY_EVIDENCE} needs a 'records' list")
-    skipped = [e for e in entries if isinstance(e, dict) and e.get("status") == "not_replayed"]
-    if len(skipped) != expected:
-        raise CardClaimError(
-            f"{REPLAY_EVIDENCE} lists {len(skipped)} not-replayed records but counts {expected}"
-        )
-    return skipped
+    listed = Counter(_entry_kind(entry) for entry in entries)
+    for kind, expected in {**counts, "malformed": 0}.items():
+        if listed[kind] != expected:
+            raise CardClaimError(
+                f"{REPLAY_EVIDENCE} lists {listed[kind]} {kind} records but counts {expected}"
+            )
+    return entries
 
 
-def replay_coverage(replay: dict[str, Any]) -> ReplayCoverage:
-    """Read the replay coverage ``REPLAY.json`` supports, refusing counts that do not add up."""
+def _summary_counts(replay: Any) -> tuple[int, int, int, int]:
+    """``records, passed, failed, not_replayed`` from ``counts``, refused unless they add up."""
 
     counts = replay.get("counts") if isinstance(replay, dict) else None
     records, passed, failed, not_replayed = (
@@ -125,10 +137,20 @@ def replay_coverage(replay: dict[str, Any]) -> ReplayCoverage:
             f"{REPLAY_EVIDENCE} counts do not add up: {passed} passed + {failed} failed + "
             f"{not_replayed} not replayed != {records} records"
         )
+    return records, passed, failed, not_replayed
+
+
+def replay_coverage(replay: dict[str, Any]) -> ReplayCoverage:
+    """Read the replay coverage ``REPLAY.json`` supports, refusing evidence that disagrees."""
+
+    records, passed, failed, not_replayed = _summary_counts(replay)
     status = replay.get("status")
     if not isinstance(status, str):
         raise CardClaimError(f"{REPLAY_EVIDENCE} needs a string 'status'")
-    skipped = _not_replayed_entries(replay, not_replayed)
+    entries = _listed_entries(
+        replay, {"passed": passed, "failed": failed, "not_replayed": not_replayed}
+    )
+    skipped = [entry for entry in entries if _entry_kind(entry) == "not_replayed"]
     return ReplayCoverage(
         status, records, passed, failed, not_replayed,
         _counted([e.get("outcome") for e in skipped]),
@@ -237,9 +259,10 @@ def _verification_text(card: str) -> str | None:
 def _claim_rules(coverage: ReplayCoverage) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The phrases a Verification statement must carry, and those it must not."""
 
+    status = f"status: {coverage.status}"
     if coverage.complete:
-        return (f"all {coverage.records}",), ()
-    required = (f"{coverage.passed} of {coverage.records}", f"{coverage.failed} failed")
+        return (f"all {coverage.records}", status), ()
+    required = (f"{coverage.passed} of {coverage.records}", f"{coverage.failed} failed", status)
     if coverage.fully_replayed:
         return required, PASS_OVERCLAIMS
     breakdown = tuple(f"{n} {outcome}" for outcome, n in coverage.not_replayed_outcomes)

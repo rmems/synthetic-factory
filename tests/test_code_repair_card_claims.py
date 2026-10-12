@@ -81,19 +81,29 @@ def rendered_card(replay: dict, run: dict) -> str:
     )
 
 
+def with_failures(replay: dict, failed: int) -> dict:
+    """A copy whose first ``failed`` replayed records failed, with counts and status to match."""
+    replay = copy.deepcopy(replay)
+    replayed = [e for e in replay["records"] if e["status"] == "replayed"]
+    for entry in replayed[:failed]:
+        entry["code"] = "REPLAY_HASH_MISMATCH"
+    replay["counts"].update(passed=len(replayed) - failed, failed=failed)
+    replay["status"] = "failed"
+    return replay
+
+
 def fully_replayed_with_failures() -> tuple[dict, dict]:
     replay, run = complete_evidence()
-    replay["status"] = "failed"
-    replay["counts"].update(passed=1, failed=2)
-    run["outcomes"] = {"accepted": 3}
-    return replay, run
+    return with_failures(replay, 2), run
 
 
 def complete_evidence() -> tuple[dict, dict]:
     replay = {
         "status": "passed",
         "counts": {"records": 3, "positives": 3, "passed": 3, "failed": 0, "not_replayed": 0},
-        "records": [{"record_id": str(i), "status": "replayed"} for i in range(3)],
+        "records": [
+            {"record_id": str(i), "status": "replayed", "code": "REPLAY_PASSED"} for i in range(3)
+        ],
     }
     run = {"records": 3, "count": 3, "catalog": {"program_count": 5},
            "outcomes": {"accepted": 3}, "oracle_statuses": {"validated": 3}, "skips": {}}
@@ -129,7 +139,7 @@ class ReplayCoverageTests(unittest.TestCase):
     def test_not_replayed_list_must_match_its_count(self):
         replay = copy.deepcopy(REPLAY)
         replay["records"] = replay["records"][:-1]
-        with self.assertRaisesRegex(cc.CardClaimError, "lists 34 not-replayed"):
+        with self.assertRaisesRegex(cc.CardClaimError, "lists 34 not_replayed records"):
             cc.replay_coverage(replay)
 
     def test_non_integer_and_missing_counts_are_refused(self):
@@ -219,23 +229,36 @@ class CardClaimTests(unittest.TestCase):
         self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [])
 
     def test_failures_must_be_stated(self):
-        replay = copy.deepcopy(REPLAY)
-        replay["status"] = "failed"
-        replay["counts"].update(passed=95, failed=2)
-        card = HONEST_CARD.replace("97 of 132", "95 of 132")
+        replay = with_failures(REPLAY, 2)
+        card = HONEST_CARD.replace("97 of 132", "95 of 132").replace(
+            "status: passed", "status: failed")
         errors = cc.card_claim_errors(card, replay, RUN)
         self.assertEqual(errors, ["Verification must state '2 failed' from evidence/REPLAY.json"])
 
+    def test_replay_status_must_match_the_evidence(self):
+        replay = with_failures(REPLAY, 2)
+        card = HONEST_CARD.replace("97 of 132", "95 of 132").replace("0 failed", "2 failed")
+        self.assertEqual(cc.card_claim_errors(card, replay, RUN),
+                         ["Verification must state 'status: failed' from evidence/REPLAY.json"])
+
     def test_counts_match_whole_numbers_only(self):
-        replay = copy.deepcopy(REPLAY)
-        replay["status"] = "failed"
-        replay["counts"].update(passed=87, failed=10)
+        replay = with_failures(REPLAY, 10)
         card = HONEST_CARD.replace("97 of 132", "87 of 132").replace("0 failed", "10 failed")
-        errors = cc.card_claim_errors(card, replay, RUN)
-        self.assertEqual(errors, [])
-        replay["counts"].update(passed=97, failed=0)
-        errors = cc.card_claim_errors(card.replace("87 of 132", "97 of 132"), replay, RUN)
-        self.assertEqual(errors, ["Verification must state '0 failed' from evidence/REPLAY.json"])
+        card = card.replace("status: passed", "status: failed")
+        self.assertEqual(cc.card_claim_errors(card, replay, RUN), [])
+        card = card.replace("87 of 132", "97 of 132").replace("status: failed", "status: passed")
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN),
+                         ["Verification must state '0 failed' from evidence/REPLAY.json"])
+
+    def test_summary_counts_must_match_the_listed_records(self):
+        replay = copy.deepcopy(REPLAY)
+        replay["records"][0]["code"] = "REPLAY_HASH_MISMATCH"
+        with self.assertRaisesRegex(cc.CardClaimError, "lists 96 passed records but counts 97"):
+            cc.replay_coverage(replay)
+        replay = copy.deepcopy(REPLAY)
+        replay["records"].append({"record_id": "x", "status": "skipped"})
+        with self.assertRaisesRegex(cc.CardClaimError, "lists 1 malformed records but counts 0"):
+            cc.replay_coverage(replay)
 
     def test_a_later_verification_block_is_checked_too(self):
         card = HONEST_CARD + "\n> **Verification:** the full batch passed.\n"

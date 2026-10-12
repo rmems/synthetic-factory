@@ -482,8 +482,8 @@ REPLAY_EVIDENCE = {
     "status": "passed",
     "counts": {"records": 3, "positives": 2, "passed": 2, "failed": 0, "not_replayed": 1},
     "records": [
-        {"record_id": "a", "status": "replayed"},
-        {"record_id": "b", "status": "replayed"},
+        {"record_id": "a", "status": "replayed", "code": "REPLAY_PASSED"},
+        {"record_id": "b", "status": "replayed", "code": "REPLAY_PASSED"},
         {"record_id": "c", "status": "not_replayed", "outcome": "rejected",
          "oracle_status": "validated"},
     ],
@@ -496,7 +496,8 @@ RUN_EVIDENCE = {
 HONEST_REPLAY_CARD = """# Card
 
 > **Verification:** independent replay covered only part of the batch: 2 of 3
-> candidates replayed and passed, 0 failed, and 1 not replayed (the rejected row).
+> candidates replayed and passed, 0 failed, and 1 not replayed (the rejected row); its
+> overall `status: passed` applies to the replayed subset.
 > The rows mix 2 accepted and 1 rejected outcomes, with 3 validated oracle statuses.
 
 3 candidates from 3 requested draws.
