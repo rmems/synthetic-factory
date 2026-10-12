@@ -96,8 +96,14 @@ def program_id_for(upstream: Upstream, path: str, function: str) -> str:
 # --- selection and extraction ---------------------------------------------------
 
 
+def _bound_name(alias: ast.alias) -> str:
+    """The top-level name one import alias binds in the importing module."""
+
+    return (alias.asname or alias.name).split(".")[0]
+
+
 def _bound_names(node: ast.Import | ast.ImportFrom) -> set[str]:
-    return {(alias.asname or alias.name).split(".")[0] for alias in node.names}
+    return {_bound_name(alias) for alias in node.names}
 
 
 def _global_names(table: symtable.SymbolTable) -> set[str]:
@@ -212,13 +218,19 @@ def select_targets(text: str) -> list[str]:
 def _used_import(node: ast.Import | ast.ImportFrom, used: set[str]) -> str | None:
     """The import statement rebuilt with only the aliases the function reads (Codex on #202)."""
 
-    aliases = [a for a in node.names if (a.asname or a.name).split(".")[0] in used]
+    aliases = [a for a in node.names if _bound_name(a) in used]
     if not aliases:
         return None
-    rendered = ", ".join(a.name + (f" as {a.asname}" if a.asname else "") for a in aliases)
+    rendered = ", ".join(_alias_source(a) for a in aliases)
     if isinstance(node, ast.ImportFrom):
         return f"from {'.' * node.level}{node.module or ''} import {rendered}"
     return f"import {rendered}"
+
+
+def _alias_source(alias: ast.alias) -> str:
+    """One imported name as written: ``name`` or ``name as asname``."""
+
+    return alias.name + (f" as {alias.asname}" if alias.asname else "")
 
 
 def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | None:
