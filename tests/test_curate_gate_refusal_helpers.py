@@ -249,14 +249,19 @@ class CalibrationLookupTests(unittest.TestCase):
 
 def _assert_claims(comparability, annotation):
     derived = {"classification": {"comparability": comparability}, "payload": "P"}
-    reward._assert_payload_claims(annotation, derived)
+    return reward._assert_payload_claims(annotation, derived)
 
 
 class PayloadClaimTests(unittest.TestCase):
     def test_matching_claims_pass(self):
-        _assert_claims(curate_rewards.MAGNITUDE_COMPARABLE, {"magnitude": "P"})
-        _assert_claims(curate_rewards.SIGN_ORDER_ONLY, {"order": "P"})
-        _assert_claims("excluded", {})
+        cases = (
+            (curate_rewards.MAGNITUDE_COMPARABLE, {"magnitude": "P"}),
+            (curate_rewards.SIGN_ORDER_ONLY, {"order": "P"}),
+            ("excluded", {}),
+        )
+        for comparability, annotation in cases:
+            with self.subTest(comparability=comparability):
+                self.assertIsNone(_assert_claims(comparability, annotation))
 
     def test_mismatched_or_extra_claims_are_refused(self):
         cases = (
