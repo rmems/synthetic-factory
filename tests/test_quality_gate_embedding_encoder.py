@@ -13,6 +13,74 @@ from gate_fixtures import write  # noqa: E402
 import quality_gate  # noqa: E402
 import quality_gate_embedding  # noqa: E402
 
+# Pairs whose repeated units make an adjacent-bigram multiset ambiguous.
+_REPEATED_UNIT_PAIRS = {
+    "case and operator": ("a+A+", "A+a+"),
+    "repeated word and operators": ("a-a/a", "a/a-a"),
+    "same directed-trigram multiset": (
+        "a+a-a+a/a+a",
+        "a+a/a+a-a+a",
+    ),
+    "casefold-expanded chain": (
+        "a/b-A+B",
+        "A+b-a/B",
+    ),
+    "casefold-only repeated chain": (
+        "a a A a",
+        "a A a a",
+    ),
+    "boundary singleton with case variants": (
+        "a b B b",
+        "a B b b",
+    ),
+    "moved internal whitespace gap": (
+        "a a a  a a",
+        "a a  a a a",
+    ),
+}
+
+
+def _bigram_counts(tokens):
+    """Return the adjacent-bigram slice of an embedding token counter."""
+    return {
+        token: count
+        for token, count in tokens.items()
+        if quality_gate._BIGRAM_SEP in token
+    }
+
+
+def _subsystem_trajectory(with_preamble):
+    """A 25-step trajectory, optionally with one extra leading step."""
+    steps = [
+        {
+            "n": index,
+            "decision_basis": f"inspect subsystem {index} for the fault",
+            "tool_call": f"pytest tests/test_subsystem_{index}.py",
+            "observation": f"subsystem {index} reported a clean run",
+        }
+        for index in range(1, 26)
+    ]
+    if with_preamble:
+        steps = [
+            {
+                "n": 1,
+                "decision_basis": "read brief",
+                "tool_call": "cat BRIEF.md",
+                "observation": "brief names module",
+            },
+            *(
+                {**step, "n": index}
+                for index, step in enumerate(steps, 2)
+            ),
+        ]
+    return {
+        "id": f"traj-{int(with_preamble)}",
+        "goal": "find the failing subsystem and repair it",
+        "steps": steps,
+        "outcome": "the failing subsystem was repaired",
+        "reward": {"success": True},
+    }
+
 
 class EmbeddingEncoder(unittest.TestCase):
     def _assert_string_channel_distinct(self, records, markers):
@@ -49,31 +117,7 @@ class EmbeddingEncoder(unittest.TestCase):
 
     def test_repeated_case_operator_units_keep_whole_sequence_order(self):
         """Repeated units can make an adjacent-bigram multiset ambiguous."""
-        pairs = {
-            "case and operator": ("a+A+", "A+a+"),
-            "repeated word and operators": ("a-a/a", "a/a-a"),
-            "same directed-trigram multiset": (
-                "a+a-a+a/a+a",
-                "a+a/a+a-a+a",
-            ),
-            "casefold-expanded chain": (
-                "a/b-A+B",
-                "A+b-a/B",
-            ),
-            "casefold-only repeated chain": (
-                "a a A a",
-                "a A a a",
-            ),
-            "boundary singleton with case variants": (
-                "a b B b",
-                "a B b b",
-            ),
-            "moved internal whitespace gap": (
-                "a a a  a a",
-                "a a  a a a",
-            ),
-        }
-        for label, (left, right) in pairs.items():
+        for label, (left, right) in _REPEATED_UNIT_PAIRS.items():
             with self.subTest(case=label):
                 first = {"id": "seq-1", "state": {"expr": left}}
                 second = {"id": "seq-2", "state": {"expr": right}}
@@ -85,18 +129,7 @@ class EmbeddingEncoder(unittest.TestCase):
                     self.assertTrue(
                         any("str-unit-sequence:" in token for token in tokens)
                     )
-                self.assertEqual(
-                    {
-                        token: count
-                        for token, count in first_tokens.items()
-                        if quality_gate._BIGRAM_SEP in token
-                    },
-                    {
-                        token: count
-                        for token, count in second_tokens.items()
-                        if quality_gate._BIGRAM_SEP in token
-                    },
-                )
+                self.assertEqual(_bigram_counts(first_tokens), _bigram_counts(second_tokens))
                 self.assertEqual(self._audit_pair(first, second)["duplicates"], [])
 
     def test_string_sequence_features_do_not_enter_candidate_sketches(self):
@@ -186,45 +219,13 @@ class EmbeddingEncoder(unittest.TestCase):
         scored ~0.21 -- far below any usable threshold -- despite 25 identical
         steps in identical order. Similarity must track the content that
         actually differs."""
-
-        def trajectory(with_preamble):
-            steps = [
-                {
-                    "n": index,
-                    "decision_basis": f"inspect subsystem {index} for the fault",
-                    "tool_call": f"pytest tests/test_subsystem_{index}.py",
-                    "observation": f"subsystem {index} reported a clean run",
-                }
-                for index in range(1, 26)
-            ]
-            if with_preamble:
-                steps = [
-                    {
-                        "n": 1,
-                        "decision_basis": "read brief",
-                        "tool_call": "cat BRIEF.md",
-                        "observation": "brief names module",
-                    },
-                    *(
-                        {**step, "n": index}
-                        for index, step in enumerate(steps, 2)
-                    ),
-                ]
-            return {
-                "id": f"traj-{int(with_preamble)}",
-                "goal": "find the failing subsystem and repair it",
-                "steps": steps,
-                "outcome": "the failing subsystem was repaired",
-                "reward": {"success": True},
-            }
-
-        plain, padded = trajectory(False), trajectory(True)
+        plain, padded = _subsystem_trajectory(False), _subsystem_trajectory(True)
         self.assertNotEqual(
             quality_gate.record_hash(quality_gate.exact_identity_view(plain)),
             quality_gate.record_hash(quality_gate.exact_identity_view(padded)),
         )
 
-        shared = trajectory(False)["steps"][0]
+        shared = _subsystem_trajectory(False)["steps"][0]
         for record in (plain, padded):
             tokens = quality_gate.embedding_tokens(record)
             self.assertTrue(
