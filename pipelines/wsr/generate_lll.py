@@ -10,10 +10,14 @@ from typing import Any
 from ._contract import (
     FACTORY,
     FAMILY_PREFIX,
+    FINDING_GENERATE_HIDDEN,
+    FINDING_GENERATE_SHAPE,
     GENERATOR,
     HANDOFF_STEPS,
     SUCCESS_STEPS,
     bind_import_twin,
+    contains_hidden_reasoning_key,
+    refuse_when,
 )
 from . import generate as gen
 
@@ -382,7 +386,15 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": f"Read leftover leftover leftover-as-timeout, try 30s, then {idf} plus {evf}.",
         "steps": steps,
         "outcome": f"leftover leftover leftover {idf} bound. {naive} unused (success).",
-        "reward": gen._success_reward(),
+        "reward": {
+            "success": True,
+            "tests_passed": 3,
+            "retries": 2,
+            "duration_min": 610,
+            "wasted_calls": 180,
+            "cost_steps": SUCCESS_STEPS,
+            "plan_changes": 1,
+        },
         "meta": {
             "factory": FACTORY,
             "round": round_n,
@@ -394,7 +406,11 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "stack": f"{plant['stack']} leftover leftover leftover {idf}",
         },
     }
-    gen._check_episode(episode, eid, SUCCESS_STEPS)
+    gen._assert_clean(episode)
+    refuse_when(
+        contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning"
+    )
+    refuse_when(len(steps) != SUCCESS_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {SUCCESS_STEPS} steps")
     return episode
 
 
@@ -421,7 +437,15 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": f"Read leftover leftover leftover-as-timeout, try 0s, then hand off drop-{plant['dropk']}.",
         "steps": steps,
         "outcome": f"Still timeout-classed; leftover leftover leftover drop {plant['dropk']} is platform — handoff {ticket}.",
-        "reward": gen._handoff_reward(),
+        "reward": {
+            "success": False,
+            "tests_passed": 2,
+            "retries": 2,
+            "duration_min": 640,
+            "wasted_calls": 210,
+            "cost_steps": HANDOFF_STEPS,
+            "plan_changes": 1,
+        },
         "meta": {
             "factory": FACTORY,
             "round": round_n,
@@ -433,7 +457,11 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "stack": f"{plant['stack']} leftover leftover leftover drop {plant['dropk']}",
         },
     }
-    gen._check_episode(episode, eid, HANDOFF_STEPS)
+    gen._assert_clean(episode)
+    refuse_when(
+        contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning"
+    )
+    refuse_when(len(steps) != HANDOFF_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {HANDOFF_STEPS} steps")
     return episode
 
 
