@@ -89,8 +89,11 @@ def _units_migration():
     }
 
 
-def _scale_entry(scale, factory, filename):
-    """Accept nested {factory: {file: entry}} or a list of entries."""
+_NO_SCALE_ENTRY = object()
+
+
+def _factory_bucket_scale_entry(scale, factory, filename):
+    """Entry from {factory: {file: entry}} or {factory: [entries]}."""
     if isinstance(scale, dict) and factory in scale:
         bucket = scale[factory]
         if isinstance(bucket, dict) and filename in bucket:
@@ -99,16 +102,39 @@ def _scale_entry(scale, factory, filename):
             for item in bucket:
                 if item.get("file") == filename:
                     return item
+    return _NO_SCALE_ENTRY
+
+
+def _files_list_scale_entry(scale, factory, filename):
+    """Entry from {"files": [{"factory": ..., "file": ...}]}."""
     if isinstance(scale, dict) and "files" in scale:
         for item in scale["files"]:
             if item.get("factory") == factory and item.get("file") == filename:
                 return item
+    return _NO_SCALE_ENTRY
+
+
+def _top_level_list_scale_entry(scale, factory, filename):
+    """Entry from a top-level list keyed by file or path."""
     if isinstance(scale, list):
         for item in scale:
             rel = item.get("file") or item.get("path") or ""
             if rel == filename or rel.endswith(f"{factory}/{filename}"):
                 if item.get("factory") in (None, factory):
                     return item
+    return _NO_SCALE_ENTRY
+
+
+def _scale_entry(scale, factory, filename):
+    """Accept nested {factory: {file: entry}} or a list of entries."""
+    for lookup in (
+        _factory_bucket_scale_entry,
+        _files_list_scale_entry,
+        _top_level_list_scale_entry,
+    ):
+        entry = lookup(scale, factory, filename)
+        if entry is not _NO_SCALE_ENTRY:
+            return entry
     rel = f"{factory}/{filename}"
     if isinstance(scale, dict) and rel in scale:
         return scale[rel]
