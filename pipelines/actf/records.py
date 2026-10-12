@@ -117,17 +117,29 @@ def scan_recovery_tree(recovery_root: Path) -> tuple[ExtractedRecord, ...]:
     return tuple(records)
 
 
-def summarize(records: tuple[ExtractedRecord, ...] | list[ExtractedRecord]) -> dict[str, Any]:
-    """Exact-JSON summary of an AST extraction pass."""
+def _syntax_counter(records: tuple[ExtractedRecord, ...] | list[ExtractedRecord]) -> Counter:
+    return Counter(record.syntax_status for record in records if record.syntax_status)
 
-    classification = Counter(record.classification for record in records)
-    syntax = Counter(record.syntax_status for record in records if record.syntax_status)
-    operations = Counter(
+
+def _operation_counter(records: tuple[ExtractedRecord, ...] | list[ExtractedRecord]) -> Counter:
+    return Counter(
         finding["category"]
         for record in records
         for finding in record.operations
     )
-    exclusions = Counter(record.reason for record in records if record.excluded and record.reason)
+
+
+def _exclusion_counter(records: tuple[ExtractedRecord, ...] | list[ExtractedRecord]) -> Counter:
+    return Counter(record.reason for record in records if record.excluded and record.reason)
+
+
+def summarize(records: tuple[ExtractedRecord, ...] | list[ExtractedRecord]) -> dict[str, Any]:
+    """Exact-JSON summary of an AST extraction pass."""
+
+    classification = Counter(record.classification for record in records)
+    syntax = _syntax_counter(records)
+    operations = _operation_counter(records)
+    exclusions = _exclusion_counter(records)
     return {
         "family": cv.FAMILY,
         "corpus": cv.CORPUS,

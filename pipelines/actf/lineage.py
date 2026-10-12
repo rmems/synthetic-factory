@@ -129,9 +129,7 @@ def _list_fragments(lineage_dir: Path, path_key: str, basename: str) -> tuple[Fr
     return tuple(found)
 
 
-def read_lineage(lineage_dir: Path) -> Lineage:
-    """Load one ACTF lineage from ``path.json`` plus version and fragment paths."""
-
+def _path_json_payload(lineage_dir: Path) -> dict[str, Any]:
     cv.refuse_when(
         not lineage_dir.is_dir(),
         cv.FINDING_LINEAGE_DIR_INVALID,
@@ -155,6 +153,12 @@ def read_lineage(lineage_dir: Path) -> Lineage:
         cv.FINDING_PATH_JSON_INVALID,
         f"{lineage_dir.name} path.json must be an object, got {cv.shown(type(payload).__name__)}",
     )
+    return payload
+
+
+def _checked_identity(payload: dict[str, Any], lineage_dir: Path) -> tuple[str, str]:
+    """``path_key`` must name its directory and ``classification`` must be declared."""
+
     path_key = _required_string(payload, "path_key", lineage_dir)
     cv.refuse_when(
         path_key != lineage_dir.name,
@@ -167,6 +171,14 @@ def read_lineage(lineage_dir: Path) -> Lineage:
         cv.FINDING_UNKNOWN_CLASSIFICATION,
         f"{path_key} classification {cv.shown(classification)} is not declared",
     )
+    return path_key, classification
+
+
+def read_lineage(lineage_dir: Path) -> Lineage:
+    """Load one ACTF lineage from ``path.json`` plus version and fragment paths."""
+
+    payload = _path_json_payload(lineage_dir)
+    path_key, classification = _checked_identity(payload, lineage_dir)
     original_path = _required_string(payload, "original_path", lineage_dir)
     original_basename = _required_string(payload, "original_basename", lineage_dir)
     version_count = payload.get("version_count")

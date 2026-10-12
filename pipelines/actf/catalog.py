@@ -270,6 +270,20 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             (not lineages_path.is_file(), cv.FINDING_CATALOG_FILE_MISSING, f"missing {lineages_path}"),
         )
     )
+    meta = _load_meta(catalog_path)
+    lineages_bytes = lineages_path.read_bytes()
+    digest = sha256_bytes(lineages_bytes)
+    cv.refuse_when(
+        meta.get("lineages_sha256") != digest,
+        cv.FINDING_LINEAGES_SHA_MISMATCH,
+        f"lineages.jsonl sha256 {digest} != pinned {meta.get('lineages_sha256')}",
+    )
+    rows = _lineage_rows(lineages_bytes)
+    _check_rows(rows, meta)
+    return Catalog(cv.CATALOG_ID, tuple(rows), digest, meta)
+
+
+def _load_meta(catalog_path: Path) -> dict[str, Any]:
     meta = load_strict_json(catalog_path.read_text(encoding="utf-8"))
     cv.refuse_when(
         not isinstance(meta, dict),
@@ -288,18 +302,18 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         cv.FINDING_CATALOG_FIELD_INVALID,
         f"unexpected catalog identity: {drifted}",
     )
-    lineages_bytes = lineages_path.read_bytes()
-    digest = sha256_bytes(lineages_bytes)
-    cv.refuse_when(
-        meta.get("lineages_sha256") != digest,
-        cv.FINDING_LINEAGES_SHA_MISMATCH,
-        f"lineages.jsonl sha256 {digest} != pinned {meta.get('lineages_sha256')}",
-    )
-    rows = [
+    return meta
+
+
+def _lineage_rows(lineages_bytes: bytes) -> list[LineageRow]:
+    return [
         _row_from_mapping(load_strict_json(line), f"line {lineno}")
         for lineno, line in enumerate(lineages_bytes.decode("utf-8").splitlines(), start=1)
         if line.strip()
     ]
+
+
+def _check_rows(rows: list[LineageRow], meta: dict[str, Any]) -> None:
     cv.refuse_when(not rows, cv.FINDING_CATALOG_EMPTY, "lineages.jsonl has no rows")
     cv.refuse_when(
         len(rows) != meta["lineages"],
@@ -312,7 +326,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         cv.FINDING_DUPLICATE_PATH_KEY,
         "duplicate path_key values in lineages.jsonl",
     )
-    return Catalog(cv.CATALOG_ID, tuple(rows), digest, meta)
 
 
 def catalog_check(catalog: Catalog | None = None) -> dict[str, Any]:
