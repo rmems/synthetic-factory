@@ -25,14 +25,29 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 facade = importlib.import_module("mill_script_inventory_git")
 
-SIBLINGS = (
-    "mill_script_inventory_gitdir",
-    "mill_script_inventory_gitglob",
-    "mill_script_inventory_gitignore",
-    "mill_script_inventory_gitindex",
-)
+# Literal-bound (package-mode, direct-mode) loaders for each sibling.
+SIBLING_LOADERS = {
+    "mill_script_inventory_gitdir": (
+        lambda: importlib.import_module("pipelines.mill_script_inventory_gitdir"),
+        lambda: importlib.import_module("mill_script_inventory_gitdir"),
+    ),
+    "mill_script_inventory_gitglob": (
+        lambda: importlib.import_module("pipelines.mill_script_inventory_gitglob"),
+        lambda: importlib.import_module("mill_script_inventory_gitglob"),
+    ),
+    "mill_script_inventory_gitignore": (
+        lambda: importlib.import_module("pipelines.mill_script_inventory_gitignore"),
+        lambda: importlib.import_module("mill_script_inventory_gitignore"),
+    ),
+    "mill_script_inventory_gitindex": (
+        lambda: importlib.import_module("pipelines.mill_script_inventory_gitindex"),
+        lambda: importlib.import_module("mill_script_inventory_gitindex"),
+    ),
+}
 SHARED_OID = bytes(range(20))
 IGNORECASE_CONFIG = "[core]\n\tignorecase = yes # folded\n"
+REFUSED = facade.MillScriptInventoryError
+ONE_LITERAL = 1 << 33  # an EWAH run word followed by one literal word
 
 
 class SyntheticRepo:
@@ -68,18 +83,25 @@ def _named_entry(name: bytes, length_field: int) -> bytes:
     return bytes(60) + length_field.to_bytes(2, "big") + name
 
 
+def _padded(entry: bytes) -> bytes:
+    return entry + bytes((8 - len(entry) % 8) % 8)
+
+
+def _header(count: int, version: int = 2) -> bytes:
+    return b"DIRC" + version.to_bytes(4, "big") + count.to_bytes(4, "big")
+
+
 class SiblingImportIdentity(unittest.TestCase):
     def test_each_sibling_is_one_module_under_both_import_names(self):
         for first in ("package", "direct"):
             with (
                 self.subTest(first=first),
-                isolated_pipeline_modules(SIBLINGS),
+                isolated_pipeline_modules(tuple(SIBLING_LOADERS)),
                 direct_pipeline_path(),
             ):
-                for name in SIBLINGS:
-                    package_name = f"pipelines.{name}"
-                    order = (package_name, name) if first == "package" else (name, package_name)
-                    loaded = [importlib.import_module(alias) for alias in order]
+                for name, loaders in SIBLING_LOADERS.items():
+                    order = loaders if first == "package" else tuple(reversed(loaders))
+                    loaded = [load() for load in order]
                     self.assertIs(loaded[0], loaded[1], name)
 
 
@@ -107,7 +129,7 @@ class IgnoreCaseEvidence(unittest.TestCase):
             root = Path(raw)
             (root / ".gitignore").write_text("Makefile\n", encoding="utf-8")
             self.assertEqual(facade.gitignore_matches(root, ("makefile",)), {})
-            with self.assertRaisesRegex(facade.MillScriptInventoryError, "git is required"):
+            with self.assertRaisesRegex(REFUSED, "git is required"):
                 facade.tracked_paths(root)
 
 
@@ -144,12 +166,13 @@ class IndexEvidence(unittest.TestCase):
 
     def test_entry_layouts_are_read_like_main(self):
         long_name = b"n/" + b"q" * 0x1001
-        long_entry = _named_entry(long_name + b"\0", 0xFFF)
-        exact = b"DIRC" + (2).to_bytes(4, "big") + (1).to_bytes(4, "big") + _named_entry(b"ab", 2)
+        extended = _index_entry("ext.py", flags=0x4000)
         cases = (
-            ("extended-flags", _git_index((_index_entry("ext.py", flags=0x4000),), version=3), ("ext.py",)),
-            ("long-name", _git_index((long_entry + bytes((8 - len(long_entry) % 8) % 8),)), (long_name.decode(),)),
-            ("unterminated-name", exact + b"\x01" * 20, ("ab",)),
+            ("extended-flags", _git_index((extended,), version=3), ("ext.py",)),
+            ("long-name", _git_index((_padded(_named_entry(long_name + b"\0", 0xFFF)),)),
+             (long_name.decode(),)),
+            # The name fills its length field exactly and the trailer starts non-zero.
+            ("unterminated-name", _header(1) + _named_entry(b"ab", 2) + b"\x01" * 20, ("ab",)),
         )
         for label, payload, expected in cases:
             with self.subTest(case=label):
@@ -158,16 +181,16 @@ class IndexEvidence(unittest.TestCase):
     def test_malformed_indexes_raise_the_coded_refusal(self):
         cases = (
             ("bad-signature", b"CRID" + bytes(28), "not parseable"),
-            ("missing-entry", b"DIRC" + (2).to_bytes(4, "big") + (3).to_bytes(4, "big") + bytes(20), "truncated"),
+            ("missing-entry", _header(3) + bytes(20), "truncated"),
             ("version-4", _git_index((), version=4), "unsupported"),
         )
         for label, payload, message in cases:
-            with self.subTest(case=label), self.assertRaisesRegex(facade.MillScriptInventoryError, message):
+            with self.subTest(case=label), self.assertRaisesRegex(REFUSED, message):
                 self.tracked(payload)
 
 
 class SplitIndexEvidence(unittest.TestCase):
-    SHARED = _git_index((_index_entry("keep"), _index_entry(""), _index_entry("old"), _index_entry("gone")))
+    SHARED = _git_index(tuple(_index_entry(name) for name in ("keep", "", "old", "gone")))
 
     def tracked(self, link: bytes, split=(), shared: bytes | None = SHARED) -> tuple[str, ...]:
         repo = SyntheticRepo(self)
@@ -175,8 +198,8 @@ class SplitIndexEvidence(unittest.TestCase):
         return facade.tracked_paths(repo.root)
 
     def test_deletions_replacements_and_additions_merge_like_main(self):
-        deleted = _ewah_bitmap(4, (1 << 33, 0b1000))
-        replaced = _ewah_bitmap(4, (1 << 33, 0b0100))
+        deleted = _ewah_bitmap(4, (ONE_LITERAL, 0b1000))
+        replaced = _ewah_bitmap(4, (ONE_LITERAL, 0b0100))
         merged = self.tracked(
             _split_link(deleted, replaced),
             (_index_entry(""), _index_entry("added")),
@@ -193,12 +216,13 @@ class SplitIndexEvidence(unittest.TestCase):
             ("missing-shared", _split_link(), None, "not parseable"),
             ("nested-link", _split_link(), nested, "unsupported"),
             ("trailing-link-bytes", _split_link() + b"\0", self.SHARED, "not parseable"),
-            ("literal-past-end", _split_link(_ewah_bitmap(2, (1 << 33,))), self.SHARED, "truncated"),
-            ("replacement-past-end", _split_link(replaced=_ewah_bitmap(4, (1 << 33, 0b0100))),
+            ("literal-past-end", _split_link(_ewah_bitmap(2, (ONE_LITERAL,))), self.SHARED,
+             "truncated"),
+            ("replacement-past-end", _split_link(replaced=_ewah_bitmap(4, (ONE_LITERAL, 0b0100))),
              self.SHARED, "truncated"),
         )
         for label, link, shared, message in cases:
-            with self.subTest(case=label), self.assertRaisesRegex(facade.MillScriptInventoryError, message):
+            with self.subTest(case=label), self.assertRaisesRegex(REFUSED, message):
                 self.tracked(link, shared=shared)
 
 
