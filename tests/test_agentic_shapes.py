@@ -15,6 +15,13 @@ import round_txn  # noqa: E402
 import validate_run  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 def _step(n, basis="Observation: prior tool returned 200"):
     return {
         "n": n,
@@ -2667,8 +2674,9 @@ class AgenticShapes(unittest.TestCase):
             notes.write_text("coverage omitted\n")
             marker = factory / "ROUND-r01.complete.json"
             payload = json.loads(marker.read_text())
-            notes_entry = next(
-                entry for entry in payload["files"] if entry["name"] == notes.name
+            notes_entry = _first_matching(
+                payload["files"],
+                lambda entry: entry["name"] == notes.name,
             )
             notes_entry["sha256"] = round_txn.file_sha256(notes)
             marker.write_text(json.dumps(payload) + "\n")

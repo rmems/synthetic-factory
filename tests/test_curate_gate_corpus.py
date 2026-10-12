@@ -506,7 +506,7 @@ class CorpusGateTests(unittest.TestCase):
 
         sidecar_path = fixture.lane_reward / "reward-sidecars.jsonl"
         documents = _read_jsonl(sidecar_path)
-        target = next(document for document in documents if document["sidecar_id"] == old_id)
+        target = _first_matching(documents, lambda document: document["sidecar_id"] == old_id)
         target["source_rewards"][0]["value"] = "forged but self-consistently sealed"
         body = dict(target)
         body.pop("sidecar_id")

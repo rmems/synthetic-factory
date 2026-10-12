@@ -1807,6 +1807,10 @@ def _retained_mapping(manifest):
     return _first_matching(manifest, lambda item: item["action"] == "retained")
 
 
+def _excluded_mapping(manifest):
+    return _first_matching(manifest, lambda item: item["action"] == "exclude")
+
+
 def _reseal_provenance_mapping(provenance_mapping):
     provenance_mapping["mapping_sha256"] = identity._provenance_mapping_sha256(
         provenance_mapping
@@ -2455,7 +2459,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             original = json.loads(original_bytes)
 
             corrupted_exclusion = copy.deepcopy(original)
-            excluded = next(item for item in corrupted_exclusion if item["action"] == "exclude")
+            excluded = _excluded_mapping(corrupted_exclusion)
             excluded["source"]["original"] = "{}"
             manifest_path.write_text(json.dumps(corrupted_exclusion) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(
@@ -2466,7 +2470,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
             manifest_path.write_bytes(original_bytes)
             fabricated_exclusion = copy.deepcopy(original)
-            excluded = next(item for item in fabricated_exclusion if item["action"] == "exclude")
+            excluded = _excluded_mapping(fabricated_exclusion)
             excluded["reason_codes"] = ["identity.fabricated"]
             manifest_path.write_text(json.dumps(fabricated_exclusion) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, "exclusion mapping"):
@@ -2474,7 +2478,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
             manifest_path.write_bytes(original_bytes)
             relabeled = copy.deepcopy(original)
-            retained = next(item for item in relabeled if item["action"] == "retained")
+            retained = _retained_mapping(relabeled)
             retained["action"] = "exclude"
             output_path.unlink()
             manifest_path.write_text(json.dumps(relabeled) + "\n", encoding="utf-8")
@@ -2553,7 +2557,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
                 output_path = dest / FABLE_ACT / "episodes.jsonl"
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                retained = next(item for item in manifest if item["action"] == "retained")
+                retained = _first_matching(manifest, lambda item: item["action"] == "retained")
                 output = json.loads(output_path.read_text(encoding="utf-8"))
                 output["meta"]["round"] = tampered_value
                 retained["output_sha256"] = identity._sha256_json(output)
@@ -2611,14 +2615,14 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
             fabricated = copy.deepcopy(original)
-            retained = next(item for item in fabricated if item["action"] == "retained")
+            retained = _first_matching(fabricated, lambda item: item["action"] == "retained")
             retained["original_ids"][0]["value"] = "fabricated"
             manifest_path.write_text(json.dumps(fabricated) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, r"\.original_ids"):
                 identity.validate_identity_tree(dest)
 
             deleted = copy.deepcopy(original)
-            retained = next(item for item in deleted if item["action"] == "retained")
+            retained = _first_matching(deleted, lambda item: item["action"] == "retained")
             retained["id_mappings"][0].pop("original_ids")
             manifest_path.write_text(json.dumps(deleted) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, r"\.id_mappings"):
@@ -2678,11 +2682,10 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             identity.write_run(src, dest)
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            retained = next(item for item in manifest if item["action"] == "retained")
-            state_mapping = next(
-                item
-                for item in retained["provenance_mappings"]
-                if item.get("state_path") == "/state"
+            retained = _first_matching(manifest, lambda item: item["action"] == "retained")
+            state_mapping = _first_matching(
+                retained["provenance_mappings"],
+                lambda item: item.get("state_path") == "/state",
             )
             state_mapping["original"]["owner_provenance"]["value"]["rank"] = True
             state_mapping["mapping_sha256"] = identity._provenance_mapping_sha256(state_mapping)
@@ -3068,12 +3071,15 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             first_results = identity.write_run(src, first)
             output = first / FABLE_ACT / "episodes.jsonl"
             self.assertEqual(output.read_text(encoding="utf-8").splitlines()[:2], ["", ""])
-            retained_first = next(item for item in first_results if item.action == "retained")
+            retained_first = _first_matching(first_results, lambda item: item.action == "retained")
             self.assertEqual(retained_first.mapping["source"]["line"], 3)
             identity.validate_identity_tree(first)
 
             second_results = identity.write_run(first, second)
-            retained_second = next(item for item in second_results if item.action == "retained")
+            retained_second = _first_matching(
+                second_results,
+                lambda item: item.action == "retained",
+            )
             self.assertEqual(retained_second.mapping["source"]["line"], 3)
             self.assertEqual(retained_second.record["id"], retained_first.record["id"])
             identity.validate_identity_tree(second)
@@ -3313,10 +3319,9 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 {"run/root.jsonl", f"{FABLE_ACT}/episodes.jsonl"},
             )
             results = identity.curate_records(records)
-            nested_result = next(
-                result
-                for result in results
-                if result.mapping["source"]["path"].startswith(FABLE_ACT)
+            nested_result = _first_matching(
+                results,
+                lambda result: result.mapping["source"]["path"].startswith(FABLE_ACT),
             )
             self.assertEqual(nested_result.action, "retained")
 

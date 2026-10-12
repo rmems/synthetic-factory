@@ -177,7 +177,8 @@ class DlkNeverExec(unittest.TestCase):
 
 
 class DlkCli(unittest.TestCase):
-    def _run(self, *argv):
+    @staticmethod
+    def _run(*argv):
         import contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -286,23 +287,23 @@ class DlkFidelityToLegacy(unittest.TestCase):
         return namespace
 
     def test_cleaned_records_match_legacy_byte_for_byte(self):
-        for round in (1214, 1280):
-            legacy = self._legacy_module(round)
-            catalog = load_catalog(round)
+        for round_no in (1214, 1280):
+            legacy = self._legacy_module(round_no)
+            catalog = load_catalog(round_no)
             self.assertEqual(len(catalog.plants), len(legacy["PLANTS"]))
             for plant, legacy_plant in zip(catalog.plants, legacy["PLANTS"]):
-                s_clean = generate.success_ep(round, plant)
-                f_clean = generate.fail_ep(round, plant)
-                s_legacy = legacy["success_ep"](round, legacy_plant)
-                f_legacy = legacy["fail_ep"](round, legacy_plant)
+                s_clean = generate.success_ep(round_no, plant)
+                f_clean = generate.fail_ep(round_no, plant)
+                s_legacy = legacy["success_ep"](round_no, legacy_plant)
+                f_legacy = legacy["fail_ep"](round_no, legacy_plant)
                 self.assertEqual(s_clean, s_legacy,
-                                 f"success_ep drift at r{round} {plant.slug}")
+                                 f"success_ep drift at r{round_no} {plant.slug}")
                 self.assertEqual(f_clean, f_legacy,
-                                 f"fail_ep drift at r{round} {plant.slug}")
-                n_clean = generate.notes(round, plant, s_clean, f_clean)
-                n_legacy = legacy["notes"](round, legacy_plant, s_legacy, f_legacy)
+                                 f"fail_ep drift at r{round_no} {plant.slug}")
+                n_clean = generate.notes(round_no, plant, s_clean, f_clean)
+                n_legacy = legacy["notes"](round_no, legacy_plant, s_legacy, f_legacy)
                 self.assertEqual(n_clean, n_legacy,
-                                 f"notes drift at r{round} {plant.slug}")
+                                 f"notes drift at r{round_no} {plant.slug}")
 
 
 if __name__ == "__main__":

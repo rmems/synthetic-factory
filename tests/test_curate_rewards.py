@@ -29,6 +29,13 @@ if str(PIPELINES) not in sys.path:
 import curate_rewards  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 class RewardOntologyV1Tests(unittest.TestCase):
     def test_schema_declares_exclusive_comparability_classes(self):
         schema = json.loads(SCHEMA.read_text())
@@ -548,10 +555,9 @@ class RewardOntologyV1Tests(unittest.TestCase):
 
     def test_external_calibration_reason_is_reserved_to_p05_and_s08(self):
         document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
-        r00 = next(
-            rule
-            for rule in document["policy"]["comparability_rules"]
-            if rule["id"] == "R00"
+        r00 = _first_matching(
+            document["policy"]["comparability_rules"],
+            lambda rule: rule["id"] == "R00",
         )
         r00["reason_codes"] = list(r00["reason_codes"]) + [
             "external_calibration_evidence"
@@ -618,7 +624,8 @@ class RewardOntologyV1Tests(unittest.TestCase):
 class MagnitudeMixingTests(unittest.TestCase):
     """An uncalibrated record cannot enter a magnitude-weighted set."""
 
-    def curated(self, name, line_number):
+    @staticmethod
+    def curated(name, line_number):
         for candidate_name, candidate_line, record in all_fixture_records():
             if (candidate_name, candidate_line) == (name, line_number):
                 curated, _sidecar = curate_rewards.curate_record(

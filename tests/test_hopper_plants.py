@@ -40,7 +40,7 @@ class HopperPlantsTests(unittest.TestCase):
 
     def test_uniqueness_and_first_old(self):
         slugs, mods, domains, tickets = [], [], [], []
-        for factory, ok, bad in hp.all_pairs():
+        for _factory, ok, bad in hp.all_pairs():
             for plant in (ok, bad):
                 slugs.append(plant["slug"])
                 mods.append(plant["mod"])

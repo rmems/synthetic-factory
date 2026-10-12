@@ -452,7 +452,8 @@ class CurateCodingTests(unittest.TestCase):
 
         self.assertEqual(source, original)
 
-    def _two_file_source(self, root: Path) -> tuple[Path, Path]:
+    @staticmethod
+    def _two_file_source(root: Path) -> tuple[Path, Path]:
         source = root / "source-run"
         first = episode([visible_step(n=1)])
         first["id"] = "coding-alpha"

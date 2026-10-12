@@ -340,7 +340,8 @@ class KindMixDetection(unittest.TestCase):
 
 
 class PreferencePublishGate(unittest.TestCase):
-    def _snapshot(self, root, item, records, *, raw_text=None):
+    @staticmethod
+    def _snapshot(root, item, records, *, raw_text=None):
         source = root / "raw" / item["slug"]
         stage_legacy_baseline(source, records, raw_text=raw_text)
         with mock.patch.object(
@@ -350,7 +351,8 @@ class PreferencePublishGate(unittest.TestCase):
         ):
             return publisher.snapshot_one(item)
 
-    def _card(self, root, item):
+    @staticmethod
+    def _card(root, item):
         return (
             root / "hf" / publisher.HF_DATASETS_DIRNAME / item["hub"] / "README.md"
         ).read_text()

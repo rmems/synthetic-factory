@@ -26,6 +26,13 @@ import snapshot_ops  # noqa: E402 - driver puts the skill dir on sys.path
 FIXTURES = REPO / "tests" / "fixtures"
 
 
+def _first_found(items):
+    """The first item an iterator yields; an empty one fails the test instead of leaking."""
+    for item in items:
+        return item
+    raise AssertionError("the lookup found nothing")
+
+
 class FactoryDriverSmoke(unittest.TestCase):
     def test_runtime_sidecars_do_not_depend_on_the_test_fixture_tree(self):
         with tempfile.TemporaryDirectory() as td, mock.patch.object(
@@ -64,7 +71,7 @@ class FactoryDriverSmoke(unittest.TestCase):
 
     def test_smoke_stops_notes_gate_check_after_unexpected_commit(self):
         def publish_and_consume_stage(factory, _round_number, _token):
-            notes = next((factory.parents[2] / "staging").rglob("NOTES-r01.md"))
+            notes = _first_found((factory.parents[2] / "staging").rglob("NOTES-r01.md"))
             shutil.rmtree(notes.parent)
             return {}
 

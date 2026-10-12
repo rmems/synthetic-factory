@@ -24,6 +24,13 @@ if str(PIPELINES) not in sys.path:
 import curate_rewards  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 class ConversionPolicyMappingTests(unittest.TestCase):
     """The mapping is the policy, not a description of it."""
 
@@ -356,10 +363,9 @@ class ConversionPolicyMappingTests(unittest.TestCase):
 
     def test_policy_requires_every_runtime_classification_rule_id(self):
         document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
-        r00 = next(
-            rule
-            for rule in document["policy"]["comparability_rules"]
-            if rule["id"] == "R00"
+        r00 = _first_matching(
+            document["policy"]["comparability_rules"],
+            lambda rule: rule["id"] == "R00",
         )
         r00["id"] = "renamed-R00"
 
@@ -370,8 +376,9 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             curate_rewards.validate_conversion_policy(document)
 
     def test_comparability_rule_returns_a_defensive_copy(self):
-        stored = next(
-            rule for rule in curate_rewards.COMPARABILITY_RULES if rule["id"] == "S08"
+        stored = _first_matching(
+            curate_rewards.COMPARABILITY_RULES,
+            lambda rule: rule["id"] == "S08",
         )
         original = copy.deepcopy(stored)
         try:
@@ -386,7 +393,7 @@ class ConversionPolicyMappingTests(unittest.TestCase):
 
     def test_classification_verdicts_are_read_from_the_matched_rule(self):
         rules = copy.deepcopy(list(curate_rewards.COMPARABILITY_RULES))
-        p01 = next(rule for rule in rules if rule["id"] == "P01")
+        p01 = _first_matching(rules, lambda rule: rule["id"] == "P01")
         p01["comparability"] = curate_rewards.SIGN_ORDER_ONLY
         p01["reason_codes"] = ["magnitude_calibration_missing"]
         source_rewards = [

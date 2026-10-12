@@ -23,6 +23,20 @@ from compose_curated_test_support import (  # noqa: E402
 )
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
+def _first_found(items):
+    """The first item an iterator yields; an empty one fails the test instead of leaking."""
+    for item in items:
+        return item
+    raise AssertionError("the lookup found nothing")
+
+
 class ComposeCuratedRecordSafety(unittest.TestCase):
     """Exercise record repairs that keep private or foreign data out."""
 
@@ -96,10 +110,9 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
             self.assertEqual(summary["counts"]["retained"], 1)
             assert_research_only_audit(self, summary["audit"])
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
-            coding_stage = next(
-                stage
-                for stage in manifest[0]["stages"]
-                if stage["lane"] == "coding"
+            coding_stage = _first_matching(
+                manifest[0]["stages"],
+                lambda stage: stage["lane"] == "coding",
             )
             self.assertEqual(
                 coding_stage["detail"]["embedded_at"], "language_view.trajectory"
@@ -111,7 +124,7 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
                 coding_stage["detail"]["wrapper_hidden_reasoning_fields_removed"], 1
             )
             records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
-            emitted = next(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
+            emitted = _first_found(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
             self.assertNotIn("hidden nested reasoning", emitted)
             self.assertNotIn("hidden outer bridge reasoning", emitted)
             self.assertNotIn("internal_reasoning", emitted)
@@ -181,16 +194,15 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
             self.assertEqual(summary["counts"]["retained"], 1)
             assert_research_only_audit(self, summary["audit"])
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
-            coding_stage = next(
-                stage
-                for stage in manifest[0]["stages"]
-                if stage["lane"] == "coding"
+            coding_stage = _first_matching(
+                manifest[0]["stages"],
+                lambda stage: stage["lane"] == "coding",
             )
             self.assertEqual(
                 coding_stage["detail"]["hidden_reasoning_fields_removed"], 1
             )
             records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
-            emitted = next(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
+            emitted = _first_found(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
             self.assertNotIn("secret plan", emitted)
             self.assertNotIn("internal_reasoning", emitted)
 
