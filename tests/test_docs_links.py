@@ -6,6 +6,7 @@ repository, not in this checkout, so they are skipped.
 """
 
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -72,12 +73,12 @@ def link_targets(path: Path):
                 yield number, target
 
 
-def broken_links(path: Path) -> list[str]:
+def broken_links(path: Path, root: Path = REPO) -> list[str]:
     problems = []
     for number, target in link_targets(path):
         file_part, _, anchor = target.partition("#")
         resolved = (path.parent / file_part).resolve() if file_part else path
-        where = f"{path.relative_to(REPO)}:{number}: {target}"
+        where = f"{path.relative_to(root)}:{number}: {target}"
         if not resolved.exists():
             problems.append(f"{where} (no such path)")
         elif _missing_heading(resolved, anchor):
@@ -105,18 +106,22 @@ class DocsLinkTests(unittest.TestCase):
     def test_checker_reports_missing_files_and_headings(self):
         self.assertEqual(github_slug("How the `separation` is enforced!"),
                          "how-the-separation-is-enforced")
-        probe = list(link_targets(_Probe("[a](missing.md) [b](#nowhere) [c](https://x.y)")))
-        self.assertEqual([target for _, target in probe], ["missing.md", "#nowhere"])
-
-
-class _Probe:
-    """A path stand-in whose text is supplied inline, for the checker self-test."""
-
-    def __init__(self, text: str):
-        self._text = text
-
-    def read_text(self, encoding: str = "utf-8") -> str:
-        return self._text
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "other.md").write_text("# Real heading\n", encoding="utf-8")
+            page = root / "page.md"
+            page.write_text(
+                "# Here\n"
+                "[ok](other.md#real-heading) [self](#here) [web](https://x.y)\n"
+                "[gone](missing.md) [bad](#nowhere) [far](other.md#nope)\n"
+                "```\n[fenced](missing.md)\n```\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(broken_links(page, root), [
+                "page.md:3: missing.md (no such path)",
+                "page.md:3: #nowhere (no such heading)",
+                "page.md:3: other.md#nope (no such heading)",
+            ])
 
 
 if __name__ == "__main__":
