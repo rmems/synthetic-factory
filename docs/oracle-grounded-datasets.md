@@ -192,8 +192,10 @@ Every accepted record retains:
   A record whose commit is not a lowercase 40- or 64-hex identifier resolving
   to that exact commit object in the local source repository is **rejected**;
   symbolic names, nonexistent object IDs, and `"unknown"` are not acceptable.
-* `oracle.module_digest` — checkout-path-independent sha256 over the oracle implementation sources
-  (`canon.py`, `families.py`, `generators.py`, `oracles.py`, `rng.py`, `sim.py`;
+* `oracle.module_digest` — checkout-path-independent sha256 over the 32 measurement sources named by
+  `source_snapshot.SOURCE_NAMES` (`canon.py`, `families.py`, `generators.py`, `oracles.py`,
+  `rng.py`, `sim.py`, and their `family_*`, `generator_*`, `sim_*`, `oracle_*`, and `native_*`
+  sibling modules;
   `record.py` validates records and never measures, so it is excluded). This,
   not the git commit, is what actually pins the code that produced a
   measurement, and it stays meaningful in a dirty tree. `rng.py` also carries

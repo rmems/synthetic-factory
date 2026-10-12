@@ -233,7 +233,7 @@ Consequences:
   that script; the committed Chinese/Japanese/Thai cases guard the failure
   mode, not every language's operating point.
 - ``tests/fixtures/embedding-dedup/`` is the regression case: seven
-  records, six distinct (max pairwise cosine 0.06) and one planted
+  records, six distinct (max pairwise cosine 0.09) and one planted
   near-duplicate that differs only in ``state.tick`` — invisible to
   exact hashing and above 0.97 to the encoder.
 - ``--threshold`` must be finite in ``[EMBEDDING_MIN_THRESHOLD, 1)``, which is

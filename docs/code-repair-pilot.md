@@ -231,6 +231,8 @@ pilot and frozen handoff must be generated separately.
 
 ## Not done, by design
 
-No registry row, rights profile, record-kind route, publication through `round_txn`, Hub
-publication, or training launch (S4, owner-gated). Pretraining exposure of the upstream code for
+At the time of this pilot: no registry row, record-kind route, or publication through `round_txn`
+(all since added; see [code-repair-admission.md](code-repair-admission.md)). The row still
+carries no rights profile; its sealed source policy is the authority instead.
+Hub publication and training launch remain owner-gated (S4). Pretraining exposure of the upstream code for
 any model is unknown; held-out numbers may measure recall of upstream code.

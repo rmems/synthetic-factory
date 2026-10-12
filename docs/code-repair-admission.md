@@ -1,7 +1,8 @@
 # Procedural code-repair admission
 
-The default `config/FACTORY-REGISTRY.json` revision v0.3 adds one procedural
-route: `python-function-repair-factory`, carrying the
+The default `config/FACTORY-REGISTRY.json` (`factory-registry-v0.4`; procedural
+rows were introduced in v0.3) carries the code-repair procedural route
+`python-function-repair-factory`, carrying the
 `python-function-repair` family and the dedicated `code_repair` record kind.
 Existing hosted rows retain their provider, channel, and research-only/blocked
 policy. The v0.1 and v0.2 decoders reject procedural fields and kinds.

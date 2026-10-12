@@ -109,7 +109,7 @@ Every publish writes a version-2 completion marker whose
   "execution_verification": {
     "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
     "strict": true,
-    "semantics_version": 2,
+    "semantics_version": 6,
     "counts": {"verified": 0, "inconclusive": 1, "failed": 0, "total": 1},
     "override": {"reason": "hil replay rig offline", "waived_inconclusive": 1}
   }
@@ -190,8 +190,9 @@ python3 pipelines/verify_execution.py --batch <path/to/batch-rNN.jsonl> [--stric
 python3 pipelines/verify_execution.py --record <path.jsonl> --line N
 ```
 
-Exit code `1` when blocked, `0` otherwise. `--json` emits
-`{counts, findings, blocked}`.
+Exit code `1` when blocked, `0` otherwise. In run and `--batch` modes, `--json`
+emits `{counts, findings, blocked}`; `--record` mode prints `{status, reason}`
+and exits `0` only for `verified`; with no input the CLI prints help and exits `2`.
 
 Publishing a round that the gate cannot verify:
 
