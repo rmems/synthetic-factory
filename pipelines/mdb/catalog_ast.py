@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import Any, TypeGuard
+from typing import Any
 
 UNSET = object()
 
@@ -26,37 +26,28 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
-# Everything besides a constant or a bound name that may still be a literal.
-_NESTED_LITERALS = (ast.Tuple, ast.List, ast.Set, ast.Dict, ast.JoinedStr, ast.BinOp, ast.UnaryOp)
-
-
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
 
     Only this function and the container readers it calls recurse, so a nesting
-    level costs one frame for ``-``/``+`` and two for a container, as it always did.
+    level costs one frame for ``-``/``+`` and two for a container, as it always did;
+    matching a pattern never calls a Python helper, so leaves cost nothing extra.
     """
 
     bound = env or {}
-    if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.Constant):
-        return node.value
-    if not isinstance(node, _NESTED_LITERALS):
-        return UNSET
-    if _adds(node):
-        return _text_sum(literal_value(node.left, bound), literal_value(node.right, bound))
-    if _negates(node):
-        return _negative(literal_value(node.operand, bound))
-    return _reader_for(node)(bound)
-
-
-def _adds(node: ast.AST) -> TypeGuard[ast.BinOp]:
-    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
-
-
-def _negates(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
-    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+    resolved: Any = UNSET
+    match node:
+        case ast.Name(id=name) if name in bound:
+            resolved = bound[name]
+        case ast.Constant():
+            resolved = node.value
+        case ast.BinOp(op=ast.Add(), left=left, right=right):
+            resolved = _text_sum(literal_value(left, bound), literal_value(right, bound))
+        case ast.UnaryOp(op=ast.USub(), operand=operand):
+            resolved = _negative(literal_value(operand, bound))
+        case ast.Dict() | ast.JoinedStr() | ast.Tuple() | ast.List() | ast.Set():
+            resolved = _reader_for(node)(bound)
+    return resolved
 
 
 def _text_sum(left: Any, right: Any) -> Any:
@@ -72,7 +63,9 @@ def _negative(value: Any) -> Any:
     return UNSET
 
 
-def _reader_for(node: ast.AST) -> Callable[[Mapping[str, Any]], Any]:
+def _reader_for(
+    node: ast.Dict | ast.JoinedStr | ast.Tuple | ast.List | ast.Set,
+) -> Callable[[Mapping[str, Any]], Any]:
     """The non-recursive choice of reader for a container or f-string node."""
 
     if isinstance(node, ast.Dict):
@@ -81,13 +74,7 @@ def _reader_for(node: ast.AST) -> Callable[[Mapping[str, Any]], Any]:
         return partial(_joined_string, node)
     if isinstance(node, ast.Tuple):
         return partial(_sequence, node.elts, ctor=tuple)
-    if isinstance(node, (ast.List, ast.Set)):
-        return partial(_sequence, node.elts, ctor=set if isinstance(node, ast.Set) else list)
-    return _no_literal
-
-
-def _no_literal(_bound: Mapping[str, Any]) -> Any:
-    return UNSET
+    return partial(_sequence, node.elts, ctor=set if isinstance(node, ast.Set) else list)
 
 
 def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
