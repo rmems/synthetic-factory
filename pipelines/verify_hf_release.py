@@ -13,9 +13,15 @@ the card front matter, the shipped ``LICENSE`` text, and ``release-status.json``
 A repository that still calls its license undeclared while shipping an
 Apache-2.0 ``LICENSE`` file fails closed here.
 
+Code-repair releases (``REPLAY_CLAIM_REPOS``) are checked against their own
+evidence instead: the card's replay coverage, outcome and oracle-status splits
+and skip accounting must match ``evidence/REPLAY.json`` and ``evidence/RUN.json``
+(``code_repair.card_claims``).
+
 Usage:
     python3 pipelines/verify_hf_release.py
     python3 pipelines/verify_hf_release.py --repo rmems/thalamic-relay-trajectories
+    python3 pipelines/verify_hf_release.py --repo rmems/python-function-repair-20261006
 """
 
 import argparse
@@ -28,6 +34,8 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from code_repair import card_claims
+
 
 DATASET_REPOS = (
     "rmems/thalamic-relay-trajectories",
@@ -36,6 +44,12 @@ DATASET_REPOS = (
     "rmems/failure-as-fuel-preference-cascade",
     "rmems/agentic-coding-trajectories",
 )
+
+# Code-repair releases carry their own evidence instead of the raw-release
+# contract above; what their cards may claim is derived from that evidence by
+# ``code_repair.card_claims`` (issue #420: a card sold a 97-of-132 replay as the
+# full batch).
+REPLAY_CLAIM_REPOS = ("rmems/python-function-repair-20261006",)
 
 REQUIRED_CONTRIBUTORS = {
     "Claude Fable 5 (Ultracode)": {"synthetic-data-generation"},
@@ -760,10 +774,41 @@ def verify_dataset(
     return CheckResult(repo, tuple(errors))
 
 
+def verify_replay_claims(
+    repo: str,
+    *,
+    timeout: float = 30.0,
+    text_fetcher: Callable[[str, float], str] = fetch_text,
+) -> CheckResult:
+    """Check that a code-repair card claims no more than its replay and run evidence."""
+
+    paths = ("README.md", card_claims.REPLAY_EVIDENCE, card_claims.RUN_EVIDENCE)
+    try:
+        card, replay_text, run_text = (
+            text_fetcher(public_url(repo, path, HUB_BASE_URL), timeout) for path in paths
+        )
+    except Exception as error:  # network exceptions differ across Hub backends
+        return CheckResult(repo, (f"public fetch failed: {error}",))
+    try:
+        errors = card_claims.card_claim_errors(
+            card,
+            card_claims.load_evidence(replay_text, card_claims.REPLAY_EVIDENCE),
+            card_claims.load_evidence(run_text, card_claims.RUN_EVIDENCE),
+        )
+    except card_claims.CardClaimError as error:
+        errors = [f"evidence cannot support a card claim: {error}"]
+    return CheckResult(repo, tuple(errors))
+
+
+def verify_repository(repo: str, *, timeout: float = 30.0) -> CheckResult:
+    verify = verify_replay_claims if repo in REPLAY_CLAIM_REPOS else verify_dataset
+    return verify(repo, timeout=timeout)
+
+
 def verify_repositories(
     repos: Iterable[str], *, timeout: float = 30.0
 ) -> tuple[CheckResult, ...]:
-    return tuple(verify_dataset(repo, timeout=timeout) for repo in repos)
+    return tuple(verify_repository(repo, timeout=timeout) for repo in repos)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -771,7 +816,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo",
         action="append",
-        choices=DATASET_REPOS,
+        choices=DATASET_REPOS + REPLAY_CLAIM_REPOS,
         help="verify only this public rmems dataset repository; repeatable",
     )
     parser.add_argument(
@@ -779,7 +824,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    results = verify_repositories(args.repo or DATASET_REPOS, timeout=args.timeout)
+    repos = args.repo or DATASET_REPOS + REPLAY_CLAIM_REPOS
+    results = verify_repositories(repos, timeout=args.timeout)
     for result in results:
         if result.ok:
             print(f"OK {result.repo}")

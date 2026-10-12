@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Code-repair Hub card claims are derived from, and checked against, the evidence (#420)."""
+
+import copy
+import sys
+import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "pipelines"))
+
+from code_repair import card_claims as cc  # noqa: E402
+
+
+def _not_replayed(outcome: str, oracle_status: str, count: int) -> list[dict]:
+    return [
+        {"record_id": f"{outcome}-{oracle_status}-{i}", "status": "not_replayed",
+         "reason": "natural ineligibility", "outcome": outcome, "oracle_status": oracle_status}
+        for i in range(count)
+    ]
+
+
+# The counts published on rmems/python-function-repair-20261006 (Hub main 48fbdc4).
+REPLAY = {
+    "status": "passed",
+    "counts": {"records": 132, "positives": 97, "passed": 97, "failed": 0,
+               "not_replayed": 35, "failed_by_code": {}},
+    "records": [
+        *({"record_id": f"pos-{i}", "status": "replayed", "code": "REPLAY_PASSED"}
+          for i in range(97)),
+        *_not_replayed("rejected", "validated", 18),
+        *_not_replayed("rejected", "provisional", 4),
+        *_not_replayed("accepted", "provisional", 13),
+    ],
+}
+RUN = {
+    "records": 132, "count": 150,
+    "catalog": {"catalog_id": "python-repair-v1", "program_count": 197},
+    "outcomes": {"accepted": 110, "rejected": 22},
+    "oracle_statuses": {"provisional": 17, "validated": 115},
+    "skips": {"DUPLICATE_MUTANT_IN_RUN": 18, "MUTATION_NO_SITES": 4},
+}
+
+# The card as published: it sells a 97-of-132 replay as the full batch and counts
+# the four siteless programs as skipped draws.
+OVERCLAIMING_CARD = """# Python Function Repair Records
+
+> **Verification:** every candidate carries its execution evidence and the
+> full batch passed independent replay (`evidence/REPLAY.json`: status
+> passed).
+
+## Contents
+
+132 candidates (150 requested; 18 duplicate mutants + 4 siteless programs skipped):
+"""
+
+# The corrected card proposed in the card-only Hub PR, written by hand.
+HONEST_CARD = """# Python Function Repair Records
+
+> **Verification:** every candidate carries its execution evidence, but
+> independent replay covered only part of the batch: `evidence/REPLAY.json`
+> reports 97 of 132 candidates replayed and passed, 0 failed, and 35 not
+> replayed (all 22 rejected rows plus 13 accepted rows whose hidden check was
+> unavailable); its overall `status: passed` applies to the replayed subset.
+> The 132 rows mix 110 accepted and 22 rejected outcomes, with 115 validated
+> and 17 provisional oracle statuses (`evidence/RUN.json`).
+
+## Contents
+
+132 candidates (110 accepted, 22 rejected) from 150 requested draws: 18 draws
+were skipped as duplicate mutants; separately, 4 of the 197 catalog programs
+have no mutation sites and were excluded from the draw pool:
+"""
+
+
+def rendered_card(replay: dict, run: dict) -> str:
+    coverage = cc.replay_coverage(replay)
+    return (
+        f"{cc.VERIFICATION_MARKER} {cc.verification_statement(coverage)}\n"
+        f"> {cc.split_statement(run)}\n\n## Contents\n\n{cc.contents_statement(run)}\n"
+    )
+
+
+def complete_evidence() -> tuple[dict, dict]:
+    replay = {
+        "status": "passed",
+        "counts": {"records": 3, "positives": 3, "passed": 3, "failed": 0, "not_replayed": 0},
+        "records": [{"record_id": str(i), "status": "replayed"} for i in range(3)],
+    }
+    run = {"records": 3, "count": 3, "catalog": {"program_count": 5},
+           "outcomes": {"accepted": 3}, "oracle_statuses": {"validated": 3}, "skips": {}}
+    return replay, run
+
+
+class ImportFormTests(unittest.TestCase):
+    def test_package_and_direct_forms_are_one_module(self):
+        sys.path.insert(0, str(REPO))
+        try:
+            from pipelines.code_repair import card_claims as packaged
+        finally:
+            sys.path.remove(str(REPO))
+        self.assertIs(packaged, cc)
+        self.assertIs(packaged.CardClaimError, cc.CardClaimError)
+
+
+class ReplayCoverageTests(unittest.TestCase):
+    def test_coverage_reads_the_partial_replay_and_its_not_replayed_kinds(self):
+        coverage = cc.replay_coverage(REPLAY)
+        self.assertFalse(coverage.complete)
+        self.assertEqual((coverage.records, coverage.passed, coverage.failed,
+                          coverage.not_replayed), (132, 97, 0, 35))
+        self.assertEqual(dict(coverage.not_replayed_by_kind), {
+            "accepted with oracle status provisional": 13,
+            "rejected with oracle status provisional": 4,
+            "rejected with oracle status validated": 18,
+        })
+
+    def test_counts_that_do_not_add_up_are_refused(self):
+        replay = copy.deepcopy(REPLAY)
+        replay["counts"]["passed"] = 132
+        with self.assertRaisesRegex(cc.CardClaimError, "do not add up"):
+            cc.replay_coverage(replay)
+
+    def test_not_replayed_list_must_match_its_count(self):
+        replay = copy.deepcopy(REPLAY)
+        replay["records"] = replay["records"][:-1]
+        with self.assertRaisesRegex(cc.CardClaimError, "lists 34 not-replayed"):
+            cc.replay_coverage(replay)
+
+    def test_non_integer_and_missing_counts_are_refused(self):
+        for bad in (True, -1, "97", None):
+            replay = copy.deepcopy(REPLAY)
+            replay["counts"]["passed"] = bad
+            with self.subTest(bad=bad), self.assertRaises(cc.CardClaimError):
+                cc.replay_coverage(replay)
+
+    def test_missing_status_or_records_list_is_refused(self):
+        for key in ("status", "records"):
+            replay = copy.deepcopy(REPLAY)
+            del replay[key]
+            with self.subTest(key=key), self.assertRaises(cc.CardClaimError):
+                cc.replay_coverage(replay)
+
+
+class RenderedStatementTests(unittest.TestCase):
+    def test_partial_replay_statement_states_the_replayed_subset(self):
+        text = cc.verification_statement(cc.replay_coverage(REPLAY))
+        self.assertIn("97 of 132 candidates replayed and passed, 0 failed", text)
+        self.assertIn("35 not replayed (13 accepted with oracle status provisional", text)
+        self.assertIn("applies to the replayed subset only", text)
+        self.assertNotIn("full batch", text)
+
+    def test_complete_replay_statement_says_all(self):
+        replay, _run = complete_evidence()
+        text = cc.verification_statement(cc.replay_coverage(replay))
+        self.assertIn("re-executed all 3 candidates and every one passed", text)
+
+    def test_split_statement_discloses_outcomes_and_oracle_statuses(self):
+        self.assertEqual(
+            cc.split_statement(RUN),
+            "The 132 rows mix 110 accepted and 22 rejected outcomes, with 17 provisional and "
+            "115 validated oracle statuses (`evidence/RUN.json`).",
+        )
+
+    def test_contents_statement_keeps_pool_exclusions_apart_from_draw_skips(self):
+        text = cc.contents_statement(RUN)
+        self.assertIn("132 candidates from 150 requested draws "
+                      "(18 draws skipped as `DUPLICATE_MUTANT_IN_RUN`)", text)
+        self.assertIn("4 of the 197 catalog programs have no mutation sites and were "
+                      "excluded from the draw pool, so they used no draws", text)
+
+    def test_contents_statement_without_skips(self):
+        _replay, run = complete_evidence()
+        self.assertEqual(cc.contents_statement(run),
+                         "3 candidates from 3 requested draws (no draws skipped).")
+
+
+class CardClaimTests(unittest.TestCase):
+    def test_overclaiming_card_fails(self):
+        errors = cc.card_claim_errors(OVERCLAIMING_CARD, REPLAY, RUN)
+        self.assertIn("Verification claims a complete replay ('full batch') but 35 of 132 "
+                      "records were not replayed", errors)
+        for phrase in ("'97 of 132'", "'35 not replayed'", "'0 failed'"):
+            self.assertTrue(any(phrase in e for e in errors), phrase)
+        for disclosure in ("110 accepted", "22 rejected", "115 validated", "17 provisional"):
+            self.assertTrue(any(disclosure in e for e in errors), disclosure)
+        self.assertTrue(any("excluded from the draw pool" in e for e in errors))
+
+    def test_hand_written_honest_card_passes(self):
+        self.assertEqual(cc.card_claim_errors(HONEST_CARD, REPLAY, RUN), [])
+
+    def test_rendered_card_passes_its_own_check(self):
+        self.assertEqual(cc.card_claim_errors(rendered_card(REPLAY, RUN), REPLAY, RUN), [])
+        replay, run = complete_evidence()
+        self.assertEqual(cc.card_claim_errors(rendered_card(replay, run), replay, run), [])
+
+    def test_all_records_claim_is_an_overclaim_for_a_partial_replay(self):
+        card = HONEST_CARD.replace("covered only part of the batch", "covered all 132 records")
+        errors = cc.card_claim_errors(card, REPLAY, RUN)
+        self.assertTrue(any("'all 132'" in e for e in errors))
+
+    def test_overclaim_outside_the_verification_block_is_not_its_claim(self):
+        card = HONEST_CARD + "\nA future full batch replay is planned.\n"
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [])
+
+    def test_failures_must_be_stated(self):
+        replay = copy.deepcopy(REPLAY)
+        replay["status"] = "failed"
+        replay["counts"].update(passed=95, failed=2)
+        card = HONEST_CARD.replace("97 of 132", "95 of 132")
+        errors = cc.card_claim_errors(card, replay, RUN)
+        self.assertEqual(errors, ["Verification must state '2 failed' from evidence/REPLAY.json"])
+
+    def test_card_without_a_verification_statement_fails(self):
+        errors = cc.card_claim_errors("# Card\n\n110 accepted\n", REPLAY, RUN)
+        self.assertIn("card has no '> **Verification:**' statement", errors)
+
+    def test_run_and_replay_of_different_sizes_are_refused(self):
+        run = dict(RUN, records=131)
+        with self.assertRaisesRegex(cc.CardClaimError, "131 records"):
+            cc.card_claim_errors(HONEST_CARD, REPLAY, run)
+
+    def test_malformed_run_tallies_are_refused(self):
+        run = dict(RUN, outcomes=["accepted"])
+        with self.assertRaisesRegex(cc.CardClaimError, "must be an object of counts"):
+            cc.card_claim_errors(HONEST_CARD, REPLAY, run)
+
+
+if __name__ == "__main__":
+    unittest.main()

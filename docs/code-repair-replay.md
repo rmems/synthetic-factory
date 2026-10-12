@@ -37,3 +37,19 @@ that discarding failed probes did not change the state used by retained inputs.
 These selection checks bound the pinned-source pilot. Execution of any catalog
 that is not that reviewed pin requires the `bwrap-ro-netns-v1` OS boundary
 recorded in the oracle fingerprint; replay refuses a different sandbox identity.
+
+## What a Hub card may claim about replay
+
+`REPLAY.json`'s top-level `status` is computed over the replayed positives
+only. Rejected and provisional records are listed as `not_replayed`, so
+`status: passed` next to `not_replayed > 0` is a partial replay, not a passed
+full batch (#420). A code-repair Hub card's verification and contents sentences
+are therefore rendered from the evidence by `pipelines/code_repair/card_claims.py`
+(`verification_statement`, `split_statement`, `contents_statement`), and
+`pipelines/verify_hf_release.py` checks each published code-repair card
+(`REPLAY_CLAIM_REPOS`) against its `evidence/REPLAY.json` and
+`evidence/RUN.json`. The card must state `<passed> of <records>`, the failed and
+not-replayed counts, and the outcome and oracle-status splits. It must also say
+that `MUTATION_NO_SITES` programs were excluded from the draw pool, because
+they use no draws and don't account for a shortfall between requested and
+produced candidates.
