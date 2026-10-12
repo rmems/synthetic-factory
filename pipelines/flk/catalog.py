@@ -141,7 +141,11 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Refuses calls, names, and starred dicts."""
+    """Literal values only. Refuses calls, names, and starred dicts.
+
+    Nested values recurse straight back into this function, one frame per level
+    (two for a tuple's generator) as before; the helpers it calls never recurse.
+    """
 
     if isinstance(node, ast.Constant):
         return node.value
@@ -149,22 +153,35 @@ def _const_eval(node: ast.AST) -> Any:
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    return _const_dict_or_negative(node)
+    items = _dict_items(node)
+    if items is not None:
+        keys, values = items
+        return dict(zip(map(_const_eval, keys), map(_const_eval, values)))
+    operand = _negated_operand(node)
+    if operand is None:
+        raise FlkRefusal(FINDING_SOURCE_NOT_PARSEABLE, _not_constant_message(node))
+    return -_const_eval(operand)
 
 
-def _const_dict_or_negative(node: ast.AST) -> Any:
-    """Literal dicts and negated numbers; anything else is refused."""
+def _dict_items(node: ast.AST) -> tuple[list[ast.expr], list[ast.expr]] | None:
+    """Key and value nodes of a dict literal; None for any other node or ``**`` unpacking."""
 
-    if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise FlkRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    if not isinstance(node, ast.Dict):
+        return None
+    keys = [key for key in node.keys if key is not None]
+    return (keys, node.values) if len(keys) == len(node.keys) else None
+
+
+def _negated_operand(node: ast.AST) -> ast.expr | None:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    raise FlkRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+        return node.operand
+    return None
+
+
+def _not_constant_message(node: ast.AST) -> str:
+    if isinstance(node, ast.Dict):
+        return "plant source uses dict unpacking"
+    return f"plant source is not a constant ({type(node).__name__})"
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:

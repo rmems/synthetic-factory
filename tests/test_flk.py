@@ -125,6 +125,18 @@ class PlantShapeRefusals(unittest.TestCase):
         rows = catalog.plants_from_source(source, mill_id="flk_r0012", source="t.py")
         self.assertEqual(rows[0]["base_round"], 12)
 
+    def test_a_600_deep_minus_chain_still_reaches_the_plants_check(self):
+        source = "BASE = " + "-" * 600 + "1\n"
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="flk_r100", source="m.py")
+        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+        self.assertEqual(caught.exception.message, "m.py has no PLANTS list")
+
+    def test_dict_unpacking_in_a_constant_is_refused(self):
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source("BASE = {**x}\n", mill_id="flk_r100", source="m.py")
+        self.assertEqual(caught.exception.message, "plant source uses dict unpacking")
+
     def test_source_needs_plants_a_flk_mill_id_and_a_positive_base(self):
         cases = (
             ("BASE = 3\n", "flk_r0001", FINDING_SOURCE_NOT_PARSEABLE, "t.py has no PLANTS list"),
