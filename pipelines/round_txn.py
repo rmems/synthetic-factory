@@ -486,9 +486,9 @@ def _link_verified_copy(temporary: Path, destination: Path, expected_sha256: str
     """Link the verified temporary copy, accepting only an identical racer."""
     try:
         os.link(temporary, destination, follow_symlinks=False)
-    except FileExistsError:
+    except FileExistsError as exc:
         if not _existing_published_file_is_reusable(destination, expected_sha256):
-            raise TransactionError(f"publication race at {destination}")
+            raise TransactionError(f"publication race at {destination}") from exc
 
 
 def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: str):
@@ -1155,10 +1155,12 @@ def ensure_marker_mode(factory_dir: Path):
     try:
         write_exclusive_json(mode_path, payload)
         return payload
-    except FileExistsError:
+    except FileExistsError as exc:
         existing = marker_mode_path(factory_dir)
         if existing is None:
-            raise TransactionError(f"marker mode disappeared while creating it: {mode_path}")
+            raise TransactionError(
+                f"marker mode disappeared while creating it: {mode_path}"
+            ) from exc
         return validated_marker_mode(factory_dir, existing)
 
 
