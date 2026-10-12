@@ -51,6 +51,7 @@ import os
 import stat
 import sys
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple, Sequence
@@ -460,12 +461,18 @@ def _file_decisions(
     return decisions, skipped
 
 
+def _count_true(flags: Iterable[Any]) -> int:
+    return sum(1 for flag in flags if flag)
+
+
 def _decision_counts(decisions: list[ArmDecision]) -> dict[str, int]:
     return {
-        "same_context": sum(1 for d in decisions if d.same_context),
-        "two_session": sum(1 for d in decisions if d.isolation == TWO_SESSION),
-        "trusted_two_session": sum(1 for d in decisions if d.trusted_isolation == TWO_SESSION),
-        "blocked": sum(1 for d in decisions if d.blocked),
+        "same_context": _count_true(d.same_context for d in decisions),
+        "two_session": _count_true(d.isolation == TWO_SESSION for d in decisions),
+        "trusted_two_session": _count_true(
+            d.trusted_isolation == TWO_SESSION for d in decisions
+        ),
+        "blocked": _count_true(d.blocked for d in decisions),
     }
 
 
