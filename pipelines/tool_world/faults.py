@@ -28,6 +28,7 @@ __all__ = [
     "FaultEngine",
     "FaultSpec",
     "ScheduledFault",
+    "ShowsSymptom",
     "action_from_row",
     "fault_spec_from_row",
     "schedule_faults",
@@ -264,6 +265,10 @@ def _targets(spec: FaultSpec, tool: str, args: Mapping[str, Any]) -> bool:
     return spec.tool == tool and _selector_matches(spec.selector, args)
 
 
+# The owning surface's word on whether the current call could show a fault's symptom.
+ShowsSymptom = Callable[[FaultSpec], bool]
+
+
 def always_shows(_spec: FaultSpec) -> bool:
     """The default word on whether a call could show a fault's symptom: it could."""
     return True
@@ -293,10 +298,7 @@ class FaultEngine:
         return entry.armed and self._counts[entry.fault_id] == entry.occurrence
 
     def check(
-        self,
-        tool: str,
-        args: Mapping[str, Any],
-        shows: Callable[[FaultSpec], bool] = always_shows,
+        self, tool: str, args: Mapping[str, Any], shows: ShowsSymptom = always_shows
     ) -> ScheduledFault | None:
         """Advance every matching counter; return the first armed fault reaching its occurrence.
 
