@@ -42,14 +42,18 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
         return node.value
     if isinstance(node, ast.Name):
         return bound.get(node.id, UNSET)
-    if isinstance(node, ast.UnaryOp):
-        return _negated(node, bound)
     if isinstance(node, (ast.Tuple, ast.List, ast.Set, ast.Dict)):
         return _container_value(node, bound)
+    return _expression_value(node, bound)
+
+
+def _expression_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
+    if isinstance(node, ast.UnaryOp):
+        return _negated(node, env)
     if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
+        return _joined_string(node, env)
     if isinstance(node, ast.BinOp):
-        return _concatenated(node, bound)
+        return _concatenated(node, env)
     return UNSET
 
 
