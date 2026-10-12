@@ -223,6 +223,14 @@ class ConfiguredRootRefusalTests(unittest.TestCase):
         assert_refused(self, f"{HF_ENV} is set but empty", environ={HF_ENV: ""})
         assert_refused(self, f"{FACTORY_ENV} is set but empty", environ={FACTORY_ENV: ""})
 
+    def test_whitespace_only_root_is_refused_as_empty(self):
+        for blank in (" ", "\t", "  \n"):
+            with self.subTest(blank=repr(blank)):
+                assert_refused(self, "--hf-root is set but empty", hf_flag=blank)
+                assert_refused(
+                    self, f"{FACTORY_ENV} is set but empty", environ={FACTORY_ENV: blank}
+                )
+
     def test_uninspectable_root_is_refused(self):
         hub = make_directory(self.root, "hf")
         with mock.patch.object(hub_roots.os, "lstat", side_effect=PermissionError("denied")):
@@ -280,6 +288,18 @@ class HubRootRawGuardTests(unittest.TestCase):
                     "Hub mirror root lies inside the factory source root", hub, source
                 )
 
+    def test_hub_root_inside_the_factory_root_through_a_symlinked_parent_is_refused(self):
+        # The Hub leaf is a real directory reached through a link into the
+        # factory tree; only the resolved or identity check sees the overlap.
+        source = make_directory(self.root, "src")
+        make_directory(self.root, "src", "hf")
+        link = self.root / "link"
+        link.symlink_to(source, target_is_directory=True)
+
+        self.assert_hub_refused(
+            "Hub mirror root lies inside the factory source root", link / "hf", source
+        )
+
     def test_factory_root_inside_the_hub_root_is_refused(self):
         hub = make_directory(self.root, "hf")
         source = make_directory(self.root, "hf", "grok-4.6", "src")
@@ -293,6 +313,70 @@ class HubRootRawGuardTests(unittest.TestCase):
         with mock.patch.object(publisher, "HF_ROOT", unsafe_default):
             self.assert_hub_refused(RAW, None, make_directory(self.root, "src"))
         self.assertFalse(unsafe_default.exists())
+
+
+class DirectoryGuardTests(unittest.TestCase):
+    def setUp(self):
+        self.root = temporary_root(self)
+
+    def test_safe_factory_root_returns_a_real_active_root(self):
+        source = make_directory(self.root, "raw")
+        roots = hub_roots.PublisherRoots(hf=self.root / "hf", factory=source)
+        with hub_roots.active_roots(roots):
+            self.assertEqual(hub_roots.safe_factory_root(Path("/unused")), source)
+
+    def test_safe_factory_root_refuses_a_missing_or_symlinked_root(self):
+        link = self.root / "link"
+        link.symlink_to(make_directory(self.root, "raw"), target_is_directory=True)
+        for unsafe in (self.root / "missing", link):
+            with self.subTest(root=unsafe.name), self.assertRaisesRegex(
+                SystemExit, "unsafe factory root"
+            ):
+                hub_roots.safe_factory_root(unsafe)
+
+    def test_real_directory_creates_or_accepts_a_real_directory(self):
+        nested = self.root / "a" / "b"
+        hub_roots.real_directory(nested, parents=True)
+        hub_roots.real_directory(nested)
+
+        self.assertTrue(nested.is_dir())
+
+    def test_real_directory_refuses_a_symlink_dangling_link_or_file(self):
+        linked = self.root / "linked"
+        linked.symlink_to(make_directory(self.root, "target"), target_is_directory=True)
+        dangling = self.root / "dangling"
+        dangling.symlink_to(self.root / "gone", target_is_directory=True)
+        regular = self.root / "file"
+        regular.write_text("x\n", encoding="utf-8")
+        for unsafe in (linked, dangling, regular):
+            with self.subTest(entry=unsafe.name), self.assertRaisesRegex(
+                SystemExit, "unsafe snapshot directory"
+            ):
+                hub_roots.real_directory(unsafe)
+        self.assertFalse((self.root / "gone").exists())
+
+    def test_real_directory_checks_what_a_concurrent_writer_left(self):
+        # mkdir loses the race: another writer creates the entry first. A real
+        # directory is accepted; a symlink planted in that window is refused.
+        target = make_directory(self.root, "target")
+
+        def racer_makes(entry):
+            def mkdir(path, *_args, **_kwargs):
+                entry(path)
+                raise FileExistsError(path)
+            return mkdir
+
+        real = self.root / "real"
+        with mock.patch.object(Path, "mkdir", autospec=True, side_effect=racer_makes(os.mkdir)):
+            hub_roots.real_directory(real)
+        self.assertTrue(real.is_dir())
+
+        planted = self.root / "planted"
+        plant = racer_makes(lambda path: path.symlink_to(target, target_is_directory=True))
+        with mock.patch.object(Path, "mkdir", autospec=True, side_effect=plant), (
+            self.assertRaisesRegex(SystemExit, "unsafe snapshot directory")
+        ):
+            hub_roots.real_directory(planted)
 
 
 class PublisherMainRootTests(unittest.TestCase):

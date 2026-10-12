@@ -81,7 +81,9 @@ from publish_hub_roots import (  # noqa: E402
     active_roots,
     add_root_arguments,
     publication_roots,
+    real_directory,
     refused_schemas_option,
+    safe_factory_root,
 )
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
@@ -445,9 +447,7 @@ def card_declaration_for_payload(
 
 def factory_source(slug: str) -> Path:
     """Return one in-tree, non-symlinked factory directory."""
-    factory_root = active_factory_root(FACTORY_ROOT)
-    if factory_root.is_symlink() or not factory_root.is_dir():
-        raise SystemExit(f"unsafe factory root: {factory_root}")
+    factory_root = safe_factory_root(FACTORY_ROOT)
     root = factory_root.resolve()
     source = factory_root / slug
     if source.is_symlink() or not source.is_dir():
@@ -460,9 +460,7 @@ def factory_source(slug: str) -> Path:
 
 
 def _factory_slugs() -> list[str]:
-    factory_root = active_factory_root(FACTORY_ROOT)
-    if factory_root.is_symlink() or not factory_root.is_dir():
-        raise SystemExit(f"unsafe factory root: {factory_root}")
+    factory_root = safe_factory_root(FACTORY_ROOT)
     slugs: list[str] = []
     for path in sorted(factory_root.iterdir()):
         if path.is_symlink():
@@ -586,11 +584,7 @@ def replace_snapshot_text(dst: Path, content: str) -> None:
 def snapshot_directories(dest: Path) -> tuple[Path, Path]:
     """Create a real, contained raw/metadata tree for one Hub snapshot."""
     for directory in (active_hf_root(HF_ROOT), hf_datasets_root()):
-        if directory.exists() or directory.is_symlink():
-            if not directory.is_dir() or directory.is_symlink():
-                raise SystemExit(f"unsafe snapshot directory: {directory}")
-        else:
-            directory.mkdir(parents=True)
+        real_directory(directory, parents=True)
     root = active_hf_root(HF_ROOT).resolve()
 
     # Mirrors sit one level deeper than the Hub root (grouped by model), but
@@ -598,11 +592,7 @@ def snapshot_directories(dest: Path) -> tuple[Path, Path]:
     if dest.parent != hf_datasets_root():
         raise SystemExit(f"snapshot destination escaped Hub root: {dest}")
     for directory in (dest, dest / "data", dest / "data" / "raw", dest / "data" / "metadata"):
-        if directory.exists() or directory.is_symlink():
-            if not directory.is_dir() or directory.is_symlink():
-                raise SystemExit(f"unsafe snapshot directory: {directory}")
-        else:
-            directory.mkdir()
+        real_directory(directory)
         try:
             directory.resolve().relative_to(root)
         except ValueError as exc:
