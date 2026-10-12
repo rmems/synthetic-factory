@@ -80,9 +80,16 @@ def broken_links(path: Path) -> list[str]:
         where = f"{path.relative_to(REPO)}:{number}: {target}"
         if not resolved.exists():
             problems.append(f"{where} (no such path)")
-        elif anchor and resolved.suffix == ".md" and anchor not in anchors(resolved):
+        elif _missing_heading(resolved, anchor):
             problems.append(f"{where} (no such heading)")
     return problems
+
+
+def _missing_heading(resolved: Path, anchor: str) -> bool:
+    """True when ``anchor`` names a heading that the Markdown file lacks."""
+    if not anchor or resolved.suffix != ".md":
+        return False
+    return anchor not in anchors(resolved)
 
 
 class DocsLinkTests(unittest.TestCase):
