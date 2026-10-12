@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -135,7 +135,7 @@ def _is_nonempty_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value)
 
 
-def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
+def _bind_catalog(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
     expected = {source.mill_id: source for source in deferred_sources()}
     counts = Counter(row["mill_id"] for row in rows)
     if set(counts) != set(expected):
@@ -148,7 +148,7 @@ def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
 
 
 def _group_by_mill(
-    rows: list[Mapping[str, Any]], expected: Mapping[str, Any]
+    rows: Sequence[Mapping[str, Any]], expected: Mapping[str, Any]
 ) -> dict[str, list[Mapping[str, Any]]]:
     """Rows per deferred mill, refusing a path that disagrees with the pins or a repeat."""
 

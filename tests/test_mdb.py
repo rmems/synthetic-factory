@@ -326,6 +326,18 @@ class MdbDeferredPairsTests(unittest.TestCase):
 class MdbShapeRefusalTests(unittest.TestCase):
     """Constructor and row tables whose arguments are not literal slugs extract nothing."""
 
+    def test_600_deep_plus_and_minus_chains_resolve_as_constants(self):
+        deep = "CATALOG_FIRST = " + "-" * 600 + "1534"
+        chained = _SLUGS_SNIPPET.replace("CATALOG_FIRST = 1534", deep)
+        chained += "GEN = " + " + ".join(['"g"'] * 600) + "\n"
+        extracted = extract_mill_catalog(chained, path="experiments/mdb-mill-r1534.py")
+        self.assertEqual((extracted["catalog_first"], extracted["generator"]), (1534, "g" * 600))
+
+    def test_fstring_constants_resolve_and_negated_text_does_not(self):
+        source = _SLUGS_SNIPPET + 'X = 2\nGEN = f"mdb-{X}"\nCATALOG_FIRST = -"a"\n'
+        extracted = extract_mill_catalog(source, path="experiments/mdb-mill-r1534.py")
+        self.assertEqual((extracted["generator"], extracted["catalog_first"]), ("mdb-2", 1534))
+
     def test_constructor_tables_need_literal_slug_arguments(self):
         cases = (
             (_p_ctor_pairs, 'PAIRS = [(P("a"), P("b"))]\n'),

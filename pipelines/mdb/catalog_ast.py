@@ -7,8 +7,9 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
+from typing import Any, TypeGuard
 
 UNSET = object()
 
@@ -25,49 +26,71 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
+# Everything besides a constant or a bound name that may still be a literal.
+_NESTED_LITERALS = (ast.Tuple, ast.List, ast.Set, ast.Dict, ast.JoinedStr, ast.BinOp, ast.UnaryOp)
+
+
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    Only this function and the container readers it calls recurse, so a nesting
+    level costs one frame for ``-``/``+`` and two for a container, as it always did.
+    """
 
     bound = env or {}
-    if isinstance(node, ast.Constant):
-        return node.value
     if isinstance(node, ast.Name):
         return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    return _sequence_value(node, bound)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if not isinstance(node, _NESTED_LITERALS):
+        return UNSET
+    if _adds(node):
+        return _text_sum(literal_value(node.left, bound), literal_value(node.right, bound))
+    if _negates(node):
+        return _negative(literal_value(node.operand, bound))
+    return _reader_for(node)(bound)
 
 
-def _sequence_value(node: ast.AST, bound: Mapping[str, Any]) -> Any:
-    """Tuples, lists, and sets of literals."""
-
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    return _mapping_or_text_value(node, bound)
+def _adds(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
 
 
-def _mapping_or_text_value(node: ast.AST, bound: Mapping[str, Any]) -> Any:
-    """Literal dicts, constant f-strings, and ``str + str``; else ``UNSET``."""
+def _negates(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
 
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+
+def _text_sum(left: Any, right: Any) -> Any:
+    both_text = isinstance(left, str) and isinstance(right, str)
+    return left + right if both_text else UNSET
+
+
+def _negative(value: Any) -> Any:
+    """A negated int or float; any other operand has no literal value."""
+
+    if isinstance(value, (int, float)):
+        return -value
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _reader_for(node: ast.AST) -> Callable[[Mapping[str, Any]], Any]:
+    """The non-recursive choice of reader for a container or f-string node."""
+
+    if isinstance(node, ast.Dict):
+        return partial(_mapping, node)
+    if isinstance(node, ast.JoinedStr):
+        return partial(_joined_string, node)
+    if isinstance(node, ast.Tuple):
+        return partial(_sequence, node.elts, ctor=tuple)
+    if isinstance(node, (ast.List, ast.Set)):
+        return partial(_sequence, node.elts, ctor=set if isinstance(node, ast.Set) else list)
+    return _no_literal
+
+
+def _no_literal(_bound: Mapping[str, Any]) -> Any:
+    return UNSET
+
+
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
