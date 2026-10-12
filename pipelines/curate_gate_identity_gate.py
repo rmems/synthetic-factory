@@ -241,7 +241,9 @@ def _expected_identity_ids(
 def _owner_state_claims_provenance(owner: dict[str, Any]) -> bool:
     """Whether an owner's ``state`` object carries a sim/real or provenance claim."""
     state = owner.get("state")
-    return isinstance(state, dict) and ("sim_or_real" in state or "provenance" in state)
+    if not isinstance(state, dict):
+        return False
+    return "sim_or_real" in state or "provenance" in state
 
 
 def _owner_state_paths(

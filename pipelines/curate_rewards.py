@@ -648,6 +648,13 @@ def _absolute_path(path):
     return Path(os.path.abspath(os.fspath(path)))
 
 
+def _is_non_directory_component(walked, absolute):
+    """An existing component above the final path that is not a directory."""
+    if walked == absolute:
+        return False
+    return os.path.lexists(walked) and not walked.is_dir()
+
+
 def _reject_symlink_components(path, label):
     """Reject an existing symlink anywhere in an absolute path."""
     absolute = _absolute_path(path)
@@ -659,7 +666,7 @@ def _reject_symlink_components(path, label):
             raise RewardOntologyError(
                 f"{label} contains a symlinked path component: {walked}"
             )
-        if walked != absolute and os.path.lexists(walked) and not walked.is_dir():
+        if _is_non_directory_component(walked, absolute):
             raise RewardOntologyError(
                 f"{label} has a non-directory path component: {walked}"
             )

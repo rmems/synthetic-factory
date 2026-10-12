@@ -69,6 +69,7 @@ _normalized_sha256 = _digest._normalized_sha256
 _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 _assert_no_symlink = _paths._assert_no_symlink
 _logical_source_path = _paths._logical_source_path
+_is_positive_line_number = _paths._is_positive_line_number
 _load_source_records = _merge._load_source_records
 _manifest_entries = _manifests._manifest_entries
 _normalize_entry = _manifests._normalize_entry
@@ -148,7 +149,7 @@ def _bind_entry_source(
     """Resolve the entry's source identity to one authenticated source record."""
     source_path = _logical_source_path(entry["source_path"], f"{label} source_path")
     source_line = entry["source_line"]
-    if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
+    if not _is_positive_line_number(source_line):
         raise GateError(f"{label} source_line must be a positive integer")
     source_key = (source_path, source_line)
     if source_key in seen_sources:

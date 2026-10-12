@@ -158,6 +158,13 @@ def _assert_new_destination(destination: Path, label: str, raw_output_root: Path
     return resolved
 
 
+def _trees_overlap(source: Path, destination: Path) -> bool:
+    """Whether two resolved trees are the same tree or one contains the other."""
+    if source == destination:
+        return True
+    return source in destination.parents or destination in source.parents
+
+
 def _assert_disjoint_trees(
     source: Path,
     destination: Path,
@@ -167,7 +174,7 @@ def _assert_disjoint_trees(
 ) -> None:
     source = source.resolve(strict=False)
     destination = destination.resolve(strict=False)
-    if source == destination or source in destination.parents or destination in source.parents:
+    if _trees_overlap(source, destination):
         raise GateError(
             f"{source_label} and {destination_label} must be disjoint after symlink "
             f"resolution: {source_label}={source}, {destination_label}={destination}"
@@ -252,6 +259,13 @@ def _logical_source_path(value: Any, label: str) -> str:
     if not parts or ".." in parts:
         raise GateError(f"{label} is not a safe logical source path: {value!r}")
     return Path(*parts).as_posix()
+
+
+def _is_positive_line_number(value: Any) -> bool:
+    """A 1-based source line: an ``int`` that is not a ``bool`` and is at least 1."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return value >= 1
 
 
 def _assert_no_symlink(root: Path, path: Path, label: str) -> None:

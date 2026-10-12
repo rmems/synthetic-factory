@@ -54,6 +54,7 @@ REWARD_CALIBRATION_KIND = _contract.REWARD_CALIBRATION_KIND
 _normalized_sha256 = _digest._normalized_sha256
 _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 _logical_source_path = _paths._logical_source_path
+_is_positive_line_number = _paths._is_positive_line_number
 collect_lane_manifests = _manifests.collect_lane_manifests
 RetentionView = _manifests.RetentionView
 _manifest_entries = _manifests._manifest_entries
@@ -97,7 +98,7 @@ def _authenticate_evidence_entry(
         raise GateError(f"{label} no longer matches its lane contract")
     source_path = _logical_source_path(entry["source_path"], f"{label} source_path")
     source_line = entry["source_line"]
-    if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
+    if not _is_positive_line_number(source_line):
         raise GateError(f"{label} source_line must be a positive integer")
     source_key = (source_path, source_line)
     if source_key in seen_sources:
@@ -297,7 +298,7 @@ def _identity_attestations(manifest: dict[str, Any]) -> dict[tuple[str, int, str
             raise GateError(f"{label} must be an object")
         source_path = _logical_source_path(mapping.get("source_path"), f"{label}.source_path")
         source_line = mapping.get("source_line")
-        if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
+        if not _is_positive_line_number(source_line):
             raise GateError(f"{label}.source_line must be a positive integer")
         manifest_entry_sha256 = _normalized_sha256(
             mapping.get("manifest_entry_sha256"),
@@ -320,9 +321,9 @@ def _is_retained_entry(
 ) -> bool:
     """A retain action whose source survives every later terminal disposition."""
     action = str(entry.get("action") or "").strip().lower()
-    return action in RETAIN_ACTIONS and (
-        retained_source_keys is None or source_key in retained_source_keys
-    )
+    if action not in RETAIN_ACTIONS:
+        return False
+    return retained_source_keys is None or source_key in retained_source_keys
 
 
 def _retained_identity_entries(
