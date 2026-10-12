@@ -282,8 +282,13 @@ def _rec_section(rec: Mapping[str, Any], key: str) -> Mapping[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _is_strict_int(value: Any) -> bool:
+    """An int that is not a bool."""
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
 def _positive_round(value: Any, source_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if not _is_strict_int(value) or value < 1:
         raise MaosRefusal(FINDING_FIELD_INVALID, f"{source_name} meta.round is not a positive int")
     return value
 
