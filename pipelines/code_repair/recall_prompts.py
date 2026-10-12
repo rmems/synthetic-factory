@@ -88,7 +88,11 @@ def _known_variant(variant: Any) -> str | None:
 
 
 def _shown_code(view: ProbeView, variant: str) -> str:
-    """The code block the variant shows: the broken module, or the stub cut from it."""
+    """The code block the variant shows: the broken module, or the stub cut from it.
+
+    Raises ``RepairRefusal`` (``RECALL_TARGET_NOT_RENDERABLE``) through
+    :func:`.recall_stub.docstring_stub` when the target's header cannot be cut.
+    """
 
     if variant == cv.RECALL_VARIANT_NO_EVIDENCE:
         return view.program_text
@@ -97,9 +101,12 @@ def _shown_code(view: ProbeView, variant: str) -> str:
 
 def _restored_span_hidden(record: dict[str, Any], view: ProbeView, variant: str) -> bool:
     """The mutated span appears only as the mutant's replacement (``no_evidence``) or not at
-    all (``docstring_only``: it lies in the elided body, outside the header). A target whose
-    header cannot be cut raises ``RepairRefusal`` (``RECALL_TARGET_NOT_RENDERABLE``) from
-    :func:`.recall_stub.header`."""
+    all (``docstring_only``: it lies in the elided body, outside the header).
+
+    Raises ``RepairRefusal`` (``RECALL_TARGET_NOT_RENDERABLE``) through
+    :func:`.recall_stub.header` when the target's header cannot be cut; the leak check fails
+    closed rather than report a span it cannot place.
+    """
 
     site = record["intervention"]["site"]
     start = int(site["start_byte"])
@@ -136,7 +143,11 @@ def _rendering_findings(record: dict[str, Any], view: ProbeView, row: dict[str, 
 
 
 def prompt_findings(record: dict[str, Any], row: dict[str, Any]) -> list[str]:
-    """Every declared leak code the probe row violates against its record."""
+    """Every declared leak code the probe row violates against its record.
+
+    Raises ``RepairRefusal`` (``RECALL_TARGET_NOT_RENDERABLE``) when the record's target
+    header cannot be cut, as rendering the ``docstring_only`` variant would.
+    """
 
     findings = [] if set(row) == PROMPT_KEYS else [cv.LEAK_VIEW_EXTRA_KEYS]
     prompt = str(row.get("prompt", ""))

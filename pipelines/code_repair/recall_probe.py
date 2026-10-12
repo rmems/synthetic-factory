@@ -179,24 +179,28 @@ class _Input:
         return _file_entry(self.path, self.data, rows)
 
 
-def _key(row: Any) -> Key | None:
-    """``(id, variant)`` of a parsed line, or None unless both are strings."""
+def _is_keyed(row: Any) -> bool:
+    """A parsed line that is an object whose ``id`` and ``variant`` are both strings."""
 
     if not isinstance(row, dict):
-        return None
-    record_id, variant = row.get("id"), row.get("variant")
-    if isinstance(record_id, str) and isinstance(variant, str):
-        return record_id, variant
-    return None
+        return False
+    return isinstance(row.get("id"), str) and isinstance(row.get("variant"), str)
+
+
+def _key_of(row: dict[str, Any]) -> Key:
+    """``(id, variant)`` of a row :func:`_is_keyed` accepted."""
+
+    return row["id"], row["variant"]
 
 
 def _prompt_key(row: Any, expected: dict[Key, dict[str, Any]], where: str) -> Key:
     """The key of a prompt row the run re-renders byte for byte; refused otherwise."""
 
-    key = _key(row)
-    if key is None or expected.get(key) != row:
-        raise cv.RepairRefusal(cv.FINDING_RECALL_PROMPTS_MALFORMED,
-                               f"{where} is not a prompt the run re-renders")
+    cv.refuse_when(not _is_keyed(row), cv.FINDING_RECALL_PROMPTS_MALFORMED,
+                   f"{where} is not a prompt row with string id and variant")
+    key = _key_of(row)
+    cv.refuse_when(expected.get(key) != row, cv.FINDING_RECALL_PROMPTS_MALFORMED,
+                   f"{where} is not a prompt the run re-renders")
     return key
 
 
@@ -231,7 +235,7 @@ def _completion(row: Any, prompts: dict[Key, dict[str, Any]], where: str) -> tup
             cv.FINDING_RECALL_COMPLETION_MALFORMED,
             f"{where} is not an object with exactly the string fields {sorted(COMPLETION_KEYS)}",
         )
-    key = (row["id"], row["variant"])
+    key = _key_of(row)
     cv.refuse_when(
         key not in prompts, cv.FINDING_RECALL_COMPLETION_UNKNOWN,
         f"{where} names no emitted prompt: id {cv.shown(key[0])} variant {cv.shown(key[1])}",

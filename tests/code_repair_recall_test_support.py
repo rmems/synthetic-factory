@@ -109,7 +109,12 @@ def completion_lines(rows):
 
 
 class ProbeTree:
-    """Mixin: a temporary root holding the emitted prompts of the smoke run."""
+    """Mixin: a temporary root holding the emitted prompts of the smoke run.
+
+    Use it as ``class Name(ProbeTree, unittest.TestCase)``. It is deliberately not a
+    ``TestCase`` itself, so the loader never collects it as a test class with no tests,
+    and its ``setUp`` runs before the ``TestCase`` one in the method resolution order.
+    """
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="code-repair-recall-"))
