@@ -231,6 +231,19 @@ class PairShapeRefusals(unittest.TestCase):
         rows = catalog.plants_from_source(source, mill_id="saf_r0001", source="m.py")
         self.assertEqual(rows[0]["base_round"], 9)
 
+    def test_base_defaults_to_the_mill_number(self):
+        source = TINY_SOURCE.replace("BASE = 7\n", "")
+        rows = catalog.plants_from_source(source, mill_id="saf_r0012", source="m.py")
+        self.assertEqual(rows[0]["base_round"], 12)
+
+    def test_base_must_be_a_positive_int(self):
+        for value in ("True", "0", "'7'"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.extract(TINY_SOURCE.replace("BASE = 7", f"BASE = {value}")),
+                    (FINDING_PLANT_FIELD_INVALID, "m.py BASE must be a positive int"),
+                )
+
     def test_pairs_must_be_a_nonempty_list_of_complete_objects(self):
         self.assertEqual(
             self.extract("PAIRS = []\n"), (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list")
