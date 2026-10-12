@@ -92,28 +92,45 @@ def envelope_lane(envelope: Mapping[str, Any]) -> str:
     return LANE_TRAINING if exportable else LANE_RESEARCH
 
 
+# Authorities whose evidence is bound by sealed digests instead of reviewed
+# statuses: (authority, how the blocker names the digest, required digests).
+_DIGEST_BOUND_EVIDENCE = (
+    (
+        AUTHORITY_PROCEDURAL,
+        "reviewed",
+        ("procedural_policy_sha256", "catalog_sha256", "programs_sha256"),
+    ),
+    (AUTHORITY_NATIVE, "sealed", ("parity_policy_sha256", "catalog_sha256")),
+)
+
+
 def _require_reviewed_evidence(envelope: Mapping[str, Any]) -> list[str]:
-    blockers: list[str] = []
+    authority = envelope.get("authority")
+    for bound_authority, qualifier, fields in _DIGEST_BOUND_EVIDENCE:
+        if authority == bound_authority:
+            return _missing_digest_blockers(envelope, qualifier, fields)
+    return _unresolved_evidence_blockers(envelope)
+
+
+def _missing_digest_blockers(
+    envelope: Mapping[str, Any], qualifier: str, fields: tuple[str, ...]
+) -> list[str]:
+    return [
+        f"{BLOCKER_PREFIX} missing {qualifier} {field}"
+        for field in fields
+        if not is_exact_string(envelope.get(field))
+    ]
+
+
+def _unresolved_evidence_blockers(envelope: Mapping[str, Any]) -> list[str]:
     unresolved = [
         field
         for field in EVIDENCE_STATUS_FIELDS
         if envelope.get(field) == "unresolved"
     ]
-    if envelope.get("authority") == AUTHORITY_PROCEDURAL:
-        for field in ("procedural_policy_sha256", "catalog_sha256", "programs_sha256"):
-            if not is_exact_string(envelope.get(field)):
-                blockers.append(f"{BLOCKER_PREFIX} missing reviewed {field}")
-        return blockers
-    if envelope.get("authority") == AUTHORITY_NATIVE:
-        for field in ("parity_policy_sha256", "catalog_sha256"):
-            if not is_exact_string(envelope.get(field)):
-                blockers.append(f"{BLOCKER_PREFIX} missing sealed {field}")
-        return blockers
-    if unresolved:
-        blockers.append(
-            f"{BLOCKER_PREFIX} evidence is not reviewed ({', '.join(unresolved)})"
-        )
-    return blockers
+    if not unresolved:
+        return []
+    return [f"{BLOCKER_PREFIX} evidence is not reviewed ({', '.join(unresolved)})"]
 
 
 def _verdict_blockers(envelope: Mapping) -> list[str]:
