@@ -11,6 +11,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from types import MappingProxyType
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -21,12 +22,12 @@ import preference_arms_diagnosis as pad
 
 LABEL = "diagnosis-01-r11.md"
 _NARRATIVE = "The gate skipped the required check."
-_CONTEXT = {"state": {"case": 1}, "proposed_action": {"action": "hold"}}
-_TARGET = {"per_component": {"safety": 0.5, "task_progress": 0.25}, "total": 0.75}
+_CONTEXT = MappingProxyType({"state": {"case": 1}, "proposed_action": {"action": "hold"}})
+_TARGET = MappingProxyType({"per_component": {"safety": 0.5, "task_progress": 0.25}, "total": 0.75})
 
 
 def _fenced(value) -> str:
-    text = value if isinstance(value, str) else json.dumps(value)
+    text = value if isinstance(value, str) else json.dumps(value, default=dict)
     return f"```json\n{text}\n```"
 
 

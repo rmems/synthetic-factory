@@ -354,7 +354,7 @@ class StagingTests(TempCase):
             round_txn.staging_dir(self.root / "loose", 1, token)
         factory = self.factory()
         with self.assertRaisesRegex(TXN, "escaped its transaction root"):
-            round_txn.validated_reservation_stage(factory, 1, token, "/tmp/x")
+            round_txn.validated_reservation_stage(factory, 1, token, str(self.root / "elsewhere"))
 
     def test_create_stage_refusals(self):
         token = "b" * 32

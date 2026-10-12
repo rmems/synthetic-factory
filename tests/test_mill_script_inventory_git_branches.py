@@ -10,7 +10,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_mill_script_inventory import msi  # noqa: F401  (puts pipelines/ on sys.path)
 from tests.test_mill_script_inventory_refusals import _ewah_bitmap, _git_index, _index_entry
 
 import mill_script_inventory_git as git

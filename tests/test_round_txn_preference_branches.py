@@ -22,6 +22,7 @@ from round_txn_preference_support import PreferenceRoundHarness, thalamic_factor
 
 TransactionError = round_txn.TransactionError
 TOKEN = "0" * 32
+MALFORMED = "XYZ"
 
 
 def _stat(dev=1, ino=1, mode=0o100400):
@@ -300,7 +301,7 @@ class CommittedRoundRecheck(_TempCase):
 
     def test_invalid_reservation_token_is_refused(self):
         with self.assertRaisesRegex(TransactionError, "invalid reservation token"):
-            rtp._require_recorded_diagnosis_handoff(self.committed(token="XYZ"))
+            rtp._require_recorded_diagnosis_handoff(self.committed(token=MALFORMED))
 
     def test_handoff_must_match_the_recorded_receipt(self):
         committed = self.committed(token=TOKEN, preference_diagnosis_handoff={"old": 1})
