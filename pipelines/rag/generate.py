@@ -100,15 +100,28 @@ def _step(n: int, basis: str, command: str, observation: str) -> dict[str, Any]:
     }
 
 
+def _test_path(pair: dict[str, str]) -> str:
+    return f"tests/test_{pair['slug'].replace('-', '_')}.py"
+
+
 def _success_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
-    token, root, f1, f2, leftover = (
-        pair["token"],
-        pair["root"],
-        pair["f1"],
-        pair["f2"],
-        pair["leftover"],
+    return (
+        _success_diagnose_steps(pair)
+        + _success_lookup_steps(pair)
+        + _success_patch_steps(pair)
+        + _success_bind_steps(pair)
     )
-    test = f"tests/test_{pair['slug'].replace('-', '_')}.py"
+
+
+def _success_diagnose_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 1-5: list the corpus, run the failing tests, read retriever, index, metrics."""
+
+    token = pair["token"]
+    root = pair["root"]
+    f1 = pair["f1"]
+    f2 = pair["f2"]
+    leftover = pair["leftover"]
+    test = _test_path(pair)
     return [
         _step(
             1,
@@ -140,6 +153,15 @@ def _success_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
             f"rg -n recall metrics {root} | head",
             "recall leftover leftover leftover=0.12",
         ),
+    ]
+
+
+def _success_lookup_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 6-9: runbook and metrics lookups, each recovered from a transient error."""
+
+    root = pair["root"]
+    leftover = pair["leftover"]
+    return [
         _step(
             6,
             f"Plan: fetch runbook for {pair['slug']}.",
@@ -164,6 +186,16 @@ def _success_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
             f"sleep 1; cat fixtures/metrics/{pair['slug']}.json",
             '{"recall":0.12} leftover leftover leftover',
         ),
+    ]
+
+
+def _success_patch_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 10-11: the first closed patch (drop-filter) and the still-failing tests."""
+
+    token = pair["token"]
+    f2 = pair["f2"]
+    test = _test_path(pair)
+    return [
         _step(
             10,
             f"Plan: first closed patch: {pair['wrong']}.",
@@ -185,6 +217,16 @@ def _success_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
             f"pytest {test} -q --tb=short",
             f"FAILED leftover leftover leftover gold still missing {token}",
         ),
+    ]
+
+
+def _success_bind_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 12-14: plan change to binding the leftover filter; tests pass."""
+
+    f1 = pair["f1"]
+    leftover = pair["leftover"]
+    test = _test_path(pair)
+    return [
         _step(
             12,
             f"Reflection: Plan change: {pair['right']}. Not ingest-field.",
@@ -213,15 +255,24 @@ def _success_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
 
 
 def _fail_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
-    token, root, f1, f2, leftover = (
-        pair["token"],
-        pair["root"],
-        pair["f1"],
-        pair["f2"],
-        pair["leftover"],
+    return (
+        _fail_diagnose_steps(pair)
+        + _fail_lookup_steps(pair)
+        + _fail_patch_steps(pair)
+        + _fail_handoff_steps(pair)
     )
+
+
+def _fail_diagnose_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 1-5: list the corpus, run the failing tests, read retriever, cluster, owners."""
+
+    token = pair["token"]
+    root = pair["root"]
+    f1 = pair["f1"]
+    f2 = pair["f2"]
+    leftover = pair["leftover"]
     plat = pair["platform"]
-    test = f"tests/test_{pair['slug'].replace('-', '_')}.py"
+    test = _test_path(pair)
     return [
         _step(
             1,
@@ -253,6 +304,16 @@ def _fail_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
             f"rg -n '{root}|{plat}' .github {root} | head",
             f".github/CODEOWNERS: {f2} @{plat}",
         ),
+    ]
+
+
+def _fail_lookup_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 6-9: runbook and metrics lookups, each recovered from a transient error."""
+
+    root = pair["root"]
+    leftover = pair["leftover"]
+    plat = pair["platform"]
+    return [
         _step(
             6,
             f"Plan: fetch runbook for {pair['slug']}.",
@@ -277,6 +338,19 @@ def _fail_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
             f"cat fixtures/metrics/{pair['slug']}.json",
             '{"recall":0.0} leftover leftover leftover',
         ),
+    ]
+
+
+def _fail_patch_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 10-12: the first closed patch (unlink) fails; the filter is platform-owned."""
+
+    token = pair["token"]
+    f1 = pair["f1"]
+    f2 = pair["f2"]
+    leftover = pair["leftover"]
+    plat = pair["platform"]
+    test = _test_path(pair)
+    return [
         _step(
             10,
             f"Plan: first closed patch: {pair['wrong']}.",
@@ -305,6 +379,17 @@ def _fail_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
             f"sed -n '1,40p' {f1}",
             f"{f1} unsigned leftover leftover leftover",
         ),
+    ]
+
+
+def _fail_handoff_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
+    """Steps 13-15: the local bind stays unsigned, the SLO still fails, hand off."""
+
+    f1 = pair["f1"]
+    leftover = pair["leftover"]
+    plat = pair["platform"]
+    test = _test_path(pair)
+    return [
         _step(
             13,
             "Plan: local leftover leftover leftover bind still unsigned.",
@@ -332,17 +417,19 @@ def _fail_steps(pair: dict[str, str]) -> list[dict[str, Any]]:
     ]
 
 
-def _meta(rnd: int, plant: cat.Plant, catalog_id: str, domain: str, seed: str) -> dict[str, Any]:
+def _meta(rnd: int, plant: cat.Plant, catalog_id: str, pair: dict[str, str]) -> dict[str, Any]:
+    """Record meta; ``domain`` and ``seed`` come from the expanded success/fail side."""
+
     return {
         "catalog_id": catalog_id,
         "designed": True,
-        "domain": domain,
+        "domain": pair["domain"],
         "factory": FACTORY,
         "generator": GENERATOR,
         "mill_id": plant.mill_id,
         "plant_id": plant.plant_id,
         "round": rnd,
-        "seed": seed,
+        "seed": pair["seed"],
     }
 
 
@@ -365,7 +452,7 @@ def success_episode(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, An
             "3 tests passed."
         ),
         "reward": {"success": True, "tests_passed": 3, "retries": 2, "cost_steps": 14},
-        "meta": _meta(rnd, plant, catalog_id, ok["domain"], ok["seed"]),
+        "meta": _meta(rnd, plant, catalog_id, ok),
     }
     _refuse_banned(record)
     return record
@@ -397,7 +484,7 @@ def fail_episode(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
             "handoff": 1,
             "cost_steps": 15,
         },
-        "meta": _meta(rnd, plant, catalog_id, fail["domain"], fail["seed"]),
+        "meta": _meta(rnd, plant, catalog_id, fail),
     }
     _refuse_banned(record)
     return record
@@ -431,9 +518,7 @@ def _require_round(value: int | None, default: int) -> int:
 
 
 def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.Plant]]:
-    selectors = (request.plant_id is not None, request.mill_id is not None, request.all_plants)
-    if sum(selectors) != 1:
-        raise RagRefusal(FINDING_USAGE, "exactly one of plant_id, mill_id, or all_plants")
+    _require_one_selector(request)
     if request.plant_id is not None:
         plant = loaded.plant(request.plant_id)
         return [(_require_round(request.round, plant.base_round), plant)]
@@ -449,6 +534,12 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
         for index, plant in enumerate(loaded.mill_plants(mill.mill_id)):
             jobs.append((mill.base_round + index, plant))
     return jobs
+
+
+def _require_one_selector(request: GenerateRequest) -> None:
+    selectors = (request.plant_id is not None, request.mill_id is not None, request.all_plants)
+    if sum(selectors) != 1:
+        raise RagRefusal(FINDING_USAGE, "exactly one of plant_id, mill_id, or all_plants")
 
 
 def _check_destination(out_dir: Path) -> None:
