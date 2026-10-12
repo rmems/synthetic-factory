@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -57,7 +57,7 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     return _mapping(node, bound) if isinstance(node, ast.Dict) else UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)

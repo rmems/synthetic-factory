@@ -10,7 +10,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -171,7 +171,7 @@ def _mk_identity(node: ast.AST) -> dict[str, Any] | None:
 
 
 def _fn_pairs(
-    tree: ast.AST, plants: list[Mapping[str, Any]], *, path: str
+    tree: ast.AST, plants: Sequence[Mapping[str, Any]], *, path: str
 ) -> list[dict[str, Any]]:
     by_key = {row["key"]: row for row in plants}
     value = _bound_value(tree, "LHC_PAIRS", path)
