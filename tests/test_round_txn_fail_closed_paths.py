@@ -79,8 +79,8 @@ def _execution_gate_policy_for(mode):
 
 class ExecutionVerifiedRoundsTests(unittest.TestCase):
     def test_bound_rounds_must_be_an_ascending_positive_list_below_cutover(self):
-        key = round_txn.EXECUTION_VERIFIED_ROUNDS_KEY
-        cutover = round_txn.EXECUTION_CUTOVER_KEY
+        key = round_txn.EXECUTION_VERIFIED_ROUNDS_FIELD
+        cutover = round_txn.EXECUTION_CUTOVER_FIELD
         for label, mode in (
             ("not a list", {cutover: 5, key: 3}),
             ("non-positive", {cutover: 5, key: [0]}),
@@ -97,8 +97,8 @@ class ExecutionVerifiedRoundsTests(unittest.TestCase):
                 _execution_gate_policy_for(mode)
 
     def test_valid_bound_rounds_are_returned(self):
-        key = round_txn.EXECUTION_VERIFIED_ROUNDS_KEY
-        cutover = round_txn.EXECUTION_CUTOVER_KEY
+        key = round_txn.EXECUTION_VERIFIED_ROUNDS_FIELD
+        cutover = round_txn.EXECUTION_CUTOVER_FIELD
         self.assertEqual(_execution_gate_policy_for({cutover: 5, key: [2, 4]}), (5, frozenset({2, 4})))
         self.assertEqual(_execution_gate_policy_for({}), (None, frozenset()))
 

@@ -111,8 +111,8 @@ class FrontierMarkerPolicy(FrontierGateTestCaseMixin, unittest.TestCase):
             round_txn.publish(factory, 1, reservation["token"])
 
             mode = json.loads((factory / ".round-marker-mode.json").read_text())
-            self.assertEqual(mode[round_txn.EXECUTION_CUTOVER_KEY], 3)
-            self.assertEqual(mode[round_txn.EXECUTION_VERIFIED_ROUNDS_KEY], [1])
+            self.assertEqual(mode[round_txn.EXECUTION_CUTOVER_FIELD], 3)
+            self.assertEqual(mode[round_txn.EXECUTION_VERIFIED_ROUNDS_FIELD], [1])
             frontier = round_txn.frontier_status(factory)
             self.assertEqual(frontier["completed_markers"], [1, 2])
             self.assertEqual(frontier["next_round"], 3)

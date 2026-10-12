@@ -77,7 +77,7 @@ class HistoricalV1MarkerMigration(PreferenceRoundHarness):
             frozen = round_txn_preference._ledger_marker_mode_digest(mode_path)
 
             mode = json.loads(mode_path.read_text())
-            mode[round_txn.EXECUTION_CUTOVER_KEY] = 7
+            mode[round_txn.EXECUTION_CUTOVER_FIELD] = 7
             mode_path.write_text(json.dumps(mode))
             self.assertEqual(
                 round_txn_preference._ledger_marker_mode_digest(mode_path), frozen

@@ -277,8 +277,8 @@ EXECUTION_VERIFIER_SEMANTICS_VERSION = 6
 PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
 LEGACY_COMPLETION_MARKER_VERSION = 1
 EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION = 2
-EXECUTION_CUTOVER_KEY = "execution_verified_from_round"
-EXECUTION_VERIFIED_ROUNDS_KEY = "execution_verified_rounds"
+EXECUTION_CUTOVER_FIELD = "execution_verified_from_round"
+EXECUTION_VERIFIED_ROUNDS_FIELD = "execution_verified_rounds"
 CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
     {"counts", "gate", "override", "semantics_version", "strict"}
 )
@@ -1226,14 +1226,14 @@ def _is_strictly_ascending_round_list(rounds) -> bool:
 
 
 def _validated_execution_verified_rounds(mode, mode_path, cutover):
-    rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_KEY, [])
+    rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_FIELD, [])
     if not _is_strictly_ascending_round_list(rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     # Gap-filled rounds exist only below a recorded cutover.
     if cutover is None and rounds:
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     if cutover is not None and any(round_number >= cutover for round_number in rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     return frozenset(rounds)
 
 
@@ -1243,11 +1243,11 @@ def execution_gate_policy(factory_dir: Path):
     if mode_path is None:
         return None, frozenset()
     mode = read_json(mode_path)
-    cutover = mode.get(EXECUTION_CUTOVER_KEY)
+    cutover = mode.get(EXECUTION_CUTOVER_FIELD)
     if cutover is None:
         return None, _validated_execution_verified_rounds(mode, mode_path, None)
     if not _is_positive_int(cutover):
-        raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_CUTOVER_FIELD} in {mode_path}")
     return cutover, _validated_execution_verified_rounds(mode, mode_path, cutover)
 
 
@@ -1275,9 +1275,9 @@ def _record_first_execution_cutover(factory_dir, mode_path, mode, round_number):
     legacy_rounds = _legacy_completion_rounds(factory_dir)
     cutover = max([round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)])
     updated = dict(mode)
-    updated[EXECUTION_CUTOVER_KEY] = cutover
+    updated[EXECUTION_CUTOVER_FIELD] = cutover
     if round_number < cutover:
-        updated[EXECUTION_VERIFIED_ROUNDS_KEY] = [round_number]
+        updated[EXECUTION_VERIFIED_ROUNDS_FIELD] = [round_number]
     replace_json_atomically(mode_path, updated)
 
 
@@ -1287,17 +1287,17 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
     if mode_path is None:
         return
     mode = read_json(mode_path)
-    existing = mode.get(EXECUTION_CUTOVER_KEY)
+    existing = mode.get(EXECUTION_CUTOVER_FIELD)
     if existing is None:
         _record_first_execution_cutover(factory_dir, mode_path, mode, round_number)
         return
     if not _is_positive_int(existing):
-        raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_CUTOVER_FIELD} in {mode_path}")
     bound_rounds = _validated_execution_verified_rounds(mode, mode_path, existing)
     if round_number >= existing or round_number in bound_rounds:
         return
     updated = dict(mode)
-    updated[EXECUTION_VERIFIED_ROUNDS_KEY] = sorted({*bound_rounds, round_number})
+    updated[EXECUTION_VERIFIED_ROUNDS_FIELD] = sorted({*bound_rounds, round_number})
     replace_json_atomically(mode_path, updated)
 
 
