@@ -27,8 +27,9 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
     """Exercise record repairs that keep private or foreign data out."""
 
     @staticmethod
-    def _wrapped_records_with_incidental_steps():
-        wrap_episode = {
+    def _hidden_reasoning_episode():
+        """A wrapped coding episode whose only step carries hidden reasoning."""
+        return {
             "steps": [
                 {
                     "n": 1,
@@ -41,6 +42,10 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
             "outcome": "nested outcome",
             "reward": {"success": True},
         }
+
+    @staticmethod
+    def _wrapped_records_with_incidental_steps():
+        wrap_episode = ComposeCuratedRecordSafety._hidden_reasoning_episode()
         incidental = [
             {
                 "n": 1,
@@ -72,19 +77,9 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
 
         pair = bridge_pair()
         pair["internal_reasoning"] = "hidden outer bridge reasoning"
-        pair["language_view"]["trajectory"]["executed_action"] = {
-            "steps": [
-                {
-                    "n": 1,
-                    "thought": "hidden nested reasoning",
-                    "tool_call": {"name": "inspect", "args": {}},
-                    "observation": "fixture result",
-                }
-            ],
-            "goal": "nested goal",
-            "outcome": "nested outcome",
-            "reward": {"success": True},
-        }
+        pair["language_view"]["trajectory"]["executed_action"] = (
+            self._hidden_reasoning_episode()
+        )
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
