@@ -202,8 +202,29 @@ def _refusal(call, *args, **kwargs):
 
 
 class PairShapeRefusals(unittest.TestCase):
-    def extract(self, text):
+    @staticmethod
+    def extract(text):
         return _refusal(catalog.plants_from_source, text, mill_id="saf_r0001", source="m.py")
+
+    def test_a_600_deep_minus_chain_still_reaches_the_pairs_check(self):
+        source = "BASE = " + "-" * 600 + "7\nPAIRS = []\n"
+        self.assertEqual(
+            self.extract(source), (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list")
+        )
+
+    def test_constant_dicts_evaluate_and_unpacking_or_names_are_refused(self):
+        self.assertEqual(
+            self.extract("BASE = {1: [2]}\nPAIRS = []\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list"),
+        )
+        self.assertEqual(
+            self.extract("BASE = {**x}\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking"),
+        )
+        self.assertEqual(
+            self.extract("BASE = x\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "pair source is not a constant (Name)"),
+        )
 
     def test_pairs_must_be_a_nonempty_list_of_complete_objects(self):
         self.assertEqual(

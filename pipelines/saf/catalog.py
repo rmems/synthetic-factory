@@ -124,51 +124,64 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
+    """Literal values and keyword-only ``dict(...)`` calls. Never exec.
+
+    Nested values recurse straight back into this function, one frame per level
+    (two for a tuple's generator) as before; the helpers it calls never recurse.
+    """
 
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
+        return list(map(_const_eval, node.elts))
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    return _const_mapping_or_negative(node)
+    literal = _literal_dict_parts(node)
+    if literal is not None:
+        return dict(zip(map(_const_eval, literal[0]), map(_const_eval, literal[1])))
+    call = _dict_call_parts(node)
+    if call is not None:
+        return dict(zip(call[0], map(_const_eval, call[1])))
+    operand = _negated_operand(node)
+    if operand is None:
+        raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, _not_literal_message(node))
+    return -_const_eval(operand)
 
 
-def _const_mapping_or_negative(node: ast.AST) -> Any:
-    """Literal dicts and negated numbers, then keyword ``dict(...)`` calls."""
+def _literal_dict_parts(node: ast.AST) -> tuple[list[ast.expr], list[ast.expr]] | None:
+    """Key and value nodes of a ``{...}`` literal without ``**`` unpacking."""
+
+    if not isinstance(node, ast.Dict):
+        return None
+    keys = [key for key in node.keys if key is not None]
+    return (keys, node.values) if len(keys) == len(node.keys) else None
+
+
+def _dict_call_parts(node: ast.AST) -> tuple[list[str | None], list[ast.expr]] | None:
+    """Names and value nodes of a keyword-only ``dict(...)`` call."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return None
+    names = [keyword.arg for keyword in node.keywords]
+    if node.func.id != "dict" or node.args or None in names:
+        return None
+    return names, [keyword.value for keyword in node.keywords]
+
+
+def _negated_operand(node: ast.AST) -> ast.expr | None:
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return node.operand
+    return None
+
+
+def _not_literal_message(node: ast.AST) -> str:
+    """``**`` in a dict, a call other than ``dict(k=v)``, or any other node kind."""
 
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    return _const_dict_call(node)
-
-
-def _const_dict_call(node: ast.AST) -> Any:
-    """Keyword-only ``dict(...)`` calls; any other call or node is refused."""
-
+        return "pair source uses dict unpacking"
     if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id == "dict"
-            and not node.args
-            and all(keyword.arg is not None for keyword in node.keywords)
-        ):
-            return {
-                keyword.arg: _const_eval(keyword.value) for keyword in node.keywords
-            }
-        raise SafRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"pair source uses a non-literal call ({type(node).__name__})",
-        )
-    raise SafRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"pair source is not a constant ({type(node).__name__})",
-    )
+        return f"pair source uses a non-literal call ({type(node).__name__})"
+    return f"pair source is not a constant ({type(node).__name__})"
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
