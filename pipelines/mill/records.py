@@ -91,44 +91,93 @@ def _bind_scene(plant: cat.Plant, module: str) -> _Bind:
                  f"    return ev[{naive!r}]")
 
 
-def _success_probe_steps(c: _Bind) -> list[dict[str, Any]]:
-    """Steps 1-9: list, failing test, read, grep, source, and two recovered doc fetches."""
-    plant, src, test, idf, evf, naive, naive_return = c
+_Outage = namedtuple("_Outage", "response failed retry_basis retried")
+_Recovery = namedtuple("_Recovery", "outage body reflection")
+_Probe = namedtuple("_Probe", "short module test_name failure contract grep recoveries")
+
+_BAD_GATEWAY = _Outage(
+    "HTTP/1.1 502 Bad Gateway\nBad Gateway.",
+    "Call failed with upstream gateway failure. Recover with backoff.",
+    "the prior call returned an upstream gateway failure. Retry once with 2s backoff.",
+    "retry after 2s backoff; local vendor fixture",
+)
+_DOC_NEEDS = (
+    "local files are in. Need the changelog/registry before editing.",
+    "local files are in. Need the second remote document before editing.",
+)
+
+
+def _rate_limited(retry_after: int) -> _Outage:
+    return _Outage(
+        f"HTTP/1.1 429 Too Many Requests\nRetry-After: {retry_after}\nX-RateLimit-Remaining: 0",
+        "Call failed with rate-limit status with Retry-After. Recover with backoff.",
+        "the prior call returned rate-limit status with Retry-After. Sleep then retry.",
+        "sleep + jitter retry of the same URL",
+    )
+
+
+def _probe_scene(c: _Bind, success: bool) -> _Probe:
+    """What the success and fail probes differ in: paths, test, assertion, grep, doc outages."""
+    plant, idf, evf, naive = c.plant, c.idf, c.evf, c.naive
+    if success:
+        return _Probe(
+            plant.short, plant.module, plant.test_ok,
+            f"{naive} PK collapsed retry events",
+            f"assert pk({{{idf!r}: 'm1', {evf!r}: 'open', {naive!r}: 'a@b'}}) == ('m1', 'open')",
+            f"{idf}|{evf}|{naive}",
+            (_Recovery(_BAD_GATEWAY, f"{plant.provider} events unique on {idf} plus {evf}, not {naive}.",
+                       "Degraded path used the local fixture. Continue with that content."),
+             _Recovery(_rate_limited(5), f"Do not drop {evf}.",
+                       "Retry succeeded. Resume the local debug plan with that document in hand.")),
+        )
+    return _Probe(
+        plant.dshort, plant.drop_module, plant.test_fail,
+        f"dropped {evf}; {naive}-as-key collapsed bounce",
+        f"assert pk({{{idf!r}: 'm1', {evf!r}: 'bounce', {naive!r}: 'a@b'}}) != ev_{naive}_only()",
+        f"{evf}|{naive}|drop",
+        (_Recovery(_rate_limited(6), f"{evf} is event grain; dropping it is not a recipient key.",
+                   "Retry succeeded. Continue with that document."),
+         _Recovery(_BAD_GATEWAY, f"Handoff {plant.ticket}.",
+                   "Degraded path used the local fixture. Resume the local debug plan.")),
+    )
+
+
+def _doc_fetch_steps(n: int, url: str, recovery: _Recovery, need: str) -> list[dict[str, Any]]:
+    """A doc fetch that fails with ``recovery.outage`` (step n), then its recovered retry."""
+    outage = recovery.outage
     return [
-        _step(1, cv.DB_PLAN, f"list src {plant.short} and tests before touching conversion or config.",
-              _bash(f"ls -la src {plant.short} tests | head -40"),
-              f"{src} {plant.module}/cfg.yml\n{test}",
+        _step(n, cv.DB_OBSERVATION, need, _fetch(url), f"GET {url}\n{outage.response}", outage.failed),
+        _step(n + 1, cv.DB_OBSERVATION, outage.retry_basis, _fetch(url),
+              f"{outage.retried}\nHTTP/1.1 200 OK\n{recovery.body}", recovery.reflection),
+    ]
+
+
+def _probe_steps(c: _Bind, success: bool) -> list[dict[str, Any]]:
+    """Steps 1-9: list, failing test, read, grep, source, and two recovered doc fetches."""
+    plant, src, test, naive, naive_return = c.plant, c.src, c.test, c.naive, c.naive_return
+    probe = _probe_scene(c, success)
+    return [
+        _step(1, cv.DB_PLAN, f"list src {probe.short} and tests before touching conversion or config.",
+              _bash(f"ls -la src {probe.short} tests | head -40"),
+              f"{src} {probe.module}/cfg.yml\n{test}",
               f"Tree shows {src} plus tests. Run the named failing target next."),
         _step(2, cv.DB_OBSERVATION, f"listing named the test files. Run `{test} -q --tb=short`.",
               _pytest(f"{test} -q --tb=short"),
-              f"{test}::{plant.test_ok} FAILED\nE   AssertionError: {naive} PK collapsed retry events",
-              f"Failure is at {test}::{plant.test_ok}. Read that test before a one-line fix."),
-        _step(3, cv.DB_OBSERVATION, f"{test}::{plant.test_ok} is red. Read {test} around the assertion.",
+              f"{test}::{probe.test_name} FAILED\nE   AssertionError: {probe.failure}",
+              f"Failure is at {test}::{probe.test_name}. Read that test before a one-line fix."),
+        _step(3, cv.DB_OBSERVATION, f"{test}::{probe.test_name} is red. Read {test} around the assertion.",
               _read(test),
-              f"def {plant.test_ok}():\n    assert pk({{{idf!r}: 'm1', {evf!r}: 'open', {naive!r}: 'a@b'}}) == ('m1', 'open')\n",
+              f"def {probe.test_name}():\n    {probe.contract}\n",
               "Test contract is visible. Search implementation symbols next."),
         _step(4, cv.DB_OBSERVATION, "test file imported the production helper. Grep those symbols.",
-              _bash(f"rg -n '{idf}|{evf}|{naive}' src {plant.short} tests"),
+              _bash(f"rg -n '{probe.grep}' src {probe.short} tests"),
               f"{src}:2: return ev[{naive!r}]",
               f"Grep hit {src}. Read it before editing the first match."),
         _step(5, cv.DB_OBSERVATION, f"grep listed {src}. Read it before any patch.",
               _read(src), f"def pk(ev):\n{naive_return}\n",
               "First read done. Fetch vendor docs next; do not patch on a hunch yet."),
-        _step(6, cv.DB_OBSERVATION, "local files are in. Need the changelog/registry before editing.",
-              _fetch(plant.docs[0]), f"GET {plant.docs[0]}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-              "Call failed with upstream gateway failure. Recover with backoff."),
-        _step(7, cv.DB_OBSERVATION, "the prior call returned an upstream gateway failure. Retry once with 2s backoff.",
-              _fetch(plant.docs[0]),
-              f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{plant.provider} events unique on {idf} plus {evf}, not {naive}.",
-              "Degraded path used the local fixture. Continue with that content."),
-        _step(8, cv.DB_OBSERVATION, "local files are in. Need the second remote document before editing.",
-              _fetch(plant.docs[1]),
-              f"GET {plant.docs[1]}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 5\nX-RateLimit-Remaining: 0",
-              "Call failed with rate-limit status with Retry-After. Recover with backoff."),
-        _step(9, cv.DB_OBSERVATION, "the prior call returned rate-limit status with Retry-After. Sleep then retry.",
-              _fetch(plant.docs[1]),
-              f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\nDo not drop {evf}.",
-              "Retry succeeded. Resume the local debug plan with that document in hand."),
+        *_doc_fetch_steps(6, plant.docs[0], probe.recoveries[0], _DOC_NEEDS[0]),
+        *_doc_fetch_steps(8, plant.docs[1], probe.recoveries[1], _DOC_NEEDS[1]),
     ]
 
 
@@ -162,47 +211,6 @@ def _success_fix_steps(c: _Bind) -> list[dict[str, Any]]:
               _bash("git diff --stat | head -n 40"),
               f"diffstat for {plant.plant_id}: {src} | 9 ++++++---. No other modified paths.",
               "Diff is the review artifact. No further edits."),
-    ]
-
-
-def _fail_probe_steps(c: _Bind) -> list[dict[str, Any]]:
-    """Steps 1-9: list, failing test, read, grep, source, and two recovered doc fetches."""
-    plant, src, test, idf, evf, naive, naive_return = c
-    return [
-        _step(1, cv.DB_PLAN, f"list src {plant.dshort} and tests before touching conversion or config.",
-              _bash(f"ls -la src {plant.dshort} tests | head -40"),
-              f"{src} {plant.drop_module}/cfg.yml\n{test}",
-              f"Tree shows {src} plus tests. Run the named failing target next."),
-        _step(2, cv.DB_OBSERVATION, f"listing named the test files. Run `{test} -q --tb=short`.",
-              _pytest(f"{test} -q --tb=short"),
-              f"{test}::{plant.test_fail} FAILED\nE   AssertionError: dropped {evf}; {naive}-as-key collapsed bounce",
-              f"Failure is at {test}::{plant.test_fail}. Read that test before a one-line fix."),
-        _step(3, cv.DB_OBSERVATION, f"{test}::{plant.test_fail} is red. Read {test} around the assertion.",
-              _read(test),
-              f"def {plant.test_fail}():\n    assert pk({{{idf!r}: 'm1', {evf!r}: 'bounce', {naive!r}: 'a@b'}}) != ev_{naive}_only()\n",
-              "Test contract is visible. Search implementation symbols next."),
-        _step(4, cv.DB_OBSERVATION, "test file imported the production helper. Grep those symbols.",
-              _bash(f"rg -n '{evf}|{naive}|drop' src {plant.dshort} tests"),
-              f"{src}:2: return ev[{naive!r}]",
-              f"Grep hit {src}. Read it before editing the first match."),
-        _step(5, cv.DB_OBSERVATION, f"grep listed {src}. Read it before any patch.",
-              _read(src), f"def pk(ev):\n{naive_return}\n",
-              "First read done. Fetch vendor docs next; do not patch on a hunch yet."),
-        _step(6, cv.DB_OBSERVATION, "local files are in. Need the changelog/registry before editing.",
-              _fetch(plant.docs[0]),
-              f"GET {plant.docs[0]}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 6\nX-RateLimit-Remaining: 0",
-              "Call failed with rate-limit status with Retry-After. Recover with backoff."),
-        _step(7, cv.DB_OBSERVATION, "the prior call returned rate-limit status with Retry-After. Sleep then retry.",
-              _fetch(plant.docs[0]),
-              f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{evf} is event grain; dropping it is not a recipient key.",
-              "Retry succeeded. Continue with that document."),
-        _step(8, cv.DB_OBSERVATION, "local files are in. Need the second remote document before editing.",
-              _fetch(plant.docs[1]), f"GET {plant.docs[1]}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-              "Call failed with upstream gateway failure. Recover with backoff."),
-        _step(9, cv.DB_OBSERVATION, "the prior call returned an upstream gateway failure. Retry once with 2s backoff.",
-              _fetch(plant.docs[1]),
-              f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\nHandoff {plant.ticket}.",
-              "Degraded path used the local fixture. Resume the local debug plan."),
     ]
 
 
@@ -247,7 +255,7 @@ def success_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
     """16-step success: naive key, identity-only miss, then (identity, event) bind."""
     c = _bind_scene(plant, plant.module)
     idf, evf, naive = c.idf, c.evf, c.naive
-    steps = _success_probe_steps(c) + _success_fix_steps(c)
+    steps = _probe_steps(c, success=True) + _success_fix_steps(c)
     cv.refuse_when(len(steps) != cv.SUCCESS_STEPS, cv.FINDING_STEP_COUNT_INVALID, "success step count drifted")
     return {
         "id": cv.record_id(round_n, plant.plant_id),
@@ -267,7 +275,7 @@ def fail_episode(round_n: int, plant: cat.Plant) -> dict[str, Any]:
     """17-step handoff: dropping the event field stays red; ticket the grain."""
     c = _bind_scene(plant, plant.drop_module)
     evf, naive = c.evf, c.naive
-    steps = _fail_probe_steps(c) + _fail_handoff_steps(c)
+    steps = _probe_steps(c, success=False) + _fail_handoff_steps(c)
     cv.refuse_when(len(steps) != cv.FAIL_STEPS, cv.FINDING_STEP_COUNT_INVALID, "fail step count drifted")
     return {
         "id": cv.record_id(round_n, plant.fail_id),
