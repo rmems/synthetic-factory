@@ -16,7 +16,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -147,53 +147,54 @@ def sha256_bytes(payload: bytes) -> str:
 def _const_eval(node: ast.AST) -> Any:
     """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
 
+    # Every recursive call is made here and the helpers below never recurse, so a
+    # list, dict, ``dict(...)`` or unary-minus level costs one frame (a tuple level
+    # two, with its generator), as it did before the helpers were split out.
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, (ast.List, ast.Tuple, ast.Dict)):
-        return _const_eval_container(node)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    if isinstance(node, ast.Call):
-        return _const_eval_call(node)
-    refuse(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"pair source is not a constant ({type(node).__name__})",
-    )
-
-
-def _const_eval_container(node: ast.List | ast.Tuple | ast.Dict) -> Any:
     if isinstance(node, ast.List):
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    return {_const_eval(key): _const_eval(value) for key, value in _dict_entries(node)}
+    if _is_negation(node):
+        return -_const_eval(node.operand)
+    return {_const_eval(key): _const_eval(value) for key, value in _mapping_entries(node)}
 
 
-def _dict_entries(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
-    """Every key/value pair, refusing ``**`` unpacking before any value is evaluated."""
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
 
-    entries = []
-    for key, value in zip(node.keys, node.values):
-        if key is None:
+
+def _mapping_entries(node: ast.AST) -> list[tuple[ast.expr, ast.expr]]:
+    """Key/value nodes of a dict display or a keyword-only ``dict(...)`` call.
+
+    ``**`` unpacking is refused before any value is evaluated, and anything else is
+    refused as a non-literal call or a non-constant. A keyword name becomes a constant
+    key node, so both spellings share ``_const_eval``'s one comprehension.
+    """
+
+    if isinstance(node, ast.Dict):
+        if None in node.keys:
             refuse(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-        entries.append((key, value))
-    return entries
+        return [(key, value) for key, value in zip(node.keys, node.values) if key is not None]
+    if not isinstance(node, ast.Call):
+        refuse(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"pair source is not a constant ({type(node).__name__})",
+        )
+    if not _is_keyword_dict_call(node):
+        refuse(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"pair source uses a non-literal call ({type(node).__name__})",
+        )
+    return [(ast.Constant(keyword.arg), keyword.value) for keyword in node.keywords]
 
 
 def _is_keyword_dict_call(node: ast.Call) -> bool:
     func = node.func
     if not isinstance(func, ast.Name) or func.id != "dict":
         return False
-    return not node.args and all(keyword.arg is not None for keyword in node.keywords)
-
-
-def _const_eval_call(node: ast.Call) -> Any:
-    if _is_keyword_dict_call(node):
-        return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
-    refuse(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"pair source uses a non-literal call ({type(node).__name__})",
-    )
+    return not node.args and None not in [keyword.arg for keyword in node.keywords]
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:

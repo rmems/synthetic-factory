@@ -40,19 +40,13 @@ __all__ = [
 ]
 
 
-def _str_or_int_constant(node: ast.AST) -> str | int | None:
-    """The value of a non-bool str or int constant node, else None."""
-
-    if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
-        return None
-    value = node.value
-    return value if isinstance(value, (str, int)) else None
-
-
 def _literal(node: ast.AST, where: str) -> str | int:
-    constant = _str_or_int_constant(node)
-    if constant is not None:
-        return constant
+    # The constant test stays inline (no helper call) so the deepest frame of a
+    # ``-...-1`` chain is this function, exactly one frame per unary minus.
+    if isinstance(node, ast.Constant):
+        constant = node.value
+        if isinstance(constant, (str, int)) and not isinstance(constant, bool):
+            return constant
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         value = _literal(node.operand, where)
         if not isinstance(value, int):
