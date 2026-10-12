@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     BANNED_SLUGS,
@@ -173,7 +173,7 @@ def _const_set(node: ast.AST, where: str) -> frozenset[str]:
     return frozenset(values)
 
 
-def _is_named_call(node: ast.AST, callees: frozenset[str]) -> bool:
+def _is_named_call(node: ast.AST, callees: frozenset[str]) -> TypeGuard[ast.Call]:
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in callees
 
 
@@ -266,23 +266,28 @@ def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
     return tuple(plants)
 
 
-def _is_int_constant(node: ast.AST) -> bool:
+def _int_literal(node: ast.AST) -> int | None:
     if not isinstance(node, ast.Constant):
-        return False
-    return isinstance(node.value, int) and not isinstance(node.value, bool)
+        return None
+    value = node.value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
 
 
-def _is_start_plus_offset(node: ast.AST) -> bool:
-    """``<int literal> + ...``, the ``START + i`` round expression."""
-
-    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add) and _is_int_constant(node.left)
+def _is_addition(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
 
 
-def _is_start_build_pair(node: ast.AST) -> bool:
-    if not _is_named_call(node, BUILD_PAIR_CALLS):
-        return False
-    assert isinstance(node, ast.Call)
-    return bool(node.args) and _is_start_plus_offset(node.args[0])
+def _build_pair_start(node: ast.AST) -> int | None:
+    """START of a ``build_pair(START + i, ...)`` call with an int literal START, else None."""
+
+    if not _is_named_call(node, BUILD_PAIR_CALLS) or not node.args:
+        return None
+    first = node.args[0]
+    if not _is_addition(first):
+        return None
+    return _int_literal(first.left)
 
 
 def _self_check_functions(tree: ast.Module) -> list[ast.FunctionDef]:
@@ -299,8 +304,9 @@ def ast_extract_start_round(source: str) -> int:
     tree = ast.parse(source)
     for node in _self_check_functions(tree):
         for child in ast.walk(node):
-            if _is_start_build_pair(child):
-                return child.args[0].left.value
+            start = _build_pair_start(child)
+            if start is not None:
+                return start
     refuse(FINDING_CATALOG_PLANT, "self_check has no build_pair(START + i) call")
 
 

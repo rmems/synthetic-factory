@@ -406,8 +406,8 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     src = f"src/{plant['drop']}.py"
     cfg = f"{plant['drop']}/cfg.yml"
     test = f"tests/test_{plant['drop']}.py"
-    # evf and naive are read here only so a plant missing them fails before any step.
-    idf, _evf, _naive = plant["idf"], plant["evf"], plant["naive"]
+    # evf and naive are looked up only for their KeyError, before any step is built.
+    idf, *_ = plant["idf"], plant["evf"], plant["naive"]
     ticket = str(plant["ticket"])
     steps = [
         *_handoff_investigation_steps(plant, src, cfg, test),
