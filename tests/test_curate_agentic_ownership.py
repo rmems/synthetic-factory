@@ -40,6 +40,41 @@ def _write_prefix_probe(root, placements):
         )
 
 
+def _write_records(path, records):
+    path.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+
+def _write_unknown_goal_run(root):
+    """Native-term strays in a two-factory run; returns the strays."""
+    cache = root / "cache-stampede-factory"
+    cache.mkdir(parents=True)
+    strays = [
+        mill_episode(
+            "cst-r99-unregistered-expiry-family",
+            "TTL expiry QuuxAlpha quuxBeta quuxGamma",
+            "cache-stampede-factory",
+        )
+    ]
+    _write_records(cache / "batch-r01.jsonl", (*STAMPEDE_CONTROLS, *strays))
+    k8s = root / "k8s-crashloop-factory"
+    k8s.mkdir()
+    _write_records(
+        k8s / "batch-r01.jsonl",
+        (
+            mill_episode(
+                f"kcl-r0{index}-probe",
+                "CrashLoopBackOff liveness probe container restart",
+                "k8s-crashloop-factory",
+            )
+            for index in (1, 2)
+        ),
+    )
+    return strays
+
+
 class MillOwnershipContext(unittest.TestCase):
     """Incomplete mill ownership must be reported, never silently resolved."""
 
@@ -269,38 +304,7 @@ class MillOwnershipContext(unittest.TestCase):
     def test_partial_context_with_native_terms_and_unknown_goal_refuses_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"
-            cache = root / "cache-stampede-factory"
-            cache.mkdir(parents=True)
-            strays = [
-                mill_episode(
-                    "cst-r99-unregistered-expiry-family",
-                    "TTL expiry QuuxAlpha quuxBeta quuxGamma",
-                    "cache-stampede-factory",
-                )
-            ]
-            (cache / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(record) + "\n"
-                    for record in (*STAMPEDE_CONTROLS, *strays)
-                ),
-                encoding="utf-8",
-            )
-            k8s = root / "k8s-crashloop-factory"
-            k8s.mkdir()
-            (k8s / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(
-                        mill_episode(
-                            f"kcl-r0{index}-probe",
-                            "CrashLoopBackOff liveness probe container restart",
-                            "k8s-crashloop-factory",
-                        )
-                    )
-                    + "\n"
-                    for index in (1, 2)
-                ),
-                encoding="utf-8",
-            )
+            strays = _write_unknown_goal_run(root)
             run = curate_source(root)
             out = Path(temporary) / "cleaned"
 

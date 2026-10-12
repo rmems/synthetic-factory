@@ -20,6 +20,11 @@ from acm import generate  # noqa: E402
 FIXTURE = REPO / "tests" / "fixtures" / "contract-drift" / "tiny-source"
 
 
+def _row_with_success_slug(payload, slug):
+    """The first extracted row whose success slug is ``slug``."""
+    return next(row for row in payload["rows"] if row["success_slug"] == slug)
+
+
 class Identity(unittest.TestCase):
     def test_family_maps_to_the_registered_factory(self):
         self.assertEqual(_contract.FAMILY, "acm")
@@ -56,15 +61,15 @@ class Extract(unittest.TestCase):
                 ("oas-host-required", "leftover-missing-host"),
             },
         )
-        title = next(row for row in payload["rows"] if row["success_slug"] == "oas-info-title")
+        title = _row_with_success_slug(payload, "oas-info-title")
         self.assertEqual(title["catalog_id"], "r1")
         self.assertEqual(title["kind"], "mill-pairs")
         self.assertEqual(title["field"], "title")
         self.assertEqual(title["fetch1"], "https://spec.example/oas#info")
-        boolean = next(row for row in payload["rows"] if row["success_slug"] == "oas-type-boolean")
+        boolean = _row_with_success_slug(payload, "oas-type-boolean")
         self.assertEqual(boolean["catalog_id"], "r2")
         self.assertEqual(boolean["kind"], "plant-gen")
-        host = next(row for row in payload["rows"] if row["success_slug"] == "oas-host-required")
+        host = _row_with_success_slug(payload, "oas-host-required")
         self.assertEqual(host["catalog_id"], "r3")
         self.assertEqual(host["fetch1"], "https://spec.example/oas#host")
         kinds = {item["kind"]: item for item in payload["sources"]}

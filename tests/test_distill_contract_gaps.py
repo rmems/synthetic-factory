@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import NamedTuple
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -28,6 +29,15 @@ import router_baseline as rb  # noqa: E402
 import validate_distill as vd  # noqa: E402
 from oracle_grounded import distill_contract as oc  # noqa: E402
 from distill_gap_test_support import clone, rehash  # noqa: E402
+
+
+class _ManifestRun(NamedTuple):
+    """A run tree, its one listed batch, and the manifest that binds it."""
+
+    run: Path
+    batch: Path
+    manifest: dict
+
 
 class EnvelopeTypeGaps(unittest.TestCase):
     """distill_contract.py / validate_distill.py: malformed types are findings."""
@@ -421,7 +431,7 @@ class NinthRoundContractGaps(unittest.TestCase):
                     errors,
                 )
 
-    def _manifest_run(self, tmp: str, records: list) -> tuple[Path, Path, dict]:
+    def _manifest_run(self, tmp: str, records: list) -> _ManifestRun:
         """A run tree holding the records, plus the manifest that binds it."""
         run = Path(tmp) / "run"
         batch = run / "fault-recovery" / "batch-r01.jsonl"
@@ -438,7 +448,7 @@ class NinthRoundContractGaps(unittest.TestCase):
         (run / "MANIFEST.json").write_text(
             json.dumps(manifest), encoding="utf-8"
         )
-        return run, batch, manifest
+        return _ManifestRun(run, batch, manifest)
 
     def _check_missing_listed_batch(self, run: Path, manifest: dict) -> None:
         with self.subTest(case="listed batch missing"):
@@ -463,19 +473,17 @@ class NinthRoundContractGaps(unittest.TestCase):
                 report["findings"],
             )
 
-    def _check_stale_manifest_entry(
-        self, run: Path, batch: Path, manifest: dict, records: list
-    ) -> None:
+    def _check_stale_manifest_entry(self, tree: _ManifestRun, records: list) -> None:
         with self.subTest(case="stale digest and count"):
-            (run / "MANIFEST.json").write_text(
-                json.dumps(manifest), encoding="utf-8"
+            (tree.run / "MANIFEST.json").write_text(
+                json.dumps(tree.manifest), encoding="utf-8"
             )
             extra = clone(records[0])
             extra["id"] = "fr-extra-0001"
             rehash(extra)
-            with batch.open("a", encoding="utf-8") as handle:
+            with tree.batch.open("a", encoding="utf-8") as handle:
                 handle.write(oc.canonical_json(extra) + "\n")
-            report = vd.validate_path(run)
+            report = vd.validate_path(tree.run)
             self.assertTrue(report["blocked"])
             self.assertTrue(
                 any(
@@ -510,11 +518,11 @@ class NinthRoundContractGaps(unittest.TestCase):
         # unlisted batch all returned blocked: false.
         records = fr.build_records(11, 2)
         with tempfile.TemporaryDirectory() as tmp:
-            run, batch, manifest = self._manifest_run(tmp, records)
-            self.assertFalse(vd.validate_path(run)["blocked"])
-            self._check_missing_listed_batch(run, manifest)
-            self._check_stale_manifest_entry(run, batch, manifest, records)
-            self._check_unlisted_batch(run)
+            tree = self._manifest_run(tmp, records)
+            self.assertFalse(vd.validate_path(tree.run)["blocked"])
+            self._check_missing_listed_batch(tree.run, tree.manifest)
+            self._check_stale_manifest_entry(tree, records)
+            self._check_unlisted_batch(tree.run)
 
     def test_every_escalation_gate_parameter_is_validated(self):
         # mlp_hidden=0 published a bias-only model as an MLP,
