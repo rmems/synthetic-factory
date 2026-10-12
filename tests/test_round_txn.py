@@ -1400,5 +1400,39 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.reserve(factory, 2, 1)
 
 
+class RefusalCauses(unittest.TestCase):
+    """A refusal raised while handling an OS error keeps that error as its cause."""
+
+    def test_publication_race_chains_the_link_collision(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "staged.jsonl"
+            source.write_bytes(b"staged\n")
+            destination = root / "published.jsonl"
+            destination.write_bytes(b"other writer\n")
+            expected = round_txn.file_sha256(source)
+            with self.assertRaisesRegex(round_txn.TransactionError, "publication race") as caught:
+                round_txn.copy_verified_exclusive(source, destination, expected)
+            self.assertIsInstance(caught.exception.__cause__, FileExistsError)
+            self.assertEqual(destination.read_bytes(), b"other writer\n")
+            # The temporary publishing copy is removed, and nothing else is left behind.
+            self.assertEqual(
+                sorted(p.name for p in root.iterdir()), ["published.jsonl", "staged.jsonl"]
+            )
+
+    def test_vanished_marker_mode_chains_the_exclusive_create_collision(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "factory"
+            factory.mkdir()
+            collision = FileExistsError("mode file created concurrently")
+            with (
+                mock.patch.object(round_txn, "write_exclusive_json", side_effect=collision),
+                self.assertRaisesRegex(round_txn.TransactionError, "disappeared") as caught,
+            ):
+                round_txn.ensure_marker_mode(factory)
+            self.assertIs(caught.exception.__cause__, collision)
+            self.assertEqual(list(factory.iterdir()), [])
+
+
 if __name__ == "__main__":
     unittest.main()
