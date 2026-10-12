@@ -256,7 +256,7 @@ def _infer_round(consts: Mapping[str, Any], source_name: str) -> int:
     if match is not None:
         return int(match.group(1))
     rnd = consts.get("ROUND")
-    if type(rnd) is not int:
+    if not isinstance(rnd, int) or isinstance(rnd, bool):
         refuse(
             FINDING_AST_NOT_A_PLANT,
             f"{source_name} has no ffpc-r slug and ROUND is {shown(rnd)}",
