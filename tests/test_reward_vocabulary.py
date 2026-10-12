@@ -35,6 +35,14 @@ import training_audit  # noqa: E402
 from exact_json import parse_finite_json_float  # noqa: E402
 
 
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class SourceVocabularyMappingTests(unittest.TestCase):
     """The frozen 510-key / 140-shape mapping is checkable without the raw run."""
 
@@ -123,7 +131,7 @@ class SourceVocabularyMappingTests(unittest.TestCase):
             ("declared_weighted_sum", "unweighted_component_sum"),
             ("unweighted_component_sum", "declared_weighted_sum"),
         ):
-            shape = next(
+            shape = _required_item(
                 copy.deepcopy(row)
                 for row in document["source_vocabulary"]["shapes"]
                 if row.get("arithmetic_method") == expected_method
@@ -134,7 +142,7 @@ class SourceVocabularyMappingTests(unittest.TestCase):
         for name, shape in cases:
             with self.subTest(name=name):
                 malformed = copy.deepcopy(document)
-                index = next(
+                index = _required_item(
                     index
                     for index, row in enumerate(
                         malformed["source_vocabulary"]["shapes"]

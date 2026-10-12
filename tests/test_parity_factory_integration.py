@@ -257,7 +257,7 @@ class DeepLayer(unittest.TestCase):
         # argv is this interpreter and the `code` text assembled just above
         # from the committed fixture path; no shell is enabled.
         result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-            [sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True
+            [sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True, check=False
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), ["hardware_parity", []])
