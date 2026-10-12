@@ -344,29 +344,26 @@ def _rendered_markdown_source(text: str) -> str:
     return re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", text)
 
 
-def _card_section_errors(card: str, repo: str) -> list[str]:
-    """Require release declarations in their owned Markdown/YAML sections."""
+def _missing_markers(markers: Iterable[str], text: str, label: str) -> list[str]:
+    """One error per marker whose normalized text is absent from ``text``."""
+    normalized = _normalized_text(text)
+    return [
+        f"README missing {label}: {marker}"
+        for marker in markers if _normalized_text(marker) not in normalized
+    ]
 
+
+def _owned_section_errors(rendered_card: str) -> list[str]:
     errors: list[str] = []
-    rendered_card = _rendered_markdown_source(card)
-    normalized_front_matter = _normalized_text(
-        rendered_card.split("\n---\n", 1)[0]
-    )
-    for marker in ("name: source_file", "name: source_line", "name: record_json"):
-        if _normalized_text(marker) not in normalized_front_matter:
-            errors.append(f"README missing required card marker: {marker}")
-
     for section, markers in CARD_SECTION_MARKERS.items():
         section_text = _markdown_section(rendered_card, section)
         if section != "__preamble__" and section_text is None:
             errors.append(f"README missing required section: {section}")
-        normalized_section = _normalized_text(section_text or "")
-        for marker in markers:
-            if _normalized_text(marker) not in normalized_section:
-                errors.append(f"README missing required card marker: {marker}")
+        errors.extend(_missing_markers(markers, section_text or "", "required card marker"))
+    return errors
 
-    purpose = REQUIRED_PURPOSE_TEXT[repo]
-    target = REQUIRED_TARGET_TEXT[repo]
+
+def _purpose_errors(rendered_card: str, repo: str) -> list[str]:
     # Purpose used to be required in the Markdown preamble (everything
     # before the first ``## `` heading). The 2026-08-31 Hub reframe put
     # rights and release-status blockquotes, then a Rights heading, before
@@ -374,30 +371,41 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
     # even though the marker was still on the card (#182). Search the
     # rendered card so those blockquotes may precede it; moving the
     # sentence back into the preamble is a Hub write tracked on #165.
-    normalized_card = _normalized_text(rendered_card)
-    target_section = _normalized_text(
-        _markdown_section(rendered_card, "## Intended model target") or ""
-    )
-    if _normalized_text(purpose) not in normalized_card:
-        errors.append(f"README missing repository purpose marker: {purpose}")
-    if _normalized_text(target) not in target_section:
-        errors.append(f"README missing Spikenaut classification: {target}")
+    target_section = _markdown_section(rendered_card, "## Intended model target") or ""
+    return [
+        *_missing_markers((REQUIRED_PURPOSE_TEXT[repo],), rendered_card,
+                          "repository purpose marker"),
+        *_missing_markers((REQUIRED_TARGET_TEXT[repo],), target_section,
+                          "Spikenaut classification"),
+    ]
 
-    payload_section = _normalized_text(
-        _markdown_section(rendered_card, "## Published raw payload") or ""
-    )
-    for marker in REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()):
-        if _normalized_text(marker) not in payload_section:
-            errors.append(f"README missing payload-kind disclosure: {marker}")
 
+def _payload_claim_errors(rendered_card: str, repo: str) -> list[str]:
+    payload_section = _markdown_section(rendered_card, "## Published raw payload") or ""
+    errors = _missing_markers(
+        REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()), payload_section, "payload-kind disclosure"
+    )
     for section, markers in FORBIDDEN_CARD_CLAIMS.get(repo, {}).items():
-        section_text = _normalized_text(
-            _markdown_section(rendered_card, section) or ""
+        section_text = _normalized_text(_markdown_section(rendered_card, section) or "")
+        errors.extend(
+            f"README retains obsolete payload-kind claim: {marker}"
+            for marker in markers if _normalized_text(marker) in section_text
         )
-        for marker in markers:
-            if _normalized_text(marker) in section_text:
-                errors.append(f"README retains obsolete payload-kind claim: {marker}")
     return errors
+
+
+def _card_section_errors(card: str, repo: str) -> list[str]:
+    """Require release declarations in their owned Markdown/YAML sections."""
+
+    rendered_card = _rendered_markdown_source(card)
+    front_matter = rendered_card.split("\n---\n", 1)[0]
+    viewer_markers = ("name: source_file", "name: source_line", "name: record_json")
+    return [
+        *_missing_markers(viewer_markers, front_matter, "required card marker"),
+        *_owned_section_errors(rendered_card),
+        *_purpose_errors(rendered_card, repo),
+        *_payload_claim_errors(rendered_card, repo),
+    ]
 
 
 def _license_family(license_text: str) -> str | None:
@@ -638,43 +646,60 @@ class _CompactReader:
         return name
 
 
+def _is_safe_payload_path(path: object) -> bool:
+    if not isinstance(path, str):
+        return False
+    if not path.startswith("data/raw/") or not path.endswith(".jsonl"):
+        return False
+    return all(part not in {"", ".", ".."} for part in path.split("/"))
+
+
+def _snapshot_entry(entry: object) -> tuple[tuple[str, str] | None, str | None]:
+    """One raw payload declaration as ``(path, sha256)``, or the reason it is refused."""
+
+    if not isinstance(entry, dict):
+        return None, "raw_snapshot file declaration must be an object"
+    path, digest = entry.get("path"), entry.get("sha256")
+    if not _is_safe_payload_path(path):
+        return None, f"raw_snapshot has unsafe payload path: {path!r}"
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        return None, f"raw_snapshot has invalid sha256 for {path}"
+    return (str(path), digest), None
+
+
+def _snapshot_files(provenance: dict, errors: list[str]) -> list | None:
+    """The raw_snapshot file list, or None after recording why there is none."""
+
+    snapshot = provenance.get("raw_snapshot")
+    if not isinstance(snapshot, dict):
+        errors.append("provenance missing raw_snapshot")
+        return None
+    revision = snapshot.get("revision")
+    if not isinstance(revision, str) or not REVISION_RE.fullmatch(revision):
+        errors.append("raw_snapshot must declare a 40-character immutable revision")
+        return None
+    files = snapshot.get("files")
+    if not isinstance(files, list) or not files:
+        errors.append("raw_snapshot must declare at least one raw payload file")
+        return None
+    return files
+
+
 def _snapshot_entries(
     provenance: dict, errors: list[str]
 ) -> tuple[tuple[str, str], ...]:
     """Validate immutable raw-payload declarations and return their paths."""
 
-    snapshot = provenance.get("raw_snapshot")
-    if not isinstance(snapshot, dict):
-        errors.append("provenance missing raw_snapshot")
+    files = _snapshot_files(provenance, errors)
+    if files is None:
         return ()
-    revision = snapshot.get("revision")
-    files = snapshot.get("files")
-    if not isinstance(revision, str) or not REVISION_RE.fullmatch(revision):
-        errors.append("raw_snapshot must declare a 40-character immutable revision")
-        return ()
-    if not isinstance(files, list) or not files:
-        errors.append("raw_snapshot must declare at least one raw payload file")
-        return ()
-
     entries: list[tuple[str, str]] = []
-    for entry in files:
-        if not isinstance(entry, dict):
-            errors.append("raw_snapshot file declaration must be an object")
-            continue
-        path = entry.get("path")
-        digest = entry.get("sha256")
-        if (
-            not isinstance(path, str)
-            or not path.startswith("data/raw/")
-            or not path.endswith(".jsonl")
-            or any(part in {"", ".", ".."} for part in path.split("/"))
-        ):
-            errors.append(f"raw_snapshot has unsafe payload path: {path!r}")
-            continue
-        if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
-            errors.append(f"raw_snapshot has invalid sha256 for {path}")
-            continue
-        entries.append((path, digest))
+    for declaration in files:
+        entry, error = _snapshot_entry(declaration)
+        if entry is None:
+            errors.append(str(error))
+        else:
+            entries.append(entry)
     if len(entries) != len({path for path, _digest in entries}):
         errors.append("raw_snapshot repeats a payload path")
     return tuple(entries)
