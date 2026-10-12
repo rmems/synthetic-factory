@@ -138,35 +138,46 @@ def _load_spec_rows(path: Path) -> tuple[SpecRow, ...]:
             continue
         item = _parse_jsonl_line(line, line_no)
         if "pipe" not in item:
-            mill_round = item.get("mill_round")
-            if not _is_int(mill_round):
-                raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, "mill header missing mill_round")
+            mill_round = _header_round(item)
             headers[mill_round] = (
                 _as_str(item.get("path"), "path"),
                 _as_str(item.get("field"), "field"),
                 _as_str(item.get("sha256"), "sha256"),
             )
             continue
-        mill_round = item.get("mill_round")
-        index = item.get("index")
-        if not _is_int(mill_round) or not _is_int(index):
-            raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"{SPECS_FILENAME}:{line_no}: row keys")
-        header = headers.get(mill_round)
-        if header is None:
-            raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"missing header for mill {mill_round}")
-        path_text, field, _digest = header
-        rows.append(
-            SpecRow(
-                mill_round=mill_round,
-                index=index,
-                pipe=_as_str(item.get("pipe"), "pipe"),
-                path=path_text,
-                field=field,
-            )
-        )
+        rows.append(_spec_row(item, line_no, headers))
     refuse_when(len(rows) != COMMITTED_SPEC_ROW_COUNT, FINDING_CATALOG_FIELD_INVALID,
                 f"expected {COMMITTED_SPEC_ROW_COUNT} spec rows, got {len(rows)}")
     return tuple(rows)
+
+
+def _header_round(item: Mapping[str, Any]) -> int:
+    """A mill header's ``mill_round``; it must be an int."""
+    mill_round = item.get("mill_round")
+    if not _is_int(mill_round):
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, "mill header missing mill_round")
+    return mill_round
+
+
+def _spec_row(
+    item: Mapping[str, Any], line_no: int, headers: Mapping[int, tuple[str, str, str]]
+) -> SpecRow:
+    """One pipe row, bound to the mill header read before it."""
+    mill_round = item.get("mill_round")
+    index = item.get("index")
+    if not _is_int(mill_round) or not _is_int(index):
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"{SPECS_FILENAME}:{line_no}: row keys")
+    header = headers.get(mill_round)
+    if header is None:
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"missing header for mill {mill_round}")
+    path_text, field, _digest = header
+    return SpecRow(
+        mill_round=mill_round,
+        index=index,
+        pipe=_as_str(item.get("pipe"), "pipe"),
+        path=path_text,
+        field=field,
+    )
 
 
 def load_family_catalog() -> FamilyCatalog:
