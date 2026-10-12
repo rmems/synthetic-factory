@@ -73,29 +73,57 @@ def _units_migration():
     }
 
 
-def _scale_entry(scale, factory, filename):
-    """Accept nested {factory: {file: entry}} or a list of entries."""
-    if isinstance(scale, dict) and factory in scale:
-        bucket = scale[factory]
-        if isinstance(bucket, dict) and filename in bucket:
-            return bucket[filename]
-        if isinstance(bucket, list):
-            for item in bucket:
-                if item.get("file") == filename:
-                    return item
-    if isinstance(scale, dict) and "files" in scale:
-        for item in scale["files"]:
-            if item.get("factory") == factory and item.get("file") == filename:
+_NO_ENTRY = object()
+
+
+def _factory_bucket_entry(scale, factory, filename):
+    """Nested ``{factory: {file: entry}}`` or ``{factory: [entry, ...]}``."""
+    bucket = scale[factory]
+    if isinstance(bucket, dict) and filename in bucket:
+        return bucket[filename]
+    if isinstance(bucket, list):
+        for item in bucket:
+            if item.get("file") == filename:
                 return item
+    return _NO_ENTRY
+
+
+def _files_list_entry(scale, factory, filename):
+    """``{"files": [{"factory": ..., "file": ...}, ...]}``."""
+    for item in scale["files"]:
+        if item.get("factory") == factory and item.get("file") == filename:
+            return item
+    return _NO_ENTRY
+
+
+def _flat_list_entry(scale, factory, filename):
+    """A top-level list of entries that name their ``file`` or ``path``."""
+    for item in scale:
+        rel = item.get("file") or item.get("path") or ""
+        names_file = rel == filename or rel.endswith(f"{factory}/{filename}")
+        if names_file and item.get("factory") in (None, factory):
+            return item
+    return _NO_ENTRY
+
+
+def _scale_lookups(scale, factory, filename):
+    """Yield one candidate per accepted shape, lazily and in precedence order."""
+    if isinstance(scale, dict) and factory in scale:
+        yield _factory_bucket_entry(scale, factory, filename)
+    if isinstance(scale, dict) and "files" in scale:
+        yield _files_list_entry(scale, factory, filename)
     if isinstance(scale, list):
-        for item in scale:
-            rel = item.get("file") or item.get("path") or ""
-            if rel == filename or rel.endswith(f"{factory}/{filename}"):
-                if item.get("factory") in (None, factory):
-                    return item
+        yield _flat_list_entry(scale, factory, filename)
     rel = f"{factory}/{filename}"
     if isinstance(scale, dict) and rel in scale:
-        return scale[rel]
+        yield scale[rel]
+
+
+def _scale_entry(scale, factory, filename):
+    """Accept nested {factory: {file: entry}} or a list of entries."""
+    for entry in _scale_lookups(scale, factory, filename):
+        if entry is not _NO_ENTRY:
+            return entry
     raise AssertionError(f"no reward-scale entry for {factory}/{filename}: {scale!r}")
 
 
