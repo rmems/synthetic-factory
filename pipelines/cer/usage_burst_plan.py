@@ -118,21 +118,9 @@ def load_mill_usage_burst_plan(
     root = (repo_root or Path(__file__).resolve().parents[2]).resolve()
     plan_path = (path or root / cv.DEFAULT_PLAN_PATH).resolve()
     raw = json.loads(plan_path.read_text(encoding="utf-8"))
-    if raw.get("schema_id") != cv.PLAN_SCHEMA_ID:
-        raise PlanValidationError(f"schema_id must be {cv.PLAN_SCHEMA_ID!r}")
-    if raw.get("family_prefix") != cv.FAMILY_PREFIX:
-        raise PlanValidationError(f"family_prefix must be {cv.FAMILY_PREFIX!r}")
-    if raw.get("factory") != cv.FACTORY:
-        raise PlanValidationError(f"factory must be {cv.FACTORY!r}")
-    if raw.get("slice") != cv.PLAN_SLICE:
-        raise PlanValidationError(f"slice must be {cv.PLAN_SLICE!r}")
-    quota = _require_int(raw.get("quota_per_round"), "quota_per_round")
-    if quota != cv.QUOTA_PER_ROUND:
-        raise PlanValidationError(f"quota_per_round must be {cv.QUOTA_PER_ROUND}")
-    mills_raw = raw.get("mills")
-    if not isinstance(mills_raw, list) or not mills_raw:
-        raise PlanValidationError("mills must be a non-empty list")
-    mills = tuple(_parse_mill(entry) for entry in mills_raw)
+    _check_plan_identity(raw)
+    quota = _plan_quota(raw)
+    mills = _plan_mills(raw)
     plan = MillUsageBurstPlan(
         path=plan_path,
         family_prefix=cv.FAMILY_PREFIX,
@@ -143,39 +131,73 @@ def load_mill_usage_burst_plan(
         quota_per_round=quota,
         mills=mills,
     )
-    totals = raw.get("totals")
-    if isinstance(totals, dict):
-        for key, value in plan.counts().items():
-            if totals.get(key) != value:
-                raise PlanValidationError(
-                    f"totals.{key} is {totals.get(key)!r}, expected {value}"
-                )
+    _check_totals(raw, plan)
     if validate_plants:
         _validate_plants(plan)
     return plan
 
 
+def _check_plan_identity(raw: dict[str, Any]) -> None:
+    if raw.get("schema_id") != cv.PLAN_SCHEMA_ID:
+        raise PlanValidationError(f"schema_id must be {cv.PLAN_SCHEMA_ID!r}")
+    if raw.get("family_prefix") != cv.FAMILY_PREFIX:
+        raise PlanValidationError(f"family_prefix must be {cv.FAMILY_PREFIX!r}")
+    if raw.get("factory") != cv.FACTORY:
+        raise PlanValidationError(f"factory must be {cv.FACTORY!r}")
+    if raw.get("slice") != cv.PLAN_SLICE:
+        raise PlanValidationError(f"slice must be {cv.PLAN_SLICE!r}")
+
+
+def _plan_quota(raw: dict[str, Any]) -> int:
+    quota = _require_int(raw.get("quota_per_round"), "quota_per_round")
+    if quota != cv.QUOTA_PER_ROUND:
+        raise PlanValidationError(f"quota_per_round must be {cv.QUOTA_PER_ROUND}")
+    return quota
+
+
+def _plan_mills(raw: dict[str, Any]) -> tuple[MillBurstSpec, ...]:
+    mills_raw = raw.get("mills")
+    if not isinstance(mills_raw, list) or not mills_raw:
+        raise PlanValidationError("mills must be a non-empty list")
+    return tuple(_parse_mill(entry) for entry in mills_raw)
+
+
+def _check_totals(raw: dict[str, Any], plan: MillUsageBurstPlan) -> None:
+    totals = raw.get("totals")
+    if not isinstance(totals, dict):
+        return
+    for key, value in plan.counts().items():
+        if totals.get(key) != value:
+            raise PlanValidationError(
+                f"totals.{key} is {totals.get(key)!r}, expected {value}"
+            )
+
+
 def _validate_plants(plan: MillUsageBurstPlan) -> None:
     for spec in plan.mills:
-        if spec.mill_id not in BURST_MILLS:
-            raise PlanValidationError(f"{spec.mill_id}: not registered in burst_registry")
-        mod = _load_plants(spec.plants_module)
-        if getattr(mod, "MILL_ID", None) != spec.mill_id:
+        _validate_plant_module(spec)
+
+
+def _validate_plant_module(spec: MillBurstSpec) -> None:
+    if spec.mill_id not in BURST_MILLS:
+        raise PlanValidationError(f"{spec.mill_id}: not registered in burst_registry")
+    mod = _load_plants(spec.plants_module)
+    if getattr(mod, "MILL_ID", None) != spec.mill_id:
+        raise PlanValidationError(
+            f"{spec.mill_id}: module MILL_ID={getattr(mod, 'MILL_ID', None)!r}"
+        )
+    for name, expected in (
+        ("START", spec.start_round),
+        ("N_ROUNDS", spec.n_rounds),
+    ):
+        actual = getattr(mod, name, None)
+        if actual != expected:
             raise PlanValidationError(
-                f"{spec.mill_id}: module MILL_ID={getattr(mod, 'MILL_ID', None)!r}"
+                f"{spec.mill_id}: module {name}={actual!r}, plan expects {expected}"
             )
-        for name, expected in (
-            ("START", spec.start_round),
-            ("N_ROUNDS", spec.n_rounds),
-        ):
-            actual = getattr(mod, name, None)
-            if actual != expected:
-                raise PlanValidationError(
-                    f"{spec.mill_id}: module {name}={actual!r}, plan expects {expected}"
-                )
-        pairs = getattr(mod, "PAIRS", None)
-        if not isinstance(pairs, tuple) or len(pairs) != spec.pair_count:
-            raise PlanValidationError(
-                f"{spec.mill_id}: len(PAIRS)={len(pairs) if pairs else None!r}, "
-                f"expected {spec.pair_count}"
-            )
+    pairs = getattr(mod, "PAIRS", None)
+    if not isinstance(pairs, tuple) or len(pairs) != spec.pair_count:
+        raise PlanValidationError(
+            f"{spec.mill_id}: len(PAIRS)={len(pairs) if pairs else None!r}, "
+            f"expected {spec.pair_count}"
+        )

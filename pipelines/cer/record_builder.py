@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
+from typing import Any
 
 from . import vocabulary as cv
 
@@ -14,24 +16,62 @@ def sid(rnd: int, slug: str) -> str:
     return f"cer-r{rnd:04d}-{slug}-{h}"
 
 
-def episode(rnd: int, p: dict) -> dict:
-    eid = sid(rnd, p["slug"])
+@dataclass(frozen=True)
+class _Fault:
+    """One plant's resolved fault: its files, identifiers, and fix narrative."""
+
+    p: dict
+    mod: str
+    caller: str
+    fn: str
+    src: str
+    cli: str
+    test: str
+    logp: str
+    repro: str
+    kind: str
+    n: Any
+    unit: str
+    ident: str
+    bug: str
+    naive: str
+    wrong: str
+    fix: str
+    rfc: str
+    ok: Any
+
+
+def _fault(p: dict) -> _Fault:
     mod, caller, fn = p["mod"], p["caller"], p["fn"]
-    src, cli, test = f"jobs/{mod}.py", f"jobs/{caller}.py", f"tests/test_{mod}.py"
-    logp = f"var/log/{mod}.log"
-    repro = f"repro_{mod}.py"
-    hops = 7
-    kind = p["kind"]
-    n = p["n"]
-    unit = p["unit"]
-    ident = p["ident"]
-    bug = p["bug"]
-    naive = p["naive"]
-    wrong = p["wrong"]
-    fix = p["fix"]
-    rfc = p["rfc"]
-    ok = p["success"]
-    steps = [
+    return _Fault(
+        p=p,
+        mod=mod,
+        caller=caller,
+        fn=fn,
+        src=f"jobs/{mod}.py",
+        cli=f"jobs/{caller}.py",
+        test=f"tests/test_{mod}.py",
+        logp=f"var/log/{mod}.log",
+        repro=f"repro_{mod}.py",
+        kind=p["kind"],
+        n=p["n"],
+        unit=p["unit"],
+        ident=p["ident"],
+        bug=p["bug"],
+        naive=p["naive"],
+        wrong=p["wrong"],
+        fix=p["fix"],
+        rfc=p["rfc"],
+        ok=p["success"],
+    )
+
+
+def _inventory_steps(f: _Fault) -> list[dict]:
+    """Steps 1-4: inventory the files, find the unread identifier, confirm the live fault."""
+
+    p, mod, fn, src, cli, test = f.p, f.mod, f.fn, f.src, f.cli, f.test
+    ident, bug, rfc = f.ident, f.bug, f.rfc
+    return [
         {
             "n": 1,
             "decision_basis": f"Plan: inventory the {bug}, caller, and tests.",
@@ -63,6 +103,15 @@ def episode(rnd: int, p: dict) -> dict:
             "observation": f"{p['live_bad']}\n# designed: {p['payload']}",
             "reflection": f"Fault live: {ident} unbound; later hops inherit {bug}.",
         },
+    ]
+
+
+def _repro_steps(f: _Fault) -> list[dict]:
+    """Steps 5-7: the naive suite passes, then a repro counts the damage."""
+
+    p, mod, fn, test, repro = f.p, f.mod, f.fn, f.test, f.repro
+    n, ident, naive = f.n, f.ident, f.naive
+    return [
         {
             "n": 5,
             "decision_basis": f"Observation: {naive} pass. Run the suite that should have caught it.",
@@ -90,6 +139,15 @@ def episode(rnd: int, p: dict) -> dict:
             "tool_call": {"name": "bash", "args": {"command": f"python3 {repro}"}},
             "observation": f"{p['live_bad']}\ncount={n}",
         },
+    ]
+
+
+def _wrong_fix_steps(f: _Fault) -> list[dict]:
+    """Steps 8-11: the wrong fix fails, the log shows the cascade, the survival is named."""
+
+    p, src, test, logp = f.p, f.src, f.test, f.logp
+    n, unit, ident, naive, wrong, fix, rfc = f.n, f.unit, f.ident, f.naive, f.wrong, f.fix, f.rfc
+    return [
         {
             "n": 8,
             "decision_basis": f"Observation: {n} {unit}. Wrong fix: {wrong}.",
@@ -124,6 +182,15 @@ def episode(rnd: int, p: dict) -> dict:
             },
             "observation": f"{rfc}\n# survival: {naive} + unread + {wrong}",
         },
+    ]
+
+
+def _fix_steps(f: _Fault) -> list[dict]:
+    """Steps 12-15: apply the real fix, wire the caller, confirm the value, run tests."""
+
+    p, caller, mod, fn, src, cli, test = f.p, f.caller, f.mod, f.fn, f.src, f.cli, f.test
+    wrong, fix = f.wrong, f.fix
+    return [
         {
             "n": 12,
             "decision_basis": f"Reflection: Plan change after step 11 — {fix}.",
@@ -164,6 +231,15 @@ def episode(rnd: int, p: dict) -> dict:
             },
             "observation": "3 passed in 0.12s",
         },
+    ]
+
+
+def _follow_up_steps(f: _Fault) -> list[dict]:
+    """Steps 16-19: document the replay, add a regression, run everything, clean up."""
+
+    p, fn, test, repro = f.p, f.fn, f.test, f.repro
+    n, unit, ident, fix = f.n, f.unit, f.ident, f.fix
+    return [
         {
             "n": 16,
             "decision_basis": f"Observation: {n} already-poisoned {unit} need a {p['replay'].lower()}.",
@@ -196,7 +272,11 @@ def episode(rnd: int, p: dict) -> dict:
             "observation": "gone",
         },
     ]
-    if ok:
+
+
+def _outcome(f: _Fault) -> tuple[str, int]:
+    bug, fix, n = f.bug, f.fix, f.n
+    if f.ok:
         outcome = (
             f"Diagnosed {bug} at step 4+. {fix} contained; {n} already-poisoned units "
             f"are a documented replay but new sessions recovered (success)."
@@ -208,6 +288,14 @@ def episode(rnd: int, p: dict) -> dict:
             f"are a partial sweep handoff."
         )
         recovered = 0
+    return outcome, recovered
+
+
+def _record(rnd: int, eid: str, f: _Fault, steps: list[dict]) -> dict:
+    p, kind, n, unit, ident = f.p, f.kind, f.n, f.unit, f.ident
+    bug, naive, wrong, fix, ok = f.bug, f.naive, f.wrong, f.fix, f.ok
+    hops = 7
+    outcome, recovered = _outcome(f)
     return {
         "id": eid,
         "goal": f"{fix[0].upper() + fix[1:]}, instead of leaving {bug[0].lower() + bug[1:] if bug[0].isupper() else bug}.",
@@ -225,6 +313,19 @@ def episode(rnd: int, p: dict) -> dict:
         "reward": {"success": ok, "cascade_steps": hops, "recovered": recovered},
         "meta": {"factory": cv.FACTORY, "round": rnd, "generator": cv.GENERATOR},
     }
+
+
+def episode(rnd: int, p: dict) -> dict:
+    eid = sid(rnd, p["slug"])
+    f = _fault(p)
+    steps = [
+        *_inventory_steps(f),
+        *_repro_steps(f),
+        *_wrong_fix_steps(f),
+        *_fix_steps(f),
+        *_follow_up_steps(f),
+    ]
+    return _record(rnd, eid, f, steps)
 
 
 def notes_markdown(
