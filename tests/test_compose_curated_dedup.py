@@ -38,9 +38,8 @@ def _cross_factory_episode_copies():
 
 def _first_matching(items, predicate):
     """The first item predicate accepts; a missing item fails the test instead of leaking."""
-    for item in items:
-        if predicate(item):
-            return item
+    for item in filter(predicate, items):
+        return item
     raise AssertionError("no item matches the fixture lookup")
 
 
