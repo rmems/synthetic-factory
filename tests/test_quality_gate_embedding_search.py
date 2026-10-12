@@ -62,6 +62,28 @@ def _planted_duplicate_corpus():
     return records, planted
 
 
+def _stateless_goal_record(record_id, goal, round_number):
+    """A coding record with no state block: only its id and round set it apart."""
+    return {
+        "id": record_id,
+        "goal": goal,
+        "meta": {"round": round_number, "factory": "agentic-coding-trajectory-factory"},
+    }
+
+
+def _episode_wrapper_record(record_id, episode_id, note, round_number):
+    """A thalamic wrapper record that differs from its twin only in ids and round."""
+    return {
+        "id": record_id,
+        "state": {
+            "episode_id": episode_id,
+            "sim_or_real": "unknown",
+            "note": note,
+        },
+        "meta": {"round": round_number, "factory": "thalamic-trajectory-factory"},
+    }
+
+
 class EmbeddingDedupSearch(unittest.TestCase):
     """Near-duplicate search must be deterministic, bounded, and fail closed."""
 
@@ -237,16 +259,8 @@ class EmbeddingDedupSearch(unittest.TestCase):
     def test_semantic_view_removes_top_level_and_episode_ids(self):
         common = "verify queue retries and preserve every acknowledged work item"
         stateless = [
-            {
-                "id": "coding-a",
-                "goal": common,
-                "meta": {"round": 1, "factory": "agentic-coding-trajectory-factory"},
-            },
-            {
-                "id": "coding-b",
-                "goal": common,
-                "meta": {"round": 2, "factory": "agentic-coding-trajectory-factory"},
-            },
+            _stateless_goal_record("coding-a", common, 1),
+            _stateless_goal_record("coding-b", common, 2),
         ]
         self.assertEqual(
             quality_gate.exact_identity_view(stateless[0]),
@@ -257,24 +271,8 @@ class EmbeddingDedupSearch(unittest.TestCase):
             quality_gate.semantic_similarity_view(stateless[1]),
         )
         records = [
-            {
-                "id": "wrapper-a",
-                "state": {
-                    "episode_id": "episode-a",
-                    "sim_or_real": "unknown",
-                    "note": common,
-                },
-                "meta": {"round": 1, "factory": "thalamic-trajectory-factory"},
-            },
-            {
-                "id": "wrapper-b",
-                "state": {
-                    "episode_id": "episode-b",
-                    "sim_or_real": "unknown",
-                    "note": common,
-                },
-                "meta": {"round": 2, "factory": "thalamic-trajectory-factory"},
-            },
+            _episode_wrapper_record("wrapper-a", "episode-a", common, 1),
+            _episode_wrapper_record("wrapper-b", "episode-b", common, 2),
         ]
         self.assertNotEqual(quality_gate.record_hash(records[0]), quality_gate.record_hash(records[1]))
         self.assertEqual(
