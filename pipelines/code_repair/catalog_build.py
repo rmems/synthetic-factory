@@ -96,12 +96,6 @@ def program_id_for(upstream: Upstream, path: str, function: str) -> str:
 # --- selection and extraction ---------------------------------------------------
 
 
-def _bound_name(alias: ast.alias) -> str:
-    """The top-level name one import alias binds in the importing module."""
-
-    return (alias.asname or alias.name).split(".")[0]
-
-
 def _bound_names(node: ast.Import | ast.ImportFrom) -> set[str]:
     return {_bound_name(alias) for alias in node.names}
 
@@ -227,12 +221,6 @@ def _used_import(node: ast.Import | ast.ImportFrom, used: set[str]) -> str | Non
     return f"import {rendered}"
 
 
-def _alias_source(alias: ast.alias) -> str:
-    """One imported name as written: ``name`` or ``name as asname``."""
-
-    return alias.name + (f" as {alias.asname}" if alias.asname else "")
-
-
 def extract_module(text: str, function: str) -> tuple[str, tuple[int, int]] | None:
     """The function with the imports it needs as one module, and its upstream line span."""
 
@@ -317,8 +305,7 @@ def _program_row(
     """The row for one target, or None (noted) when the original cannot be observed."""
 
     source_text = build.sources[path]
-    extracted = extract_module(source_text, function)
-    if extracted is None:
+    if (extracted := extract_module(source_text, function)) is None:
         cv.refuse(cv.FINDING_TARGET_FUNCTION_NOT_FOUND, f"{path}::{function}")
     text, span = extracted
     program_id = program_id_for(build.upstream, path, function)
@@ -443,6 +430,21 @@ def write_catalog(
         meta["split_policy_sha256"] = build.policy.sha256
     with open(directory / cat.CATALOG_FILENAME, "x", encoding="utf-8") as handle:
         handle.write(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+
+
+# --- import rendering -------------------------------------------------------------
+
+
+def _bound_name(alias: ast.alias) -> str:
+    """The top-level name one import alias binds in the importing module."""
+
+    return (alias.asname or alias.name).split(".")[0]
+
+
+def _alias_source(alias: ast.alias) -> str:
+    """One imported name as written: ``name`` or ``name as asname``."""
+
+    return alias.name + (f" as {alias.asname}" if alias.asname else "")
 
 
 bind_import_twin(__name__)
