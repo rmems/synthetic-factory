@@ -112,6 +112,21 @@ def split_modules() -> list[str]:
     ]
 
 
+def unbound_attributes() -> list[str]:
+    """The probed modules the ``pipelines`` package does not expose as attributes.
+
+    ``import pipelines.tag_io`` followed by ``pipelines.tag_io.<name>`` needs
+    the attribute, not only the ``sys.modules`` entry.
+    """
+
+    package = sys.modules.get("pipelines")
+    return [
+        name
+        for name in MODULES
+        if getattr(package, name, None) is not sys.modules.get(f"pipelines.{name}")
+    ]
+
+
 def _split_attributes(cli: dict[str, ModuleType], packaged: dict[str, ModuleType]) -> list[str]:
     """The SHARED_ATTRIBUTES pairs that resolved to two different objects."""
 
@@ -146,6 +161,7 @@ def _package_report() -> dict[str, Any]:
         "names": {key: module.__name__ for key, module in packaged.items()},
         "pipelines_on_path": str(PIPELINES) in sys.path,
         "split_modules": split_modules(),
+        "unbound_attributes": unbound_attributes(),
     }
 
 
@@ -155,6 +171,7 @@ def _paired_report(cli: dict[str, ModuleType], packaged: dict[str, ModuleType]) 
         "split_attributes": _split_attributes(cli, packaged),
         "cli_catches_package_error": _cli_catches_package_error(cli, packaged),
         "split_modules": split_modules(),
+        "unbound_attributes": unbound_attributes(),
     }
 
 

@@ -51,6 +51,7 @@ class FreshInterpreter(unittest.TestCase):
         self.assertEqual(report["names"], packaged)
         self.assertFalse(report["pipelines_on_path"])
         self.assertEqual(report["split_modules"], [])
+        self.assertEqual(report["unbound_attributes"], [])
 
     def test_either_order_is_one_object_and_one_error_class(self):
         clean = {
@@ -58,6 +59,7 @@ class FreshInterpreter(unittest.TestCase):
             "split_attributes": [],
             "cli_catches_package_error": True,
             "split_modules": [],
+            "unbound_attributes": [],
         }
         for form in ("cli_then_package", "package_then_cli"):
             with self.subTest(form=form):
@@ -78,13 +80,17 @@ class InProcess(unittest.TestCase):
         self.assertEqual(frozenset(probe.MODULES), bound_tag_modules())
 
     def test_each_package_child_is_the_direct_module(self):
-        import pipelines
-
+        # The package attribute (``pipelines.tag_io``) is checked only in the
+        # fresh interpreters above. In a shared test process,
+        # ``isolated_pipeline_modules`` can restore an older ``pipelines``
+        # object after a temporary one registered ``pipelines.tag_*`` entries,
+        # so that object lacks the attribute even though both names resolve to
+        # one module.
         for name in probe.MODULES:
             with self.subTest(module=name):
                 self.assertIs(self.packaged[name], self.bare[name])
                 self.assertIs(sys.modules[f"pipelines.{name}"], self.bare[name])
-                self.assertIs(getattr(pipelines, name), self.bare[name])
+                self.assertIs(sys.modules[name], self.bare[name])
 
     def test_shared_classes_and_functions_are_one_object(self):
         for attribute, left, right in probe.SHARED_ATTRIBUTES:
