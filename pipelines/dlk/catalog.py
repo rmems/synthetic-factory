@@ -134,17 +134,17 @@ def _verify_pin(directory: Path, rnd: int, plant_files: Mapping[str, Any]) -> Ma
     return entry
 
 
-def load_catalog(round: int, config_dir: Path | str | None = None) -> Catalog:
+def load_catalog(rnd: int, config_dir: Path | str | None = None) -> Catalog:
     """Load one preserved round's plants, refusing a sha256 drift or a duplicate slug."""
     directory = _config_dir(config_dir)
     index = catalog_index(directory)
-    entry = _verify_pin(directory, round, index["plant_files"])
+    entry = _verify_pin(directory, rnd, index["plant_files"])
     payload = _read_plant_payload(directory, entry["file"])
     plants = _plants_from_payload(entry["file"], payload)
-    _refuse_duplicate_slugs(round, plants)
+    _refuse_duplicate_slugs(rnd, plants)
     _require_payload_identity(entry["file"], payload)
     return Catalog(
-        round=round,
+        round=rnd,
         factory=payload["factory"],
         generator=payload["generator"],
         plants=plants,
