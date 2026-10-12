@@ -693,12 +693,14 @@ def _require_non_empty_string(value: Any, name: str) -> None:
         raise BridgeCurationError(f"{name} must be a non-empty string")
 
 
+def _is_positive_source_line(value: Any) -> bool:
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return value >= 1
+
+
 def _require_positive_source_line(value: Any) -> None:
-    if not isinstance(value, int):
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if isinstance(value, bool):
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if value < 1:
+    if not _is_positive_source_line(value):
         raise BridgeCurationError(_SOURCE_LINE_ERROR)
 
 

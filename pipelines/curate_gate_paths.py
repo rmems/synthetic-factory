@@ -261,7 +261,7 @@ def _logical_source_path(value: Any, label: str) -> str:
     return Path(*parts).as_posix()
 
 
-def _is_positive_line_number(value: Any) -> bool:
+def is_positive_line_number(value: Any) -> bool:
     """A 1-based source line: an ``int`` that is not a ``bool`` and is at least 1."""
     if not isinstance(value, int) or isinstance(value, bool):
         return False
