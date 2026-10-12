@@ -7,6 +7,16 @@ on:
       - main # The 'main' branch
       - 'releases/*' # The release branches
 
+# Superseded pull request runs are cancelled. Every other run (pushes, a
+# schedule, manual dispatches) gets its own group by run id, so a
+# queued run there is never replaced by a later one either.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
   # Community Python only. qodana-python-community does not need Qodana Cloud,
   # so this job runs on Dependabot and fork pull requests as well as ordinary
@@ -14,12 +24,14 @@ jobs:
   # membership has expired.
   qodana:
     runs-on: ubuntu-latest
+    # Recent scans finish in two to six minutes.
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
       checks: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}  # to check out the actual pull request commit, not the merge commit
           fetch-depth: 0  # a full history is required for pull request analysis

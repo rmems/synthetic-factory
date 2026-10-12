@@ -7,8 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Superseded pull request runs are cancelled. Every other run (pushes, a
+# schedule, manual dispatches) gets its own group by run id, so a
+# queued run there is never replaced by a later one either.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
