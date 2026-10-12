@@ -702,6 +702,10 @@ def _load_committed_catalog(catalog_dir: Path | None = None) -> Catalog:
 
 _CATALOG: Catalog | None = None
 
+# Declared (never bound) so the export in ``__all__`` is visible to static
+# analysis; ``__getattr__`` below computes it from the catalog on first access.
+WAVE_ROUNDS: tuple[int, ...]
+
 
 def load_catalog() -> Catalog:
     global _CATALOG
