@@ -473,7 +473,8 @@ def _directory_entry(directory, name, descriptor):
     target = path if descriptor is None else name
     try:
         child = os.stat(target, dir_fd=descriptor, follow_symlinks=False)
-    except OSError as exc:
+    except (OSError, NotImplementedError) as exc:
+        # NotImplementedError: no lstat/fstatat, so a link cannot be told apart.
         return path, None, exc
     return path, _directory_identity(child), None
 

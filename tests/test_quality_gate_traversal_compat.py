@@ -88,6 +88,24 @@ def descriptor_apis_unavailable():
 
 
 @contextmanager
+def symlink_aware_stat_unavailable():
+    """A host with neither lstat nor fstatat: stat cannot decline to follow links."""
+    real_stat = os.stat
+
+    def stat_following_only(path, *, dir_fd=None, follow_symlinks=True):
+        if not follow_symlinks:
+            raise NotImplementedError("stat: follow_symlinks unavailable on this platform")
+        return real_stat(path, dir_fd=dir_fd)
+
+    without_lstat = _without(os.supports_follow_symlinks, NATIVE_STAT)
+    with (
+        patch.object(os, "supports_follow_symlinks", without_lstat),
+        patch.object(os, "stat", stat_following_only),
+    ):
+        yield
+
+
+@contextmanager
 def binary_flag_platform(opened_flags):
     """Define O_BINARY as a Windows-style host would; strip it before the real open."""
     real_open = os.open
@@ -105,8 +123,7 @@ def binary_flag_platform(opened_flags):
 class RootAliasCases:
     """Root-alias contract, run once per traversal mode."""
 
-    def traversal(self):
-        return nullcontext()
+    traversal = staticmethod(nullcontext)
 
     def audit_dir(self, run_dir):
         with self.traversal():
@@ -244,8 +261,7 @@ class DescriptorCapabilityProbe(unittest.TestCase):
 class PathTraversal(RootAliasCases, integrity.QualityGateInputIntegrity):
     """Every input-integrity case, re-run where descriptor APIs are unavailable."""
 
-    def traversal(self):
-        return descriptor_apis_unavailable()
+    traversal = staticmethod(descriptor_apis_unavailable)
 
     def audit(self):
         with self.traversal():
@@ -288,6 +304,23 @@ class PathTraversal(RootAliasCases, integrity.QualityGateInputIntegrity):
             native["warnings"],
         )
         self.assertEqual(_accounting(simulated), _accounting(native))
+
+    def test_entries_block_where_stat_cannot_decline_to_follow_symlinks(self):
+        self.write("batch.jsonl")
+        self.write("lane/nested.jsonl", SECOND_RECORD)
+
+        with symlink_aware_stat_unavailable():
+            report = self.audit()
+
+        self.assertTrue(report["blocked"])
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(
+            [
+                (example["file"], example["error"].split(":", 1)[0])
+                for example in report["errors"]["unreadable_examples"]
+            ],
+            [("batch.jsonl", "NotImplementedError"), ("lane", "NotImplementedError")],
+        )
 
     def test_cli_reports_the_path_traversal_warning(self):
         self.write("batch.jsonl")

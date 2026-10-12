@@ -58,8 +58,10 @@ the gate keeps the same inputs, accounting and blockers but discovers and
 reads by path, re-checking each directory's identity and type first. Those
 checks cannot exclude a concurrent replacement, so such a run carries a
 ``warnings`` entry saying descriptor-relative traversal was unavailable rather
-than claiming the same race resistance. The capability is probed once at
-import. CI covers the descriptor path natively on Linux; the path fallback is
+than claiming the same race resistance. A platform that cannot stat an entry
+without following symlinks cannot tell a directory symlink from a directory,
+so each such entry counts as unreadable and blocks. The capability is probed
+once at import. CI covers the descriptor path natively on Linux; the path fallback is
 exercised by a capability simulation, not on a native platform without those
 APIs.
 
