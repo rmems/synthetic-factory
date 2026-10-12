@@ -169,7 +169,7 @@ def _entry_value(value_node: ast.AST, consts: Mapping[str, Any]) -> Any:
     return _dict_literal(value_node, consts)
 
 
-def _dict_literal(node: ast.AST | None, consts: Mapping[str, Any]) -> dict[str, Any] | None:
+def _dict_literal(node: ast.AST, consts: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(node, ast.Dict) or any(key is None for key in node.keys):
         return None
     row: dict[str, Any] = {}
@@ -297,10 +297,10 @@ def _companion_key(returned: ast.Dict, view: Mapping[str, Any]) -> str:
 def _return_dict(node: ast.AST, assigns: Mapping[str, ast.AST]) -> ast.Dict | None:
     if not isinstance(node, ast.Return):
         return None
-    value: ast.AST | None = node.value
-    if isinstance(value, ast.Name):
-        value = assigns.get(value.id)
-    return value if isinstance(value, ast.Dict) else None
+    if isinstance(node.value, ast.Name):
+        bound = assigns.get(node.value.id)
+        return bound if isinstance(bound, ast.Dict) else None
+    return node.value if isinstance(node.value, ast.Dict) else None
 
 
 def _returned_dict(fn: ast.FunctionDef, assigns: Mapping[str, ast.AST]) -> ast.Dict | None:
@@ -313,6 +313,16 @@ def _returned_dict(fn: ast.FunctionDef, assigns: Mapping[str, ast.AST]) -> ast.D
     return None
 
 
+def _assigned_dict(
+    assigns: Mapping[str, ast.AST], name: str, consts: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """The resolvable entries of the dict literal a builder binds to ``name``; else empty."""
+    node = assigns.get(name)
+    if node is None:
+        return {}
+    return _dict_literal(node, consts) or {}
+
+
 def _rec_trajectories(
     returned: ast.Dict,
     view: Mapping[str, Any],
@@ -321,8 +331,8 @@ def _rec_trajectories(
 ) -> tuple[Mapping[str, Any], Mapping[str, Any], str]:
     """The lead and companion trajectories and the companion key of one builder."""
 
-    traj = _dict_literal(assigns.get("traj"), consts) or {}
-    traj2 = _dict_literal(assigns.get("traj2"), consts) or {}
+    traj = _assigned_dict(assigns, "traj", consts)
+    traj2 = _assigned_dict(assigns, "traj2", consts)
     if not traj and isinstance(view.get("trajectory"), dict):
         traj = view["trajectory"]
     companion_key = _companion_key(returned, view)

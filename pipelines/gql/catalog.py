@@ -173,10 +173,12 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _dict_eval(node: ast.Dict) -> dict[Any, Any]:
-    keys = [key for key in node.keys if key is not None]
-    if len(keys) != len(node.keys):
-        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
+    items: list[tuple[ast.expr, ast.expr]] = []
+    for key, value in zip(node.keys, node.values):
+        if key is None:
+            raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+        items.append((key, value))
+    return {_const_eval(key): _const_eval(value) for key, value in items}
 
 
 def _container_eval(node: ast.List | ast.Tuple | ast.Dict) -> Any:
