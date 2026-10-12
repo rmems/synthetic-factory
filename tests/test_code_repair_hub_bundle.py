@@ -220,6 +220,20 @@ class Bundle(unittest.TestCase):
         for name in ("d1", "d2", "d3", "d4"):
             self.assertFalse((self.root / name).exists())
 
+    def test_a_malformed_split_policy_refuses_before_the_card_renders(self):
+        _manifest, out, _records, _run_dir = exported(self.root)
+        for name, policy in (("p1", {"weights": {}}), ("p2", "train-only"), ("p3", [])):
+            with self.subTest(policy=policy):
+                tampered = self.root / f"tampered-{name}"
+                shutil.copytree(out, tampered)
+                manifest_path = tampered / export.MANIFEST_FILENAME
+                manifest = json.loads(manifest_path.read_text())
+                manifest["run"]["split_policy"] = policy
+                manifest_path.write_text(json.dumps(manifest))
+                with refusal(self, cv.FINDING_BUNDLE_MANIFEST_INVALID):
+                    hub_bundle.run(self.request(tampered, name))
+                self.assertFalse((self.root / name).exists())
+
 
 class Cli(unittest.TestCase):
     def setUp(self):

@@ -207,6 +207,7 @@ def _block_findings(record: dict[str, Any], broken: str, completion: Any) -> lis
                 and cat.sha256_text(applied) == record["result"]["repaired_sha256"] == predicted)
     if not verified:
         findings.append(cv.LEAK_EDIT_DOES_NOT_APPLY)
+    # Applying is not enough: the row must be the one canonical (minimal, unique) block.
     elif completion != render_block(*search_replace(broken, applied)):
         findings.append(cv.LEAK_EDIT_BLOCK_NOT_CANONICAL)
     return findings

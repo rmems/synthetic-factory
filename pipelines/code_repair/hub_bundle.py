@@ -120,9 +120,22 @@ def _sections_ok(manifest: dict[str, Any]) -> bool:
             and all(isinstance(manifest.get(key), dict) for key in ("tables", "run", "rights")))
 
 
+def _policy_ok(policy: Any) -> bool:
+    """``None`` (unpinned) or a split policy the lineage parser accepts."""
+
+    if policy is None:
+        return True
+    try:
+        lineage.SplitPolicy.from_json(policy)
+    except cv.RepairRefusal:
+        return False
+    return True
+
+
 def _manifest_shape_ok(manifest: Any) -> bool:
     return (isinstance(manifest, dict) and _sections_ok(manifest)
-            and _files_ok(manifest.get("files")) and _admission_ok(manifest.get("admission")))
+            and _files_ok(manifest.get("files")) and _admission_ok(manifest.get("admission"))
+            and _policy_ok(manifest["run"].get("split_policy")))
 
 
 def _load_manifest(payload: bytes) -> dict[str, Any]:

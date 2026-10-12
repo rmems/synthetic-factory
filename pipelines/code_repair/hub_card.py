@@ -319,11 +319,13 @@ def _reproduce_commands(request: BundleRequest, run_meta: dict[str, Any],
 
 
 def _inline_policy(policy: Any) -> str:
-    if not isinstance(policy, dict):
+    """The pinned policy in one line; the bundle refuses a malformed one before rendering."""
+
+    if policy is None:
         return "unpinned"
-    weights = policy.get("weights") if isinstance(policy.get("weights"), dict) else {}
-    return (f"{policy.get('algorithm')} seed {policy.get('seed')} salt {policy.get('salt')} "
-            + "/".join(str(weights.get(split)) for split in lineage.SPLITS))
+    parsed = lineage.SplitPolicy.from_json(policy)
+    return (f"{parsed.algorithm} seed {parsed.seed} salt {parsed.salt} "
+            + "/".join(str(parsed.weights[split]) for split in lineage.SPLITS))
 
 
 bind_import_twin(__name__)
