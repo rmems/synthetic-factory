@@ -176,7 +176,7 @@ class Catalog:
 
     def plant(self, plant_id: str) -> Plant:
         for row in self.plants:
-            if row.plant_id == plant_id or row.slug == plant_id:
+            if plant_id in (row.plant_id, row.slug):
                 return row
         refuse(FINDING_PLANT_NOT_FOUND, f"no tup plant {plant_id!r}")
 
@@ -426,11 +426,8 @@ def _load_mill_family_plants(
     file_name = row.get("file")
     if file_name in (None, FAMILIES_FILENAME):
         return []
-    refuse_when(
-        not isinstance(file_name, str),
-        FINDING_CATALOG_FIELD_INVALID,
-        f"mills[{index}].file must be a string",
-    )
+    if not isinstance(file_name, str):
+        refuse(FINDING_CATALOG_FIELD_INVALID, f"mills[{index}].file must be a string")
     banned_slugs, banned_prefix = bans
     wave_path = _catalog_member(catalog_dir, file_name)
     wave_bytes = _load_jsonl_bytes(wave_path)

@@ -393,7 +393,7 @@ def _round_plant_row(elt: ast.AST, label: str, mill_id: str) -> dict[str, Any]:
         refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{label} is not an 8-tuple")
     slug = _literal_value(elt.elts[0], f"{label}.slug")
     tool = _literal_value(elt.elts[1], f"{label}.tool")
-    _fork = _literal_value(elt.elts[2], f"{label}.fork")
+    _literal_value(elt.elts[2], f"{label}.fork")  # the fork must be a literal too; it is not kept
     verify = _literal_value(elt.elts[3], f"{label}.verify")
     destroy = _literal_value(elt.elts[4], f"{label}.destroy")
     keep = _literal_value(elt.elts[5], f"{label}.keep")
