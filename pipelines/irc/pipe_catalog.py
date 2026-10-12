@@ -249,8 +249,9 @@ def _legacy_source(path: str) -> str:
 def _committed_mill_path(source: Mapping[str, Any]) -> str | None:
     """The source path when it is a committed ``irc-mill-r*`` source with a pinned digest."""
     path = source.get("path")
-    expected = source.get("sha256")
-    if not isinstance(path, str) or not isinstance(expected, str):
+    if not isinstance(path, str):
+        return None
+    if not isinstance(source.get("sha256"), str):
         return None
     if not path.startswith("experiments/irc-mill-r"):
         return None

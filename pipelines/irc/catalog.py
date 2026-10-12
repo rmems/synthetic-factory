@@ -181,7 +181,7 @@ def _pairs_literal(source: str) -> Any:
         raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
     node = _assign_value(tree, "PAIRS")
     if node is None:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, "missing PAIRS")
+        raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, "missing PAIRS")
     try:
         return ast.literal_eval(node)
     except (TypeError, ValueError, SyntaxError) as exc:

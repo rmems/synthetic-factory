@@ -27,11 +27,14 @@ _PACKAGE = REPO / "pipelines" / "lhc"
 _CATALOG = json.loads((_PACKAGE / "CATALOG.json").read_text(encoding="utf-8"))
 _PAIRS_TEXT = (_PACKAGE / "pairs.jsonl").read_text(encoding="utf-8")
 _PAIRS = [json.loads(line) for line in _PAIRS_TEXT.splitlines()]
-_DEFERRED = next(
-    mill_id
-    for mill_id, mill in _CATALOG["mills"].items()
-    if mill_id not in (SLICE_MILL_ID, EXCLUDED_DEFERRED_MILL_ID) and mill.get("n_rows")
-)
+def _first_deferred_mill() -> str:
+    for mill_id, mill in _CATALOG["mills"].items():
+        if mill_id not in (SLICE_MILL_ID, EXCLUDED_DEFERRED_MILL_ID) and mill.get("n_rows"):
+            return mill_id
+    raise AssertionError("the committed LHC catalog has no deferred mill with pair rows")
+
+
+_DEFERRED = _first_deferred_mill()
 
 
 def _dump(rows) -> str:
@@ -46,33 +49,47 @@ def _catalog_with(mutate):
     return document
 
 
-class _Workspace(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory(prefix="lhc-binding-")
-        self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name)
-
-    def _load(self, document=None, pairs_text=_PAIRS_TEXT):
-        (self.root / "CATALOG.json").write_text(json.dumps(document or _CATALOG), encoding="utf-8")
-        if pairs_text is not None:
-            (self.root / "pairs.jsonl").write_bytes(pairs_text.encode("utf-8"))
-        return load_catalog(self.root / "CATALOG.json")
-
-    def _refusal(self, **kwargs) -> str:
-        with self.assertRaises(ValueError) as caught:
-            self._load(**kwargs)
-        return str(caught.exception)
+def _load_copy(root: Path, document=None, pairs_text=_PAIRS_TEXT):
+    """Write a (perturbed) catalog copy into ``root`` and load it."""
+    (root / "CATALOG.json").write_text(json.dumps(document or _CATALOG), encoding="utf-8")
+    if pairs_text is not None:
+        (root / "pairs.jsonl").write_bytes(pairs_text.encode("utf-8"))
+    return load_catalog(root / "CATALOG.json")
 
 
-class CatalogHeaderBindingTests(_Workspace):
+def _refusal(document=None, pairs_text=_PAIRS_TEXT) -> str:
+    """The ValueError text ``load_catalog`` raises for a perturbed copy."""
+    with tempfile.TemporaryDirectory(prefix="lhc-binding-") as td:
+        try:
+            _load_copy(Path(td), document, pairs_text)
+        except ValueError as exc:
+            return str(exc)
+    raise AssertionError("load_catalog accepted the perturbed copy")
+
+
+def _rows_refusal(text: str | None) -> tuple[str, Path]:
+    """The ValueError text ``load_pair_rows`` raises, and the path it read."""
+    with tempfile.TemporaryDirectory(prefix="lhc-pairs-") as td:
+        path = Path(td) / "pairs.jsonl"
+        if text is not None:
+            path.write_bytes(text.encode("utf-8"))
+        try:
+            load_pair_rows(path)
+        except ValueError as exc:
+            return str(exc), path
+    raise AssertionError("load_pair_rows accepted the perturbed rows")
+
+
+class CatalogHeaderBindingTests(unittest.TestCase):
     def test_committed_copy_loads(self):
-        self.assertEqual(set(self._load().mills), set(_CATALOG["mills"]))
+        with tempfile.TemporaryDirectory(prefix="lhc-binding-") as td:
+            self.assertEqual(set(_load_copy(Path(td)).mills), set(_CATALOG["mills"]))
 
     def test_identity_and_mill_set_drift_are_refused(self):
-        self.assertTrue(self._refusal(document=_catalog_with(lambda d: d.update(slice="x"))).endswith(
+        self.assertTrue(_refusal(document=_catalog_with(lambda d: d.update(slice="x"))).endswith(
             "slice drifted from vocabulary"
         ))
-        missing = self._refusal(document=_catalog_with(lambda d: d["mills"].pop(_DEFERRED)))
+        missing = _refusal(document=_catalog_with(lambda d: d["mills"].pop(_DEFERRED)))
         self.assertEqual(missing, f"catalog mills drifted from sources: extra=[] missing=['{_DEFERRED}']")
 
     def test_slice_rows_pins_and_inline_pairs_are_refused(self):
@@ -82,7 +99,7 @@ class CatalogHeaderBindingTests(_Workspace):
         )
         for mutate, prefix in cases:
             with self.subTest(prefix=prefix):
-                self.assertTrue(self._refusal(document=_catalog_with(mutate)).startswith(prefix))
+                self.assertTrue(_refusal(document=_catalog_with(mutate)).startswith(prefix))
 
     def test_pair_identity_drift_is_refused(self):
         cases = (
@@ -95,8 +112,8 @@ class CatalogHeaderBindingTests(_Workspace):
         )
         for mutate, prefix in cases:
             with self.subTest(prefix=prefix):
-                self.assertTrue(self._refusal(document=_catalog_with(mutate)).startswith(prefix))
-        dropped = self._refusal(pairs_text=_dump(_PAIRS[:-1]))
+                self.assertTrue(_refusal(document=_catalog_with(mutate)).startswith(prefix))
+        dropped = _refusal(pairs_text=_dump(_PAIRS[:-1]))
         self.assertTrue(dropped.endswith("n_rows does not match committed pair identities"), dropped)
 
 
@@ -110,7 +127,7 @@ class SourcePinTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), f"{_DEFERRED} pin disagrees with sources.py")
 
 
-class DeferredPairOverlayTests(_Workspace):
+class DeferredPairOverlayTests(unittest.TestCase):
     def test_pair_rows_for_excluded_unknown_or_drifted_mills_are_refused(self):
         first = _PAIRS[0]
         cases = (
@@ -122,18 +139,10 @@ class DeferredPairOverlayTests(_Workspace):
         )
         for rows, message in cases:
             with self.subTest(message=message):
-                self.assertEqual(self._refusal(pairs_text=_dump(rows)), message)
+                self.assertEqual(_refusal(pairs_text=_dump(rows)), message)
 
 
-class PairRowsFramingTests(_Workspace):
-    def _rows_refusal(self, text: str | None) -> str:
-        path = self.root / "pairs.jsonl"
-        if text is not None:
-            path.write_bytes(text.encode("utf-8"))
-        with self.assertRaises(ValueError) as caught:
-            load_pair_rows(path)
-        return str(caught.exception)
-
+class PairRowsFramingTests(unittest.TestCase):
     def test_framing_and_row_shape_refusals_name_the_line(self):
         first = json.dumps(_PAIRS[0], separators=(",", ":"))
         cases = (
@@ -147,11 +156,11 @@ class PairRowsFramingTests(_Workspace):
         )
         for text, prefix in cases:
             with self.subTest(prefix=prefix):
-                self.assertTrue(self._rows_refusal(text).startswith(prefix))
+                self.assertTrue(_rows_refusal(text)[0].startswith(prefix))
 
     def test_unreadable_file_is_refused_with_its_path(self):
-        message = self._rows_refusal(None)
-        self.assertTrue(message.startswith(f"cannot load LHC pairs {self.root / 'pairs.jsonl'}: "), message)
+        message, path = _rows_refusal(None)
+        self.assertTrue(message.startswith(f"cannot load LHC pairs {path}: "), message)
 
     def test_committed_rows_load_in_order(self):
         self.assertEqual(load_pair_rows(_PACKAGE / "pairs.jsonl"), _PAIRS)
