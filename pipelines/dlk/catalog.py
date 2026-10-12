@@ -96,11 +96,6 @@ def default_config_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "dlk"
 
 
-def _config_dir(config_dir: Path | str | None) -> Path:
-    """``config_dir`` as a path, or :func:`default_config_dir` when it is omitted."""
-    return Path(config_dir) if config_dir is not None else default_config_dir()
-
-
 def _read_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -120,14 +115,14 @@ def catalog_index(config_dir: Path | str | None = None) -> dict[str, Any]:
     return dict(index)
 
 
-def _verify_pin(directory: Path, round: int, plant_files: Mapping[str, Any]) -> Mapping[str, Any]:
+def _verify_pin(directory: Path, rnd: int, plant_files: Mapping[str, Any]) -> Mapping[str, Any]:
     entry = None
     for candidate in plant_files.values():
-        if isinstance(candidate, Mapping) and candidate.get("round") == round:
+        if isinstance(candidate, Mapping) and candidate.get("round") == rnd:
             entry = candidate
             break
     if entry is None:
-        raise KeyError(f"round {round} is not pinned in {CATALOG_FILENAME}")
+        raise KeyError(f"round {rnd} is not pinned in {CATALOG_FILENAME}")
     fname = entry["file"]
     path = directory / fname
     blob = path.read_bytes()
@@ -137,6 +132,30 @@ def _verify_pin(directory: Path, round: int, plant_files: Mapping[str, Any]) -> 
             f"{fname} sha256 drifted: pinned {entry['sha256'][:12]}..., got {digest[:12]}..."
         )
     return entry
+
+
+def load_catalog(round: int, config_dir: Path | str | None = None) -> Catalog:
+    """Load one preserved round's plants, refusing a sha256 drift or a duplicate slug."""
+    directory = _config_dir(config_dir)
+    index = catalog_index(directory)
+    entry = _verify_pin(directory, round, index["plant_files"])
+    payload = _read_plant_payload(directory, entry["file"])
+    plants = _plants_from_payload(entry["file"], payload)
+    _refuse_duplicate_slugs(round, plants)
+    _require_payload_identity(entry["file"], payload)
+    return Catalog(
+        round=round,
+        factory=payload["factory"],
+        generator=payload["generator"],
+        plants=plants,
+        plants_sha256=entry["sha256"],
+        source_file=directory / entry["file"],
+    )
+
+
+def _config_dir(config_dir: Path | str | None) -> Path:
+    """``config_dir`` as a path, or :func:`default_config_dir` when it is omitted."""
+    return Path(config_dir) if config_dir is not None else default_config_dir()
 
 
 def _read_plant_payload(directory: Path, fname: str) -> Mapping[str, Any]:
@@ -168,25 +187,6 @@ def _require_payload_identity(fname: str, payload: Mapping[str, Any]) -> None:
         raise ValueError(f"{fname} factory {payload.get('factory')!r} != {c.FACTORY!r}")
     if payload.get("generator") != c.GEN:
         raise ValueError(f"{fname} generator {payload.get('generator')!r} != {c.GEN!r}")
-
-
-def load_catalog(round: int, config_dir: Path | str | None = None) -> Catalog:
-    """Load one preserved round's plants, refusing a sha256 drift or a duplicate slug."""
-    directory = _config_dir(config_dir)
-    index = catalog_index(directory)
-    entry = _verify_pin(directory, round, index["plant_files"])
-    payload = _read_plant_payload(directory, entry["file"])
-    plants = _plants_from_payload(entry["file"], payload)
-    _refuse_duplicate_slugs(round, plants)
-    _require_payload_identity(entry["file"], payload)
-    return Catalog(
-        round=round,
-        factory=payload["factory"],
-        generator=payload["generator"],
-        plants=plants,
-        plants_sha256=entry["sha256"],
-        source_file=directory / entry["file"],
-    )
 
 
 def load_all(config_dir: Path | str | None = None) -> tuple[Catalog, ...]:
