@@ -126,74 +126,49 @@ def sha256_bytes(payload: bytes) -> str:
 def _const_eval(node: ast.AST) -> Any:
     """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
 
-    for node_type, evaluate in _CONST_EVALUATORS:
-        if isinstance(node, node_type):
-            return evaluate(node)
-    raise _not_a_constant(node)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.List):
+        return [_const_eval(item) for item in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
+    return _const_mapping_or_negative(node)
 
 
-def _not_a_constant(node: ast.AST) -> SafRefusal:
-    return SafRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"pair source is not a constant ({type(node).__name__})",
-    )
+def _const_mapping_or_negative(node: ast.AST) -> Any:
+    """Literal dicts and negated numbers, then keyword ``dict(...)`` calls."""
+
+    if isinstance(node, ast.Dict):
+        if any(key is None for key in node.keys):
+            raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
+        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_const_eval(node.operand)
+    return _const_dict_call(node)
 
 
-def _const_constant(node: ast.Constant) -> Any:
-    return node.value
+def _const_dict_call(node: ast.AST) -> Any:
+    """Keyword-only ``dict(...)`` calls; any other call or node is refused."""
 
-
-def _const_list(node: ast.List) -> list[Any]:
-    return [_const_eval(item) for item in node.elts]
-
-
-def _const_tuple(node: ast.Tuple) -> tuple[Any, ...]:
-    return tuple(_const_eval(item) for item in node.elts)
-
-
-def _const_dict(node: ast.Dict) -> dict[Any, Any]:
-    if any(key is None for key in node.keys):
-        raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
-
-
-def _const_negative(node: ast.UnaryOp) -> Any:
-    if not isinstance(node.op, ast.USub):
-        raise _not_a_constant(node)
-    return -_const_eval(node.operand)
-
-
-def _const_dict_call(node: ast.Call) -> dict[str, Any]:
-    if not _is_keyword_dict_call(node):
+    if isinstance(node, ast.Call):
+        func = node.func
+        if (
+            isinstance(func, ast.Name)
+            and func.id == "dict"
+            and not node.args
+            and all(keyword.arg is not None for keyword in node.keywords)
+        ):
+            return {
+                keyword.arg: _const_eval(keyword.value) for keyword in node.keywords
+            }
         raise SafRefusal(
             FINDING_SOURCE_NOT_PARSEABLE,
             f"pair source uses a non-literal call ({type(node).__name__})",
         )
-    return {
-        keyword.arg: _const_eval(keyword.value) for keyword in node.keywords
-    }
-
-
-def _is_keyword_dict_call(node: ast.Call) -> bool:
-    """``dict(key=literal, ...)`` with no positional or ``**`` arguments."""
-
-    func = node.func
-    if not isinstance(func, ast.Name) or func.id != "dict":
-        return False
-    if node.args:
-        return False
-    return all(keyword.arg is not None for keyword in node.keywords)
-
-
-# Checked in this order; anything else is not a constant.
-_CONST_EVALUATORS = (
-    (ast.Constant, _const_constant),
-    (ast.List, _const_list),
-    (ast.Tuple, _const_tuple),
-    (ast.Dict, _const_dict),
-    (ast.UnaryOp, _const_negative),
-    (ast.Call, _const_dict_call),
-)
+    raise SafRefusal(
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"pair source is not a constant ({type(node).__name__})",
+    )
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -216,40 +191,22 @@ def plants_from_source(
 ) -> tuple[dict[str, Any], ...]:
     """AST-extract ``PAIRS`` from leftover-mill source text. Never exec."""
 
-    raw_pairs, inferred_base = _pairs_and_base(_parse_source(text, source))
+    raw_pairs, inferred_base = _parse_pairs_and_base(text, source)
     if not isinstance(raw_pairs, list) or not raw_pairs:
         raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS list")
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not saf_rNNN")
-    base = _source_base_round(
-        inferred_base if base_round is None else base_round, mill_id, source
-    )
-    rows = []
-    for index, raw in enumerate(raw_pairs):
-        _require_pair_keys(raw, index, source)
-        row = {
-            "plant_id": f"{mill_id}:{raw['slug']}",
-            "mill_id": mill_id,
-            "source": source,
-            "base_round": base,
-        }
-        row.update({key: raw[key] for key in PAIR_KEYS})
-        rows.append(row)
-    return tuple(rows)
+    base = _checked_base_round(mill_id, source, inferred_base, base_round)
+    return _pair_rows(raw_pairs, mill_id, source, base)
 
 
-def _parse_source(text: str, source: str) -> ast.Module:
+def _parse_pairs_and_base(text: str, source: str) -> tuple[Any, Any]:
+    """Parse the mill text; literal ``PAIRS`` and ``BASE``, the last of each wins."""
+
     try:
-        return ast.parse(text)
+        tree = ast.parse(text)
     except SyntaxError as exc:
         raise SafRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
         ) from exc
-
-
-def _pairs_and_base(tree: ast.Module) -> tuple[Any, Any]:
-    """Literal ``PAIRS`` and ``BASE`` values; the last assignment of each wins."""
-
     raw_pairs: Any = None
     inferred_base: Any = None
     for node in tree.body:
@@ -264,17 +221,41 @@ def _pairs_and_base(tree: ast.Module) -> tuple[Any, Any]:
     return raw_pairs, inferred_base
 
 
-def _source_base_round(base: Any, mill_id: str, source: str) -> int:
-    """The mill's base round, defaulting to the ``saf_rNNN`` number."""
+def _checked_base_round(
+    mill_id: str, source: str, inferred_base: Any, base_round: int | None
+) -> int:
+    """A ``saf_rNNN`` mill id and its positive base round."""
 
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not saf_rNNN")
+    base = inferred_base if base_round is None else base_round
     if base is None:
         base = int(mill_id[len("saf_r") :])
-    if not _is_positive_int(base):
+    if not isinstance(base, int) or isinstance(base, bool) or base < 1:
         raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{source} BASE must be a positive int")
     return base
 
 
-def _require_pair_keys(raw: Any, index: int, source: str) -> None:
+def _pair_rows(
+    raw_pairs: list[Any], mill_id: str, source: str, base: int
+) -> tuple[dict[str, Any], ...]:
+    """One catalog row per ``PAIRS`` object, refusing a non-object or a missing key."""
+
+    rows = []
+    for index, raw in enumerate(raw_pairs):
+        _require_pair_object(raw, index, source)
+        row = {
+            "plant_id": f"{mill_id}:{raw['slug']}",
+            "mill_id": mill_id,
+            "source": source,
+            "base_round": base,
+        }
+        row.update({key: raw[key] for key in PAIR_KEYS})
+        rows.append(row)
+    return tuple(rows)
+
+
+def _require_pair_object(raw: Any, index: int, source: str) -> None:
     if not isinstance(raw, dict):
         raise SafRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{source} PAIRS[{index}] is not an object"
@@ -285,12 +266,6 @@ def _require_pair_keys(raw: Any, index: int, source: str) -> None:
             FINDING_PLANT_FIELD_MISSING,
             f"{source} PAIRS[{index}] missing {missing[0]}",
         )
-
-
-def _is_positive_int(value: Any) -> bool:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return False
-    return value >= 1
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -312,31 +287,14 @@ def _require_text(value: Any, where: str, code: str) -> str:
     return value
 
 
-def _plant_identity(row: Any, where: str) -> tuple[str, str, str]:
-    """``(plant_id, mill_id, slug)`` of a plants.jsonl row, refusing any that drift."""
-
+def _plant_from_row(row: Any, where: str) -> Plant:
     if not isinstance(row, dict):
         raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not saf_rNNN")
-    if not SLUG_RE.fullmatch(slug):
-        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
-    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
-    expected = f"{mill_id}:{slug}"
-    if plant_id != expected:
-        raise SafRefusal(
-            FINDING_PLANT_FIELD_INVALID,
-            f"{where}.plant_id must be {expected!r}",
-        )
-    return plant_id, mill_id, slug
-
-
-def _plant_from_row(row: Any, where: str) -> Plant:
-    plant_id, mill_id, slug = _plant_identity(row, where)
+    plant_id = _checked_plant_id(row, where, mill_id, slug)
     base_round = row.get("base_round")
-    if not _is_positive_int(base_round):
+    if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
         raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
     fields = {
         key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
@@ -366,6 +324,23 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         dest=fields["dest"],
         extra=fields["extra"],
     )
+
+
+def _checked_plant_id(row: dict[str, Any], where: str, mill_id: str, slug: str) -> str:
+    """Well-formed mill_id and slug, and a plant_id that joins them."""
+
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not saf_rNNN")
+    if not SLUG_RE.fullmatch(slug):
+        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
+    expected = f"{mill_id}:{slug}"
+    if plant_id != expected:
+        raise SafRefusal(
+            FINDING_PLANT_FIELD_INVALID,
+            f"{where}.plant_id must be {expected!r}",
+        )
+    return plant_id
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
@@ -436,20 +411,19 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta = _read_meta(catalog_dir / CATALOG_FILENAME)
-    catalog_id, factory = _require_meta_pins(meta)
+    meta_path = catalog_dir / CATALOG_FILENAME
+    plants_path = catalog_dir / PLANTS_FILENAME
+    meta, catalog_id = _read_pair_meta(meta_path)
+    factory = _require_pair_contract(meta)
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
     plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
     mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
     mills = tuple(
         _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
     )
-    plants_path = catalog_dir / PLANTS_FILENAME
-    digest = _pinned_plants_digest(plants_path, plants_sha256)
-    if factory not in _registry_factory_ids():
-        raise SafRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
-    plants = _load_plants(plants_path, plant_count)
-    _check_mill_plant_counts(mills, plants)
+    digest = _registered_digest(plants_path, plants_sha256, factory)
+    plants = _pair_plants(plants_path, plant_count)
+    _check_unique_and_counted(plants, mills)
     return Catalog(
         catalog_id=catalog_id,
         directory=catalog_dir,
@@ -461,51 +435,65 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     )
 
 
-# ``CATALOG.json`` string fields that must equal the package contract, in check order.
-_PINNED_META = (
-    ("format", CATALOG_FORMAT),
-    ("factory", FACTORY),
-    ("mill_prefix", MILL_PREFIX),
-    ("record_kind", RECORD_KIND),
-)
+def _read_pair_meta(meta_path: Path) -> tuple[Any, str]:
+    """Strict CATALOG.json with a catalog_id and the pinned format."""
 
-
-def _read_meta(meta_path: Path) -> Any:
     try:
         meta_text = meta_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise SafRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
     try:
-        return load_strict_json(meta_text)
+        meta = load_strict_json(meta_text)
     except ValueError as exc:
         raise SafRefusal(
             FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
         ) from exc
-
-
-def _require_meta_pins(meta: Any) -> tuple[str, str]:
-    """``(catalog_id, factory)`` once the identity, contract, and quota pins hold."""
-
     catalog_id = _require_text(
         _field(meta, "catalog_id", str, CATALOG_FILENAME),
         f"{CATALOG_FILENAME}.catalog_id",
         FINDING_CATALOG_FIELD_INVALID,
     )
-    for key, expected in _PINNED_META:
-        if _field(meta, key, str, CATALOG_FILENAME) != expected:
-            raise SafRefusal(
-                FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.{key} must be {expected}"
-            )
+    fmt = _field(meta, "format", str, CATALOG_FILENAME)
+    if fmt != CATALOG_FORMAT:
+        raise SafRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
+        )
+    return meta, catalog_id
+
+
+def _require_pair_contract(meta: Any) -> str:
+    """The factory, mill prefix, record kind, and quota pins."""
+
+    factory = _field(meta, "factory", str, CATALOG_FILENAME)
+    if factory != FACTORY:
+        raise SafRefusal(
+            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
+        )
+    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
+    if prefix != MILL_PREFIX:
+        raise SafRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
+        )
+    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
+    if kind != RECORD_KIND:
+        raise SafRefusal(
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
+        )
     quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
     if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
         raise SafRefusal(
             FINDING_CATALOG_FIELD_INVALID,
             f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
         )
-    return catalog_id, meta["factory"]
+    return factory
 
 
-def _pinned_plants_digest(plants_path: Path, plants_sha256: str) -> str:
+def _registered_digest(plants_path: Path, plants_sha256: str, factory: str) -> str:
+    """plants.jsonl matches its pin and the factory is a registry path_id."""
+
     try:
         plants_bytes = plants_path.read_bytes()
     except OSError as exc:
@@ -516,12 +504,12 @@ def _pinned_plants_digest(plants_path: Path, plants_sha256: str) -> str:
             FINDING_CATALOG_SHA256_MISMATCH,
             f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
         )
+    if factory not in _registry_factory_ids():
+        raise SafRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
     return digest
 
 
-def _load_plants(plants_path: Path, plant_count: int) -> tuple[Plant, ...]:
-    """Every plants.jsonl row as a plant: the pinned count, no repeated plant_id."""
-
+def _pair_plants(plants_path: Path, plant_count: int) -> tuple[Plant, ...]:
     rows = _read_jsonl(plants_path)
     if len(rows) != plant_count:
         raise SafRefusal(
@@ -531,15 +519,17 @@ def _load_plants(plants_path: Path, plant_count: int) -> tuple[Plant, ...]:
     plants = tuple(
         _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
     )
+    return plants
+
+
+def _check_unique_and_counted(plants: tuple[Plant, ...], mills: tuple[Mill, ...]) -> None:
+    """Unique plant ids, and per-mill counts that match the catalog mills."""
+
     seen: set[str] = set()
     for plant in plants:
         if plant.plant_id in seen:
             raise SafRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
         seen.add(plant.plant_id)
-    return plants
-
-
-def _check_mill_plant_counts(mills: tuple[Mill, ...], plants: tuple[Plant, ...]) -> None:
     by_mill: dict[str, int] = {}
     for plant in plants:
         by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1

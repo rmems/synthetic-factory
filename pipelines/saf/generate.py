@@ -579,21 +579,22 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
         return [(_require_round(request.round, plant.base_round), plant)]
     if request.round is not None:
         raise SafRefusal(FINDING_USAGE, "round applies only with plant_id")
+    if request.mill_id is not None:
+        mills = [mill for mill in loaded.mills if mill.mill_id == request.mill_id]
+        loaded.mill_plants(request.mill_id)
+    else:
+        mills = list(loaded.mills)
+    return _numbered_jobs(loaded, mills)
+
+
+def _numbered_jobs(loaded: cat.Catalog, mills: list[cat.Mill]) -> list[tuple[int, cat.Plant]]:
+    """Each mill's plants, numbered from the mill's base round."""
+
     jobs: list[tuple[int, cat.Plant]] = []
-    for mill in _selected_mills(loaded, request.mill_id):
+    for mill in mills:
         for index, plant in enumerate(loaded.mill_plants(mill.mill_id)):
             jobs.append((mill.base_round + index, plant))
     return jobs
-
-
-def _selected_mills(loaded: cat.Catalog, mill_id: str | None) -> list[cat.Mill]:
-    """Every mill, or the one named (refusing a mill_id with no plants)."""
-
-    if mill_id is None:
-        return list(loaded.mills)
-    mills = [mill for mill in loaded.mills if mill.mill_id == mill_id]
-    loaded.mill_plants(mill_id)
-    return mills
 
 
 def _check_destination(out_dir: Path) -> None:
