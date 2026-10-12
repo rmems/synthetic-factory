@@ -285,8 +285,9 @@ class LiteralCatalogExtract(unittest.TestCase):
 
     def test_sbox_extraction_requires_every_four_step_increment(self):
         for increment in (4, 5, 9, 12):
+            source = _sbox_increment_source(increment)
             with self.subTest(increment=increment), self.assertRaises(ValueError):
-                extract_source(_sbox_increment_source(increment), path=SBOX_PATH)
+                extract_source(source, path=SBOX_PATH)
         rows = extract_source(_sbox_increment_source(8), path=SBOX_PATH)['rows']
         self.assertEqual([row['inc'] for row in rows], [4, 8])
 
@@ -313,8 +314,9 @@ class LiteralCatalogExtract(unittest.TestCase):
                  (SBOX_SOURCE, SBOX_PATH, "'live-bin', 4", "'live-bin', 0"),
                  (SBOX_SOURCE, SBOX_PATH, "'live-bin', 4", "'live-bin', -1"))
         for source, path, old, new in cases:
+            mutated = source.replace(old, new)
             with self.subTest(new=new), self.assertRaises(ValueError):
-                extract_source(source.replace(old, new), path=path)
+                extract_source(mutated, path=path)
         self.assertEqual(extract_source(SSL_SOURCE.replace('START = 164', 'START = 0'),
                                         path=SSL_PATH)['catalog_first'], 0)
 
@@ -351,8 +353,9 @@ class LiteralCatalogExtract(unittest.TestCase):
             row = pairs.elts[0]
             index = next(i for i, key in enumerate(row.keys) if key.value == field)
             row.values[index] = ast.Constant(value=' \t\n ')
+            source = ast.unparse(tree)
             with self.subTest(field=field), self.assertRaises(ValueError):
-                extract_source(ast.unparse(tree), path=SSL_PATH)
+                extract_source(source, path=SSL_PATH)
 
     def test_invoked_local_code_cannot_preserve_prior_catalog_values(self):
         definition = '\ndef clear():\n    PAIRS.clear()\n'
