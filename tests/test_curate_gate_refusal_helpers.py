@@ -32,27 +32,29 @@ RewardOntologyError = curate_rewards.RewardOntologyError
 SOURCE_KEY = ("factory/batch-r01.jsonl", 3)
 
 
-class ManifestCandidateTests(unittest.TestCase):
-    def entries(self, text):
-        return manifests._json_manifest_entries(Path("lane.json"), text)
+def _manifest_entries(text):
+    return manifests._json_manifest_entries(Path("lane.json"), text)
 
+
+class ManifestCandidateTests(unittest.TestCase):
     def test_object_manifest_uses_the_first_declared_list_key(self):
         text = json.dumps({"records": [{"b": 2}], "entries": [{"a": 1}], "items": "x"})
-        self.assertEqual(self.entries(text), [{"a": 1}])
+        self.assertEqual(_manifest_entries(text), [{"a": 1}])
 
     def test_object_without_a_declared_list_is_refused(self):
+        text = json.dumps({"entries": "not-a-list"})
         with self.assertRaisesRegex(GateError, "manifest object needs one of decisions, manifest"):
-            self.entries(json.dumps({"entries": "not-a-list"}))
+            _manifest_entries(text)
 
     def test_scalar_manifest_is_refused(self):
         with self.assertRaisesRegex(GateError, "manifest must be a list or an object"):
-            self.entries("5")
+            _manifest_entries("5")
 
     def test_non_object_entry_and_invalid_json_are_refused(self):
         with self.assertRaisesRegex(GateError, "every manifest entry must be an object"):
-            self.entries("[{}, 1]")
+            _manifest_entries("[{}, 1]")
         with self.assertRaisesRegex(GateError, "lane.json: invalid JSON"):
-            self.entries("{bad")
+            _manifest_entries("{bad")
 
     def test_explicit_format_hint_wins_over_the_suffix(self):
         self.assertTrue(manifests._is_jsonl_manifest(Path("m.jsonl"), None))
@@ -61,64 +63,64 @@ class ManifestCandidateTests(unittest.TestCase):
         self.assertTrue(manifests._is_jsonl_manifest(Path("m.json"), "jsonl"))
 
 
-class ManifestRetentionTests(unittest.TestCase):
-    def view(self, retained=None, digests=None):
-        return manifests.RetentionView(retained, digests)
+def _view(retained=None, digests=None):
+    return manifests.RetentionView(retained, digests)
 
+
+class ManifestRetentionTests(unittest.TestCase):
     def test_content_change_replays_only_with_digest_hash_and_retention(self):
         normalized = {"output_hash": "a"}
         digests = {SOURCE_KEY: "b"}
         replay = manifests._replayable_source_digests
-        self.assertIs(replay(normalized, SOURCE_KEY, self.view(None, digests)), digests)
-        self.assertIsNone(replay(normalized, SOURCE_KEY, self.view(None, None)))
-        self.assertIsNone(replay(normalized, SOURCE_KEY, self.view(None, {})))
-        self.assertIsNone(replay({}, SOURCE_KEY, self.view(None, digests)))
-        self.assertIsNone(replay(normalized, SOURCE_KEY, self.view(set(), digests)))
+        self.assertIs(replay(normalized, SOURCE_KEY, _view(None, digests)), digests)
+        self.assertIsNone(replay(normalized, SOURCE_KEY, _view(None, None)))
+        self.assertIsNone(replay(normalized, SOURCE_KEY, _view(None, {})))
+        self.assertIsNone(replay({}, SOURCE_KEY, _view(None, digests)))
+        self.assertIsNone(replay(normalized, SOURCE_KEY, _view(set(), digests)))
 
     def test_entry_view_drops_or_recomputes_content_changed(self):
         entry = {"action": "retained", "output_hash": "a", "content_changed": True, "_private": 1}
-        dropped = manifests._entry_view(entry, SOURCE_KEY, self.view(set(), None))
+        dropped = manifests._entry_view(entry, SOURCE_KEY, _view(set(), None))
         self.assertNotIn("content_changed", dropped)
         self.assertNotIn("_private", dropped)
-        same = manifests._entry_view(entry, SOURCE_KEY, self.view(None, {SOURCE_KEY: "a"}))
+        same = manifests._entry_view(entry, SOURCE_KEY, _view(None, {SOURCE_KEY: "a"}))
         self.assertIs(same["content_changed"], False)
 
     def test_identity_mapping_needs_a_retained_identity_entry(self):
         lane = {"transform": "curate_identity"}
         retains = manifests._retains_identity_mapping
-        self.assertTrue(retains(lane, "retained", SOURCE_KEY, self.view()))
-        self.assertFalse(retains(lane, "excluded", SOURCE_KEY, self.view()))
-        self.assertFalse(retains({"transform": "other"}, "retained", SOURCE_KEY, self.view()))
-        self.assertFalse(retains(lane, "retained", SOURCE_KEY, self.view(set())))
+        self.assertTrue(retains(lane, "retained", SOURCE_KEY, _view()))
+        self.assertFalse(retains(lane, "excluded", SOURCE_KEY, _view()))
+        self.assertFalse(retains({"transform": "other"}, "retained", SOURCE_KEY, _view()))
+        self.assertFalse(retains(lane, "retained", SOURCE_KEY, _view(set())))
+
+
+def _classify(lowered, normalized, view=None):
+    fold = manifests._LaneManifestFold()
+    row = manifests._NormalizedEntry(normalized, lowered, SOURCE_KEY)
+    manifests._classify_entry(fold, row, view or manifests.RetentionView())
+    return fold
 
 
 class ManifestClassificationTests(unittest.TestCase):
-    def classify(self, lowered, normalized, view=None):
-        fold = manifests._LaneManifestFold()
-        row = manifests._NormalizedEntry(normalized, lowered, SOURCE_KEY)
-        manifests._classify_entry(fold, row, view or manifests.RetentionView())
-        return fold
-
     def test_refusals_are_bucketed_reviewed_and_counted(self):
-        excluded = self.classify("excluded", {"reason_codes": []})
+        excluded = _classify("excluded", {"reason_codes": []})
         self.assertEqual(len(excluded.exclusions), 1)
         self.assertEqual(excluded.reason_counts, {"UNSPECIFIED": 1})
-        quarantined = self.classify("quarantine", {"reason_codes": ["R"]})
+        quarantined = _classify("quarantine", {"reason_codes": ["R"]})
         self.assertEqual(len(quarantined.quarantines), 1)
         self.assertEqual(quarantined.reason_counts, {"R": 1})
         self.assertEqual(len(quarantined.review_candidates), 1)
 
     def test_retained_change_becomes_a_derived_review_candidate(self):
-        changed = self.classify("retained", {"reason_codes": [], "content_changed": True})
+        changed = _classify("retained", {"reason_codes": [], "content_changed": True})
         self.assertEqual(changed.review_candidates[0]["review_action"], "changed")
         self.assertEqual(
             changed.review_candidates[0]["review_reason_codes"], [manifests.DERIVED_CHANGE_REASON]
         )
-        unchanged = self.classify("retained", {"reason_codes": [], "content_changed": False})
+        unchanged = _classify("retained", {"reason_codes": [], "content_changed": False})
         self.assertEqual(unchanged.review_candidates, [])
-        dropped = self.classify(
-            "retained", {"content_changed": True}, manifests.RetentionView(set())
-        )
+        dropped = _classify("retained", {"content_changed": True}, manifests.RetentionView(set()))
         self.assertEqual(dropped.review_candidates, [])
 
 
@@ -127,36 +129,38 @@ GOOD_ID = {"owner_path": "/", "original_ids": [{"path": "/id", "value": "x"}]}
 GOOD_PROVENANCE = {"owner_path": "/", "state_path": None, "original": {"o": 1}}
 
 
-class IdentityPointerTests(unittest.TestCase):
-    def value(self, pointer):
-        return identity_gate._mapping_value(POINTER_DOCUMENT, pointer, "L")
+def _pointer_value(pointer):
+    return identity_gate._mapping_value(POINTER_DOCUMENT, pointer, "L")
 
+
+class IdentityPointerTests(unittest.TestCase):
     def test_pointer_resolution(self):
-        self.assertIs(self.value("/"), POINTER_DOCUMENT)
-        self.assertEqual(self.value("/a~1b/~0/1"), 20)
-        self.assertEqual(self.value("/list/0/k"), "v")
+        self.assertIs(_pointer_value("/"), POINTER_DOCUMENT)
+        self.assertEqual(_pointer_value("/a~1b/~0/1"), 20)
+        self.assertEqual(_pointer_value("/list/0/k"), "v")
 
     def test_unresolvable_pointers_are_refused(self):
         with self.assertRaisesRegex(GateError, "L must be a JSON pointer"):
-            self.value("list")
+            _pointer_value("list")
         for pointer in ("/list/x", "/list/5", "/missing", "/list/0/k/deeper"):
             with (
                 self.subTest(pointer=pointer),
                 self.assertRaisesRegex(GateError, "L does not resolve"),
             ):
-                self.value(pointer)
+                _pointer_value(pointer)
+
+
+def _claimed(id_mappings, provenance_mappings):
+    entry = {"id_mappings": id_mappings, "provenance_mappings": provenance_mappings}
+    return identity_gate._claimed_identity_source_evidence(entry, "E")
 
 
 class ClaimedIdentityEvidenceTests(unittest.TestCase):
-    def claimed(self, id_mappings, provenance_mappings):
-        entry = {"id_mappings": id_mappings, "provenance_mappings": provenance_mappings}
-        return identity_gate._claimed_identity_source_evidence(entry, "E")
-
     def test_both_lists_must_be_non_empty_before_either_is_walked(self):
         with self.assertRaisesRegex(GateError, r"E\.id_mappings must be non-empty"):
-            self.claimed([], [5])
+            _claimed([], [5])
         with self.assertRaisesRegex(GateError, r"E\.provenance_mappings must be non-empty"):
-            self.claimed([5], None)
+            _claimed([5], None)
 
     def test_each_claimed_mapping_is_checked_in_order(self):
         cases = (
@@ -167,46 +171,47 @@ class ClaimedIdentityEvidenceTests(unittest.TestCase):
         )
         for id_mappings, provenance, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(GateError, message):
-                self.claimed(id_mappings, provenance)
+                _claimed(id_mappings, provenance)
 
     def test_claims_are_copied(self):
-        claimed = self.claimed([GOOD_ID], [GOOD_PROVENANCE])
+        claimed = _claimed([GOOD_ID], [GOOD_PROVENANCE])
         self.assertEqual(claimed["id_mappings"], [GOOD_ID])
         self.assertIsNot(claimed["id_mappings"][0]["original_ids"], GOOD_ID["original_ids"])
         self.assertEqual(claimed["provenance_mappings"], [GOOD_PROVENANCE])
 
 
-class IdentityProvenancePathTests(unittest.TestCase):
-    def paths(self, record, kind, owners):
-        return identity_gate._identity_provenance_paths(record, kind, owners, "L")
+def _provenance_paths(record, kind, owners):
+    return identity_gate._identity_provenance_paths(record, kind, owners, "L")
 
+
+class IdentityProvenancePathTests(unittest.TestCase):
     def test_records_without_state_claims_cover_only_the_root(self):
         record = {"state": {"other": 1}}
-        self.assertEqual(self.paths(record, "thalamic", []), [("/", None)])
+        self.assertEqual(_provenance_paths(record, "thalamic", []), [("/", None)])
 
     def test_state_claims_cover_every_owner_and_the_root_kind(self):
         chosen = {"state": {"sim_or_real": "sim"}}
         rejected = {"state": {"provenance": {}}}
         owners = [("/chosen", chosen), ("/rejected", rejected)]
         self.assertEqual(
-            self.paths({}, "preference", owners),
+            _provenance_paths({}, "preference", owners),
             [("/chosen", "/chosen/state"), ("/rejected", "/rejected/state"), ("/", None)],
         )
-        self.assertEqual(self.paths({}, "thalamic", owners[:1]), [("/chosen", "/chosen/state")])
+        self.assertEqual(
+            _provenance_paths({}, "thalamic", owners[:1]), [("/chosen", "/chosen/state")]
+        )
 
     def test_an_owner_without_a_state_object_is_refused(self):
         owners = [("/chosen", {"state": {"sim_or_real": "sim"}}), ("/rejected", {})]
         message = "L/rejected/state does not identify a source object"
         with self.assertRaisesRegex(GateError, message):
-            self.paths({}, "preference", owners)
+            _provenance_paths({}, "preference", owners)
 
 
 class RewardOntologyGateHelperTests(unittest.TestCase):
     def test_annotation_errors_are_reported_not_raised(self):
         self.assertEqual(reward._annotation_error({}, 1), "unknown reward ontology version")
-        self.assertEqual(
-            reward._annotation_error("x", 1), "ontology document must be an object"
-        )
+        self.assertEqual(reward._annotation_error("x", 1), "ontology document must be an object")
 
     def test_examples_list_missing_annotations_first_and_cap_at_five(self):
         missing = [f"m:{index}" for index in range(3)]
@@ -218,15 +223,16 @@ class RewardOntologyGateHelperTests(unittest.TestCase):
         self.assertEqual(examples[3], {"source": "i:0", "error": "bad"})
 
 
-class CalibrationLookupTests(unittest.TestCase):
-    def lookup(self, source_record, record_id):
-        sidecar = {"source": {"record_id": record_id}}
-        return reward._authenticated_calibration_lookup(source_record, sidecar)
+def _calibration_lookup(source_record, record_id):
+    sidecar = {"source": {"record_id": record_id}}
+    return reward._authenticated_calibration_lookup(source_record, sidecar)
 
+
+class CalibrationLookupTests(unittest.TestCase):
     def test_lookup_prefers_the_authenticated_record_id(self):
-        self.assertEqual(self.lookup(None, "Side"), "Side")
-        self.assertEqual(self.lookup({"id": " Rec "}, "rec"), "Rec")
-        self.assertEqual(self.lookup({"id": "Rec"}, None), "Rec")
+        self.assertEqual(_calibration_lookup(None, "Side"), "Side")
+        self.assertEqual(_calibration_lookup({"id": " Rec "}, "rec"), "Rec")
+        self.assertEqual(_calibration_lookup({"id": "Rec"}, None), "Rec")
         self.assertIsNone(
             reward._authenticated_calibration_lookup(None, {"source": "not-a-mapping"})
         )
@@ -234,21 +240,23 @@ class CalibrationLookupTests(unittest.TestCase):
     def test_a_sidecar_naming_another_record_is_refused(self):
         message = "sidecar calibration source identity does not match the authenticated record"
         for record, record_id in (({"id": "a"}, "b"), ({"id": "a"}, 5), ({}, "a")):
-            with self.subTest(record=record, record_id=record_id), self.assertRaisesRegex(
-                RewardOntologyError, message
+            with (
+                self.subTest(record=record, record_id=record_id),
+                self.assertRaisesRegex(RewardOntologyError, message),
             ):
-                self.lookup(record, record_id)
+                _calibration_lookup(record, record_id)
+
+
+def _assert_claims(comparability, annotation):
+    derived = {"classification": {"comparability": comparability}, "payload": "P"}
+    reward._assert_payload_claims(annotation, derived)
 
 
 class PayloadClaimTests(unittest.TestCase):
-    def assert_claims(self, comparability, annotation):
-        derived = {"classification": {"comparability": comparability}, "payload": "P"}
-        reward._assert_payload_claims(annotation, derived)
-
     def test_matching_claims_pass(self):
-        self.assert_claims(curate_rewards.MAGNITUDE_COMPARABLE, {"magnitude": "P"})
-        self.assert_claims(curate_rewards.SIGN_ORDER_ONLY, {"order": "P"})
-        self.assert_claims("excluded", {})
+        _assert_claims(curate_rewards.MAGNITUDE_COMPARABLE, {"magnitude": "P"})
+        _assert_claims(curate_rewards.SIGN_ORDER_ONLY, {"order": "P"})
+        _assert_claims("excluded", {})
 
     def test_mismatched_or_extra_claims_are_refused(self):
         cases = (
@@ -259,10 +267,11 @@ class PayloadClaimTests(unittest.TestCase):
             ("excluded", {"order": "P"}, "excluded reward class must not carry"),
         )
         for comparability, annotation, message in cases:
-            with self.subTest(annotation=annotation), self.assertRaisesRegex(
-                RewardOntologyError, message
+            with (
+                self.subTest(annotation=annotation),
+                self.assertRaisesRegex(RewardOntologyError, message),
             ):
-                self.assert_claims(comparability, annotation)
+                _assert_claims(comparability, annotation)
 
 
 class SourcePathTests(unittest.TestCase):
@@ -315,6 +324,7 @@ class SnapshotAndSidecarTests(unittest.TestCase):
 
     def test_reward_sidecar_payloads_are_refused_line_by_line(self):
         load = evidence._load_reward_sidecars
+        sidecar = Path("side.jsonl")
         cases = (
             (b"\n\n", "reward sidecar artifact is empty"),
             (b"\xff\n", "cannot decode reward sidecars"),
@@ -324,7 +334,7 @@ class SnapshotAndSidecarTests(unittest.TestCase):
         )
         for payload, message in cases:
             with self.subTest(payload=payload), self.assertRaisesRegex(GateError, message):
-                load(Path("side.jsonl"), payload=payload)
+                load(sidecar, payload=payload)
 
 
 if __name__ == "__main__":
