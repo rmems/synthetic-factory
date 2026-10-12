@@ -18,6 +18,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any, Mapping, MutableMapping
 
 
@@ -27,16 +28,23 @@ else:
     import compose_curated_facade_bootstrap as _bootstrap_module
 _modules = _bootstrap_module.bootstrap_facade_imports(__package__)
 del _bootstrap_module
-_contract = _modules["compose_contract"]
+if TYPE_CHECKING:
+    # Static modules for the classes the adapters below annotate with. At run
+    # time the bootstrap's loaded modules are bound, exactly as for the rest.
+    from . import compose_contract as _contract
+    from . import compose_curated_run as _run_impl
+    from . import compose_destination as _destination
+else:
+    _contract = _modules["compose_contract"]
+    _run_impl = _modules["compose_curated_run"]
+    _destination = _modules["compose_destination"]
 _calibration_impl = _modules["compose_curated_calibration"]
 _coding_stage_impl = _modules["compose_curated_coding"]
 _identity_impl = _modules["compose_curated_identity"]
 _identity_facade = _modules["compose_curated_identity_facade"]
 _record_facade = _modules["compose_curated_record_facade"]
 _record_impl = _modules["compose_curated_record"]
-_run_impl = _modules["compose_curated_run"]
 _run_facade = _modules["compose_curated_run_facade"]
-_destination = _modules["compose_destination"]
 _trajectory = _modules["compose_trajectory"]
 compose_mill = _modules["compose_mill"]
 curate_agentic = _modules["curate_agentic"]
@@ -116,12 +124,17 @@ _reexport(
     """,
 )
 ACTION_EXCLUDED = _contract.ACTION_EXCLUDED
+ACTION_RETAINED = _contract.ACTION_RETAINED
 COMPOSE_NAME = _contract.COMPOSE_NAME
 COMPOSE_VERSION = _contract.COMPOSE_VERSION
 ComposeDecision = _contract.ComposeDecision
 ComposeError = _contract.ComposeError
+LANE_ORDER = _contract.LANE_ORDER
 PinnedDestination = _destination.PinnedDestination
+RECORDS_DIRNAME = _contract.RECORDS_DIRNAME
 TRAJECTORY_GOAL_LOCATIONS = _contract.TRAJECTORY_GOAL_LOCATIONS
+create_pinned_destination = _destination.create_pinned_destination
+write_pinned_new_bytes = _destination.write_pinned_new_bytes
 _TrajectoryPreferenceDecision = _contract.TrajectoryPreferenceDecision
 _facade_delegate = _record_facade.facade_delegate
 _stage = _record_facade.facade_stage

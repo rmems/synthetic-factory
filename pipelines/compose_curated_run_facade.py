@@ -24,6 +24,9 @@ else:
         expose_run_adapter,
     )
 
+# One facade seam; each group below returns a fixed number of them, in field order.
+type _Hook = Callable[..., Any]
+
 
 def facade_run_services(
     facade: Any, index_compose_mills: Callable[..., Mapping[tuple[str, int], Any]]
@@ -53,7 +56,7 @@ def facade_run_services(
     )
 
 
-def _line_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
+def _line_hooks(facade: Any) -> tuple[_Hook, _Hook, _Hook, _Hook, _Hook, _Hook]:
     return (
         lambda context, digest: facade._new_manifest_entry(
             context.relative, context.line_number, digest, context.source_file_sha256
@@ -68,7 +71,7 @@ def _line_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
     )
 
 
-def _source_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
+def _source_hooks(facade: Any) -> tuple[_Hook, _Hook, _Hook]:
     return (
         lambda state, context, emitted, _services: facade._write_emitted_records(
             state, context.destination_target, context.relative, emitted
@@ -78,7 +81,7 @@ def _source_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
     )
 
 
-def _finalize_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
+def _finalize_hooks(facade: Any) -> tuple[_Hook, _Hook, _Hook, _Hook]:
     return (
         lambda state, destination, _services: facade._write_compose_provenance(state, destination),
         lambda pinned, expected, _services: facade._authenticate_composed_artifacts(

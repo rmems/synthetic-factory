@@ -121,7 +121,7 @@ def _verified_composed_source(mapping: Mapping):
 
 
 def _replayed_identity_stage(source) -> dict:
-    stages = []
+    stages: list[dict[str, Any]] = []
     _compose_identity_stage_with_source(
         source.record, stages,
         SourceCoordinates(source.source_path, source.source_line, source.source_sha256),
