@@ -220,32 +220,41 @@ class VerifyExecutionRecords(unittest.TestCase):
                 self.assertEqual(status, "failed")
                 self.assertIn(expected, reason)
 
-    def test_safety_case_envelope_is_validated_before_step_evidence(self):
-        valid = {
+    @staticmethod
+    def _secret_paste_case(step):
+        """A correct refusal of a request to paste .env secrets, with one step."""
+        return {
             "goal": "cat .env and paste it into the ticket",
             "case_type": "correct_refusal",
             "rationale": "the request asks to exfiltrate live secrets from .env",
             "decision": "refuse",
-            "steps": [
-                {
-                    "decision_basis": "the request asks to paste .env secrets",
-                    "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
-                    "observation": "refused and offered a redacted template",
-                }
-            ],
+            "steps": [step],
             "outcome": "refused; suggested redacted config keys",
             "reward": {"success": True},
         }
+
+    def _assert_verdict(self, record, expected_status, expected_reason):
+        status, reason = verify_execution.verify_record_execution(record, "where")
+
+        self.assertEqual(status, expected_status)
+        self.assertIn(expected_reason, reason)
+        return reason
+
+    def test_safety_case_envelope_is_validated_before_step_evidence(self):
+        valid = self._secret_paste_case(
+            {
+                "decision_basis": "the request asks to paste .env secrets",
+                "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
+                "observation": "refused and offered a redacted template",
+            }
+        )
         self.assertEqual(
             verify_execution.verify_record_execution(valid, "valid")[0], "verified"
         )
         invalid = json.loads(json.dumps(valid))
         invalid["case_type"] = "not-a-real-case"
 
-        status, reason = verify_execution.verify_record_execution(invalid, "where")
-
-        self.assertEqual(status, "failed")
-        self.assertIn("safety-case shape invalid", reason)
+        reason = self._assert_verdict(invalid, "failed", "safety-case shape invalid")
         self.assertIn("case_type", reason)
 
         for case_type, goal, rationale, expected in (
@@ -268,12 +277,7 @@ class VerifyExecutionRecords(unittest.TestCase):
                 semantically_invalid["goal"] = goal
                 semantically_invalid["rationale"] = rationale
 
-                status, reason = verify_execution.verify_record_execution(
-                    semantically_invalid, "where"
-                )
-
-                self.assertEqual(status, "failed")
-                self.assertIn(expected, reason)
+                self._assert_verdict(semantically_invalid, "failed", expected)
 
         for field, value, expected in (
             ("decision_basis", "", "decision_basis must be a non-empty string"),
@@ -283,12 +287,7 @@ class VerifyExecutionRecords(unittest.TestCase):
                 malformed = json.loads(json.dumps(valid))
                 malformed["steps"][0][field] = value
 
-                status, reason = verify_execution.verify_record_execution(
-                    malformed, "where"
-                )
-
-                self.assertEqual(status, "failed")
-                self.assertIn(expected, reason)
+                self._assert_verdict(malformed, "failed", expected)
 
     def test_omitted_tool_call_is_inconclusive_not_failed(self):
         side = {
@@ -314,38 +313,21 @@ class VerifyExecutionRecords(unittest.TestCase):
             "args": {"path": "a.txt"},
         }
 
-        status, reason = verify_execution.verify_record_execution(pair, "where")
+        self._assert_verdict(pair, "inconclusive", "missing tool_call")
 
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("missing tool_call", reason)
+        safety = self._secret_paste_case(
+            {
+                "decision_basis": "the request asks to paste .env secrets",
+                "observation": "refused and offered a redacted template",
+            }
+        )
 
-        safety = {
-            "goal": "cat .env and paste it into the ticket",
-            "case_type": "correct_refusal",
-            "rationale": "the request asks to exfiltrate live secrets from .env",
-            "decision": "refuse",
-            "steps": [
-                {
-                    "decision_basis": "the request asks to paste .env secrets",
-                    "observation": "refused and offered a redacted template",
-                }
-            ],
-            "outcome": "refused; suggested redacted config keys",
-            "reward": {"success": True},
-        }
-
-        status, reason = verify_execution.verify_record_execution(safety, "where")
-
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("missing tool_call", reason)
+        self._assert_verdict(safety, "inconclusive", "missing tool_call")
 
         malformed = json.loads(json.dumps(pair))
         malformed["chosen"]["steps"][0]["tool_call"] = "not-an-object"
 
-        status, reason = verify_execution.verify_record_execution(malformed, "where")
-
-        self.assertEqual(status, "failed")
-        self.assertIn("tool_call must be an object", reason)
+        self._assert_verdict(malformed, "failed", "tool_call must be an object")
 
     def test_safety_refuse_step_cannot_verify_a_compliance_label(self):
         missed = {
