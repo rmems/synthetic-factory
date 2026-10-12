@@ -124,7 +124,8 @@ class CatalogRefusals(unittest.TestCase):
         (root / "lineages.jsonl").write_bytes(payload)
         return root
 
-    def _row(self, **overrides):
+    @staticmethod
+    def _row(**overrides):
         row = cat.load_catalog().lineages[0].as_mapping()
         row.update(overrides)
         return row

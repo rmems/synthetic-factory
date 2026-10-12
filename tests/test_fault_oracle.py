@@ -35,6 +35,14 @@ def measurements_of(record):
     return {item["quantity"]: item for item in record["result"]["measurements"]}
 
 
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class BenchReplay(fault_simulator.RelayReflexSimulator):
     meter_clock = "bench_replay_clock"
     meter_state = "bench_replay_state"
@@ -204,7 +212,7 @@ class OracleInjection(unittest.TestCase):
 
         cases = ({"reason_codes": ("BOGUS_CODE", "THERMAL_SHUTDOWN")}, {"outcome": "explode"}, {"dropped_events": 2.5})
         for overrides in cases:
-            field = next(iter(overrides))
+            field = _required_item(overrides)
             with self.subTest(field=field), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, field):
                 fo.build_records(1, 1, produced_at=PINNED_AT, oracle=forging(**overrides))
 

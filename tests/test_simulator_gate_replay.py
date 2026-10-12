@@ -16,7 +16,8 @@ from pipelines.oracle_grounded import fault_oracle
 
 
 class SimulatorGateReplay(unittest.TestCase):
-    def _entry(self):
+    @staticmethod
+    def _entry():
         record = fault_oracle.build_records(42, 1, produced_at="2026-08-23T00:00:00.000Z")[0]
         source = identity.SourceRecord(record, "fault-recovery-simulator-factory/records.jsonl", 1)
         result = identity.curate_record(source)

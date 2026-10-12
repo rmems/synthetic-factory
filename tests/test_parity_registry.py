@@ -10,7 +10,8 @@ from pipelines import curate_identity as identity, curate_parity_policy as polic
 
 
 class ParityRegistry(unittest.TestCase):
-    def _load(self, row, schema='factory-registry-v0.4'):
+    @staticmethod
+    def _load(row, schema='factory-registry-v0.4'):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'registry.json'
             path.write_text(json.dumps({'schema_version': schema, 'lookup_key': 'path_id', 'factories': [row]}))

@@ -15,7 +15,8 @@ FACTORY = "fault-recovery-simulator-factory"
 
 
 class SimulatorAssembly(unittest.TestCase):
-    def _generated(self, root):
+    @staticmethod
+    def _generated(root):
         records = fault_oracle.build_records(97531, 6, produced_at="2026-09-18T12:00:00.000Z")
         payload = "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in records).encode()
         source = root / "source" / FACTORY / "fresh.jsonl"

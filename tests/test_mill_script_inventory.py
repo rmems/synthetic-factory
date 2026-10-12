@@ -48,6 +48,14 @@ def _scope_repo():
         yield root
 
 
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class InventoryLoad(unittest.TestCase):
     def test_committed_inventory_is_loaded_and_bound_to_its_exact_bytes(self):
         self.assertEqual(msi.INVENTORY_BYTES, msi.INVENTORY_PATH.read_bytes())
@@ -192,7 +200,9 @@ class ScopeRegressions(unittest.TestCase):
             report = msi.check_inventory(root, tracked=())
         self.assertFalse(report["ok"])
         self.assertIn(archived, report["uncovered_gitignore_archived_paths"])
-        evidence = next(row for row in report["gitignore_rule_evidence"] if row[0] == archived)
+        evidence = _required_item(
+            row for row in report["gitignore_rule_evidence"] if row[0] == archived
+        )
         self.assertEqual(evidence[1], ".gitignore")
         self.assertTrue(evidence[2].isdigit())
         self.assertEqual(evidence[3], "!" + archived)

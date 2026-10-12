@@ -448,9 +448,13 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
 
     def test_generic_procedural_attestation_requires_a_reviewed_source_assignment(self):
         payload = _registry_payload([_attested_procedural_row()])
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(identity.IdentityCurationError, "no independently reviewed source"):
-                _load_temp_registry(tmp, payload)
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(
+                identity.IdentityCurationError, "no independently reviewed source"
+            ),
+        ):
+            _load_temp_registry(tmp, payload)
 
     def test_simulator_pin_substitution_is_refused_for_copied_registries(self):
         document = json.loads(identity.FACTORY_REGISTRY_PATH.read_text())
