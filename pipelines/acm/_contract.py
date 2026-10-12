@@ -43,7 +43,8 @@ WRAP_NEEDLES = ("w131", "422-vs-400", "207-multistatus")
 FULL_ROW_COUNT = 1052
 FULL_SOURCE_FILES = 95
 REPRESENTATIVE_ROW_COUNT = 8
-# The remainder by construction, so representative plus deferred always totals the full extract.
+# The remainder by construction: representative plus deferred always totals
+# the full extract, so the counts need no import-time consistency check.
 DEFERRED_ROW_COUNT = FULL_ROW_COUNT - REPRESENTATIVE_ROW_COUNT
 
 REVIEWED_HOME = REVIEWED_MILL_PREFIX_HOMES[FAMILY]
