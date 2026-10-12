@@ -51,7 +51,6 @@ import os
 import stat
 import sys
 from collections import Counter
-from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple, Sequence
@@ -452,18 +451,12 @@ def _file_decisions(
     return decisions, skipped
 
 
-def _count_true(flags: Iterable[Any]) -> int:
-    return sum(1 for flag in flags if flag)
-
-
 def _decision_counts(decisions: list[ArmDecision]) -> dict[str, int]:
     return {
-        "same_context": _count_true(d.same_context for d in decisions),
-        "two_session": _count_true(d.isolation == TWO_SESSION for d in decisions),
-        "trusted_two_session": _count_true(
-            d.trusted_isolation == TWO_SESSION for d in decisions
-        ),
-        "blocked": _count_true(d.blocked for d in decisions),
+        "same_context": sum(bool(d.same_context) for d in decisions),
+        "two_session": sum(d.isolation == TWO_SESSION for d in decisions),
+        "trusted_two_session": sum(d.trusted_isolation == TWO_SESSION for d in decisions),
+        "blocked": sum(bool(d.blocked) for d in decisions),
     }
 
 
@@ -1002,25 +995,17 @@ def _run_scan(args: argparse.Namespace, source: Path) -> int:
     return _scan_verdict(scan)
 
 
-def _required_path(parser: argparse.ArgumentParser, path: Path | None, name: str) -> Path:
-    """The confined path of a subcommand's required positional.
-
-    argparse already refuses a missing positional, so ``None`` cannot reach
-    here; if it ever did, the CLI refuses rather than passing ``None`` on.
-    """
-
-    if path is None:
-        parser.error(f"{name} is required")
-    return path
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     paths = _inputs(parser, args)
-    if args.command == "verify-handoff":
-        return _run_verify_handoff(args, _required_path(parser, paths.staging_dir, "staging_dir"))
-    return _run_scan(args, _required_path(parser, paths.source, "source"))
+    verify = args.command == "verify-handoff"
+    path = paths.staging_dir if verify else paths.source
+    # argparse already requires each subcommand's positional, so this never
+    # fires; it narrows the confined path instead of passing ``None`` on.
+    if path is None:
+        parser.error(f"{args.command} requires its path argument")
+    return _run_verify_handoff(args, path) if verify else _run_scan(args, path)
 
 
 if __name__ == "__main__":
