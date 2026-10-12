@@ -66,10 +66,14 @@ class GenerateCliCase03(unittest.TestCase):
         # #171: an accepted reference record at the current digest is
         # publishable, and so is the same record measured by a named runtime.
         reference = next(
-            item
-            for item in (build(families.ENCODER_FAMILY, index) for index in range(24))
-            if item["validation"]["status"] == "accepted"
+            (
+                item
+                for item in (build(families.ENCODER_FAMILY, index) for index in range(24))
+                if item["validation"]["status"] == "accepted"
+            ),
+            None,
         )
+        self.assertIsNotNone(reference, "no accepted encoder reference record in 24 builds")
         for publishable in (reference, relabel_as_named_runtime(reference)):
             with self.subTest(implementation=publishable["oracle"]["implementation"]):
                 self.assertTrue(

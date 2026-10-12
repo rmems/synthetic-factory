@@ -6,7 +6,6 @@ serialization operationally bounded; the messages are asserted verbatim.
 
 from __future__ import annotations
 
-import pickle
 import sys
 import unittest
 from fractions import Fraction
@@ -75,9 +74,11 @@ class ExactJsonTypeEdges(unittest.TestCase):
         self.assertIsInstance(rendered, exact_json.ExactJSONFloat)
         self.assertEqual(rendered.json_token, "-1.25")
 
-    def test_pickle_round_trip_keeps_the_source_token(self):
+    def test_reduce_rebuilds_from_the_source_token(self):
         original = exact_json.ExactJSONFloat("1.50")
-        restored = pickle.loads(pickle.dumps(original))
+        factory, args = original.__reduce__()
+        self.assertEqual(args, ("1.50",))
+        restored = factory(*args)
         self.assertIsInstance(restored, exact_json.ExactJSONFloat)
         self.assertEqual(restored.json_token, "1.50")
         self.assertEqual(restored.fraction, Fraction(3, 2))
