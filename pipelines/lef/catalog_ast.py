@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -55,55 +55,47 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and frozenset calls; else ``UNSET``."""
 
     bound = env or {}
-    for node_type, resolve in _RESOLVERS:
-        if isinstance(node, node_type):
-            return resolve(node, bound)
-    return UNSET
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return bound[node.id] if node.id in bound else UNSET
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = literal_value(node.operand, bound)
+        return -inner if isinstance(inner, (int, float)) else UNSET
+    return _container_literal(node, bound)
 
 
-def _constant(node: ast.Constant, env: Mapping[str, Any]) -> Any:
-    return node.value
+def _container_literal(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Tuple, list, set, and dict displays of literals."""
+
+    if isinstance(node, ast.Tuple):
+        return _sequence(node.elts, bound, tuple)
+    if isinstance(node, ast.List):
+        return _sequence(node.elts, bound, list)
+    if isinstance(node, ast.Set):
+        values = _sequence(node.elts, bound, list)
+        return set(values) if values is not UNSET else UNSET
+    if isinstance(node, ast.Dict):
+        return _mapping(node, bound)
+    return _text_or_call_literal(node, bound)
 
 
-def _bound_name(node: ast.Name, env: Mapping[str, Any]) -> Any:
-    return env.get(node.id, UNSET)
+def _text_or_call_literal(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Constant f-strings, ``str + str``, and ``frozenset(...)``; else ``UNSET``."""
 
-
-def _negated(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.op, ast.USub):
-        return UNSET
-    inner = literal_value(node.operand, env)
-    return -inner if isinstance(inner, (int, float)) else UNSET
-
-
-def _tuple(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
-    return _sequence(node.elts, env, tuple)
-
-
-def _list(node: ast.List, env: Mapping[str, Any]) -> Any:
-    return _sequence(node.elts, env, list)
-
-
-def _set(node: ast.Set, env: Mapping[str, Any]) -> Any:
-    values = _sequence(node.elts, env, list)
-    return set(values) if values is not UNSET else UNSET
-
-
-def _concatenated(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
-    """``"a" + "b"`` string concatenation; any other operator is not a literal."""
-
-    if not isinstance(node.op, ast.Add):
-        return UNSET
-    left = literal_value(node.left, env)
-    right = literal_value(node.right, env)
-    if isinstance(left, str) and isinstance(right, str):
-        return left + right
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string(node, bound)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = literal_value(node.left, bound)
+        right = literal_value(node.right, bound)
+        if isinstance(left, str) and isinstance(right, str):
+            return left + right
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        return _safe_call(node, bound)
     return UNSET
 
 
 def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
-    if not isinstance(node.func, ast.Name):
-        return UNSET
     if node.func.id != "frozenset" or len(node.args) != 1 or node.keywords:
         return UNSET
     inner = literal_value(node.args[0], env)
@@ -148,21 +140,6 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
             return UNSET
         parts.append(str(inner))
     return "".join(parts)
-
-
-# One resolver per literal node type, tried in this order; anything else is ``UNSET``.
-_RESOLVERS: tuple[tuple[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]], ...] = (
-    (ast.Constant, _constant),
-    (ast.Name, _bound_name),
-    (ast.UnaryOp, _negated),
-    (ast.Tuple, _tuple),
-    (ast.List, _list),
-    (ast.Set, _set),
-    (ast.Dict, _mapping),
-    (ast.JoinedStr, _joined_string),
-    (ast.BinOp, _concatenated),
-    (ast.Call, _safe_call),
-)
 
 
 def call_name(node: ast.AST | None) -> str | None:
