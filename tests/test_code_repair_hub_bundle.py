@@ -21,6 +21,7 @@ from code_repair_test_support import (
     lineage,
     refusal,
     replay,
+    required_item,
     smoke_run,
     views,
 )
@@ -138,8 +139,8 @@ class Bundle(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="code-repair-hub-bundle-"))
         self.addCleanup(shutil.rmtree, self.root, True)
 
-    def request(self, export_dir, name="bundle", dataset=DATASET, pretty=None):
-        return hub_bundle.BundleRequest(export_dir, self.root / name, dataset, pretty)
+    def request(self, export_dir, name="bundle", dataset=DATASET):
+        return hub_bundle.BundleRequest(export_dir, self.root / name, dataset)
 
     def test_a_blocked_export_without_replay_declares_only_the_viewer(self):
         _manifest, out, _records, _run_dir = exported(self.root, replayed=False)
@@ -181,7 +182,7 @@ class Bundle(unittest.TestCase):
         with refusal(self, cv.FINDING_BUNDLE_REQUEST_INVALID):
             hub_bundle.run(self.request(out, "b1", dataset="no-owner"))
         with refusal(self, cv.FINDING_BUNDLE_REQUEST_INVALID):
-            hub_bundle.run(self.request(out, "b2", pretty="two\nlines"))
+            hub_bundle.run(hub_bundle.BundleRequest(out, self.root / "b2", DATASET, "two\nlines"))
         empty = self.root / "empty"
         empty.mkdir()
         with refusal(self, cv.FINDING_RUN_FILE_MISSING):
@@ -241,7 +242,7 @@ class Cli(unittest.TestCase):
         ])
         self.assertEqual((code, text), (2, ""))
         self.assertTrue(err.startswith(cv.FINDING_DESTINATION_EXISTS), err)
-        positive = next(r for r in records if views.is_positive(r))
+        positive = required_item(r for r in records if views.is_positive(r))
         code, text, _err = invoke(["render", str(run_dir), positive["id"], "--json"])
         self.assertEqual(code, 0)
         payload = json.loads(text)

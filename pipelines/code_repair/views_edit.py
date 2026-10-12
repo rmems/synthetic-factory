@@ -25,7 +25,7 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin, contains_hidden_reasoning_key
 
 __all__ = [
-    "apply_block", "edit_candidate", "edit_findings", "edit_row", "parse_block",
+    "apply_block", "edit_candidate", "edit_findings", "edit_row", "occurrences", "parse_block",
     "render_block", "render_edit_prompt", "search_replace",
 ]
 
@@ -41,27 +41,60 @@ def render_edit_prompt(view: views.PublicView) -> str:
     return views.render_prompt(view, cv.EDIT_INSTRUCTIONS)
 
 
+def _shared_prefix(left: list[str], right: list[str]) -> int:
+    count = 0
+    for old, new in zip(left, right):
+        if old != new:
+            break
+        count += 1
+    return count
+
+
 def _changed_window(broken: list[str], repaired: list[str]) -> tuple[int, int, int]:
     """``(start, broken_end, repaired_end)`` of the block that differs, by whole lines."""
 
-    prefix = 0
-    limit = min(len(broken), len(repaired))
-    while prefix < limit and broken[prefix] == repaired[prefix]:
-        prefix += 1
-    suffix = 0
-    while (suffix < limit - prefix
-           and broken[len(broken) - 1 - suffix] == repaired[len(repaired) - 1 - suffix]):
-        suffix += 1
+    prefix = _shared_prefix(broken, repaired)
+    room = min(len(broken), len(repaired)) - prefix
+    suffix = min(_shared_prefix(broken[::-1], repaired[::-1]), room)
     return prefix, len(broken) - suffix, len(repaired) - suffix
+
+
+def occurrences(text: str, fragment: str) -> int:
+    """How many positions ``fragment`` starts at in ``text``, overlapping matches included.
+
+    ``str.count`` skips overlapping matches, so ``"a\na\n"`` would read as unique
+    in ``"a\na\na\n"`` although it starts at two positions.
+    """
+
+    count, start = 0, text.find(fragment)
+    while start != -1:
+        count += 1
+        start = text.find(fragment, start + 1)
+    return count
+
+
+def _unique_frame(broken: str, search: str, replace: str) -> bool:
+    framed = all((search, replace)) and _framed(search, replace)
+    return framed and occurrences(broken, search) == 1
+
+
+def _widened(lo: int, hi: int, total: int) -> tuple[int, int] | None:
+    """One more context line, below first and then above; ``None`` at the whole module."""
+
+    if hi < total:
+        return lo, hi + 1
+    if lo > 0:
+        return lo - 1, hi
+    return None
 
 
 def search_replace(broken: str, repaired: str) -> tuple[str, str]:
     """The canonical ``(search, replace)`` texts: minimal, unique in ``broken``, nonempty.
 
     The window starts as the changed lines and widens one context line at a
-    time, below first and then above, until the search text occurs exactly once
-    in the broken module and both sides carry at least one line. The whole
-    module is always such a window, so the loop terminates.
+    time, below first and then above, until the search text starts at exactly
+    one position in the broken module and both sides carry at least one line.
+    The whole module is always such a window, so the loop terminates.
     """
 
     cv.refuse_when(broken == repaired, cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE,
@@ -69,19 +102,16 @@ def search_replace(broken: str, repaired: str) -> tuple[str, str]:
     broken_lines = broken.splitlines(keepends=True)
     repaired_lines = repaired.splitlines(keepends=True)
     start, broken_end, repaired_end = _changed_window(broken_lines, repaired_lines)
-    lo, hi = start, broken_end
-    while True:
+    window: tuple[int, int] | None = (start, broken_end)
+    while window is not None:
+        lo, hi = window
         search = "".join(broken_lines[lo:hi])
         replace = "".join(repaired_lines[lo:repaired_end + (hi - broken_end)])
-        if search and replace and broken.count(search) == 1 and _framed(search, replace):
+        if _unique_frame(broken, search, replace):
             return search, replace
-        if hi < len(broken_lines):
-            hi += 1
-        elif lo > 0:
-            lo -= 1
-        else:
-            raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED,
-                                   "no SEARCH window renders the repair as one framed block")
+        window = _widened(lo, hi, len(broken_lines))
+    raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED,
+                           "no SEARCH window renders the repair as one framed block")
 
 
 def _framed(*texts: str) -> bool:
@@ -107,9 +137,11 @@ def parse_block(completion: Any) -> tuple[str, str] | None:
 
     body = _block_body(completion)
     sides = None if body is None else _divided(body)
-    if sides is None or not all(sides) or not _framed(*sides):
-        return None
-    return sides
+    return sides if _well_framed(sides) else None
+
+
+def _well_framed(sides: tuple[str, str] | None) -> bool:
+    return sides is not None and all(sides) and _framed(*sides)
 
 
 def _block_body(completion: Any) -> list[str] | None:
@@ -126,7 +158,8 @@ def _divided(body: list[str]) -> tuple[str, str] | None:
     """``(search, replace)`` around the one divider when no other marker line is present."""
 
     dividers = [i for i, line in enumerate(body) if line == _DIVIDER]
-    if len(dividers) != 1 or any(line in (_SEARCH, _REPLACE) for line in body):
+    clean = len(dividers) == 1 and not any(line in (_SEARCH, _REPLACE) for line in body)
+    if not clean:
         return None
     return "".join(body[:dividers[0]]), "".join(body[dividers[0] + 1:])
 
@@ -138,7 +171,7 @@ def apply_block(broken: str, completion: Any) -> tuple[str | None, str | None]:
     if parsed is None:
         return None, cv.LEAK_EDIT_BLOCK_MALFORMED
     search, replace = parsed
-    if broken.count(search) != 1:
+    if occurrences(broken, search) != 1:
         return None, cv.LEAK_EDIT_SEARCH_NOT_UNIQUE
     return broken.replace(search, replace, 1), None
 
@@ -164,11 +197,10 @@ def edit_row(record: dict[str, Any]) -> dict[str, str]:
 
 def _block_findings(record: dict[str, Any], broken: str, completion: Any) -> list[str]:
     applied, code = apply_block(broken, completion)
-    if code is not None:
-        return [code]
+    if applied is None:
+        return [code or cv.LEAK_EDIT_BLOCK_MALFORMED]
     findings = []
-    parsed = parse_block(completion)
-    if parsed is not None and parsed[0] == parsed[1]:
+    if applied == broken:
         findings.append(cv.LEAK_COMPLETION_EQUALS_BROKEN)
     predicted = record["candidate_prediction"]["predicted_repair"]["sha256"]
     verified = (views.is_positive(record)

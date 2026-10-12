@@ -23,101 +23,68 @@ repository or launches a trainer.
 from __future__ import annotations
 
 import hashlib
-import json
+import importlib
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from . import export, lineage
 from . import source_policy as sp
 from . import vocabulary as cv
-from ._contract import (
-    ViewerRow,
-    bind_import_twin,
-    dumps_exact_json,
-    is_under_raw,
-    load_strict_json,
-    read_viewer_parquet,
-    write_viewer_parquet,
+from ._contract import bind_import_twin, dumps_exact_json, is_under_raw, load_strict_json
+from .hub_card import (
+    CARD_FILENAME,
+    DATA_DIR,
+    EVIDENCE_DIR,
+    LICENSE_FILENAME,
+    NOTICE_FILES,
+    PROVENANCE_FILENAME,
+    RELEASE_LICENSE,
+    RELEASE_STATUS_FILENAME,
+    TEXT_CONFIGS,
+    VIEWER_CONFIG,
+    VIEWER_PATH,
+    VIEWER_SOURCE_FILE,
+    BundleFacts,
+    BundleRequest,
+    front_matter,
+    render_card,
 )
+
+# The lossless viewer writer the published datasets use, under this module's import form.
+_VIEWER = importlib.import_module(
+    "pipelines.export_viewer" if __name__.startswith("pipelines.") else "export_viewer"
+)
+ViewerRow = _VIEWER.ViewerRow
+read_viewer_parquet = _VIEWER.read_viewer_parquet
+write_viewer_parquet = _VIEWER.write_viewer_parquet
 
 BUNDLE_FORMAT = "code-repair-hub-bundle/1"
 BUNDLE_FILENAME = "BUNDLE.json"
-CARD_FILENAME = "README.md"
-PROVENANCE_FILENAME = "provenance.json"
-RELEASE_STATUS_FILENAME = "release-status.json"
-LICENSE_FILENAME = "LICENSE"
-RELEASE_LICENSE = "apache-2.0"
-DATA_DIR = "data"
-EVIDENCE_DIR = "evidence"
-VIEWER_PATH = f"{DATA_DIR}/viewer/records.parquet"
-VIEWER_SOURCE_FILE = "candidates.jsonl"
-VIEWER_CONFIG = "viewer"
-TEXT_CONFIGS = (("sft", export.SFT_DIR), ("chat", export.CHAT_DIR), ("edit", export.EDIT_DIR))
 SOURCE_REPOSITORY = "https://github.com/rmems/synthetic-factory"
-NOTICE_FILES = ("LICENSE.upstream", "NOTICE.txt")
 STAGE_ADMITTED = "admitted_training_candidate"
 STAGE_BLOCKED = "blocked_candidate_export"
 _DATASET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
-_BARE_YAML = re.compile(r"[A-Za-z][A-Za-z0-9_./-]*")
-_YAML_RESERVED = frozenset({"true", "false", "null", "yes", "no", "on", "off", "y", "n"})
-_TAGS = (
-    "synthetic-data", "code-repair", "software-engineering", "deterministic-execution",
-    "procedural", "provenance",
-)
 
 __all__ = [
     "BUNDLE_FILENAME",
     "BUNDLE_FORMAT",
     "CARD_FILENAME",
+    "LICENSE_FILENAME",
+    "PROVENANCE_FILENAME",
+    "RELEASE_STATUS_FILENAME",
+    "STAGE_ADMITTED",
+    "STAGE_BLOCKED",
     "TEXT_CONFIGS",
     "VIEWER_PATH",
     "BundleFacts",
     "BundleRequest",
+    "read_viewer_parquet",
     "render_card",
     "run",
     "training_ready",
 ]
-
-
-@dataclass(frozen=True)
-class BundleRequest:
-    export_dir: Path
-    out_dir: Path
-    dataset_id: str
-    pretty_name: str | None = None
-
-
-@dataclass(frozen=True)
-class BundleFacts:
-    """Everything the card and the machine-readable companions are rendered from."""
-
-    request: BundleRequest
-    manifest: dict[str, Any]
-    manifest_sha256: str
-    ready: bool
-    freeze: dict[str, Any]
-    counts: dict[str, dict[str, int]]
-    viewer_rows: int
-    viewer_bytes: int
-    configs: list[dict[str, Any]]
-    info: list[dict[str, Any]]
-    digests: dict[str, str]
-    record_counts: dict[str, int]
-
-    @property
-    def run(self) -> dict[str, Any]:
-        return self.manifest["run"]
-
-    @property
-    def catalog(self) -> dict[str, Any]:
-        catalog = self.run.get("catalog")
-        return catalog if isinstance(catalog, dict) else {}
-
-
-# --- request and manifest ------------------------------------------------------------------
 
 
 def _check_request(request: BundleRequest) -> None:
@@ -145,7 +112,8 @@ def _required_paths() -> list[str]:
 
 
 def _digest_entry_ok(path: Any, digest: Any) -> bool:
-    return isinstance(path, str) and isinstance(digest, str) and _HEX64.fullmatch(digest) is not None
+    typed = isinstance(path, str) and isinstance(digest, str)
+    return typed and _HEX64.fullmatch(digest) is not None
 
 
 def _files_ok(files: Any) -> bool:
@@ -214,9 +182,6 @@ def training_ready(manifest: dict[str, Any]) -> bool:
             and not admission["blockers"] and manifest["replay"] == "passed")
 
 
-# --- projections -----------------------------------------------------------------------------
-
-
 def _row_count(payload: bytes) -> int:
     return payload.count(b"\n")
 
@@ -227,7 +192,7 @@ def _viewer_rows(evidence: bytes) -> list[ViewerRow]:
     except UnicodeDecodeError as exc:
         raise cv.RepairRefusal(cv.FINDING_EXPORT_INTEGRITY, "evidence is not UTF-8") from exc
     lines = text.split("\n")
-    cv.refuse_when(lines and lines[-1] != "", cv.FINDING_EXPORT_INTEGRITY,
+    cv.refuse_when(lines[-1] != "", cv.FINDING_EXPORT_INTEGRITY,
                    "evidence is not LF-terminated")
     return [ViewerRow(VIEWER_SOURCE_FILE, number, line)
             for number, line in enumerate(lines[:-1], start=1)]
@@ -277,7 +242,8 @@ _FEATURES = {
 
 
 def _dataset_info(configs: list[dict[str, Any]], counts: dict[str, dict[str, int]],
-                  sizes: dict[str, int], viewer_rows: int, viewer_bytes: int) -> list[dict]:
+                  sizes: dict[str, int], viewer: tuple[int, int]) -> list[dict]:
+    viewer_rows, viewer_bytes = viewer
     info = []
     for config in configs:
         name = config["config_name"]
@@ -290,249 +256,12 @@ def _dataset_info(configs: list[dict[str, Any]], counts: dict[str, dict[str, int
     return info
 
 
-# --- card ------------------------------------------------------------------------------------
-
-
-def _scalar(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    text = str(value)
-    if _BARE_YAML.fullmatch(text) and text.lower() not in _YAML_RESERVED:
-        return text
-    return json.dumps(text, ensure_ascii=True)
-
-
-def _empty_or_scalar(item: Any) -> str:
-    if isinstance(item, dict):
-        return "{}"
-    if isinstance(item, list):
-        return "[]"
-    return _scalar(item)
-
-
-def _yaml(value: Any, indent: int = 0) -> list[str]:
-    """A deterministic YAML rendering of nested dicts, lists and scalars."""
-
-    pad = "  " * indent
-    lines: list[str] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if isinstance(item, (dict, list)) and item:
-                lines.append(f"{pad}{key}:")
-                lines.extend(_yaml(item, indent + 1))
-            else:
-                lines.append(f"{pad}{key}: {_empty_or_scalar(item)}")
-        return lines
-    for item in value:
-        if isinstance(item, dict) and item:
-            first, *rest = _yaml(item, indent + 1)
-            lines.append(f"{pad}- {first.strip()}")
-            lines.extend(rest)
-        else:
-            lines.append(f"{pad}- {_scalar(item)}")
-    return lines
-
-
-def _front_matter(facts: BundleFacts) -> str:
-    header = {
-        "pretty_name": _pretty_name(facts.request),
-        "license": RELEASE_LICENSE,
-        "language": ["en"],
-        "task_categories": ["text-generation"],
-        "tags": [*_TAGS, "training-candidate" if facts.ready else "research-snapshot"],
-        "configs": facts.configs,
-        "dataset_info": facts.info,
-    }
-    return "---\n" + "\n".join(_yaml(header)) + "\n---\n"
-
-
-def _pretty_name(request: BundleRequest) -> str:
-    if request.pretty_name:
-        return request.pretty_name.strip()
-    return f"Python Function Repair ({request.dataset_id.split('/', 1)[1]})"
-
-
-def _rights_lines(manifest: dict[str, Any], ready: bool) -> list[str]:
-    admission, rights = manifest["admission"], manifest["rights"]
-    policy = sp.POLICY
-    if ready:
-        statement = (
-            "**admitted training candidate.** A completed local round was freshly replayed "
-            "against the sealed catalog and the export carries `training_export: "
-            "training_candidate` with no blockers. Admission is a dataset gate; it is not a "
-            "claim that training on these rows improves any model."
-        )
-    else:
-        blockers = ", ".join(f"`{code}`" for code in admission["blockers"]) or "none listed"
-        statement = (
-            f"**not training-ready.** The export carries `training_export: blocked` with "
-            f"blockers {blockers}; this is a research snapshot of a candidate export."
-        )
-    evidence = policy["source_license_evidence"]
-    return [
-        f"> **Rights & intended use:** {statement}",
-        (f"> Registry route `{policy['path_id']}`: `intended_use: training_candidate`, "
-         f"`project_training_policy: {rights.get('project_training_policy')}`."),
-        (f"> License: [Apache-2.0](./{LICENSE_FILENAME}) for generated content; upstream programs "
-         f"remain {evidence['license']} by their authors ({evidence['repository']} @ "
-         f"`{evidence['commit'][:12]}`; `{NOTICE_FILES[0]}` and `{NOTICE_FILES[1]}` ride an "
-         "admitted export)."),
-        (f"> Machine-readable: [`{PROVENANCE_FILENAME}`](./{PROVENANCE_FILENAME}), "
-         f"[`{RELEASE_STATUS_FILENAME}`](./{RELEASE_STATUS_FILENAME}) and the export manifest "
-         f"[`{EVIDENCE_DIR}/{export.MANIFEST_FILENAME}`]"
-         f"(./{EVIDENCE_DIR}/{export.MANIFEST_FILENAME})."),
-    ]
-
-
-def _verification_lines(manifest: dict[str, Any]) -> list[str]:
-    tables = manifest["tables"]
-    exported = tables.get("dispositions", {}).get("exported", 0)
-    return [(
-        f"> **Verification:** replay `{manifest['replay']}`; {tables.get('positives')} positive "
-        f"records (accepted and validated) out of {tables.get('records')} "
-        f"(outcomes {_inline(tables.get('outcomes'))}; oracle statuses "
-        f"{_inline(tables.get('oracle_statuses'))}); {exported} rows exported per rendering after "
-        f"exact and structural dedup and the lineage cap ({manifest.get('lineage_cap')}). Every "
-        "record keeps its five-phase execution evidence in "
-        f"`{EVIDENCE_DIR}/{VIEWER_SOURCE_FILE}`."
-    )]
-
-
-def _inline(mapping: Any) -> str:
-    if not isinstance(mapping, dict) or not mapping:
-        return "none"
-    return ", ".join(f"{key} {value}" for key, value in sorted(mapping.items()))
-
-
-def _config_table(counts: dict[str, dict[str, int]], configs: list[dict[str, Any]],
-                  viewer_rows: int) -> list[str]:
-    declared = {config["config_name"] for config in configs}
-    lines = ["| config | " + " / ".join(lineage.SPLITS) + " | row shape |", "|---|---:|---|"]
-    for name, _directory in TEXT_CONFIGS:
-        cells = " / ".join(str(counts[name][split]) for split in lineage.SPLITS)
-        shape = export.VIEW_FORMATS[name]
-        note = "" if name in declared else " (no rows; not declared as a config)"
-        keys = "`, `".join(shape["keys"])
-        lines.append(f"| `{name}`{note} | {cells} | `{keys}`: {shape['completion']} |")
-    viewer = ("lossless `source_file` / `source_line` / `record_json` over "
-              f"`{EVIDENCE_DIR}/{VIEWER_SOURCE_FILE}`")
-    lines.append(f"| `{VIEWER_CONFIG}` | {viewer_rows} (one `train` split) | {viewer} |")
-    return lines
-
-
-def _file_table(digests: dict[str, str], counts: dict[str, int]) -> list[str]:
-    lines = ["| file | records | sha256 |", "|---|---:|---|"]
-    for relative in sorted(digests):
-        records = counts.get(relative)
-        shown = "" if records is None else records
-        lines.append(f"| `{relative}` | {shown} | `{digests[relative][:12]}`… |")
-    return lines
-
-
-def _card_splits(facts: BundleFacts) -> list[str]:
-    frozen = facts.freeze.get("canonical_ids", [])
-    agoge_keys = "`, `".join(export.VIEW_FORMATS["agoge"]["keys"])
-    return [
-        "## Configs and splits",
-        "",
-        ("Splits are assigned per program group by the catalog's pinned policy "
-         f"(`{_inline_policy(facts.run.get('split_policy'))}`), so no upstream program, "
-         "structural twin or reference sibling crosses a split. The `held_out` rows are frozen "
-         f"by digest in `{EVIDENCE_DIR}/{Path(export.FREEZE_PATH).name}` (canonical ids frozen: "
-         f"{len(frozen) if isinstance(frozen, list) else 0}); never fit on them."),
-        "",
-        *_config_table(facts.counts, facts.configs, facts.viewer_rows),
-        "",
-        (f"`{DATA_DIR}/{export.AGOGE_PATH}` carries the consumer rows (`{agoge_keys}`) for the "
-         "Agoge trainer and is not declared as a config."),
-        "",
-    ]
-
-
-def _card_limitations(manifest: dict[str, Any]) -> list[str]:
-    return [
-        "## Evaluation limitations and prerequisites",
-        "",
-        *[f"- `{code}`" for code in manifest.get("evaluation_limitations", [])],
-        *[f"- `{code}` (training-run prerequisite)"
-          for code in manifest.get("training_run_prerequisites", [])],
-        "",
-    ]
-
-
-def _card_reproduce(facts: BundleFacts) -> list[str]:
-    catalog = facts.catalog
-    return [
-        "## Reproduce",
-        "",
-        (f"From the factory repository, with the catalog `{catalog.get('catalog_id')}` "
-         f"(`programs_sha256` `{str(catalog.get('programs_sha256'))[:12]}`…):"),
-        "",
-        "```bash",
-        *_reproduce_commands(facts.request, facts.run, catalog),
-        "```",
-        "",
-        "Neither this bundle nor the commands above create a Hub repository or launch a trainer.",
-        "",
-    ]
-
-
-def render_card(facts: BundleFacts) -> str:
-    """The card body below the front matter, assembled from its sections."""
-
-    body = [
-        f"# {_pretty_name(facts.request)}",
-        "",
-        *_rights_lines(facts.manifest, facts.ready),
-        "",
-        *_verification_lines(facts.manifest),
-        "",
-        *_card_splits(facts),
-        *_card_limitations(facts.manifest),
-        "## Files",
-        "",
-        *_file_table(facts.digests, facts.record_counts),
-        "",
-        *_card_reproduce(facts),
-    ]
-    return "\n".join(body)
-
-
-def _reproduce_commands(request: BundleRequest, run: dict[str, Any], catalog: dict) -> list[str]:
-    """The four commands behind the bundle; only the sealed catalog has a repository path."""
-
-    sealed = catalog.get("catalog_id") == sp.POLICY["catalog_id"]
-    catalog_dir = f"catalogs/{catalog.get('catalog_id')}" if sealed else "<catalog-dir>"
-    tool = "python3 pipelines/code_repair_cli.py"
-    return [
-        (f"{tool} generate --catalog {catalog_dir} --seed {run.get('seed')} "
-         f"--count {run.get('count')} --out <run-dir>"),
-        f"{tool} replay --run <run-dir> --catalog {catalog_dir} --out <replay-dir>",
-        (f"{tool} export --run <run-dir> --catalog {catalog_dir} --replay <replay-dir> "
-         "--out <export-dir>"),
-        (f"{tool} hub-bundle --export <export-dir> --out <bundle-dir> "
-         f"--dataset-id {request.dataset_id}"),
-    ]
-
-
-def _inline_policy(policy: Any) -> str:
-    if not isinstance(policy, dict):
-        return "unpinned"
-    weights = policy.get("weights") if isinstance(policy.get("weights"), dict) else {}
-    return (f"{policy.get('algorithm')} seed {policy.get('seed')} salt {policy.get('salt')} "
-            + "/".join(str(weights.get(split)) for split in lineage.SPLITS))
-
-
-# --- machine-readable companions -----------------------------------------------------------
-
-
 def _provenance(facts: BundleFacts) -> dict[str, Any]:
-    manifest, run, catalog, ready = facts.manifest, facts.run, facts.catalog, facts.ready
-    generator = run.get("generator") if isinstance(run.get("generator"), dict) else {}
+    manifest, run_meta, catalog, ready = (
+        facts.manifest, facts.run_meta, facts.catalog, facts.ready
+    )
+    generator = run_meta.get("generator")
+    generator = generator if isinstance(generator, dict) else {}
     digests = facts.digests
     return {
         "schema_version": "1.0.0",
@@ -548,8 +277,8 @@ def _provenance(facts: BundleFacts) -> dict[str, Any]:
             "generator": f"{generator.get('name')} {generator.get('version')} (project-owned)",
             "contribution": "Generated every record in this release",
             "method": ("pipelines/code_repair_cli.py generate, catalog "
-                       f"{catalog.get('catalog_id')}, seed {run.get('seed')}, "
-                       f"count {run.get('count')}; export "
+                       f"{catalog.get('catalog_id')}, seed {run_meta.get('seed')}, "
+                       f"count {run_meta.get('count')}; export "
                        f"{export.EXPORT_FORMAT}; replay {manifest['replay']}"),
         },
         "source_factory": sp.POLICY["path_id"],
@@ -601,9 +330,6 @@ def _release_license() -> bytes:
     return payload
 
 
-# --- writing -----------------------------------------------------------------------------------
-
-
 def _write(root: Path, relative: str, payload: bytes) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -619,17 +345,17 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 def _bundle_files(files: dict[str, bytes], manifest_bytes: bytes) -> dict[str, bytes]:
     """The export files at their bundle paths plus the evidence companions."""
 
-    bundled: dict[str, bytes] = {}
-    for _name, directory in TEXT_CONFIGS:
-        for split in lineage.SPLITS:
-            bundled[_data_path(directory, split)] = files[f"{directory}/{split}.jsonl"]
-    bundled[f"{DATA_DIR}/{export.AGOGE_PATH}"] = files[export.AGOGE_PATH]
-    bundled[f"{EVIDENCE_DIR}/{VIEWER_SOURCE_FILE}"] = files[export.EVIDENCE_PATH]
-    bundled[f"{EVIDENCE_DIR}/{Path(export.FREEZE_PATH).name}"] = files[export.FREEZE_PATH]
-    bundled[f"{EVIDENCE_DIR}/{export.MANIFEST_FILENAME}"] = manifest_bytes
-    for name in NOTICE_FILES:
-        if name in files:
-            bundled[name] = files[name]
+    bundled = {
+        _data_path(directory, split): files[f"{directory}/{split}.jsonl"]
+        for _name, directory in TEXT_CONFIGS for split in lineage.SPLITS
+    }
+    bundled.update({
+        f"{DATA_DIR}/{export.AGOGE_PATH}": files[export.AGOGE_PATH],
+        f"{EVIDENCE_DIR}/{VIEWER_SOURCE_FILE}": files[export.EVIDENCE_PATH],
+        f"{EVIDENCE_DIR}/{Path(export.FREEZE_PATH).name}": files[export.FREEZE_PATH],
+        f"{EVIDENCE_DIR}/{export.MANIFEST_FILENAME}": manifest_bytes,
+    })
+    bundled.update({name: files[name] for name in NOTICE_FILES if name in files})
     return bundled
 
 
@@ -672,7 +398,7 @@ def _assemble(request: BundleRequest) -> tuple[dict[str, bytes], BundleFacts]:
         request=request, manifest=manifest, manifest_sha256=_sha(manifest_bytes),
         ready=training_ready(manifest), freeze=freeze, counts=counts, viewer_rows=viewer_rows,
         viewer_bytes=len(viewer_bytes), configs=configs,
-        info=_dataset_info(configs, counts, sizes, viewer_rows, len(viewer_bytes)),
+        info=_dataset_info(configs, counts, sizes, (viewer_rows, len(viewer_bytes))),
         digests={path: _sha(payload) for path, payload in bundled.items()},
         record_counts=_record_counts(files, counts, viewer_rows),
     )
@@ -680,7 +406,7 @@ def _assemble(request: BundleRequest) -> tuple[dict[str, bytes], BundleFacts]:
 
 
 def _companions(facts: BundleFacts) -> dict[str, bytes]:
-    card = _front_matter(facts) + "\n" + render_card(facts)
+    card = front_matter(facts) + "\n" + render_card(facts)
     return {
         PROVENANCE_FILENAME: _json_bytes(_provenance(facts)),
         RELEASE_STATUS_FILENAME: _json_bytes(_release_status(facts)),

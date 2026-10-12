@@ -208,6 +208,18 @@ class Windows(unittest.TestCase):
         self.assertTrue(search and replace)
         self.assertEqual("a\nc\n".replace(search, replace, 1), "a\nb\nc\n")
 
+    def test_overlapping_repeats_never_read_as_unique(self):
+        self.assertEqual(views_edit.occurrences("a\na\na\n", "a\na\n"), 2)
+        self.assertEqual("a\na\na\n".count("a\na\n"), 1)
+        broken, repaired = "a\na\na\n", "a\na\nb\n"
+        search, replace = views_edit.search_replace(broken, repaired)
+        self.assertEqual((search, replace), (broken, repaired))
+        applied, code = views_edit.apply_block(broken, views_edit.render_block(search, replace))
+        self.assertEqual((applied, code), (repaired, None))
+        ambiguous = views_edit.render_block("a\na\n", "a\nb\n")
+        self.assertEqual(views_edit.apply_block(broken, ambiguous),
+                         (None, cv.LEAK_EDIT_SEARCH_NOT_UNIQUE))
+
     def test_identical_texts_are_refused(self):
         with refusal(self, cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE):
             views_edit.search_replace("a\n", "a\n")
