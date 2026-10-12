@@ -96,6 +96,21 @@ class LiteralValueRecursionBudgetTests(unittest.TestCase):
         self.assertEqual(_value("-" * 600 + "N", {"N": 3}), 3)
         self.assertIs(_value("-" * 600 + "N"), UNSET)
 
+    def test_150_containers_around_a_600_deep_minus_chain_resolve(self):
+        """Two frames per container level, as on main: 150 levels plus 600 minus signs fit."""
+
+        depth = 150
+        cases = (
+            ("[" * depth + "-" * 600 + "1" + "]" * depth, 0),
+            ("{0:" * depth + "-" * 600 + "1" + "}" * depth, 0),
+        )
+        for source, key in cases:
+            with self.subTest(opener=source[0]):
+                value = _value(source)
+                for _ in range(depth):
+                    value = value[key]
+                self.assertEqual(value, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

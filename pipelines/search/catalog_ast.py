@@ -36,8 +36,9 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, and literal containers; else ``UNSET``.
 
-    One frame per unary nesting level: the ``-`` operand recurses here
-    directly, and ``_negated`` / ``_sequence_ctor`` never recurse.
+    The helpers add no recursion depth: a ``-`` operand recurses here
+    directly, a container only through ``_sequence`` or ``_mapping``, and
+    ``_negated`` / ``_container_builder`` never recurse.
     """
 
     bound = env or {}
@@ -47,15 +48,22 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
         return bound.get(node.id, UNSET)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return _negated(literal_value(node.operand, bound))
-    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-        return _sequence(node.elts, bound, _sequence_ctor(node))
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    return UNSET
+    build = _container_builder(node)
+    return UNSET if build is None else build(node, bound)
 
 
 def _negated(inner: Any) -> Any:
     return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _container_builder(node: ast.AST) -> Callable[[Any, Mapping[str, Any]], Any] | None:
+    """``_sequence`` for a tuple, list or set literal, ``_mapping`` for a dict, else None."""
+
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return _sequence
+    if isinstance(node, ast.Dict):
+        return _mapping
+    return None
 
 
 def _sequence_ctor(node: ast.Tuple | ast.List | ast.Set) -> Callable[[list[Any]], Any]:
@@ -68,9 +76,10 @@ def _sequence_ctor(node: ast.Tuple | ast.List | ast.Set) -> Callable[[list[Any]]
     return set
 
 
-def _sequence(elts: list[ast.expr], env: Mapping[str, Any], ctor):
+def _sequence(node: ast.Tuple | ast.List | ast.Set, env: Mapping[str, Any]) -> Any:
+    ctor = _sequence_ctor(node)
     values: list[Any] = []
-    for elt in elts:
+    for elt in node.elts:
         item = literal_value(elt, env)
         if item is UNSET:
             return UNSET
