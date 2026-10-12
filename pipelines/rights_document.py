@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Strict validation for public ``rights.json`` schema 0.1.0 documents."""
+"""Strict validation for public ``rights.json`` documents.
+
+Schema 0.1.0 is the hosted-frontier provider route and is validated here
+unchanged.  Schema 0.2.0 adds the ``source_type: procedural`` route, validated
+by ``rights_document_procedural`` against the loaded factory registry.  Hosted
+documents are not re-issued at 0.2.0: they keep schema 0.1.0, and a 0.2.0
+document that does not declare the procedural route is refused.
+"""
 
 from __future__ import annotations
 
@@ -23,11 +30,11 @@ if __package__:
         RightsPolicyError,
         parse_strict_json_bytes,
         policy_error,
-        reject_unpaired_surrogates,
         require_nonempty_string,
         require_rights_json_size,
     )
     from .rights_policy import RIGHTS_AUTHORIZATIONS
+    from . import rights_document_procedural as _rights_document_procedural
     from . import rights_document_support as _rights_document_support
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -45,11 +52,11 @@ else:
         RightsPolicyError,
         parse_strict_json_bytes,
         policy_error,
-        reject_unpaired_surrogates,
         require_nonempty_string,
         require_rights_json_size,
     )
     from rights_policy import RIGHTS_AUTHORIZATIONS
+    import rights_document_procedural as _rights_document_procedural
     import rights_document_support as _rights_document_support
 
 
@@ -68,10 +75,26 @@ _optional_nonempty_string = _rights_document_support.optional_nonempty_string
 _optional_date = _rights_document_support.optional_date
 _optional_hash = _rights_document_support.optional_hash
 _provider_alias = _rights_document_support.provider_alias
+_require_dataset_id = _rights_document_support.require_dataset_id
+_validate_document_unicode = _rights_document_support.reject_document_surrogates
 require_hash = _rights_document_support.require_hash
+ProceduralRightsDocument = _rights_document_procedural.ProceduralRightsDocument
+PROCEDURAL_REQUIRED_FIELDS = _rights_document_procedural.PROCEDURAL_REQUIRED_FIELDS
+PROCEDURAL_OPTIONAL_FIELDS = _rights_document_procedural.PROCEDURAL_OPTIONAL_FIELDS
 
 
-RIGHTS_DOCUMENT_SCHEMA_VERSION = "0.1.0"
+HOSTED_DOCUMENT_SCHEMA_VERSION = "0.1.0"
+PROCEDURAL_DOCUMENT_SCHEMA_VERSION = (
+    _rights_document_procedural.PROCEDURAL_DOCUMENT_SCHEMA_VERSION
+)
+# The newest schema revision, 0.2.0, adds the procedural route. Each version
+# names exactly one route: hosted documents stay 0.1.0, and a 0.2.0 document
+# must declare source_type procedural.
+RIGHTS_DOCUMENT_SCHEMA_VERSION = PROCEDURAL_DOCUMENT_SCHEMA_VERSION
+RIGHTS_DOCUMENT_SCHEMA_VERSIONS = frozenset(
+    {HOSTED_DOCUMENT_SCHEMA_VERSION, PROCEDURAL_DOCUMENT_SCHEMA_VERSION}
+)
+# The hosted (schema 0.1.0) field set.
 REQUIRED_FIELDS = frozenset(
     {
         "schema_version",
@@ -128,10 +151,6 @@ if (
         "public provider aliases must cover the hosted-frontier provider vocabulary exactly"
     )
 
-_DATASET_ID_RE = re.compile(
-    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?/"
-    r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
-)
 _GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -255,15 +274,12 @@ def _validate_document_identity(
     schema_version = _closed_value(
         document["schema_version"],
         "schema_version",
-        frozenset({RIGHTS_DOCUMENT_SCHEMA_VERSION}),
+        frozenset({HOSTED_DOCUMENT_SCHEMA_VERSION}),
         where,
     )
-    dataset_id = document["dataset_id"]
-    if not isinstance(dataset_id, str) or _DATASET_ID_RE.fullmatch(dataset_id) is None:
-        raise policy_error(where, "dataset_id must be an exact owner/name identifier")
     return _DocumentIdentity(
         schema_version,
-        dataset_id,
+        _require_dataset_id(document["dataset_id"], where),
         require_nonempty_string(document["policy_source"], "policy_source", where=where),
         require_nonempty_string(document["model"], "model", where=where),
         require_nonempty_string(document["generated_at"], "generated_at", where=where),
@@ -313,19 +329,17 @@ def _validate_public_decision(
     )
 
 
-def _validate_document_unicode(document: object, where: str) -> None:
-    try:
-        reject_unpaired_surrogates(document)
-    except ValueError as exc:
-        raise RightsPolicyError(
-            f"{where}: invalid rights document Unicode: {exc}"
-        ) from exc
-
-
 def validate_rights_document(
     document: object, *, where: str = "rights document"
-) -> RightsDocument:
-    """Validate one parsed public sidecar and return immutable normalized data."""
+) -> RightsDocument | ProceduralRightsDocument:
+    """Validate one parsed public sidecar and return immutable normalized data.
+
+    A document declaring schema 0.2.0 is validated as the procedural route;
+    every other document is validated as the hosted schema 0.1.0 route exactly
+    as before, so an unknown schema version is still refused there.
+    """
+    if _rights_document_procedural.declares_procedural_schema(document):
+        return _rights_document_procedural.validate_procedural_document(document, where=where)
     checked = _exact_document(document, REQUIRED_FIELDS, OPTIONAL_FIELDS, where)
     _validate_document_unicode(checked, where)
     identity = _validate_document_identity(checked, where)
@@ -352,7 +366,7 @@ def validate_rights_document(
 
 def load_rights_document_bytes(
     payload: bytes, *, where: str = "rights document bytes"
-) -> RightsDocument:
+) -> RightsDocument | ProceduralRightsDocument:
     """Strictly decode JSON bytes and validate a public rights declaration."""
     if not isinstance(payload, bytes):
         raise policy_error(where, "rights document input must be bytes")

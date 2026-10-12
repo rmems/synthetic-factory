@@ -13,6 +13,13 @@ the card front matter, the shipped ``LICENSE`` text, and ``release-status.json``
 A repository that still calls its license undeclared while shipping an
 Apache-2.0 ``LICENSE`` file fails closed here.
 
+A repository whose ``release-status.json`` declares ``rights_record:
+"rights.json"`` must ship a sidecar that ``rights_document`` accepts and that
+agrees with the release; a procedural (schema 0.2.0) sidecar must also declare
+the card's, ``LICENSE``'s and ``release-status.json``'s release license
+(``verify_hf_release_rights``).  A repository that declares no rights record
+keeps the contract above unchanged.
+
 Usage:
     python3 pipelines/verify_hf_release.py
     python3 pipelines/verify_hf_release.py --repo rmems/thalamic-relay-trajectories
@@ -27,6 +34,17 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("verify_hf_release")
+    from . import verify_hf_release_rights as _rights
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "verify_hf_release"
+    )
+    import verify_hf_release_rights as _rights
 
 
 DATASET_REPOS = (
@@ -408,7 +426,8 @@ def _release_status_license(
         errors.append("release-status.json must contain a JSON object")
         return None
     duplicate_keys = status.duplicate_keys if isinstance(status, _JSONObject) else set()
-    for field in sorted(duplicate_keys & (RAW_RELEASE_STATUS.keys() | {"dataset_id"})):
+    checked_fields = RAW_RELEASE_STATUS.keys() | {"dataset_id", *_rights.RIGHTS_STATUS_FIELDS}
+    for field in sorted(duplicate_keys & checked_fields):
         errors.append(f"release-status.json must not contain duplicate {field} keys")
     dataset_id = status.get("dataset_id")
     if dataset_id != repo:
@@ -434,6 +453,20 @@ def _release_status_license(
         errors.append("release-status.json must declare a string license")
         return None
     return declared
+
+
+def _release_status_object(text: str) -> dict[str, object]:
+    """Decode release-status.json for the rights cross-checks.
+
+    ``_release_status_license`` reports a file that does not decode to an
+    object; such a file declares no rights record here.
+    """
+
+    try:
+        status = json.loads(text, object_pairs_hook=_JSONObject)
+    except json.JSONDecodeError:
+        return {}
+    return status if isinstance(status, dict) else {}
 
 
 def _license_alignment_errors(
@@ -711,11 +744,27 @@ def verify_dataset(
             ),
             timeout,
         )
+        release_status = _release_status_object(release_status_text)
+        rights_bytes = _rights.declared_sidecar_bytes(
+            release_status,
+            lambda path: bytes_fetcher(public_url(repo, path, base_url), timeout),
+        )
     except Exception as error:  # network exceptions differ across Hub backends
         return CheckResult(repo, (f"public fetch failed: {error}",))
 
     status_license = _release_status_license(release_status_text, errors, repo)
     errors.extend(_license_alignment_errors(card, license_text, status_license))
+    errors.extend(
+        _rights.rights_sidecar_errors(
+            repo,
+            release_status,
+            rights_bytes,
+            _rights.LicenseDeclarations(
+                license_file=_license_family(license_text),
+                card=_front_matter(card).get("license"),
+            ),
+        )
+    )
     errors.extend(_card_section_errors(card, repo))
     errors.extend(_viewer_errors(card, viewer_bytes))
 
@@ -798,6 +847,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0 if all(result.ok for result in results) else 1
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":
