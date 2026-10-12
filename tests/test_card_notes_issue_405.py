@@ -162,6 +162,10 @@ class ObservabilityCardTests(unittest.TestCase):
         )
         self.assertEqual(legacy, render_observability_card(notes=None))
 
+    def test_notes_keyword_refuses_anything_but_coverage(self):
+        with self.assertRaisesRegex(TypeError, "notes= takes a card_notes.NotesCoverage"):
+            render_observability_card(notes=["NOTES-r01.md"])
+
     def test_card_carries_no_hub_tip_or_reindex_framing(self):
         card = render_observability_card(notes=card_notes.notes_coverage(PUBLISHED_ROUNDS, NOTED_ROUNDS))
 

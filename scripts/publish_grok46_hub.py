@@ -1259,6 +1259,14 @@ schema; the raw snapshot is intentionally not rewritten.
     return ""
 
 
+def _notes_keyword(keywords: dict[str, object]) -> card_notes.NotesCoverage | None:
+    """Pop render_card's notes= coverage, refusing anything but NotesCoverage."""
+    notes = keywords.pop("notes", None)
+    if notes is None or isinstance(notes, card_notes.NotesCoverage):
+        return notes
+    raise TypeError("render_card() notes= takes a card_notes.NotesCoverage")
+
+
 def render_card(item: dict, **keywords: object) -> str:
     """Render one Hub dataset card.
 
@@ -1274,9 +1282,7 @@ def render_card(item: dict, **keywords: object) -> str:
     kind_mix_arg = cast(
         "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
     )
-    notes_sentence = card_notes.render_notes_sentence(
-        cast("card_notes.NotesCoverage | None", keywords.pop("notes", None))
-    )
+    notes_sentence = card_notes.render_notes_sentence(_notes_keyword(keywords))
     summary = resolve_payload_summary(keywords)
     tags = "\n".join(f"- {t}" for t in item["tags"])
     records = summary.records
