@@ -1,0 +1,142 @@
+"""Every flat ``pipelines/`` module is one object under its bare and package names.
+
+``python3 pipelines/x.py`` imports its siblings by bare name, while package
+consumers import ``pipelines.x``. The binding prelude CLAUDE.md documents
+(``_assert_direct_sibling``, ``_join_package_sibling``, and the
+``_expose_package_sibling`` finalizer) keeps those two names one module object.
+A module without it loads a second copy once a process has used both names, and
+``except SomeError`` stops catching the other copy's class. ``preference_model``
+did exactly that (#427) when the round-robin CI shards put
+``test_compose_curated_facade_contract`` and ``test_curate_preferences_writer``
+in one process. This contract imports every flat module under both names, in
+both orders, in a fresh interpreter (``tests/pipelines_import_twin_probe.py``),
+so the order the suite happens to run in cannot hide a split. It discovers the
+modules from the directory, so a new module is covered without being listed;
+``test_pipeline_split_module_identity`` keeps pinning class-level identity for
+its curated split facades through the literal-bound import catalog.
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import pipelines_import_twin_probe as probe
+
+# The only modules allowed to split, in three named sets. Converting one to the
+# binding prelude makes it one object, and this contract then fails until its
+# name is removed here, so the sets only shrink.
+#
+# Direct-execution-only modules (CLAUDE.md, "Import conventions in pipelines/"):
+# they import their siblings by bare name, so ``import pipelines.<name>`` without
+# ``pipelines/`` on ``sys.path`` raises ``ModuleNotFoundError``, and with it they
+# load a second copy. #436 converts the six ``tag_*`` modules and #441 the other
+# eight; each removes its names here when it lands.
+DIRECT_EXECUTION_ONLY = frozenset(
+    {
+        "card_schema",
+        "card_schema_validate",
+        "card_schema_yaml",
+        "next_round",
+        "quality_gate_audit",
+        "quality_gate_embedding",
+        "tag_io",
+        "tag_jsonl",
+        "tag_record",
+        "tag_regex",
+        "tag_taxonomy",
+        "tag_write",
+        "verify_execution",
+        "verify_execution_shapes",
+    }
+)
+
+# Byte-sealed modules that still lack the prelude. Adding it changes their bytes,
+# and so a reviewed stamp: ``tag_jsonutil`` is in ``family_digest.SHARED_SOURCES``
+# (the hardware-parity and NIR ``generator_version``), and the ``oracle_*_part*``
+# modules are in ``source_policy.PROGRAM_NAMES`` (``programs_sha256`` in
+# ``schemas/procedural-oracle-policy-v1.json``). Each needs an owner-reviewed
+# parity or procedural-oracle re-seal before it can take the prelude.
+SEALED_UNTIL_RESEAL = frozenset(
+    {
+        "oracle_record_envelope_part1",
+        "oracle_record_envelope_part2",
+        "oracle_record_stages_part1",
+        "oracle_record_stages_part2",
+        "oracle_record_stages_part3",
+        "oracle_record_stages_part4",
+        "oracle_record_stages_part5",
+        "oracle_record_stages_part6",
+        "oracle_validate_capture_part1",
+        "oracle_validate_capture_part2",
+        "oracle_validate_manifest_part1",
+        "oracle_validate_manifest_part2",
+        "oracle_validate_manifest_part3",
+        "oracle_validate_manifest_part4",
+        "oracle_validate_manifest_records_part1",
+        "oracle_validate_manifest_records_part2",
+        "oracle_validate_manifest_records_part3",
+        "oracle_validate_snapshot_part1",
+        "oracle_validate_snapshot_part2",
+        "tag_jsonutil",
+    }
+)
+
+# Modules left to open pull requests that change the same lines or pin them.
+# ``verify_hf_release`` gains the prelude in #424, together with its rights
+# import. ``tag_regex_domain`` is left for the tag family after #436, whose probe
+# pins exactly which ``tag_*`` modules carry the finalizer.
+LEFT_TO_OPEN_PRS = frozenset({"tag_regex_domain", "verify_hf_release"})
+
+ALLOWLISTS = (DIRECT_EXECUTION_ONLY, SEALED_UNTIL_RESEAL, LEFT_TO_OPEN_PRS)
+ALLOWED_TO_SPLIT = frozenset().union(*ALLOWLISTS)
+
+_UNEXPECTED_SPLIT = (
+    "these modules load a second copy when imported under both names; give each the "
+    "binding prelude (_assert_direct_sibling / _join_package_sibling in the two prelude "
+    "branches, _expose_package_sibling(__name__) as the finalizer)"
+)
+_STALE_ALLOWLIST = (
+    "these modules are now one object under both names; remove them from "
+    "DIRECT_EXECUTION_ONLY, SEALED_UNTIL_RESEAL or LEFT_TO_OPEN_PRS"
+)
+
+
+class ImportTwinContract(unittest.TestCase):
+    def assert_only_allowlisted_modules_split(self, report):
+        self.assertEqual(report["modules"], len(probe.flat_modules()))
+        split = set(report["split"])
+        self.assertEqual(sorted(split - ALLOWED_TO_SPLIT), [], _UNEXPECTED_SPLIT)
+        self.assertEqual(sorted(ALLOWED_TO_SPLIT - split), [], _STALE_ALLOWLIST)
+
+
+class FreshInterpreter(ImportTwinContract):
+    def test_the_allowlists_name_existing_flat_modules_once(self):
+        modules = probe.flat_modules()
+        self.assertEqual(sorted(ALLOWED_TO_SPLIT - set(modules)), [])
+        self.assertEqual(sum(map(len, ALLOWLISTS)), len(ALLOWED_TO_SPLIT))
+        self.assertIn("preference_model", modules)
+
+    def test_only_allowlisted_modules_split_in_either_order(self):
+        for order in probe.ORDERS:
+            with self.subTest(order=order):
+                report = probe.in_fresh_interpreter(order, probe.flat_modules())
+                self.assert_only_allowlisted_modules_split(report)
+
+
+class InProcess(ImportTwinContract):
+    """The same probe in this process, on a clean slate that is restored afterwards.
+
+    The fresh interpreters above are the contract. Importing direct-first here also
+    runs both branches of every prelude and each finalizer under the process the
+    coverage report is taken from.
+    """
+
+    def test_only_allowlisted_modules_split_in_process(self):
+        report = probe.isolated_report("direct_first", probe.flat_modules())
+        self.assert_only_allowlisted_modules_split(report)
+
+
+if __name__ == "__main__":
+    unittest.main()
