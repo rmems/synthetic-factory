@@ -77,17 +77,18 @@ class ModuleEnv(unittest.TestCase):
         self.assertEqual(generate.module_env(_expr("1")), {})
 
 
-class PlantKwargs(unittest.TestCase):
-    def kwargs(self, source: str, env: dict | None = None):
-        return generate.plant_kwargs(_expr(source), env or {})
+def _plant_kwargs_of(source: str, env: dict | None = None):
+    return generate.plant_kwargs(_expr(source), env or {})
 
+
+class PlantKwargs(unittest.TestCase):
     def test_non_plant_calls_are_none(self):
         for source in ("x", "plant", "mod.plant(slug='s')", "other(slug='s')", "(lambda: 1)()"):
             with self.subTest(source=source):
-                self.assertIsNone(self.kwargs(source))
+                self.assertIsNone(_plant_kwargs_of(source))
 
     def test_known_fields_resolve_and_unknown_or_unresolved_are_dropped(self):
-        out = self.kwargs(
+        out = _plant_kwargs_of(
             "plant(slug=S, field='f', old=f'{V}1', extra='no', new=missing, **more)",
             {"S": "s-1", "V": "v"},
         )
@@ -102,15 +103,15 @@ class PlantKwargs(unittest.TestCase):
         )
         for source, expected in cases:
             with self.subTest(source=source):
-                self.assertIs(self.kwargs(source)["success"], expected)
+                self.assertIs(_plant_kwargs_of(source)["success"], expected)
         for source in ("p(slug='a')", "plant(slug='a')"):
             with self.subTest(source=source):
-                self.assertNotIn("success", self.kwargs(source))
+                self.assertNotIn("success", _plant_kwargs_of(source))
 
     def test_a_missing_empty_or_non_text_slug_is_none(self):
         for source in ("plant(field='f')", "plant(slug='')", "plant(slug=3)", "ok(slug=None)"):
             with self.subTest(source=source):
-                self.assertIsNone(self.kwargs(source))
+                self.assertIsNone(_plant_kwargs_of(source))
 
     def test_pair_elts_needs_a_two_tuple_of_plant_calls(self):
         self.assertEqual(
@@ -232,19 +233,21 @@ class PlantFromMapping(unittest.TestCase):
             catalog.plant_from_mapping({"domain": "d"})
 
 
-class CheckRows(unittest.TestCase):
-    def check(self, rows):
-        payload = {"factory": "api-contract-migration-factory", "family": "acm", "quota": 2,
-                   "steps": 16, "rows": rows}
-        catalog.check_catalog(payload)
+def _check_rows(rows):
+    payload = {"factory": "api-contract-migration-factory", "family": "acm", "quota": 2,
+               "steps": 16, "rows": rows}
+    return catalog.check_catalog(payload)
 
+
+class CheckRows(unittest.TestCase):
     def assert_refused(self, rows, message):
         with self.assertRaises(ValueError) as caught:
-            self.check(rows)
+            _check_rows(rows)
         self.assertEqual(str(caught.exception), message)
 
     def test_valid_rows_pass(self):
-        self.check([{"success_slug": "a", "fail_slug": "b"}, {"success_slug": "c", "fail_slug": "d"}])
+        rows = [{"success_slug": "a", "fail_slug": "b"}, {"success_slug": "c", "fail_slug": "d"}]
+        self.assertIsNone(_check_rows(rows))
 
     def test_each_row_refusal_in_check_order(self):
         cases = (
@@ -284,6 +287,16 @@ def _stack_depth() -> int:
     return depth
 
 
+def _call_with_limit(headroom: int, call):
+    """Run ``call`` with the recursion limit ``headroom`` frames above this frame."""
+    previous = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + headroom)
+    try:
+        return call()
+    finally:
+        sys.setrecursionlimit(previous)
+
+
 def _concat_chain(levels: int) -> ast.expr:
     node: ast.expr = ast.Constant("a")
     for _ in range(levels):
@@ -311,18 +324,10 @@ class RecursionDepth(unittest.TestCase):
     FRAMES = 2 * LEVELS + 2
     SLACK = 50
 
-    def call_with_limit(self, headroom: int, call):
-        previous = sys.getrecursionlimit()
-        sys.setrecursionlimit(_stack_depth() + headroom)
-        try:
-            return call()
-        finally:
-            sys.setrecursionlimit(previous)
-
     def assert_depth_pinned(self, call, expected):
-        self.assertEqual(self.call_with_limit(self.FRAMES + self.SLACK, call), expected)
+        self.assertEqual(_call_with_limit(self.FRAMES + self.SLACK, call), expected)
         with self.assertRaises(RecursionError):
-            self.call_with_limit(self.FRAMES - self.SLACK, call)
+            _call_with_limit(self.FRAMES - self.SLACK, call)
 
     def test_module_env_resolves_a_600_level_concatenation(self):
         tree = ast.Module(
