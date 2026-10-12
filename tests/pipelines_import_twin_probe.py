@@ -11,17 +11,20 @@ is not caught through the other (``preference_model``, #427).
 :func:`isolated_report` unloads every pipelines module, imports each named
 module under both names in the order given, and reports the names whose two
 spellings are not one object. A module that fails to import raises out of the
-probe with its own traceback. :func:`in_fresh_interpreter` runs the probe in a
-child started with the ``spawn`` method, so nothing the calling test process
-already imported, popped or patched can mask a split. Only plain data crosses
-the process boundary: the order, the module names, and the report.
+probe with its own traceback. :func:`isolated_shim_report` does the same for
+the thin CLI shims and reports whether both copies of each expose the one
+``pipelines.<package>.cli`` object and which names they define.
+:func:`in_fresh_interpreter` runs either report in a child started with the
+``spawn`` method, so nothing the calling test process already imported, popped
+or patched can mask a split. Only plain data crosses the process boundary: the
+order, the module names, and the report.
 """
 
 from __future__ import annotations
 
 import multiprocessing
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -83,10 +86,30 @@ def isolated_report(order: str, names: Sequence[str]) -> dict[str, Any]:
         return split_modules(order, names)
 
 
-def in_fresh_interpreter(order: str, names: Sequence[str]) -> dict[str, Any]:
-    """:func:`isolated_report` in a child interpreter started with ``spawn``."""
+def _shim_facts(shim: str, package: str) -> dict[str, Any]:
+    """Whether both copies of ``shim`` expose the one ``<package>.cli``, and what they define."""
+
+    cli = sys.modules[f"pipelines.{package}.cli"]
+    copies = (sys.modules[shim], sys.modules[f"pipelines.{shim}"])
+    return {
+        "one_cli": sys.modules.get(f"{package}.cli") is cli
+        and all(copy.cli is cli for copy in copies),
+        "names": sorted({name for copy in copies for name in vars(copy) if name[:2] != "__"}),
+    }
+
+
+def isolated_shim_report(order: str, shims: Mapping[str, str]) -> dict[str, Any]:
+    """Import each shim (``{shim: subpackage}``) under both names in ``order``; report its facts."""
+
+    with clean_package_imports():
+        split_modules(order, tuple(shims))
+        return {shim: _shim_facts(shim, package) for shim, package in shims.items()}
+
+
+def in_fresh_interpreter(report: Callable[..., dict[str, Any]], *args: Any) -> dict[str, Any]:
+    """``report(*args)`` in a child interpreter started with ``spawn``."""
 
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
-        future = pool.submit(isolated_report, order, tuple(names))
+        future = pool.submit(report, *args)
         return future.result(timeout=FRESH_INTERPRETER_TIMEOUT_SECONDS)

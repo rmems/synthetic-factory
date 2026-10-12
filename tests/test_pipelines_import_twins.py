@@ -84,7 +84,20 @@ SEALED_UNTIL_RESEAL = frozenset(
 # pins exactly which ``tag_*`` modules carry the finalizer.
 LEFT_TO_OPEN_PRS = frozenset({"tag_regex_domain", "verify_hf_release"})
 
-ALLOWLISTS = (DIRECT_EXECUTION_ONLY, SEALED_UNTIL_RESEAL, LEFT_TO_OPEN_PRS)
+# Thin CLI shims, by the subpackage they front: each only re-exports its
+# subpackage's ``cli`` module, which ``bind_import_twin`` already makes one object
+# under both names, so a second shim copy carries nothing of its own.
+# ``test_each_thin_shim_only_re_exports_its_one_cli`` pins that.
+THIN_CLI_SHIMS = {"actf_cli": "actf", "code_repair_cli": "code_repair", "mill_cli": "mill"}
+# Everything a thin shim may define: its import bootstrap and the ``cli`` it re-exports.
+THIN_SHIM_NAMES = frozenset({"Path", "_PIPELINES", "annotations", "cli", "sys"})
+
+ALLOWLISTS = (
+    DIRECT_EXECUTION_ONLY,
+    SEALED_UNTIL_RESEAL,
+    LEFT_TO_OPEN_PRS,
+    frozenset(THIN_CLI_SHIMS),
+)
 ALLOWED_TO_SPLIT = frozenset().union(*ALLOWLISTS)
 
 _UNEXPECTED_SPLIT = (
@@ -94,19 +107,24 @@ _UNEXPECTED_SPLIT = (
 )
 _STALE_ALLOWLIST = (
     "these modules are now one object under both names; remove them from "
-    "DIRECT_EXECUTION_ONLY, SEALED_UNTIL_RESEAL or LEFT_TO_OPEN_PRS"
+    "DIRECT_EXECUTION_ONLY, SEALED_UNTIL_RESEAL, LEFT_TO_OPEN_PRS or THIN_CLI_SHIMS"
+)
+_THICK_SHIM = (
+    "a thin CLI shim defines names beyond its bootstrap and cli; give it the binding "
+    "prelude and remove it from THIN_CLI_SHIMS"
 )
 
 
-class ImportTwinContract(unittest.TestCase):
-    def assert_only_allowlisted_modules_split(self, report):
-        self.assertEqual(report["modules"], len(probe.flat_modules()))
-        split = set(report["split"])
-        self.assertEqual(sorted(split - ALLOWED_TO_SPLIT), [], _UNEXPECTED_SPLIT)
-        self.assertEqual(sorted(ALLOWED_TO_SPLIT - split), [], _STALE_ALLOWLIST)
+def assert_only_allowlisted_modules_split(case, report):
+    """Fail ``case`` naming each unexpected split and each allowlisted module now one object."""
+
+    case.assertEqual(report["modules"], len(probe.flat_modules()))
+    split = set(report["split"])
+    case.assertEqual(sorted(split - ALLOWED_TO_SPLIT), [], _UNEXPECTED_SPLIT)
+    case.assertEqual(sorted(ALLOWED_TO_SPLIT - split), [], _STALE_ALLOWLIST)
 
 
-class FreshInterpreter(ImportTwinContract):
+class FreshInterpreter(unittest.TestCase):
     def test_the_allowlists_name_existing_flat_modules_once(self):
         modules = probe.flat_modules()
         self.assertEqual(sorted(ALLOWED_TO_SPLIT - set(modules)), [])
@@ -116,11 +134,29 @@ class FreshInterpreter(ImportTwinContract):
     def test_only_allowlisted_modules_split_in_either_order(self):
         for order in probe.ORDERS:
             with self.subTest(order=order):
-                report = probe.in_fresh_interpreter(order, probe.flat_modules())
-                self.assert_only_allowlisted_modules_split(report)
+                report = probe.in_fresh_interpreter(
+                    probe.isolated_report, order, probe.flat_modules()
+                )
+                assert_only_allowlisted_modules_split(self, report)
+
+    def test_each_thin_shim_only_re_exports_its_one_cli(self):
+        for order in probe.ORDERS:
+            with self.subTest(order=order):
+                report = probe.in_fresh_interpreter(
+                    probe.isolated_shim_report, order, THIN_CLI_SHIMS
+                )
+                self.assertEqual(sorted(report), sorted(THIN_CLI_SHIMS))
+                split_cli = sorted(shim for shim, facts in report.items() if not facts["one_cli"])
+                self.assertEqual(split_cli, [], "these shims expose a second cli object")
+                extra = {
+                    shim: sorted(set(facts["names"]) - THIN_SHIM_NAMES)
+                    for shim, facts in report.items()
+                    if not THIN_SHIM_NAMES.issuperset(facts["names"])
+                }
+                self.assertEqual(extra, {}, _THICK_SHIM)
 
 
-class InProcess(ImportTwinContract):
+class InProcess(unittest.TestCase):
     """The same probe in this process, on a clean slate that is restored afterwards.
 
     The fresh interpreters above are the contract. Importing direct-first here also
@@ -130,7 +166,7 @@ class InProcess(ImportTwinContract):
 
     def test_only_allowlisted_modules_split_in_process(self):
         report = probe.isolated_report("direct_first", probe.flat_modules())
-        self.assert_only_allowlisted_modules_split(report)
+        assert_only_allowlisted_modules_split(self, report)
 
 
 if __name__ == "__main__":
