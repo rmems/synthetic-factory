@@ -120,3 +120,11 @@ def _sealed_gate_template():
 def prepare_gate_template(test_case):
     """Attach the shared gate template; each test copies it before any write."""
     test_case.template = _sealed_gate_template()
+
+
+def prepare_integrated_template(test_case):
+    """Attach the shared gate template and one integration of it for the class."""
+    prepare_gate_template(test_case)
+    scratch = tempfile.TemporaryDirectory(prefix="curate-gate-")
+    test_case.addClassCleanup(scratch.cleanup)
+    test_case.integrated = IntegratedGateTemplate(test_case.template, scratch.name)

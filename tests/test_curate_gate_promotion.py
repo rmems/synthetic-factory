@@ -30,9 +30,9 @@ if str(PIPELINES) not in sys.path:
 
 import curate_gate  # noqa: E402
 from tests.procedural_gate_support import (  # noqa: E402
-    IntegratedGateTemplate,
     ProceduralGateFixture,
     prepare_gate_template,
+    prepare_integrated_template,
 )
 
 
@@ -133,10 +133,7 @@ class ReviewSampleTests(unittest.TestCase):
 class PromotionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        prepare_gate_template(cls)
-        scratch = tempfile.TemporaryDirectory(prefix="curate-gate-")
-        cls.addClassCleanup(scratch.cleanup)
-        cls.integrated = IntegratedGateTemplate(cls.template, scratch.name)
+        prepare_integrated_template(cls)
 
     def setUp(self):
         self.fixture = self.integrated.restore(self)
