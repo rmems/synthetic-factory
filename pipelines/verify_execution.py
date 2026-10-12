@@ -28,7 +28,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
+
+# The shape checkers are None when a direct caller cannot import validate_run;
+# verify_execution_shapes checks each for None before calling it.
+check_episode: Callable[..., Any] | None
+check_line: Callable[..., Any] | None
+check_safety_case: Callable[..., Any] | None
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
