@@ -11,11 +11,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 sys.path[:0] = [str(TESTS), str(TESTS.parent / "pipelines")]
 
-from code_repair import dedup, lineage
+from code_repair import candidate_io, dedup, lineage
 from code_repair import vocabulary as cv
 from code_repair._contract import dumps_exact_json, load_strict_json
 from code_repair_test_support import (
@@ -344,11 +345,17 @@ class Refusals(unittest.TestCase):
         legacy = self.copies.copy("legacy", run_edit=lambda s: s.update(format="code-repair-run/1"))
         with refusal(self, cv.FINDING_RUN_FILE_MISSING, "not a code-repair"):
             report(legacy)
-        for name, payload in (("garbled", b"{not json"), ("deep", b"[" * 100_000 + b"]" * 100_000)):
-            unreadable = self.copies.copy(name)
-            (unreadable / generate.RUN_FILENAME).write_bytes(payload)
-            with self.subTest(name=name), refusal(self, cv.FINDING_RUN_FILE_MISSING, "not JSON"):
-                report(unreadable)
+        garbled = self.copies.copy("garbled")
+        (garbled / generate.RUN_FILENAME).write_bytes(b"{not json")
+        with refusal(self, cv.FINDING_RUN_FILE_MISSING, "not JSON"):
+            report(garbled)
+        # How deep a nesting the parser follows depends on the interpreter, so the overflow
+        # itself is simulated: it must still be the coded refusal, not a generic error.
+        overflow = RecursionError("maximum recursion depth exceeded")
+        deep = self.copies.copy("deep")
+        with (mock.patch.object(candidate_io, "load_strict_json", side_effect=overflow),
+              refusal(self, cv.FINDING_RUN_FILE_MISSING, "not JSON", "RecursionError")):
+            report(deep)
         with refusal(self, cv.FINDING_RUN_FILE_MISSING, "at least one"):
             report()
 
