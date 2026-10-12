@@ -289,14 +289,31 @@ def _deferred_index(lines: list[str], mill_id: str, position: int) -> int:
     return hits[position]
 
 
+def _plants_source(extra: str) -> str:
+    """One CATALOG row carrying every leftover plant key, plus ``extra`` entries."""
+    row = {key: f"v-{key}" for key in dv.LEFTOVER_PLANT_KEYS}
+    return "CATALOG = [" + repr(row)[:-1] + extra + "}]\n"
+
+
+def _load_edited(lines: list[str]):
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = Path(tmp) / "pairs.jsonl"
+        dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return load_deferred_pairs(dest)
+
+
+def _edited_row(lines: list[str], index: int, **changes: str) -> list[str]:
+    row = json.loads(lines[index])
+    row.update(changes)
+    edited = list(lines)
+    edited[index] = json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    return edited
+
+
 class DprExtractEdgeTests(unittest.TestCase):
     """Literal lowering, path-constant shapes, and per-mill deferred checks on small inputs."""
 
     PATH = "experiments/mill_dpr_edge_r9.py"
-
-    def _plants_source(self, extra: str) -> str:
-        row = {key: f"v-{key}" for key in dv.LEFTOVER_PLANT_KEYS}
-        return "CATALOG = [" + repr(row)[:-1] + extra + "}]\n"
 
     def _refused(self, source: str, fragment: str) -> None:
         with self.assertRaises(DprExtractError) as caught:
@@ -304,7 +321,7 @@ class DprExtractEdgeTests(unittest.TestCase):
         self.assertIn(fragment, str(caught.exception))
 
     def test_signed_numbers_sets_and_tuples_lower_to_json_values(self):
-        source = self._plants_source(", 'neg': -2, 'pos': +3, 'tags': {'a'}, 'pair': (1, 2)")
+        source = _plants_source(", 'neg': -2, 'pos': +3, 'tags': {'a'}, 'pair': (1, 2)")
         extracted = extract_mill_catalog(source, path=self.PATH)
         plant = extracted["plants"][0]
         self.assertEqual((plant["neg"], plant["pos"], plant["tags"], plant["pair"]),
@@ -315,13 +332,13 @@ class DprExtractEdgeTests(unittest.TestCase):
 
     def test_non_constant_catalogs_are_refused(self):
         self._refused("CATALOG = [{**base}]\n", "catalog dict uses unpacking")
-        self._refused(self._plants_source(", 'x': name"), "not a constant (Name)")
-        self._refused(self._plants_source(", 'x': not True"), "not a constant (UnaryOp)")
+        self._refused(_plants_source(", 'x': name"), "not a constant (Name)")
+        self._refused(_plants_source(", 'x': not True"), "not a constant (UnaryOp)")
         self._refused("CATALOG = []\n", f"{self.PATH}: CATALOG is empty")
         self._refused("PAIRS = []\n", f"{self.PATH}: PAIRS is empty")
         self._refused("CATALOG = [1]\n", "CATALOG[0] is not a dict")
         self._refused("CATALOG = [{'slug': 'x'}]\n", "CATALOG[0] missing")
-        self._refused(self._plants_source("").replace("'v-slug'", "''"), "CATALOG[0].slug is empty")
+        self._refused(_plants_source("").replace("'v-slug'", "''"), "CATALOG[0].slug is empty")
 
     def test_path_constants_skip_assignments_of_other_shapes(self):
         joined = (
@@ -332,40 +349,27 @@ class DprExtractEdgeTests(unittest.TestCase):
         self.assertIsNone(extract_joined_path_constant("OTHER = REPO / 'x.py'\n", "MILL"))
         called = (
             "MILL = open('x')\nMILL = Path('a', 'b')\nMILL = Path(name)\nMILL = os.path\n"
-            "MILL = Path('/tmp/z.py')\n"
+            "MILL = Path('/opt/mills/z.py')\n"
         )
-        self.assertEqual(extract_call_path_constant(called, "MILL"), "/tmp/z.py")
+        self.assertEqual(extract_call_path_constant(called, "MILL"), "/opt/mills/z.py")
         self.assertIsNone(extract_call_path_constant("MILL = 1\n", "MILL"))
-
-    def _load_edited(self, lines: list[str]):
-        with tempfile.TemporaryDirectory() as tmp:
-            dest = Path(tmp) / "pairs.jsonl"
-            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            return load_deferred_pairs(dest)
-
-    def _edited_row(self, lines: list[str], index: int, **changes: str) -> list[str]:
-        row = json.loads(lines[index])
-        row.update(changes)
-        edited = list(lines)
-        edited[index] = json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
-        return edited
 
     def test_deferred_rows_bind_per_mill_counts_and_end_slugs(self):
         lines = _deferred_lines()
         sources = [source for source in deferred_sources() if source.mill_id != "dpr-mill-r2631"]
         first, second = sources[0], sources[1]
-        moved = self._edited_row(lines, _deferred_index(lines, first.mill_id, 0),
+        moved = _edited_row(lines, _deferred_index(lines, first.mill_id, 0),
                                  mill_id=second.mill_id, path=second.path)
         with self.assertRaisesRegex(ValueError, "deferred rows, expected"):
-            self._load_edited(moved)
+            _load_edited(moved)
         for position, label in ((0, "first"), (-1, "last")):
-            drifted = self._edited_row(lines, _deferred_index(lines, first.mill_id, position),
+            drifted = _edited_row(lines, _deferred_index(lines, first.mill_id, position),
                                        slug="zz-drifted-slug")
             with self.assertRaisesRegex(ValueError, f"{first.mill_id} {label} deferred slug"):
-                self._load_edited(drifted)
-        ends = self._edited_row(lines, _deferred_index(lines, "dpr-mill-r2631", 0),
+                _load_edited(drifted)
+        ends = _edited_row(lines, _deferred_index(lines, "dpr-mill-r2631", 0),
                                 slug="zz-ends-mill-interior")
-        self.assertEqual(len(self._load_edited(ends)), dv.DEFERRED_PAIR_ROWS)
+        self.assertEqual(len(_load_edited(ends)), dv.DEFERRED_PAIR_ROWS)
 
 
 @unittest.skipUnless(_legacy_available(), "origin/legacy-mill-lane is not fetched")
