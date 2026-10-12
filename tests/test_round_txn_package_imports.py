@@ -8,8 +8,7 @@ from unittest import mock
 
 from tests.test_round_txn import thalamic
 from tests import round_txn_package_import_support as import_support
-from tests.code_repair_test_support import generate
-from code_repair import publication
+from tests.code_repair_admission_test_support import RAW_RUN, copy_published_factory
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -19,19 +18,8 @@ class TransactionPackageImports(unittest.TestCase):
     def setUpClass(cls):
         cls.scratch = tempfile.TemporaryDirectory(prefix="round-txn-package-import-")
         cls.addClassCleanup(cls.scratch.cleanup)
-        root = Path(cls.scratch.name)
-        run_dir = root / "run"
-        generate.run(generate.RunRequest(
-            REPO / "catalogs/python-repair-v1", run_dir, 20260908, 12,
-            "2026-09-09T00:00:00.000Z",
-        ))
-        cls.procedural_factory = (
-            root / "outputs/raw/2099-01-01/python-function-repair-factory"
-        )
-        cls.procedural_factory.mkdir(parents=True)
-        publication.publish_run(publication.PublishRequest(
-            run_dir, cls.procedural_factory, 1,
-        ))
+        # A private copy of the process-wide real publication for the read-only probes.
+        cls.procedural_factory = copy_published_factory(Path(cls.scratch.name) / RAW_RUN)
 
     def test_legacy_consumers_work_in_fresh_package_only_processes(self):
         with tempfile.TemporaryDirectory() as temporary:

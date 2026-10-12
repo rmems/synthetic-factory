@@ -75,7 +75,7 @@ class ReviewedAuditPolicy(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from tests.code_repair_admission_test_support import build_generated_admission_evidence
-        cls.root, _run, cls.records, cls.row = build_generated_admission_evidence(cls)
+        cls.root, _run, cls.records, cls.row = build_generated_admission_evidence()
 
     def test_mixed_corpus_keeps_procedural_eligibility_but_blocks_export(self):
         from pipelines.code_repair.admission import natural_eligibility

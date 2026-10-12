@@ -29,7 +29,11 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_gate  # noqa: E402
-from tests.procedural_gate_support import ProceduralGateFixture, prepare_gate_template  # noqa: E402
+from tests.procedural_gate_support import (  # noqa: E402
+    IntegratedGateTemplate,
+    ProceduralGateFixture,
+    prepare_gate_template,
+)
 
 
 class ReviewSampleTests(unittest.TestCase):
@@ -130,13 +134,14 @@ class PromotionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         prepare_gate_template(cls)
+        scratch = tempfile.TemporaryDirectory(prefix="curate-gate-")
+        cls.addClassCleanup(scratch.cleanup)
+        cls.integrated = IntegratedGateTemplate(cls.template, scratch.name)
 
     def setUp(self):
-        self._temp = tempfile.TemporaryDirectory(prefix="curate-gate-")
-        self.addCleanup(self._temp.cleanup)
-        self.root = Path(self._temp.name)
-        self.fixture = ProceduralGateFixture.copy_template(self.template, self.root)
-        self.assertEqual(self.fixture.integrate(), 0)
+        self.fixture = self.integrated.restore(self)
+        self.root = self.fixture.root
+        self.assertEqual(self.integrated.integrate_status, 0)
 
     def test_promotion_writes_a_new_curated_tree_and_final_manifest(self):
         review = self.fixture.accepted_review()

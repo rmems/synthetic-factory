@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 from tests.compose_curated_test_support import build_source_run
-from code_repair import publication
 from code_repair.publication_export import physical_completed_batch
 import compose_curated
 import export_hf
@@ -44,14 +43,10 @@ def _transplant_procedural_proof(hosted, procedural):
 class CompletedProceduralRights(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from tests.code_repair_admission_test_support import sealed_published_factory
         from tests.procedural_gate_support import prepare_gate_template
         prepare_gate_template(cls)
-        published = tempfile.TemporaryDirectory(prefix="procedural-published-")
-        cls.addClassCleanup(published.cleanup)
-        cls.published_run = Path(published.name) / "outputs/raw/2099-01-01"
-        factory = cls.published_run / "python-function-repair-factory"
-        factory.mkdir(parents=True)
-        publication.publish_run(publication.PublishRequest(cls.generated, factory, 1))
+        cls.published_run = sealed_published_factory().parent
 
     def _published_source(self, root):
         source = root / "outputs/raw/2099-01-01"

@@ -1,6 +1,8 @@
 """Six-lane fixture backed by reviewed, executed procedural source bytes."""
 
+import atexit
 import copy
+import functools
 import hashlib
 import json
 import shutil
@@ -11,18 +13,15 @@ from tests.gate_fixture import GateFixture, _INTEGRATION_PLAN, _lane_manifest_en
 from tests.test_curate_identity import identity
 from tests.gate_fixture import _thalamic
 import curate_rewards
-from code_repair import publication
 
 
 class ProceduralGateFixture(GateFixture):
     """Pass-through lanes around the real identity transform and completed batch."""
 
-    def __init__(self, root, generated):
+    def __init__(self, root, published_factory):
         self.root = Path(root)
         self.source_run = self.root / "evidence/outputs/raw/2099-01-01"
-        factory = self.source_run / "python-function-repair-factory"
-        factory.mkdir(parents=True)
-        publication.publish_run(publication.PublishRequest(generated, factory, 1))
+        published_factory(self.source_run)
         excluded = self.source_run / "thalamic-trajectory-factory/excluded.jsonl"
         excluded.parent.mkdir()
         self.excluded_record = _thalamic("excluded-unreviewed")
@@ -88,11 +87,36 @@ class ProceduralGateFixture(GateFixture):
                 )
 
 
+class IntegratedGateTemplate:
+    """One real integration per class; each test restores a private copy of it.
+
+    The integration manifest binds the absolute cleaned and source-run paths,
+    so an integrated tree is only valid where it was integrated. Each test gets
+    a byte-identical private copy back at that path instead of re-integrating.
+    """
+
+    def __init__(self, template, scratch):
+        self.workspace = Path(scratch) / "fixture"
+        fixture = ProceduralGateFixture.copy_template(template, self.workspace)
+        self.integrate_status = fixture.integrate()
+        self.pristine = ProceduralGateFixture.copy_template(fixture, Path(scratch) / "integrated")
+        shutil.rmtree(self.workspace)
+
+    def restore(self, test_case):
+        """The integrated fixture at its integration path, removed after the test."""
+        test_case.addCleanup(shutil.rmtree, self.workspace, True)
+        return ProceduralGateFixture.copy_template(self.pristine, self.workspace)
+
+
+@functools.cache
+def _sealed_gate_template():
+    """One real immutable fixture per process, over the shared published round."""
+    from tests.code_repair_admission_test_support import copy_published_factory
+    scratch = Path(tempfile.mkdtemp(prefix="procedural-gate-template-"))
+    atexit.register(shutil.rmtree, scratch, True)
+    return ProceduralGateFixture(scratch, copy_published_factory)
+
+
 def prepare_gate_template(test_case):
-    """Create one real immutable fixture per test class, then copy it per test."""
-    from tests.code_repair_admission_test_support import build_generated_admission_evidence
-    _, generated, _, _ = build_generated_admission_evidence(test_case)
-    scratch = tempfile.TemporaryDirectory(prefix="procedural-gate-template-")
-    test_case.addClassCleanup(scratch.cleanup)
-    test_case.generated = generated
-    test_case.template = ProceduralGateFixture(scratch.name, generated)
+    """Attach the shared gate template; each test copies it before any write."""
+    test_case.template = _sealed_gate_template()
