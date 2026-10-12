@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from ._contract import (
@@ -66,21 +66,15 @@ __all__ = [
 ]
 
 
-def _dict_eval(node: ast.Dict) -> dict[Any, Any]:
+def _dict_items(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """The key and value nodes of a dict literal; ``**`` unpacking refuses before any is read."""
+
     items: list[tuple[ast.expr, ast.expr]] = []
     for key, value in zip(node.keys, node.values, strict=True):
         if key is None:
             refuse(FINDING_AST_NOT_A_PLANT, "plant source uses dict unpacking")
         items.append((key, value))
-    return {_const_eval(key): _const_eval(value) for key, value in items}
-
-
-def _container_eval(node: ast.List | ast.Tuple | ast.Dict) -> Any:
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
-    return _dict_eval(node)
+    return items
 
 
 def _is_keyword_dict_call(node: ast.Call) -> bool:
@@ -91,13 +85,32 @@ def _is_keyword_dict_call(node: ast.Call) -> bool:
     return not node.args and all(keyword.arg is not None for keyword in node.keywords)
 
 
-def _call_eval(node: ast.Call) -> dict[Any, Any]:
-    if _is_keyword_dict_call(node):
-        return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
-    refuse(
+def _negated(values: list[Any]) -> Any:
+    return -values[0]
+
+
+def _const_parts(node: ast.AST) -> tuple[Sequence[ast.AST], Callable[[list[Any]], Any]]:
+    """A negation, a list or a keyword ``dict(...)`` as (child nodes, rebuild); others refuse.
+
+    ``_const_eval`` evaluates the children itself, so a nesting level costs one frame.
+    """
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return (node.operand,), _negated
+    if isinstance(node, ast.List):
+        return node.elts, list
+    if not isinstance(node, ast.Call):
+        refuse(
+            FINDING_AST_NOT_A_PLANT,
+            f"plant source is not a constant ({type(node).__name__})",
+        )
+    refuse_when(
+        not _is_keyword_dict_call(node),
         FINDING_AST_NOT_A_PLANT,
         f"plant source uses a non-literal call ({type(node).__name__})",
     )
+    names = [keyword.arg for keyword in node.keywords]
+    return [keyword.value for keyword in node.keywords], lambda values: dict(zip(names, values))
 
 
 def _const_eval(node: ast.AST) -> Any:
@@ -105,18 +118,14 @@ def _const_eval(node: ast.AST) -> Any:
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    if isinstance(node, (ast.List, ast.Tuple, ast.Dict)):
-        return _container_eval(node)
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return {_const_eval(key): _const_eval(value) for key, value in _dict_items(node)}
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node)
-    if isinstance(node, ast.Call):
-        return _call_eval(node)
-    refuse(
-        FINDING_AST_NOT_A_PLANT,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+    children, rebuild = _const_parts(node)
+    return rebuild([_const_eval(child) for child in children])
 
 
 def _joined_string(node: ast.JoinedStr) -> str:
@@ -134,9 +143,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 

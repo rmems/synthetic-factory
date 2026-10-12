@@ -161,24 +161,27 @@ def _names(node: ast.AST, name: str) -> bool:
     return isinstance(node, ast.Name) and node.id == name
 
 
-def _entry_value(value_node: ast.AST, consts: Mapping[str, Any]) -> Any:
-    """A resolvable constant, else a nested dict literal's resolvable entries, else None."""
+def _str_keyed_entries(node: ast.Dict) -> list[tuple[str, ast.expr]]:
+    """The entries of a dict literal whose keys are string constants, in source order."""
 
-    resolved = _optional_const(value_node, consts)
-    if resolved is not None or not isinstance(value_node, ast.Dict):
-        return resolved
-    return _dict_literal(value_node, consts)
+    entries: list[tuple[str, ast.expr]] = []
+    for key_node, value_node in zip(node.keys, node.values):
+        key = _str_key(key_node)
+        if key is not None:
+            entries.append((key, value_node))
+    return entries
 
 
 def _dict_literal(node: ast.AST, consts: Mapping[str, Any]) -> dict[str, Any] | None:
+    """String-keyed entries that resolve to a constant or (recursively) a nested dict literal."""
+
     if not isinstance(node, ast.Dict) or any(key is None for key in node.keys):
         return None
     row: dict[str, Any] = {}
-    for key_node, value_node in zip(node.keys, node.values):
-        key = _str_key(key_node)
-        if key is None:
-            continue
-        value = _entry_value(value_node, consts)
+    for key, value_node in _str_keyed_entries(node):
+        value = _optional_const(value_node, consts)
+        if value is None and isinstance(value_node, ast.Dict):
+            value = _dict_literal(value_node, consts)
         if value is not None:
             row[key] = value
     return row
@@ -251,8 +254,7 @@ def _plant_draft(
 
 
 def _decision_of(traj: Mapping[str, Any]) -> str:
-    safety = traj.get("safety_decision") if isinstance(traj.get("safety_decision"), dict) else {}
-    return _text(safety.get("decision"))
+    return _text(_dict_field(traj, "safety_decision").get("decision"))
 
 
 def _has_decision(value: Any) -> bool:

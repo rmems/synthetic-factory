@@ -12,7 +12,7 @@ import ast
 import hashlib
 import json
 import re
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -74,18 +74,23 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _dict_eval(node: ast.Dict) -> dict[Any, Any]:
+def _dict_items(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """The key and value nodes of a dict literal; ``**`` unpacking refuses before any is read."""
+
     items: list[tuple[ast.expr, ast.expr]] = []
     for key, value in zip(node.keys, node.values):
         if key is None:
             raise DprExtractError("catalog dict uses unpacking")
         items.append((key, value))
-    return {_const_eval(key): _const_eval(value) for key, value in items}
+    return items
 
 
-def _signed_eval(node: ast.UnaryOp) -> Any:
-    operand = _const_eval(node.operand)
-    return -operand if isinstance(node.op, ast.USub) else +operand
+def _signed(node: ast.AST) -> ast.UnaryOp:
+    """A unary minus or plus; any other node is not a constant."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        return node
+    raise DprExtractError(f"catalog node is not a constant ({type(node).__name__})")
 
 
 def _const_eval(node: ast.AST) -> Any:
@@ -94,10 +99,10 @@ def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Dict):
-        return _dict_eval(node)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        return _signed_eval(node)
-    raise DprExtractError(f"catalog node is not a constant ({type(node).__name__})")
+        return {_const_eval(key): _const_eval(value) for key, value in _dict_items(node)}
+    signed = _signed(node)
+    operand = _const_eval(signed.operand)
+    return -operand if isinstance(signed.op, ast.USub) else +operand
 
 
 def _assignment_names(node: ast.stmt) -> list[str]:
@@ -414,7 +419,7 @@ def _deferred_pairs(mill: Mapping[str, Any]) -> list[Any]:
     return pairs[1:-1] if len(pairs) > 2 else []
 
 
-def select_deferred_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def select_deferred_pair_rows(mills: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     ordered = sorted(
         (mill for mill in mills if mill.get("kind") == KIND_PAIRS),
         key=lambda mill: (mill.get("catalog_first") or 0, mill["mill_id"]),
@@ -426,7 +431,7 @@ def select_deferred_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, 
     return rows
 
 
-def select_representative_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def select_representative_pair_rows(mills: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for mill in mills:
         if mill.get("kind") != KIND_PAIRS:
@@ -443,7 +448,7 @@ def select_representative_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict
     return rows
 
 
-def select_representative_plant_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def select_representative_plant_rows(mills: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for mill in mills:
         if mill.get("kind") != KIND_PLANTS:
@@ -480,7 +485,7 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
-def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
+def dumps_jsonl(rows: Sequence[Mapping[str, Any]]) -> str:
     lines = [
         json.dumps(row, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         for row in rows

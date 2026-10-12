@@ -372,6 +372,11 @@ class DprExtractEdgeTests(unittest.TestCase):
         self.assertEqual(len(_load_edited(ends)), dv.DEFERRED_PAIR_ROWS)
 
 
+    def test_a_600_deep_negation_is_lowered_before_the_missing_keys_refusal(self):
+        # One stack frame per nesting level, as on main: the chain lowers and the
+        # row is refused for its missing keys rather than by a RecursionError.
+        self._refused("CATALOG = [{'slug': 'a', 'x': " + "-" * 600 + "1}]\n", "CATALOG[0] missing")
+
 @unittest.skipUnless(_legacy_available(), "origin/legacy-mill-lane is not fetched")
 class DprLegacyExtractTests(unittest.TestCase):
     def test_committed_catalog_matches_live_ast_extract(self):
@@ -423,7 +428,9 @@ class DprLegacyExtractTests(unittest.TestCase):
         self.assertEqual(load_deferred_pairs(), DEFERRED_PAIRS)
 
     def test_leftover3_loop_names_the_leftover3_mill(self):
-        source = next(item for item in loop_sources() if item.mill_id == "dpr-loop-leftover3-r2475")
+        matches = [item for item in loop_sources() if item.mill_id == "dpr-loop-leftover3-r2475"]
+        self.assertEqual(len(matches), 1)
+        source = matches[0]
         text = subprocess.check_output(
             ["git", "show", f"{dv.LEGACY_REF}:{source.path}"],
             text=True,

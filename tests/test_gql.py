@@ -191,10 +191,15 @@ class AstExtract(unittest.TestCase):
             catalog.plants_from_source(source, mill_id="gql_r0211", source="banned.py")
         self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
 
-    def _refused(self, source, code, fragment, **kwargs):
-        kwargs.setdefault("mill_id", "gql_r0005")
+    def test_a_deep_dict_and_negation_nest_evaluates_before_the_plant_lookup(self):
+        # One stack frame per nesting level, as on main: 150 dicts around a 600-deep
+        # negation evaluate, and the source is refused for having no plant literal.
+        source = "BASE = " + '{"a": ' * 150 + "-" * 600 + "1" + "}" * 150
+        self._refused(source, FINDING_SOURCE_NOT_PARSEABLE, "has no plant literal")
+
+    def _refused(self, source, code, fragment):
         with self.assertRaises(GqlRefusal) as caught:
-            catalog.plants_from_source(source, source="edge.py", **kwargs)
+            catalog.plants_from_source(source, mill_id="gql_r0005", source="edge.py")
         self.assertEqual(caught.exception.code, code)
         self.assertIn(fragment, str(caught.exception))
 
@@ -232,7 +237,10 @@ class AstExtract(unittest.TestCase):
         self._refused("OTHER = [1]\n", FINDING_SOURCE_NOT_PARSEABLE, "has no plant literal")
         self._refused("PAIRS = []\n", FINDING_SOURCE_NOT_PARSEABLE, "plant literal is empty")
         self._refused("CATALOG = (1,)\n", FINDING_SOURCE_NOT_PARSEABLE, "plant literal is empty")
-        self._refused(TINY_SOURCE, FINDING_PLANT_FIELD_INVALID, "is not gql_rNNN", mill_id="gql-7")
+        with self.assertRaises(GqlRefusal) as caught:
+            catalog.plants_from_source(TINY_SOURCE, mill_id="gql-7", source="edge.py")
+        self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
+        self.assertIn("is not gql_rNNN", str(caught.exception))
         banned_scalar = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST = 7\nBANNED = 'tiny'")
         self._refused(banned_scalar, FINDING_SOURCE_NOT_PARSEABLE, "BANNED is not a list")
 

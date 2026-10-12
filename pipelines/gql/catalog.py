@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -172,21 +172,15 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _dict_eval(node: ast.Dict) -> dict[Any, Any]:
+def _dict_items(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """The key and value nodes of a dict literal; ``**`` unpacking refuses before any is read."""
+
     items: list[tuple[ast.expr, ast.expr]] = []
     for key, value in zip(node.keys, node.values):
         if key is None:
             raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
         items.append((key, value))
-    return {_const_eval(key): _const_eval(value) for key, value in items}
-
-
-def _container_eval(node: ast.List | ast.Tuple | ast.Dict) -> Any:
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
-    return _dict_eval(node)
+    return items
 
 
 def _bare_s_call(node: ast.AST) -> ast.Call | None:
@@ -197,22 +191,41 @@ def _bare_s_call(node: ast.AST) -> ast.Call | None:
     return node if node.func.id == "S" and not node.args else None
 
 
+def _negated(values: list[Any]) -> Any:
+    return -values[0]
+
+
+def _const_parts(node: ast.AST) -> tuple[Sequence[ast.AST], Callable[[list[Any]], Any]]:
+    """A list, a negation or an ``S(**kwargs)`` call as (child nodes, rebuild); others refuse.
+
+    ``_const_eval`` evaluates the children itself, so a nesting level costs one frame.
+    """
+
+    if isinstance(node, ast.List):
+        return node.elts, list
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return (node.operand,), _negated
+    call = _bare_s_call(node)
+    if call is None:
+        raise GqlRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"plant source is not a constant ({type(node).__name__})",
+        )
+    names = [kw.arg for kw in call.keywords]
+    return [kw.value for kw in call.keywords], lambda values: dict(zip(names, values))
+
+
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. ``S(**kwargs)`` is a dict; other calls refuse."""
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, (ast.List, ast.Tuple, ast.Dict)):
-        return _container_eval(node)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    call = _bare_s_call(node)
-    if call is not None:
-        return {kw.arg: _const_eval(kw.value) for kw in call.keywords}
-    raise GqlRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return {_const_eval(key): _const_eval(value) for key, value in _dict_items(node)}
+    children, rebuild = _const_parts(node)
+    return rebuild([_const_eval(child) for child in children])
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -220,9 +233,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -554,7 +570,7 @@ def _registry_factory_ids() -> set[str]:
     if not isinstance(factories, list):
         raise GqlRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
     return {
-        row.get("path_id")
+        row["path_id"]
         for row in factories
         if isinstance(row, dict) and isinstance(row.get("path_id"), str)
     }

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from . import catalog as cat
@@ -13,24 +13,22 @@ from ._contract import bind_import_twin, contains_hidden_reasoning_key
 __all__ = ["check_pair", "check_record", "scan_payload"]
 
 
-def _scan_mapping(obj: dict[Any, Any], path: str) -> None:
-    for key, value in obj.items():
-        cv.refuse_when(
-            key in cv.BANNED_KEYS,
-            cv.FINDING_BANNED_KEY,
-            f"banned key {key} at {path}",
-        )
-        cv.refuse_when(
-            key == "sim_or_real" and value == cv.BANNED_SIM_OR_REAL,
-            cv.FINDING_BANNED_KEY,
-            f"sim_or_real real at {path}",
-        )
-        cv.refuse_when(
-            key == "spike_events",
-            cv.FINDING_BANNED_KEY,
-            f"spike_events at {path}",
-        )
-        scan_payload(value, f"{path}.{key}")
+def _refuse_banned_entry(key: Any, value: Any, path: str) -> None:
+    cv.refuse_when(
+        key in cv.BANNED_KEYS,
+        cv.FINDING_BANNED_KEY,
+        f"banned key {key} at {path}",
+    )
+    cv.refuse_when(
+        key == "sim_or_real" and value == cv.BANNED_SIM_OR_REAL,
+        cv.FINDING_BANNED_KEY,
+        f"sim_or_real real at {path}",
+    )
+    cv.refuse_when(
+        key == "spike_events",
+        cv.FINDING_BANNED_KEY,
+        f"spike_events at {path}",
+    )
 
 
 def _scan_text(text: str, path: str) -> None:
@@ -42,17 +40,29 @@ def _scan_text(text: str, path: str) -> None:
         )
 
 
+def _scan_children(obj: Any, path: str) -> Iterator[tuple[Any, str]]:
+    """Each child of a mapping or list with its path; a mapping entry's key is vetted first.
+
+    A generator, so it is suspended (off the stack) while ``scan_payload`` recurses.
+    """
+
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            _refuse_banned_entry(key, value, path)
+            yield value, f"{path}.{key}"
+    elif isinstance(obj, list):
+        for index, item in enumerate(obj):
+            yield item, f"{path}[{index}]"
+
+
 def scan_payload(obj: Any, path: str = "") -> None:
     """Refuse banned keys, hidden-reasoning keys, and banned substrings."""
     if contains_hidden_reasoning_key(obj):
         cv.refuse(cv.FINDING_BANNED_KEY, f"hidden-reasoning key at {path or '/'}")
-    if isinstance(obj, dict):
-        _scan_mapping(obj, path)
-    elif isinstance(obj, list):
-        for index, item in enumerate(obj):
-            scan_payload(item, f"{path}[{index}]")
-    elif isinstance(obj, str):
+    if isinstance(obj, str):
         _scan_text(obj, path)
+    for child, child_path in _scan_children(obj, path):
+        scan_payload(child, child_path)
 
 
 def _require_mapping(record: Any) -> dict[str, Any]:

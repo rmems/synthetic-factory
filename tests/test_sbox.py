@@ -7,6 +7,7 @@ import ast
 import contextlib
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,7 @@ from sbox._contract import (  # noqa: E402
     FACTORY,
     FAMILY_PREFIX,
     FINDING_AST_NOT_A_PLANT,
+    FINDING_CATALOG_EMPTY,
     FINDING_FIELD_MISSING,
     FINDING_VENDOR_PATH,
     GENERATOR,
@@ -285,6 +287,18 @@ class AstExtractEdges(unittest.TestCase):
         self._refused("PLANTS = [{'family': x.y}]\n", "not a constant (Attribute)")
         self._refused("_ROWS = [dict(family=f'a{b}')]\n", "f-string plant field is not a constant")
 
+    def test_a_deep_dict_and_negation_nest_evaluates_before_the_identity_check(self):
+        # One stack frame per nesting level, as on main: 150 dicts around a 600-deep
+        # negation evaluate, and the row is refused for its missing family.
+        nest = "{'a': " * 150 + "-" * 600 + "1" + "}" * 150
+        with self.assertRaises(SboxRefusal) as caught:
+            generate.plants_from_source(f"PLANTS = [{nest}]\n")
+        self.assertEqual(caught.exception.code, FINDING_FIELD_MISSING)
+        self.assertIn("PLANTS[0] missing family", str(caught.exception))
+
+    def test_a_rows_rebinding_of_another_shape_is_ignored(self):
+        self.assertEqual(_families(_TWO_DICT_ROWS + "_ROWS = tuple(_ROWS)\n"), ["a", "b"])
+
     def test_only_a_literal_family_inequality_filters_rows(self):
         self.assertEqual(
             _families(_TWO_DICT_ROWS + "_ROWS = [r for r in _ROWS if r['family'] != 'a']\n"), ["b"]
@@ -309,6 +323,20 @@ class AstExtractEdges(unittest.TestCase):
 
 
 class CommittedCatalog(unittest.TestCase):
+    def test_a_catalog_without_source_pins_is_refused(self):
+        root = Path(tempfile.mkdtemp(prefix="sbox-pins-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        for name in ("CATALOG.json", "plants.jsonl"):
+            shutil.copy(cat.catalog_path().parent / name, root / name)
+        meta_path = root / "CATALOG.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        for sources in ([], None):
+            meta["sources"] = sources
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            with self.subTest(sources=sources), self.assertRaises(SboxRefusal) as caught:
+                cat.load_catalog(meta_path)
+            self.assertEqual(caught.exception.code, FINDING_CATALOG_EMPTY)
+
     def test_jsonl_slice_and_full_row_pins(self):
         loaded = cat.load_catalog()
         report = cat.catalog_check()
