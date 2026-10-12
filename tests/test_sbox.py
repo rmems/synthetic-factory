@@ -236,6 +236,78 @@ _ROWS = [r for r in _ROWS if r["family"] != "leftover-drop"]
         self.assertEqual(ctx.exception.code, FINDING_AST_NOT_A_PLANT)
 
 
+_ROW_DEF = (
+    "def _row(family, dump, miss_dump, secret, pin, pin_path, pin_needle, grep_hit, distinct,"
+    " ext, miss_ext, live_bin, inc, over_slug, miss_slug, proc, allow, rotate):\n    return {}\n"
+)
+_ROW_ARGS = "'a', 'd', 'md', 's', 'p', 'pp', 'pn', 'g', 'di', 'e', 'me', 'l', 3, 'o', 'm', 'pr', 'al', 'ro'"
+_TWO_DICT_ROWS = (
+    "_ROWS = [dict(family='a', over_slug='o', miss_slug='m', inc=1, proc='p', note=f'{x}'),"
+    " dict(family='b', over_slug='o2', miss_slug='m2', inc=-2, proc=f'p2')]\n"
+)
+
+
+def _families(source: str) -> list[str]:
+    return [row["family"] for row in generate.plants_from_source(source)]
+
+
+class AstExtractEdges(unittest.TestCase):
+    """Literal shapes and the family-filter grammar on small in-memory sources."""
+
+    def _refused(self, source: str, fragment: str) -> None:
+        with self.assertRaises(SboxRefusal) as caught:
+            generate.plants_from_source(source)
+        self.assertEqual(caught.exception.code, FINDING_AST_NOT_A_PLANT)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_row_shapes_and_literal_forms(self):
+        rows = generate.plants_from_source(_TWO_DICT_ROWS)
+        self.assertEqual([(row["family"], row["inc"], row["proc"]) for row in rows],
+                         [("a", 1, "p"), ("b", -2, "p2")])
+        dict_rows = "_ROWS: list = [{'family': 'a', 'over_slug': 'o', 'miss_slug': 'm', 'inc': 1, 'proc': 'p', 9: 1}]\n"
+        self.assertEqual(_families(dict_rows), ["a"])
+        self.assertEqual(_families(_ROW_DEF + f"_ROWS = [_row({_ROW_ARGS}), other]\n"), ["a"])
+        runtime = generate.plants_from_source(
+            "PLANTS = [{'family': 'f', 'ok': 'o', 'over': 'v', 'miss': 'm', 'trigger': 't',"
+            " 'vector': 'x', 'extra': [1, (2, -3)], 'more': dict(a=1)}]\n"
+        )
+        self.assertEqual(runtime[0]["vector"], "x")
+        self.assertEqual(generate.plants_from_source("_ROWS = []\n"), ())
+
+    def test_non_literal_rows_are_refused(self):
+        self._refused(f"_ROWS = [_row({_ROW_ARGS})]\n", "no def _row is in the module")
+        self._refused("_ROWS = ['a']\n", "_ROWS list shape is not")
+        self._refused("_ROWS = [tuple(x)]\n", "_ROWS list shape is not")
+        self._refused("PLANTS = [{**base}]\n", "dict unpacking")
+        self._refused("PLANTS = [{'family': dict(**a)}]\n", "non-literal call (Call)")
+        self._refused("PLANTS = [{'family': dict('a')}]\n", "non-literal call (Call)")
+        self._refused("PLANTS = [{'family': f(a=1)}]\n", "non-literal call (Call)")
+        self._refused("PLANTS = [{'family': x.y}]\n", "not a constant (Attribute)")
+        self._refused("_ROWS = [dict(family=f'a{b}')]\n", "f-string plant field is not a constant")
+
+    def test_only_a_literal_family_inequality_filters_rows(self):
+        self.assertEqual(
+            _families(_TWO_DICT_ROWS + "_ROWS = [r for r in _ROWS if r['family'] != 'a']\n"), ["b"]
+        )
+        for comprehension in (
+            "[r for r in _ROWS if r['family'] == 'a']",
+            "[r for r in _ROWS if r['kind'] != 'a']",
+            "[r for r in _ROWS if q['family'] != 'a']",
+            "[r for r in _ROWS if r['family'] != 1]",
+            "[r for r in _ROWS if r['family'] != 'a' != 'b']",
+            "[r for r in _ROWS if r['family'] != 'a' if r]",
+            "[r for r in OTHER if r['family'] != 'a']",
+            "[q for q in _ROWS if q['family'] != 'a']",
+            "[r for x in _ROWS if r['family'] != 'a']",
+            "[r for r in _ROWS for s in _ROWS if r['family'] != 'a']",
+            "[r for r in _ROWS if r.family != 'a']",
+        ):
+            with self.subTest(comprehension=comprehension):
+                self._refused(f"{_TWO_DICT_ROWS}_ROWS = {comprehension}\n", "not a supported family")
+        self._refused("_ROWS = [r for r in _ROWS if r['family'] != 'a']\n" + _TWO_DICT_ROWS,
+                      "not a supported family")
+
+
 class CommittedCatalog(unittest.TestCase):
     def test_jsonl_slice_and_full_row_pins(self):
         loaded = cat.load_catalog()
