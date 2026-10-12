@@ -101,6 +101,7 @@ sparse_step_progress_errors = _round_txn_coverage.sparse_step_progress_errors
 visibly_names_fault = _round_txn_coverage.visibly_names_fault
 
 MODE_FILE = ".round-marker-mode.json"
+MARKER_MODE_COMMIT_POINT = "ROUND-rNN.complete.json"
 PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
@@ -371,7 +372,8 @@ def utc_now():
 
 def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
     """Create a JSON file without following or replacing an existing path."""
-    fd = os.open(path, _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL), mode)
+    flags = _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    fd = os.open(path, flags, mode)
     try:
         with os.fdopen(fd, "w") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
@@ -388,7 +390,8 @@ def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
 
 def write_exclusive_text(path: Path, content: str, *, mode: int = 0o644):
     """Create a text file without following or replacing an existing path."""
-    fd = os.open(path, _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL), mode)
+    flags = _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    fd = os.open(path, flags, mode)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
@@ -698,7 +701,7 @@ def _sibling_marker_baseline(mode_path: Path) -> int:
     mode = read_json(mode_path)
     baseline = mode.get("legacy_baseline")
     declared = (mode.get("version"), mode.get("commit_point"))
-    if declared != (1, "ROUND-rNN.complete.json") or not _is_nonneg_int(baseline):
+    if declared != (1, MARKER_MODE_COMMIT_POINT) or not _is_nonneg_int(baseline):
         raise TransactionError(f"invalid sibling marker mode: {mode_path}")
     return baseline
 
@@ -1147,7 +1150,7 @@ def ensure_marker_mode(factory_dir: Path):
         "version": 1,
         "created_at": utc_now(),
         "legacy_baseline": baseline,
-        "commit_point": "ROUND-rNN.complete.json",
+        "commit_point": MARKER_MODE_COMMIT_POINT,
     }
     try:
         write_exclusive_json(mode_path, payload)
@@ -1186,7 +1189,7 @@ def _read_marker_mode_declaration(mode_path: Path) -> dict:
     mode = read_json(mode_path)
     if mode.get("version") != 1:
         raise TransactionError(f"unsupported marker mode version in {mode_path}")
-    if mode.get("commit_point") != "ROUND-rNN.complete.json":
+    if mode.get("commit_point") != MARKER_MODE_COMMIT_POINT:
         raise TransactionError(f"invalid marker mode commit point in {mode_path}")
     if not _is_nonneg_int(mode.get("legacy_baseline")):
         raise TransactionError(f"invalid legacy_baseline in {mode_path}")
