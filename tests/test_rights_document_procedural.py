@@ -7,6 +7,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 PIPELINES = ROOT / "pipelines"
@@ -31,7 +32,7 @@ def raw_registry_rows() -> dict[str, dict[str, object]]:
     return {row["path_id"]: row for row in payload["factories"]}
 
 
-def repair_document() -> dict[str, object]:
+def repair_document() -> dict[str, Any]:
     """A hand-authored procedural sidecar for the python-function-repair registry row."""
 
     return {
@@ -66,7 +67,7 @@ def repair_document() -> dict[str, object]:
     }
 
 
-def registry_document(path_id: str, dataset_id: str) -> dict[str, object]:
+def registry_document(path_id: str, dataset_id: str) -> dict[str, Any]:
     """A procedural sidecar whose bound fields are copied from the raw registry row."""
 
     row = raw_registry_rows()[path_id]
@@ -91,10 +92,11 @@ BOUND_FIELDS = (
 )
 
 
-class ProceduralRightsDocumentTests(unittest.TestCase):
-    def load(self, document: object):
-        return rights_document.load_rights_document_bytes(encode(document))
+def load(document: object):
+    return rights_document.load_rights_document_bytes(encode(document))
 
+
+class ProceduralRightsDocumentTests(unittest.TestCase):
     def assert_rejected(self, document: object, pattern: str):
         # Direct validation, so SpoofedString values reach the validator unserialized.
         with self.assertRaisesRegex(rights_document.RightsPolicyError, pattern):
@@ -123,7 +125,7 @@ class ProceduralRightsDocumentTests(unittest.TestCase):
         )
         for document, path_id in cases:
             with self.subTest(path_id=path_id):
-                result = self.load(document)
+                result = load(document)
                 self.assertIsInstance(result, rights_document.ProceduralRightsDocument)
                 self.assertEqual(result.path_id, path_id)
                 self.assertEqual(result.source_type, "procedural")
@@ -139,7 +141,7 @@ class ProceduralRightsDocumentTests(unittest.TestCase):
                     result.source_license_evidence["license"] = "Apache-2.0"
 
     def test_sections_have_no_writable_state(self):
-        result = self.load(repair_document())
+        result = load(repair_document())
         sections = (
             result,
             result.identity,
@@ -175,8 +177,25 @@ class ProceduralRightsDocumentTests(unittest.TestCase):
         document = repair_document()
         self.assertEqual(
             rights_document.validate_rights_document(copy.deepcopy(document)),
-            self.load(document),
+            load(document),
         )
+
+    def test_required_fields_are_exactly_the_documented_set(self):
+        self.assertEqual(
+            rights_document.PROCEDURAL_REQUIRED_FIELDS, set(repair_document()) - {"notes"}
+        )
+        self.assertEqual(rights_document.PROCEDURAL_OPTIONAL_FIELDS, {"notes"})
+
+    def test_dataset_id_must_be_an_exact_string_on_both_routes(self):
+        cases = (
+            (repair_document(), "rmems/python-function-repair-20261006"),
+            (anthropic_document(), "rmems/thalamic-relay-trajectories"),
+        )
+        for document, dataset_id in cases:
+            # Well-formed emitted text, so only the exact-string check can refuse it.
+            document["dataset_id"] = SpoofedString("rmems/other", dataset_id)
+            with self.subTest(dataset_id=dataset_id):
+                self.assert_rejected(document, "dataset_id must be an exact owner/name")
 
     def test_missing_and_unknown_fields_fail(self):
         for field in rights_document.PROCEDURAL_REQUIRED_FIELDS:
@@ -198,16 +217,17 @@ class ProceduralRightsDocumentTests(unittest.TestCase):
     def test_notes_is_optional_nonempty_text(self):
         document = repair_document()
         document.pop("notes")
-        self.assertIsNone(self.load(document).notes)
+        self.assertIsNone(load(document).notes)
         self.assert_field_values_rejected("notes", (None, "", "  ", 1), "notes must be")
 
     def test_route_fields_must_repeat_the_registry_row(self):
         oracle_row = raw_registry_rows()[ORACLE_PATH_ID]
         for field in ("payload_factory", "generator", "generator_version", "catalog_id"):
+            committed = repair_document()[field]
             invalid = (
                 oracle_row[field],
-                str(repair_document()[field]) + "-tampered",
-                SpoofedString("tampered", str(repair_document()[field])),
+                committed + "-tampered",
+                SpoofedString("tampered", committed),
                 None,
             )
             self.assert_field_values_rejected(
@@ -241,7 +261,7 @@ class ProceduralRightsDocumentTests(unittest.TestCase):
     def test_registry_digests_are_bare_lowercase_hex_and_bound(self):
         document = repair_document()
         for field in ("catalog_sha256", "programs_sha256", "procedural_policy_sha256"):
-            value = str(document[field])
+            value = document[field]
             self.assert_field_values_rejected(
                 field,
                 (value.upper(), value[:-1], "sha256:" + value, 1, None),
@@ -351,7 +371,7 @@ class ProceduralRightsDocumentTests(unittest.TestCase):
         self.assertEqual(rights_document.PROCEDURAL_DOCUMENT_SCHEMA_VERSION, "0.2.0")
         self.assertEqual(rights_document.RIGHTS_DOCUMENT_SCHEMA_VERSION, "0.2.0")
         self.assertEqual(rights_document.RIGHTS_DOCUMENT_SCHEMA_VERSIONS, {"0.1.0", "0.2.0"})
-        self.assertIsInstance(self.load(anthropic_document()), rights_document.RightsDocument)
+        self.assertIsInstance(load(anthropic_document()), rights_document.RightsDocument)
 
         procedural_at_hosted_version = repair_document()
         procedural_at_hosted_version["schema_version"] = "0.1.0"

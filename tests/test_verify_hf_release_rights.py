@@ -8,6 +8,7 @@ rights checks under test depend only on the sidecar and ``release-status.json``.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -77,15 +78,13 @@ class RightsSidecarVerificationTests(unittest.TestCase):
         self.rights: bytes | Exception = json.dumps(procedural_sidecar()).encode("utf-8")
         self.rights_fetches = 0
 
-    def text_fetcher(self, url: str, timeout: float) -> str:
-        del timeout
+    def text_fetcher(self, url: str, _timeout: float) -> str:
         for name, value in self.texts.items():
             if url.endswith(f"/raw/main/{name}"):
                 return value
         raise AssertionError(url)
 
-    def bytes_fetcher(self, url: str, timeout: float) -> bytes:
-        del timeout
+    def bytes_fetcher(self, url: str, _timeout: float) -> bytes:
         if url.endswith("/data/viewer/records.parquet"):
             return VALID_PARQUET
         if url.endswith(f"/{REVISION}/data/raw/batch.jsonl"):
@@ -135,7 +134,7 @@ class RightsSidecarVerificationTests(unittest.TestCase):
             self.set_status(release_status(rights_record=record))
             with self.subTest(record=record):
                 self.assertIn(
-                    "release-status.json rights_record must be null or 'rights.json'",
+                    'release-status.json rights_record must be null or "rights.json"',
                     self.errors(),
                 )
         self.assertEqual(self.rights_fetches, 0)
@@ -175,12 +174,12 @@ class RightsSidecarVerificationTests(unittest.TestCase):
             self.errors(),
             (
                 (
-                    "rights.json declares intended_use 'training_candidate', "
-                    "but release-status.json declares 'research_only'"
+                    'rights.json declares intended_use "training_candidate", '
+                    'but release-status.json declares "research_only"'
                 ),
                 (
-                    "rights.json declares project_training_policy 'allowed', "
-                    "but release-status.json declares 'blocked'"
+                    'rights.json declares project_training_policy "allowed", '
+                    'but release-status.json declares "blocked"'
                 ),
             ),
         )
@@ -188,8 +187,8 @@ class RightsSidecarVerificationTests(unittest.TestCase):
     def test_hosted_decision_must_agree_with_release_status(self) -> None:
         self.set_rights(hosted_sidecar())
         self.assertIn(
-            "rights.json declares intended_use 'research_only', "
-            "but release-status.json declares 'training_candidate'",
+            'rights.json declares intended_use "research_only", '
+            'but release-status.json declares "training_candidate"',
             self.errors(),
         )
 
@@ -202,17 +201,17 @@ class RightsSidecarVerificationTests(unittest.TestCase):
     def test_procedural_release_license_must_match_the_card(self) -> None:
         self.texts["README.md"] = _card(license_name="mit")
         self.assertIn(
-            "rights.json declares release_license 'apache-2.0', "
-            "but the card front matter declares 'mit'",
+            'rights.json declares release_license "apache-2.0", '
+            'but the card front matter declares "mit"',
             self.errors(),
         )
 
     def test_procedural_release_license_must_match_release_status(self) -> None:
-        for license_name, shown in (("mit", "'mit'"), (None, "None"), (7, "None")):
+        for license_name, shown in (("mit", '"mit"'), (None, "null"), (7, "null")):
             self.set_status(release_status(license=license_name))
             with self.subTest(license=license_name):
                 self.assertIn(
-                    "rights.json declares release_license 'apache-2.0', "
+                    'rights.json declares release_license "apache-2.0", '
                     f"but release-status.json declares {shown}",
                     self.errors(),
                 )
@@ -220,7 +219,7 @@ class RightsSidecarVerificationTests(unittest.TestCase):
     def test_procedural_release_license_must_match_the_license_text(self) -> None:
         self.texts["LICENSE"] = LICENSE_TEXT.replace("Apache License", "Other License")
         self.assertIn(
-            "rights.json declares release_license 'apache-2.0', but LICENSE declares None",
+            'rights.json declares release_license "apache-2.0", but LICENSE declares null',
             self.errors(),
         )
 
@@ -267,15 +266,43 @@ class RightsSidecarVerificationTests(unittest.TestCase):
         )
 
 
-class RightsSidecarImportFormTests(unittest.TestCase):
-    def test_package_and_cli_forms_bind_one_module(self) -> None:
-        if str(ROOT) not in sys.path:
-            sys.path.append(str(ROOT))
-        from pipelines import rights_document_procedural as packaged_procedural
-        from pipelines import verify_hf_release_rights as packaged_rights
+# Imports verify_hf_release in one form first, then reports every module that
+# the bare name and the ``pipelines.`` name bind to two different objects.
+_IMPORT_FORM_PROBE = """
+import importlib, sys
+sys.path.insert(0, "pipelines")
+importlib.import_module(sys.argv[1] + "verify_hf_release")
+split = [
+    name for name in sys.argv[2:]
+    if importlib.import_module(name) is not importlib.import_module("pipelines." + name)
+]
+print(",".join(split))
+"""
+_TWIN_MODULES = (
+    "verify_hf_release",
+    "verify_hf_release_rights",
+    "rights_document",
+    "rights_document_procedural",
+    "rights_document_support",
+)
 
-        self.assertIs(packaged_rights, verify_hf_release_rights)
-        self.assertIs(packaged_procedural, sys.modules["rights_document_procedural"])
+
+class RightsSidecarImportFormTests(unittest.TestCase):
+    def test_package_and_cli_forms_bind_one_module_in_either_order(self) -> None:
+        # Fresh interpreters, so nothing this suite imported can mask a split; the
+        # preludes alone bind the twins, with no _PACKAGE_SIBLING_NAMES entry.
+        for first in ("", "pipelines."):
+            with self.subTest(first_form=first or "cli"):
+                result = subprocess.run(
+                    [sys.executable, "-c", _IMPORT_FORM_PROBE, first, *_TWIN_MODULES],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=120,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "", "split import twins")
 
 
 if __name__ == "__main__":

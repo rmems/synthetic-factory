@@ -26,7 +26,7 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import NamedTuple
+from typing import NamedTuple, TypeGuard
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -61,31 +61,19 @@ PROCEDURAL_SOURCE_TYPE = "procedural"
 # The Hub license tag the procedural datasets ship under; the release verifier
 # requires the card, LICENSE and release-status.json to repeat it.
 PROCEDURAL_RELEASE_LICENSES = frozenset({"apache-2.0"})
+# Field groups in document order; each group is validated by one step below.
+_IDENTITY_FIELDS = ("schema_version", "dataset_id", "policy_source")
+_ROW_FIELDS = ("source_type", "path_id")
+_ROUTE_FIELDS = ("payload_factory", "generator", "generator_version")
+_DECISION_FIELDS = ("intended_use", "project_training_policy")
+_EVIDENCE_FIELDS = ("source_license_evidence", "catalog_id")
+_REGISTRY_DIGEST_FIELDS = ("catalog_sha256", "programs_sha256", "procedural_policy_sha256")
+_RELEASE_FIELDS = ("release_license", "training_ready", "reviewed_at")
 PROCEDURAL_REQUIRED_FIELDS = frozenset(
-    {
-        "schema_version",
-        "dataset_id",
-        "policy_source",
-        "source_type",
-        "path_id",
-        "payload_factory",
-        "generator",
-        "generator_version",
-        "intended_use",
-        "project_training_policy",
-        "source_license_evidence",
-        "catalog_id",
-        "catalog_sha256",
-        "programs_sha256",
-        "procedural_policy_sha256",
-        "release_license",
-        "training_ready",
-        "reviewed_at",
-    }
+    _IDENTITY_FIELDS + _ROW_FIELDS + _ROUTE_FIELDS + _DECISION_FIELDS
+    + _EVIDENCE_FIELDS + _REGISTRY_DIGEST_FIELDS + _RELEASE_FIELDS
 )
 PROCEDURAL_OPTIONAL_FIELDS = frozenset({"notes"})
-_ROUTE_FIELDS = ("payload_factory", "generator", "generator_version")
-_REGISTRY_DIGEST_FIELDS = ("catalog_sha256", "programs_sha256", "procedural_policy_sha256")
 
 # Registry pins are bare lowercase hex, unlike the ``sha256:``-prefixed terms
 # snapshots of the hosted route; the document repeats the registry spelling.
@@ -199,15 +187,32 @@ def _registry_digest(
     return _registry_value(document, field, row, where)
 
 
+def _is_nonempty_exact_string(value: object) -> bool:
+    return is_exact_string(value) and bool(value.strip())
+
+
+def _is_string_field(item: tuple[object, object]) -> bool:
+    name, value = item
+    return is_exact_string(name) and _is_nonempty_exact_string(value)
+
+
+def _is_string_object(value: object) -> TypeGuard[dict[str, str]]:
+    """Whether ``value`` is a nonempty object of exact, nonempty string fields."""
+    if not isinstance(value, dict) or not value:
+        return False
+    return all(_is_string_field(item) for item in value.items())
+
+
 def _exact_string_mapping(value: object, field: str, where: str) -> dict[str, str]:
     """Require a nonempty object whose member names and values are exact nonempty strings."""
-    invalid = policy_error(where, f"{field} must be an object of nonempty string fields")
-    if not isinstance(value, dict) or not value:
-        raise invalid
-    for key, item in value.items():
-        if not is_exact_string(key) or not is_exact_string(item) or not item.strip():
-            raise invalid
+    if not _is_string_object(value):
+        raise policy_error(where, f"{field} must be an object of nonempty string fields")
     return dict(value)
+
+
+def _is_json_false(value: object) -> bool:
+    """Only the JSON boolean ``false``: neither ``0`` nor ``null`` nor a string counts."""
+    return isinstance(value, bool) and not value
 
 
 def _validate_identity(document: dict[str, object], where: str) -> _ProceduralIdentity:
@@ -280,7 +285,7 @@ def _validate_release(document: dict[str, object], where: str) -> _ProceduralRel
     release_license = _support.closed_value(
         document["release_license"], "release_license", PROCEDURAL_RELEASE_LICENSES, where
     )
-    if document["training_ready"] is not False:
+    if not _is_json_false(document["training_ready"]):
         raise policy_error(
             where,
             "training_ready must be the JSON boolean false; "

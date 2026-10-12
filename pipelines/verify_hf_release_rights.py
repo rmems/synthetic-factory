@@ -8,11 +8,13 @@ its ``intended_use`` / ``project_training_policy`` must equal any that
 ``release-status.json`` restates.  A procedural (schema 0.2.0) sidecar must also
 declare the same release license as the shipped ``LICENSE``, the card front
 matter and ``release-status.json``, and the same ``training_ready``.  Any other
-``rights_record`` value fails closed.
+``rights_record`` value fails closed.  Values in the messages are rendered as
+JSON, the form the release files declare them in.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Callable, Mapping
 from typing import NamedTuple
@@ -58,6 +60,10 @@ def _normalized_license(value: object) -> str | None:
     return value.strip().casefold() if isinstance(value, str) else None
 
 
+def _json_text(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _decision_errors(
     document: _rights_document.RightsDocument | _rights_document.ProceduralRightsDocument,
     status: Mapping[str, object],
@@ -67,8 +73,8 @@ def _decision_errors(
         declared = getattr(document, field)
         if field in status and status[field] != declared:
             errors.append(
-                f"{RIGHTS_SIDECAR_PATH} declares {field} {declared!r}, "
-                f"but release-status.json declares {status[field]!r}"
+                f"{RIGHTS_SIDECAR_PATH} declares {field} {_json_text(declared)}, "
+                f"but release-status.json declares {_json_text(status[field])}"
             )
     return errors
 
@@ -79,21 +85,22 @@ def _procedural_release_errors(
     licenses: LicenseDeclarations,
 ) -> list[str]:
     declared = document.release_license
+    shown = _json_text(declared)
     declarations = (
         ("LICENSE", licenses.license_file),
         ("the card front matter", _normalized_license(licenses.card)),
         ("release-status.json", _normalized_license(status.get("license"))),
     )
     errors = [
-        f"{RIGHTS_SIDECAR_PATH} declares release_license {declared!r}, "
-        f"but {source} declares {other!r}"
+        f"{RIGHTS_SIDECAR_PATH} declares release_license {shown}, "
+        f"but {source} declares {_json_text(other)}"
         for source, other in declarations
         if other != declared
     ]
     if status.get("training_ready") is not document.training_ready:
         errors.append(
             f"{RIGHTS_SIDECAR_PATH} declares training_ready "
-            f"{str(document.training_ready).lower()}, but release-status.json does not"
+            f"{_json_text(document.training_ready)}, but release-status.json does not"
         )
     return errors
 
@@ -113,7 +120,9 @@ def rights_sidecar_errors(
     if record is None:
         return []
     if record != RIGHTS_SIDECAR_PATH:
-        return [f"release-status.json rights_record must be null or {RIGHTS_SIDECAR_PATH!r}"]
+        return [
+            f"release-status.json rights_record must be null or {_json_text(RIGHTS_SIDECAR_PATH)}"
+        ]
     if rights_bytes is None:
         return [f"release-status.json declares {RIGHTS_SIDECAR_PATH}, but it was not fetched"]
     try:

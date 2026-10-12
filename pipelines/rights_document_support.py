@@ -171,7 +171,7 @@ def closed_value(
 
 def require_dataset_id(value: object, where: str) -> str:
     """Require one exact ``owner/name`` Hub dataset identifier."""
-    if not isinstance(value, str) or DATASET_ID_RE.fullmatch(value) is None:
+    if not is_exact_string(value) or DATASET_ID_RE.fullmatch(value) is None:
         raise policy_error(where, "dataset_id must be an exact owner/name identifier")
     return value
 
