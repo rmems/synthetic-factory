@@ -223,6 +223,11 @@ class MillAndRowRefusals(unittest.TestCase):
         refused = self.source_refusal("CATALOG_FIRST = {'a': 1, **x}\n")
         self.assertEqual(refused.message, "plant source uses dict unpacking")
 
+    def test_an_annotated_catalog_first_counts_like_a_plain_one(self):
+        source = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST: int = 9")
+        rows = catalog.plants_from_source(source, mill_id="rag_r0001", source="s.py")
+        self.assertEqual(rows[0]["base_round"], 9)
+
     def test_p_arguments_must_be_string_constants(self):
         for arg, message in (
             ("('qdrant',)", "P() arguments must be non-empty strings"),
