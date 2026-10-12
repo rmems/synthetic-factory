@@ -79,7 +79,7 @@ class ScheduledFault:
 def _require(row: Mapping[str, Any], key: str, kind: type, where: str) -> Any:
     value = row.get(key)
     cv.refuse_when(
-        not isinstance(value, kind) or (kind is int and isinstance(value, bool)),
+        not cv.is_typed(value, kind),
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: fault field {key!r} must be {kind.__name__}",
     )

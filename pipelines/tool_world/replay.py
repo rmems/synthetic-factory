@@ -102,7 +102,7 @@ def _require(record: Mapping[str, Any], *path: str) -> Any:
 def _require_typed(record: Mapping[str, Any], kind: type, *path: str) -> Any:
     value = _require(record, *path)
     cv.refuse_when(
-        not isinstance(value, kind) or (kind is int and isinstance(value, bool)),
+        not cv.is_typed(value, kind),
         cv.FINDING_RECORD_MALFORMED,
         f"{'.'.join(path)} must be {kind.__name__}",
     )

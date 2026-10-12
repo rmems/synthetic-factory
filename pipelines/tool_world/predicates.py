@@ -50,15 +50,8 @@ def _predicate(
     return register
 
 
-def _is_typed(value: Any, kind: type) -> bool:
-    """``isinstance`` where a bool is never an int."""
-    if kind is int:
-        return cv.is_genuine_int(value)
-    return isinstance(value, kind)
-
-
 def _problem(params: Mapping[str, Any], key: str, kind: type, name: str) -> str | None:
-    if _is_typed(params.get(key), kind):
+    if cv.is_typed(params.get(key), kind):
         return None
     return f"predicate {name} needs {key} as {kind.__name__}"
 
