@@ -70,9 +70,15 @@ def load_evidence(text: str | bytes, path: str) -> dict[str, Any]:
     return payload
 
 
+def _is_count(value: Any) -> bool:
+    if isinstance(value, bool):  # JSON true is not a count
+        return False
+    return isinstance(value, int) and value >= 0
+
+
 def _count(mapping: Any, key: str, where: str) -> int:
     value = mapping.get(key) if isinstance(mapping, dict) else None
-    if type(value) is not int or value < 0:
+    if not _is_count(value):
         raise CardClaimError(f"{where} needs a non-negative integer {key!r}")
     return value
 

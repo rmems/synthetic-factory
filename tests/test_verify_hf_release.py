@@ -572,8 +572,8 @@ class ReplayClaimVerifierTests(unittest.TestCase):
             mock.patch.object(verify_hf_release, "verify_dataset") as dataset,
         ):
             verify_hf_release.verify_repositories((CODE_REPAIR_REPO, dataset_repo))
-        claims.assert_called_once_with(CODE_REPAIR_REPO, timeout=30.0)
-        dataset.assert_called_once_with(dataset_repo, timeout=30.0)
+        self.assertEqual(claims.call_args_list, [mock.call(CODE_REPAIR_REPO, timeout=30.0)])
+        self.assertEqual(dataset.call_args_list, [mock.call(dataset_repo, timeout=30.0)])
 
 
 if __name__ == "__main__":
