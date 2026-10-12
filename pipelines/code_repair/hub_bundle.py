@@ -132,10 +132,13 @@ def _policy_ok(policy: Any) -> bool:
     return True
 
 
-def _manifest_shape_ok(manifest: Any) -> bool:
-    return (isinstance(manifest, dict) and _sections_ok(manifest)
-            and _files_ok(manifest.get("files")) and _admission_ok(manifest.get("admission"))
+def _contents_ok(manifest: dict[str, Any]) -> bool:
+    return (_files_ok(manifest.get("files")) and _admission_ok(manifest.get("admission"))
             and _policy_ok(manifest["run"].get("split_policy")))
+
+
+def _manifest_shape_ok(manifest: Any) -> bool:
+    return isinstance(manifest, dict) and _sections_ok(manifest) and _contents_ok(manifest)
 
 
 def _load_manifest(payload: bytes) -> dict[str, Any]:
