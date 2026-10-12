@@ -17,8 +17,9 @@ Usage:
 ROOTS is ``[--hf-root DIR] [--factory-root DIR]``. Each root resolves once per
 run: the flag, then ``SYNTHETIC_FACTORY_HF_ROOT`` /
 ``SYNTHETIC_FACTORY_SOURCE_ROOT``, then the module defaults ``HF_ROOT`` and
-``FACTORY_ROOT``. A configured root must already exist as a real directory; it
-is never created. ``schemas`` reads neither root.
+``FACTORY_ROOT``. A configured root is refused unless it already exists as a
+real directory, and ``schemas`` reads neither root. Resolution and validation
+live in scripts/publish_hub_roots.py.
 
 Card viewer schemas are declared one JSON file per dataset under
 config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
@@ -36,8 +37,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -66,7 +65,6 @@ import card_schema  # noqa: E402
 from card_payload import PayloadSummary, resolve_payload_summary  # noqa: E402
 from card_schema import CardSchemaError  # noqa: E402
 import leftover_mill  # noqa: E402
-import raw_tree_guard  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests as transaction_completed_manifests,
@@ -75,147 +73,29 @@ from round_txn import (  # noqa: E402
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
 )
+# A sibling in this script's own directory, which is on sys.path when it runs.
+from publish_hub_roots import (  # noqa: E402
+    PublisherRoots,
+    active_factory_root,
+    active_hf_root,
+    active_roots,
+    add_root_arguments,
+    publication_roots,
+    refused_schemas_option,
+)
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 
 
-@dataclass(frozen=True)
-class PublisherRoots:
-    """The Hub mirror root and the read-only factory source root of one run.
-
-    ``main`` resolves the pair once and passes it down. A helper called with
-    no roots reads the module defaults at call time, so a test that patches
-    ``HF_ROOT`` or ``FACTORY_ROOT`` still steers it.
-    """
-
-    hf: Path
-    factory: Path
-
-
-@dataclass(frozen=True)
-class RootSetting:
-    """How an operator overrides one root: a CLI flag, then an environment variable."""
-
-    flag: str
-    env: str
-    dest: str
-    label: str
-
-
-HF_ROOT_SETTING = RootSetting(
-    "--hf-root", "SYNTHETIC_FACTORY_HF_ROOT", "hf_root", "Hub mirror root"
-)
-FACTORY_ROOT_SETTING = RootSetting(
-    "--factory-root", "SYNTHETIC_FACTORY_SOURCE_ROOT", "factory_root", "factory source root"
-)
-ROOT_SETTINGS = (HF_ROOT_SETTING, FACTORY_ROOT_SETTING)
-
-
-class PublisherRootError(ValueError):
-    """A configured root was refused; the message names the setting, never its value."""
-
-
-def default_roots() -> PublisherRoots:
-    """The module defaults, read now so a patched ``HF_ROOT`` is honoured."""
-    return PublisherRoots(hf=HF_ROOT, factory=FACTORY_ROOT)
-
-
-def _roots_or_default(roots: PublisherRoots | None) -> PublisherRoots:
-    return default_roots() if roots is None else roots
-
-
-def _hf_root(roots: PublisherRoots | None) -> Path:
-    return _roots_or_default(roots).hf
-
-
-def _factory_root(roots: PublisherRoots | None) -> Path:
-    return _roots_or_default(roots).factory
-
-
-def hf_datasets_root(roots: PublisherRoots | None = None) -> Path:
+def hf_datasets_root() -> Path:
     """Directory holding this lane's Hub mirrors, one level under the Hub root.
 
     Resolved at call time rather than bound at import so that callers (and
-    tests) which override ``HF_ROOT`` or pass configured roots get a matching
-    mirror root instead of silently pointing at the real home directory.
+    tests) which override ``HF_ROOT``, or a run with a configured Hub root, get
+    a matching mirror root instead of silently pointing at the real home
+    directory.
     """
-    return _hf_root(roots) / HF_DATASETS_DIRNAME
-
-
-def resolve_publisher_roots(
-    hf_flag: str | None, factory_flag: str | None, environ: Mapping[str, str]
-) -> PublisherRoots:
-    """Resolve both roots once: the CLI flag, then the environment, then the default.
-
-    A configured root must already be an existing, non-symlinked directory; it
-    is never created. Defaults keep their lazy behaviour (``snapshot`` still
-    creates a missing default Hub root). Whatever the source, the Hub root is
-    refused when it names or aliases ``outputs/raw/`` or overlaps the factory
-    source, so a Hub working tree can never mutate immutable raw bytes.
-    """
-    defaults = default_roots()
-    roots = PublisherRoots(
-        hf=_chosen_root(HF_ROOT_SETTING, hf_flag, environ, defaults.hf),
-        factory=_chosen_root(FACTORY_ROOT_SETTING, factory_flag, environ, defaults.factory),
-    )
-    _require_separate_roots(roots)
-    return roots
-
-
-def _chosen_root(
-    setting: RootSetting, flag_value: str | None, environ: Mapping[str, str], default: Path
-) -> Path:
-    configured = _configured_value(setting, flag_value, environ)
-    if configured is None:
-        return default
-    source, value = configured
-    return _existing_root_directory(source, value)
-
-
-def _configured_value(
-    setting: RootSetting, flag_value: str | None, environ: Mapping[str, str]
-) -> tuple[str, str] | None:
-    """Return ``(source, value)`` for an explicit setting, the flag first."""
-    if flag_value is not None:
-        return setting.flag, flag_value
-    if setting.env in environ:
-        return setting.env, environ[setting.env]
-    return None
-
-
-def _existing_root_directory(source: str, value: str) -> Path:
-    """Require a configured root to already be a real directory."""
-    if not value:
-        raise PublisherRootError(f"{source} is set but empty")
-    path = Path(os.path.abspath(value))
-    mode = _root_mode(source, path)
-    if stat.S_ISLNK(mode):
-        raise PublisherRootError(f"{source} names a symlink, not a real directory")
-    if not stat.S_ISDIR(mode):
-        raise PublisherRootError(f"{source} does not name a directory")
-    return path
-
-
-def _root_mode(source: str, path: Path) -> int:
-    """``lstat`` one configured root without following it, failing closed."""
-    try:
-        return os.lstat(path).st_mode
-    except FileNotFoundError as exc:
-        raise PublisherRootError(
-            f"{source} names a directory that does not exist; create it first"
-        ) from exc
-    except OSError as exc:
-        raise PublisherRootError(f"{source} cannot be inspected") from exc
-
-
-def _require_separate_roots(roots: PublisherRoots) -> None:
-    """Refuse a Hub root that could write into raw bytes, by name, alias, or overlap."""
-    if raw_tree_guard.is_under_raw(roots.hf):
-        raise PublisherRootError("the Hub mirror root names or aliases outputs/raw/")
-    if raw_tree_guard.is_under_raw(roots.hf, roots.factory):
-        raise PublisherRootError("the Hub mirror root lies inside the factory source root")
-    if roots.factory.resolve().is_relative_to(roots.hf.resolve()):
-        raise PublisherRootError("the factory source root lies inside the Hub mirror root")
+    return active_hf_root(HF_ROOT) / HF_DATASETS_DIRNAME
 
 
 COLLECTION = "rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
@@ -563,9 +443,9 @@ def card_declaration_for_payload(
     return declaration, schema_yaml, schema_body
 
 
-def factory_source(slug: str, roots: PublisherRoots | None = None) -> Path:
+def factory_source(slug: str) -> Path:
     """Return one in-tree, non-symlinked factory directory."""
-    factory_root = _factory_root(roots)
+    factory_root = active_factory_root(FACTORY_ROOT)
     if factory_root.is_symlink() or not factory_root.is_dir():
         raise SystemExit(f"unsafe factory root: {factory_root}")
     root = factory_root.resolve()
@@ -579,8 +459,8 @@ def factory_source(slug: str, roots: PublisherRoots | None = None) -> Path:
     return source
 
 
-def _factory_slugs(roots: PublisherRoots | None = None) -> list[str]:
-    factory_root = _factory_root(roots)
+def _factory_slugs() -> list[str]:
+    factory_root = active_factory_root(FACTORY_ROOT)
     if factory_root.is_symlink() or not factory_root.is_dir():
         raise SystemExit(f"unsafe factory root: {factory_root}")
     slugs: list[str] = []
@@ -588,7 +468,7 @@ def _factory_slugs(roots: PublisherRoots | None = None) -> list[str]:
         if path.is_symlink():
             raise SystemExit(f"unsafe factory directory: {path}")
         if path.is_dir():
-            factory_source(path.name, roots)
+            factory_source(path.name)
             slugs.append(path.name)
     return slugs
 
@@ -614,9 +494,9 @@ def _factory_hub(slug: str) -> str:
     return hub
 
 
-def factories(roots: PublisherRoots | None = None) -> list[dict]:
+def factories() -> list[dict]:
     out = []
-    for slug in _factory_slugs(roots):
+    for slug in _factory_slugs():
         if slug not in META:
             raise SystemExit(f"missing META for {slug}")
         blurb, extra = META[slug]
@@ -644,7 +524,7 @@ def link_or_copy(src: Path, dst: Path, expected_sha256: str | None = None) -> No
     """Atomically replace any prior snapshot with an independent copy.
 
     Hub working trees are mutable. A hard link would let a later edit under
-    the Hub root silently mutate the immutable raw factory source, while
+    ``HF_ROOT`` silently mutate the immutable raw factory source, while
     retaining a symlink could publish stale or unrelated bytes. Replacing the
     destination from a temporary regular file handles both cases safely.
     """
@@ -703,19 +583,19 @@ def replace_snapshot_text(dst: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def snapshot_directories(dest: Path, roots: PublisherRoots | None = None) -> tuple[Path, Path]:
+def snapshot_directories(dest: Path) -> tuple[Path, Path]:
     """Create a real, contained raw/metadata tree for one Hub snapshot."""
-    for directory in (_hf_root(roots), hf_datasets_root(roots)):
+    for directory in (active_hf_root(HF_ROOT), hf_datasets_root()):
         if directory.exists() or directory.is_symlink():
             if not directory.is_dir() or directory.is_symlink():
                 raise SystemExit(f"unsafe snapshot directory: {directory}")
         else:
             directory.mkdir(parents=True)
-    root = _hf_root(roots).resolve()
+    root = active_hf_root(HF_ROOT).resolve()
 
     # Mirrors sit one level deeper than the Hub root (grouped by model), but
     # must still resolve inside it — the relative_to check below enforces that.
-    if dest.parent != hf_datasets_root(roots):
+    if dest.parent != hf_datasets_root():
         raise SystemExit(f"snapshot destination escaped Hub root: {dest}")
     for directory in (dest, dest / "data", dest / "data" / "raw", dest / "data" / "metadata"):
         if directory.exists() or directory.is_symlink():
@@ -1175,9 +1055,9 @@ def _refuse_banned_yaml_tags(card: str, hub: str) -> None:
             raise SystemExit(f"banned YAML tag {low!r} on {hub}")
 
 
-def snapshot_one(item: dict, roots: PublisherRoots | None = None) -> dict:
-    src = factory_source(item["slug"], roots)
-    dest = hf_datasets_root(roots) / item["hub"]
+def snapshot_one(item: dict) -> dict:
+    src = factory_source(item["slug"])
+    dest = hf_datasets_root() / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
     marker_state = marker_mode_state(src)
@@ -1194,7 +1074,7 @@ def snapshot_one(item: dict, roots: PublisherRoots | None = None) -> dict:
     _, schema_yaml, schema_body = card_declaration_for_payload(
         item["hub"], sorted(desired_batch_names)
     )
-    raw, meta = snapshot_directories(dest, roots)
+    raw, meta = snapshot_directories(dest)
     _reconcile_snapshot_layout(dest, raw, meta, desired_batch_names, desired_note_names)
     records, bytes_ = _copy_payload_batches(batches, raw, marker_state)
     kind_mix = gate_leftover_mill(item, [(raw / b.name, b.name) for b in batches])
@@ -1463,15 +1343,15 @@ training-ready or factual real-world measurements.
 """
 
 
-def cmd_snapshot(only: str | None = None, roots: PublisherRoots | None = None) -> list[dict]:
+def cmd_snapshot(only: str | None = None) -> list[dict]:
     require_no_orphaned_declarations()
     require_renderable_declarations()
-    items = factories(roots)
+    items = factories()
     stats = []
     for item in items:
         if only and item["hub"] != only and item["slug"] != only:
             continue
-        stats.append(snapshot_one(item, roots))
+        stats.append(snapshot_one(item))
         print(
             f"snapshot {item['hub']} batches={stats[-1]['batches']} "
             f"records={stats[-1]['records']} "
@@ -1482,10 +1362,10 @@ def cmd_snapshot(only: str | None = None, roots: PublisherRoots | None = None) -
     inventory_stats = [
         selected[item["hub"]]
         if item["hub"] in selected
-        else local_snapshot_stats(item, roots)
+        else local_snapshot_stats(item)
         for item in items
     ]
-    inv = _hf_root(roots) / "SYNTHETIC-DATA-FACTORY-GROK46.md"
+    inv = active_hf_root(HF_ROOT) / "SYNTHETIC-DATA-FACTORY-GROK46.md"
     lines = [
         "# Synthetic data factory: Grok 4.6",
         "",
@@ -1505,9 +1385,9 @@ def cmd_snapshot(only: str | None = None, roots: PublisherRoots | None = None) -
     return stats
 
 
-def local_snapshot_stats(item: dict, roots: PublisherRoots | None = None) -> dict:
+def local_snapshot_stats(item: dict) -> dict:
     """Summarize an existing local Hub mirror for the shared inventory."""
-    raw = hf_datasets_root(roots) / item["hub"] / "data" / "raw"
+    raw = hf_datasets_root() / item["hub"] / "data" / "raw"
     batches = []
     if raw.is_dir():
         batches = sorted(
@@ -1531,8 +1411,8 @@ def is_selected(item: dict, only: str | None) -> bool:
     return not only or item["hub"] == only or item["slug"] == only
 
 
-def cmd_create(only: str | None = None, roots: PublisherRoots | None = None) -> None:
-    for item in factories(roots):
+def cmd_create(only: str | None = None) -> None:
+    for item in factories():
         if not is_selected(item, only):
             continue
         run(
@@ -1549,14 +1429,14 @@ def cmd_create(only: str | None = None, roots: PublisherRoots | None = None) -> 
         )
 
 
-def safe_upload_directory(item: dict, roots: PublisherRoots | None = None) -> Path:
-    """Return a real Hub mirror contained beneath a real Hub root (``HF_ROOT``)."""
-    for directory in (_hf_root(roots), hf_datasets_root(roots)):
+def safe_upload_directory(item: dict) -> Path:
+    """Return a real Hub mirror contained beneath a real ``HF_ROOT``."""
+    for directory in (active_hf_root(HF_ROOT), hf_datasets_root()):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"unsafe upload root: {directory}")
-    root = _hf_root(roots).resolve()
-    dest = hf_datasets_root(roots) / item["hub"]
-    if dest.parent != hf_datasets_root(roots) or not dest.is_dir() or dest.is_symlink():
+    root = active_hf_root(HF_ROOT).resolve()
+    dest = hf_datasets_root() / item["hub"]
+    if dest.parent != hf_datasets_root() or not dest.is_dir() or dest.is_symlink():
         raise SystemExit(f"unsafe upload directory: {dest}")
     try:
         dest.resolve().relative_to(root)
@@ -1683,9 +1563,9 @@ def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, k
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'README.md'}")
 
 
-def validate_upload_snapshot(item: dict, dest: Path, roots: PublisherRoots | None = None) -> None:
+def validate_upload_snapshot(item: dict, dest: Path) -> None:
     """Require the complete mirror to match the current validated source."""
-    src = factory_source(item["slug"], roots)
+    src = factory_source(item["slug"])
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
@@ -1707,14 +1587,14 @@ def validate_upload_snapshot(item: dict, dest: Path, roots: PublisherRoots | Non
     _validate_upload_snapshot_card(item, dest, raw, batches, kind_mix)
 
 
-def cmd_upload(only: str | None = None, roots: PublisherRoots | None = None) -> None:
+def cmd_upload(only: str | None = None) -> None:
     require_no_orphaned_declarations()
     require_renderable_declarations()
-    for item in factories(roots):
+    for item in factories():
         if not is_selected(item, only):
             continue
-        dest = safe_upload_directory(item, roots)
-        validate_upload_snapshot(item, dest, roots)
+        dest = safe_upload_directory(item)
+        validate_upload_snapshot(item, dest)
         run(
             [
                 "hf",
@@ -1735,8 +1615,8 @@ def cmd_upload(only: str | None = None, roots: PublisherRoots | None = None) -> 
         )
 
 
-def cmd_collect(only: str | None = None, roots: PublisherRoots | None = None) -> None:
-    for item in factories(roots):
+def cmd_collect(only: str | None = None) -> None:
+    for item in factories():
         if not is_selected(item, only):
             continue
         run(
@@ -1754,16 +1634,16 @@ def cmd_collect(only: str | None = None, roots: PublisherRoots | None = None) ->
         )
 
 
-def cmd_status(roots: PublisherRoots | None = None) -> None:
+def cmd_status() -> None:
     print(f"{'hub':48} {'local_raw':>9} {'factory':>9}")
-    for item in factories(roots):
-        local_raw = hf_datasets_root(roots) / item["hub"] / "data" / "raw"
+    for item in factories():
+        local_raw = hf_datasets_root() / item["hub"] / "data" / "raw"
         local = (
             sum(1 for path in local_raw.iterdir() if is_snapshot_payload(path))
             if local_raw.is_dir()
             else 0
         )
-        factory_dir = _factory_root(roots) / item["slug"]
+        factory_dir = active_factory_root(FACTORY_ROOT) / item["slug"]
         factory = 0
         if factory_dir.is_dir():
             marker_state = marker_mode_state(factory_dir)
@@ -1842,44 +1722,16 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="schemas: fail when any dataset has no card schema declaration",
     )
-    _add_root_arguments(ap)
+    add_root_arguments(ap, PublisherRoots(hf=HF_ROOT, factory=FACTORY_ROOT))
     return ap.parse_args()
 
 
-def _add_root_arguments(parser: argparse.ArgumentParser) -> None:
-    defaults = default_roots()
-    shown_defaults = (defaults.hf, defaults.factory)
-    for setting, default in zip(ROOT_SETTINGS, shown_defaults, strict=True):
-        shown = str(default).replace("%", "%%")
-        parser.add_argument(
-            setting.flag,
-            dest=setting.dest,
-            metavar="DIR",
-            help=f"existing {setting.label}; overrides ${setting.env} (default: {shown})",
-        )
-
-
 def _schemas_exit_code(args: argparse.Namespace) -> int:
-    refused = _schemas_refused_option(args)
-    if refused:
+    refused = refused_schemas_option(args)
+    if refused is not None:
         print(f"schemas does not accept {refused}", file=sys.stderr)
         return 2
     return cmd_schemas(strict=args.strict)
-
-
-def _schemas_refused_option(args: argparse.Namespace) -> str | None:
-    """The first given option ``schemas`` refuses: it reads no root and takes no --only."""
-    options = [("only", "--only"), *((setting.dest, setting.flag) for setting in ROOT_SETTINGS)]
-    return next((flag for dest, flag in options if getattr(args, dest)), None)
-
-
-def _publication_roots(args: argparse.Namespace) -> PublisherRoots:
-    """Resolve this run's roots once, or exit 2 naming the refused setting."""
-    try:
-        return resolve_publisher_roots(args.hf_root, args.factory_root, os.environ)
-    except PublisherRootError as exc:
-        print(f"refusing publication root: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
 
 
 def _auth_error(args: argparse.Namespace) -> int | None:
@@ -1896,14 +1748,15 @@ def main() -> int:
     if args.strict:
         print("--strict only applies to the schemas command", file=sys.stderr)
         return 2
-    roots = _publication_roots(args)
-    if args.only and not any(is_selected(item, args.only) for item in factories(roots)):
-        print(f"unknown --only target: {args.only}", file=sys.stderr)
-        return 2
-    auth_error = _auth_error(args)
-    if auth_error is not None:
-        return auth_error
-    _dispatch_command(args, roots)
+    roots = publication_roots(args, os.environ, PublisherRoots(hf=HF_ROOT, factory=FACTORY_ROOT))
+    with active_roots(roots):
+        if args.only and not any(is_selected(item, args.only) for item in factories()):
+            print(f"unknown --only target: {args.only}", file=sys.stderr)
+            return 2
+        auth_error = _auth_error(args)
+        if auth_error is not None:
+            return auth_error
+        _dispatch_command(args)
     return 0
 
 
@@ -1924,22 +1777,22 @@ def _require_hf_identity() -> int | None:
     return None
 
 
-def _dispatch_command(args: argparse.Namespace, roots: PublisherRoots) -> None:
+def _dispatch_command(args: argparse.Namespace) -> None:
     if args.cmd == "snapshot":
-        cmd_snapshot(args.only, roots)
+        cmd_snapshot(args.only)
     elif args.cmd == "create":
-        cmd_create(args.only, roots)
+        cmd_create(args.only)
     elif args.cmd == "upload":
-        cmd_upload(args.only, roots)
+        cmd_upload(args.only)
     elif args.cmd == "collect":
-        cmd_collect(args.only, roots)
+        cmd_collect(args.only)
     elif args.cmd == "status":
-        cmd_status(roots)
+        cmd_status()
     elif args.cmd == "all":
-        cmd_snapshot(args.only, roots)
-        cmd_create(args.only, roots)
-        cmd_upload(args.only, roots)
-        cmd_collect(args.only, roots)
+        cmd_snapshot(args.only)
+        cmd_create(args.only)
+        cmd_upload(args.only)
+        cmd_collect(args.only)
 
 
 if __name__ == "__main__":

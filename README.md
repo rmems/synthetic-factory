@@ -110,23 +110,30 @@ rights-aware. Card viewer schemas are declared by hand for 35 of the 44
 datasets (`python3 scripts/publish_grok46_hub.py schemas` lists the gaps).
 
 ```bash
-python3 scripts/publish_grok46_hub.py schemas [--strict]   # viewer-schema audit; reads no root
-python3 scripts/publish_grok46_hub.py status  [--hf-root DIR] [--factory-root DIR]
-python3 scripts/publish_grok46_hub.py snapshot [--only HUB_NAME] [--hf-root DIR] [--factory-root DIR]
-python3 scripts/publish_grok46_hub.py create|upload|collect|all [--only HUB_NAME] [--hf-root DIR] [--factory-root DIR]
+# Read-only: the viewer-schema audit (reads no root) and local mirror/source counts
+python3 scripts/publish_grok46_hub.py schemas --strict
+python3 scripts/publish_grok46_hub.py status --hf-root ~/hf --factory-root outputs/raw/2026-08-19-agentic
+# Writes the local Hub mirror under <hf-root>/grok-4.6/
+python3 scripts/publish_grok46_hub.py snapshot --only long-horizon-coding-trajectories --hf-root ~/hf
+# Hub writes (network): create, upload, collect, or all four in order
+python3 scripts/publish_grok46_hub.py create --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py upload --only long-horizon-coding-trajectories --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py collect --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py all --hf-root ~/hf
 ```
 
 The publisher reads published rounds from a factory source root and mirrors
 them under `<hf-root>/grok-4.6/<dataset>/`. Each root resolves once per run:
-the flag, then `SYNTHETIC_FACTORY_HF_ROOT` / `SYNTHETIC_FACTORY_SOURCE_ROOT`,
-then the owner's defaults (`/home/raulmc/rmems/hf`, and the first existing
-`outputs/raw/2026-08-19-agentic` under this checkout, `~/synthetic-factory`, or
-`~/synthetic-data`). A configured root must already exist as a real,
-non-symlinked directory and is never created. The Hub root is refused when it
-names or aliases `outputs/raw/` or overlaps the factory source root, so a Hub
-working tree can never mutate raw bytes; a refusal exits 2 and names the flag
-or variable, not its value. `schemas` reads neither root and refuses the root
-flags.
+the `--hf-root` / `--factory-root` flag, then `SYNTHETIC_FACTORY_HF_ROOT` /
+`SYNTHETIC_FACTORY_SOURCE_ROOT`, then the owner's defaults
+(`/home/raulmc/rmems/hf`, and the first existing `outputs/raw/2026-08-19-agentic`
+under this checkout, `~/synthetic-factory`, or `~/synthetic-data`). A configured
+root is refused unless it already exists as a real, non-symlinked directory;
+the publisher does not create it. The Hub root is refused when it names or
+aliases `outputs/raw/` or overlaps the factory source root, so a Hub working
+tree cannot mutate raw bytes. A refusal exits 2 and names the flag or
+variable, not its value. `schemas` reads neither root and refuses the root
+flags, even with an empty value.
 
 ## License
 

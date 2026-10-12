@@ -51,7 +51,7 @@ python3 .claude/skills/run-synthetic-factory/driver.py snapshot <run_dir> <label
 
 # Hugging Face: card viewer-schema audit and public release verification (network)
 python3 scripts/publish_grok46_hub.py schemas            # --strict exits nonzero while any gap remains
-python3 scripts/publish_grok46_hub.py status --hf-root <dir> --factory-root <dir>   # local counts; roots must exist
+python3 scripts/publish_grok46_hub.py status --hf-root <dir> --factory-root <dir>   # local counts, read-only
 python3 pipelines/verify_hf_release.py [--repo rmems/<dataset>]
 ```
 
@@ -93,10 +93,11 @@ Hub cards from `config/card-schemas/`. Both roots resolve once per run, flag
 first, then environment, then the owner's defaults: `--hf-root` /
 `SYNTHETIC_FACTORY_HF_ROOT` (default `HF_ROOT = /home/raulmc/rmems/hf`) and
 `--factory-root` / `SYNTHETIC_FACTORY_SOURCE_ROOT` (default `FACTORY_ROOT`, the
-first existing `outputs/raw/2026-08-19-agentic` candidate). A configured root
-must already be a real directory and is never created; the Hub root is refused
-when it names or aliases `outputs/raw/` or overlaps the factory root, and
-`schemas` reads neither. `pipelines/verify_hf_release.py` is the
+first existing `outputs/raw/2026-08-19-agentic` candidate). Resolution lives in
+`scripts/publish_hub_roots.py`: a configured root is refused unless it already
+exists as a real directory (the publisher does not create it), the Hub root is
+refused when it names or aliases `outputs/raw/` or overlaps the factory root,
+and `schemas` reads neither. `pipelines/verify_hf_release.py` is the
 authority that proves the public release contract still holds.
 `training_ready` is a structural and quality verdict, not training
 eligibility — that is `project_training_policy: allowed` on a registry row,

@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
 import publish_grok46_hub as publisher  # noqa: E402
+import publish_hub_roots as hub_roots  # noqa: E402
 
 
 ITEM = {
@@ -38,7 +39,7 @@ def without_root_environment(**exported):
 
     Only the overrides a test names in ``exported`` are visible to ``main()``.
     """
-    names = {setting.env for setting in publisher.ROOT_SETTINGS}
+    names = {setting.env for setting in hub_roots.ROOT_SETTINGS}
     kept = {key: value for key, value in os.environ.items() if key not in names}
     return mock.patch.dict(os.environ, {**kept, **exported}, clear=True)
 
@@ -1689,12 +1690,10 @@ class PublishGrok46HubTests(unittest.TestCase):
         ), without_root_environment():
             self.assertEqual(publisher.main(), 0)
 
-        # With no flag and no environment, every stage gets the unchanged defaults.
-        roots = publisher.PublisherRoots(hf=publisher.HF_ROOT, factory=publisher.FACTORY_ROOT)
-        snapshot.assert_called_once_with(ITEM["hub"], roots)
-        upload.assert_called_once_with(ITEM["hub"], roots)
-        create.assert_called_once_with(ITEM["hub"], roots)
-        collect.assert_called_once_with(ITEM["hub"], roots)
+        snapshot.assert_called_once_with(ITEM["hub"])
+        upload.assert_called_once_with(ITEM["hub"])
+        create.assert_called_once_with(ITEM["hub"])
+        collect.assert_called_once_with(ITEM["hub"])
 
     def test_direct_create_and_collect_honor_only(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")
@@ -1706,8 +1705,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             sys, "argv", ["publish_grok46_hub.py", "create", "--only", ITEM["hub"]]
         ), without_root_environment():
             self.assertEqual(publisher.main(), 0)
-        roots = publisher.default_roots()
-        create.assert_called_once_with(ITEM["hub"], roots)
+        create.assert_called_once_with(ITEM["hub"])
         collect.assert_not_called()
 
         with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
@@ -1719,10 +1717,9 @@ class PublishGrok46HubTests(unittest.TestCase):
         ), without_root_environment():
             self.assertEqual(publisher.main(), 0)
         create.assert_not_called()
-        collect.assert_called_once_with(ITEM["slug"], roots)
+        collect.assert_called_once_with(ITEM["slug"])
 
     def test_local_commands_skip_hub_authentication(self):
-        roots = publisher.default_roots()
         for command, handler_name in (("snapshot", "cmd_snapshot"), ("status", "cmd_status")):
             with self.subTest(command=command), mock.patch.object(
                 publisher.subprocess, "run"
@@ -1735,9 +1732,9 @@ class PublishGrok46HubTests(unittest.TestCase):
 
             whoami.assert_not_called()
             if command == "snapshot":
-                handler.assert_called_once_with(None, roots)
+                handler.assert_called_once_with(None)
             else:
-                handler.assert_called_once_with(roots)
+                handler.assert_called_once_with()
 
     def _snapshot_and_upload_through_main(self, root, flags, exported):
         """Run ``snapshot`` then ``upload`` with module defaults that must stay untouched."""
@@ -1767,8 +1764,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                 by_mode = {
                     "flags": (["--hf-root", str(hub_root), "--factory-root", str(source_root)], {}),
                     "environment": ([], {
-                        publisher.HF_ROOT_SETTING.env: str(hub_root),
-                        publisher.FACTORY_ROOT_SETTING.env: str(source_root),
+                        hub_roots.HF_ROOT_SETTING.env: str(hub_root),
+                        hub_roots.FACTORY_ROOT_SETTING.env: str(source_root),
                     }),
                 }
 
