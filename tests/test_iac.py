@@ -519,7 +519,8 @@ class IacPlantsExtractUnitTests(unittest.TestCase):
 
 
 class IacCatalogLoadTests(unittest.TestCase):
-    def _catalog_tree(self, tmp: Path, mutate) -> Path:
+    @staticmethod
+    def _catalog_tree(tmp: Path, mutate) -> Path:
         source = catalog_json_path()
         document = json.loads(source.read_text(encoding="utf-8"))
         mutate(document)

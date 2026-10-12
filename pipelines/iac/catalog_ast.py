@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import Any, TypeGuard
+from typing import Any
 
 UNSET = object()
 
@@ -34,8 +34,6 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
     return ()
 
 
-# Nodes that can still resolve to a literal once constants and bound names are ruled out.
-_COMPOSITE_NODES = (ast.UnaryOp, ast.BinOp, ast.Tuple, ast.List, ast.Set, ast.Dict, ast.JoinedStr)
 # The container each sequence literal builds; ``ast.parse`` only yields these exact classes.
 _SEQUENCE_TYPES: dict[type, type] = {ast.Tuple: tuple, ast.List: list, ast.Set: set}
 
@@ -43,31 +41,26 @@ _SEQUENCE_TYPES: dict[type, type] = {ast.Tuple: tuple, ast.List: list, ast.Set: 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
 
-    ``-x`` and ``a + b`` recurse straight back into this function, and containers
+    ``-x`` and ``a + b`` recurse straight back into this function and containers
     recurse through ``_sequence`` / ``_mapping`` / ``_joined_string``, so every
-    nesting level costs the frames it always did. The helpers below never recurse.
+    nesting level costs the frames it always did. The patterns are checked without
+    calling any Python helper, so a leaf of any kind needs no extra frame either.
     """
 
     bound = env or {}
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if not isinstance(node, _COMPOSITE_NODES):
-        return UNSET
-    if _is_negation(node):
-        return _negated(literal_value(node.operand, bound))
-    if _is_concatenation(node):
-        return _concatenated(literal_value(node.left, bound), literal_value(node.right, bound))
-    return _container_reader(node)(bound)
-
-
-def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
-    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
-
-
-def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
-    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+    value: Any = UNSET
+    match node:
+        case ast.Constant():
+            value = node.value
+        case ast.Name(id=name) if name in bound:
+            value = bound[name]
+        case ast.UnaryOp(op=ast.USub(), operand=operand):
+            value = _negated(literal_value(operand, bound))
+        case ast.BinOp(op=ast.Add(), left=left, right=right):
+            value = _concatenated(literal_value(left, bound), literal_value(right, bound))
+        case ast.Tuple() | ast.List() | ast.Set() | ast.Dict() | ast.JoinedStr():
+            value = _container_reader(node)(bound)
+    return value
 
 
 def _negated(inner: Any) -> Any:
@@ -82,22 +75,17 @@ def _concatenated(left: Any, right: Any) -> Any:
     return UNSET
 
 
-def _container_reader(node: ast.AST) -> Callable[[Mapping[str, Any]], Any]:
+_ContainerNode = ast.Tuple | ast.List | ast.Set | ast.Dict | ast.JoinedStr
+
+
+def _container_reader(node: _ContainerNode) -> Callable[[Mapping[str, Any]], Any]:
     """Pick the reader that resolves ``node`` against the bound names (no recursion here)."""
 
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         return partial(_sequence, node.elts, ctor=_SEQUENCE_TYPES[type(node)])
     if isinstance(node, ast.Dict):
         return partial(_mapping, node)
-    if isinstance(node, ast.JoinedStr):
-        return partial(_joined_string, node)
-    return _unset
-
-
-def _unset(_bound: Mapping[str, Any]) -> Any:
-    """A unary operator other than ``-`` or a binary one other than ``+`` resolves to nothing."""
-
-    return UNSET
+    return partial(_joined_string, node)
 
 
 def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
