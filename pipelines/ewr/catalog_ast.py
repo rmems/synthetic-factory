@@ -228,11 +228,8 @@ def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
 def _mapping_slice(
     pin: MillPin, rows: tuple[dict[str, str | int], ...]
 ) -> tuple[dict[str, str | int], ...]:
-    refuse_when(
-        pin.legacy_first is None,
-        FINDING_CATALOG_MILL,
-        f"{pin.mill_id} missing legacy_first",
-    )
+    if pin.legacy_first is None:
+        refuse(FINDING_CATALOG_MILL, f"{pin.mill_id} missing legacy_first")
     start_index = pin.catalog_first - pin.legacy_first
     end_index = start_index + pin.n_pairs
     refuse_when(

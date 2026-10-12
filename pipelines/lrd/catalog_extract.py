@@ -55,11 +55,8 @@ def _literal(node: ast.AST, where: str) -> str | int:
         return constant
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         value = _literal(node.operand, where)
-        refuse_when(
-            not isinstance(value, int),
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{where}: expected int after unary minus",
-        )
+        if not isinstance(value, int):
+            refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where}: expected int after unary minus")
         return -value
     refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{where}: expected str or int literal")
 
@@ -137,7 +134,7 @@ def _pos_args(node: ast.Call, count: int, where: str) -> tuple[str | int, ...]:
         f"{where}: expected P(...) call",
     )
     refuse_when(
-        len(node.args) != count or node.keywords,
+        len(node.args) != count or bool(node.keywords),
         FINDING_SOURCE_NOT_PARSEABLE,
         f"{where}: P(...) must have {count} positional literals",
     )

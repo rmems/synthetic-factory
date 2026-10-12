@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -402,7 +402,7 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
     return json.dumps(header, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
-def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
+def dumps_jsonl(rows: Sequence[Mapping[str, Any]]) -> str:
     return "".join(
         json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
         for row in rows

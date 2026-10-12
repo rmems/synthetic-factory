@@ -12,7 +12,7 @@ import ast
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -423,7 +423,7 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
     return summary
 
 
-def inherited_scanners(records: list[Mapping[str, Any]]) -> list[str]:
+def inherited_scanners(records: Sequence[Mapping[str, Any]]) -> list[str]:
     """``SCAN`` keys from the latest mill that defined them as a literal dict."""
 
     found: list[str] = []

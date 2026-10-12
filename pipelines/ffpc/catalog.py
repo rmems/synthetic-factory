@@ -256,11 +256,11 @@ def _infer_round(consts: Mapping[str, Any], source_name: str) -> int:
     if match is not None:
         return int(match.group(1))
     rnd = consts.get("ROUND")
-    refuse_when(
-        type(rnd) is not int,
-        FINDING_AST_NOT_A_PLANT,
-        f"{source_name} has no ffpc-r slug and ROUND is {shown(rnd)}",
-    )
+    if type(rnd) is not int:
+        refuse(
+            FINDING_AST_NOT_A_PLANT,
+            f"{source_name} has no ffpc-r slug and ROUND is {shown(rnd)}",
+        )
     return rnd
 
 

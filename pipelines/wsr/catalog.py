@@ -167,7 +167,8 @@ def _const_set(node: ast.AST, where: str) -> frozenset[str]:
     values: list[str] = []
     for index, item in enumerate(node.elts):
         value = _literal(item, f"{where}[{index}]")
-        refuse_when(not isinstance(value, str), FINDING_CATALOG_PLANT, f"{where}[{index}]")
+        if not isinstance(value, str):
+            refuse(FINDING_CATALOG_PLANT, f"{where}[{index}]")
         values.append(value)
     return frozenset(values)
 

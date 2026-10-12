@@ -201,9 +201,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -519,11 +522,8 @@ def _registry_factory_ids() -> set[str]:
     except (OSError, ValueError) as exc:
         refuse(FINDING_FACTORY_NOT_REGISTERED, f"factory registry is unreadable: {exc}")
     factories = payload.get("factories") if isinstance(payload, dict) else None
-    refuse_when(
-        not isinstance(factories, list),
-        FINDING_FACTORY_NOT_REGISTERED,
-        "factory registry factories is not a list",
-    )
+    if not isinstance(factories, list):
+        refuse(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
     return {
         row.get("path_id")
         for row in factories
