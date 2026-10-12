@@ -131,18 +131,6 @@ def _eval_expr(p: dict) -> str:
     )
 
 
-_API_RECEIPT_BASIS = "Observation: GET api receipt."
-
-
-def _api_receipt(n: int, p: dict, detail: str) -> dict:
-    """Step ``n``: GET the kept item's API receipt; ``detail`` is its last JSON member."""
-    verb = p["verb"].lower()
-    api, keep = site("api", p["ok_host"]), p["ok_id"]
-    return st(n, _API_RECEIPT_BASIS,
-              "http_request", {"method": "GET", "url": f"https://{api}/{verb}s/{keep}", "headers": {"Accept": "application/json"}},
-              f"200 {{\"{verb}_id\":\"{keep}\",\"item\":\"{p['item']}\",{detail}}}")
-
-
 def build_success(n: int, p: dict) -> dict:
     host = p["ok_host"]
     s = site(p["sub"], host)
@@ -473,6 +461,18 @@ def build_success(n: int, p: dict) -> dict:
         reward,
         meta(n, p["seed_ok"], s),
     )
+
+
+_API_RECEIPT_BASIS = "Observation: GET api receipt."
+
+
+def _api_receipt(n: int, p: dict, detail: str) -> dict:
+    """Step ``n``: GET the kept item's API receipt; ``detail`` is its last JSON member."""
+    verb = p["verb"].lower()
+    api, keep = site("api", p["ok_host"]), p["ok_id"]
+    return st(n, _API_RECEIPT_BASIS,
+              "http_request", {"method": "GET", "url": f"https://{api}/{verb}s/{keep}", "headers": {"Accept": "application/json"}},
+              f"200 {{\"{verb}_id\":\"{keep}\",\"item\":\"{p['item']}\",{detail}}}")
 
 
 def build_fail(n: int, p: dict) -> dict:
