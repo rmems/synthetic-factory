@@ -23,9 +23,14 @@ class ProceduralGateFixture(GateFixture):
     """
 
     @classmethod
+    def _unconstructed(cls):
+        """An instance that skips the base scenario constructor (neither class defines __new__)."""
+        return object.__new__(cls)
+
+    @classmethod
     def build(cls, root, published_factory):
         """Lay the six lanes over a private copy of the published procedural round."""
-        fixture = cls.__new__(cls)
+        fixture = cls._unconstructed()
         fixture.root = Path(root)
         fixture.source_run = fixture.root / "evidence/outputs/raw/2099-01-01"
         published_factory(fixture.source_run)
@@ -51,7 +56,7 @@ class ProceduralGateFixture(GateFixture):
         """Copy actual sealed publication evidence without re-running the oracle."""
         root = Path(root)
         shutil.copytree(template.root, root, dirs_exist_ok=True)
-        fixture = cls.__new__(cls)
+        fixture = cls._unconstructed()
         fixture.root = root
         for name in ("source_run", "cleaned", "curated", "plan_path"):
             setattr(fixture, name, root / getattr(template, name).relative_to(template.root))

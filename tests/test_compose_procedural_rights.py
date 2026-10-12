@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.code_repair_test_support import required_item
 from tests.compose_curated_test_support import build_source_run
 from code_repair.publication_export import physical_completed_batch
 import compose_curated
@@ -22,7 +23,7 @@ def _jsonl_objects(path):
 
 
 def _retained_entry(entries):
-    return next(entry for entry in entries if entry["action"] == "retained")
+    return required_item(entry for entry in entries if entry["action"] == "retained")
 
 
 def _write_jsonl(path, entries):
@@ -111,7 +112,7 @@ class CompletedProceduralRights(unittest.TestCase):
             fixture = ProceduralGateFixture.copy_template(self.template, Path(temp))
             manifest = fixture.manifest_paths[1]
             entries = json.loads(manifest.read_bytes())
-            entry = next(item for item in entries if item["action"] == "retained")
+            entry = _retained_entry(entries)
             entry[section][field] = value
             manifest.write_text(json.dumps(entries))
             self.assertEqual(fixture.integrate(), 2)

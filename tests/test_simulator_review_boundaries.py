@@ -79,8 +79,9 @@ class ReviewedAuditPolicy(unittest.TestCase):
 
     def test_mixed_corpus_keeps_procedural_eligibility_but_blocks_export(self):
         from pipelines.code_repair.admission import natural_eligibility
-        accepted = next(record for record in self.records
-                        if natural_eligibility(record, self.row)[0])
+        from tests.code_repair_test_support import required_item
+        accepted = required_item(record for record in self.records
+                                 if natural_eligibility(record, self.row)[0])
         snapshot = {self.row.path_id + '/records.jsonl': (json.dumps(accepted) + '\n').encode()}
         for factory in ('deepseek-placeholder-factory', 'nemotron-placeholder-factory',
                         'agentic-coding-trajectory-factory'):

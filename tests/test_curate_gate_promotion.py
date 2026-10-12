@@ -29,11 +29,18 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_gate  # noqa: E402
+from tests.code_repair_test_support import required_item  # noqa: E402
 from tests.procedural_gate_support import (  # noqa: E402
     ProceduralGateFixture,
     prepare_gate_template,
     prepare_integrated_template,
 )
+
+
+def _reward_sidecar(fixture):
+    """The cleaned corpus's copied reward-sidecar evidence file."""
+    sidecars = fixture.cleaned / curate_gate.GOVERNANCE_DIRNAME / curate_gate.REWARD_SIDECAR_DIRNAME
+    return required_item(sidecars.rglob("*.evidence"))
 
 
 class ReviewSampleTests(unittest.TestCase):
@@ -396,13 +403,7 @@ class PromotionTests(unittest.TestCase):
 
     def test_promotion_rejects_tampered_copied_reward_evidence(self):
         review = self.fixture.accepted_review()
-        sidecar = next(
-            (
-                self.fixture.cleaned
-                / curate_gate.GOVERNANCE_DIRNAME
-                / curate_gate.REWARD_SIDECAR_DIRNAME
-            ).rglob("*.evidence")
-        )
+        sidecar = _reward_sidecar(self.fixture)
         sidecar.write_bytes(sidecar.read_bytes() + b"\n")
 
         code, _report, stderr = self.fixture.promote_report(review)
@@ -425,13 +426,7 @@ class PromotionTests(unittest.TestCase):
     def test_promotion_validates_and_publishes_one_immutable_snapshot(self):
         review = self.fixture.accepted_review()
         corpus_path = self.fixture.cleaned / "python-function-repair-factory" / "batch-r01.jsonl"
-        sidecar_path = next(
-            (
-                self.fixture.cleaned
-                / curate_gate.GOVERNANCE_DIRNAME
-                / curate_gate.REWARD_SIDECAR_DIRNAME
-            ).rglob("*.evidence")
-        )
+        sidecar_path = _reward_sidecar(self.fixture)
         manifest_path = self.fixture.cleaned / curate_gate.MANIFEST_FILENAME
         sample_path = self.fixture.cleaned / curate_gate.SAMPLE_FILENAME
         expected_corpus = corpus_path.read_bytes()
