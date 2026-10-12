@@ -302,23 +302,43 @@ def _replay_errors(card: str, coverage: ReplayCoverage) -> list[str]:
 
 def _contents_phrases(run: dict[str, Any]) -> tuple[str, ...]:
     draws, siteless = _skips(run)
-    phrases = (f"{_count(run, 'count', RUN_EVIDENCE)} requested", *(f"{n} draws" for _, n in draws))
+    phrases = (
+        f"{_count(run, 'records', RUN_EVIDENCE)} candidates",
+        f"{_count(run, 'count', RUN_EVIDENCE)} requested", *(f"{n} draws" for _, n in draws),
+    )
     if not siteless:
         return phrases
     return (*phrases, f"{siteless} of the {_program_count(run)} catalog programs", DRAW_POOL_PHRASE)
 
 
+def _body_text(card: str) -> str:
+    """The card outside its blockquotes, where the contents statement lives, so a
+    Verification phrase such as "97 of 132 candidates" never stands in for it."""
+    return _flat(" ".join(line for line in card.splitlines() if not line.startswith(">")))
+
+
 def _run_errors(card: str, run: dict[str, Any]) -> list[str]:
-    flat = _flat(card)
     tallies = (
         *_tally(run.get("outcomes"), f"{RUN_EVIDENCE} outcomes"),
         *_tally(run.get("oracle_statuses"), f"{RUN_EVIDENCE} oracle_statuses"),
     )
-    phrases = (*(f"{n} {name}" for name, n in tallies), *_contents_phrases(run))
+    checks = (
+        *((f"{n} {name}", _flat(card)) for name, n in tallies),
+        *((phrase, _body_text(card)) for phrase in _contents_phrases(run)),
+    )
     return [
         f"card must state {phrase!r} from {RUN_EVIDENCE}"
-        for phrase in phrases if not _mentions(flat, phrase)
+        for phrase, text in checks if not _mentions(text, phrase)
     ]
+
+
+def _check_run_totals(run: dict[str, Any], records: int) -> None:
+    """Each RUN.json tally must count every record exactly once."""
+
+    for key in ("outcomes", "oracle_statuses"):
+        total = sum(n for _, n in _tally(run.get(key), f"{RUN_EVIDENCE} {key}"))
+        if total != records:
+            raise CardClaimError(f"{RUN_EVIDENCE} {key} sum to {total}, not {records} records")
 
 
 def card_claim_errors(card: str, replay: dict[str, Any], run: dict[str, Any]) -> list[str]:
@@ -330,6 +350,7 @@ def card_claim_errors(card: str, replay: dict[str, Any], run: dict[str, Any]) ->
         raise CardClaimError(
             f"{RUN_EVIDENCE} has {records} records but {REPLAY_EVIDENCE} covers {coverage.records}"
         )
+    _check_run_totals(run, records)
     return [*_replay_errors(card, coverage), *_run_errors(card, run)]
 
 

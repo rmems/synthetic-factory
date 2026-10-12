@@ -284,6 +284,17 @@ class CardClaimTests(unittest.TestCase):
         self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN),
                          ["Verification must state '13 accepted' from evidence/REPLAY.json"])
 
+    def test_produced_candidates_must_be_stated(self):
+        card = HONEST_CARD.replace("132 candidates (110", "the candidates (110")
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN),
+                         ["card must state '132 candidates' from evidence/RUN.json"])
+
+    def test_run_tallies_must_count_every_record(self):
+        for key, tally in (("outcomes", {"accepted": 110, "rejected": 21}),
+                           ("oracle_statuses", {"provisional": 17, "validated": 116})):
+            with self.subTest(key=key), self.assertRaisesRegex(cc.CardClaimError, key):
+                cc.card_claim_errors(HONEST_CARD, REPLAY, dict(RUN, **{key: tally}))
+
     def test_contents_numbers_must_match_the_run(self):
         card = HONEST_CARD.replace("from 150 requested", "from 160 requested")
         self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN),
