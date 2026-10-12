@@ -19,6 +19,7 @@ from ._contract import (
     FINDING_AST_NOT_A_PLANT,
     FINDING_FIELD_INVALID,
     FINDING_SOURCE_NOT_PARSEABLE,
+    MacRefusal,
     bind_import_twin,
     refuse,
     refuse_when,
@@ -38,11 +39,10 @@ __all__ = [
 
 
 def _const(node: ast.AST, where: str) -> Any:
-    refuse_when(
-        not isinstance(node, ast.Constant),
-        FINDING_AST_NOT_A_PLANT,
-        f"{where} is not a constant ({type(node).__name__})",
-    )
+    if not isinstance(node, ast.Constant):
+        raise MacRefusal(
+            FINDING_AST_NOT_A_PLANT, f"{where} is not a constant ({type(node).__name__})"
+        )
     return node.value
 
 
@@ -103,9 +103,10 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if not isinstance(node, ast.AnnAssign) or node.value is None:
+        return None
+    if isinstance(node.target, ast.Name):
+        return node.target.id, node.value
     return None
 
 

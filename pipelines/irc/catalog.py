@@ -163,7 +163,7 @@ def pair_by_ok_slug(slug: str) -> dict[str, Any]:
     refuse(FINDING_PAIR_NOT_FOUND, f"{slug!r}")
 
 
-def _assign_value(tree: ast.AST, name: str) -> ast.AST | None:
+def _assign_value(tree: ast.Module, name: str) -> ast.AST | None:
     for node in tree.body:
         if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == name:
             return node.value

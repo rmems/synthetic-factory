@@ -77,6 +77,30 @@ class LiteralResolutionTests(unittest.TestCase):
                     cat.plants_from_source(_SOURCE.replace(old, new), "fixture")
                 self.assertTrue(str(caught.exception).endswith(message), str(caught.exception))
 
+    def test_a_builder_without_a_rec_dict_is_refused(self):
+        for body in ("    rec = 5\n", "    other = {}\n"):
+            with self.subTest(body=body), self.assertRaises(MaosRefusal) as caught:
+                cat.plants_from_source("def build_record():\n" + body, "m.py")
+            self.assertTrue(str(caught.exception).endswith("build_record has no rec dict"))
+
+
+class NestingDepthTests(unittest.TestCase):
+    """Long operator chains resolve as on main: one Python frame per nesting level."""
+
+    def test_a_600_term_sum_and_a_600_deep_negation_resolve(self):
+        for expr, expected in ((" + ".join(["1"] * 600), 600), ("-" * 600 + "7", 7)):
+            with self.subTest(expected=expected):
+                source = _SOURCE.replace("'round': ROUND", f"'round': {expr}")
+                (plant,) = cat.plants_from_source(source, "m.py")
+                self.assertEqual(plant.source_round, expected)
+
+    def test_a_601_term_string_sum_reaches_the_round_check(self):
+        chain = " + ".join(['"a"'] * 601)
+        source = f"def build_record():\n    rec = {{'id': 'x', 'n': {chain}}}\n"
+        with self.assertRaises(MaosRefusal) as caught:
+            cat.plants_from_source(source, source_name="m.py")
+        self.assertTrue(str(caught.exception).endswith("m.py meta.round is not a positive int"))
+
 
 if __name__ == "__main__":
     unittest.main()

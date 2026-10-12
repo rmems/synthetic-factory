@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -30,6 +30,7 @@ from ._contract import (
     PLANTS_FILENAME,
     SOURCE_COMMIT,
     SOURCE_REF,
+    MacRefusal,
     bind_import_twin,
     load_strict_json,
     package_dir,
@@ -291,8 +292,8 @@ def load_catalog(path: Path | None = None) -> Catalog:
     _check_source_provenance(meta)
     extract = _as_mapping(meta.get("extract"), "extract")
     raw_sources = meta.get("sources")
-    refuse_when(not isinstance(raw_sources, list) or not raw_sources,
-                FINDING_CATALOG_EMPTY, "catalog has no source pins")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise MacRefusal(FINDING_CATALOG_EMPTY, "catalog has no source pins")
     plants_filename, plants_sha256 = _plants_pin(meta)
     jsonl_path = catalog_file.parent / plants_filename
     try:
@@ -338,13 +339,13 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
         "a catalog source pin has n_rows < 1",
     )
     full_rows = sum(pin.n_rows for pin in catalog_sources)
-    deferred_rows = _checked_extract_counts(loaded, full_rows)
+    _check_extract_counts(loaded, full_rows)
     return {
         "status": "ok",
         "catalog_id": loaded.catalog_id,
         "factory": loaded.factory,
         "plants": len(loaded.plants),
-        "deferred_rows": deferred_rows,
+        "deferred_rows": loaded.extract.get("deferred_rows"),
         "sources": len(loaded.sources),
         "catalog_files": len(catalog_sources),
         "full_row_count": full_rows,
@@ -362,25 +363,28 @@ def _refuse_duplicate_slugs(plants: tuple[Plant, ...]) -> None:
         slugs[key] = plant.shape
 
 
-def _checked_extract_counts(loaded: Catalog, full_rows: int) -> int:
-    """Refuse extract counts that drift from the pins; return the deferred row count."""
+def _is_int(value: Any) -> TypeGuard[int]:
+    """An int that is not a bool; strict JSON decoding yields no other int type."""
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
+def _check_extract_counts(loaded: Catalog, full_rows: int) -> None:
+    """Refuse extract counts that drift from the pins."""
     refuse_when(
         loaded.extract.get("full_row_count") != full_rows,
         FINDING_CATALOG_FIELD_INVALID,
         f"extract.full_row_count {shown(loaded.extract.get('full_row_count'))} != {full_rows}",
     )
     committed_rows = loaded.extract.get("committed_rows")
-    refuse_when(
-        committed_rows != len(loaded.plants),
-        FINDING_CATALOG_FIELD_INVALID,
-        "extract.committed_rows drifted from the plant slice",
-    )
+    if committed_rows is None or committed_rows != len(loaded.plants):
+        raise MacRefusal(
+            FINDING_CATALOG_FIELD_INVALID, "extract.committed_rows drifted from the plant slice"
+        )
     deferred_rows = loaded.extract.get("deferred_rows")
-    refuse_when(
-        type(deferred_rows) is not int or deferred_rows < 0,
-        FINDING_CATALOG_FIELD_INVALID,
-        "extract.deferred_rows must be a non-negative int",
-    )
+    if not _is_int(deferred_rows) or deferred_rows < 0:
+        raise MacRefusal(
+            FINDING_CATALOG_FIELD_INVALID, "extract.deferred_rows must be a non-negative int"
+        )
     refuse_when(
         committed_rows + deferred_rows != full_rows,
         FINDING_CATALOG_FIELD_INVALID,
@@ -391,7 +395,6 @@ def _checked_extract_counts(loaded: Catalog, full_rows: int) -> int:
         FINDING_CATALOG_FIELD_INVALID,
         "extract.full_source_files drifted from the source pins",
     )
-    return deferred_rows
 
 
 bind_import_twin(__name__)

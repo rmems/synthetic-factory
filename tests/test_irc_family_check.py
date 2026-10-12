@@ -9,7 +9,9 @@ exercised offline, exactly as main behaves.
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,6 +19,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from irc import catalog as ic
 from irc import pipe_catalog as pc
 from irc._contract import IrcRefusal
 
@@ -134,6 +137,49 @@ class PipeRowsFromSourceTests(unittest.TestCase):
                 with self.assertRaises(IrcRefusal) as caught:
                     pc.pipe_rows_from_source(source)
                 self.assertTrue(str(caught.exception).startswith(prefix), str(caught.exception))
+
+
+_HEADER = {"mill_round": 3400, "path": _PATH, "field": "SPECS", "n_rows": 1, "sha256": _SHA}
+_ROW = {"mill_round": 3400, "index": 0, "pipe": "p0"}
+
+
+def _write_specs(directory: Path, header: dict, row: dict) -> Path:
+    path = directory / "specs.jsonl"
+    path.write_text(json.dumps(header) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
+    return path
+
+
+class SpecRowLoadingTests(unittest.TestCase):
+    def test_header_and_row_keys_must_be_ints_and_rows_need_a_header(self):
+        cases = (
+            (dict(_HEADER, mill_round=True), _ROW, "mill header missing mill_round"),
+            (dict(_HEADER, mill_round=3400.0), _ROW, "mill header missing mill_round"),
+            ({k: v for k, v in _HEADER.items() if k != "mill_round"}, _ROW, "mill header missing mill_round"),
+            (_HEADER, dict(_ROW, index=True), "specs.jsonl:2: row keys"),
+            (_HEADER, dict(_ROW, mill_round="3400"), "specs.jsonl:2: row keys"),
+            (_HEADER, dict(_ROW, mill_round=1), "missing header for mill 1"),
+        )
+        for header, row, message in cases:
+            with self.subTest(message=message, header=header, row=row), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(IrcRefusal) as caught:
+                    pc._load_spec_rows(_write_specs(Path(tmp), header, row))
+                self.assertTrue(str(caught.exception).endswith(message), str(caught.exception))
+
+    def test_catalog_sources_must_be_a_non_empty_list(self):
+        committed = json.loads(pc.catalog_path().read_text(encoding="utf-8"))
+        for sources in ([], {"a": 1}, "x"):
+            with self.subTest(sources=sources), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CATALOG.json"
+                path.write_text(json.dumps(dict(committed, sources=sources)), encoding="utf-8")
+                patched = mock.patch.object(pc, "catalog_path", return_value=path)
+                with patched, self.assertRaises(IrcRefusal) as caught:
+                    pc.load_family_catalog()
+                self.assertTrue(str(caught.exception).endswith("sources must be a non-empty array"))
+
+    def test_a_source_without_pairs_is_refused(self):
+        with self.assertRaises(IrcRefusal) as caught:
+            ic.pairs_from_source("X = 1\n")
+        self.assertTrue(str(caught.exception).endswith("missing PAIRS"))
 
 
 if __name__ == "__main__":

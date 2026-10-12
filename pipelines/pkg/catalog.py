@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,6 +43,7 @@ from ._contract import (
     QUOTA_PER_ROUND,
     SOURCE_COMMIT,
     SOURCE_REF,
+    PkgRefusal,
     bind_import_twin,
     refuse,
     refuse_first,
@@ -192,9 +193,10 @@ def _module_pairs_list(tree: ast.Module) -> ast.List | None:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
         target = node.targets[0]
-        if isinstance(target, ast.Name) and target.id == "PAIRS":
-            if isinstance(node.value, ast.List):
-                return node.value
+        if not (isinstance(target, ast.Name) and target.id == "PAIRS"):
+            continue
+        if isinstance(node.value, ast.List):
+            return node.value
     return None
 
 
@@ -219,15 +221,22 @@ def _append_kinds(add_fn: ast.FunctionDef) -> tuple[str, str] | None:
     return None
 
 
-def _dynamic_pair_rows(fn: ast.FunctionDef) -> list[tuple[str, ast.AST, str, ast.AST]]:
+def _add_helper_kinds(fn: ast.FunctionDef) -> tuple[str, str]:
+    """The ok/fail kinds the nested ``add()`` helper appends; refused when absent."""
     add_fn = next(
         (node for node in fn.body if isinstance(node, ast.FunctionDef) and node.name == "add"),
         None,
     )
-    refuse_when(add_fn is None, FINDING_AST_NOT_A_PLANT, "_pairs() has no nested add() helper")
+    if add_fn is None:
+        raise PkgRefusal(FINDING_AST_NOT_A_PLANT, "_pairs() has no nested add() helper")
     kinds = _append_kinds(add_fn)
-    refuse_when(kinds is None, FINDING_AST_NOT_A_PLANT, "add() does not append a 4-tuple")
-    ok_kind, fail_kind = kinds
+    if kinds is None:
+        raise PkgRefusal(FINDING_AST_NOT_A_PLANT, "add() does not append a 4-tuple")
+    return kinds
+
+
+def _dynamic_pair_rows(fn: ast.FunctionDef) -> list[tuple[str, ast.AST, str, ast.AST]]:
+    ok_kind, fail_kind = _add_helper_kinds(fn)
     rows: list[tuple[str, ast.AST, str, ast.AST]] = []
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
@@ -244,7 +253,7 @@ def _dynamic_pair_rows(fn: ast.FunctionDef) -> list[tuple[str, ast.AST, str, ast
     return rows
 
 
-def _pair_elts(tree: ast.Module) -> list[ast.Tuple | tuple[str, ast.AST, str, ast.AST]]:
+def _pair_elts(tree: ast.Module) -> Sequence[ast.Tuple | tuple[str, ast.AST, str, ast.AST]]:
     fn = _pairs_function(tree)
     listed = _returned_list(fn) if fn is not None else None
     if listed is None and fn is not None:
@@ -252,14 +261,20 @@ def _pair_elts(tree: ast.Module) -> list[ast.Tuple | tuple[str, ast.AST, str, as
         return dynamic
     if listed is None:
         listed = _module_pairs_list(tree)
-    refuse_when(listed is None, FINDING_AST_NOT_A_PLANT, "source has no _pairs() list")
+    if listed is None:
+        raise PkgRefusal(FINDING_AST_NOT_A_PLANT, "source has no _pairs() list")
+    return _catalog_rows(listed)
+
+
+def _catalog_rows(listed: ast.List) -> list[ast.Tuple]:
+    """The literal catalog's rows; each must be a 4-tuple."""
     rows: list[ast.Tuple] = []
     for elt in listed.elts:
-        refuse_when(
-            not isinstance(elt, ast.Tuple) or len(elt.elts) != 4,
-            FINDING_AST_NOT_A_PLANT,
-            "each catalog row must be a 4-tuple (ok_kind, ok, fail_kind, fail)",
-        )
+        if not isinstance(elt, ast.Tuple) or len(elt.elts) != 4:
+            raise PkgRefusal(
+                FINDING_AST_NOT_A_PLANT,
+                "each catalog row must be a 4-tuple (ok_kind, ok, fail_kind, fail)",
+            )
         rows.append(elt)
     return rows
 
@@ -275,11 +290,11 @@ def _dict_spec_strings(node: ast.Dict) -> dict[str, str]:
     return out
 
 
-def _call_spec_strings(node: ast.Call) -> dict[str, str]:
+def _call_spec_strings(node: ast.Call, name: str) -> dict[str, str]:
     refuse_when(
-        node.func.id not in _SPEC_CALL_NAMES,
+        name not in _SPEC_CALL_NAMES,
         FINDING_AST_NOT_A_PLANT,
-        f"spec call must be one of {sorted(_SPEC_CALL_NAMES)}, got {node.func.id}",
+        f"spec call must be one of {sorted(_SPEC_CALL_NAMES)}, got {name}",
     )
     out: dict[str, str] = {}
     for keyword in node.keywords:
@@ -295,7 +310,7 @@ def _spec_strings(node: ast.AST) -> dict[str, str]:
     if isinstance(node, ast.Dict):
         return _dict_spec_strings(node)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        return _call_spec_strings(node)
+        return _call_spec_strings(node, node.func.id)
     refuse(FINDING_AST_NOT_A_PLANT, "spec must be a dict or _ok/_fail call")
 
 

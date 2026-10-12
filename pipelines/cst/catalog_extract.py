@@ -14,7 +14,7 @@ import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
 from .vocabulary import (
     CATALOG_ASSIGNMENT_NAMES,
@@ -91,7 +91,7 @@ def _assignment_names(node: ast.stmt) -> list[str]:
     return []
 
 
-def _assigns_name(node: ast.stmt, name: str) -> bool:
+def _assigns_name(node: ast.stmt, name: str) -> TypeGuard[ast.Assign]:
     if not isinstance(node, ast.Assign):
         return False
     return any(isinstance(target, ast.Name) and target.id == name for target in node.targets)

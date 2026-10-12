@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -159,43 +159,54 @@ def _assigned(node: ast.AST) -> tuple[str, ast.AST] | None:
     return None
 
 
-def _resolve_negation(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
-    value = _resolve(node.operand, env)
-    refuse_when(
-        not isinstance(value, (int, float)), FINDING_AST_NOT_A_PLANT, "unary minus is not numeric"
-    )
+def _negated(_node: ast.UnaryOp, values: list[Any]) -> Any:
+    value = values[0]
+    if not isinstance(value, (int, float)):
+        raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "unary minus is not numeric")
     return -value
 
 
-def _resolve_binop(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
-    left, right = _resolve(node.left, env), _resolve(node.right, env)
+def _combined(node: ast.BinOp, values: list[Any]) -> Any:
+    left, right = values
     if isinstance(node.op, ast.Add):
         return left + right
     if isinstance(node.op, ast.Sub):
         return left - right
-    refuse_when(
-        not isinstance(node.op, ast.Mult), FINDING_AST_NOT_A_PLANT, "unsupported binary operator"
-    )
+    if not isinstance(node.op, ast.Mult):
+        raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "unsupported binary operator")
     return left * right
 
 
-def _resolve_dict(node: ast.Dict, env: Mapping[str, Any]) -> dict[Any, Any]:
-    out: dict[Any, Any] = {}
-    for key_node, value_node in zip(node.keys, node.values):
-        if key_node is None:
-            refuse(FINDING_AST_NOT_A_PLANT, "starred dict is not a plant")
-        out[_resolve(key_node, env)] = _resolve(value_node, env)
-    return out
+def _listed(_node: ast.List, values: list[Any]) -> list[Any]:
+    return values
 
 
-def _resolve_container(node: ast.AST, env: Mapping[str, Any]) -> Any:
+def _tupled(_node: ast.Tuple, values: list[Any]) -> tuple[Any, ...]:
+    return tuple(values)
+
+
+_Combine = Callable[[Any, list[Any]], Any]
+
+
+def _operands(node: ast.AST) -> tuple[list[ast.expr], _Combine]:
+    """The sub-expressions of a unary minus, binary operator, list or tuple, in order,
+    and the function that combines their resolved values.
+
+    Anything else is not a catalog literal. ``_resolve`` evaluates the operands
+    itself and the combiners call nothing further, so each nesting level costs
+    one Python frame, as on main.
+    """
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return [node.operand], _negated
+    if isinstance(node, ast.BinOp):
+        return [node.left, node.right], _combined
     if isinstance(node, ast.List):
-        return [_resolve(elt, env) for elt in node.elts]
+        return node.elts, _listed
     if isinstance(node, ast.Tuple):
-        return tuple(_resolve(elt, env) for elt in node.elts)
-    if not isinstance(node, ast.Dict):
-        refuse(FINDING_AST_NOT_A_PLANT, f"catalog argument is not a literal: {type(node).__name__}")
-    return _resolve_dict(node, env)
+        return node.elts, _tupled
+    raise MaosRefusal(
+        FINDING_AST_NOT_A_PLANT, f"catalog argument is not a literal: {type(node).__name__}"
+    )
 
 
 def _resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
@@ -203,11 +214,15 @@ def _resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
         return node.value
     if isinstance(node, ast.Name) and node.id in env:
         return env[node.id]
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return _resolve_negation(node, env)
-    if isinstance(node, ast.BinOp):
-        return _resolve_binop(node, env)
-    return _resolve_container(node, env)
+    if isinstance(node, ast.Dict):
+        out: dict[Any, Any] = {}
+        for key_node, value_node in zip(node.keys, node.values):
+            if key_node is None:
+                raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "starred dict is not a plant")
+            out[_resolve(key_node, env)] = _resolve(value_node, env)
+        return out
+    operands, combine = _operands(node)
+    return combine(node, [_resolve(operand, env) for operand in operands])
 
 
 def _optional_resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
@@ -364,12 +379,13 @@ def _rec_from_build_record(fn: ast.FunctionDef, module_env: Mapping[str, Any]) -
         resolved = _optional_const(value, consts)
         if resolved is not None:
             consts[name] = resolved
-    refuse_when(
-        not isinstance(rec, dict),
-        FINDING_AST_NOT_A_PLANT,
-        "build_record has no rec dict",
-    )
-    return rec, consts
+    return _required_rec(rec), consts
+
+
+def _required_rec(rec: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(rec, dict):
+        raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "build_record has no rec dict")
+    return rec
 
 
 def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, ...]:

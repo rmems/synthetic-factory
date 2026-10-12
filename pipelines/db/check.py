@@ -48,7 +48,8 @@ def _refuse_duplicates(columns: tuple[tuple[str, list], ...]) -> None:
 
 def self_check() -> None:
     """Validate the catalog and one built pair per odd index; fail closed."""
-    slugs, plants, tables, leftovers, surfaces = [], [], [], [], []
+    slugs, plants, tables, surfaces = [], [], [], []
+    leftovers: list[str] = []
     for i, plant in enumerate(PLANTS):
         slug = plant["slug"]
         slugs.append(slug)

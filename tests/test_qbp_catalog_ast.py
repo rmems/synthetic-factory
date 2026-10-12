@@ -118,6 +118,20 @@ class LiteralTests(unittest.TestCase):
                 self._literal(expr)
             self.assertTrue(str(caught.exception).endswith(message), str(caught.exception))
 
+    def test_pairs_must_be_a_list_literal(self):
+        with self.assertRaises(QbpRefusal) as caught:
+            ca.ast_extract_plants("CATALOG_FIRST = 1\nPAIRS = 5\n")
+        self.assertTrue(str(caught.exception).endswith("PAIRS must be a list"))
+
+    def test_a_600_deep_sign_chain_is_read_as_on_main(self):
+        for signs, expected in (("-" * 600, 1), ("-" * 601, -1), ("+-" * 300, 1)):
+            with self.subTest(depth=len(signs)):
+                source = f"CATALOG_FIRST = {signs}1\nPAIRS = []\n"
+                self.assertEqual(
+                    ca.ast_extract_plants(source),
+                    {"catalog_first": expected, "n_pairs": 0, "pairs": []},
+                )
+
 
 class PlantsPointerTests(unittest.TestCase):
     def test_only_str_of_a_division_by_a_literal_names_the_plants_file(self):

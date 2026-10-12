@@ -60,12 +60,13 @@ def _joined_text(node: ast.JoinedStr) -> str:
 
 
 def _dict_literal(node: ast.Dict) -> dict[Any, Any]:
+    keys = [key for key in node.keys if key is not None]
     refuse_when(
-        any(key is None for key in node.keys),
+        len(keys) != len(node.keys),
         FINDING_AST_NOT_A_PAIR,
         f"{SOURCE_PATH} uses dict unpacking",
     )
-    return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values, strict=True)}
+    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values, strict=True)}
 
 
 def _is_keyword_mapping_call(node: ast.Call) -> bool:
@@ -113,10 +114,15 @@ def _pair_from_append_call(call: ast.Call, *, source: str, index: int) -> dict[s
         return None
     if not (isinstance(call.func.value, ast.Name) and call.func.value.id in _APPEND_LISTS):
         return None
+    return _appended_pair(call, call.func.value.id, source=source, index=index)
+
+
+def _appended_pair(call: ast.Call, list_name: str, *, source: str, index: int) -> dict[str, Any]:
+    """The one ``(ok, fail)`` tuple a ``<list_name>.append(...)`` call appends."""
     refuse_when(
         len(call.args) != 1,
         FINDING_AST_NOT_A_PAIR,
-        f"{source} {call.func.value.id}.append must take one tuple argument",
+        f"{source} {list_name}.append must take one tuple argument",
     )
     return _pair_from_tuple(_const_eval(call.args[0]), source=source, index=index)
 
@@ -182,7 +188,7 @@ def pairs_from_source(text: str, *, source: str = SOURCE_PATH) -> tuple[dict[str
         call = _pairs_append_call(node)
         if call is None:
             continue
-        rows.append(_pair_from_append_call(call, source=source, index=len(rows)))
+        rows.append(_appended_pair(call, "PAIRS", source=source, index=len(rows)))
     refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS.append rows")
     return tuple(rows)
 

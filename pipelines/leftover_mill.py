@@ -458,7 +458,7 @@ def scan_jsonl_kind_mix(
             source_sha256_by_line[line_number] = source_sha256
             try:
                 decoded.append((line_number, _decode_jsonl_line(raw_line)))
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            except ValueError:  # UnicodeDecodeError and json.JSONDecodeError included
                 findings.append(
                     _unparseable_finding(name, line_number, expected_kind, source_sha256)
                 )

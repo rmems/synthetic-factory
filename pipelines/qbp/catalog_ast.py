@@ -6,7 +6,7 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections.abc import Mapping
-from typing import Any, NoReturn
+from typing import Any
 
 from ._contract import (
     BAN,
@@ -26,6 +26,7 @@ from ._contract import (
     PAIRS_FILENAME,
     QUOTA_PER_ROUND,
     SCHEMA_ID,
+    QbpRefusal,
     bind_import_twin,
     refuse,
     refuse_first,
@@ -52,51 +53,46 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _unsupported(node: ast.AST, where: str) -> NoReturn:
-    refuse(FINDING_CATALOG_PLANT, f"{where}: unsupported {type(node).__name__}")
+_PLAIN_CONSTANTS = (str, int, float, bool, type(None))
 
 
-def _constant_literal(node: ast.Constant, where: str) -> Any:
-    value = node.value
-    if not isinstance(value, (str, int, float, bool)) and value is not None:
-        _unsupported(node, where)
-    return value
+def _signed(op: ast.unaryop, value: Any, where: str) -> Any:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise QbpRefusal(FINDING_CATALOG_PLANT, f"{where}: unary operand must be a number")
+    return -value if isinstance(op, ast.USub) else value
 
 
-def _signed_literal(node: ast.UnaryOp, where: str) -> Any:
-    value = _literal(node.operand, where)
-    refuse_when(
-        not isinstance(value, (int, float)) or isinstance(value, bool),
-        FINDING_CATALOG_PLANT,
-        f"{where}: unary operand must be a number",
-    )
-    return -value if isinstance(node.op, ast.USub) else value
+def _sequence_elements(node: ast.AST, where: str) -> tuple[list[ast.expr], str]:
+    """A list, tuple or set literal's elements and the location their refusals name.
 
-
-def _sequence_literal(node: ast.AST, where: str) -> list[Any]:
+    Anything else is unsupported. ``_literal`` evaluates the elements itself,
+    so each nesting level costs one Python frame, as on main.
+    """
     if isinstance(node, ast.List):
-        return [_literal(elt, f"{where}[]") for elt in node.elts]
+        return node.elts, f"{where}[]"
     if isinstance(node, ast.Tuple):
-        return [_literal(elt, f"{where}()") for elt in node.elts]
-    if not isinstance(node, ast.Set):
-        _unsupported(node, where)
-    return [_literal(elt, where) for elt in node.elts]
+        return node.elts, f"{where}()"
+    if isinstance(node, ast.Set):
+        return node.elts, where
+    raise QbpRefusal(FINDING_CATALOG_PLANT, f"{where}: unsupported {type(node).__name__}")
 
 
 def _literal(node: ast.AST, where: str) -> Any:
-    if isinstance(node, ast.Constant):
-        return _constant_literal(node, where)
+    if isinstance(node, ast.Constant) and isinstance(node.value, _PLAIN_CONSTANTS):
+        return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        return _signed_literal(node, where)
+        return _signed(node.op, _literal(node.operand, where), where)
     if isinstance(node, ast.Dict):
         return _literal_dict(node, where)
-    return _sequence_literal(node, where)
+    elements, element_where = _sequence_elements(node, where)
+    return [_literal(elt, element_where) for elt in elements]
 
 
 def _literal_dict(node: ast.Dict, where: str) -> dict[Any, Any]:
     out: dict[Any, Any] = {}
     for key, value in zip(node.keys, node.values, strict=True):
-        refuse_when(key is None, FINDING_CATALOG_PLANT, f"{where}: starred dict")
+        if key is None:
+            raise QbpRefusal(FINDING_CATALOG_PLANT, f"{where}: starred dict")
         out[_literal(key, where)] = _literal(value, where)
     return out
 
@@ -224,7 +220,8 @@ def ast_extract_plants(source: str) -> dict[str, Any]:
         "CATALOG_FIRST must be an int",
     )
     payload = assigns["PAIRS"]
-    refuse_when(not isinstance(payload, ast.List), FINDING_CATALOG_PLANT, "PAIRS must be a list")
+    if not isinstance(payload, ast.List):
+        raise QbpRefusal(FINDING_CATALOG_PLANT, "PAIRS must be a list")
     pairs: list[dict[str, Any]] = []
     for index, item in enumerate(payload.elts):
         ok_node, bad_node = _pair_item(item, index)

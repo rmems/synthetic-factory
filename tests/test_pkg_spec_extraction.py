@@ -110,5 +110,29 @@ class PlantFieldTests(unittest.TestCase):
         self.assertEqual((plant.leftover, plant.goal, plant.plan), ("", "", ""))
 
 
+class PairListTests(unittest.TestCase):
+    def test_a_module_level_pairs_list_is_read_when_there_is_no_pairs_function(self):
+        source = (
+            "CATALOG_FIRST = 7\nOTHER = 1\nA = B = 2\nPAIRS = 5\n"
+            f"PAIRS = [('cosign_reusable', {_OK}, 'fail_leftover', {_FAIL})]\n"
+        )
+        plants = cat.plants_from_source(source, "module")
+        self.assertEqual([(p.record_id, p.role) for p in plants], [
+            ("pkg-r7-ok-slug", "ok"),
+            ("pkg-r7-fail-slug", "fail"),
+        ])
+
+    def test_missing_or_malformed_pair_lists_are_refused(self):
+        cases = (
+            ("CATALOG_FIRST = 7\ndef _pairs():\n    pass\n", "_pairs() has no nested add() helper"),
+            ("CATALOG_FIRST = 7\nX = 1\n", "source has no _pairs() list"),
+            ("CATALOG_FIRST = 7\nPAIRS = [(1, 2)]\n", "each catalog row must be a 4-tuple"),
+        )
+        for source, message in cases:
+            with self.subTest(message=message), self.assertRaises(PkgRefusal) as caught:
+                cat.plants_from_source(source, "module")
+            self.assertIn(message, str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

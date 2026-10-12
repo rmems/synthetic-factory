@@ -16,7 +16,7 @@ import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -111,6 +111,11 @@ def _as_str(value: Any, where: str) -> str:
     return value
 
 
+def _is_int(value: Any) -> TypeGuard[int]:
+    """An int that is not a bool; JSON decoding yields no other int type."""
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
 def _sha256_text(payload: str) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
@@ -134,7 +139,8 @@ def _load_spec_rows(path: Path) -> tuple[SpecRow, ...]:
         item = _parse_jsonl_line(line, line_no)
         if "pipe" not in item:
             mill_round = item.get("mill_round")
-            refuse_when(type(mill_round) is not int, FINDING_CATALOG_FIELD_INVALID, "mill header missing mill_round")
+            if not _is_int(mill_round):
+                raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, "mill header missing mill_round")
             headers[mill_round] = (
                 _as_str(item.get("path"), "path"),
                 _as_str(item.get("field"), "field"),
@@ -143,10 +149,11 @@ def _load_spec_rows(path: Path) -> tuple[SpecRow, ...]:
             continue
         mill_round = item.get("mill_round")
         index = item.get("index")
-        refuse_when(type(mill_round) is not int or type(index) is not int,
-                    FINDING_CATALOG_FIELD_INVALID, f"{SPECS_FILENAME}:{line_no}: row keys")
+        if not _is_int(mill_round) or not _is_int(index):
+            raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"{SPECS_FILENAME}:{line_no}: row keys")
         header = headers.get(mill_round)
-        refuse_when(header is None, FINDING_CATALOG_FIELD_INVALID, f"missing header for mill {mill_round}")
+        if header is None:
+            raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"missing header for mill {mill_round}")
         path_text, field, _digest = header
         rows.append(
             SpecRow(
@@ -188,8 +195,8 @@ def load_family_catalog() -> FamilyCatalog:
         (extract.get("committed_mill_catalogs") != COMMITTED_MILL_CATALOGS, FINDING_CATALOG_FIELD_INVALID, "committed_mill_catalogs"),
     ))
     sources_raw = meta.get("sources")
-    refuse_when(not isinstance(sources_raw, list) or not sources_raw,
-                FINDING_CATALOG_FIELD_INVALID, "sources must be a non-empty array")
+    if not isinstance(sources_raw, list) or not sources_raw:
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, "sources must be a non-empty array")
     sources = tuple(_as_mapping(item, "sources[]") for item in sources_raw)
     spec_rows = _load_spec_rows(specs_path())
     return FamilyCatalog(catalog_id=CATALOG_ID, sources=sources, spec_rows=spec_rows)

@@ -7,6 +7,7 @@ refusal ``catalog_check`` raises.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import json
@@ -19,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 from mac import catalog as cat
+from mac import generate as gen
 from mac._contract import MacRefusal
 
 _PACKAGE = REPO / "pipelines" / "mac"
@@ -85,6 +87,29 @@ class CatalogPinTests(unittest.TestCase):
         for mutate, fragment in cases:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, _check(mutate))
+
+
+class GenerateHelperTests(unittest.TestCase):
+    def test_a_non_constant_plant_argument_is_refused(self):
+        with self.assertRaises(MacRefusal) as caught:
+            gen._const(ast.Name("slug"), "P[0].slug")
+        self.assertTrue(str(caught.exception).endswith("P[0].slug is not a constant (Name)"))
+
+    def test_annotated_assignments_bind_only_named_targets_with_values(self):
+        cases = (
+            ("SCEN: list = [1]", "SCEN"),
+            ("SCEN: list", None),
+            ("obj.attr: int = 1", None),
+            ("A = B = 1", None),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                bound = gen._assigned_name(ast.parse(source).body[0])
+                self.assertEqual(None if bound is None else bound[0], expected)
+
+    def test_an_annotated_scen_list_feeds_the_scenario_rows(self):
+        rows = gen.plants_from_source("SCEN: list = [dict(slug='s1', goal='g1')]\n")
+        self.assertEqual(rows, ({"shape": gen.SHAPE_SCEN, "slug": "s1", "goal": "g1"},))
 
 
 if __name__ == "__main__":
