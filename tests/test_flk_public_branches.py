@@ -33,12 +33,19 @@ class FlkCatalogContract(support.SiblingCatalogContract, unittest.TestCase):
     prefix = "flk"
     committed = COMMITTED
 
+    def test_the_default_catalog_is_the_committed_one(self):
+        self.assertEqual(catalog.default_catalog_dir(), COMMITTED)
+
 
 class FlkGenerateContract(support.SiblingGenerateContract, unittest.TestCase):
     generate = generate
     error_type = FlkRefusal
     prefix = "flk"
     committed = COMMITTED
+
+    def test_exactly_one_selector_is_required(self):
+        expected = (("flk.usage", "exactly one of plant_id, mill_id, or all_plants"), False)
+        self.assertEqual(self.run_refusal(), expected)
 
 
 class FlkSourceShapes(unittest.TestCase):
@@ -62,9 +69,6 @@ class FlkSourceShapes(unittest.TestCase):
         rows = catalog.plants_from_source(text, mill_id="flk_r0003", source="s.py")
         identity = [(row["plant_id"], row["base_round"]) for row in rows]
         self.assertEqual(identity, [("flk_r0003:tiny-clock", 3)])
-
-    def test_the_default_catalog_is_the_committed_one(self):
-        self.assertEqual(catalog.default_catalog_dir(), COMMITTED)
 
 
 if __name__ == "__main__":

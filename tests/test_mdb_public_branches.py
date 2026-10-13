@@ -74,10 +74,6 @@ class MdbLiteralAst(support.LiteralAstContract, unittest.TestCase):
         self.assertEqual(found, ["experiments/m.py", None])
 
 
-class MdbExtractNaming(support.ExtractNamingContract, unittest.TestCase):
-    extract = extract
-
-
 class MdbCatalogPins(support.SourceBoundCatalogContract, unittest.TestCase):
     catalog = catalog
     catalog_dir = PACKAGE
@@ -100,7 +96,9 @@ class MdbCatalogPins(support.SourceBoundCatalogContract, unittest.TestCase):
                 self.assertEqual(found, f"{written} {message}")
 
 
-class MdbExtractShapes(unittest.TestCase):
+class MdbExtractShapes(support.ExtractNamingContract, unittest.TestCase):
+    extract = extract
+
     def test_a_non_int_catalog_first_falls_back_to_the_file_name(self):
         source = "CATALOG_FIRST = 'x'\nSLUGS = ['a', 'b']\n"
         record = extract.extract_mill_catalog(source, path=PATH)

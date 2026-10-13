@@ -42,12 +42,22 @@ class MsdCatalogContract(support.SiblingCatalogContract, unittest.TestCase):
     committed = COMMITTED
     pins_unregistered_factory = True
 
+    def test_the_default_catalog_is_the_committed_one(self):
+        self.assertEqual(catalog.default_catalog_dir(), COMMITTED)
+
 
 class MsdGenerateContract(support.SiblingGenerateContract, unittest.TestCase):
     generate = generate
     error_type = MsdRefusal
     prefix = "msd"
     committed = COMMITTED
+
+    def test_a_long_decision_basis_is_clipped_to_240_characters(self):
+        copy = support.one_plant_copy(self, COMMITTED, leftover="x" * 300)
+        records = support.generated_records(self, generate, copy.directory)
+        basis = records[0]["steps"][0]["decision_basis"]
+        self.assertEqual((len(basis), basis[-1]), (240, "…"))
+        self.assertTrue(basis.startswith("Plan: locate Map xxx"), basis)
 
 
 class MsdSourceShapes(unittest.TestCase):
@@ -80,18 +90,6 @@ class MsdSourceShapes(unittest.TestCase):
         rows = extract("import os\na = b = 1\nobj.attr = 2\nSTART: int\n" + ONE_PAIR)
         identity = [(row["plant_id"], row["base_round"], row["repo"]) for row in rows]
         self.assertEqual(identity, [("msd_r0005:s", 5, "repo-mcp")])
-
-    def test_the_default_catalog_is_the_committed_one(self):
-        self.assertEqual(catalog.default_catalog_dir(), COMMITTED)
-
-
-class MsdGenerateClip(unittest.TestCase):
-    def test_a_long_decision_basis_is_clipped_to_240_characters(self):
-        copy = support.one_plant_copy(self, COMMITTED, leftover="x" * 300)
-        records = support.generated_records(self, generate, copy.directory)
-        basis = records[0]["steps"][0]["decision_basis"]
-        self.assertEqual((len(basis), basis[-1]), (240, "…"))
-        self.assertTrue(basis.startswith("Plan: locate Map xxx"), basis)
 
 
 if __name__ == "__main__":

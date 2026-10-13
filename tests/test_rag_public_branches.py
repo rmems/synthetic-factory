@@ -54,6 +54,15 @@ class RagGenerateContract(support.SiblingGenerateContract, unittest.TestCase):
     prefix = "rag"
     committed = COMMITTED
 
+    def test_a_long_decision_basis_is_clipped_to_240_characters(self):
+        eng = "q" * 300
+        changes = {"eng": eng, "slug": f"{eng}-payload", "plant_id": f"rag_r670:{eng}-payload"}
+        copy = support.one_plant_copy(self, COMMITTED, **changes)
+        records = support.generated_records(self, generate, copy.directory)
+        basis = records[0]["steps"][0]["decision_basis"]
+        self.assertEqual((len(basis), basis[-1]), (240, "…"))
+        self.assertTrue(basis.startswith("Plan: list leftover leftover leftover qqq"), basis)
+
 
 class RagSourceShapes(unittest.TestCase):
     def test_malformed_pairs_are_coded_refusals(self):
@@ -107,15 +116,6 @@ class RagRoundsAndSelectors(unittest.TestCase):
         every = generate.run(generate.GenerateRequest(COMMITTED, root / "a", all_plants=True))
         found = (by_mill["records"], by_mill["records_sha256"])
         self.assertEqual(found, (32, every["records_sha256"]))
-
-    def test_a_long_decision_basis_is_clipped_to_240_characters(self):
-        eng = "q" * 300
-        changes = {"eng": eng, "slug": f"{eng}-payload", "plant_id": f"rag_r670:{eng}-payload"}
-        copy = support.one_plant_copy(self, COMMITTED, **changes)
-        records = support.generated_records(self, generate, copy.directory)
-        basis = records[0]["steps"][0]["decision_basis"]
-        self.assertEqual((len(basis), basis[-1]), (240, "…"))
-        self.assertTrue(basis.startswith("Plan: list leftover leftover leftover qqq"), basis)
 
 
 if __name__ == "__main__":

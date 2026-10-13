@@ -49,6 +49,14 @@ class SafGenerateContract(support.SiblingGenerateContract, unittest.TestCase):
     prefix = "saf"
     committed = COMMITTED
 
+    def test_a_miss_id_over_80_characters_drops_the_flavor(self):
+        slug = "s" * 70
+        changes = {"slug": slug, "plant_id": f"saf_r5045:{slug}", "flavor": "tool-output"}
+        copy = support.one_plant_copy(self, COMMITTED, **changes)
+        records = support.generated_records(self, generate, copy.directory)
+        ids = [record["id"] for record in records]
+        self.assertEqual(ids, [f"saf-r5045-{slug}", f"saf-r5045-miss-{slug}"])
+
 
 class SafSourceShapes(unittest.TestCase):
     def test_malformed_sources_are_coded_refusals(self):
@@ -74,16 +82,6 @@ class SafSourceShapes(unittest.TestCase):
 
     def test_the_default_catalog_is_the_committed_one(self):
         self.assertEqual(catalog.default_catalog_dir(), COMMITTED)
-
-
-class SafGenerateIds(unittest.TestCase):
-    def test_a_miss_id_over_80_characters_drops_the_flavor(self):
-        slug = "s" * 70
-        changes = {"slug": slug, "plant_id": f"saf_r5045:{slug}", "flavor": "tool-output"}
-        copy = support.one_plant_copy(self, COMMITTED, **changes)
-        records = support.generated_records(self, generate, copy.directory)
-        ids = [record["id"] for record in records]
-        self.assertEqual(ids, [f"saf-r5045-{slug}", f"saf-r5045-miss-{slug}"])
 
 
 if __name__ == "__main__":
