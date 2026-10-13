@@ -13,11 +13,13 @@ freeze, the attribution notices, and a card, ``provenance.json`` and
 ``release-status.json`` whose training-readiness statement is derived from the
 manifest's admission block rather than typed by hand.
 
-Every export file is re-digested against the manifest before it is copied and
-the viewer projection is read back and compared to the evidence lines; a
-mismatch refuses the whole bundle. The bundle is written to a brand-new
-destination outside ``outputs/raw/``. Nothing here creates or uploads a Hub
-repository or launches a trainer.
+Every export file is re-digested against the manifest before it is copied, the
+held-out freeze's ``sft`` / ``chat`` / ``edit`` digests are recomputed over the
+held-out JSONL bytes, and the viewer projection is read back and compared to
+the evidence lines; a mismatch or a missing freeze digest refuses the whole
+bundle even when the manifest's own file digests are consistent. The bundle is
+written to a brand-new destination outside ``outputs/raw/``. Nothing here
+creates or uploads a Hub repository or launches a trainer.
 """
 
 from __future__ import annotations
@@ -154,6 +156,30 @@ def _load_manifest(payload: bytes) -> dict[str, Any]:
 
 def _sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _sha256_pin(pinned: Any) -> str | None:
+    if isinstance(pinned, str) and _HEX64.fullmatch(pinned) is not None:
+        return pinned
+    return None
+
+
+def _held_out_digest_ok(freeze: dict, files: dict[str, bytes], directory: str) -> bool:
+    """Whether this rendering's freeze digest is the sha256 of the held-out bytes."""
+
+    pinned = _sha256_pin(freeze.get(f"{directory}_sha256"))
+    payload = files.get(f"{directory}/held_out.jsonl")
+    return isinstance(payload, bytes) and pinned is not None and _sha(payload) == pinned
+
+
+def _check_held_out_freeze(freeze: dict, files: dict[str, bytes]) -> None:
+    """Refuse a missing or mismatched rendering digest, whatever the manifest says."""
+
+    for _name, directory in TEXT_CONFIGS:
+        cv.refuse_when(
+            not _held_out_digest_ok(freeze, files, directory), cv.FINDING_EXPORT_INTEGRITY,
+            f"held-out freeze digest for {directory} is missing or differs from the export bytes",
+        )
 
 
 def _verified_files(export_dir: Path, manifest: dict[str, Any]) -> dict[str, bytes]:
@@ -359,7 +385,7 @@ def _bundle_files(files: dict[str, bytes], manifest_bytes: bytes) -> dict[str, b
 
 
 def _load_export(export_dir: Path) -> tuple[bytes, dict[str, Any], dict[str, bytes], dict]:
-    """The manifest bytes and object, every pinned file's verified bytes, and the freeze."""
+    """Manifest bytes, verified file bytes, and a freeze whose digests match those bytes."""
 
     manifest_bytes = (export_dir / export.MANIFEST_FILENAME).read_bytes()
     manifest = _load_manifest(manifest_bytes)
@@ -367,6 +393,7 @@ def _load_export(export_dir: Path) -> tuple[bytes, dict[str, Any], dict[str, byt
     freeze = load_strict_json(files[export.FREEZE_PATH])
     cv.refuse_when(not isinstance(freeze, dict), cv.FINDING_BUNDLE_MANIFEST_INVALID,
                    "the held-out freeze is not an object")
+    _check_held_out_freeze(freeze, files)
     return manifest_bytes, manifest, files, freeze
 
 

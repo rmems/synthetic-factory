@@ -35,6 +35,40 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def repin(export_dir, relative):
+    """Point one manifest file digest at the bytes on disk, leaving every other pin."""
+
+    manifest_path = Path(export_dir) / export.MANIFEST_FILENAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"][relative] = sha(Path(export_dir) / relative)
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+
+def manifest_matches_bytes(export_dir):
+    """True when every manifest digest equals the sha256 of the file it names."""
+
+    root = Path(export_dir)
+    manifest = json.loads((root / export.MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    return all(digest == sha(root / relative) for relative, digest in manifest["files"].items())
+
+
+def write_json(path, payload):
+    Path(path).write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+def false_freezes(freeze):
+    """Copies of a freeze with one rendering digest lied about, removed, or blank."""
+
+    lied = {**freeze, "sft_sha256": "0" * 64}
+    missing = {key: value for key, value in freeze.items() if key != "chat_sha256"}
+    blank = {**freeze, "edit_sha256": ""}
+    return (
+        ("lie", export.SFT_DIR, lied),
+        ("missing", export.CHAT_DIR, missing),
+        ("blank", export.EDIT_DIR, blank),
+    )
+
+
 def exported(root, *, replayed=True):
     """A smoke run exported into ``root``; replayed exports carry consumer rows."""
 
@@ -233,6 +267,41 @@ class Bundle(unittest.TestCase):
                 with refusal(self, cv.FINDING_BUNDLE_MANIFEST_INVALID):
                     hub_bundle.run(self.request(tampered, name))
                 self.assertFalse((self.root / name).exists())
+
+    def test_tampered_held_out_bytes_are_refused_after_the_manifest_digest_is_updated(self):
+        _manifest, out, _records, _run_dir = exported(self.root)
+        for directory in (export.SFT_DIR, export.CHAT_DIR, export.EDIT_DIR):
+            with self.subTest(directory=directory):
+                tampered = self.root / f"bytes-{directory}"
+                shutil.copytree(out, tampered)
+                relative = f"{directory}/held_out.jsonl"
+                path = tampered / relative
+                path.write_bytes(path.read_bytes() + b'{"tampered": true}\n')
+                repin(tampered, relative)
+                self.assertTrue(manifest_matches_bytes(tampered))
+                freeze = json.loads((tampered / export.FREEZE_PATH).read_text(encoding="utf-8"))
+                self.assertNotEqual(freeze[f"{directory}_sha256"], sha(path))
+                name = f"refused-bytes-{directory}"
+                with refusal(self, cv.FINDING_EXPORT_INTEGRITY,
+                             "held-out freeze digest", directory):
+                    hub_bundle.run(self.request(tampered, name))
+                self.assertFalse((self.root / name).exists())
+
+    def test_a_lying_or_missing_freeze_digest_is_refused_when_the_manifest_matches(self):
+        _manifest, out, _records, _run_dir = exported(self.root)
+        original = json.loads((out / export.FREEZE_PATH).read_text(encoding="utf-8"))
+        for name, directory, freeze in false_freezes(original):
+            with self.subTest(name=name):
+                tampered = self.root / f"freeze-{name}"
+                shutil.copytree(out, tampered)
+                write_json(tampered / export.FREEZE_PATH, freeze)
+                repin(tampered, export.FREEZE_PATH)
+                self.assertTrue(manifest_matches_bytes(tampered))
+                bundle = f"refused-freeze-{name}"
+                with refusal(self, cv.FINDING_EXPORT_INTEGRITY,
+                             "held-out freeze digest", directory):
+                    hub_bundle.run(self.request(tampered, bundle))
+                self.assertFalse((self.root / bundle).exists())
 
 
 class Cli(unittest.TestCase):
