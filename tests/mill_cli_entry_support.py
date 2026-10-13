@@ -5,8 +5,9 @@ Each helper returns an entry that takes ``argv``, so it composes with
 stderr a subprocess would see. They cover the three ways a mill CLI starts:
 ``main()`` reading ``sys.argv``, the file run as a script, and
 ``python3 -m <module>``. Each one undoes what that start-up leaves behind:
-``sys.argv``, the ``sys.path`` entry a script prelude inserts, and the
-import-twin alias a module run as ``__main__`` registers.
+``sys.argv``, the ``sys.path`` entry a script prelude inserts, the family
+package a script run imports afresh, and the import-twin alias a module run
+as ``__main__`` registers.
 """
 
 from __future__ import annotations
@@ -16,9 +17,10 @@ import sys
 import tempfile
 import unittest
 import warnings
-from collections.abc import Callable, Mapping
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from types import ModuleType
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
@@ -56,22 +58,54 @@ def argv_main(main: Callable[[], object]) -> Entry:
     return entry
 
 
+def _family_modules(family: str) -> dict[str, ModuleType]:
+    """Every loaded module of package ``family``, under its flat and ``pipelines.`` names."""
+
+    packages = (family, f"pipelines.{family}")
+    submodules = tuple(f"{package}." for package in packages)
+    return {
+        name: module
+        for name, module in sys.modules.items()
+        if name in packages or name.startswith(submodules)
+    }
+
+
+@contextmanager
+def _family_unloaded(family: str) -> Iterator[None]:
+    """Inside the block ``family`` is not imported; afterwards the same objects are back.
+
+    The import twins rely on one object per module, so the copies a run
+    imports are dropped and the originals restored, never re-imported.
+    """
+
+    saved = _family_modules(family)
+    for name in saved:
+        del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in _family_modules(family):
+            del sys.modules[name]
+        sys.modules.update(saved)
+
+
 def script_entry(path: Path, *, pythonpath: tuple[Path, ...] = ()) -> Entry:
     """``PYTHONPATH=<pythonpath> python3 <path> ...``: ``__main__`` outside any package.
 
-    ``sys.path`` is the one a fresh interpreter hands a script: the script's
-    own directory, then ``pythonpath``, and ``pipelines/`` only when it is
-    listed there, so the prelude that makes the siblings importable runs for
-    real.
+    The run sees what a fresh interpreter hands a script. ``sys.path`` is the
+    script's own directory, then ``pythonpath``, with ``pipelines/`` only when
+    it is listed there. The script's family package is not imported yet, so
+    the prelude and every sibling import really run.
     """
 
     inherited = [item for item in sys.path if item != str(PIPELINES)]
     fresh_path = [str(path.parent), *map(str, pythonpath), *inherited]
 
     def entry(argv: list[str]) -> object:
-        with mock.patch.object(sys, "argv", [str(path), *argv]), mock.patch.object(
-            sys, "path", list(fresh_path)
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(sys, "argv", [str(path), *argv]))
+            stack.enter_context(mock.patch.object(sys, "path", fresh_path.copy()))
+            stack.enter_context(_family_unloaded(path.parent.name))
             return runpy.run_path(str(path), run_name="__main__")
 
     return entry

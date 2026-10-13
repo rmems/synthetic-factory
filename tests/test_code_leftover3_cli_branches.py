@@ -17,13 +17,15 @@ from code_leftover3 import cli as code_cli
 from mill_cli_entry_support import main_in_process, scratch_dir
 
 
-class CodeLeftover3CliContractTests(contract.TripleCliContract):
-    cli = code_cli
-    # The flat spelling of ``python3 -m pipelines.code_leftover3.cli``: the same
-    # ``__main__`` block, without re-importing the ``pipelines`` package.
-    module_name = "code_leftover3.cli"
-    valid_round = "679"
-    check_prose = "catalog-check ok: 48 plants (16 triples, 48 nouns) r679-r694\n"
+class CodeLeftover3CliContractTests(contract.TripleCliContractMixin, unittest.TestCase):
+    spec = contract.TripleCli(
+        cli=code_cli,
+        # The flat spelling of ``python3 -m pipelines.code_leftover3.cli``: the same
+        # ``__main__`` block, without re-importing the ``pipelines`` package.
+        module_name="code_leftover3.cli",
+        valid_round="679",
+        check_prose="catalog-check ok: 48 plants (16 triples, 48 nouns) r679-r694\n",
+    )
 
 
 class CodeLeftover3CliReportTests(unittest.TestCase):
