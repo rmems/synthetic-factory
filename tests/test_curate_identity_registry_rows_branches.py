@@ -35,9 +35,10 @@ _RIGHTS_FIELDS = (
 
 def _first_row(source_type: str) -> int:
     rows = _COMMITTED["factories"]
-    return next(
-        (i for i, row in enumerate(rows) if row.get("source_type", "hosted") == source_type), -1
-    )
+    for i, row in enumerate(rows):
+        if row.get("source_type", "hosted") == source_type:
+            return i
+    raise LookupError(f"committed registry has no {source_type} row")
 
 
 _HOSTED = _first_row("hosted")
@@ -148,10 +149,6 @@ _ROUTE_REFUSALS = (
 
 
 class RegistryRowRefusals(RefusalCaseAssertions, unittest.TestCase):
-    def test_fixture_rows_exist(self):
-        self.assertGreaterEqual(_HOSTED, 0)
-        self.assertGreaterEqual(_MODEL_CHANNEL, 0)
-
     def test_rows_outside_their_reviewed_route_are_refused_at_load(self):
         rows = (
             (label, _document(mutate), message)
