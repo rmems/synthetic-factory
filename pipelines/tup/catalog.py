@@ -26,7 +26,6 @@ from ._contract import (
     DEFAULT_CATALOG_ID,
     FACTORY,
     FAMILIES_FILENAME,
-    PLANTS_EXTRA_FILENAME,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
@@ -176,7 +175,7 @@ class Catalog:
 
     def plant(self, plant_id: str) -> Plant:
         for row in self.plants:
-            if row.plant_id == plant_id or row.slug == plant_id:
+            if plant_id in (row.plant_id, row.slug):
                 return row
         refuse(FINDING_PLANT_NOT_FOUND, f"no tup plant {plant_id!r}")
 
@@ -234,9 +233,7 @@ def expand_families(
     for family in families:
         for short, verify_args, destroy in family.cmds:
             slug = f"{family.bin}-{short}"
-            if slug in banned or any(slug.startswith(prefix) for prefix in prefixes):
-                continue
-            if slug.startswith("yq-eval") or slug.startswith("pacman"):
+            if extract.is_skipped_slug(slug, banned, prefixes):
                 continue
             verify = f"{family.bin} {verify_args}".strip()
             dest = destroy if destroy.startswith(("rm ", family.bin)) else f"{family.bin} {destroy}"
@@ -428,11 +425,8 @@ def _load_mill_family_plants(
     file_name = row.get("file")
     if file_name in (None, FAMILIES_FILENAME):
         return []
-    refuse_when(
-        not isinstance(file_name, str),
-        FINDING_CATALOG_FIELD_INVALID,
-        f"mills[{index}].file must be a string",
-    )
+    if not isinstance(file_name, str):
+        refuse(FINDING_CATALOG_FIELD_INVALID, f"mills[{index}].file must be a string")
     banned_slugs, banned_prefix = bans
     wave_path = _catalog_member(catalog_dir, file_name)
     wave_bytes = _load_jsonl_bytes(wave_path)
@@ -453,6 +447,32 @@ def _load_mill_family_plants(
 def load_catalog(directory: Path | None = None) -> Catalog:
     catalog_dir = Path(directory) if directory is not None else DEFAULT_CATALOG_DIR
     meta, families_bytes, digest = _load_meta(catalog_dir)
+    families = _load_families(families_bytes, meta)
+    banned_slugs = _as_str_tuple(meta["banned_slugs"], "banned_slugs")
+    banned_prefix = _as_str_tuple(meta["banned_prefix"], "banned_prefix")
+    plants: list[Plant] = list(
+        expand_families(
+            families,
+            banned_slugs=banned_slugs,
+            banned_prefix=banned_prefix,
+            mill_id=SLICE_MILL,
+        )
+    )
+    plants.extend(_mill_family_plants(catalog_dir, meta, (banned_slugs, banned_prefix)))
+    plants.extend(_extra_plants(catalog_dir, meta))
+    plants_tuple = tuple(plants)
+    _check_plant_slugs(plants_tuple, meta)
+    _check_r1349_pin(catalog_dir, meta)
+    return Catalog(
+        directory=catalog_dir,
+        meta=MappingProxyType(dict(meta)),
+        families_sha256=digest,
+        families=families,
+        plants=plants_tuple,
+    )
+
+
+def _load_families(families_bytes: bytes, meta: Mapping[str, Any]) -> tuple[Family, ...]:
     families = tuple(
         _family_from_row(load_strict_json(line), lineno)
         for lineno, line in enumerate(families_bytes.decode("utf-8").splitlines(), start=1)
@@ -463,80 +483,92 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_CATALOG_FIELD_INVALID,
         f"families.jsonl has {len(families)} rows; CATALOG.json says {meta['families']}",
     )
-    banned_slugs = _as_str_tuple(meta["banned_slugs"], "banned_slugs")
-    banned_prefix = _as_str_tuple(meta["banned_prefix"], "banned_prefix")
-    bans = (banned_slugs, banned_prefix)
-    plants: list[Plant] = list(
-        expand_families(
-            families,
-            banned_slugs=banned_slugs,
-            banned_prefix=banned_prefix,
-            mill_id=SLICE_MILL,
-        )
-    )
+    return families
+
+
+def _mill_family_plants(
+    catalog_dir: Path,
+    meta: Mapping[str, Any],
+    bans: tuple[tuple[str, ...], tuple[str, ...]],
+) -> list[Plant]:
+    """Plants of every ``families``-shaped wave in ``mills`` (``plants`` waves are extra rows)."""
+
     mills = meta.get("mills")
-    if isinstance(mills, list):
-        for index, row in enumerate(mills):
-            refuse_when(
-                not isinstance(row, dict),
-                FINDING_CATALOG_FIELD_INVALID,
-                f"mills[{index}] is not an object",
-            )
-            shape = row.get("shape")
-            if shape == "families":
-                plants.extend(
-                    _load_mill_family_plants(catalog_dir, row, index, bans)
-                )
-            elif shape == "plants":
-                continue
-    extra_name = meta.get("plants_extra_filename")
-    if isinstance(extra_name, str) and extra_name:
-        extra_path = _catalog_member(catalog_dir, extra_name)
-        extra_bytes = _load_jsonl_bytes(extra_path)
-        digest_extra = _sha256_bytes(extra_bytes)
+    if not isinstance(mills, list):
+        return []
+    plants: list[Plant] = []
+    for index, row in enumerate(mills):
         refuse_when(
-            meta.get("plants_extra_sha256") != digest_extra,
-            FINDING_PLANTS_SHA_MISMATCH,
-            f"{extra_name} sha256 {digest_extra} != pinned",
+            not isinstance(row, dict),
+            FINDING_CATALOG_FIELD_INVALID,
+            f"mills[{index}] is not an object",
         )
-        for lineno, line in enumerate(extra_bytes.decode("utf-8").splitlines(), start=1):
-            if line:
-                plants.append(_plant_from_row(load_strict_json(line), lineno))
-    plants_tuple = tuple(plants)
+        if row.get("shape") == "families":
+            plants.extend(_load_mill_family_plants(catalog_dir, row, index, bans))
+    return plants
+
+
+def _extra_plants(catalog_dir: Path, meta: Mapping[str, Any]) -> list[Plant]:
+    """Rows of the pinned ``plants_extra_filename`` member, when the catalog names one."""
+
+    extra_name = meta.get("plants_extra_filename")
+    if not isinstance(extra_name, str) or not extra_name:
+        return []
+    extra_path = _catalog_member(catalog_dir, extra_name)
+    extra_bytes = _load_jsonl_bytes(extra_path)
+    digest_extra = _sha256_bytes(extra_bytes)
     refuse_when(
-        len(plants_tuple) != meta["plants"],
-        FINDING_CATALOG_FIELD_INVALID,
-        f"loaded {len(plants_tuple)} plants; CATALOG.json says {meta['plants']}",
+        meta.get("plants_extra_sha256") != digest_extra,
+        FINDING_PLANTS_SHA_MISMATCH,
+        f"{extra_name} sha256 {digest_extra} != pinned",
     )
-    slugs = [plant.slug for plant in plants_tuple]
+    return [
+        _plant_from_row(load_strict_json(line), lineno)
+        for lineno, line in enumerate(extra_bytes.decode("utf-8").splitlines(), start=1)
+        if line
+    ]
+
+
+def _check_plant_slugs(plants: tuple[Plant, ...], meta: Mapping[str, Any]) -> None:
+    refuse_when(
+        len(plants) != meta["plants"],
+        FINDING_CATALOG_FIELD_INVALID,
+        f"loaded {len(plants)} plants; CATALOG.json says {meta['plants']}",
+    )
+    slugs = [plant.slug for plant in plants]
     refuse_when(
         len(set(slugs)) != len(slugs),
         FINDING_PLANT_DUPLICATE,
         "duplicate slugs in tup catalog",
     )
-    if catalog_dir.resolve() == DEFAULT_CATALOG_DIR.resolve():
-        mills_meta = meta.get("mills")
-        r1349_pin = (
-            next(
-                (row.get("source_commit") for row in mills_meta if row.get("mill_id") == SLICE_MILL),
-                None,
-            )
-            if isinstance(mills_meta, list)
-            else None
-        )
-        pinned = r1349_pin if isinstance(r1349_pin, str) else meta.get("source_commit")
-        refuse_when(
-            pinned != SOURCE_COMMIT,
-            FINDING_CATALOG_FIELD_INVALID,
-            f"r1349 source_commit {pinned!r} != {SOURCE_COMMIT}",
-        )
-    return Catalog(
-        directory=catalog_dir,
-        meta=MappingProxyType(dict(meta)),
-        families_sha256=digest,
-        families=families,
-        plants=plants_tuple,
+
+
+def _check_r1349_pin(catalog_dir: Path, meta: Mapping[str, Any]) -> None:
+    """The default catalog must still pin the reviewed r1349 source commit."""
+
+    if catalog_dir.resolve() != DEFAULT_CATALOG_DIR.resolve():
+        return
+    pinned = _r1349_source_commit(meta)
+    refuse_when(
+        pinned != SOURCE_COMMIT,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"r1349 source_commit {pinned!r} != {SOURCE_COMMIT}",
     )
+
+
+def _r1349_source_commit(meta: Mapping[str, Any]) -> Any:
+    """The r1349 mill row's ``source_commit``, else the catalog-level one."""
+
+    mills_meta = meta.get("mills")
+    r1349_pin = (
+        next(
+            (row.get("source_commit") for row in mills_meta if row.get("mill_id") == SLICE_MILL),
+            None,
+        )
+        if isinstance(mills_meta, list)
+        else None
+    )
+    return r1349_pin if isinstance(r1349_pin, str) else meta.get("source_commit")
 
 
 def catalog_check(directory: Path | None = None) -> list[str]:

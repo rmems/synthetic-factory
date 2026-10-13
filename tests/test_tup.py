@@ -327,6 +327,79 @@ class AstExtract(unittest.TestCase):
             self.assertNotIn("compile", calls, path.name)
 
 
+_FAMILY_FN = "def extra_catalog():\n    families = {}\n"
+
+
+class ExtractShapeRefusals(unittest.TestCase):
+    """Every malformed level of a family or ROUNDS source is a coded refusal."""
+
+    def test_family_sources_refuse_each_malformed_level(self):
+        cases = (
+            ("def extra_catalog(:\n", "mill source is not parseable: "),
+            ("FAMILIES = []\n", "missing extra_* catalog function"),
+            (
+                _FAMILY_FN.format("build()") + "    families = [('b', 'k', 'g', [])]\n",
+                "missing families list",
+            ),
+            (_FAMILY_FN.format("[('b', 'k', 'g')]"), "families[0] is not a 4-tuple"),
+            (_FAMILY_FN.format("[('b', 'k', 'g', [])]"), "families[0].cmds is empty"),
+            (
+                _FAMILY_FN.format("[('b', 'k', 'g', [('s', 'v')])]"),
+                "families[0].cmds[0] is not a 3-tuple",
+            ),
+        )
+        for source, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaises(TupRefusal) as caught:
+                    catalog_extract.family_rows_from_source(source)
+                self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+                self.assertTrue(caught.exception.message.startswith(message))
+
+    def test_a_rounds_plant_must_be_an_eight_tuple(self):
+        with self.assertRaises(TupRefusal) as caught:
+            catalog_extract.round_plants_from_source("ROUNDS = [[('a', 'b')]]\n", mill_id="tup_r9")
+        self.assertEqual(caught.exception.message, "ROUNDS[0][0] is not an 8-tuple")
+
+    def test_a_source_without_rounds_is_refused(self):
+        with self.assertRaises(TupRefusal) as caught:
+            catalog_extract.round_plants_from_source("ROUNDS: list = []\n", mill_id="tup_r9")
+        self.assertEqual(caught.exception.message, "missing ROUNDS in tup_r9")
+
+    def test_expansion_drops_banned_and_always_skipped_slugs(self):
+        cmds = {
+            "htmlq": [("ban", "v", "d"), ("text", "-t a", "rm -f p")],
+            "bad": [("x", "v", "d")],
+            "pacman": [("q", "-Q", "-R x")],
+            "yq": [("eval-all", ".", "rm -f y")],
+        }
+        rows = [{"bin": name, "keep": "k", "grep": "g", "cmds": cmds[name]} for name in cmds]
+        plants = catalog_extract.expand_family_rows(
+            rows, mill_id="tup_r9", banned_slugs=("htmlq-ban",), banned_prefix=("bad-",)
+        )
+        self.assertEqual([(plant["slug"], plant["wait"]) for plant in plants], [("htmlq-text", 3)])
+        self.assertEqual(plants[0]["destroy"], "rm -f p")
+
+
+class CatalogCopyLoading(unittest.TestCase):
+    def test_a_copy_with_only_r1349_families_skips_mills_extras_and_the_default_pin(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "catalog"
+            shutil.copytree(COMMITTED, dest)
+            meta_path = dest / catalog.CATALOG_FILENAME
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta.update(mills=None, plants_extra_filename="", source_commit="0" * 40, plants=0)
+            meta_path.write_text(json.dumps(meta, sort_keys=True), encoding="utf-8")
+            with self.assertRaises(TupRefusal) as caught:
+                catalog.load_catalog(dest)
+            counted = caught.exception.message
+            self.assertRegex(counted, r"^loaded [0-9]+ plants; CATALOG.json says 0$")
+            meta["plants"] = int(counted.split()[1])
+            meta_path.write_text(json.dumps(meta, sort_keys=True), encoding="utf-8")
+            loaded = catalog.load_catalog(dest)
+        self.assertEqual(len(loaded.plants), meta["plants"])
+        self.assertEqual({plant.mill_id for plant in loaded.plants}, {catalog.SLICE_MILL})
+
+
 class GeneratePairs(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="tup-gen-"))

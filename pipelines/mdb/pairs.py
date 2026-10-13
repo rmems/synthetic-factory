@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -96,6 +96,14 @@ def _refuse_framing(text: str, path: Path) -> None:
 
 
 def _parse_line(line: str, index: int) -> dict[str, Any]:
+    raw = _decode_compact_line(line, index)
+    _check_pair_fields(raw, index)
+    return raw
+
+
+def _decode_compact_line(line: str, index: int) -> dict[str, Any]:
+    """One unindented line holding exactly ``PAIR_KEYS`` in compact sorted JSON."""
+
     if not line or line[0] in " \t":
         raise ValueError(f"{PAIRS_FILENAME}:{index} is empty or indented")
     try:
@@ -106,22 +114,28 @@ def _parse_line(line: str, index: int) -> dict[str, Any]:
         raise ValueError(f"{PAIRS_FILENAME}:{index} keys drifted from {PAIR_KEYS}")
     if dumps_pair_line(raw) != line:
         raise ValueError(f"{PAIRS_FILENAME}:{index} is not compact sorted JSON")
-    mill_id = raw["mill_id"]
-    if mill_id == SLICE_MILL_ID:
+    return raw
+
+
+def _check_pair_fields(raw: Mapping[str, Any], index: int) -> None:
+    if raw["mill_id"] == SLICE_MILL_ID:
         raise ValueError(f"{PAIRS_FILENAME}:{index} repeats the r709 slice")
     if not isinstance(raw["fail"], bool):
         raise ValueError(f"{PAIRS_FILENAME}:{index}.fail must be a bool")
     for key in ("mill_id", "path", "success_slug", "fail_slug"):
-        if not isinstance(raw[key], str) or not raw[key]:
+        if not _is_nonempty_str(raw[key]):
             raise ValueError(f"{PAIRS_FILENAME}:{index}.{key} must be a nonempty string")
     for key in ("success_plant", "fail_plant"):
         value = raw[key]
-        if value is not None and (not isinstance(value, str) or not value):
+        if value is not None and not _is_nonempty_str(value):
             raise ValueError(f"{PAIRS_FILENAME}:{index}.{key} must be a string or null")
-    return raw
 
 
-def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
+def _is_nonempty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _bind_catalog(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
     expected = {source.mill_id: source for source in deferred_sources()}
     counts = Counter(row["mill_id"] for row in rows)
     if set(counts) != set(expected):
@@ -130,6 +144,14 @@ def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
             f"extra={sorted(set(counts) - set(expected))} "
             f"missing={sorted(set(expected) - set(counts))}"
         )
+    _check_mill_rows(_group_by_mill(rows, expected))
+
+
+def _group_by_mill(
+    rows: Sequence[Mapping[str, Any]], expected: Mapping[str, Any]
+) -> dict[str, list[Mapping[str, Any]]]:
+    """Rows per deferred mill, refusing a path that disagrees with the pins or a repeat."""
+
     seen: set[tuple[str, str, str]] = set()
     grouped: dict[str, list[Mapping[str, Any]]] = {mill_id: [] for mill_id in expected}
     for row in rows:
@@ -142,6 +164,12 @@ def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
             raise ValueError(f"duplicate deferred pair {key}")
         seen.add(key)
         grouped[mill_id].append(row)
+    return grouped
+
+
+def _check_mill_rows(grouped: Mapping[str, list[Mapping[str, Any]]]) -> None:
+    """Each mill's JSONL rows match the catalog's row count and first/last slug."""
+
     for mill_id, mill_rows in grouped.items():
         mill = CATALOG.mills[mill_id]
         if len(mill_rows) != mill.n_rows:

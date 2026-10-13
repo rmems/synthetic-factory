@@ -25,6 +25,7 @@ from msd._contract import (  # noqa: E402
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
+    FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FINDING_USAGE,
@@ -214,6 +215,102 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(list((REPO / "config" / "msd").rglob("*leftover*_mill.py")), [])
 
 
+class SurfaceShapes(unittest.TestCase):
+    def test_a_600_deep_minus_chain_is_still_a_start_round(self):
+        chained = TINY_R747.replace("START = 9", "START = " + "-" * 600 + "9")
+        self.assertEqual(
+            catalog.plants_from_source(chained, mill_id="msd_r0009", source="t.py"),
+            catalog.plants_from_source(TINY_R747, mill_id="msd_r0009", source="t.py"),
+        )
+
+    def test_start_constants_evaluate_or_refuse_like_any_literal(self):
+        for start, code, message in (
+            ("[1, {2: 3}]", FINDING_PLANT_FIELD_INVALID, "BASE/START must be a positive int"),
+            ("{**x}", FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking"),
+            ("x", FINDING_SOURCE_NOT_PARSEABLE, "plant source is not a constant (Name)"),
+        ):
+            with self.subTest(start=start):
+                with self.assertRaises(MsdRefusal) as caught:
+                    catalog.plants_from_source(
+                        f"PAIRS = [1]\nSTART = {start}\n", mill_id="msd_r0001", source="t.py"
+                    )
+                self.assertEqual((caught.exception.code, caught.exception.message), (code, message))
+
+    def test_an_annotated_start_and_positional_plant_calls(self):
+        chained = TINY_R747.replace("START = 9", "START: int = 11")
+        rows = catalog.plants_from_source(chained, mill_id="msd_r0009", source="t.py")
+        self.assertEqual(rows[0]["base_round"], 11)
+        for call in ("P('x')", "P(**extra)"):
+            with self.subTest(call=call):
+                with self.assertRaises(MsdRefusal) as caught:
+                    catalog.plants_from_source(
+                        f"PAIRS = [{call}]\n", mill_id="msd_r0001", source="t.py"
+                    )
+                self.assertEqual(
+                    caught.exception.message, "t.py PAIRS[0] is not a constant P()/dict() call"
+                )
+
+    def test_a_plants_object_reads_like_the_dict_call_it_spells(self):
+        as_object = """
+START = 9
+PLANTS = [
+    {
+        "slug": "tiny-tools-list", "old": "tools/list omitted outputSchema",
+        "new": "tools/list Tool.outputSchema required", "keep": "name",
+        "dead": "ignore outputSchema", "residual": "extra annotations", "extra": "annotations",
+        "freeze": "host still content[] only", "family": "tools/list vs tools/call",
+        "reject": "do not ignore outputSchema", "method": "tools/list", "peer": "tools/call",
+        "ticket": "CT-TINY-747", "canon": "CanonW800", "wid": "w800", "test_ok": "test_w800_ok",
+        "falseg": "test_extra_annotations_allowed",
+        "map_fn": "m.setdefault('outputSchema', {'type':'object'})", "success": True,
+        "tags": {"w800"}, "weight": -1,
+    }
+]
+"""
+        self.assertEqual(
+            catalog.plants_from_source(as_object, mill_id="msd_r0009", source="o.py"),
+            catalog.plants_from_source(TINY_R747, mill_id="msd_r0009", source="o.py"),
+        )
+
+    def test_unparseable_sources_and_odd_catalog_items_are_refused(self):
+        cases = {
+            "PAIRS = [\n": "o.py does not parse: ",
+            "PAIRS = [(P(slug='x'),)]\n": "o.py PAIRS[0] is not a pair",
+            "PAIRS = [42]\n": "o.py catalog[0] is not a pair, P()/dict() call, or object",
+        }
+        for text, prefix in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(MsdRefusal) as caught:
+                    catalog.plants_from_source(text, mill_id="msd_r0001", source="o.py")
+                self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+                self.assertTrue(caught.exception.message.startswith(prefix))
+
+    def test_catalog_rows_carry_msd_identity_and_a_positive_round(self):
+        fixture_row = json.loads(
+            (FIXTURE / "plants.jsonl").read_text(encoding="utf-8").splitlines()[0]
+        )
+        refused = []
+        for key, value in (
+            ("mill_id", "msd-0001"),
+            ("slug", "http notify"),
+            ("plant_id", "msd_r0001:elsewhere"),
+            ("base_round", False),
+        ):
+            with self.assertRaises(MsdRefusal) as caught:
+                catalog._plant_from_row({**fixture_row, key: value}, "w")
+            refused.append((caught.exception.code, caught.exception.message))
+        self.assertEqual({code for code, _ in refused}, {FINDING_PLANT_FIELD_INVALID})
+        self.assertEqual(
+            [message for _, message in refused],
+            [
+                "w.mill_id is not msd_rNNN",
+                "w.slug is not a plant slug",
+                "w.plant_id must be 'msd_r0001:http-notify-202-empty-body'",
+                "w.base_round must be a positive int",
+            ],
+        )
+
+
 class GeneratePairs(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="msd-gen-"))
@@ -269,6 +366,21 @@ class GeneratePairs(unittest.TestCase):
         self.assertEqual(ok["meta"]["generator"], GENERATOR)
         self.assertEqual(len(ok["steps"]), 16)
         self.assertEqual(len(bad["steps"]), 17)
+
+    def test_every_plant_selector_and_its_round_rule(self):
+        every = generate.GenerateRequest(FIXTURE, self.root / "all", all_plants=True)
+        summary = generate.run(every)
+        self.assertEqual((summary["records"], summary["pairs"]), (2, 1))
+        named = generate.run(
+            generate.GenerateRequest(FIXTURE, self.root / "named", mill_id="msd_r0001")
+        )
+        self.assertEqual(named["records_sha256"], summary["records_sha256"])
+        mill_round = generate.GenerateRequest(
+            FIXTURE, self.root / "r", mill_id="msd_r0001", round=2
+        )
+        with self.assertRaises(MsdRefusal) as caught:
+            generate.run(mill_round)
+        self.assertEqual(caught.exception.message, "round applies only with plant_id")
 
     def test_existing_destination_is_refused(self):
         dest = self.root / "exists"
