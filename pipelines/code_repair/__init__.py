@@ -18,7 +18,7 @@ __all__ = (
     "lineage mutate mutate_span mutate_literals mutate_sites executor sandbox "
     "verify records views generate replay export export_integrity cli record_validation evidence "
     "publication publication_export publication_receipt selection admission source_policy "
-    "validation run_validation "
+    "validation run_validation recall_probe recall_prompts recall_score recall_stub "
     "_admission_catalog _admission_evidence"
 ).split()
 

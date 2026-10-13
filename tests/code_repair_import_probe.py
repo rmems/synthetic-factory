@@ -18,7 +18,7 @@ MODULES = tuple(
     "_contract vocabulary catalog catalog_load catalog_check mutate mutate_span mutate_literals executor "
     "sandbox verify records views generate export export_integrity cli record_validation evidence "
     "publication publication_export publication_receipt selection admission source_policy validation "
-    "planning candidate_io row_validation"
+    "planning candidate_io row_validation recall_probe recall_prompts recall_score recall_stub"
     .split()
 )
 
