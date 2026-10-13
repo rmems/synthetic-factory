@@ -5,11 +5,11 @@ families, declares ``validation.status == "accepted"`` and
 ``validation.publishable is True``, carries ``provenance.kind == "simulated"``,
 attributes its result to the oracle it declares (``result.produced_by ==
 oracle.id``), still matches the ``proposal_hash`` and ``result_hash`` it was
-sealed with, and projects into a public view, a label and a choice answer that
-is one of its options. Everything else -- a rejected record first among them --
-is refused with a coded refusal rather than rendered. The gate reads stored
-declarations; the CLI additionally refuses any run the shared oracle validator
-does not authenticate, which is where those declarations are recomputed.
+sealed with, projects into a public view, a label and a choice answer that is
+one of its options, and replays to that same ``result_hash`` on the reference
+oracle. Stored ``validation`` fields and a recomputed seal are not the verdict:
+a resealed edit of ``result.measured`` is refused. Everything else -- a rejected
+record first among them -- is refused with a coded refusal rather than rendered.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any
 
 from . import public, render
 from . import vocabulary as tv
-from ._contract import bind_import_twin, canon, envelope
+from ._contract import bind_import_twin, canon, envelope, record as oracle_record
 
 __all__ = ["is_positive", "positive_problems", "refusal_of", "require_positive", "seal_findings"]
 
@@ -35,7 +35,12 @@ def _self_attributed(record: dict[str, Any]) -> bool:
 
 
 def positive_problems(record: dict[str, Any]) -> list[str]:
-    """Each stored declaration that keeps ``record`` from being a positive example."""
+    """Each stored declaration that keeps ``record`` from being a positive example.
+
+    These checks are necessary and not sufficient. :func:`refusal_of` also
+    replays the measurement; a matching declaration with a resealed edit is
+    still refused.
+    """
 
     validation = _section(record, "validation")
     checks = (
@@ -72,6 +77,20 @@ def seal_findings(record: dict[str, Any]) -> list[str]:
     return [code for stored, value, code in seals if not _seal_holds(stored, value)]
 
 
+def _replay_problem(record: dict[str, Any]) -> str | None:
+    """Why the reference oracle does not stand behind ``result_hash``, or None."""
+
+    if _section(record, "oracle").get("implementation") != "reference":
+        return "oracle.implementation is not the reference simulator"
+    try:
+        status, detail = oracle_record.reproduce(record, environ={})
+    except Exception as exc:  # one untrusted record must not escape the gate
+        return f"reference replay could not run: {type(exc).__name__}"
+    if status != "reproduced":
+        return f"reference replay {status}: {detail}"
+    return None
+
+
 def _projection_refusal(record: dict[str, Any]) -> tuple[str, str] | None:
     try:
         render.render_row(record, tv.KIND_CHOICE)
@@ -93,11 +112,17 @@ def refusal_of(record: Any) -> tuple[str, str] | None:
     unsealed = seal_findings(record)
     if unsealed:
         return tv.FINDING_RECORD_NOT_SEALED, "stored hashes do not cover: " + ", ".join(unsealed)
-    return _projection_refusal(record)
+    projected = _projection_refusal(record)
+    if projected is not None:
+        return projected
+    replay_problem = _replay_problem(record)
+    if replay_problem is not None:
+        return tv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE, replay_problem
+    return None
 
 
 def is_positive(record: Any) -> bool:
-    """Accepted, publishable, simulated, self-attributed, sealed and projectable."""
+    """Accepted, publishable, simulated, self-attributed, sealed, projectable, replayed."""
 
     return refusal_of(record) is None
 

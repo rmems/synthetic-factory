@@ -16,7 +16,7 @@ if __name__.startswith("pipelines."):
     from ..curate_coding import contains_hidden_reasoning_key
     from ..exact_json import dumps_exact_json
     from ..operator_paths import confine
-    from ..oracle_grounded import canon, envelope, families, refusals, sim
+    from ..oracle_grounded import canon, envelope, families, record, refusals, sim
     from ..oracle_grounded.import_twins import bind_import_twin
     from ..raw_tree_guard import is_under_raw
 else:
@@ -24,7 +24,7 @@ else:
     from curate_coding import contains_hidden_reasoning_key
     from exact_json import dumps_exact_json
     from operator_paths import confine
-    from oracle_grounded import canon, envelope, families, refusals, sim
+    from oracle_grounded import canon, envelope, families, record, refusals, sim
     from oracle_grounded.import_twins import bind_import_twin
     from raw_tree_guard import is_under_raw
 
@@ -37,6 +37,7 @@ __all__ = [
     "envelope",
     "families",
     "is_under_raw",
+    "record",
     "refusals",
     "sim",
     "validator",

@@ -403,7 +403,8 @@ that the shared validator authenticates and validates cleanly into
 a `VIEWS.json` summary (per-family counts, refused record ids with their codes,
 and the digest of every source and written file), and refuses an existing or
 `outputs/raw/` destination. Only accepted, publishable, simulated, self-attributed
-and still-sealed records become rows; the prompt is rendered from an allowlist of
+and still-sealed records whose reference measurement replays to the stored
+`result_hash` become rows; the prompt is rendered from an allowlist of
 `scenario` and `intervention` keys with long numeric arrays summarized, the
 completion and the multiple-choice answer are re-derived from `result.measured`,
 and `view_findings` reports by code any row that differs from that derivation,

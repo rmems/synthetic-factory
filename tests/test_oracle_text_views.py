@@ -171,6 +171,22 @@ class CodedRefusals(unittest.TestCase):
             with self.subTest(case=name):
                 self.assert_refused(record, code)
 
+    def test_a_resealed_tampered_measurement_is_refused_by_the_builders(self):
+        """A recomputed seal does not make an edited measurement a positive example."""
+        record = copy.deepcopy(first(
+            records(tv.STATUS_ACCEPTED),
+            lambda item: item["family"] == tv.NEURON_FAMILY,
+            "an accepted neuron record",
+        ))
+        record["result"]["measured"]["after"]["spike_count"] += 1
+        reseal(record)
+        self.assertEqual(record["validation"]["status"], tv.STATUS_ACCEPTED)
+        self.assertIs(record["validation"]["publishable"], True)
+        self.assertEqual(canon.digest(record["result"]), record["result_hash"])
+        self.assertEqual(canon.digest(envelope.proposal_of(record)), record["proposal_hash"])
+        self.assert_refused(record, tv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE)
+        self.assertIn("replay", views.refusal_of(record)[1])
+
     def test_an_overflowing_measurement_or_signal_is_a_coded_refusal(self):
         accepted = records(tv.STATUS_ACCEPTED)
         credit = copy.deepcopy(first(accepted, lambda r: r["family"] == tv.CREDIT_FAMILY,

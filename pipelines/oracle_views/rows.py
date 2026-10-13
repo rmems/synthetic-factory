@@ -10,8 +10,9 @@ One import for consumers of the five neuromorphic families' text projection:
 * ``sft_row`` -> ``{"prompt", "completion"}``, ``chat_row`` -> ``{"messages": [user,
   assistant]}``, ``choice_row`` -> ``{"prompt", "options", "answer"}`` over the
   family's closed label vocabulary;
-* ``is_positive(record)`` -- accepted, publishable, simulated, self-attributed and
-  sealed; anything else is refused with a coded ``TextViewRefusal``;
+* ``is_positive(record)`` -- accepted, publishable, simulated, self-attributed,
+  sealed and replayed to ``result_hash``; anything else is refused with a coded
+  ``TextViewRefusal``;
 * ``view_findings(record, row)`` -- the declared leak codes a row violates.
 
 Every builder gates the record, renders the row and re-checks it with
