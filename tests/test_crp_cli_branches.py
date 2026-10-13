@@ -17,13 +17,15 @@ from crp import cli as crp_cli
 from mill_cli_entry_support import assert_usage_error, main_in_process
 
 
-class CrpCliContractTests(contract.TripleCliContract):
+class CrpCliContractTests(contract.TripleCliContractMixin, unittest.TestCase):
     # An out-of-domain round is pinned by its code only: the message names the
     # leftover3 window although generate accepts every wave (owner finding).
-    cli = crp_cli
-    module_name = "crp.cli"
-    valid_round = "729"
-    check_prose = "catalog-check ok: 48 plants (16 triples, 48 nouns) r729-r744\n"
+    spec = contract.TripleCli(
+        cli=crp_cli,
+        module_name="crp.cli",
+        valid_round="729",
+        check_prose="catalog-check ok: 48 plants (16 triples, 48 nouns) r729-r744\n",
+    )
 
 
 class CrpCliReportTests(unittest.TestCase):
