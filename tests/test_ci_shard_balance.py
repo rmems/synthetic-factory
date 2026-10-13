@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import random
 import sys
 import tempfile
 import unittest
@@ -38,9 +37,14 @@ class AssignmentDeterminismTests(unittest.TestCase):
         modules = [f"test_m{index:02d}" for index in range(45)]
         expected = ci_shard_tests.assign_shards(modules, 4, weights)
 
-        shuffled = modules.copy()
-        random.Random(454).shuffle(shuffled)
-        for candidate in (modules, list(reversed(modules)), shuffled):
+        permutations = (
+            modules,
+            list(reversed(modules)),
+            modules[17:] + modules[:17],
+            modules[1::2] + modules[::2],
+            sorted(modules, key=lambda name: name[::-1]),
+        )
+        for candidate in permutations:
             self.assertEqual(ci_shard_tests.assign_shards(candidate, 4, weights), expected)
 
     def test_equal_weights_break_ties_by_module_name_then_shard_index(self):
@@ -72,8 +76,36 @@ class AssignmentCompletenessTests(unittest.TestCase):
                 self.assertEqual(sorted(assigned), sorted(modules))
 
     def test_shard_count_below_one_is_refused(self):
+        weights = ShardWeights({}, 1.0)
+        modules = ["test_a"]
+
         with self.assertRaisesRegex(ShardPlanError, "at least 1"):
-            ci_shard_tests.assign_shards(["test_a"], 0, ShardWeights({}, 1.0))
+            ci_shard_tests.assign_shards(modules, 0, weights)
+
+    def test_shard_index_outside_the_shard_count_is_refused(self):
+        weights = ShardWeights({}, 1.0)
+        modules = ["test_a", "test_b", "test_c"]
+        shards = 4
+        for shard in (-1, shards, shards + 1):
+            with self.subTest(shard=shard):
+                with self.assertRaises(ShardPlanError) as raised:
+                    ci_shard_tests.shard_modules(modules, shard, shards, weights)
+                self.assertEqual(
+                    str(raised.exception), f"shard must satisfy 0 <= shard < 4, got {shard}"
+                )
+
+    def test_cli_still_rejects_an_out_of_range_shard_before_planning(self):
+        for argv in (["--shard", "-1", "--shards", "4"], ["--shard", "4", "--shards", "4"]):
+            with (
+                self.subTest(argv=argv),
+                mock.patch.object(ci_shard_tests, "shard_modules") as planner,
+                contextlib.redirect_stderr(StringIO()) as stderr,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                ci_shard_tests.main(argv)
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("--shard must satisfy 0 <= shard < shards", stderr.getvalue())
+            planner.assert_not_called()
 
     def test_partition_check_fails_closed_on_missing_extra_and_repeated_modules(self):
         modules = ["test_a", "test_b", "test_c"]
@@ -180,12 +212,13 @@ class LptBalanceTests(unittest.TestCase):
         self.assertLessEqual(max(loads) - min(loads), heaviest)
 
 
-class WeightsTableTests(unittest.TestCase):
-    def _document(self, **overrides):
-        document = {"schema": ci_shard_tests.WEIGHTS_SCHEMA, "default_weight": 1.0, "weights": {}}
-        document.update(overrides)
-        return document
+def _weights_document(**overrides):
+    document = {"schema": ci_shard_tests.WEIGHTS_SCHEMA, "default_weight": 1.0, "weights": {}}
+    document.update(overrides)
+    return document
 
+
+class WeightsTableTests(unittest.TestCase):
     def test_committed_table_is_valid_and_names_test_modules(self):
         weights = ci_shard_tests.load_weights()
 
@@ -195,7 +228,7 @@ class WeightsTableTests(unittest.TestCase):
 
     def test_integer_and_decimal_seconds_are_accepted(self):
         weights = ci_shard_tests.parse_weights(
-            self._document(default_weight=2, weights={"test_a": 3, "test_b": 0.25})
+            _weights_document(default_weight=2, weights={"test_a": 3, "test_b": 0.25})
         )
 
         self.assertEqual(weights, ShardWeights({"test_a": 3.0, "test_b": 0.25}, 2.0))
@@ -203,19 +236,56 @@ class WeightsTableTests(unittest.TestCase):
     def test_malformed_tables_fail_closed(self):
         bad_documents = {
             "not an object": [],
-            "wrong schema": self._document(schema="ci-shard-weights-v0"),
-            "weights not an object": self._document(weights=[["test_a", 1.0]]),
+            "wrong schema": _weights_document(schema="ci-shard-weights-v0"),
+            "weights not an object": _weights_document(weights=[["test_a", 1.0]]),
             "missing default": {"schema": ci_shard_tests.WEIGHTS_SCHEMA, "weights": {}},
-            "boolean weight": self._document(weights={"test_a": True}),
-            "string weight": self._document(weights={"test_a": "1.5"}),
-            "zero weight": self._document(weights={"test_a": 0}),
-            "negative default": self._document(default_weight=-1.0),
-            "nan weight": self._document(weights={"test_a": float("nan")}),
-            "infinite weight": self._document(weights={"test_a": float("inf")}),
+            "boolean weight": _weights_document(weights={"test_a": True}),
+            "string weight": _weights_document(weights={"test_a": "1.5"}),
+            "zero weight": _weights_document(weights={"test_a": 0}),
+            "negative default": _weights_document(default_weight=-1.0),
+            "nan weight": _weights_document(weights={"test_a": float("nan")}),
+            "infinite weight": _weights_document(weights={"test_a": float("inf")}),
         }
         for reason, document in bad_documents.items():
             with self.subTest(reason=reason), self.assertRaises(ShardPlanError):
                 ci_shard_tests.parse_weights(document)
+
+    def test_huge_json_integer_weight_is_refused_without_overflow(self):
+        huge = "9" * 400
+        text = (
+            '{"schema": "ci-shard-weights-v1", "default_weight": 1,'
+            f' "weights": {{"test_a": {huge}}}}}'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "weights.json"
+            path.write_text(text, encoding="utf-8")
+
+            with self.assertRaises(ShardPlanError) as raised:
+                ci_shard_tests.load_weights(path)
+
+        self.assertEqual(
+            str(raised.exception),
+            "weights['test_a'] must be above 0 and at most 86400 seconds",
+        )
+
+    def test_weights_up_to_the_ceiling_are_accepted_and_above_it_refused(self):
+        ceiling = ci_shard_tests.MAX_WEIGHT_SECONDS
+        accepted = _weights_document(weights={"test_a": ceiling, "test_b": 1e-9})
+        refused = _weights_document(default_weight=ceiling + 1)
+
+        self.assertEqual(ci_shard_tests.parse_weights(accepted).of("test_a"), 86400.0)
+        with self.assertRaisesRegex(ShardPlanError, "^default_weight must be above 0"):
+            ci_shard_tests.parse_weights(refused)
+
+    def test_non_number_message_names_the_type_not_the_value(self):
+        document = _weights_document(weights={"test_a": ["not", "seconds"]})
+
+        with self.assertRaises(ShardPlanError) as raised:
+            ci_shard_tests.parse_weights(document)
+
+        self.assertEqual(
+            str(raised.exception), "weights['test_a'] must be a number of seconds, got list"
+        )
 
     def test_repeated_module_key_is_refused(self):
         text = (
@@ -232,7 +302,9 @@ class WeightsTableTests(unittest.TestCase):
     def test_load_weights_reads_an_explicit_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "weights.json"
-            path.write_text(json.dumps(self._document(weights={"test_a": 4.5})), encoding="utf-8")
+            path.write_text(
+                json.dumps(_weights_document(weights={"test_a": 4.5})), encoding="utf-8"
+            )
 
             weights = ci_shard_tests.load_weights(path)
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
-import math
 import os
 import sys
 import unittest
@@ -27,6 +26,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WEIGHTS_PATH = Path(__file__).resolve().with_name("ci_shard_weights.json")
 WEIGHTS_SCHEMA = "ci-shard-weights-v1"
+# No test module is weighed at more than a day; CI cancels a shard after 25 minutes.
+MAX_WEIGHT_SECONDS = 86_400
 
 
 class ShardPlanError(ValueError):
@@ -51,11 +52,15 @@ def discover_modules(root: Path = ROOT) -> list[str]:
 
 
 def _positive_seconds(value: object, where: str) -> float:
-    """Return ``value`` as a float, refusing non-numbers and non-finite or non-positive ones."""
+    """Return ``value`` as a float, refusing non-numbers and values outside (0, MAX_WEIGHT_SECONDS].
+
+    The range test runs before any float conversion: comparing an ``int`` with a ``float`` is
+    exact in Python, so a huge JSON integer, NaN and infinity are all refused without overflow.
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ShardPlanError(f"{where} must be a number of seconds, got {value!r}")
-    if not math.isfinite(value) or value <= 0:
-        raise ShardPlanError(f"{where} must be finite and positive, got {value!r}")
+        raise ShardPlanError(f"{where} must be a number of seconds, got {type(value).__name__}")
+    if not 0 < value <= MAX_WEIGHT_SECONDS:
+        raise ShardPlanError(f"{where} must be above 0 and at most {MAX_WEIGHT_SECONDS} seconds")
     return float(value)
 
 
@@ -111,10 +116,10 @@ def check_partition(modules: Iterable[str], plan: Sequence[Sequence[str]]) -> No
     missing = sorted(expected.difference(assigned))
     extra = sorted(set(assigned).difference(expected))
     repeated = sorted(module for module, count in assigned.items() if count > 1)
-    if missing or extra or repeated:
-        raise ShardPlanError(
-            f"shard plan is not a partition: missing={missing} extra={extra} repeated={repeated}"
-        )
+    problems = {"missing": missing, "extra": extra, "repeated": repeated}
+    if any(problems.values()):
+        details = " ".join(f"{kind}={names}" for kind, names in problems.items())
+        raise ShardPlanError(f"shard plan is not a partition: {details}")
 
 
 def plan_shards(modules: Sequence[str], shards: int, weights: ShardWeights) -> list[list[str]]:
@@ -131,6 +136,8 @@ def shard_modules(
     weights: ShardWeights | None = None,
 ) -> list[str]:
     """Select one deterministic duration-weighted shard from ``modules``."""
+    if not 0 <= shard < shards:
+        raise ShardPlanError(f"shard must satisfy 0 <= shard < {shards}, got {shard}")
     if weights is None:
         weights = load_weights()
     return plan_shards(modules, shards, weights)[shard]
