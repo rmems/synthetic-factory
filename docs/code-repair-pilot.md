@@ -229,6 +229,45 @@ pilot and frozen handoff must be generated separately.
   `pilot-r3`, its replay, its export and the probe above; the vendor script's offline test builds
   a catalog from the fixture's upstream files and checks it.
 
+### Upstream recall probe (offline; no results yet)
+
+`POSSIBLE_UPSTREAM_CODE_RECALL` can be probed offline. The repository writes the
+prompts and scores completions, but it never calls a model and never executes a completion.
+Destinations must be new and outside `outputs/raw/`.
+
+```bash
+python3 pipelines/code_repair_cli.py recall-probe emit --run outputs/code-repair/pilot-r3 \
+  --out outputs/code-repair/pilot-r3-recall --json
+# Elsewhere: answer every prompts.jsonl row and write one JSONL row per answer,
+# {"id", "variant", "completion"}, the completion being the raw module text without fences.
+python3 pipelines/code_repair_cli.py recall-probe score \
+  --prompts outputs/code-repair/pilot-r3-recall/prompts.jsonl \
+  --completions outputs/code-repair/pilot-r3-completions.jsonl \
+  --run outputs/code-repair/pilot-r3 --out outputs/code-repair/pilot-r3-recall.json --json
+```
+
+`emit` writes two prompts for each positive record. `no_evidence` is the SFT prompt without its
+failing-doctest section. `docstring_only` shows only the target's signature and docstring, with
+the body elided, and asks for the whole module. Neither prompt contains the repaired module or the
+restored span, and `emit` refuses a record whose rendering would include either. `score` checks
+that the prompts still match the run byte for byte. Then it reports, per variant and per family:
+
+- exact recall: the completion's SHA-256 equals `result.repaired_sha256`;
+- structural recall: the canonical AST digest matches (identifiers renamed, docstrings dropped);
+- unparsable and missing counts;
+- the ids recalled exactly under `docstring_only`.
+
+Exit 1 means at least one exact recall under `docstring_only`.
+
+The repaired module is the upstream function verbatim, after the import lines it needs, so an
+exact match under `no_evidence` may be either repair or recall. Under `docstring_only` an exact
+match is a recall signal, not proof of memorization or contamination. The prompt still carries
+the function's specification, and a short function can be rebuilt byte for byte from it. Treat
+the `docstring_only` exact rate as an upper bound on contamination risk for the records it
+matches, and report it with the structural rate alongside any held-out number. The rates can
+also miss recall: both compare whole modules, so a completion that wraps the recalled function
+in more of the upstream file, such as its `__main__` guard, scores neither.
+
 ## Not done, by design
 
 No registry row, rights profile, record-kind route, publication through `round_txn`, Hub
