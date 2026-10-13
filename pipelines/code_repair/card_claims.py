@@ -345,15 +345,17 @@ def _states(clauses: list[str], requirement: Requirement) -> bool:
 
 
 def _reach(clause: str, phrase: str) -> str:
-    """The span of the clause that speaks for ``phrase``: from the end of the draw count
-    before it to the start of the next one, so two counts never share a reason. Empty when
-    the clause does not state the phrase."""
+    """Text that can carry ``phrase``'s reason. A draw count's reason must follow that
+    count and stop before the next one, so an earlier code cannot satisfy a later count.
+    Empty when the clause does not state the phrase."""
 
     found = re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", clause, re.IGNORECASE)
     if found is None:
         return ""
     counts = list(_DRAW_COUNT.finditer(clause))
-    start = max((m.end() for m in counts if m.end() <= found.start()), default=0)
+    start = found.end() if phrase.endswith(" draws") else max(
+        (m.end() for m in counts if m.end() <= found.start()), default=0
+    )
     end = min((m.start() for m in counts if m.start() >= found.end()), default=len(clause))
     return clause[start:end].lower()
 

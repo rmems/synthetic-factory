@@ -52,8 +52,9 @@ are therefore rendered from the evidence by `pipelines/code_repair/card_claims.p
 The card must state `<passed> of <records>`, the failed and not-replayed counts
 with the not-replayed outcomes, the replay `status`, the outcome and oracle-status
 splits, and the requested-draw and draw-skip counts. Each draw-skip count must
-share a clause with its own reason (the skip code, or a plain name such as
-"duplicate mutant"). The `MUTATION_NO_SITES` count must share a clause with
+be followed, before the next draw count and before the clause ends, by its own
+reason (the skip code, or a plain name such as "duplicate mutant"). The
+`MUTATION_NO_SITES` count must share a clause with
 "excluded from the draw pool", because those programs use no draws and don't
 account for a shortfall between requested and produced candidates.
 
