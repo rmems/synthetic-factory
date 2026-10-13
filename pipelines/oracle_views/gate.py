@@ -77,21 +77,25 @@ def seal_findings(record: dict[str, Any]) -> list[str]:
     return [code for stored, value, code in seals if not _seal_holds(stored, value)]
 
 
+def _replay_detail(record: dict[str, Any]) -> str | None:
+    try:
+        status, detail = oracle_record.reproduce(record, environ={})
+    except Exception as exc:  # one untrusted record must not escape the gate
+        return f"reference replay could not run: {type(exc).__name__}"
+    if status == "reproduced":
+        return None
+    return f"reference replay {status}: {detail}"
+
+
 def _replay_problem(record: dict[str, Any]) -> str | None:
     """Why the reference oracle does not stand behind ``result_hash``, or None."""
 
     if _section(record, "oracle").get("implementation") != "reference":
         return "oracle.implementation is not the reference simulator"
-    try:
-        status, detail = oracle_record.reproduce(record, environ={})
-    except Exception as exc:  # one untrusted record must not escape the gate
-        return f"reference replay could not run: {type(exc).__name__}"
-    if status != "reproduced":
-        return f"reference replay {status}: {detail}"
-    return None
+    return _replay_detail(record)
 
 
-def _projection_refusal(record: dict[str, Any]) -> tuple[str, str] | None:
+def _projection_refusal(record: Any) -> tuple[str, str] | None:
     try:
         render.render_row(record, tv.KIND_CHOICE)
     except tv.TextViewRefusal as exc:
@@ -99,25 +103,38 @@ def _projection_refusal(record: dict[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def refusal_of(record: Any) -> tuple[str, str] | None:
-    """``(code, message)`` refusing ``record`` as a positive example, or None."""
-
+def _family_refusal(record: Any) -> tuple[str, str] | None:
     try:
         public.family_of(record)
     except tv.TextViewRefusal as exc:
         return exc.code, exc.message
+    return None
+
+
+def _declared_refusal(record: Any) -> tuple[str, str] | None:
     problems = positive_problems(record)
     if problems:
         return tv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE, "; ".join(problems)
     unsealed = seal_findings(record)
-    if unsealed:
-        return tv.FINDING_RECORD_NOT_SEALED, "stored hashes do not cover: " + ", ".join(unsealed)
-    projected = _projection_refusal(record)
-    if projected is not None:
-        return projected
-    replay_problem = _replay_problem(record)
-    if replay_problem is not None:
-        return tv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE, replay_problem
+    if not unsealed:
+        return None
+    return tv.FINDING_RECORD_NOT_SEALED, "stored hashes do not cover: " + ", ".join(unsealed)
+
+
+def _replay_refusal(record: Any) -> tuple[str, str] | None:
+    problem = _replay_problem(record)
+    if problem is None:
+        return None
+    return tv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE, problem
+
+
+def refusal_of(record: Any) -> tuple[str, str] | None:
+    """``(code, message)`` refusing ``record`` as a positive example, or None."""
+
+    for check in (_family_refusal, _declared_refusal, _projection_refusal, _replay_refusal):
+        refusal = check(record)
+        if refusal is not None:
+            return refusal
     return None
 
 
