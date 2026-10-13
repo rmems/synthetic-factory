@@ -110,8 +110,9 @@ snapshot stored by the producer. It accepts only the exact recorded-capture or
 live-board adapter/runtime identity for the declared target. A live-board
 identity is accepted only when the current adapter probe reports an available
 transport; the adapter reports available only when the device, bitstream
-provenance, board identity, and `silicon-bridge` transport are all declared and
-present. Validation also requires canonical lowercase
+provenance, and board identity are declared and a `silicon-bridge` transport
+binary is found (on `PATH`, or via the optional `SPIKENAUT_SILICON_BRIDGE`
+override). Validation also requires canonical lowercase
 `sha256:<64-hex>` bitstream identifiers and checks every primary and repeated
 spike and membrane matrix against the catalog neuron count and stimulus window.
 Spike cells must be integer zero or one; spike events and the complete decoded

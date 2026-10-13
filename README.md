@@ -27,8 +27,11 @@ reviewers.
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
 (`factory-registry-v0.4`), keyed by exact `path_id` and `payload_factory`,
-that names its generator, provider/channel assignment, and rights profile
-(the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
+that names its generator and, for hosted and local-model rows, its
+provider/channel assignment and rights profile (the Fable 5 generator appears
+on five rows, Grok 4.6 on 44). The two procedural rows
+(`python-function-repair-factory`, `oracle-grounded`) carry neither; their
+sealed source policy is the authority instead. The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
 `schemas/rights-policy-v1.mapping.json`) resolves that row to `intended_use`
 and `project_training_policy`; unknown provenance resolves to blocked. There

@@ -15,7 +15,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-_FENCE = re.compile(r"^\s*(```|~~~)")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 _REFERENCE_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+\"[^\"]*\")?\s*$")
 _REFERENCE_LABEL = re.compile(r"^\s{0,3}\[([^\]]+)\]:")
@@ -27,21 +27,38 @@ _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
 def doc_files() -> list[Path]:
+    """README.md and every docs/ page, minus the Hub dataset cards."""
     docs = sorted((REPO / "docs").rglob("*.md"))
     return [REPO / "README.md"] + [path for path in docs if not path.name.endswith(".card.md")]
 
 
 def _prose_lines(path: Path):
-    """Yield ``(line_number, line)`` outside fenced code blocks."""
-    fenced = False
+    """Yield ``(line_number, line)`` outside fenced code blocks.
+
+    As in CommonMark, a fence closes only on a run of the same character that
+    is at least as long as the opening run and has nothing after it.
+    """
+    fence = None
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if _FENCE.match(line):
-            fenced = not fenced
-        elif not fenced:
+        match = _FENCE.match(line)
+        if fence is None and match:
+            fence = match.group(1)
+        elif fence is None:
             yield number, line
+        elif _closes_fence(match, fence):
+            fence = None
+
+
+def _closes_fence(match, fence: str) -> bool:
+    """True when ``match`` is a closing fence for the opening run ``fence``."""
+    if match is None or match.group(2).strip():
+        return False
+    run = match.group(1)
+    return run[0] == fence[0] and len(run) >= len(fence)
 
 
 def _without_code_spans(line: str) -> str:
+    """``line`` with inline code spans removed, so examples in code are not checked."""
     return re.sub(r"`[^`]*`", "", line)
 
 
@@ -53,6 +70,7 @@ def github_slug(heading: str) -> str:
 
 
 def anchors(path: Path) -> set[str]:
+    """Heading slugs (deduplicated GitHub-style) and HTML anchors in ``path``."""
     found: set[str] = set()
     seen: dict[str, int] = {}
     for _, line in _prose_lines(path):
@@ -80,6 +98,7 @@ def link_targets(path: Path):
 
 
 def broken_links(path: Path, root: Path = REPO) -> list[str]:
+    """Relative links in ``path`` whose file or heading anchor does not exist."""
     problems = []
     for number, target in link_targets(path):
         file_part, _, anchor = target.partition("#")
@@ -153,7 +172,8 @@ class DocsLinkTests(unittest.TestCase):
                 "# Here\n"
                 "[ok](other.md#real-heading) [self](#here) [web](https://x.y)\n"
                 "[gone](missing.md) [bad](#nowhere) [far](other.md#nope)\n"
-                "```\n[fenced](missing.md)\n```\n",
+                "```\n[fenced](missing.md)\n```\n"
+                "````\n```text\n[nested](missing.md)\n~~~\n[tilde](missing.md)\n````\n",
                 encoding="utf-8",
             )
             self.assertEqual(broken_links(page, root), [
