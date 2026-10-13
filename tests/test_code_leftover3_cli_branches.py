@@ -27,8 +27,6 @@ class CodeLeftover3CliContractTests(contract.TripleCliContractMixin, unittest.Te
         check_prose="catalog-check ok: 48 plants (16 triples, 48 nouns) r679-r694\n",
     )
 
-
-class CodeLeftover3CliReportTests(unittest.TestCase):
     def test_catalog_check_json_pins_the_whole_report(self):
         payload = json.loads(main_in_process(code_cli.run, [contract.CHECK, contract.JSON]).stdout)
         expected = {

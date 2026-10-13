@@ -27,8 +27,6 @@ class CrpCliContractTests(contract.TripleCliContractMixin, unittest.TestCase):
         check_prose="catalog-check ok: 48 plants (16 triples, 48 nouns) r729-r744\n",
     )
 
-
-class CrpCliReportTests(unittest.TestCase):
     def test_catalog_check_json_pins_the_default_leftover3_report(self):
         payload = json.loads(main_in_process(crp_cli.run, [contract.CHECK, contract.JSON]).stdout)
         expected = {
