@@ -243,6 +243,18 @@ class CardClaimTests(unittest.TestCase):
         )
         self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [])
 
+    def test_two_draw_skip_counts_in_one_clause_keep_their_own_reasons(self):
+        run = dict(RUN, skips={"DUPLICATE_MUTANT_IN_RUN": 16, "MUTATION_NOOP": 2,
+                               "MUTATION_NO_SITES": 4})
+        honest = "16 draws were skipped as duplicate mutants and 2 draws as `MUTATION_NOOP`"
+        swapped = "16 draws were skipped as `MUTATION_NOOP` and 2 draws as duplicate mutants"
+        skip_text = "18 draws\nwere skipped as duplicate mutants"
+        self.assertEqual(cc.card_claim_errors(HONEST_CARD.replace(skip_text, honest), REPLAY, run),
+                         [])
+        errors = cc.card_claim_errors(HONEST_CARD.replace(skip_text, swapped), REPLAY, run)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("'16 draws' beside its reason", errors[0])
+
     def test_draw_skip_count_must_sit_beside_its_own_reason(self):
         card = HONEST_CARD.replace("skipped as duplicate mutants", "skipped as `MUTATION_NO_SITES`")
         expected = (

@@ -336,15 +336,32 @@ def _clauses(card: str) -> list[str]:
     return re.split(r"[.;:]", _body_text(card))
 
 
+_DRAW_COUNT = re.compile(r"(?<!\w)\d+ draws(?!\w)", re.IGNORECASE)
+
+
 def _states(clauses: list[str], requirement: Requirement) -> bool:
     phrase, reasons = requirement
-    return any(
-        _mentions(clause, phrase) and _gives_reason(clause.lower(), reasons) for clause in clauses
-    )
+    return any(_gives_reason(_reach(clause, phrase), reasons) for clause in clauses)
 
 
-def _gives_reason(clause: str, reasons: tuple[str, ...]) -> bool:
-    return not reasons or any(reason in clause for reason in reasons)
+def _reach(clause: str, phrase: str) -> str:
+    """The span of the clause that speaks for ``phrase``: from the end of the draw count
+    before it to the start of the next one, so two counts never share a reason. Empty when
+    the clause does not state the phrase."""
+
+    found = re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", clause, re.IGNORECASE)
+    if found is None:
+        return ""
+    counts = list(_DRAW_COUNT.finditer(clause))
+    start = max((m.end() for m in counts if m.end() <= found.start()), default=0)
+    end = min((m.start() for m in counts if m.start() >= found.end()), default=len(clause))
+    return clause[start:end].lower()
+
+
+def _gives_reason(reach: str, reasons: tuple[str, ...]) -> bool:
+    if not reach:
+        return False
+    return not reasons or any(reason in reach for reason in reasons)
 
 
 def _requirement_error(requirement: Requirement) -> str:
