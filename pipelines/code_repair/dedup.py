@@ -130,9 +130,8 @@ def _refuse_repeated_ids(run_dir: Path, records: list[dict[str, Any]]) -> None:
     different records; the manifest could not say which.
     """
 
-    repeated = sorted(
-        identity for identity, n in Counter(r.get("id") for r in records).items() if n > 1
-    )
+    present = Counter(record["id"] for record in records if "id" in record)
+    repeated = sorted(identity for identity, n in present.items() if n > 1)
     cv.refuse_when(
         bool(repeated), cv.FINDING_EXPORT_INTEGRITY,
         f"{cv.shown(run_dir)}: record ids repeat within the run: {cv.shown(repeated)}",
