@@ -6,7 +6,6 @@ Never writes ``outputs/raw/`` and never imports leftover mill scripts.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,15 +36,12 @@ class BuiltPair:
     notes: str
 
 
-def notes_markdown(
-    round_n: int,
-    a: Mapping[str, str],
-    b: Mapping[str, str],
-    ok_id: str,
-    bad_id: str,
-    coverage: int,
-    unused: tuple[str, ...],
-) -> str:
+def notes_markdown(pair: cat.Pair, ok_id: str, bad_id: str, leftover3: cat.Leftover3) -> str:
+    """NOTES for one round: ``pair``'s two plants, their episode ids, and the next unused slugs."""
+
+    round_n, a, b = pair.round_n, pair.ok, pair.bad
+    coverage = ep.coverage_for(round_n)
+    unused = _unused_slugs(leftover3, round_n)
     unused_s = ", ".join(unused) if unused else "leftover leftover leftover catalog end"
     notes = (
         f"# NOTES-r{round_n} {FACTORY}\n\n"
@@ -116,15 +112,7 @@ def build_pair(pair: cat.Pair, leftover3: cat.Leftover3) -> BuiltPair:
     ok_ep = ep.build_episode(pair.round_n, pair.ok, 0)
     bad_ep = ep.build_episode(pair.round_n, pair.bad, 1)
     validate_pair(ok_ep, bad_ep, pair.round_n)
-    notes = notes_markdown(
-        pair.round_n,
-        pair.ok,
-        pair.bad,
-        ok_ep["id"],
-        bad_ep["id"],
-        ep.coverage_for(pair.round_n),
-        _unused_slugs(leftover3, pair.round_n),
-    )
+    notes = notes_markdown(pair, ok_ep["id"], bad_ep["id"], leftover3)
     return BuiltPair(round_n=pair.round_n, ok=ok_ep, bad=bad_ep, notes=notes)
 
 
