@@ -35,6 +35,8 @@ PASS_OVERCLAIMS = (
     "all candidates passed",
 )
 COVERAGE_OVERCLAIMS = ("full batch", "entire batch", "whole batch")
+# Plain-English names a card may give a draw-skip reason instead of its code.
+SKIP_REASON_WORDS = {cv.SKIP_DUPLICATE_MUTANT_IN_RUN: ("duplicate mutant",)}
 
 __all__ = [
     "CardClaimError", "ReplayCoverage", "card_claim_errors", "contents_statement",
@@ -300,21 +302,55 @@ def _replay_errors(card: str, coverage: ReplayCoverage) -> list[str]:
     return errors
 
 
-def _contents_phrases(run: dict[str, Any]) -> tuple[str, ...]:
+Requirement = tuple[str, tuple[str, ...]]  # a phrase and the reasons it must sit beside
+
+
+def _skip_reasons(code: str) -> tuple[str, ...]:
+    return (code.lower(), *SKIP_REASON_WORDS.get(code, ()))
+
+
+def _contents_requirements(run: dict[str, Any]) -> tuple[Requirement, ...]:
+    """Contents phrases; each skip count must share a clause with its own reason."""
+
     draws, siteless = _skips(run)
-    phrases = (
-        f"{_count(run, 'records', RUN_EVIDENCE)} candidates",
-        f"{_count(run, 'count', RUN_EVIDENCE)} requested", *(f"{n} draws" for _, n in draws),
+    requirements: tuple[Requirement, ...] = (
+        (f"{_count(run, 'records', RUN_EVIDENCE)} candidates", ()),
+        (f"{_count(run, 'count', RUN_EVIDENCE)} requested", ()),
+        *((f"{n} draws", _skip_reasons(code)) for code, n in draws),
     )
     if not siteless:
-        return phrases
-    return (*phrases, f"{siteless} of the {_program_count(run)} catalog programs", DRAW_POOL_PHRASE)
+        return requirements
+    pool = f"{siteless} of the {_program_count(run)} catalog programs"
+    return (*requirements, (pool, (DRAW_POOL_PHRASE,)))
 
 
 def _body_text(card: str) -> str:
     """The card outside its blockquotes, where the contents statement lives, so a
     Verification phrase such as "97 of 132 candidates" never stands in for it."""
-    return _flat(" ".join(line for line in card.splitlines() if not line.startswith(">")))
+    return _flat(" ".join(line for line in card.splitlines() if not line.lstrip().startswith(">")))
+
+
+def _clauses(card: str) -> list[str]:
+    return re.split(r"[.;:()]", _body_text(card))
+
+
+def _states(clauses: list[str], requirement: Requirement) -> bool:
+    phrase, reasons = requirement
+    return any(
+        _mentions(clause, phrase) and _gives_reason(clause.lower(), reasons) for clause in clauses
+    )
+
+
+def _gives_reason(clause: str, reasons: tuple[str, ...]) -> bool:
+    return not reasons or any(reason in clause for reason in reasons)
+
+
+def _requirement_error(requirement: Requirement) -> str:
+    phrase, reasons = requirement
+    if not reasons:
+        return f"card must state {phrase!r} from {RUN_EVIDENCE}"
+    named = " or ".join(repr(reason) for reason in reasons)
+    return f"card must state {phrase!r} beside its reason ({named}) from {RUN_EVIDENCE}"
 
 
 def _run_errors(card: str, run: dict[str, Any]) -> list[str]:
@@ -322,13 +358,14 @@ def _run_errors(card: str, run: dict[str, Any]) -> list[str]:
         *_tally(run.get("outcomes"), f"{RUN_EVIDENCE} outcomes"),
         *_tally(run.get("oracle_statuses"), f"{RUN_EVIDENCE} oracle_statuses"),
     )
-    checks = (
-        *((f"{n} {name}", _flat(card)) for name, n in tallies),
-        *((phrase, _body_text(card)) for phrase in _contents_phrases(run)),
-    )
-    return [
-        f"card must state {phrase!r} from {RUN_EVIDENCE}"
-        for phrase, text in checks if not _mentions(text, phrase)
+    flat, clauses = _flat(card), _clauses(card)
+    errors = [
+        f"card must state {f'{n} {name}'!r} from {RUN_EVIDENCE}"
+        for name, n in tallies if not _mentions(flat, f"{n} {name}")
+    ]
+    return errors + [
+        _requirement_error(requirement)
+        for requirement in _contents_requirements(run) if not _states(clauses, requirement)
     ]
 
 

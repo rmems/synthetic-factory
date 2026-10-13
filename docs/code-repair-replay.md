@@ -51,10 +51,11 @@ are therefore rendered from the evidence by `pipelines/code_repair/card_claims.p
 `evidence/RUN.json`, after reconciling the summary counts with the per-record list.
 The card must state `<passed> of <records>`, the failed and not-replayed counts
 with the not-replayed outcomes, the replay `status`, the outcome and oracle-status
-splits, and the requested-draw and draw-skip counts. It must also say
-that `MUTATION_NO_SITES` programs were excluded from the draw pool, because
-they use no draws and don't account for a shortfall between requested and
-produced candidates.
+splits, and the requested-draw and draw-skip counts. Each draw-skip count must
+share a clause with its own reason (the skip code, or a plain name such as
+"duplicate mutant"). The `MUTATION_NO_SITES` count must share a clause with
+"excluded from the draw pool", because those programs use no draws and don't
+account for a shortfall between requested and produced candidates.
 
 The default `verify_hf_release.py` run (`DEFAULT_REPOS`) must pass against what
 is published today, so a code-repair release joins it only once its published

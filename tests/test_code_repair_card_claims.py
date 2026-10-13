@@ -236,6 +236,31 @@ class CardClaimTests(unittest.TestCase):
         self.assertEqual(errors, ["Card overclaims replay ('full batch passed'): 97 of 132 "
                                   "passed, 0 failed, 35 not replayed"])
 
+    def test_draw_skip_count_must_sit_beside_its_own_reason(self):
+        card = HONEST_CARD.replace("skipped as duplicate mutants", "skipped as `MUTATION_NO_SITES`")
+        expected = (
+            "card must state '18 draws' beside its reason ('duplicate_mutant_in_run' or "
+            "'duplicate mutant') from evidence/RUN.json"
+        )
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [expected])
+
+    def test_siteless_programs_must_be_the_ones_excluded_from_the_draw_pool(self):
+        card = HONEST_CARD.replace(
+            "have no mutation sites and were excluded", "were skipped. Others were excluded"
+        )
+        expected = (
+            "card must state '4 of the 197 catalog programs' beside its reason "
+            "('excluded from the draw pool') from evidence/RUN.json"
+        )
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [expected])
+
+    def test_indented_quote_does_not_supply_a_contents_phrase(self):
+        card = HONEST_CARD.replace("132 candidates (110", "the candidates (110")
+        card += "\n  > 132 candidates\n"
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [
+            "card must state '132 candidates' from evidence/RUN.json",
+        ])
+
     def test_failures_must_be_stated(self):
         replay = with_failures(REPLAY, 2)
         card = HONEST_CARD.replace("97 of 132", "95 of 132").replace(
