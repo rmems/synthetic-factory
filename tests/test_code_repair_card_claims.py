@@ -236,6 +236,13 @@ class CardClaimTests(unittest.TestCase):
         self.assertEqual(errors, ["Card overclaims replay ('full batch passed'): 97 of 132 "
                                   "passed, 0 failed, 35 not replayed"])
 
+    def test_parenthesized_draw_skip_reason_stays_with_its_count(self):
+        card = HONEST_CARD.replace(
+            "18 draws\nwere skipped as duplicate mutants",
+            "18 draws (skipped as duplicate mutants)",
+        )
+        self.assertEqual(cc.card_claim_errors(card, REPLAY, RUN), [])
+
     def test_draw_skip_count_must_sit_beside_its_own_reason(self):
         card = HONEST_CARD.replace("skipped as duplicate mutants", "skipped as `MUTATION_NO_SITES`")
         expected = (

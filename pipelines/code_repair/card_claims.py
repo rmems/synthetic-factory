@@ -331,7 +331,9 @@ def _body_text(card: str) -> str:
 
 
 def _clauses(card: str) -> list[str]:
-    return re.split(r"[.;:()]", _body_text(card))
+    """Clauses of the card body. Parentheses stay inside a clause, so
+    "18 draws (skipped as duplicate mutants)" keeps the count with its reason."""
+    return re.split(r"[.;:]", _body_text(card))
 
 
 def _states(clauses: list[str], requirement: Requirement) -> bool:
