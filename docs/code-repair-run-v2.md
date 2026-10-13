@@ -80,9 +80,9 @@ check (the catalog binding aside). Only positives are compared, keep-first by `-
 then sorted record id, against the kept positives of earlier runs; a later
 positive is reported as `CROSS_RUN_DUPLICATE_EXACT` (same broken bytes),
 `CROSS_RUN_DUPLICATE_STRUCTURAL` (the export's canonical-structure digest) or
-`CROSS_RUN_DUPLICATE_SITE` (same program, operator, variant and site span and
-replacement). The `code-repair-dedup/1` manifest lists the kept ids and, per
-dropped id, its run index, the kept id it repeats and the code. Exit 0 means
+`CROSS_RUN_DUPLICATE_SITE` (same program and original module bytes, operator,
+variant, site span and replacement). The `code-repair-dedup/1` manifest lists the kept
+ids and, per dropped id, its run index, the kept id it repeats and the code. Exit 0 means
 nothing repeats, 1 that duplicates were reported, 2 a coded refusal. Run
 directories are never written; `--out` must be a brand-new file outside every
 run directory and outside `outputs/raw/`. Duplicates inside one run remain the

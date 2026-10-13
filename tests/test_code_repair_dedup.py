@@ -299,6 +299,32 @@ class Codes(unittest.TestCase):
                          (cv.DEDUP_DUPLICATE_SITE, edited["id"]))
         self.assertEqual(manifest["counts"]["by_code"][cv.DEDUP_DUPLICATE_SITE], 1)
 
+    def test_the_same_site_of_a_revised_original_module_is_kept(self):
+        """A catalog revision keeps the program id and site; the site key is bound to its bytes."""
+        run_a, _run_b = runs()
+        revised = {}
+
+        def edit(records):
+            target = first_positive(records)
+            target["id"] = revised["id"] = target["id"][:-5] + "99998"
+            rebind_broken(target, broken_text(target) + TAIL)
+            # The repair restores the revised original, so every digest bound to it moves.
+            repair = target["candidate_prediction"]["predicted_repair"]
+            repair["files"][cv.PROGRAM_FILENAME] += TAIL
+            source_sha = catalog.sha256_text(repair["files"][cv.PROGRAM_FILENAME])
+            repair["sha256"] = target["result"]["repaired_sha256"] = source_sha
+            target["scenario"]["source"]["module_sha256"] = source_sha
+            for name in ("original", "original_repeat", "repaired"):
+                target["result"]["phases"][name]["module_sha256"] = source_sha
+            target["result"]["evidence_sha256"] = verify.result_hash(target["result"]["phases"])
+            target["provenance"]["record_sha256"] = envelope.record_digest(target)
+            self.assertTrue(views.is_positive(target))
+
+        manifest = report(run_a, self.copies.copy("revised", edit))
+        self.assertIn(revised["id"], manifest["kept"])
+        self.assertEqual(manifest["counts"]["by_code"][cv.DEDUP_DUPLICATE_SITE], 0)
+        self.assertEqual({d["code"] for d in manifest["dropped"]}, {cv.DEDUP_DUPLICATE_EXACT})
+
 
 class Refusals(unittest.TestCase):
     def setUp(self):
@@ -404,10 +430,13 @@ class Refusals(unittest.TestCase):
             edit(records)
             records.append(original)
 
-        # Within one run nothing is compared, so a repeated id is caught on its own.
+        # Within one run nothing is compared, so a repeated id is refused as the run loads,
+        # before any id could become a kept entry in one run and a dropped one in another.
         doubled = self.copies.copy("doubled", edit_beside_the_original)
-        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, "more than one kept candidate"):
+        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, "repeat within the run", doubled.name):
             report(doubled)
+        with refusal(self, cv.FINDING_EXPORT_INTEGRITY, "repeat within the run"):
+            report(run_a, doubled)
 
 
 class ReadOnlyAndWriting(unittest.TestCase):

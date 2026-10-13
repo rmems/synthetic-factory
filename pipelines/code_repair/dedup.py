@@ -8,7 +8,7 @@ integrity as the export does, catalog aside (a run failing either is refused),
 keeps only positive records and reports every positive that repeats
 a kept positive of an earlier run under three codes: the same broken bytes, the
 same canonical structure (the export's own digest) or the same mutation site of
-the same program. Within a run the order is sorted record id, as in the
+the same original module bytes. Within a run the order is sorted record id, as in the
 export; duplicates inside one run stay the export's selection to decide, so a
 single run never reports anything. The manifest (``code-repair-dedup/1``) lists
 the kept ids and, per dropped record, the index of the run it came from, the
@@ -117,9 +117,26 @@ def load_run(run_dir: Path) -> LoadedRun:
         "does not bind candidates.jsonl)",
     )
     records = load_candidate_records(candidate_bytes)
+    _refuse_repeated_ids(run_dir, records)
     _refuse_failing_records(run_dir, records)
     positives = sorted((r for r in records if views.is_positive(r)), key=lambda r: r["id"])
     return LoadedRun(run_dir, run, records, digest, positives)
+
+
+def _refuse_repeated_ids(run_dir: Path, records: list[dict[str, Any]]) -> None:
+    """The run-wide id uniqueness ``validate_run`` demands: a repeated id refuses the run.
+
+    Two candidates under one id would make a kept and a dropped entry of that id name
+    different records; the manifest could not say which.
+    """
+
+    repeated = sorted(
+        identity for identity, n in Counter(r.get("id") for r in records).items() if n > 1
+    )
+    cv.refuse_when(
+        bool(repeated), cv.FINDING_EXPORT_INTEGRITY,
+        f"{cv.shown(run_dir)}: record ids repeat within the run: {cv.shown(repeated)}",
+    )
 
 
 def _refuse_failing_records(run_dir: Path, records: list[dict[str, Any]]) -> None:
@@ -152,7 +169,8 @@ def _keys(record: dict[str, Any]) -> _Keys:
         (cv.DEDUP_DUPLICATE_EXACT, scenario["broken_program"]["sha256"]),
         (cv.DEDUP_DUPLICATE_STRUCTURAL, selection.structural_digest(record)),
         (cv.DEDUP_DUPLICATE_SITE, (
-            scenario["source"]["program_id"], intervention["operator"], intervention["variant"],
+            scenario["source"]["program_id"], scenario["source"]["module_sha256"],
+            intervention["operator"], intervention["variant"],
             site["start_byte"], site["end_byte"], site["replacement_text"],
         )),
     )
