@@ -1,8 +1,9 @@
 """Pin the narrow identity refusals compose hands to a downstream lane repair.
 
 Identity defers a record to the bridge, coding, or preference lane only when
-every diagnostic it raised belongs to that lane. The probes return a repaired
-copy or ``None`` and never raise; ``replace_coding_steps`` and
+every diagnostic it raised belongs to that lane. The bridge and coding probes
+return a repaired copy or ``None`` and swallow a raising lane; the preference
+probe lets its lane raise. ``replace_coding_steps`` and
 ``restore_deferred_payload`` move only the lane-owned data.
 """
 
@@ -12,6 +13,7 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 for entry in (TESTS, TESTS.parent / "pipelines"):
@@ -84,11 +86,43 @@ class LaneRepairProbes(unittest.TestCase):
                 repairs.bridge_order_repaired_copy_with_source,
                 bridge_pair(),
             ),
-            ("bridge lane raises", repairs.bridge_order_repaired_copy_with_source, None),
-            ("coding lane raises", repairs.coding_steps_repaired_copy_with_source, []),
+            (
+                "bridge lane quarantines a non-bridge record",
+                repairs.bridge_order_repaired_copy_with_source,
+                None,
+            ),
+            (
+                "coding lane quarantines a non-object record",
+                repairs.coding_steps_repaired_copy_with_source,
+                [],
+            ),
         )
         for label, probe, record in cases:
             with self.subTest(label):
+                self.assertIsNone(probe(record, _SOURCE))
+
+    def test_a_raising_lane_is_swallowed_as_no_repair(self):
+        # The lane entry points are the only seam that can raise inside the
+        # probes' ``contextlib.suppress`` blocks.
+        cases = (
+            (
+                "bridge",
+                repairs.curate_bridge,
+                "curate_record",
+                repairs.bridge_order_repaired_copy_with_source,
+                bridge_pair(),
+            ),
+            (
+                "coding",
+                repairs.curate_coding,
+                "curate_episode",
+                repairs.coding_steps_repaired_copy_with_source,
+                {},
+            ),
+        )
+        for label, lane, entry, probe, record in cases:
+            raising = mock.patch.object(lane, entry, side_effect=RuntimeError("lane"))
+            with self.subTest(label), raising:
                 self.assertIsNone(probe(record, _SOURCE))
 
     def test_preference_probe_copies_only_side_steps(self):
