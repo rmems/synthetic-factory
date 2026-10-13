@@ -13,6 +13,13 @@ the card front matter, the shipped ``LICENSE`` text, and ``release-status.json``
 A repository that still calls its license undeclared while shipping an
 Apache-2.0 ``LICENSE`` file fails closed here.
 
+A repository whose ``release-status.json`` declares ``rights_record:
+"rights.json"`` must ship a sidecar that ``rights_document`` accepts and that
+agrees with the release; a procedural (schema 0.2.0) sidecar must also declare
+the card's, ``LICENSE``'s and ``release-status.json``'s release license
+(``verify_hf_release_rights``).  A repository that declares no rights record
+keeps the contract above unchanged.
+
 Usage:
     python3 pipelines/verify_hf_release.py
     python3 pipelines/verify_hf_release.py --repo rmems/thalamic-relay-trajectories
@@ -25,8 +32,20 @@ import re
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import NamedTuple
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("verify_hf_release")
+    from . import verify_hf_release_rights as _rights
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "verify_hf_release"
+    )
+    import verify_hf_release_rights as _rights
 
 
 DATASET_REPOS = (
@@ -408,7 +427,8 @@ def _release_status_license(
         errors.append("release-status.json must contain a JSON object")
         return None
     duplicate_keys = status.duplicate_keys if isinstance(status, _JSONObject) else set()
-    for field in sorted(duplicate_keys & (RAW_RELEASE_STATUS.keys() | {"dataset_id"})):
+    checked_fields = RAW_RELEASE_STATUS.keys() | {"dataset_id", *_rights.RIGHTS_STATUS_FIELDS}
+    for field in sorted(duplicate_keys & checked_fields):
         errors.append(f"release-status.json must not contain duplicate {field} keys")
     dataset_id = status.get("dataset_id")
     if dataset_id != repo:
@@ -434,6 +454,64 @@ def _release_status_license(
         errors.append("release-status.json must declare a string license")
         return None
     return declared
+
+
+def _release_status_object(text: str) -> dict[str, object]:
+    """Decode release-status.json for the rights cross-checks.
+
+    ``_release_status_license`` reports a file that does not decode to an
+    object; such a file declares no rights record here.
+    """
+
+    try:
+        status = json.loads(text, object_pairs_hook=_JSONObject)
+    except json.JSONDecodeError:
+        return {}
+    return status if isinstance(status, dict) else {}
+
+
+@dataclass(frozen=True)
+class _RepositoryReader:
+    """One repository's public files, fetched through the injected fetchers."""
+
+    repo: str
+    base_url: str
+    timeout: float
+    text_fetcher: Callable[[str, float], str]
+    bytes_fetcher: Callable[[str, float], bytes]
+
+    def read_text(self, path: str) -> str:
+        return self.text_fetcher(public_url(self.repo, path, self.base_url), self.timeout)
+
+    def read_bytes(self, path: str, revision: str = "main", *, resolve: bool = False) -> bytes:
+        url = public_url(self.repo, path, self.base_url, revision, resolve=resolve)
+        return self.bytes_fetcher(url, self.timeout)
+
+
+class _ReleaseStatus(NamedTuple):
+    """release-status.json as text and fields, plus the rights sidecar it declares."""
+
+    text: str
+    fields: dict[str, object]
+    rights_bytes: bytes | None
+
+
+def _fetch_release_status(reader: _RepositoryReader) -> _ReleaseStatus:
+    text = reader.read_text("release-status.json")
+    fields = _release_status_object(text)
+    return _ReleaseStatus(text, fields, _rights.declared_sidecar_bytes(fields, reader.read_bytes))
+
+
+def _rights_errors(
+    repo: str, release: _ReleaseStatus, card: str, license_text: str
+) -> list[str]:
+    """Cross-check the rights sidecar ``release`` declares against the card and LICENSE."""
+
+    licenses = _rights.LicenseDeclarations(
+        license_file=_license_family(license_text),
+        card=_front_matter(card).get("license"),
+    )
+    return _rights.rights_sidecar_errors(repo, release.fields, release.rights_bytes, licenses)
 
 
 def _license_alignment_errors(
@@ -696,26 +774,19 @@ def verify_dataset(
     """Check the public release contract for one repository without writing."""
 
     errors: list[str] = []
+    reader = _RepositoryReader(repo, base_url, timeout, text_fetcher, bytes_fetcher)
     try:
-        card = text_fetcher(public_url(repo, "README.md", base_url), timeout)
-        provenance_text = text_fetcher(
-            public_url(repo, "provenance.json", base_url), timeout
-        )
-        license_text = text_fetcher(public_url(repo, "LICENSE", base_url), timeout)
-        release_status_text = text_fetcher(
-            public_url(repo, "release-status.json", base_url), timeout
-        )
-        viewer_bytes = bytes_fetcher(
-            public_url(
-                repo, "data/viewer/records.parquet", base_url, resolve=True
-            ),
-            timeout,
-        )
+        card = reader.read_text("README.md")
+        provenance_text = reader.read_text("provenance.json")
+        license_text = reader.read_text("LICENSE")
+        release = _fetch_release_status(reader)
+        viewer_bytes = reader.read_bytes("data/viewer/records.parquet", resolve=True)
     except Exception as error:  # network exceptions differ across Hub backends
         return CheckResult(repo, (f"public fetch failed: {error}",))
 
-    status_license = _release_status_license(release_status_text, errors, repo)
+    status_license = _release_status_license(release.text, errors, repo)
     errors.extend(_license_alignment_errors(card, license_text, status_license))
+    errors.extend(_rights_errors(repo, release, card, license_text))
     errors.extend(_card_section_errors(card, repo))
     errors.extend(_viewer_errors(card, viewer_bytes))
 
@@ -747,9 +818,7 @@ def verify_dataset(
         if isinstance(revision, str):
             for path, expected_digest in snapshot_entries:
                 try:
-                    payload = bytes_fetcher(
-                        public_url(repo, path, base_url, revision), timeout
-                    )
+                    payload = reader.read_bytes(path, revision)
                 except Exception as error:  # network exceptions differ by Hub backend
                     errors.append(f"immutable raw payload fetch failed for {path}: {error}")
                     continue
@@ -798,6 +867,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0 if all(result.ok for result in results) else 1
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

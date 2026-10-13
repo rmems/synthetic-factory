@@ -28,6 +28,10 @@ require_nonempty_string = _rights_mapping.require_nonempty_string
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
+DATASET_ID_RE = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
+)
 
 
 class _DocumentIdentity(NamedTuple):
@@ -163,6 +167,23 @@ def closed_value(
     if not is_exact_string(value) or value not in vocabulary:
         raise policy_error(where, f"{field} has an unknown value")
     return value
+
+
+def require_dataset_id(value: object, where: str) -> str:
+    """Require one exact ``owner/name`` Hub dataset identifier."""
+    if not is_exact_string(value) or DATASET_ID_RE.fullmatch(value) is None:
+        raise policy_error(where, "dataset_id must be an exact owner/name identifier")
+    return value
+
+
+def reject_document_surrogates(document: object, where: str) -> None:
+    """Reject rights-document text that is not Unicode scalar-value text."""
+    try:
+        _rights_mapping.reject_unpaired_surrogates(document)
+    except ValueError as exc:
+        raise _rights_mapping.RightsPolicyError(
+            f"{where}: invalid rights document Unicode: {exc}"
+        ) from exc
 
 
 def calendar_date(value: object, field: str, where: str) -> str:
