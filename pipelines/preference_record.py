@@ -22,6 +22,9 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_record")
     from .preference_context import (
         all_context_diffs,
         context_field_agreement,
@@ -39,6 +42,9 @@ if __package__:
     )
     from .preference_repair import repair_attested_identity, repair_attested_proposal
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_record"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -182,3 +188,7 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         same_state=same_state,
         same_proposed_action=same_proposed_action,
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

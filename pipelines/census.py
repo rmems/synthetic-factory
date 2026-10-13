@@ -19,6 +19,9 @@ from collections import Counter
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("census")
     from .census_sim import (
         _record_simulation_buckets,
         bucket_sim_or_real,
@@ -35,6 +38,7 @@ if __package__:
     from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
     from .validate_run import reject_json_constant
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("census")
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -308,6 +312,10 @@ def main(argv=None):
         return 1
     print(json.dumps(report, indent=2))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

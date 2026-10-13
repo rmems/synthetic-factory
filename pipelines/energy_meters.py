@@ -29,10 +29,16 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_meters")
     from .energy_contract import FAMILY
     from .energy_meter_rapl import RaplEnergyMeter
     from .energy_meter_types import EnergyOracle, MeterReading
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_meters"
+    )
     from energy_contract import FAMILY
     from energy_meter_rapl import RaplEnergyMeter
     from energy_meter_types import EnergyOracle, MeterReading
@@ -338,3 +344,7 @@ def meters_report() -> dict[str, Any]:
         "cpu_time_s and result.cost_is_energy is false."
     )
     return report
+
+
+if __package__:
+    _expose_package_sibling(__name__)

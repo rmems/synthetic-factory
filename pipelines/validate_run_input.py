@@ -4,7 +4,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any, Optional, Tuple
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("validate_run_input")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "validate_run_input"
+    )
+
 
 if __package__:
     from .exact_json import dumps_exact_json, parse_finite_json_float, parse_json_integer
@@ -35,3 +46,7 @@ def reject_json_constant(token: str) -> None:
     """Reject non-standard NaN and Infinity tokens during JSON decoding."""
 
     raise ValueError(f"non-standard JSON numeric constant {token}")
+
+
+if __package__:
+    _expose_package_sibling(__name__)

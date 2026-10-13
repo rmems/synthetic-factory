@@ -21,8 +21,14 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_oracle_types")
     from .moe_layers import LayerRouting, RouterObservation
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_oracle_types"
+    )
     from moe_layers import LayerRouting, RouterObservation
 
 
@@ -73,4 +79,8 @@ def _summarise(layers: list[LayerRouting]) -> RouterObservation:
         top1_expert=modal,
         expert_agreement=round(count / len(tops), 6),
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 

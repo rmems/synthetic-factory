@@ -19,6 +19,16 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import envelope  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_oracle_checks")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_oracle_checks"
+    )
+
+
+if __package__:
     from .fault_types import (
         DEFAULT_SYSTEM,
         ORACLE_IMPLEMENTATION,
@@ -194,4 +204,8 @@ def _check_simulator_type_binding(record: dict[str, Any], where: str) -> list[st
         f"{where}.oracle.type: ORACLE_TYPE_MISMATCH — {ORACLE_IMPLEMENTATION} "
         f"must declare type deterministic_simulator, got {oracle.get('type')!r}"
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 

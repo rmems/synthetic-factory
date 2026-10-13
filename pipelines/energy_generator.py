@@ -25,6 +25,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_generator")
     from .energy_contract import (
         ABSTAIN_NO_FEASIBLE,
         DECISION_RULE,
@@ -51,6 +54,9 @@ if __package__:
         unclipped_allocation,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_generator"
+    )
     from energy_contract import (
         ABSTAIN_NO_FEASIBLE,
         DECISION_RULE,
@@ -567,3 +573,7 @@ def build_records(
             )
         )
     return records
+
+
+if __package__:
+    _expose_package_sibling(__name__)
