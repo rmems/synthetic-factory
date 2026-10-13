@@ -1,5 +1,8 @@
 """Every relative link in README.md and docs/ resolves to a file and heading.
 
+Reference-style links must also have a definition: every ``[text][label]`` use,
+and every shortcut ``[#N]`` / ``[PR #N]`` citation. Other bare brackets such as
+``[0, 1]`` are prose that GitHub renders literally, so they are not checked.
 External links (any ``scheme:`` target) are not fetched. ``*.card.md`` files
 are Hub dataset cards whose relative links resolve inside the published Hub
 repository, not in this checkout, so they are skipped.
@@ -15,6 +18,9 @@ REPO = Path(__file__).resolve().parents[1]
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 _REFERENCE_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+\"[^\"]*\")?\s*$")
+_REFERENCE_LABEL = re.compile(r"^\s{0,3}\[([^\]]+)\]:")
+_REFERENCE_USE = re.compile(r"(?<![\]!\\])\[([^\[\]]+)\](?:\[([^\[\]]*)\])?(?![(\[:])")
+_CITATION_LABEL = re.compile(r"^(?:PR )?#\d+$")
 _HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
 _HTML_ANCHOR = re.compile(r"<a\s+(?:name|id)=\"([^\"]+)\"")
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
@@ -86,6 +92,30 @@ def broken_links(path: Path, root: Path = REPO) -> list[str]:
     return problems
 
 
+def undefined_references(path: Path, root: Path = REPO) -> list[str]:
+    """Reference-style uses in ``path`` whose label has no definition there."""
+    lines = list(_prose_lines(path))
+    labels = {match.group(1).lower() for _, line in lines if (match := _REFERENCE_LABEL.match(line))}
+    problems = []
+    for number, line in lines:
+        if _REFERENCE_LABEL.match(line):
+            continue
+        for label in _reference_labels(_without_code_spans(line)):
+            if label.lower() not in labels:
+                problems.append(f"{path.relative_to(root)}:{number}: [{label}] (no definition)")
+    return problems
+
+
+def _reference_labels(prose: str):
+    """Labels of full ``[text][label]`` uses and shortcut ``[#N]`` citations."""
+    for match in _REFERENCE_USE.finditer(prose):
+        text, label = match.groups()
+        if label is not None:
+            yield label or text
+        elif _CITATION_LABEL.match(text):
+            yield text
+
+
 def _missing_heading(resolved: Path, anchor: str) -> bool:
     """True when ``anchor`` names a heading that the Markdown file lacks."""
     if not anchor or resolved.suffix != ".md":
@@ -96,6 +126,10 @@ def _missing_heading(resolved: Path, anchor: str) -> bool:
 class DocsLinkTests(unittest.TestCase):
     def test_relative_links_and_anchors_resolve(self):
         problems = [problem for path in doc_files() for problem in broken_links(path)]
+        self.assertEqual(problems, [])
+
+    def test_reference_links_have_definitions(self):
+        problems = [problem for path in doc_files() for problem in undefined_references(path)]
         self.assertEqual(problems, [])
 
     def test_scope_covers_readme_and_docs(self):
@@ -121,6 +155,23 @@ class DocsLinkTests(unittest.TestCase):
                 "page.md:3: missing.md (no such path)",
                 "page.md:3: #nowhere (no such heading)",
                 "page.md:3: other.md#nope (no such heading)",
+            ])
+
+    def test_checker_reports_undefined_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            page = root / "page.md"
+            page.write_text(
+                "See [#1], [PR #2], [docs][guide], [Guide][] and [0, 1].\n"
+                "Missing [#3], [PR #4], [text][nowhere] and [Absent][]; `[#5]` is code.\n"
+                "\n[#1]: https://x.y/1\n[PR #2]: https://x.y/2\n[guide]: other.md\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(undefined_references(page, root), [
+                "page.md:2: [#3] (no definition)",
+                "page.md:2: [PR #4] (no definition)",
+                "page.md:2: [nowhere] (no definition)",
+                "page.md:2: [Absent] (no definition)",
             ])
 
 

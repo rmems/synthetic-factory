@@ -25,10 +25,11 @@ Landed extract families already carry near-copies:
 use `_contract.bind_import_twin` from
 `oracle_grounded.import_twins`. `db` has a third copy of the binder.
 
-Eighteen open mill PRs (`azr`, `dbc`, `dbm`, `dpr`, `irc`, `kcl`, `lhc`,
-`lrd`, `mac`, `obs`, `pkg`, `qbp`, `sbox`, `tup`, `csv`, `maos`, `ttf`,
-`nelb`, …) will copy the same helpers again unless a shared module exists
-**before** those PRs rebase.
+At the `fef9fef` survey, eighteen open mill PRs (`azr`, `dbc`, `dbm`, `dpr`,
+`irc`, `kcl`, `lhc`, `lrd`, `mac`, `obs`, `pkg`, `qbp`, `sbox`, `tup`, `csv`,
+`maos`, `ttf`, `nelb`, …) were about to copy the same helpers again unless a
+shared module existed **before** those PRs rebased. They have since landed
+with their own copies, so they now join the already-landed cleanup below.
 
 P4 lands **only** the shared module. It does not migrate already-landed
 families (that collides with every in-flight mill PR). Remaining families
@@ -528,7 +529,7 @@ shared helper, not a duplicate), `tuple_assignment_names`
 
 | shape | packages | twins? | P4 consumer? |
 |---|---|---|---|
-| Extract catalog (`identity` + `catalog_ast` + `catalog_extract` + `sources` + `vocabulary`) | `search`, `lef`, `ssr`, `evh`, `gor`, `iac`, `mdb`, `ntp`, `cst` | no | **yes** — remaining open mill PRs copy this |
+| Extract catalog (`identity` + `catalog_ast` + `catalog_extract` + `sources` + `vocabulary`) | `search`, `lef`, `ssr`, `evh`, `gor`, `iac`, `mdb`, `ntp`, `cst` | no | **yes** — the mill PRs open at the survey copied this |
 | `_contract` + replay / sealed catalog | `hopper`, `acm`, `code_repair`, `cei`, `wsr`, `ewr`, `mill`, … | yes, via `oracle_grounded.import_twins` | optional later; not P4 |
 
 `acm` is a hybrid: `_contract.refuse_vendor_paths` + `generate.assignment_of`
@@ -549,7 +550,7 @@ P4 is **additive**. Order is the point of the 500-line cap.
    `tests/test_mill_support.py`. Zero edits to landed families,
    `leftover_mill.py`, `mill_*.py`, `pipelines/__init__.py`,
    `oracle_grounded/import_twins.py`, `FACTORY-REGISTRY.json`.
-2. **Remaining extract families** (open mill PRs) rebase: local
+2. **Remaining extract families** (open mill PRs at the survey, since landed) migrate: local
    `catalog_ast.py` becomes a thin re-export or is deleted; `identity.py`
    keeps `is_vendor_filename` and calls `mill_support.vendor.refuse_vendor_paths`;
    `catalog_extract.py` imports `sha256_bytes` / `dumps_catalog` /

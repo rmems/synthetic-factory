@@ -407,4 +407,5 @@ approved decision, and only training-candidate rows
 [#173]: https://github.com/rmems/synthetic-factory/issues/173
 [#175]: https://github.com/rmems/synthetic-factory/issues/175
 [#184]: https://github.com/rmems/synthetic-factory/issues/184
+[#186]: https://github.com/rmems/synthetic-factory/issues/186
 [PR #168]: https://github.com/rmems/synthetic-factory/pull/168
