@@ -19,7 +19,7 @@ __all__ = (
     "verify records views generate replay export export_integrity dedup cli "
     "record_validation evidence "
     "publication publication_export publication_receipt selection admission source_policy "
-    "validation run_validation "
+    "validation run_validation recall_probe recall_prompts recall_score recall_stub "
     "_admission_catalog _admission_evidence"
 ).split()
 
