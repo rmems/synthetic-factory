@@ -19,6 +19,7 @@ MODULES = tuple(
     "sandbox verify records views generate export export_integrity cli record_validation evidence "
     "publication publication_export publication_receipt selection admission source_policy validation "
     "planning candidate_io row_validation dedup"
+    " views_chat views_edit hub_card hub_bundle"
     " recall_probe recall_prompts recall_score recall_stub"
     .split()
 )

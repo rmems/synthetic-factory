@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Code-repair commands: catalog-check, generate, replay, publish, export, dedup, render,
-recall-probe.
+hub-bundle, recall-probe.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
 ran and reports findings (catalog findings, replay failures, cross-run duplicates, leak
@@ -24,10 +24,13 @@ from . import dedup
 from . import executor as ex
 from . import export
 from . import generate
+from . import hub_bundle
 from . import publication
 from . import recall_probe
 from . import replay
 from . import views
+from . import views_chat
+from . import views_edit
 from . import record_validation as validation
 from . import vocabulary as cv
 from ._contract import bind_import_twin, dumps_exact_json, envelope, oc
@@ -84,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("run_dir", type=Path)
     render.add_argument("record_id")
     render.add_argument("--json", action="store_true")
-
+    _add_hub_bundle(commands)
     _add_recall_probe(commands)
     return parser
 
@@ -98,6 +101,17 @@ def _add_dedup_parser(commands: Any) -> None:
     dup.add_argument("--out", type=Path, default=None,
                      help="a brand-new file for the manifest, outside every run directory")
     dup.add_argument("--json", action="store_true")
+
+
+def _add_hub_bundle(commands: Any) -> None:
+    bundle = commands.add_parser(
+        "hub-bundle", help="a Hub-ready dataset directory with typed configs from a complete export"
+    )
+    bundle.add_argument("--export", dest="export_dir", type=Path, required=True)
+    bundle.add_argument("--out", type=Path, required=True)
+    bundle.add_argument("--dataset-id", required=True, help="owner/name of the Hub dataset")
+    bundle.add_argument("--pretty-name", default=None)
+    bundle.add_argument("--json", action="store_true")
 
 
 def _add_recall_probe(commands: argparse._SubParsersAction) -> None:
@@ -256,7 +270,9 @@ def _render(args: argparse.Namespace) -> int:
         return 1
     row = {"prompt": views.render_prompt(views.public_view(record)),
            "completion": views.completion_of(record)}
-    leaks = views.view_findings(record, row)
+    chat, edit = views_chat.chat_candidate(record), views_edit.edit_candidate(record)
+    leaks = (views.view_findings(record, row) + views_chat.chat_findings(record, chat)
+             + views_edit.edit_findings(record, edit))
     payload = {
         "command": "render", "status": "findings" if leaks else "ok", "record_id": args.record_id,
         "findings": [{"code": code} for code in leaks],
@@ -267,9 +283,23 @@ def _render(args: argparse.Namespace) -> int:
         # A pair with a leak finding is never emitted, not even beside its findings.
         _emit(payload, args.json, "leak findings: " + ", ".join(leaks))
         return 1
-    payload["sft"] = row
+    payload.update(sft=row, chat=chat, edit=edit)
     _emit(payload, args.json, f"### prompt\n{row['prompt']}\n### completion\n{row['completion']}")
     return 0
+
+
+def _hub_bundle(args: argparse.Namespace) -> int:
+    summary = hub_bundle.run(hub_bundle.BundleRequest(
+        args.export_dir, args.out, args.dataset_id, args.pretty_name,
+    ))
+    text = (
+        f"bundled {summary['dataset_id']} into {args.out}: configs "
+        f"{', '.join(summary['configs']) or 'viewer only'}; training_ready "
+        f"{str(summary['training_ready']).lower()}; no Hub repository created or uploaded"
+    )
+    _emit({"command": "hub-bundle", "status": "ok", "summary": summary}, args.json, text)
+    return 0
+
 
 
 def _recall_probe_emit(args: argparse.Namespace) -> int:
@@ -309,7 +339,7 @@ def _recall_probe(args: argparse.Namespace) -> int:
 
 _COMMANDS = {
     "catalog-check": _catalog_check, "generate": _generate, "render": _render, "replay": _replay,
-    "export": _export, "publish": _publish, "dedup": _dedup,
+    "export": _export, "publish": _publish, "dedup": _dedup, "hub-bundle": _hub_bundle,
     "recall-probe": _recall_probe,
 }
 

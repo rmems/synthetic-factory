@@ -18,7 +18,7 @@ from tests.code_repair_test_support import (
     FIXTURE_CATALOG, cli, envelope, generate, oc, refusal, smoke_run, verify, views,
     vocabulary as cv,
 )
-from code_repair import export, lineage, replay
+from code_repair import export, lineage, replay, views_chat, views_edit
 from code_repair._contract import ExactJSONFloat, exact_fraction, load_strict_json
 from scripts import agoge_consumer_probe as probe
 from tests.code_repair_test_support import required_item
@@ -143,6 +143,34 @@ class Artifacts(unittest.TestCase):
         self.assertNotIn(cv.BLOCKER_REPLAY_NOT_RUN, first["admission"]["blockers"])
         self.assertEqual(first["tables"]["dispositions"]["exported"],
                          first["tables"]["positives"])
+
+    def test_chat_and_edit_renderings_follow_the_sft_rows(self):
+        _summary, _records, run_dir = smoke_run()
+        replay_dir = self.root / "replay"
+        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        manifest, out = export_of(run_dir, self.root, replay_dir)
+        self.assertEqual(set(manifest["views"]), {"sft", "chat", "edit", "agoge"})
+        freeze = json.loads((out / export.FREEZE_PATH).read_text())
+        for name in (export.CHAT_DIR, export.EDIT_DIR):
+            digest = hashlib.sha256((out / f"{name}/held_out.jsonl").read_bytes()).hexdigest()
+            self.assertEqual(freeze[f"{name}_sha256"], digest)
+        exported_rows = 0
+        for split in lineage.SPLITS:
+            sft = [r for _n, r in oc.read_jsonl(out / f"{export.SFT_DIR}/{split}.jsonl")]
+            chat = [r for _n, r in oc.read_jsonl(out / f"{export.CHAT_DIR}/{split}.jsonl")]
+            edit = [r for _n, r in oc.read_jsonl(out / f"{export.EDIT_DIR}/{split}.jsonl")]
+            self.assertEqual((len(chat), len(edit)), (len(sft), len(sft)))
+            exported_rows += len(sft)
+            for pair, chat_row, edit_row in zip(sft, chat, edit):
+                self.assertEqual(views_chat.chat_pair(chat_row),
+                                 (pair["prompt"], pair["completion"]))
+                fenced = edit_row["prompt"].split("```python\n", 1)[1]
+                broken = fenced.split("```\n\n### Failing doctest examples", 1)[0]
+                applied, code = views_edit.apply_block(broken, edit_row["completion"])
+                self.assertIsNone(code)
+                self.assertEqual(applied, pair["completion"])
+        self.assertEqual(exported_rows, manifest["tables"]["dispositions"]["exported"])
+        self.assertGreater(exported_rows, 0)
 
     def test_manifest_write_preserves_exact_decimal_metadata(self):
         precise_timeout = "2.0000000000000000000001"
