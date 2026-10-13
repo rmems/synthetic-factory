@@ -95,15 +95,20 @@ def broken_links(path: Path, root: Path = REPO) -> list[str]:
 def undefined_references(path: Path, root: Path = REPO) -> list[str]:
     """Reference-style uses in ``path`` whose label has no definition there."""
     lines = list(_prose_lines(path))
-    labels = {match.group(1).lower() for _, line in lines if (match := _REFERENCE_LABEL.match(line))}
-    problems = []
+    defined = {match.group(1).lower() for _, line in lines if (match := _REFERENCE_LABEL.match(line))}
+    return [
+        f"{path.relative_to(root)}:{number}: [{label}] (no definition)"
+        for number, label in _reference_uses(lines)
+        if label.lower() not in defined
+    ]
+
+
+def _reference_uses(lines):
+    """``(line_number, label)`` for each reference use outside definition lines."""
     for number, line in lines:
-        if _REFERENCE_LABEL.match(line):
-            continue
-        for label in _reference_labels(_without_code_spans(line)):
-            if label.lower() not in labels:
-                problems.append(f"{path.relative_to(root)}:{number}: [{label}] (no definition)")
-    return problems
+        if not _REFERENCE_LABEL.match(line):
+            for label in _reference_labels(_without_code_spans(line)):
+                yield number, label
 
 
 def _reference_labels(prose: str):
