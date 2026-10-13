@@ -63,8 +63,8 @@ class TreeCaptureTests(TreeCaptureCase):
         (self.root / "a.jsonl").write_bytes(b"{}\n")
 
         def refuse_files(_descriptor: int, label: str) -> None:
-            if label.startswith("destination tree file"):
-                raise OSError("descriptor vanished")
+            self.assertEqual(label, "destination tree file a.jsonl")
+            raise OSError("descriptor vanished")
 
         self.assert_capture_refused(
             "destination tree file cannot be read: a.jsonl", guard=refuse_files
@@ -83,9 +83,9 @@ class TreeCaptureTests(TreeCaptureCase):
         self.make_directory("sub")
 
         def swap(_descriptor: int, label: str) -> None:
-            if label == "destination tree directory sub":
-                (self.root / "sub").rename(self.root / "sub-old")
-                (self.root / "sub").mkdir()
+            self.assertEqual(label, "destination tree directory sub")
+            (self.root / "sub").rename(self.root / "sub-old")
+            (self.root / "sub").mkdir()
 
         self.assert_capture_refused("destination tree directory changed: sub", guard=swap)
 
