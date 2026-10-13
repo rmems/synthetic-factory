@@ -56,6 +56,10 @@ def _move_rows(document):
     )
 
 
+def _extract(text):
+    return catalog_extract.extract_mill_catalog(text, path=MILL_PATH)
+
+
 class CatalogPinRefusals(unittest.TestCase):
     def _catalog(self, document, members=None) -> Path:
         files = {name: (PACKAGE / name).read_bytes() for name in MEMBERS}
@@ -145,24 +149,21 @@ class CatalogPinRefusals(unittest.TestCase):
 
 
 class TableExtractRefusals(unittest.TestCase):
-    def _extract(self, text):
-        return catalog_extract.extract_mill_catalog(text, path=MILL_PATH)
-
     def test_table_source_refusals(self):
         extra_cache_row = f"CACHE_OK += [{TABLE_ROWS['CACHE_OK']!r}]\n"
         cases = (
             ("CACHE_OK = []\n", f"{MILL_PATH} missing catalog tables"),
             (TABLES_SOURCE + extra_cache_row, f"{MILL_PATH} catalog widths drifted"),
         )
-        assert_each_refused(self, ValueError, self._extract, cases)
+        assert_each_refused(self, ValueError, _extract, cases)
 
     def test_unresolvable_list_extensions_are_ignored(self):
         ignored = "obj.attr = 1\nobj.attr += [1]\nUNKNOWN += [1]\nCACHE_OK += [call()]\n"
-        record = self._extract(TABLES_SOURCE + ignored)
+        record = _extract(TABLES_SOURCE + ignored)
         self.assertEqual((record["n_rows"], record["first_slug"]), (1, "cache_ok-0"))
 
     def test_table_summary_includes_the_tables(self):
-        record = self._extract(TABLES_SOURCE)
+        record = _extract(TABLES_SOURCE)
         summary = catalog_extract.mill_summary(record, include_tables=True)
         expected = {name: [list(TABLE_ROWS[name])] for name in vocabulary.TABLE_NAMES}
         self.assertEqual(summary["tables"], expected)
@@ -174,7 +175,8 @@ class TableExtractRefusals(unittest.TestCase):
 
     def test_dumps_rows_refuses_empty_and_ragged_tables(self):
         empty = {name: [] for name in vocabulary.TABLE_NAMES}
-        ragged = dict({name: [TABLE_ROWS[name]] for name in vocabulary.TABLE_NAMES}, SEED_OK=[])
+        ragged = {name: [TABLE_ROWS[name]] for name in vocabulary.TABLE_NAMES}
+        ragged["SEED_OK"] = []
         cases = (
             (empty, "dumps_rows requires at least one catalog row"),
             (ragged, "dumps_rows table widths drifted"),

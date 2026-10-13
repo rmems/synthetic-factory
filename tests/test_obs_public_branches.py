@@ -75,8 +75,12 @@ def _hop_literal() -> str:
     return repr(row)
 
 
-class CatalogTree(unittest.TestCase):
-    """Writes a mutated cut of the committed catalog into a temp dir."""
+def _extract(text, mill_id="obs_r7"):
+    return catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
+
+
+class CatalogTree:
+    """Mixin: writes a mutated cut of the committed catalog into a temp dir."""
 
     def write(self, members=None, meta_edit=None) -> Path:
         members = [[row] for row in FIRST_ROWS] if members is None else members
@@ -100,7 +104,7 @@ class CatalogTree(unittest.TestCase):
         assert_each_refused(self, ObsRefusal, catalog.load_catalog, built)
 
 
-class CatalogHeaderRefusals(CatalogTree):
+class CatalogHeaderRefusals(CatalogTree, unittest.TestCase):
     def test_header_fields_refuse_each_defect(self):
         self.assert_loads_refused(
             (
@@ -176,7 +180,7 @@ class CatalogHeaderRefusals(CatalogTree):
         )
 
 
-class MemberFileRefusals(CatalogTree):
+class MemberFileRefusals(CatalogTree, unittest.TestCase):
     def test_a_missing_member_file_is_refused(self):
         directory = self.write()
         (directory / "leftover3-pairs.jsonl").unlink()
@@ -205,7 +209,7 @@ class MemberFileRefusals(CatalogTree):
             catalog.load_catalog(directory)
 
 
-class PlantRowRefusals(CatalogTree):
+class PlantRowRefusals(CatalogTree, unittest.TestCase):
     def _refuse_rows(self, member, cases):
         built = []
         for path, value, fragment, code in cases:
@@ -237,7 +241,7 @@ class PlantRowRefusals(CatalogTree):
         self._refuse_rows(2, ((("knob",), DELETE, "plants:3 missing knob", PLANT_MISSING),))
 
 
-class CatalogSurface(CatalogTree):
+class CatalogSurface(CatalogTree, unittest.TestCase):
     def test_default_directory_loads_the_committed_catalog(self):
         loaded = catalog.load_catalog()
         self.assertEqual(loaded.directory, COMMITTED)
@@ -250,20 +254,17 @@ class CatalogSurface(CatalogTree):
 
 
 class PlantsFromSourceRefusals(unittest.TestCase):
-    def _extract(self, text, mill_id="obs_r7"):
-        return catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
-
     def test_annotated_pairs_are_read_and_an_unvalued_annotation_is_not(self):
-        rows = self._extract(f"obj.attr = 1\nPAIRS: list = [{_hop_literal()}]\n")
+        rows = _extract(f"obj.attr = 1\nPAIRS: list = [{_hop_literal()}]\n")
         self.assertEqual(
             [(row["plant_id"], row["base_round"]) for row in rows], [("obs_r7:tiny-hop", 7)]
         )
         with refusal(self, ObsRefusal, "s.py has no plant literal", NOT_PARSEABLE):
-            self._extract("PAIRS: list\n")
+            _extract("PAIRS: list\n")
 
     def test_a_depth_600_negated_plant_value_evaluates(self):
         literal = _hop_literal()[:-1] + f", 'novel': {deep_negation()}" + "}"
-        (row,) = self._extract(f"PAIRS = [{literal}]\n")
+        (row,) = _extract(f"PAIRS = [{literal}]\n")
         self.assertEqual(row["novel"], 1)
 
     def test_source_level_refusals(self):
@@ -273,18 +274,18 @@ class PlantsFromSourceRefusals(unittest.TestCase):
             ("PAIRS = [P('tempo', 'x')]\n", "r401 P() expected 24 args, got 2", NOT_PARSEABLE),
             (f"PAIRS = [P('zzz', {R401_TAIL})]\n", "unknown r401 kind 'zzz'", NOT_PARSEABLE),
         )
-        assert_each_refused(self, ObsRefusal, self._extract, cases)
+        assert_each_refused(self, ObsRefusal, _extract, cases)
 
     def test_spec_identity_keys_win_over_the_literal(self):
         spec = {key: "x" for key in catalog.SPEC_REQUIRED}
         spec.update(ok_slug="tiny-spec", mill_id="obs_other", family="other")
-        (row,) = self._extract(f"SPECS = [{spec!r}]\n", mill_id="obs_leftover9")
+        (row,) = _extract(f"SPECS = [{spec!r}]\n", mill_id="obs_leftover9")
         self.assertEqual((row["mill_id"], row["family"]), ("obs_leftover9", "leftover9"))
         self.assertEqual(row["plant_id"], "obs_leftover9:tiny-spec")
 
     def test_kind_ns_and_catalog_first_assignments_drive_r401_rows(self):
         head = "KIND_NS = {'zzz': ('zns', 'zdeploy')}\nCATALOG_FIRST = 9\n"
-        (row,) = self._extract(f"{head}PAIRS = [P('zzz', {R401_TAIL})]\n", mill_id="obs_r401")
+        (row,) = _extract(f"{head}PAIRS = [P('zzz', {R401_TAIL})]\n", mill_id="obs_r401")
         self.assertEqual((row["ns"], row["deploy"], row["base_round"]), ("zns", "zdeploy", 9))
         self.assertEqual(row["file"], "zzz/dash.yaml")
 

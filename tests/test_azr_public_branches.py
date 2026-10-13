@@ -21,6 +21,7 @@ from mill_catalog_public_support import (
     assert_each_refused,
     compact,
     edited,
+    parse_expr,
     read_jsonl,
     refusal,
     setter,
@@ -54,6 +55,7 @@ ZIP_MILL = (
     "if PAIRS[0][1]['slug'] != {fail!r}:\n    raise SystemExit(1)\n"
 )
 ZIP_PLANT = "EXTRA_IDOR_ROWS = [dict(slug='x1')]\nBFLA_ROWS = [dict(slug='y1')]\n"
+UNEVEN_PLANT = "EXTRA_IDOR_ROWS = [dict(slug='a'), dict(slug='b')]\nBFLA_ROWS = [dict(slug='c')]\n"
 
 
 def _rows(mill_id, delta):
@@ -64,6 +66,14 @@ def _rows(mill_id, delta):
 
 def _bulky_narrower(document):
     return _rows(DEFERRED, 1)(_rows(BULKY, -1)(document))
+
+
+def _plant(text):
+    return catalog_extract.extract_plant_catalog(text, path=PLANT_PATH)
+
+
+def _mill(text, plants=None):
+    return catalog_extract.extract_mill_catalog(text, path=MILL_PATH, plants=plants)
 
 
 class CatalogPinRefusals(unittest.TestCase):
@@ -118,9 +128,6 @@ class PairFileFraming(unittest.TestCase):
 
 
 class PlantExtractRefusals(unittest.TestCase):
-    def _plant(self, text):
-        return catalog_extract.extract_plant_catalog(text, path=PLANT_PATH)
-
     def test_plant_catalog_refusals(self):
         cases = (
             (
@@ -133,23 +140,20 @@ class PlantExtractRefusals(unittest.TestCase):
             ),
             ("X = 1\n", f"{PLANT_PATH} has no EXTRA_IDOR_ROWS catalog"),
             (
-                "EXTRA_IDOR_ROWS = [dict(slug='a'), dict(slug='b')]\nBFLA_ROWS = [dict(slug='c')]\n",
+                UNEVEN_PLANT,
                 f"{PLANT_PATH}: idor 2 != bfla 1",
             ),
         )
-        assert_each_refused(self, ValueError, self._plant, cases)
+        assert_each_refused(self, ValueError, _plant, cases)
 
     def test_dict_literal_rows_are_slug_identities(self):
-        record = self._plant("EXTRA_IDOR_ROWS = [{'slug': 'x1', 'plant': 'a'}]\n")
+        record = _plant("EXTRA_IDOR_ROWS = [{'slug': 'x1', 'plant': 'a'}]\n")
         self.assertEqual(
             (record["first_slug"], record["idors"]), ("x1", [{"slug": "x1", "plant": "a"}])
         )
 
 
 class MillExtractRefusals(unittest.TestCase):
-    def _mill(self, text, plants=None):
-        return catalog_extract.extract_mill_catalog(text, path=MILL_PATH, plants=plants)
-
     def test_idor_mill_refusals(self):
         cases = (
             (
@@ -165,7 +169,7 @@ class MillExtractRefusals(unittest.TestCase):
                 "IDOR_ROWS 2 != _bflas 1",
             ),
         )
-        assert_each_refused(self, ValueError, self._mill, cases)
+        assert_each_refused(self, ValueError, _mill, cases)
 
     def test_zip_tips_must_match_the_companion_plant(self):
         cases = (
@@ -176,11 +180,11 @@ class MillExtractRefusals(unittest.TestCase):
             (ZIP_MILL.format(success="x1", fail="zz"), f"{MILL_PATH} fail tip zz != y1"),
         )
         assert_each_refused(
-            self, ValueError, lambda text: self._mill(text, {PLANT_PATH: ZIP_PLANT}), cases
+            self, ValueError, lambda text: _mill(text, {PLANT_PATH: ZIP_PLANT}), cases
         )
 
     def test_new_pairs_keep_non_pair_entries_as_empty_identities(self):
-        record = self._mill("NEW_PAIRS = [1, ({'slug': 'a'}, 2)]\n")
+        record = _mill("NEW_PAIRS = [1, ({'slug': 'a'}, 2)]\n")
         self.assertEqual(record["shape"], vocabulary.SHAPE_NEW_PLUS_KEEP)
         self.assertEqual(record["pairs"][1:], [NONE_IDENTITY, NONE_IDENTITY])
 
@@ -188,6 +192,11 @@ class MillExtractRefusals(unittest.TestCase):
 class AzrSharedSurface(SharedExtractSurfaceCases, unittest.TestCase):
     ast_module = catalog_ast
     extract_module = catalog_extract
+
+    def test_identity_kwargs_reads_only_literal_dicts(self):
+        literal = catalog_ast.identity_kwargs(parse_expr("{'slug': 'x1', 'plant': 'a'}"))
+        self.assertEqual(literal, {"slug": "x1", "plant": "a"})
+        self.assertIsNone(catalog_ast.identity_kwargs(parse_expr("{'slug': name}")))
 
 
 if __name__ == "__main__":

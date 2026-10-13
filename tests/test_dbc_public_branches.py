@@ -66,6 +66,10 @@ def _extra_mill(document):
     return edited(document, ("mills", "dbc-mill-r0"), row)
 
 
+def _extract(text):
+    return catalog_extract.extract_mill_catalog(text, path=MILL_PATH)
+
+
 class CatalogPinRefusals(unittest.TestCase):
     def _refuse(self, cases):
         built = []
@@ -172,35 +176,32 @@ class SourceLookup(unittest.TestCase):
 
 
 class ExtractFallThroughs(unittest.TestCase):
-    def _extract(self, text):
-        return catalog_extract.extract_mill_catalog(text, path=MILL_PATH)
-
     def test_sources_without_a_catalog_shape_are_refused(self):
         cases = (
             ("obj.attr = 1\n", NO_CATALOG),
             ("PAIRS = [1]\n", NO_CATALOG),
             ("PAIRS = [({'slug': 'a'}, other())]\n", NO_CATALOG),
         )
-        assert_each_refused(self, ValueError, self._extract, cases)
+        assert_each_refused(self, ValueError, _extract, cases)
 
     def test_zip_tables_read_dict_rows(self):
         text = (
             "_LANGS = [{'slug': 'a'}]\n_LEFTS = [{'slug': 'b'}]\n"
             "PAIRS = [(x, y) for x, y in zip(_LANGS, _LEFTS)]\n"
         )
-        record = self._extract(text)
+        record = _extract(text)
         self.assertEqual((record["shape"], record["first_slug"]), ("pairs-zip-tables", "a"))
         self.assertEqual(record["pairs"][0]["fail_slug"], "b")
 
     def test_a_non_literal_mixed_arm_keeps_an_empty_success_identity(self):
-        record = self._extract("PAIRS = [({'slug': 'a'}, suc('b')), ({'slug': name}, suc('c'))]\n")
+        record = _extract("PAIRS = [({'slug': 'a'}, suc('b')), ({'slug': name}, suc('c'))]\n")
         self.assertEqual(record["shape"], "pairs-ctor")
         self.assertEqual(
             (record["pairs"][1]["success_slug"], record["pairs"][1]["fail_slug"]), (None, "c")
         )
 
     def test_a_non_literal_dict_pair_keeps_an_empty_identity(self):
-        record = self._extract(
+        record = _extract(
             "PAIRS = [({'slug': 'a'}, {'slug': 'b'}), ({'slug': name}, {'slug': 'c'})]\n"
         )
         self.assertEqual(record["shape"], "pairs-literal")

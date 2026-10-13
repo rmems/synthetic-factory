@@ -105,8 +105,12 @@ def _dict_pair(ok: dict) -> str:
     return f"({_s_args(ok)!r}, {_s_args(L3_ROW['bad'])!r})"
 
 
-class CatalogTree(unittest.TestCase):
-    """Writes a mutated cut of the committed catalog into a temp dir."""
+def _extract(text, mill_id="cei_r0007"):
+    return catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
+
+
+class CatalogTree:
+    """Mixin: writes a mutated cut of the committed catalog into a temp dir."""
 
     def write(self, rows=BASE_ROWS, meta_edit=None, payload: bytes | None = None) -> Path:
         payload = jsonl_bytes(rows) if payload is None else payload
@@ -139,7 +143,7 @@ class CatalogTree(unittest.TestCase):
         self.assert_loads_refused(built)
 
 
-class CatalogHeaderRefusals(CatalogTree):
+class CatalogHeaderRefusals(CatalogTree, unittest.TestCase):
     def test_header_fields_refuse_each_defect(self):
         self.refuse_meta(
             (
@@ -215,7 +219,7 @@ class CatalogHeaderRefusals(CatalogTree):
         self.assert_loads_refused(((directory, "CATALOG.json is not strict JSON", CAT_INVALID),))
 
 
-class PlantsFileRefusals(CatalogTree):
+class PlantsFileRefusals(CatalogTree, unittest.TestCase):
     def test_framing_refuses_each_malformed_file(self):
         first, second = (line.decode("utf-8") for line in jsonl_bytes(BASE_ROWS).splitlines())
         cases = (
@@ -247,7 +251,7 @@ class PlantsFileRefusals(CatalogTree):
         )
 
 
-class PlantRowRefusals(CatalogTree):
+class PlantRowRefusals(CatalogTree, unittest.TestCase):
     def test_plant_identity_refuses_each_defect(self):
         where = "plants.jsonl:1"
         self.refuse_row(
@@ -315,7 +319,7 @@ class PlantRowRefusals(CatalogTree):
         )
 
 
-class CatalogSurface(CatalogTree):
+class CatalogSurface(CatalogTree, unittest.TestCase):
     def test_default_directory_loads_the_committed_catalog(self):
         loaded = catalog.load_catalog()
         self.assertEqual(loaded.directory, COMMITTED)
@@ -336,18 +340,15 @@ class CatalogSurface(CatalogTree):
 
 
 class PlantsFromSourceRefusals(unittest.TestCase):
-    def _extract(self, text, mill_id="cei_r0007"):
-        return catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
-
     def test_annotated_pairs_are_read_and_an_unvalued_annotation_is_not(self):
         text = _ok_bad_source(head="obj.attr = 1\n").replace("PAIRS =", "PAIRS: list =")
-        rows = self._extract(text, mill_id="cei_r7")
+        rows = _extract(text, mill_id="cei_r7")
         self.assertEqual([row["plant_id"] for row in rows], ["cei_r7:tiny-csv-sniffer"])
         with refusal(self, CeiRefusal, "s.py has no PAIRS list", NOT_PARSEABLE):
-            self._extract("PAIRS: list\n")
+            _extract("PAIRS: list\n")
 
     def test_a_depth_600_negated_catalog_first_evaluates(self):
-        rows = self._extract(_ok_bad_source(head=f"CATALOG_FIRST = {deep_negation()}\n"))
+        rows = _extract(_ok_bad_source(head=f"CATALOG_FIRST = {deep_negation()}\n"))
         self.assertEqual(rows[0]["base_round"], 1)
 
     def test_source_level_refusals(self):
@@ -356,7 +357,7 @@ class PlantsFromSourceRefusals(unittest.TestCase):
         assert_each_refused(
             self,
             CeiRefusal,
-            self._extract,
+            _extract,
             (
                 ("PAIRS = [\n", "s.py does not parse", NOT_PARSEABLE),
                 (
@@ -395,7 +396,7 @@ class PlantsFromSourceRefusals(unittest.TestCase):
     def test_leftover3_pair_refusals(self):
         s_ok = _s_args(L3_ROW["ok"])
         banned = edited(L3_ROW["ok"], ("slug",), BANNED_L3_SLUG)
-        extract = functools.partial(self._extract, mill_id="cei_r48")
+        extract = functools.partial(_extract, mill_id="cei_r48")
         assert_each_refused(
             self,
             CeiRefusal,
@@ -426,9 +427,7 @@ class PlantsFromSourceRefusals(unittest.TestCase):
 
     def test_dict_pairs_skip_a_banned_slug_and_keep_the_rest(self):
         banned = edited(L3_ROW["ok"], ("slug",), BANNED_L3_SLUG)
-        rows = self._extract(
-            f"PAIRS = [{_dict_pair(banned)}, {_dict_pair(L3_ROW['ok'])}]\n", "cei_r42"
-        )
+        rows = _extract(f"PAIRS = [{_dict_pair(banned)}, {_dict_pair(L3_ROW['ok'])}]\n", "cei_r42")
         self.assertEqual(
             [(row["index"], row["ok"]["slug"]) for row in rows], [(0, L3_ROW["ok"]["slug"])]
         )
@@ -446,7 +445,7 @@ class ExpandLeftover3Refusals(unittest.TestCase):
             catalog.expand_leftover3(args, ticket_required=False)
 
 
-class GenerateSelection(CatalogTree):
+class GenerateSelection(CatalogTree, unittest.TestCase):
     def _run(self, directory, **selector):
         return generate.run(
             generate.GenerateRequest(directory, scratch_dir(self) / "out", **selector)
@@ -484,7 +483,7 @@ class GenerateSelection(CatalogTree):
         self.assertFalse(out.exists())
 
 
-class EpisodeBuilderRefusals(CatalogTree):
+class EpisodeBuilderRefusals(CatalogTree, unittest.TestCase):
     def setUp(self):
         self.ok_bad, self.leftover3 = catalog.load_catalog(self.write()).plants
 
