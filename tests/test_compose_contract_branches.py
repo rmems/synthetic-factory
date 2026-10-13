@@ -93,10 +93,10 @@ class PreservedSourceTextTests(ContractCase):
 
     def test_native_source_text_for_another_record_is_unauthenticated(self):
         stage = _identity_stage(**_native_source())
-        other = {"record_kind": "hardware_parity", "id": "hp-2"}
+        other = _retained({"record_kind": "hardware_parity", "id": "hp-2"}, (stage,))
 
         with self.assertRaises(ComposeError) as caught:
-            contract.retained_json_line(_retained(other, (stage,)))
+            contract.retained_json_line(other)
 
         self.assertRegex(
             str(caught.exception), r"^preserved native source text is unauthenticated: "

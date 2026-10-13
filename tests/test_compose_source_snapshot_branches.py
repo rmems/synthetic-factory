@@ -157,9 +157,10 @@ class ExactRegularReadTests(SourceCase):
 
     def test_symlink_member_cannot_be_opened(self):
         (self.root / "link.jsonl").symlink_to(self.member)
+        hooks = _exact_hooks()
 
         with self.assertRaises(ComposeError) as caught:
-            snapshot.read_exact_regular_file(self.root, "link.jsonl", LABEL, _exact_hooks())
+            snapshot.read_exact_regular_file(self.root, "link.jsonl", LABEL, hooks)
 
         self.assertRegex(
             str(caught.exception), "^" + re.escape(f"{LABEL}: cannot open exact source file: ")
@@ -219,9 +220,10 @@ class PinnedChildReadTests(SourceCase):
         (other / "a.jsonl").write_bytes(b"{}\n")
         descriptor = self.open_file(self.member)
         other_parent = self.open_directory(other)
+        before = self.member.stat()
 
         with self.assertRaises(ComposeError) as caught:
-            _read_pinned("a.jsonl", other_parent, descriptor, self.member.stat(), LABEL)
+            _read_pinned("a.jsonl", other_parent, descriptor, before, LABEL)
 
         self.assertEqual(str(caught.exception), CHANGED_WHILE_READING)
 

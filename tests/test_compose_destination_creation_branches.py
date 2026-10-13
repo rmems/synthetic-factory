@@ -43,8 +43,10 @@ class CreationCase(TempTreeCase):
 
 class DisjointTreeTests(unittest.TestCase):
     def assert_disjoint_refused(self, source: str, destination: str, message: str) -> None:
+        source_path, destination_path = Path(source), Path(destination)
+
         with self.assertRaises(ComposeError) as caught:
-            creation._assert_destination_disjoint(Path(source), Path(destination))
+            creation._assert_destination_disjoint(source_path, destination_path)
 
         self.assertEqual(str(caught.exception), message)
 
@@ -149,11 +151,10 @@ class PinnedParentTests(CreationCase):
     def test_identity_drift_while_opening_is_refused(self):
         destination = self.make_directory("curated")
         parent = self.open_directory(self.root)
+        flags = creation._directory_open_flags()
 
         with self.assertRaises(ComposeError) as caught:
-            creation._open_created_destination(
-                parent, destination, creation._directory_open_flags(), (0, 0, 0)
-            )
+            creation._open_created_destination(parent, destination, flags, (0, 0, 0))
 
         self.assertEqual(str(caught.exception), "destination identity changed while opening")
 

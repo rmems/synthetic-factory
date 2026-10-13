@@ -34,12 +34,13 @@ IMPLEMENTATIONS = {
     },
 }
 
+ID_MAPPINGS: tuple = (
+    "skip",
+    {"original_ids": [{"path": "/chosen/legacy"}, {"path": "/meta/legacy"}]},
+)
 ID_DETAIL = {
     "original_ids": [{"path": "/meta/legacy"}, {"path": 7}, "skip"],
-    "id_mappings": [
-        "skip",
-        {"original_ids": [{"path": "/chosen/legacy"}, {"path": "/meta/legacy"}]},
-    ],
+    "id_mappings": list(ID_MAPPINGS),
 }
 
 
@@ -133,7 +134,7 @@ class FacadeSemanticTests(unittest.TestCase):
         }
         detail = dict(ID_DETAIL)
         detail["id_mappings"] = [
-            *ID_DETAIL["id_mappings"],
+            *ID_MAPPINGS,
             {"owner_path": "/", "output_id": "assigned"},
             {"owner_path": "/chosen", "output_id": "other"},
             {"owner_path": "/missing", "output_id": "x"},

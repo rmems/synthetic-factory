@@ -24,6 +24,7 @@ from compose_curated_test_support import build_source_run
 from compose_destination_branch_support import TempTreeCase
 
 UNAUTHENTICATED = "oracle manifest does not authenticate the compose source snapshot"
+RUN = Path("run")
 
 
 def _cli_services() -> run.ComposeCliServices:
@@ -33,8 +34,11 @@ def _cli_services() -> run.ComposeCliServices:
     )
 
 
-def _snapshot(relative: str, body: bytes):
-    return types.SimpleNamespace(relative=relative, body=body)
+def _authentication(body: bytes, *errors: str) -> tuple[None, list, list[str]]:
+    """An oracle manifest authentication result capturing one member's bytes."""
+
+    snapshot = types.SimpleNamespace(relative="oracle/a.jsonl", body=body)
+    return None, [snapshot], list(errors)
 
 
 class RunWiringTests(unittest.TestCase):
@@ -113,7 +117,7 @@ class SnapshotCaptureTests(unittest.TestCase):
 
     def assert_capture_refused(self, message: str, services) -> None:
         with self.assertRaises(ComposeError) as caught:
-            run.capture_source_snapshot(Path("run"), services)
+            run.capture_source_snapshot(RUN, services)
 
         self.assertEqual(str(caught.exception), message)
 
@@ -167,24 +171,26 @@ class OracleRouteTests(TempTreeCase):
 class OracleSnapshotTests(unittest.TestCase):
     PAYLOADS = types.MappingProxyType({"oracle/a.jsonl": b"{}\n"})
 
+    def setUp(self) -> None:
+        super().setUp()
+        self.payloads = dict(self.PAYLOADS)
+
     def assert_snapshot_refused(self, message: str, authentication) -> None:
         with self.assertRaises(ComposeError) as caught:
-            run._require_oracle_snapshot(Path("run"), dict(self.PAYLOADS), authentication)
+            run._require_oracle_snapshot(RUN, self.payloads, authentication)
 
         self.assertEqual(str(caught.exception), message)
 
     def test_manifest_errors_are_refused(self):
-        authentication = ({}, [_snapshot("oracle/a.jsonl", b"{}\n")], ["manifest error"])
+        authentication = _authentication(b"{}\n", "manifest error")
 
         self.assert_snapshot_refused(UNAUTHENTICATED, authentication)
 
     def test_differing_captured_bytes_are_refused(self):
-        authentication = ({}, [_snapshot("oracle/a.jsonl", b"[]\n")], [])
-
-        self.assert_snapshot_refused(UNAUTHENTICATED, authentication)
+        self.assert_snapshot_refused(UNAUTHENTICATED, _authentication(b"[]\n"))
 
     def test_failed_snapshot_validation_reports_its_first_error(self):
-        authentication = ({}, [_snapshot("oracle/a.jsonl", b"{}\n")], [])
+        authentication = _authentication(b"{}\n")
         validator = types.SimpleNamespace(
             validate_run_snapshot=mock.Mock(return_value=(None, ["first", "second"]))
         )
@@ -194,7 +200,7 @@ class OracleSnapshotTests(unittest.TestCase):
             mock.patch.object(run, "_oracle_validator", return_value=validator),
             self.assertRaises(ComposeError) as caught,
         ):
-            run._require_oracle_snapshot(Path("run"), dict(self.PAYLOADS), authentication)
+            run._require_oracle_snapshot(RUN, self.payloads, authentication)
 
         self.assertEqual(str(caught.exception), "oracle source snapshot failed validation: first")
 

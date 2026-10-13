@@ -31,7 +31,7 @@ class OwnedEntryCase(TempTreeCase):
         self.parent = self.open_directory(self.root)
         self.identity = rename.entry_identity(self.parent, "owned")
 
-    def move(self, *, strict: bool, identity=None) -> rename.OwnedEntryMove:
+    def owned_move(self, *, strict: bool, identity=None) -> rename.OwnedEntryMove:
         return rename.OwnedEntryMove(
             self.parent,
             "owned",
@@ -76,12 +76,14 @@ class OwnedEntryRenameErrorTests(OwnedEntryCase):
     def test_strict_move_refuses_any_rename_error(self):
         failing = mock.Mock(side_effect=OSError(errno.EACCES, "denied"))
 
+        owned_move = self.owned_move(strict=True)
+
         # Seam: rename_noreplace is the module's only rename primitive.
         with (
             mock.patch.object(rename, "rename_noreplace", failing),
             self.assertRaises(ComposeError) as caught,
         ):
-            self.move(strict=True).move()
+            owned_move.move()
 
         self.assertEqual(
             str(caught.exception),
@@ -91,12 +93,14 @@ class OwnedEntryRenameErrorTests(OwnedEntryCase):
     def test_lenient_move_refuses_an_unsupported_atomic_rename(self):
         failing = mock.Mock(side_effect=OSError(errno.EXDEV, "cross-device"))
 
+        owned_move = self.owned_move(strict=False)
+
         # Seam: rename_noreplace is the module's only rename primitive.
         with (
             mock.patch.object(rename, "rename_noreplace", failing),
             self.assertRaises(ComposeError) as caught,
         ):
-            self.move(strict=False).move()
+            owned_move.move()
 
         self.assertEqual(
             str(caught.exception),
@@ -106,9 +110,11 @@ class OwnedEntryRenameErrorTests(OwnedEntryCase):
     def test_lenient_move_gives_up_quietly_on_other_errors(self):
         failing = mock.Mock(side_effect=OSError(errno.EACCES, "denied"))
 
+        owned_move = self.owned_move(strict=False)
+
         # Seam: rename_noreplace is the module's only rename primitive.
         with mock.patch.object(rename, "rename_noreplace", failing):
-            moved = self.move(strict=False).move()
+            moved = owned_move.move()
 
         self.assertIsNone(moved)
         self.assertTrue(self.owned.is_dir())
@@ -120,12 +126,14 @@ class OwnedEntryCollisionTests(OwnedEntryCase):
         self.make_directory(TAKEN)
 
     def test_strict_move_refuses_when_every_private_name_collides(self):
+        owned_move = self.owned_move(strict=True)
+
         # Seam: private_entry_name is pinned to one already-existing sibling.
         with (
             mock.patch.object(rename, "private_entry_name", return_value=TAKEN),
             self.assertRaises(ComposeError) as caught,
         ):
-            self.move(strict=True).move()
+            owned_move.move()
 
         self.assertEqual(
             str(caught.exception),
@@ -133,9 +141,11 @@ class OwnedEntryCollisionTests(OwnedEntryCase):
         )
 
     def test_lenient_move_returns_none_when_every_private_name_collides(self):
+        owned_move = self.owned_move(strict=False)
+
         # Seam: private_entry_name is pinned to one already-existing sibling.
         with mock.patch.object(rename, "private_entry_name", return_value=TAKEN):
-            moved = self.move(strict=False).move()
+            moved = owned_move.move()
 
         self.assertIsNone(moved)
         self.assertTrue(self.owned.is_dir())
@@ -143,8 +153,10 @@ class OwnedEntryCollisionTests(OwnedEntryCase):
 
 class OwnedEntryAuthenticationTests(OwnedEntryCase):
     def test_strict_move_restores_and_refuses_a_foreign_identity(self):
+        owned_move = self.owned_move(strict=True, identity=(0, 0, 0))
+
         with self.assertRaises(ComposeError) as caught:
-            self.move(strict=True, identity=(0, 0, 0)).move()
+            owned_move.move()
 
         self.assertEqual(
             str(caught.exception),
@@ -153,7 +165,7 @@ class OwnedEntryAuthenticationTests(OwnedEntryCase):
         self.assertEqual(os.listdir(self.root), ["owned"])
 
     def test_lenient_move_restores_a_foreign_identity_and_returns_none(self):
-        moved = self.move(strict=False, identity=(0, 0, 0)).move()
+        moved = self.owned_move(strict=False, identity=(0, 0, 0)).move()
 
         self.assertIsNone(moved)
         self.assertEqual(os.listdir(self.root), ["owned"])
@@ -163,12 +175,14 @@ class OwnedEntryAuthenticationTests(OwnedEntryCase):
         # the restore attempt fails; the strict refusal must still be raised.
         renames = mock.Mock(side_effect=[None, OSError(errno.ENOENT, "gone")])
 
+        owned_move = self.owned_move(strict=True)
+
         # Seam: rename_noreplace is the module's only rename primitive.
         with (
             mock.patch.object(rename, "rename_noreplace", renames),
             self.assertRaises(ComposeError) as caught,
         ):
-            self.move(strict=True).move()
+            owned_move.move()
 
         self.assertEqual(
             str(caught.exception),

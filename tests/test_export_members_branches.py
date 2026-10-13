@@ -39,9 +39,10 @@ class PinnedDescriptorTests(ExportReadCase):
     def test_symlink_member_cannot_be_opened(self):
         link = self.root / "link.jsonl"
         link.symlink_to(self.member)
+        before = link.lstat()
 
         with self.assertRaises(ExportError) as caught:
-            members_read.read_pinned_descriptor(link, link.lstat(), "link.jsonl", LABEL)
+            members_read.read_pinned_descriptor(link, before, "link.jsonl", LABEL)
 
         self.assertRegex(
             str(caught.exception),
@@ -82,12 +83,14 @@ class PinnedDescriptorTests(ExportReadCase):
                 handle.write(b"{}\n")
             return payload
 
+        before = self.member.lstat()
+
         # Seam: _read_descriptor_bytes is the read the identity must survive.
         with (
             mock.patch.object(members_read, "_read_descriptor_bytes", read_then_append),
             self.assertRaises(ExportError) as caught,
         ):
-            members_read.read_pinned_descriptor(self.member, self.member.lstat(), "a.jsonl", LABEL)
+            members_read.read_pinned_descriptor(self.member, before, "a.jsonl", LABEL)
 
         self.assertEqual(str(caught.exception), f"{LABEL}: source identity changed while reading")
 
