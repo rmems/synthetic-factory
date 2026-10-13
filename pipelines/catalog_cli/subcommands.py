@@ -117,10 +117,14 @@ class GenerateCommands:
         return 2
 
     @staticmethod
-    def _refused(args: argparse.Namespace, refusal: Any) -> int:
-        """The package refusal classes always carry ``code``."""
+    def _refused(args: argparse.Namespace, refusal: Exception) -> int:
+        """A refusal without ``code`` reports ``null``, as the package CLIs did."""
 
-        fields = {"status": "refused", "code": refusal.code, "message": str(refusal)}
+        fields = {
+            "status": "refused",
+            "code": getattr(refusal, "code", None),
+            "message": str(refusal),
+        }
         return _report(args, fields, str(refusal), _exact_line)
 
     def _catalog_dir(self, args: argparse.Namespace) -> Path:
