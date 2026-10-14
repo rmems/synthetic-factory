@@ -48,34 +48,36 @@ def _package_key(module_globals: dict[str, Any]) -> str:
     return Path(module_globals["__file__"]).parent.name
 
 
-# ``(pipelines-form, flat-form)``. ``import_module`` receives one of these literals.
-_MODULES = {
-    ("flk", "catalog"): ("pipelines.flk.catalog", "flk.catalog"),
-    ("flk", "generate"): ("pipelines.flk.generate", "flk.generate"),
-    ("gql", "catalog"): ("pipelines.gql.catalog", "gql.catalog"),
-    ("gql", "generate"): ("pipelines.gql.generate", "gql.generate"),
-    ("msd", "catalog"): ("pipelines.msd.catalog", "msd.catalog"),
-    ("msd", "generate"): ("pipelines.msd.generate", "msd.generate"),
-    ("rag", "catalog"): ("pipelines.rag.catalog", "rag.catalog"),
-    ("rag", "generate"): ("pipelines.rag.generate", "rag.generate"),
-    ("saf", "catalog"): ("pipelines.saf.catalog", "saf.catalog"),
-    ("saf", "generate"): ("pipelines.saf.generate", "saf.generate"),
-    ("mac", "generate"): ("pipelines.mac.generate", "mac.generate"),
-    ("mac", "_contract"): ("pipelines.mac._contract", "mac._contract"),
-    ("sbox", "generate"): ("pipelines.sbox.generate", "sbox.generate"),
-    ("sbox", "_contract"): ("pipelines.sbox._contract", "sbox._contract"),
-}
+def _anchor_package(module_globals: dict[str, Any]) -> str:
+    """Package the CLI was loaded as, or its directory name in script mode.
+
+    Script mode (``python3 pipelines/<pkg>/cli.py``) has an empty
+    ``__package__``. The directory name is the flat package (``flk``), and
+    the CLI has already put ``pipelines/`` on ``sys.path``.
+    """
+
+    package = module_globals.get("__package__") or ""
+    if package:
+        return package
+    return Path(module_globals["__file__"]).parent.name
 
 
 def _import_sibling(module_globals: dict[str, Any], name: str) -> ModuleType:
-    """Import ``name`` the same way the CLI module itself was imported."""
+    """Import ``name`` relative to the CLI package.
 
-    package = module_globals.get("__package__") or ""
-    pair = _MODULES.get((_package_key(module_globals), name))
-    if pair is None:
-        raise ImportError(f"unknown mill module {name}")
-    qualified = pair[0] if package.startswith("pipelines.") else pair[1]
-    return importlib.import_module(qualified)
+    The module name passed to ``import_module`` is one of three literals.
+    The anchor package comes from the caller, so this file never names a
+    mill path.
+    """
+
+    package = _anchor_package(module_globals)
+    if name == "catalog":
+        return importlib.import_module(".catalog", package)
+    if name == "generate":
+        return importlib.import_module(".generate", package)
+    if name == "_contract":
+        return importlib.import_module("._contract", package)
+    raise ImportError(f"unknown mill module {name}")
 
 
 def install_generate(module_globals: dict[str, Any]) -> None:

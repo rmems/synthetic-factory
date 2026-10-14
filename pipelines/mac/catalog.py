@@ -260,12 +260,8 @@ def load_catalog(path: Path | None = None) -> Catalog:
     ))
     extract = _as_mapping(meta.get("extract"), "extract")
     raw_sources = meta.get("sources")
-    refuse_when(
-        not isinstance(raw_sources, list) or not raw_sources,
-        FINDING_CATALOG_EMPTY,
-        "catalog has no source pins",
-    )
-    raw_sources = cast(list[Any], raw_sources)
+    refuse_when(not isinstance(raw_sources, list) or not raw_sources,
+                FINDING_CATALOG_EMPTY, "catalog has no source pins")
     plants_filename = _as_str(meta.get("plants_filename"), "plants_filename")
     refuse_when(
         plants_filename != PLANTS_FILENAME,
@@ -297,7 +293,7 @@ def load_catalog(path: Path | None = None) -> Catalog:
     )
     sources = tuple(
         _source_from_mapping(_as_mapping(row, f"sources[{index}]"), f"sources[{index}]")
-        for index, row in enumerate(raw_sources)
+        for index, row in enumerate(cast(list[Any], raw_sources))
     )
     return Catalog(
         catalog_id=CATALOG_ID,

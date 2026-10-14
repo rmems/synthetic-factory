@@ -388,9 +388,7 @@ class SourceConstTests(unittest.TestCase):
             source_const.const_dict(
                 node,
                 evaluate,
-                StubRefusal,
-                "code",
-                "plant source uses dict unpacking",
+                lambda: StubRefusal("code", "plant source uses dict unpacking"),
             )
         self.assertEqual(seen, [])
         self.assertIn("dict unpacking", str(caught.exception))
@@ -398,7 +396,7 @@ class SourceConstTests(unittest.TestCase):
     def test_const_dict_evaluates_literal_keys(self):
         node = ast.parse("{'a': 1}").body[0].value
         result = source_const.const_dict(
-            node, ast.literal_eval, StubRefusal, "code", "unused"
+            node, ast.literal_eval, lambda: StubRefusal("code", "unused")
         )
         self.assertEqual(result, {"a": 1})
 
@@ -424,32 +422,62 @@ class SourceConstTests(unittest.TestCase):
             def repo_root() -> Path:
                 return root
 
-            ids = source_const.registry_factory_ids(
-                repo_root, json.loads, StubRefusal, "finding"
-            )
+            def refuse(message: str) -> StubRefusal:
+                return StubRefusal("finding", message)
+
+            ids = source_const.registry_factory_ids(repo_root, json.loads, refuse)
             self.assertEqual(ids, {"flk", "gql"})
 
             (registry / "FACTORY-REGISTRY.json").write_text(
                 json.dumps({"factories": {}}), encoding="utf-8"
             )
             with self.assertRaises(StubRefusal) as caught:
-                source_const.registry_factory_ids(
-                    repo_root, json.loads, StubRefusal, "finding"
-                )
+                source_const.registry_factory_ids(repo_root, json.loads, refuse)
             self.assertIn("not a list", str(caught.exception))
 
             (registry / "FACTORY-REGISTRY.json").unlink()
             with self.assertRaises(StubRefusal) as caught:
-                source_const.registry_factory_ids(
-                    repo_root, json.loads, StubRefusal, "finding"
-                )
+                source_const.registry_factory_ids(repo_root, json.loads, refuse)
             self.assertIn("unreadable", str(caught.exception))
+
+    def test_plant_const_eval_folds_literals_and_refuses_the_rest(self):
+        folded = source_const.plant_const_eval(
+            ast.parse("[1, (2,), {'a': -3}]").body[0].value,
+            StubRefusal,
+            "code",
+        )
+        self.assertEqual(folded, [1, (2,), {"a": -3}])
+        with self.assertRaises(StubRefusal) as caught:
+            source_const.plant_const_eval(
+                ast.parse("{**{}}").body[0].value, StubRefusal, "code"
+            )
+        self.assertEqual(caught.exception.code, "code")
+        self.assertIn("dict unpacking", str(caught.exception))
+        with self.assertRaises(StubRefusal) as caught:
+            source_const.plant_const_eval(
+                ast.parse("name").body[0].value, StubRefusal, "code"
+            )
+        self.assertIn("Name", str(caught.exception))
 
     def test_unknown_mill_module_is_refused(self):
         with self.assertRaises(ImportError):
-            _import_sibling({"__package__": "pipelines.nope", "__file__": __file__}, "catalog")
+            _import_sibling({"__package__": "pipelines.flk"}, "missing")
         with self.assertRaises(ImportError):
-            _import_sibling({"__package__": "", "__file__": __file__}, "catalog")
+            _import_sibling({"__package__": "", "__file__": __file__}, "missing")
+
+    def test_script_mode_imports_the_flat_sibling(self):
+        cli_path = Path(__file__).resolve().parents[1] / "pipelines" / "flk" / "cli.py"
+        with clean_package_imports(), direct_pipeline_path():
+            catalog = _import_sibling(
+                {"__package__": "", "__file__": str(cli_path)}, "catalog"
+            )
+            generate = _import_sibling(
+                {"__package__": "", "__file__": str(cli_path)}, "generate"
+            )
+            contract = _import_sibling({"__package__": "mac"}, "_contract")
+        self.assertEqual(catalog.__name__, "flk.catalog")
+        self.assertEqual(generate.__name__, "flk.generate")
+        self.assertEqual(contract.__name__, "mac._contract")
 
 
 if __name__ == "__main__":

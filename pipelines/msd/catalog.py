@@ -198,19 +198,18 @@ def _const_eval(node: ast.AST) -> Any:
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        values = [_const_eval(item) for item in node.elts]
+        return values if isinstance(node, ast.List) else tuple(values)
     if isinstance(node, ast.Set):
         return {_const_eval(item) for item in node.elts}
     if isinstance(node, ast.Dict):
         return const_dict(
             node,
             _const_eval,
-            MsdRefusal,
-            FINDING_SOURCE_NOT_PARSEABLE,
-            "plant source uses dict unpacking",
+            lambda: MsdRefusal(
+                FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking"
+            ),
         )
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
@@ -239,12 +238,9 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.value is not None
-    ):
-        return node.target.id, node.value
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        if node.value is not None:
+            return node.target.id, node.value
     return None
 
 
@@ -512,7 +508,9 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
 
 def _registry_factory_ids() -> set[str]:
     return registry_factory_ids(
-        repo_root, load_strict_json, MsdRefusal, FINDING_FACTORY_NOT_REGISTERED
+        repo_root,
+        load_strict_json,
+        lambda message: MsdRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
     )
 
 
