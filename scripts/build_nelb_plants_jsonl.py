@@ -13,6 +13,7 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(REPO / "scripts"))
 
 from nelb import catalog as cat  # noqa: E402
 from nelb._contract import (  # noqa: E402
@@ -21,9 +22,6 @@ from nelb._contract import (  # noqa: E402
     CATALOG_FORMAT,
     CATALOG_ID,
     FACTORY,
-    FINDING_CATALOG_FILE_MISSING,
-    FINDING_DUPLICATE_ID,
-    FINDING_FIELD_INVALID,
     GENERATOR,
     LEGACY_COMMIT,
     LEGACY_REF,
@@ -33,8 +31,8 @@ from nelb._contract import (  # noqa: E402
     SOURCE_REF,
     dumps_exact_json,
     load_strict_json,
-    shown,
 )
+from nelb_committed_plants import read_committed_plants, round_from_record_id  # noqa: E402
 
 RECOVER = SOURCE_COMMIT
 NELB_DIR = REPO / "pipelines" / "nelb"
@@ -60,14 +58,18 @@ def _git_executable() -> str:
     return found
 
 
-def _paths_by_round() -> dict[int, list[str]]:
+def _git_text(args: list[str]) -> str:
     git = _git_executable()
-    # nosemgrep
-    listing = subprocess.check_output(
-        [git, "ls-tree", "-r", "--name-only", RECOVER],
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.check_output(  # nosec B603 -- absolute git from PATH, no shell
+        [git, *args],
         cwd=REPO,
         text=True,
     )
+
+
+def _paths_by_round() -> dict[int, list[str]]:
+    listing = _git_text(["ls-tree", "-r", "--name-only", RECOVER])
     paths = [
         line
         for line in listing.splitlines()
@@ -96,9 +98,7 @@ def _pick_source(want_round: int, by_round: dict[int, list[str]]) -> str | None:
         ),
     )
     for path in candidates:
-        git = _git_executable()
-        # nosemgrep
-        text = subprocess.check_output([git, "show", f"{RECOVER}:{path}"], cwd=REPO, text=True)
+        text = _git_text(["show", f"{RECOVER}:{path}"])
         try:
             _extract(text, path, want_round)
         except NelbRefusal:
@@ -107,56 +107,11 @@ def _pick_source(want_round: int, by_round: dict[int, list[str]]) -> str | None:
     return None
 
 
-def _round_from_record_id(record_id: str) -> int | None:
-    """Round encoded in a ``nelb-rNN-...`` record id, or None when the id has none."""
-
-    if not record_id.startswith("nelb-r"):
-        return None
-    token = record_id[6:].split("-", 1)[0]
-    digits = "".join(ch for ch in token if ch.isdigit())
-    return int(digits) if digits else None
-
-
-def _read_committed_plants(path: Path) -> tuple[cat.Plant, ...]:
-    """Read committed plants without calling ``nelb.catalog``'s private helpers."""
-
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise NelbRefusal(FINDING_CATALOG_FILE_MISSING, f"{path} is unreadable: {exc}") from exc
-    if not text.endswith("\n") or "\r" in text:
-        raise NelbRefusal(FINDING_FIELD_INVALID, f"{path.name} must be LF-framed jsonl")
-    plants: list[cat.Plant] = []
-    seen: dict[str, int] = {}
-    for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise NelbRefusal(FINDING_FIELD_INVALID, f"{path.name}:{index} is empty")
-        try:
-            row = load_strict_json(line)
-        except ValueError as exc:
-            raise NelbRefusal(
-                FINDING_FIELD_INVALID, f"{path.name}:{index} is not strict JSON: {exc}"
-            ) from exc
-        if not isinstance(row, dict):
-            raise NelbRefusal(FINDING_FIELD_INVALID, f"{path.name}:{index} is not an object")
-        plant = cat.plant_from_mapping(row, f"{path.name}:{index}")
-        previous = seen.get(plant.record_id)
-        if previous is not None:
-            raise NelbRefusal(
-                FINDING_DUPLICATE_ID,
-                f"record_id {shown(plant.record_id)} repeats "
-                f"(r{previous} and r{plant.source_round})",
-            )
-        seen[plant.record_id] = plant.source_round
-        plants.append(plant)
-    return tuple(plants)
-
-
 def _extract(text: str, path: str, want_round: int) -> tuple[cat.Plant, ...]:
     plants = cat.plants_from_source(text, Path(path).name)
     fixed: list[cat.Plant] = []
     for plant in plants:
-        rid_round = _round_from_record_id(plant.record_id)
+        rid_round = round_from_record_id(plant.record_id)
         if rid_round != want_round:
             raise NelbRefusal(
                 cat.FINDING_FIELD_INVALID,
@@ -172,9 +127,7 @@ def _extract(text: str, path: str, want_round: int) -> tuple[cat.Plant, ...]:
 
 
 def _extract_path(path: str, want_round: int) -> tuple[cat.Plant, ...]:
-    git = _git_executable()
-    # nosemgrep
-    text = subprocess.check_output([git, "show", f"{RECOVER}:{path}"], cwd=REPO, text=True)
+    text = _git_text(["show", f"{RECOVER}:{path}"])
     return _extract(text, path, want_round)
 
 
@@ -192,7 +145,7 @@ def _load_existing() -> tuple[tuple[cat.Plant, ...], list[int]] | None:
     deferred = extract.get("deferred_rounds")
     if not isinstance(deferred, list):
         raise SystemExit(f"{CATALOG_FILENAME} missing extract.deferred_rounds")
-    plants = _read_committed_plants(plants_path)
+    plants = read_committed_plants(plants_path)
     return plants, [int(item) for item in deferred]
 
 

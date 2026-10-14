@@ -107,28 +107,50 @@ def _bind_legacy_statement(node: ast.stmt, ns: dict) -> None:
     """
 
     if isinstance(node, ast.FunctionDef):
-        module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
-        code = compile(module, "<legacy>", "exec")
-        function_code = next(
-            item
-            for item in code.co_consts
-            if isinstance(item, types.CodeType) and item.co_name == node.name
-        )
-        defaults = tuple(ast.literal_eval(item) for item in node.args.defaults)
-        ns[node.name] = types.FunctionType(function_code, ns, node.name, defaults or None)
+        _bind_legacy_function(node, ns)
         return
     if isinstance(node, ast.Assign):
-        value = ast.literal_eval(node.value)
-        for target in node.targets:
-            if isinstance(target, ast.Name):
-                ns[target.id] = value
+        _bind_legacy_assign(node, ns)
         return
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.value is not None
-    ):
-        ns[node.target.id] = ast.literal_eval(node.value)
+    if isinstance(node, ast.AnnAssign):
+        _bind_legacy_annotation(node, ns)
+
+
+def _bind_legacy_function(node: ast.FunctionDef, ns: dict) -> None:
+    module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+    code = compile(module, "<legacy>", "exec")
+    defaults = tuple(ast.literal_eval(item) for item in node.args.defaults)
+    ns[node.name] = types.FunctionType(
+        _legacy_function_code(code, node.name), ns, node.name, defaults or None
+    )
+
+
+def _legacy_function_code(code: types.CodeType, name: str) -> types.CodeType:
+    for item in code.co_consts:
+        if _is_legacy_code(item, name):
+            return item
+    raise AssertionError(name)
+
+
+def _is_legacy_code(item: object, name: str) -> bool:
+    if not isinstance(item, types.CodeType):
+        return False
+    return item.co_name == name
+
+
+def _bind_legacy_assign(node: ast.Assign, ns: dict) -> None:
+    value = ast.literal_eval(node.value)
+    for target in node.targets:
+        if isinstance(target, ast.Name):
+            ns[target.id] = value
+
+
+def _bind_legacy_annotation(node: ast.AnnAssign, ns: dict) -> None:
+    if not isinstance(node.target, ast.Name):
+        return
+    if node.value is None:
+        return
+    ns[node.target.id] = ast.literal_eval(node.value)
 
 
 class SrlPackageLayout(unittest.TestCase):

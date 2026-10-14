@@ -81,6 +81,26 @@ class MillRecordRefusalTests(unittest.TestCase):
             ("cst-mill-r9999", "b" * 40, 2, "first", "last"),
         )
 
+    def test_list_addition_extracts_both_rows(self):
+        record = extract_mill_catalog(
+            "CATALOG_FIRST = 4\nPAIRS = [(1, 'first')] + [(2, 'last')]\n",
+            path="experiments/cst-mill-r9999.py",
+        )
+        self.assertEqual(record["n_rows"], 2)
+        self.assertEqual((record["first_slug"], record["last_slug"]), ("first", "last"))
+
+    def test_keyword_default_and_list_comprehension_build_a_plant(self):
+        source = (
+            "def plant(slug, *, seed=3):\n"
+            "    return {'slug_ok': slug, 'slug_bad': slug, 'ok': {'seed': seed}, 'bad': {}}\n"
+            "PLANTS = [plant(slug) for slug in ['x']]\n"
+        )
+        record = extract_mill_catalog(source, path="experiments/cst-mill-r9999.py")
+        self.assertEqual(
+            record["plants"],
+            [{"slug_ok": "x", "slug_bad": "x", "ok": {"seed": 3}, "bad": {}}],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

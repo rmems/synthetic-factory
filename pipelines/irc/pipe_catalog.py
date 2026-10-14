@@ -265,15 +265,19 @@ def _git_executable() -> str:
     return found
 
 
-def _legacy_source(path: str) -> str:
+def _git_text(args: list[str]) -> str:
     git = _git_executable()
-    # nosemgrep
-    return subprocess.check_output(
-        [git, "show", f"{SOURCE_REF}:{path}"],
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.check_output(  # nosec B603 -- absolute git from PATH, no shell
+        [git, *args],
         text=True,
         cwd=repo_root(),
         stderr=subprocess.DEVNULL,
     )
+
+
+def _legacy_source(path: str) -> str:
+    return _git_text(["show", f"{SOURCE_REF}:{path}"])
 
 
 def _committed_mill_path(source: Mapping[str, Any]) -> str | None:
@@ -314,11 +318,7 @@ def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
     if not live_legacy:
         return catalog
     try:
-        git = _git_executable()
-        # nosemgrep
-        subprocess.check_output(
-            [git, "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL
-        )
+        _git_text(["rev-parse", SOURCE_REF])
     except (subprocess.CalledProcessError, FileNotFoundError):
         return catalog
     for source in catalog.sources:

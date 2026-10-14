@@ -34,7 +34,8 @@ def hid(slug: str) -> str:
 
     if type(slug) is not str or not slug:
         raise SrlError(f"unknown_plant: {slug!r}")
-    return hashlib.sha1(slug.encode(), usedforsecurity=False).hexdigest()[:4]
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+    return hashlib.sha1(slug.encode(), usedforsecurity=False).hexdigest()[:4]  # nosec B324
 
 
 def record_id(rnd: int, slug: str) -> str:

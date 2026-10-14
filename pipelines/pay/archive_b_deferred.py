@@ -71,22 +71,25 @@ def _git_executable() -> str:
     return found
 
 
+def _git_show(spec: str) -> subprocess.CompletedProcess[str]:
+    git = _git_executable()
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.run(  # nosec B603 -- absolute git from PATH, no shell
+        [git, "show", spec],
+        cwd=repo_root(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def git_show_deferred_source(path: str) -> str:
-    root = repo_root()
     for spec in (
         f"{SOURCE_BYTES_COMMIT}:{path}",
         f"{SOURCE_BYTES_REF}:{path}",
     ):
         try:
-            git = _git_executable()
-            # nosemgrep
-            proc = subprocess.run(
-                [git, "show", spec],
-                cwd=root,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+            proc = _git_show(spec)
         except OSError as exc:
             refuse(FINDING_CATALOG_FIELD_INVALID, f"git show failed for {path}: {exc}")
         if proc.returncode == 0:
