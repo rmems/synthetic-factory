@@ -69,6 +69,16 @@ PLANTS = [
 """
 
 
+def _read_meta(dest):
+    path = dest / catalog.CATALOG_FILENAME
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_meta(dest, meta):
+    path = dest / catalog.CATALOG_FILENAME
+    path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def invoke(argv):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -126,20 +136,12 @@ class CatalogLoading(unittest.TestCase):
         shutil.copytree(FIXTURE, dest)
         return dest
 
-    def _write_meta(self, dest, meta):
-        path = dest / catalog.CATALOG_FILENAME
-        path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    def _load_meta(self, dest):
-        path = dest / catalog.CATALOG_FILENAME
-        return json.loads(path.read_text(encoding="utf-8"))
-
     def test_an_invalid_format_is_refused_before_a_missing_factory(self):
         dest = self._copied_catalog()
-        meta = self._load_meta(dest)
+        meta = _read_meta(dest)
         meta["format"] = "bogus"
         del meta["factory"]
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
@@ -153,22 +155,22 @@ class CatalogLoading(unittest.TestCase):
 
     def test_a_bool_quota_and_a_short_file_are_coded_refusals(self):
         dest = self._copied_catalog()
-        meta = self._load_meta(dest)
+        meta = _read_meta(dest)
         meta["quota_per_round"] = True
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertIn("quota_per_round has the wrong type", str(caught.exception))
 
         meta["quota_per_round"] = 9
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertIn("quota_per_round must be", str(caught.exception))
 
         meta["quota_per_round"] = 2
         meta["plant_count"] = 2
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertIn("plant_count is 2, file has 1", str(caught.exception))
@@ -178,11 +180,11 @@ class CatalogLoading(unittest.TestCase):
         row = json.loads((dest / catalog.PLANTS_FILENAME).read_text(encoding="utf-8"))
         text = (json.dumps(row, sort_keys=True) + "\n") * 2
         (dest / catalog.PLANTS_FILENAME).write_text(text, encoding="utf-8")
-        meta = self._load_meta(dest)
+        meta = _read_meta(dest)
         meta["plants_sha256"] = hashlib.sha256(text.encode()).hexdigest()
         meta["plant_count"] = 2
         meta["mills"][0]["plant_count"] = 2
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertEqual(caught.exception.code, FINDING_PLANT_DUPLICATE_ID)
@@ -195,7 +197,7 @@ class CatalogLoading(unittest.TestCase):
         meta["plants_sha256"] = hashlib.sha256(text.encode()).hexdigest()
         meta["plant_count"] = 1
         meta["mills"][0]["plant_count"] = 1
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertIn("do not match plant mill_id", str(caught.exception))
@@ -204,7 +206,7 @@ class CatalogLoading(unittest.TestCase):
         (dest / catalog.PLANTS_FILENAME).write_text(text, encoding="utf-8")
         meta["plants_sha256"] = hashlib.sha256(text.encode()).hexdigest()
         meta["mills"][0]["plant_count"] = 2
-        self._write_meta(dest, meta)
+        _write_meta(dest, meta)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
         self.assertIn("plant_count 2 != 1", str(caught.exception))
@@ -218,7 +220,7 @@ class CatalogLoading(unittest.TestCase):
 
         dest = self._copied_catalog()
         hooks = catalog.CATALOG_HOOKS
-        catalog.CATALOG_HOOKS = (*hooks[:-1], lambda: set())
+        catalog.CATALOG_HOOKS = (*hooks[:-1], set)
         self.addCleanup(setattr, catalog, "CATALOG_HOOKS", hooks)
         with self.assertRaises(FlkRefusal) as caught:
             catalog.load_catalog(dest)
