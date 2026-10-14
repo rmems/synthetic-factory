@@ -20,12 +20,20 @@ from reward_test_helpers import (  # noqa: E402
     components,
     preference,
     rich,
+    usd_2000_preference,
 )
 
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 import curate_rewards  # noqa: E402
+
+
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
 
 
 class RewardOntologyV1Tests(unittest.TestCase):
@@ -94,20 +102,7 @@ class RewardOntologyV1Tests(unittest.TestCase):
         )
 
     def test_explicit_migration_evidence_calibrates_a_partially_labeled_pair(self):
-        record = preference(
-            {
-                "task_progress": 3.0,
-                "safety": 0.6,
-                "total": 3.6,
-                "units": "1.0 = $2,000; audited_true_reward basis",
-            },
-            {
-                "task_progress": 0.2,
-                "safety": -0.8,
-                "total": -0.6,
-                "units": "1.0 = $2,000; risk-adjusted terms",
-            },
-        )
+        record = usd_2000_preference()
         calibration = {
             "source_unit_usd": 2000,
             "canonical_factor": 0.2,
@@ -560,10 +555,9 @@ class RewardOntologyV1Tests(unittest.TestCase):
 
     def test_external_calibration_reason_is_reserved_to_p05_and_s08(self):
         document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
-        r00 = next(
-            rule
-            for rule in document["policy"]["comparability_rules"]
-            if rule["id"] == "R00"
+        r00 = _first_matching(
+            document["policy"]["comparability_rules"],
+            lambda rule: rule["id"] == "R00",
         )
         r00["reason_codes"] = list(r00["reason_codes"]) + [
             "external_calibration_evidence"
@@ -630,7 +624,8 @@ class RewardOntologyV1Tests(unittest.TestCase):
 class MagnitudeMixingTests(unittest.TestCase):
     """An uncalibrated record cannot enter a magnitude-weighted set."""
 
-    def curated(self, name, line_number):
+    @staticmethod
+    def curated(name, line_number):
         for candidate_name, candidate_line, record in all_fixture_records():
             if (candidate_name, candidate_line) == (name, line_number):
                 curated, _sidecar = curate_rewards.curate_record(

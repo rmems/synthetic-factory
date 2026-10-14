@@ -20,6 +20,7 @@ from reward_test_helpers import (  # noqa: E402
     RAW_RUN,
     components,
     preference,
+    usd_2000_preference,
     write_jsonl,
 )
 
@@ -28,6 +29,49 @@ if str(PIPELINES) not in sys.path:
 
 import curate_gate  # noqa: E402
 import curate_rewards  # noqa: E402
+
+
+def _expected_run_manifest(source, lane_dir, relatives):
+    """Manifest entries convert_run must write for one-record files at relatives."""
+    expected_manifest = []
+    for relative in relatives:
+        raw_line = (source / relative).read_bytes().split(b"\n")[0]
+        converted = json.loads((lane_dir / relative).read_text(encoding="utf-8"))
+        annotation = converted["reward_training"]
+        expected_manifest.append(
+            {
+                "action": "retained",
+                "classification": annotation["comparability"],
+                "output_hash": hashlib.sha256(
+                    curate_rewards._canonical_bytes(converted)
+                ).hexdigest(),
+                "output_id": converted["id"],
+                "reason_codes": annotation["reason_codes"],
+                "source_hash": hashlib.sha256(raw_line).hexdigest(),
+                "source_line": 1,
+                "source_path": relative.as_posix(),
+                "transform_name": "reward_ontology",
+                "transform_version": "reward-ontology-v1.classifier-2",
+            }
+        )
+    return expected_manifest
+
+
+def _signed_preference(record_id):
+    record = preference(
+        {"task_progress": 0.8, "safety": 0.2, "total": 1.0},
+        {"task_progress": -0.5, "safety": -0.5, "total": -1.0},
+    )
+    record["id"] = record_id
+    return record
+
+
+def _sidecar_source_paths(lane_dir):
+    sidecars = [
+        json.loads(line)
+        for line in (lane_dir / "reward-sidecars.jsonl").read_text().splitlines()
+    ]
+    return [sidecar["source"]["path"] for sidecar in sidecars]
 
 
 class RewardOntologyRunTests(unittest.TestCase):
@@ -82,12 +126,49 @@ class RewardOntologyRunTests(unittest.TestCase):
                     manifest_path=manifest,
                 )
 
-    def test_run_conversion_is_deterministic_and_gate_compatible(self):
-        alpha_record = preference(
-            {"task_progress": 0.8, "safety": 0.2, "total": 1.0},
-            {"task_progress": -0.5, "safety": -0.5, "total": -1.0},
+    def _assert_same_run_bytes(self, first, second, relatives):
+        self.assertEqual(
+            (first / "manifest.json").read_bytes(),
+            (second / "manifest.json").read_bytes(),
         )
-        alpha_record["id"] = "alpha-pref"
+        self.assertEqual(
+            (first / "reward-sidecars.jsonl").read_bytes(),
+            (second / "reward-sidecars.jsonl").read_bytes(),
+        )
+        for relative in relatives:
+            self.assertEqual(
+                (first / relative).read_bytes(),
+                (second / relative).read_bytes(),
+            )
+
+    def _assert_reward_lane_prepares(self, source, lane_dir):
+        """The converted run loads as the gate's reward_ontology lane."""
+        lane = {
+            "order": 4,
+            "bead": "sf-c5l.4",
+            "transform": "reward_ontology",
+            "version": curate_rewards.REWARD_TRANSFORM_VERSION,
+            "outputs_dir": lane_dir,
+            "manifest_path": lane_dir / "manifest.json",
+            "manifest_format": "json",
+            "artifacts": [
+                {
+                    "kind": curate_gate.REWARD_SIDECAR_KIND,
+                    "source_path": lane_dir / "reward-sidecars.jsonl",
+                    "destination": Path("reward-sidecars.jsonl"),
+                }
+            ],
+        }
+        prepared = curate_gate._prepare_lane(  # noqa: SLF001
+            lane,
+            curate_gate._load_source_records(source),  # noqa: SLF001
+        )
+        self.assertEqual(len(prepared["entries"]), 2)
+        self.assertEqual(len(prepared["records"]), 2)
+        self.assertEqual(prepared["artifacts"][0]["_documents"], 2)
+
+    def test_run_conversion_is_deterministic_and_gate_compatible(self):
+        alpha_record = _signed_preference("alpha-pref")
         zeta_record = {
             "id": "zeta-reward",
             "reward_components": components(1.0),
@@ -122,91 +203,17 @@ class RewardOntologyRunTests(unittest.TestCase):
                     zeta_relative.as_posix(),
                 ],
             )
-
-            expected_manifest = []
-            for relative in (alpha_relative, zeta_relative):
-                raw_line = (source / relative).read_bytes().split(b"\n")[0]
-                converted = json.loads((first / relative).read_text(encoding="utf-8"))
-                annotation = converted["reward_training"]
-                expected_manifest.append(
-                    {
-                        "action": "retained",
-                        "classification": annotation["comparability"],
-                        "output_hash": hashlib.sha256(
-                            curate_rewards._canonical_bytes(converted)
-                        ).hexdigest(),
-                        "output_id": converted["id"],
-                        "reason_codes": annotation["reason_codes"],
-                        "source_hash": hashlib.sha256(raw_line).hexdigest(),
-                        "source_line": 1,
-                        "source_path": relative.as_posix(),
-                        "transform_name": "reward_ontology",
-                        "transform_version": "reward-ontology-v1.classifier-2",
-                    }
-                )
-            self.assertEqual(manifest, expected_manifest)
-
-            sidecars = [
-                json.loads(line)
-                for line in (first / "reward-sidecars.jsonl").read_text().splitlines()
-            ]
             self.assertEqual(
-                [sidecar["source"]["path"] for sidecar in sidecars],
-                ordered_relatives,
+                manifest,
+                _expected_run_manifest(source, first, (alpha_relative, zeta_relative)),
             )
-            self.assertEqual(
-                (first / "manifest.json").read_bytes(),
-                (second / "manifest.json").read_bytes(),
-            )
-            self.assertEqual(
-                (first / "reward-sidecars.jsonl").read_bytes(),
-                (second / "reward-sidecars.jsonl").read_bytes(),
-            )
-            for relative in (alpha_relative, zeta_relative):
-                self.assertEqual(
-                    (first / relative).read_bytes(),
-                    (second / relative).read_bytes(),
-                )
 
-            lane = {
-                "order": 4,
-                "bead": "sf-c5l.4",
-                "transform": "reward_ontology",
-                "version": curate_rewards.REWARD_TRANSFORM_VERSION,
-                "outputs_dir": first,
-                "manifest_path": first / "manifest.json",
-                "manifest_format": "json",
-                "artifacts": [
-                    {
-                        "kind": curate_gate.REWARD_SIDECAR_KIND,
-                        "source_path": first / "reward-sidecars.jsonl",
-                        "destination": Path("reward-sidecars.jsonl"),
-                    }
-                ],
-            }
-            prepared = curate_gate._prepare_lane(  # noqa: SLF001
-                lane,
-                curate_gate._load_source_records(source),  # noqa: SLF001
-            )
-            self.assertEqual(len(prepared["entries"]), 2)
-            self.assertEqual(len(prepared["records"]), 2)
-            self.assertEqual(prepared["artifacts"][0]["_documents"], 2)
+            self.assertEqual(_sidecar_source_paths(first), ordered_relatives)
+            self._assert_same_run_bytes(first, second, (alpha_relative, zeta_relative))
+            self._assert_reward_lane_prepares(source, first)
 
     def test_run_conversion_copies_units_migration_and_seals_sidecar_calibration(self):
-        record = preference(
-            {
-                "task_progress": 3.0,
-                "safety": 0.6,
-                "total": 3.6,
-                "units": "1.0 = $2,000; audited_true_reward basis",
-            },
-            {
-                "task_progress": 0.2,
-                "safety": -0.8,
-                "total": -0.6,
-                "units": "1.0 = $2,000; risk-adjusted terms",
-            },
-        )
+        record = usd_2000_preference()
         record["id"] = "ffpc-r2-001"
         migration = {
             "records": [

@@ -315,6 +315,80 @@ class TestCanonicalProvenance(unittest.TestCase):
         )
 
 
+def _legacy_id_pair(factory):
+    return {
+        "pair_id": "pair-legacy",
+        "chosen": factory_thalamic(factory, "designed", meta={"id": "chosen-legacy"}),
+        "rejected": factory_thalamic(factory, "designed", meta={"id": "rejected-legacy"}),
+        "meta": {"factory": factory},
+    }
+
+
+def _early_exclusion_cases():
+    """(raw, path, reason, legacy-id paths) for each exclusion decided before curation."""
+    return _pair_exclusion_cases() + _unclassifiable_exclusion_cases()
+
+
+def _pair_exclusion_cases():
+    policy = _legacy_id_pair(FABLE_FFPC)
+    policy["chosen"]["training_ready"] = True
+    malformed = _legacy_id_pair(FABLE_FFPC)
+    malformed["rejected"] = None
+    pair_paths = {"/pair_id", "/chosen/meta/id", "/rejected/meta/id"}
+    return (
+        (
+            _legacy_id_pair("never-reviewed-factory"),
+            "never-reviewed-factory/preferences.jsonl",
+            "identity.unknown_factory",
+            pair_paths,
+        ),
+        (
+            _legacy_id_pair("different-factory"),
+            f"{FABLE_FFPC}/preferences.jsonl",
+            "identity.factory_path_payload_mismatch",
+            pair_paths,
+        ),
+        (
+            _legacy_id_pair(FABLE_ACT),
+            f"{FABLE_ACT}/preferences.jsonl",
+            "identity.factory_not_authorized_for_kind",
+            pair_paths,
+        ),
+        (
+            policy,
+            f"{FABLE_FFPC}/preferences.jsonl",
+            "identity.training_ready_policy_violation",
+            pair_paths,
+        ),
+        (
+            malformed,
+            f"{FABLE_FFPC}/preferences.jsonl",
+            "identity.invalid_nested_shape",
+            {"/pair_id", "/chosen/meta/id"},
+        ),
+    )
+
+
+def _unclassifiable_exclusion_cases():
+    return (
+        (
+            {"chosen": {"id": "chosen-direct-legacy"}, "meta": {"factory": FABLE_FFPC}},
+            f"{FABLE_FFPC}/preferences.jsonl",
+            "identity.unsupported_record_shape",
+            {"/chosen/id"},
+        ),
+        (
+            {
+                "language_view": {"trajectory": {"id": "bridge-trajectory-direct-legacy"}},
+                "meta": {"factory": FABLE_BRIDGE},
+            },
+            f"{FABLE_BRIDGE}/bridge.jsonl",
+            "identity.unsupported_record_shape",
+            {"/language_view/trajectory/id"},
+        ),
+    )
+
+
 class TestSupportedRecordShapes(unittest.TestCase):
     def test_preference_gets_root_and_distinct_nested_ids(self):
         pair = {
@@ -462,74 +536,7 @@ class TestSupportedRecordShapes(unittest.TestCase):
         self.assertIn("/rejected/meta/id", paths)
 
     def test_early_exclusions_keep_safely_discoverable_nested_legacy_ids(self):
-        def pair(factory):
-            return {
-                "pair_id": "pair-legacy",
-                "chosen": factory_thalamic(factory, "designed", meta={"id": "chosen-legacy"}),
-                "rejected": factory_thalamic(factory, "designed", meta={"id": "rejected-legacy"}),
-                "meta": {"factory": factory},
-            }
-
-        unknown = pair("never-reviewed-factory")
-        mismatch = pair("different-factory")
-        unauthorized = pair(FABLE_ACT)
-        policy = pair(FABLE_FFPC)
-        policy["chosen"]["training_ready"] = True
-        malformed = pair(FABLE_FFPC)
-        malformed["rejected"] = None
-        unclassifiable_preference = {
-            "chosen": {"id": "chosen-direct-legacy"},
-            "meta": {"factory": FABLE_FFPC},
-        }
-        unclassifiable_bridge = {
-            "language_view": {"trajectory": {"id": "bridge-trajectory-direct-legacy"}},
-            "meta": {"factory": FABLE_BRIDGE},
-        }
-        cases = (
-            (
-                unknown,
-                "never-reviewed-factory/preferences.jsonl",
-                "identity.unknown_factory",
-                {"/pair_id", "/chosen/meta/id", "/rejected/meta/id"},
-            ),
-            (
-                mismatch,
-                f"{FABLE_FFPC}/preferences.jsonl",
-                "identity.factory_path_payload_mismatch",
-                {"/pair_id", "/chosen/meta/id", "/rejected/meta/id"},
-            ),
-            (
-                unauthorized,
-                f"{FABLE_ACT}/preferences.jsonl",
-                "identity.factory_not_authorized_for_kind",
-                {"/pair_id", "/chosen/meta/id", "/rejected/meta/id"},
-            ),
-            (
-                policy,
-                f"{FABLE_FFPC}/preferences.jsonl",
-                "identity.training_ready_policy_violation",
-                {"/pair_id", "/chosen/meta/id", "/rejected/meta/id"},
-            ),
-            (
-                malformed,
-                f"{FABLE_FFPC}/preferences.jsonl",
-                "identity.invalid_nested_shape",
-                {"/pair_id", "/chosen/meta/id"},
-            ),
-            (
-                unclassifiable_preference,
-                f"{FABLE_FFPC}/preferences.jsonl",
-                "identity.unsupported_record_shape",
-                {"/chosen/id"},
-            ),
-            (
-                unclassifiable_bridge,
-                f"{FABLE_BRIDGE}/bridge.jsonl",
-                "identity.unsupported_record_shape",
-                {"/language_view/trajectory/id"},
-            ),
-        )
-        for raw, path, reason, expected_paths in cases:
+        for raw, path, reason, expected_paths in _early_exclusion_cases():
             with self.subTest(reason=reason):
                 result = identity.curate_record(source(raw, path, 1))
                 self.assertEqual(result.action, "exclude")
@@ -569,6 +576,31 @@ class TestSharedClassifierOrder(unittest.TestCase):
             with self.subTest(expected=expected, keys=sorted(payload)):
                 self.assertEqual(record_kind.classify_kind(payload), expected)
                 self.assertEqual(identity.record_kind(payload), expected)
+
+
+def _require_state_claim_cases(claim):
+    """(record, path, kind) for the Fable thalamic, FFPC and bridge shapes with one claim."""
+    return (
+        (thalamic(claim), f"{FABLE_THALAMIC}/batch.jsonl", "thalamic"),
+        (
+            {
+                "chosen": factory_thalamic(FABLE_FFPC, claim),
+                "rejected": factory_thalamic(FABLE_FFPC, claim),
+                "meta": {"factory": FABLE_FFPC},
+            },
+            f"{FABLE_FFPC}/batch.jsonl",
+            "preference",
+        ),
+        (
+            {
+                "language_view": {"trajectory": thalamic(claim)},
+                "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
+                "meta": {"factory": FABLE_BRIDGE},
+            },
+            f"{FABLE_BRIDGE}/batch.jsonl",
+            "bridge_pair",
+        ),
+    )
 
 
 class TestFactoryRegistryAuthority(unittest.TestCase):
@@ -715,28 +747,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         )
 
     def test_fable_thalamic_ffpc_bridge_still_require_state_claim(self):
-        retained = (
-            (thalamic("designed"), f"{FABLE_THALAMIC}/batch.jsonl", "thalamic"),
-            (
-                {
-                    "chosen": factory_thalamic(FABLE_FFPC, "designed"),
-                    "rejected": factory_thalamic(FABLE_FFPC, "designed"),
-                    "meta": {"factory": FABLE_FFPC},
-                },
-                f"{FABLE_FFPC}/batch.jsonl",
-                "preference",
-            ),
-            (
-                {
-                    "language_view": {"trajectory": thalamic("designed")},
-                    "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
-                    "meta": {"factory": FABLE_BRIDGE},
-                },
-                f"{FABLE_BRIDGE}/batch.jsonl",
-                "bridge_pair",
-            ),
-        )
-        for record, path, kind in retained:
+        for record, path, kind in _require_state_claim_cases("designed"):
             with self.subTest(kind=kind, action="retain"):
                 result = identity.curate_record(source(record, path, 1))
                 self.assertEqual(result.action, "retained")
@@ -746,26 +757,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
                     "require_state_claim",
                 )
 
-        missing = (
-            (thalamic(None), f"{FABLE_THALAMIC}/batch.jsonl"),
-            (
-                {
-                    "chosen": factory_thalamic(FABLE_FFPC, None),
-                    "rejected": factory_thalamic(FABLE_FFPC, None),
-                    "meta": {"factory": FABLE_FFPC},
-                },
-                f"{FABLE_FFPC}/batch.jsonl",
-            ),
-            (
-                {
-                    "language_view": {"trajectory": thalamic(None)},
-                    "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
-                    "meta": {"factory": FABLE_BRIDGE},
-                },
-                f"{FABLE_BRIDGE}/batch.jsonl",
-            ),
-        )
-        for record, path in missing:
+        for record, path, _kind in _require_state_claim_cases(None):
             with self.subTest(path=path, action="exclude"):
                 result = identity.curate_record(source(record, path, 1))
                 self.assertEqual(result.action, "exclude")
@@ -1271,6 +1263,37 @@ def _manifest_bytes(manifest):
     ).encode("utf-8")
 
 
+def _write_single_episode_tree(root):
+    """Curate one Fable coding episode from root/src into root/dest and return dest."""
+    source_path = root / "src" / FABLE_ACT / "records.jsonl"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        identity.canonical_json(episode(FABLE_ACT)) + "\n",
+        encoding="utf-8",
+    )
+    dest = root / "dest"
+    identity.write_run(source_path, dest)
+    return dest
+
+
+def _single_episode_tree_paths(dest):
+    """(registry sidecar, manifest sidecar, output JSONL) of a single-episode tree."""
+    return (
+        dest / identity.FACTORY_REGISTRY_SIDECAR,
+        dest / identity.IDENTITY_MANIFEST_SIDECAR,
+        dest / FABLE_ACT / "records.jsonl",
+    )
+
+
+def _manifest_with_source_original(manifest_bytes, rewrite):
+    """Manifest bytes whose first source evidence is rewritten and re-hashed consistently."""
+    manifest = json.loads(manifest_bytes)
+    source_meta = manifest[0]["source"]
+    source_meta["original"] = rewrite(source_meta["original"])
+    source_meta["sha256"] = hashlib.sha256(source_meta["original"].encode("utf-8")).hexdigest()
+    return _manifest_bytes(manifest)
+
+
 class TestStrictIdentityTrustBoundaries(unittest.TestCase):
     def test_noncanonical_physical_factory_path_never_gains_registry_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1333,6 +1356,48 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
             self.assertIn(f"{FABLE_ACT}/records.jsonl:1", stderr.getvalue())
             self.assertFalse(dest.exists())
 
+    def _assert_source_line_rejected(self, root, rewrite, message):
+        """A rewritten, non-strict episode line fails curation, the reader and the CLI alike."""
+        raw = episode(FABLE_ACT)
+        source_json = rewrite(identity.canonical_json(raw))
+        source_digest = hashlib.sha256(source_json.encode("utf-8")).hexdigest()
+        with self.assertRaisesRegex(
+            identity.IdentityCurationError,
+            f"source_json is not strict JSON.*{message}",
+        ):
+            identity.curate_record(
+                identity.SourceRecord(
+                    raw,
+                    f"{FABLE_ACT}/records.jsonl",
+                    1,
+                    source_digest,
+                    source_json,
+                )
+            )
+
+        source_path = root / FABLE_ACT / "records.jsonl"
+        source_path.parent.mkdir()
+        source_path.write_text(source_json + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            identity.IdentityCurationError,
+            rf"JSON parse error at {FABLE_ACT}/records\.jsonl:1.*{message}",
+        ):
+            identity.iter_source_records(source_path)
+
+        dest = root / "dest"
+        stderr = io.StringIO()
+        with mock.patch("sys.stderr", stderr):
+            self.assertEqual(
+                identity.main([str(source_path), "--out", str(dest)]),
+                1,
+            )
+        self.assertIn(message, stderr.getvalue())
+        self.assertFalse(dest.exists())
+
+    def _assert_tree_error(self, dest, pattern, **pins):
+        with self.assertRaisesRegex(identity.IdentityTreeError, pattern):
+            identity.validate_identity_tree(dest, **pins)
+
     def test_float_overflow_is_rejected_by_registry_source_and_cli_apis(self):
         for payload in ("1e400", "-1e400", '{"nested":[1e400]}'):
             with (
@@ -1359,57 +1424,16 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
             ):
                 identity.load_registry(registry_path)
 
-            raw = episode(FABLE_ACT)
-            source_json = identity.canonical_json(raw)[:-1] + ',"metric":1e400}'
-            source_digest = hashlib.sha256(source_json.encode("utf-8")).hexdigest()
-            with self.assertRaisesRegex(
-                identity.IdentityCurationError,
-                "source_json is not strict JSON.*finitely representable",
-            ):
-                identity.curate_record(
-                    identity.SourceRecord(
-                        raw,
-                        f"{FABLE_ACT}/records.jsonl",
-                        1,
-                        source_digest,
-                        source_json,
-                    )
-                )
-
-            source_path = root / FABLE_ACT / "records.jsonl"
-            source_path.parent.mkdir()
-            source_path.write_text(source_json + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(
-                identity.IdentityCurationError,
-                rf"JSON parse error at {FABLE_ACT}/records\.jsonl:1.*finitely representable",
-            ):
-                identity.iter_source_records(source_path)
-
-            dest = root / "dest"
-            stderr = io.StringIO()
-            with mock.patch("sys.stderr", stderr):
-                self.assertEqual(
-                    identity.main([str(source_path), "--out", str(dest)]),
-                    1,
-                )
-            self.assertIn("finitely representable", stderr.getvalue())
-            self.assertFalse(dest.exists())
+            self._assert_source_line_rejected(
+                root,
+                lambda line: line[:-1] + ',"metric":1e400}',
+                "finitely representable",
+            )
 
     def test_tree_parsers_reject_float_overflow_with_tree_errors(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source_path = root / "src" / FABLE_ACT / "records.jsonl"
-            source_path.parent.mkdir(parents=True)
-            source_path.write_text(
-                identity.canonical_json(episode(FABLE_ACT)) + "\n",
-                encoding="utf-8",
-            )
-            dest = root / "dest"
-            identity.write_run(source_path, dest)
-
-            registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
-            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
-            output_path = dest / FABLE_ACT / "records.jsonl"
+            dest = _write_single_episode_tree(Path(tmp))
+            registry_path, manifest_path, output_path = _single_episode_tree_paths(dest)
             registry_bytes = registry_path.read_bytes()
             manifest_bytes = manifest_path.read_bytes()
             output_bytes = output_path.read_bytes()
@@ -1421,63 +1445,39 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
             )
             self.assertNotEqual(overflow_registry, registry_bytes)
             registry_path.write_bytes(overflow_registry)
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
-                "FACTORY-REGISTRY.*finitely representable",
-            ):
-                identity.validate_identity_tree(dest)
+            self._assert_tree_error(dest, "FACTORY-REGISTRY.*finitely representable")
             registry_path.write_bytes(registry_bytes)
 
             overflow_manifest = manifest_bytes.replace(b"{", b'{"overflow":1e400,', 1)
             manifest_path.write_bytes(overflow_manifest)
-            with self.assertRaisesRegex(identity.IdentityTreeError, "finitely representable"):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_manifest_digest=hashlib.sha256(overflow_manifest).hexdigest(),
-                )
+            self._assert_tree_error(
+                dest,
+                "finitely representable",
+                expected_manifest_digest=hashlib.sha256(overflow_manifest).hexdigest(),
+            )
 
-            manifest = json.loads(manifest_bytes)
-            source_meta = manifest[0]["source"]
-            source_meta["original"] = source_meta["original"][:-1] + ',"overflow":1e400}'
-            source_meta["sha256"] = hashlib.sha256(
-                source_meta["original"].encode("utf-8")
-            ).hexdigest()
-            embedded_overflow_manifest = _manifest_bytes(manifest)
+            embedded_overflow_manifest = _manifest_with_source_original(
+                manifest_bytes,
+                lambda original: original[:-1] + ',"overflow":1e400}',
+            )
             manifest_path.write_bytes(embedded_overflow_manifest)
-            with self.assertRaisesRegex(identity.IdentityTreeError, "finitely representable"):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_manifest_digest=hashlib.sha256(embedded_overflow_manifest).hexdigest(),
-                )
+            self._assert_tree_error(
+                dest,
+                "finitely representable",
+                expected_manifest_digest=hashlib.sha256(embedded_overflow_manifest).hexdigest(),
+            )
 
             manifest_path.write_bytes(manifest_bytes)
             output_line = output_bytes[:-1].decode("utf-8")
             overflow_output = (output_line[:-1] + ',"overflow":1e400}\n').encode("utf-8")
             output_path.write_bytes(overflow_output)
-            with self.assertRaisesRegex(identity.IdentityTreeError, "finitely representable"):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
-                )
+            self._assert_tree_error(
+                dest,
+                "finitely representable",
+                expected_manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
+            )
 
-    def test_unpaired_surrogates_are_rejected_recursively_but_astral_text_is_valid(self):
-        invalid_payloads = (
-            r'{"nested":[{"value":"\ud800"}]}',
-            r'{"nested":{"\udfff":"value"}}',
-            r'{"value":"\ud83d"}',
-            r'{"value":"\ude00"}',
-        )
-        for payload in invalid_payloads:
-            with (
-                self.subTest(payload=payload),
-                self.assertRaisesRegex(ValueError, "unpaired UTF-16 surrogate"),
-            ):
-                identity._strict_json_loads(payload)
-
-        astral = identity._strict_json_loads(r'{"escaped":"\ud83d\ude00","literal":"😀"}')
-        self.assertEqual(astral, {"escaped": "😀", "literal": "😀"})
-        self.assertIn("😀", identity.canonical_json(astral))
-
+    def _assert_lone_surrogate_members_rejected(self):
         lone = chr(0xD800)
         for malformed in (
             episode(FABLE_ACT, nested={"value": lone}),
@@ -1501,47 +1501,37 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
                         )
                     )
 
+    def test_unpaired_surrogates_are_rejected_recursively_but_astral_text_is_valid(self):
+        invalid_payloads = (
+            r'{"nested":[{"value":"\ud800"}]}',
+            r'{"nested":{"\udfff":"value"}}',
+            r'{"value":"\ud83d"}',
+            r'{"value":"\ude00"}',
+        )
+        for payload in invalid_payloads:
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(ValueError, "unpaired UTF-16 surrogate"),
+            ):
+                identity._strict_json_loads(payload)
+
+        astral = identity._strict_json_loads(r'{"escaped":"😀","literal":"😀"}')
+        self.assertEqual(astral, {"escaped": "😀", "literal": "😀"})
+        self.assertIn("😀", identity.canonical_json(astral))
+
+        self._assert_lone_surrogate_members_rejected()
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            raw = episode(FABLE_ACT)
-            source_json = identity.canonical_json(raw).replace(
-                '"goal":"repair a deterministic fixture"',
-                '"goal":"\\ud800"',
-                1,
-            )
-            source_digest = hashlib.sha256(source_json.encode("utf-8")).hexdigest()
-            with self.assertRaisesRegex(
-                identity.IdentityCurationError,
-                "source_json is not strict JSON.*unpaired UTF-16 surrogate",
-            ):
-                identity.curate_record(
-                    identity.SourceRecord(
-                        raw,
-                        f"{FABLE_ACT}/records.jsonl",
-                        1,
-                        source_digest,
-                        source_json,
-                    )
-                )
-
-            source_path = root / FABLE_ACT / "records.jsonl"
-            source_path.parent.mkdir()
-            source_path.write_text(source_json + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(
-                identity.IdentityCurationError,
-                rf"JSON parse error at {FABLE_ACT}/records\.jsonl:1.*unpaired UTF-16 surrogate",
-            ):
-                identity.iter_source_records(source_path)
-
-            dest = root / "dest"
-            stderr = io.StringIO()
-            with mock.patch("sys.stderr", stderr):
-                self.assertEqual(
-                    identity.main([str(source_path), "--out", str(dest)]),
+            self._assert_source_line_rejected(
+                root,
+                lambda line: line.replace(
+                    '"goal":"repair a deterministic fixture"',
+                    '"goal":"\\ud800"',
                     1,
-                )
-            self.assertIn("unpaired UTF-16 surrogate", stderr.getvalue())
-            self.assertFalse(dest.exists())
+                ),
+                "unpaired UTF-16 surrogate",
+            )
 
             registry_path = root / "registry.json"
             registry_text = identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8").replace(
@@ -1558,19 +1548,8 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
 
     def test_tree_parsers_wrap_unpaired_surrogates_as_tree_errors(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source_path = root / "src" / FABLE_ACT / "records.jsonl"
-            source_path.parent.mkdir(parents=True)
-            source_path.write_text(
-                identity.canonical_json(episode(FABLE_ACT)) + "\n",
-                encoding="utf-8",
-            )
-            dest = root / "dest"
-            identity.write_run(source_path, dest)
-
-            registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
-            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
-            output_path = dest / FABLE_ACT / "records.jsonl"
+            dest = _write_single_episode_tree(Path(tmp))
+            registry_path, manifest_path, output_path = _single_episode_tree_paths(dest)
             registry_bytes = registry_path.read_bytes()
             manifest_bytes = manifest_path.read_bytes()
             output_bytes = output_path.read_bytes()
@@ -1581,66 +1560,333 @@ class TestStrictIdentityTrustBoundaries(unittest.TestCase):
                 1,
             )
             registry_path.write_bytes(surrogate_registry)
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
-                "FACTORY-REGISTRY.*unpaired UTF-16 surrogate",
-            ):
-                identity.validate_identity_tree(dest)
+            self._assert_tree_error(dest, "FACTORY-REGISTRY.*unpaired UTF-16 surrogate")
             registry_path.write_bytes(registry_bytes)
 
-            surrogate_member_manifest = manifest_bytes.replace(
-                b"{",
-                b'{"\\ud800":0,',
-                1,
-            )
+            surrogate_member_manifest = manifest_bytes.replace(b"{", b'{"\\ud800":0,', 1)
             manifest_path.write_bytes(surrogate_member_manifest)
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
+            self._assert_tree_error(
+                dest,
                 "unpaired UTF-16 surrogate",
-            ):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_manifest_digest=hashlib.sha256(surrogate_member_manifest).hexdigest(),
-                )
-
-            manifest = json.loads(manifest_bytes)
-            source_meta = manifest[0]["source"]
-            source_meta["original"] = source_meta["original"].replace(
-                '"goal":"repair a deterministic fixture"',
-                '"goal":"\\ud800"',
-                1,
+                expected_manifest_digest=hashlib.sha256(surrogate_member_manifest).hexdigest(),
             )
-            source_meta["sha256"] = hashlib.sha256(
-                source_meta["original"].encode("utf-8")
-            ).hexdigest()
-            embedded_surrogate_manifest = _manifest_bytes(manifest)
+
+            embedded_surrogate_manifest = _manifest_with_source_original(
+                manifest_bytes,
+                lambda original: original.replace(
+                    '"goal":"repair a deterministic fixture"',
+                    '"goal":"\\ud800"',
+                    1,
+                ),
+            )
             manifest_path.write_bytes(embedded_surrogate_manifest)
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
+            self._assert_tree_error(
+                dest,
                 "unpaired UTF-16 surrogate",
-            ):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_manifest_digest=hashlib.sha256(
-                        embedded_surrogate_manifest
-                    ).hexdigest(),
-                )
+                expected_manifest_digest=hashlib.sha256(embedded_surrogate_manifest).hexdigest(),
+            )
 
             manifest_path.write_bytes(manifest_bytes)
             surrogate_output = output_bytes.replace(
-                b'"goal":"repair a deterministic fixture"',
-                b'"goal":"\\ud800"',
-                1,
+                b'"goal":"repair a deterministic fixture"', b'"goal":"\\ud800"', 1
             )
             output_path.write_bytes(surrogate_output)
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
+            self._assert_tree_error(
+                dest,
                 "unpaired UTF-16 surrogate",
-            ):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
-                )
+                expected_manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
+            )
+
+
+_NON_NORMALIZED_PATH_IDS = (
+    "group/factory",
+    "../factory",
+    "factory/",
+    ".",
+    "..",
+    " factory",
+    "factory ",
+    "group\\factory",
+    "/factory",
+)
+
+
+def _invalid_registry_cases():
+    """(payload, needle) for every registry document load_registry must refuse."""
+    return (
+        *_invalid_registry_envelope_cases(),
+        *_invalid_registry_field_cases(),
+        *_invalid_registry_policy_cases(),
+        *_invalid_registry_lookup_cases(),
+    )
+
+
+def _invalid_registry_envelope_cases():
+    """Registry documents whose envelope or row container is malformed."""
+    return (
+        (
+            {
+                "schema_version": "other",
+                "lookup_key": "path_id",
+                "factories": [_valid_row()],
+            },
+            "schema_version",
+        ),
+        (
+            {
+                "schema_version": "factory-registry-v0.2",
+                "lookup_key": "slug",
+                "factories": [_valid_row()],
+            },
+            "lookup_key",
+        ),
+        (
+            {
+                "schema_version": "factory-registry-v0.2",
+                "lookup_key": "path_id",
+                "factories": [],
+            },
+            "non-empty list",
+        ),
+        (_registry_payload(["not-an-object"]), "must be an object"),
+        (_registry_payload([{"path_id": "x"}]), "missing fields"),
+    )
+
+
+def _invalid_registry_field_cases():
+    """Rows whose identity fields or record kinds are malformed."""
+    return (
+        (_registry_payload([_valid_row(path_id="")]), "path_id must be a string"),
+        (
+            _registry_payload([_valid_row(payload_factory="")]),
+            "payload_factory must be a string",
+        ),
+        (
+            _registry_payload([_valid_row(generator=7)]),
+            "generator must be a non-empty normalized string",
+        ),
+        (
+            _registry_payload([_valid_row(generator_version=" version ")]),
+            "generator_version must be a non-empty normalized string",
+        ),
+        (_registry_payload([_valid_row(record_kinds=[])]), "non-empty list"),
+        (_registry_payload([_valid_row(record_kinds=[1])]), "must be strings"),
+        (
+            _registry_payload(
+                [
+                    _valid_row(
+                        record_kinds=["episdoe"],
+                        provenance_contract_by_kind={
+                            "episdoe": "synthetic_shape_implies_designed"
+                        },
+                    )
+                ]
+            ),
+            "unsupported kinds",
+        ),
+        (
+            _registry_payload([_valid_row(record_kinds=["episode", "episode"])]),
+            "must not contain duplicates",
+        ),
+    )
+
+
+def _invalid_registry_policy_cases():
+    """Rows whose authority, publication or curation policy is malformed."""
+    return (
+        (
+            _registry_payload([_valid_row(identity_authoritative="yes")]),
+            "must be a boolean",
+        ),
+        (_registry_payload([_valid_row(publication_target=17)]), "null or a string"),
+        (
+            _registry_payload([_valid_row(training_ready_policy="always")]),
+            "never or compose_eligible",
+        ),
+        (
+            _registry_payload([_valid_row(allowed_curation_lanes="identity")]),
+            "list of strings",
+        ),
+        (
+            _registry_payload([_valid_row(provenance_contract_by_kind="episode")]),
+            "must be an object",
+        ),
+        (
+            _registry_payload(
+                [_valid_row(provenance_contract_by_kind={"episode": "invent-designed"})]
+            ),
+            "missing allowed provenance_contract",
+        ),
+        (
+            _registry_payload(
+                [
+                    _valid_row(
+                        identity_authoritative=False,
+                        provenance_contract_by_kind={
+                            "episode": "synthetic_shape_implies_designed"
+                        },
+                    )
+                ]
+            ),
+            "requires identity_authoritative",
+        ),
+    )
+
+
+def _invalid_registry_lookup_cases():
+    """Duplicate path ids and malformed preference side kinds."""
+    return (
+        (
+            _registry_payload([_valid_row(), _valid_row()]),
+            "duplicate registry path_id",
+        ),
+        (
+            _registry_payload(
+                [
+                    _valid_row(
+                        record_kinds=["preference"],
+                        provenance_contract_by_kind={
+                            "preference": "synthetic_shape_implies_designed"
+                        },
+                    )
+                ]
+            ),
+            "preference_side_kinds must be a non-empty list",
+        ),
+        (
+            _registry_payload(
+                [
+                    _valid_row(
+                        record_kinds=["preference"],
+                        preference_side_kinds=["bridge_pair"],
+                        provenance_contract_by_kind={
+                            "preference": "synthetic_shape_implies_designed"
+                        },
+                    )
+                ]
+            ),
+            "contains unsupported kinds",
+        ),
+    )
+
+
+def _validate_with_exact_pins(dest):
+    """Validate dest against digests of its own sidecars; return (registry, manifest)."""
+    manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+    registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
+    manifest_bytes = manifest_path.read_bytes()
+    manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
+    registry_digest = hashlib.sha256(registry_path.read_bytes()).hexdigest()
+    registry = identity.validate_identity_tree(
+        dest,
+        expected_registry_digest=registry_digest,
+        expected_manifest_digest=manifest_digest,
+    )
+    return registry, json.loads(manifest_bytes)
+
+
+def _write_one_record_run(tmp, factory_id, filename, record):
+    """Curate record, the only line of src/<factory_id>/<filename>, into dest; return dest."""
+    src = Path(tmp) / "src"
+    dest = Path(tmp) / "dest"
+    factory = src / factory_id
+    factory.mkdir(parents=True)
+    (factory / filename).write_text(identity.canonical_json(record) + "\n", encoding="utf-8")
+    identity.write_run(src, dest)
+    return dest
+
+
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
+def _retained_mapping(manifest):
+    return _first_matching(manifest, lambda item: item["action"] == "retained")
+
+
+def _excluded_mapping(manifest):
+    return _first_matching(manifest, lambda item: item["action"] == "exclude")
+
+
+def _reseal_provenance_mapping(provenance_mapping):
+    provenance_mapping["mapping_sha256"] = identity._provenance_mapping_sha256(
+        provenance_mapping
+    )
+
+
+def _duplicate_key_output_mutations(output_bytes):
+    """Output lines that repeat an identity-bearing key, by the key they repeat."""
+    return {
+        "root-id": output_bytes.replace(
+            b"{",
+            b'{"id":"FORGED-FIRST-ID",',
+            1,
+        ),
+        "nested-provenance-kind": output_bytes.replace(
+            b'"provenance":{',
+            b'"provenance":{"kind":"real",',
+            1,
+        ),
+        "factory-declaration": output_bytes.replace(
+            b'"meta":{"factory":',
+            b'"meta":{"factory":"attacker-factory","factory":',
+            1,
+        ),
+    }
+
+
+def _goals(records):
+    return [record["goal"] for record in records]
+
+
+def _jsonl_records(output):
+    return [json.loads(raw.decode("utf-8")) for raw in output.split(b"\n") if raw]
+
+
+def _write_committed_marker_round(factory):
+    """Put factory in marker mode with round 1 committed by its ROUND-r01 marker."""
+    (factory / round_txn.MODE_FILE).write_text(
+        '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n',
+        encoding="utf-8",
+    )
+    committed = factory / "batch-r01.jsonl"
+    committed_record = episode(FABLE_ACT)
+    committed_record["id"] = "agentic-coding-r01-0001"
+    committed_record["reward"] = {"success": True}
+    committed_record["steps"][0]["decision_basis"] = "Observation: deterministic fixture failed"
+    committed.write_text(
+        identity.canonical_json(committed_record) + "\n",
+        encoding="utf-8",
+    )
+    notes = factory / "NOTES-r01.md"
+    notes.write_text("Novel coverage: 80%\n", encoding="utf-8")
+    (factory / "ROUND-r01.complete.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": 1,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": "ROUND-r01.complete.json",
+                "files": [
+                    {
+                        "name": committed.name,
+                        "sha256": hashlib.sha256(committed.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "name": notes.name,
+                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 class TestIdentityWriterExcludeAndPin(unittest.TestCase):
@@ -1649,19 +1895,36 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         with mock.patch.object(identity, "_DEFAULT_REGISTRY", fake):
             self.assertIs(identity.default_registry(), fake)
 
+    def _assert_unloadable_registry_files_rejected(self, tmp):
+        missing = Path(tmp) / "missing.json"
+        with self.assertRaisesRegex(identity.IdentityCurationError, "unreadable"):
+            identity.load_registry(missing)
+        bad_json = Path(tmp) / "bad.json"
+        bad_json.write_bytes(b"{")
+        with self.assertRaisesRegex(identity.IdentityCurationError, "UTF-8 JSON"):
+            identity.load_registry(bad_json)
+        not_object = Path(tmp) / "list.json"
+        not_object.write_text("[]\n", encoding="utf-8")
+        with self.assertRaisesRegex(identity.IdentityCurationError, "JSON object"):
+            identity.load_registry(not_object)
+
+    def _assert_non_normalized_path_ids_rejected(self, tmp):
+        for case_index, path_id in enumerate(_NON_NORMALIZED_PATH_IDS):
+            with (
+                self.subTest(path_id=path_id),
+                self.assertRaisesRegex(
+                    identity.IdentityCurationError,
+                    "exactly one normalized directory component",
+                ),
+            ):
+                _load_temp_registry(
+                    Path(tmp) / f"invalid-path-id-{case_index}",
+                    _registry_payload([_valid_row(path_id=path_id)]),
+                )
+
     def test_registry_rejects_training_ready_and_invalid_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
-            missing = Path(tmp) / "missing.json"
-            with self.assertRaisesRegex(identity.IdentityCurationError, "unreadable"):
-                identity.load_registry(missing)
-            bad_json = Path(tmp) / "bad.json"
-            bad_json.write_bytes(b"{")
-            with self.assertRaisesRegex(identity.IdentityCurationError, "UTF-8 JSON"):
-                identity.load_registry(bad_json)
-            not_object = Path(tmp) / "list.json"
-            not_object.write_text("[]\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityCurationError, "JSON object"):
-                identity.load_registry(not_object)
+            self._assert_unloadable_registry_files_rejected(tmp)
 
             ready = _registry_payload([_valid_row(training_ready=True)])
             with self.assertRaisesRegex(identity.IdentityCurationError, "training_ready"):
@@ -1673,164 +1936,14 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with self.assertRaisesRegex(identity.IdentityCurationError, "training_ready"):
                 _load_temp_registry(Path(tmp) / "nested", nested_list)
 
-            cases = (
-                (
-                    {
-                        "schema_version": "other",
-                        "lookup_key": "path_id",
-                        "factories": [_valid_row()],
-                    },
-                    "schema_version",
-                ),
-                (
-                    {
-                        "schema_version": "factory-registry-v0.2",
-                        "lookup_key": "slug",
-                        "factories": [_valid_row()],
-                    },
-                    "lookup_key",
-                ),
-                (
-                    {
-                        "schema_version": "factory-registry-v0.2",
-                        "lookup_key": "path_id",
-                        "factories": [],
-                    },
-                    "non-empty list",
-                ),
-                (_registry_payload(["not-an-object"]), "must be an object"),
-                (_registry_payload([{"path_id": "x"}]), "missing fields"),
-                (_registry_payload([_valid_row(path_id="")]), "path_id must be a string"),
-                (
-                    _registry_payload([_valid_row(payload_factory="")]),
-                    "payload_factory must be a string",
-                ),
-                (
-                    _registry_payload([_valid_row(generator=7)]),
-                    "generator must be a non-empty normalized string",
-                ),
-                (
-                    _registry_payload([_valid_row(generator_version=" version ")]),
-                    "generator_version must be a non-empty normalized string",
-                ),
-                (_registry_payload([_valid_row(record_kinds=[])]), "non-empty list"),
-                (_registry_payload([_valid_row(record_kinds=[1])]), "must be strings"),
-                (
-                    _registry_payload(
-                        [
-                            _valid_row(
-                                record_kinds=["episdoe"],
-                                provenance_contract_by_kind={
-                                    "episdoe": "synthetic_shape_implies_designed"
-                                },
-                            )
-                        ]
-                    ),
-                    "unsupported kinds",
-                ),
-                (
-                    _registry_payload([_valid_row(record_kinds=["episode", "episode"])]),
-                    "must not contain duplicates",
-                ),
-                (
-                    _registry_payload([_valid_row(identity_authoritative="yes")]),
-                    "must be a boolean",
-                ),
-                (_registry_payload([_valid_row(publication_target=17)]), "null or a string"),
-                (
-                    _registry_payload([_valid_row(training_ready_policy="always")]),
-                    "never or compose_eligible",
-                ),
-                (
-                    _registry_payload([_valid_row(allowed_curation_lanes="identity")]),
-                    "list of strings",
-                ),
-                (
-                    _registry_payload([_valid_row(provenance_contract_by_kind="episode")]),
-                    "must be an object",
-                ),
-                (
-                    _registry_payload(
-                        [_valid_row(provenance_contract_by_kind={"episode": "invent-designed"})]
-                    ),
-                    "missing allowed provenance_contract",
-                ),
-                (
-                    _registry_payload(
-                        [
-                            _valid_row(
-                                identity_authoritative=False,
-                                provenance_contract_by_kind={
-                                    "episode": "synthetic_shape_implies_designed"
-                                },
-                            )
-                        ]
-                    ),
-                    "requires identity_authoritative",
-                ),
-                (
-                    _registry_payload([_valid_row(), _valid_row()]),
-                    "duplicate registry path_id",
-                ),
-                (
-                    _registry_payload(
-                        [
-                            _valid_row(
-                                record_kinds=["preference"],
-                                provenance_contract_by_kind={
-                                    "preference": "synthetic_shape_implies_designed"
-                                },
-                            )
-                        ]
-                    ),
-                    "preference_side_kinds must be a non-empty list",
-                ),
-                (
-                    _registry_payload(
-                        [
-                            _valid_row(
-                                record_kinds=["preference"],
-                                preference_side_kinds=["bridge_pair"],
-                                provenance_contract_by_kind={
-                                    "preference": "synthetic_shape_implies_designed"
-                                },
-                            )
-                        ]
-                    ),
-                    "contains unsupported kinds",
-                ),
-            )
-            for payload, needle in cases:
+            for payload, needle in _invalid_registry_cases():
                 with (
                     self.subTest(needle=needle),
                     self.assertRaisesRegex(identity.IdentityCurationError, needle),
                 ):
                     _load_temp_registry(Path(tmp) / needle.replace(" ", "_"), payload)
 
-            for case_index, path_id in enumerate(
-                (
-                    "group/factory",
-                    "../factory",
-                    "factory/",
-                    ".",
-                    "..",
-                    " factory",
-                    "factory ",
-                    "group\\factory",
-                    "/factory",
-                )
-            ):
-                with (
-                    self.subTest(path_id=path_id),
-                    self.assertRaisesRegex(
-                        identity.IdentityCurationError,
-                        "exactly one normalized directory component",
-                    ),
-                ):
-                    _load_temp_registry(
-                        Path(tmp) / f"invalid-path-id-{case_index}",
-                        _registry_payload([_valid_row(path_id=path_id)]),
-                    )
+            self._assert_non_normalized_path_ids_rejected(tmp)
 
             accepted = _load_temp_registry(
                 Path(tmp) / "ok",
@@ -1880,6 +1993,61 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             ["identity.factory_path_payload_mismatch"],
         )
 
+    def _assert_dry_run_excludes_non_objects(self, src, source_lines):
+        dry_results = identity.curate_records(identity.iter_source_records(src))
+        self.assertEqual(
+            tuple(
+                identity.canonical_json(record.record)
+                for record in identity.iter_source_records(src)
+            ),
+            source_lines,
+        )
+        self.assertEqual([result.action for result in dry_results], ["exclude"] * 4)
+        self.assertEqual(
+            [result.mapping["reason_codes"] for result in dry_results],
+            [["identity.unsupported_record_shape"]] * 4,
+        )
+        return dry_results
+
+    def _assert_dry_run_summary_counts_non_objects(self, src):
+        stdout = io.StringIO()
+        with mock.patch("sys.stdout", stdout):
+            self.assertEqual(identity.main([str(src)]), 0)
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {
+                "transform": {
+                    "name": identity.TRANSFORM_NAME,
+                    "version": identity.TRANSFORM_VERSION,
+                },
+                "registry": {
+                    "schema_version": identity.default_registry().schema_version,
+                    "sha256": identity.default_registry().sha256,
+                },
+                "records": 4,
+                "retained": 0,
+                "excluded": 4,
+                "reason_codes": {"identity.unsupported_record_shape": 4},
+            },
+        )
+
+    def _assert_outputless_non_object_mapping(self, mapping, line, source_line):
+        self.assertEqual(mapping["action"], "exclude")
+        self.assertEqual(
+            mapping["reason_codes"],
+            ["identity.unsupported_record_shape"],
+        )
+        self.assertEqual(mapping["record_kind"], "unknown")
+        self.assertEqual(mapping["details"], ["record must be a JSON object"])
+        self.assertEqual(mapping["source"]["line"], line)
+        self.assertEqual(mapping["source"]["original"], source_line)
+        self.assertEqual(
+            mapping["source"]["sha256"],
+            hashlib.sha256(source_line.encode("utf-8")).hexdigest(),
+        )
+        self.assertNotIn("output_id", mapping)
+        self.assertNotIn("output_sha256", mapping)
+
     def test_write_run_replays_all_non_object_json_as_outputless_exclusions(self):
         values = ([], 17, "text", None)
         source_lines = tuple(identity.canonical_json(value) for value in values)
@@ -1894,40 +2062,8 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            dry_results = identity.curate_records(identity.iter_source_records(src))
-            self.assertEqual(
-                tuple(
-                    identity.canonical_json(record.record)
-                    for record in identity.iter_source_records(src)
-                ),
-                source_lines,
-            )
-            self.assertEqual([result.action for result in dry_results], ["exclude"] * 4)
-            self.assertEqual(
-                [result.mapping["reason_codes"] for result in dry_results],
-                [["identity.unsupported_record_shape"]] * 4,
-            )
-
-            stdout = io.StringIO()
-            with mock.patch("sys.stdout", stdout):
-                self.assertEqual(identity.main([str(src)]), 0)
-            self.assertEqual(
-                json.loads(stdout.getvalue()),
-                {
-                    "transform": {
-                        "name": identity.TRANSFORM_NAME,
-                        "version": identity.TRANSFORM_VERSION,
-                    },
-                    "registry": {
-                        "schema_version": identity.default_registry().schema_version,
-                        "sha256": identity.default_registry().sha256,
-                    },
-                    "records": 4,
-                    "retained": 0,
-                    "excluded": 4,
-                    "reason_codes": {"identity.unsupported_record_shape": 4},
-                },
-            )
+            dry_results = self._assert_dry_run_excludes_non_objects(src, source_lines)
+            self._assert_dry_run_summary_counts_non_objects(src)
 
             with mock.patch.object(
                 identity,
@@ -1941,37 +2077,13 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 [result.mapping for result in dry_results],
             )
 
-            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
-            registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
-            manifest_bytes = manifest_path.read_bytes()
-            manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
-            registry_digest = hashlib.sha256(registry_path.read_bytes()).hexdigest()
-            registry = identity.validate_identity_tree(
-                dest,
-                expected_registry_digest=registry_digest,
-                expected_manifest_digest=manifest_digest,
-            )
-            manifest = json.loads(manifest_bytes)
+            registry, manifest = _validate_with_exact_pins(dest)
             self.assertEqual(manifest, [result.mapping for result in written_results])
             self.assertEqual(list(dest.rglob("*.jsonl")), [])
 
             for index, (mapping, source_line) in enumerate(zip(manifest, source_lines), 1):
                 with self.subTest(source_value=source_line):
-                    self.assertEqual(mapping["action"], "exclude")
-                    self.assertEqual(
-                        mapping["reason_codes"],
-                        ["identity.unsupported_record_shape"],
-                    )
-                    self.assertEqual(mapping["record_kind"], "unknown")
-                    self.assertEqual(mapping["details"], ["record must be a JSON object"])
-                    self.assertEqual(mapping["source"]["line"], index)
-                    self.assertEqual(mapping["source"]["original"], source_line)
-                    self.assertEqual(
-                        mapping["source"]["sha256"],
-                        hashlib.sha256(source_line.encode("utf-8")).hexdigest(),
-                    )
-                    self.assertNotIn("output_id", mapping)
-                    self.assertNotIn("output_sha256", mapping)
+                    self._assert_outputless_non_object_mapping(mapping, index, source_line)
                     self.assertIsNone(written_results[index - 1].record)
 
                     replay = identity._replay_manifest_mapping(mapping, index - 1, registry)
@@ -2223,6 +2335,44 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 [],
             )
 
+    def _assert_failed_writes_leave_no_destination(self, src, dest):
+        original = identity._write_exclusive
+
+        def boom_before_manifest(path, payload):
+            if path.name == identity.IDENTITY_MANIFEST_SIDECAR:
+                raise OSError("sidecar vanished")
+            original(path, payload)
+
+        with (
+            mock.patch.object(identity, "_write_exclusive", boom_before_manifest),
+            self.assertRaises(OSError),
+        ):
+            identity.write_run(src, dest)
+        self.assertFalse(dest.exists())
+
+        def boom_on_records(path, payload):
+            if path.suffix == ".jsonl":
+                raise OSError("fsync failed")
+            original(path, payload)
+
+        with (
+            mock.patch.object(identity, "_write_exclusive", boom_on_records),
+            self.assertRaises(OSError),
+        ):
+            identity.write_run(src, dest)
+        self.assertFalse(dest.exists())
+
+        with (
+            mock.patch.object(
+                identity,
+                "validate_identity_tree",
+                side_effect=identity.IdentityTreeError("post-write rejection"),
+            ),
+            self.assertRaisesRegex(identity.IdentityTreeError, "post-write rejection"),
+        ):
+            identity.write_run(src, dest)
+        self.assertFalse(dest.exists())
+
     def test_write_run_refuses_existing_and_raw_and_cleans_up(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"
@@ -2246,42 +2396,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with self.assertRaisesRegex(identity.IdentityCurationError, "raw evidence"):
                 identity.write_run(src, raw_dest)
 
-            original = identity._write_exclusive
-
-            def boom_before_manifest(path, payload):
-                if path.name == identity.IDENTITY_MANIFEST_SIDECAR:
-                    raise OSError("sidecar vanished")
-                original(path, payload)
-
-            with (
-                mock.patch.object(identity, "_write_exclusive", boom_before_manifest),
-                self.assertRaises(OSError),
-            ):
-                identity.write_run(src, dest)
-            self.assertFalse(dest.exists())
-
-            def boom_on_records(path, payload):
-                if path.suffix == ".jsonl":
-                    raise OSError("fsync failed")
-                original(path, payload)
-
-            with (
-                mock.patch.object(identity, "_write_exclusive", boom_on_records),
-                self.assertRaises(OSError),
-            ):
-                identity.write_run(src, dest)
-            self.assertFalse(dest.exists())
-
-            with (
-                mock.patch.object(
-                    identity,
-                    "validate_identity_tree",
-                    side_effect=identity.IdentityTreeError("post-write rejection"),
-                ),
-                self.assertRaisesRegex(identity.IdentityTreeError, "post-write rejection"),
-            ):
-                identity.write_run(src, dest)
-            self.assertFalse(dest.exists())
+            self._assert_failed_writes_leave_no_destination(src, dest)
 
             results = identity.write_run(src, dest)
             self.assertEqual(sum(1 for item in results if item.action == "retained"), 1)
@@ -2344,7 +2459,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             original = json.loads(original_bytes)
 
             corrupted_exclusion = copy.deepcopy(original)
-            excluded = next(item for item in corrupted_exclusion if item["action"] == "exclude")
+            excluded = _excluded_mapping(corrupted_exclusion)
             excluded["source"]["original"] = "{}"
             manifest_path.write_text(json.dumps(corrupted_exclusion) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(
@@ -2355,7 +2470,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
             manifest_path.write_bytes(original_bytes)
             fabricated_exclusion = copy.deepcopy(original)
-            excluded = next(item for item in fabricated_exclusion if item["action"] == "exclude")
+            excluded = _excluded_mapping(fabricated_exclusion)
             excluded["reason_codes"] = ["identity.fabricated"]
             manifest_path.write_text(json.dumps(fabricated_exclusion) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, "exclusion mapping"):
@@ -2363,7 +2478,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
             manifest_path.write_bytes(original_bytes)
             relabeled = copy.deepcopy(original)
-            retained = next(item for item in relabeled if item["action"] == "retained")
+            retained = _retained_mapping(relabeled)
             retained["action"] = "exclude"
             output_path.unlink()
             manifest_path.write_text(json.dumps(relabeled) + "\n", encoding="utf-8")
@@ -2442,7 +2557,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
                 output_path = dest / FABLE_ACT / "episodes.jsonl"
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                retained = next(item for item in manifest if item["action"] == "retained")
+                retained = _first_matching(manifest, lambda item: item["action"] == "retained")
                 output = json.loads(output_path.read_text(encoding="utf-8"))
                 output["meta"]["round"] = tampered_value
                 retained["output_sha256"] = identity._sha256_json(output)
@@ -2455,37 +2570,33 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 with self.assertRaisesRegex(identity.IdentityTreeError, "output hashes"):
                     identity.validate_identity_tree(dest)
 
+    def _assert_manifest_rejected(self, dest, manifest, pattern):
+        (dest / identity.IDENTITY_MANIFEST_SIDECAR).write_text(
+            json.dumps(manifest) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(identity.IdentityTreeError, pattern):
+            identity.validate_identity_tree(dest)
+
     def test_validate_identity_tree_reconciles_root_and_nested_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "src"
-            dest = Path(tmp) / "dest"
-            factory = src / "tool-use-preference-factory"
-            factory.mkdir(parents=True)
-            (factory / "preferences.jsonl").write_text(
-                identity.canonical_json(grok_pref()) + "\n", encoding="utf-8"
+            dest = _write_one_record_run(
+                tmp, "tool-use-preference-factory", "preferences.jsonl", grok_pref()
             )
-            identity.write_run(src, dest)
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             original = json.loads(manifest_path.read_text(encoding="utf-8"))
-            retained = next(item for item in original if item["action"] == "retained")
+            retained = _retained_mapping(original)
 
             tampered = copy.deepcopy(original)
-            next(item for item in tampered if item["action"] == "retained")["output_id"] = (
-                "sfcur-tampered"
-            )
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, "output_id"):
-                identity.validate_identity_tree(dest)
+            _retained_mapping(tampered)["output_id"] = "sfcur-tampered"
+            self._assert_manifest_rejected(dest, tampered, "output_id")
 
             tampered = copy.deepcopy(original)
-            retained_copy = next(item for item in tampered if item["action"] == "retained")
-            chosen = next(
-                item for item in retained_copy["id_mappings"] if item["owner_path"] == "/chosen"
+            retained_copy = _retained_mapping(tampered)
+            chosen = _first_matching(
+                retained_copy["id_mappings"], lambda item: item["owner_path"] == "/chosen"
             )
             chosen["output_id"] = "sfcur-tampered-nested"
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, r"id[_ ]mapping"):
-                identity.validate_identity_tree(dest)
+            self._assert_manifest_rejected(dest, tampered, r"id[_ ]mapping")
 
             self.assertEqual(retained["output_id"], retained["id_mappings"][0]["output_id"])
 
@@ -2504,14 +2615,14 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
             fabricated = copy.deepcopy(original)
-            retained = next(item for item in fabricated if item["action"] == "retained")
+            retained = _first_matching(fabricated, lambda item: item["action"] == "retained")
             retained["original_ids"][0]["value"] = "fabricated"
             manifest_path.write_text(json.dumps(fabricated) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, r"\.original_ids"):
                 identity.validate_identity_tree(dest)
 
             deleted = copy.deepcopy(original)
-            retained = next(item for item in deleted if item["action"] == "retained")
+            retained = _first_matching(deleted, lambda item: item["action"] == "retained")
             retained["id_mappings"][0].pop("original_ids")
             manifest_path.write_text(json.dumps(deleted) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(identity.IdentityTreeError, r"\.id_mappings"):
@@ -2519,60 +2630,37 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
     def test_validate_identity_tree_reconciles_every_provenance_mapping(self):
         with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "src"
-            dest = Path(tmp) / "dest"
-            factory = src / "tool-use-preference-factory"
-            factory.mkdir(parents=True)
-            (factory / "preferences.jsonl").write_text(
-                identity.canonical_json(grok_pref()) + "\n", encoding="utf-8"
+            dest = _write_one_record_run(
+                tmp, "tool-use-preference-factory", "preferences.jsonl", grok_pref()
             )
-            identity.write_run(src, dest)
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-            def retained_mapping(manifest):
-                return next(item for item in manifest if item["action"] == "retained")
-
-            def reseal(provenance_mapping):
-                provenance_mapping["mapping_sha256"] = identity._provenance_mapping_sha256(
-                    provenance_mapping
-                )
-
             tampered = copy.deepcopy(original)
-            root = retained_mapping(tampered)["provenance_mappings"][0]
+            root = _retained_mapping(tampered)["provenance_mappings"][0]
             root["canonical"]["kind"] = "real"
-            reseal(root)
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, "canonical"):
-                identity.validate_identity_tree(dest)
+            _reseal_provenance_mapping(root)
+            self._assert_manifest_rejected(dest, tampered, "canonical")
 
             tampered = copy.deepcopy(original)
-            root = retained_mapping(tampered)["provenance_mappings"][0]
+            root = _retained_mapping(tampered)["provenance_mappings"][0]
             root["owner_path"] = "/missing"
-            reseal(root)
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, "owner_path"):
-                identity.validate_identity_tree(dest)
+            _reseal_provenance_mapping(root)
+            self._assert_manifest_rejected(dest, tampered, "owner_path")
 
             tampered = copy.deepcopy(original)
-            root = retained_mapping(tampered)["provenance_mappings"][0]
+            root = _retained_mapping(tampered)["provenance_mappings"][0]
             root["original"]["owner_provenance"]["value"] = "invented"
-            reseal(root)
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, "value must be null"):
-                identity.validate_identity_tree(dest)
+            _reseal_provenance_mapping(root)
+            self._assert_manifest_rejected(dest, tampered, "value must be null")
 
             tampered = copy.deepcopy(original)
-            retained_mapping(tampered)["provenance_mappings"][0]["mapping_sha256"] = "0" * 64
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, "mapping digest"):
-                identity.validate_identity_tree(dest)
+            _retained_mapping(tampered)["provenance_mappings"][0]["mapping_sha256"] = "0" * 64
+            self._assert_manifest_rejected(dest, tampered, "mapping digest")
 
             tampered = copy.deepcopy(original)
-            retained_mapping(tampered)["provenance_mappings"].pop()
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(identity.IdentityTreeError, "owner paths"):
-                identity.validate_identity_tree(dest)
+            _retained_mapping(tampered)["provenance_mappings"].pop()
+            self._assert_manifest_rejected(dest, tampered, "owner paths")
 
     def test_validate_identity_tree_binds_provenance_mapping_json_types_to_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2594,11 +2682,10 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             identity.write_run(src, dest)
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            retained = next(item for item in manifest if item["action"] == "retained")
-            state_mapping = next(
-                item
-                for item in retained["provenance_mappings"]
-                if item.get("state_path") == "/state"
+            retained = _first_matching(manifest, lambda item: item["action"] == "retained")
+            state_mapping = _first_matching(
+                retained["provenance_mappings"],
+                lambda item: item.get("state_path") == "/state",
             )
             state_mapping["original"]["owner_provenance"]["value"]["rank"] = True
             state_mapping["mapping_sha256"] = identity._provenance_mapping_sha256(state_mapping)
@@ -2607,69 +2694,49 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with self.assertRaisesRegex(identity.IdentityTreeError, "provenance mapping"):
                 identity.validate_identity_tree(dest)
 
+    def _assert_missing_provenance_targets_rejected(self, dest, original):
+        for missing_target in (("/", "/state"), ("/", None)):
+            with self.subTest(missing_target=missing_target):
+                tampered = copy.deepcopy(original)
+                retained = _retained_mapping(tampered)
+                retained["provenance_mappings"] = [
+                    item
+                    for item in retained["provenance_mappings"]
+                    if (item["owner_path"], item.get("state_path")) != missing_target
+                ]
+                self._assert_manifest_rejected(dest, tampered, "provenance mapping targets")
+
     def test_validate_identity_tree_requires_complete_root_provenance_targets(self):
         with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "src"
-            dest = Path(tmp) / "dest"
-            factory = src / FABLE_ACT
-            factory.mkdir(parents=True)
             stateful_episode = episode(FABLE_ACT)
             stateful_episode["state"] = {"sim_or_real": "simulated"}
-            (factory / "episodes.jsonl").write_text(
-                identity.canonical_json(stateful_episode) + "\n", encoding="utf-8"
-            )
-            identity.write_run(src, dest)
+            dest = _write_one_record_run(tmp, FABLE_ACT, "episodes.jsonl", stateful_episode)
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-            def retained_mapping(manifest):
-                return next(item for item in manifest if item["action"] == "retained")
-
-            provenance_mappings = retained_mapping(original)["provenance_mappings"]
+            provenance_mappings = _retained_mapping(original)["provenance_mappings"]
             self.assertEqual(
                 {(item["owner_path"], item.get("state_path")) for item in provenance_mappings},
                 {("/", "/state"), ("/", None)},
             )
-
-            for missing_target in (("/", "/state"), ("/", None)):
-                with self.subTest(missing_target=missing_target):
-                    tampered = copy.deepcopy(original)
-                    retained = retained_mapping(tampered)
-                    retained["provenance_mappings"] = [
-                        item
-                        for item in retained["provenance_mappings"]
-                        if (item["owner_path"], item.get("state_path")) != missing_target
-                    ]
-                    manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-                    with self.assertRaisesRegex(
-                        identity.IdentityTreeError, "provenance mapping targets"
-                    ):
-                        identity.validate_identity_tree(dest)
+            self._assert_missing_provenance_targets_rejected(dest, original)
 
             tampered = copy.deepcopy(original)
-            root_owner_mapping = next(
-                item
-                for item in retained_mapping(tampered)["provenance_mappings"]
-                if item["owner_path"] == "/" and "state_path" not in item
+            root_owner_mapping = _first_matching(
+                _retained_mapping(tampered)["provenance_mappings"],
+                lambda item: item["owner_path"] == "/" and "state_path" not in item,
             )
             root_owner_mapping["basis"] = "state.provenance.kind"
             root_owner_mapping["canonical"]["basis"] = "state.provenance.kind"
-            root_owner_mapping["mapping_sha256"] = identity._provenance_mapping_sha256(
-                root_owner_mapping
-            )
+            _reseal_provenance_mapping(root_owner_mapping)
             output_path = dest / FABLE_ACT / "episodes.jsonl"
             tampered_output = json.loads(output_path.read_text(encoding="utf-8"))
             tampered_output["provenance"]["basis"] = "state.provenance.kind"
-            retained_mapping(tampered)["output_sha256"] = identity._sha256_json(tampered_output)
+            _retained_mapping(tampered)["output_sha256"] = identity._sha256_json(tampered_output)
             output_path.write_text(
                 identity.canonical_json(tampered_output) + "\n", encoding="utf-8"
             )
-            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
-                "output hashes",
-            ):
-                identity.validate_identity_tree(dest)
+            self._assert_manifest_rejected(dest, tampered, "output hashes")
 
     def test_validate_identity_tree_accepts_hash_verified_stateful_and_stateless_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2716,18 +2783,30 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             )
             self.assertEqual(stateless_mappings[0]["basis"], identity.SHAPE_BASIS["episode"])
 
+    def _replayed_without_state(self, retained):
+        """Re-curate a retained source with its state removed, as a coordinated reseal would."""
+        modified_source = json.loads(retained["source"]["original"])
+        modified_source.pop("state")
+        modified_line = identity.canonical_json(modified_source)
+        modified_digest = hashlib.sha256(modified_line.encode("utf-8")).hexdigest()
+        replayed = identity.curate_record(
+            identity.SourceRecord(
+                modified_source,
+                retained["source"]["path"],
+                retained["source"]["line"],
+                modified_digest,
+                modified_line,
+            )
+        )
+        self.assertEqual(replayed.action, "retained")
+        self.assertIsNotNone(replayed.record)
+        return replayed
+
     def test_validate_identity_tree_external_manifest_pin_rejects_coordinated_reseal(self):
         with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "src"
-            dest = Path(tmp) / "dest"
-            factory = src / FABLE_ACT
-            factory.mkdir(parents=True)
             stateful = episode(FABLE_ACT)
             stateful["state"] = {"sim_or_real": "simulated"}
-            (factory / "episodes.jsonl").write_text(
-                identity.canonical_json(stateful) + "\n", encoding="utf-8"
-            )
-            identity.write_run(src, dest)
+            dest = _write_one_record_run(tmp, FABLE_ACT, "episodes.jsonl", stateful)
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             output_path = dest / FABLE_ACT / "episodes.jsonl"
             original_manifest_bytes = manifest_path.read_bytes()
@@ -2743,26 +2822,9 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             ):
                 identity.validate_identity_tree(dest, expected_manifest_digest="not-a-sha256")
 
-            retained = next(item for item in original_manifest if item["action"] == "retained")
-            modified_source = json.loads(retained["source"]["original"])
-            modified_source.pop("state")
-            modified_line = identity.canonical_json(modified_source)
-            modified_digest = hashlib.sha256(modified_line.encode("utf-8")).hexdigest()
-            replayed = identity.curate_record(
-                identity.SourceRecord(
-                    modified_source,
-                    retained["source"]["path"],
-                    retained["source"]["line"],
-                    modified_digest,
-                    modified_line,
-                )
-            )
-            self.assertEqual(replayed.action, "retained")
-            self.assertIsNotNone(replayed.record)
+            replayed = self._replayed_without_state(_retained_mapping(original_manifest))
             tampered_manifest = copy.deepcopy(original_manifest)
-            tampered_index = tampered_manifest.index(
-                next(item for item in tampered_manifest if item["action"] == "retained")
-            )
+            tampered_index = tampered_manifest.index(_retained_mapping(tampered_manifest))
             tampered_manifest[tampered_index] = replayed.mapping
             output_path.write_text(
                 identity.canonical_json(replayed.record) + "\n",
@@ -2777,58 +2839,52 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     expected_manifest_digest=original_manifest_digest,
                 )
 
+    def _assert_duplicate_key_rejected(self, dest, registry_digest, manifest_bytes):
+        with self.assertRaisesRegex(
+            identity.IdentityTreeError,
+            "duplicate JSON object key",
+        ):
+            identity.validate_identity_tree(
+                dest,
+                expected_registry_digest=registry_digest,
+                expected_manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
+            )
+
+    def _duplicate_source_key_manifest(self, manifest_bytes):
+        """Manifest bytes whose retained source evidence repeats the meta.factory key."""
+        manifest = json.loads(manifest_bytes)
+        retained = _retained_mapping(manifest)
+        source_original = retained["source"]["original"]
+        duplicate_source_original = source_original.replace(
+            '"meta":{"factory":',
+            '"meta":{"factory":"attacker-factory","factory":',
+            1,
+        )
+        self.assertNotEqual(duplicate_source_original, source_original)
+        retained["source"]["original"] = duplicate_source_original
+        retained["source"]["sha256"] = hashlib.sha256(
+            duplicate_source_original.encode("utf-8")
+        ).hexdigest()
+        return _manifest_bytes(manifest)
+
     def test_validate_identity_tree_rejects_duplicate_keys_with_exact_pins(self):
         with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / "src"
-            dest = Path(tmp) / "dest"
-            factory = src / FABLE_ACT
-            factory.mkdir(parents=True)
             stateful = episode(FABLE_ACT)
             stateful["state"] = {"sim_or_real": "simulated"}
-            (factory / "episodes.jsonl").write_text(
-                identity.canonical_json(stateful) + "\n",
-                encoding="utf-8",
-            )
-            identity.write_run(src, dest)
+            dest = _write_one_record_run(tmp, FABLE_ACT, "episodes.jsonl", stateful)
 
             registry_path = dest / identity.FACTORY_REGISTRY_SIDECAR
             manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
             output_path = dest / FABLE_ACT / "episodes.jsonl"
             registry_digest = hashlib.sha256(registry_path.read_bytes()).hexdigest()
             manifest_bytes = manifest_path.read_bytes()
-            manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
             output_bytes = output_path.read_bytes()
 
-            output_mutations = {
-                "root-id": output_bytes.replace(
-                    b"{",
-                    b'{"id":"FORGED-FIRST-ID",',
-                    1,
-                ),
-                "nested-provenance-kind": output_bytes.replace(
-                    b'"provenance":{',
-                    b'"provenance":{"kind":"real",',
-                    1,
-                ),
-                "factory-declaration": output_bytes.replace(
-                    b'"meta":{"factory":',
-                    b'"meta":{"factory":"attacker-factory","factory":',
-                    1,
-                ),
-            }
-            for label, mutated_output in output_mutations.items():
+            for label, mutated_output in _duplicate_key_output_mutations(output_bytes).items():
                 with self.subTest(boundary="output", duplicate=label):
                     self.assertNotEqual(mutated_output, output_bytes)
                     output_path.write_bytes(mutated_output)
-                    with self.assertRaisesRegex(
-                        identity.IdentityTreeError,
-                        "duplicate JSON object key",
-                    ):
-                        identity.validate_identity_tree(
-                            dest,
-                            expected_registry_digest=registry_digest,
-                            expected_manifest_digest=manifest_digest,
-                        )
+                    self._assert_duplicate_key_rejected(dest, registry_digest, manifest_bytes)
                     output_path.write_bytes(output_bytes)
 
             duplicate_manifest = manifest_bytes.decode("utf-8").replace(
@@ -2839,70 +2895,33 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             duplicate_manifest_bytes = duplicate_manifest.encode("utf-8")
             self.assertNotEqual(duplicate_manifest_bytes, manifest_bytes)
             manifest_path.write_bytes(duplicate_manifest_bytes)
-            duplicate_manifest_digest = hashlib.sha256(duplicate_manifest_bytes).hexdigest()
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
-                "duplicate JSON object key",
-            ):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_registry_digest=registry_digest,
-                    expected_manifest_digest=duplicate_manifest_digest,
-                )
+            self._assert_duplicate_key_rejected(dest, registry_digest, duplicate_manifest_bytes)
 
-            manifest = json.loads(manifest_bytes)
-            retained = next(item for item in manifest if item["action"] == "retained")
-            source_original = retained["source"]["original"]
-            duplicate_source_original = source_original.replace(
-                '"meta":{"factory":',
-                '"meta":{"factory":"attacker-factory","factory":',
-                1,
-            )
-            self.assertNotEqual(duplicate_source_original, source_original)
-            retained["source"]["original"] = duplicate_source_original
-            retained["source"]["sha256"] = hashlib.sha256(
-                duplicate_source_original.encode("utf-8")
-            ).hexdigest()
-            duplicate_source_manifest_bytes = (
-                json.dumps(
-                    manifest,
-                    ensure_ascii=False,
-                    allow_nan=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n"
-            ).encode("utf-8")
+            duplicate_source_manifest_bytes = self._duplicate_source_key_manifest(manifest_bytes)
             manifest_path.write_bytes(duplicate_source_manifest_bytes)
-            duplicate_source_manifest_digest = hashlib.sha256(
-                duplicate_source_manifest_bytes
-            ).hexdigest()
-            with self.assertRaisesRegex(
-                identity.IdentityTreeError,
-                "duplicate JSON object key",
-            ):
-                identity.validate_identity_tree(
-                    dest,
-                    expected_registry_digest=registry_digest,
-                    expected_manifest_digest=duplicate_source_manifest_digest,
-                )
+            self._assert_duplicate_key_rejected(
+                dest, registry_digest, duplicate_source_manifest_bytes
+            )
+
+    def _assert_duplicate_registry_key_rejected(self, root):
+        registry_path = root / "FACTORY-REGISTRY.json"
+        registry_text = json.dumps(_registry_payload([_valid_row()]))
+        duplicate_registry = registry_text.replace(
+            '"lookup_key": "path_id"',
+            '"lookup_key": "slug", "lookup_key": "path_id"',
+            1,
+        )
+        registry_path.write_text(duplicate_registry, encoding="utf-8")
+        with self.assertRaisesRegex(
+            identity.IdentityCurationError,
+            "duplicate JSON object key",
+        ):
+            identity.load_registry(registry_path)
 
     def test_duplicate_keys_are_rejected_at_non_tree_trust_boundaries(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            registry_path = root / "FACTORY-REGISTRY.json"
-            registry_text = json.dumps(_registry_payload([_valid_row()]))
-            duplicate_registry = registry_text.replace(
-                '"lookup_key": "path_id"',
-                '"lookup_key": "slug", "lookup_key": "path_id"',
-                1,
-            )
-            registry_path.write_text(duplicate_registry, encoding="utf-8")
-            with self.assertRaisesRegex(
-                identity.IdentityCurationError,
-                "duplicate JSON object key",
-            ):
-                identity.load_registry(registry_path)
+            self._assert_duplicate_registry_key_rejected(root)
 
             raw = episode(FABLE_ACT)
             source_json = identity.canonical_json(raw)
@@ -3052,12 +3071,15 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             first_results = identity.write_run(src, first)
             output = first / FABLE_ACT / "episodes.jsonl"
             self.assertEqual(output.read_text(encoding="utf-8").splitlines()[:2], ["", ""])
-            retained_first = next(item for item in first_results if item.action == "retained")
+            retained_first = _first_matching(first_results, lambda item: item.action == "retained")
             self.assertEqual(retained_first.mapping["source"]["line"], 3)
             identity.validate_identity_tree(first)
 
             second_results = identity.write_run(first, second)
-            retained_second = next(item for item in second_results if item.action == "retained")
+            retained_second = _first_matching(
+                second_results,
+                lambda item: item.action == "retained",
+            )
             self.assertEqual(retained_second.mapping["source"]["line"], 3)
             self.assertEqual(retained_second.record["id"], retained_first.record["id"])
             identity.validate_identity_tree(second)
@@ -3171,6 +3193,16 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                         hashlib.sha256(expected_payload).hexdigest(),
                     )
 
+    def _assert_crlf_source_records(self, src, source_goals, record_bytes):
+        records = identity.iter_source_records(src)
+
+        self.assertEqual([record.record["goal"] for record in records], source_goals)
+        self.assertEqual([record.source_line for record in records], [1, 2])
+        self.assertEqual(
+            [record.source_sha256 for record in records],
+            [hashlib.sha256(raw).hexdigest() for raw in record_bytes],
+        )
+
     def test_literal_unicode_separators_round_trip_with_crlf_framing(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"
@@ -3187,31 +3219,13 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             ]
             source_path.write_bytes(b"\r\n".join(record_bytes) + b"\r\n")
 
-            records = identity.iter_source_records(src)
-
-            self.assertEqual(
-                [record.record["goal"] for record in records],
-                [record["goal"] for record in source_records],
-            )
-            self.assertEqual([record.source_line for record in records], [1, 2])
-            self.assertEqual(
-                [record.source_sha256 for record in records],
-                [hashlib.sha256(raw).hexdigest() for raw in record_bytes],
-            )
+            self._assert_crlf_source_records(src, _goals(source_records), record_bytes)
 
             identity.write_run(src, dest)
             output = (dest / FABLE_ACT / "episodes.jsonl").read_bytes()
             self.assertIn("\u2028".encode(), output)
             self.assertIn("\u2029".encode(), output)
-            emitted_records = [
-                json.loads(raw.decode("utf-8"))
-                for raw in output.split(b"\n")
-                if raw
-            ]
-            self.assertEqual(
-                [record["goal"] for record in emitted_records],
-                [record["goal"] for record in source_records],
-            )
+            self.assertEqual(_goals(_jsonl_records(output)), _goals(source_records))
             identity.validate_identity_tree(dest)
 
     def test_iter_source_records_wraps_malformed_utf8(self):
@@ -3305,10 +3319,9 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 {"run/root.jsonl", f"{FABLE_ACT}/episodes.jsonl"},
             )
             results = identity.curate_records(records)
-            nested_result = next(
-                result
-                for result in results
-                if result.mapping["source"]["path"].startswith(FABLE_ACT)
+            nested_result = _first_matching(
+                results,
+                lambda result: result.mapping["source"]["path"].startswith(FABLE_ACT),
             )
             self.assertEqual(nested_result.action, "retained")
 
@@ -3333,47 +3346,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             root = Path(tmp)
             factory = root / FABLE_ACT
             factory.mkdir()
-            (factory / round_txn.MODE_FILE).write_text(
-                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n',
-                encoding="utf-8",
-            )
-            committed = factory / "batch-r01.jsonl"
-            committed_record = episode(FABLE_ACT)
-            committed_record["id"] = "agentic-coding-r01-0001"
-            committed_record["reward"] = {"success": True}
-            committed_record["steps"][0]["decision_basis"] = (
-                "Observation: deterministic fixture failed"
-            )
-            committed.write_text(
-                identity.canonical_json(committed_record) + "\n",
-                encoding="utf-8",
-            )
-            notes = factory / "NOTES-r01.md"
-            notes.write_text("Novel coverage: 80%\n", encoding="utf-8")
-            (factory / "ROUND-r01.complete.json").write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": "ROUND-r01.complete.json",
-                        "files": [
-                            {
-                                "name": committed.name,
-                                "sha256": hashlib.sha256(committed.read_bytes()).hexdigest(),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
-                            },
-                        ],
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            _write_committed_marker_round(factory)
             (factory / "batch-r02.jsonl").write_text(
                 identity.canonical_json(episode(FABLE_ACT)) + "\n",
                 encoding="utf-8",

@@ -45,35 +45,39 @@ def record_context(factory: str, line: int = 1) -> RecordContext:
     )
 
 
+def _deferred_identity_cases():
+    """(identity marker, defective record, factory) for each lane-owned defect."""
+    unsorted_bridge = bridge_pair(unsorted=True)
+    malformed_episode = episode("deferred")
+    malformed_episode["steps"].append(None)
+    malformed_preference = trajectory_preference_pair()
+    malformed_preference["chosen"]["steps"].append(None)
+    return (
+        (
+            "bridge_order_deferred_to_bridge_lane",
+            unsorted_bridge,
+            "neuromorphic-event-language-bridge",
+        ),
+        (
+            "coding_steps_deferred_to_coding_lane",
+            malformed_episode,
+            "agentic-coding-trajectory-factory",
+        ),
+        (
+            "preference_steps_deferred_to_preferences_lane",
+            malformed_preference,
+            "tool-use-preference-factory",
+        ),
+    )
+
+
 class DeferredIdentityRepairs(unittest.TestCase):
     def test_owning_lanes_repair_narrow_identity_shape_refusals(self):
         """Bridge, coding, and preference defects remain owned by their lanes."""
 
-        unsorted_bridge = bridge_pair(unsorted=True)
-        malformed_episode = episode("deferred")
-        malformed_episode["steps"].append(None)
-        malformed_preference = trajectory_preference_pair()
-        malformed_preference["chosen"]["steps"].append(None)
-        cases = (
-            (
-                "bridge_order_deferred_to_bridge_lane",
-                unsorted_bridge,
-                "neuromorphic-event-language-bridge",
-            ),
-            (
-                "coding_steps_deferred_to_coding_lane",
-                malformed_episode,
-                "agentic-coding-trajectory-factory",
-            ),
-            (
-                "preference_steps_deferred_to_preferences_lane",
-                malformed_preference,
-                "tool-use-preference-factory",
-            ),
-        )
         decisions = {}
 
-        for marker, source, factory in cases:
+        for marker, source, factory in _deferred_identity_cases():
             with self.subTest(marker=marker):
                 original = copy.deepcopy(source)
 
