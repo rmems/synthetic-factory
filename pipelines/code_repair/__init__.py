@@ -20,6 +20,7 @@ __all__ = (
     "hub_bundle cli "
     "record_validation evidence "
     "publication publication_export publication_receipt selection admission source_policy "
+    "card_claims "
     "validation run_validation recall_probe recall_prompts recall_score recall_stub "
     "_admission_catalog _admission_evidence"
 ).split()

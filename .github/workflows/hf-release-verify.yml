@@ -8,6 +8,9 @@ on:
     paths:
       - .github/workflows/hf-release-verify.yml
       - pipelines/verify_hf_release.py
+      - pipelines/code_repair/card_claims.py
+      - pipelines/code_repair/vocabulary.py
+      - pipelines/code_repair/_contract.py
       - tests/test_verify_hf_release.py
       - docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
   pull_request:
@@ -15,6 +18,9 @@ on:
     paths:
       - .github/workflows/hf-release-verify.yml
       - pipelines/verify_hf_release.py
+      - pipelines/code_repair/card_claims.py
+      - pipelines/code_repair/vocabulary.py
+      - pipelines/code_repair/_contract.py
       - tests/test_verify_hf_release.py
       - docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
   workflow_dispatch:
