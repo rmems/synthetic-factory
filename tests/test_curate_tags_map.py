@@ -51,7 +51,7 @@ class MapTagTests(unittest.TestCase):
         self.assertEqual(once["meta"]["tags"], [UNMAPPED_MARKER_TAG])
         self.assertEqual(manifest["tag_counts"]["unmapped_uses"], 1)
         self.assertIn(REASON_TAGS_UNMAPPED, manifest["reason_codes"])
-        self.assertEqual(container["mappings"][0]["canonical"], None)
+        self.assertIsNone(container["mappings"][0]["canonical"])
         self.assertEqual(container["mappings"][-1]["rule"], "transform")
 
         twice, second_manifest = curate_record(once, taxonomy=TAXONOMY)

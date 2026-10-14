@@ -34,11 +34,9 @@ class ProceduralRegistryTests(unittest.TestCase):
         self.assertEqual(admission.load_trusted_catalog(), baseline)
 
     def test_trusted_catalog_snapshots_isolate_mutable_source_and_metadata(self):
+        """The trusted catalog must support immutable hidden cases and load isolated snapshots."""
         from code_repair import admission
-        try:
-            first = admission.load_trusted_catalog()
-        except TypeError as exc:
-            self.fail(f"trusted catalog must support immutable hidden cases: {exc}")
+        first = admission.load_trusted_catalog()
         second = admission.load_trusted_catalog()
         first.meta["upstream"]["repository"] = "unreviewed/project"
         first.meta["split_policy"]["weights"]["train"] = 0
@@ -75,9 +73,8 @@ class ProceduralRegistryTests(unittest.TestCase):
                          ("identity_authoritative", 1)):
             def change(value, key=key, bad=bad):
                 value["factories"][-1].update({key: bad})
-            with self.subTest(key=key):
-                with self.assertRaises(ci.IdentityCurationError):
-                    self.load_changed(change)
+            with self.subTest(key=key), self.assertRaises(ci.IdentityCurationError):
+                self.load_changed(change)
 
     def test_old_schema_refuses_procedural_fields_on_hosted_row(self):
         for version in ("factory-registry-v0.1", "factory-registry-v0.2"):
@@ -85,9 +82,8 @@ class ProceduralRegistryTests(unittest.TestCase):
                 value["schema_version"] = version
                 value["factories"] = [value["factories"][0]]
                 value["factories"][0]["generation_method"] = "deterministic_execution"
-            with self.subTest(version=version):
-                with self.assertRaises(ci.IdentityCurationError):
-                    self.load_changed(change)
+            with self.subTest(version=version), self.assertRaises(ci.IdentityCurationError):
+                self.load_changed(change)
 
     def test_hosted_rows_keep_blocked_policy(self):
         rows = ci.load_registry().by_path_id.values()

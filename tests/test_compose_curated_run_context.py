@@ -36,10 +36,7 @@ class ComposeRunContextContract(unittest.TestCase):
     def test_run_coordinates_are_immutable(self):
         """Mutation must not redirect a run after source authentication."""
 
-        try:
-            from compose_curated_run_context import ComposeRunContext
-        except ModuleNotFoundError:
-            self.fail("compose_curated_run_context.ComposeRunContext is missing")
+        from compose_curated_run_context import ComposeRunContext
 
         context = ComposeRunContext(Path("source"), Path("destination"), None)
 
@@ -49,10 +46,7 @@ class ComposeRunContextContract(unittest.TestCase):
     def test_non_regular_default_calibration_fails_closed(self):
         """A canonical directory must never be recorded as no calibration."""
 
-        try:
-            from compose_curated_calibration import CalibrationContext, load_calibration
-        except ModuleNotFoundError:
-            self.fail("compose_curated_calibration boundary is missing")
+        from compose_curated_calibration import CalibrationContext, load_calibration
 
         with tempfile.TemporaryDirectory() as td:
             source = Path(td)

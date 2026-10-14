@@ -326,10 +326,7 @@ class QualityGateInputIntegrity(unittest.TestCase):
 
         with patch.dict(os.__dict__):
             os.__dict__.pop("O_NONBLOCK", None)
-            try:
-                report = self.audit()
-            except AttributeError as exc:
-                self.fail(f"regular input requires an unavailable platform flag: {exc}")
+            report = self.audit()
 
         self.assertFalse(report["blocked"])
         self.assertEqual(report["counts"]["total"], 1)

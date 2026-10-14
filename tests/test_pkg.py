@@ -246,7 +246,7 @@ class Generate(unittest.TestCase):
         self.assertEqual(classify_kind(rec), "episode")
         self.assertEqual(mill_prefix(rec), "pkg")
         self.assertEqual(rec["meta"]["factory"], FACTORY)
-        self.assertEqual(rec["reward"]["success"], True)
+        self.assertIs(rec["reward"]["success"], True)
         self.assertEqual(len(rec["steps"]), 12)
         self.assertTrue(rec["goal"])
         self.assertNotIn("thought", json.dumps(rec))
@@ -267,8 +267,8 @@ class Generate(unittest.TestCase):
         first = json.loads(batch[0])
         second = json.loads(batch[1])
         self.assertEqual(classify_kind(first), "episode")
-        self.assertEqual(first["reward"]["success"], True)
-        self.assertEqual(second["reward"]["success"], False)
+        self.assertIs(first["reward"]["success"], True)
+        self.assertIs(second["reward"]["success"], False)
         notes = (out / "NOTES-r163.md").read_text(encoding="utf-8")
         self.assertIn("demoted", notes)
         request = generate.RunRequest(163, out)
@@ -288,9 +288,12 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
-        with mock.patch.object(generate, "_fsync_destination", interrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                generate.run(generate.RunRequest(163, out))
+        request = generate.RunRequest(163, out)
+        with (
+            mock.patch.object(generate, "_fsync_destination", interrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            generate.run(request)
         self.assertFalse(out.exists())
         summary = generate.run(generate.RunRequest(163, out))
         self.assertEqual(summary["records"], 2)
