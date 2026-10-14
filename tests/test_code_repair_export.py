@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """The export: integrity refuses, ineligibility never blocks, splits hold, bytes are stable."""
 
+import atexit
 import copy
+import functools
 import hashlib
 import json
 import shutil
@@ -70,6 +72,25 @@ def run_copy(root, records=None):
     return copied, [copy.deepcopy(r) for r in loaded]
 
 
+@functools.cache
+def _sealed_smoke_replay():
+    """One real replay of the smoke run per process; tests only copy it."""
+
+    root = Path(tempfile.mkdtemp(prefix="code-repair-smoke-replay-"))
+    atexit.register(shutil.rmtree, root, True)
+    replay_dir = root / "replay"
+    replay.run(replay.ReplayRequest(smoke_run()[2], FIXTURE_CATALOG, replay_dir, 5.0))
+    return replay_dir
+
+
+def replay_copy(root):
+    """A private copy of the smoke run's real replay at ``root/replay``."""
+
+    replay_dir = Path(root) / "replay"
+    shutil.copytree(_sealed_smoke_replay(), replay_dir)
+    return replay_dir
+
+
 def _with_identity_edit(report, path, mode):
     """The replay report with one run-identity field removed or altered."""
 
@@ -127,8 +148,7 @@ class Artifacts(unittest.TestCase):
 
     def test_two_exports_of_one_run_are_byte_identical_and_a_replay_lifts_its_blocker(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         stamp_replay(run_dir, replay_dir)
         first, out_a = export_of(run_dir, self.root / "a", replay_dir)
         second, out_b = export_of(run_dir, self.root / "b", replay_dir)
@@ -238,8 +258,7 @@ class Integrity(unittest.TestCase):
 
     def test_a_failed_or_missing_replay_of_a_positive_refuses_but_ineligible_records_never_do(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         stamp_replay(run_dir, replay_dir)
         report_path = replay_dir / replay.REPLAY_FILENAME
         report = json.loads(report_path.read_text())
@@ -279,8 +298,7 @@ class Integrity(unittest.TestCase):
 
     def test_replay_identity_requires_every_run_field(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         baseline = stamp_replay(run_dir, replay_dir)
         paths = [("run_identity",)] + [
             ("run_identity", k) for k in
@@ -296,8 +314,7 @@ class Integrity(unittest.TestCase):
 
     def test_malformed_replay_reports_are_coded_refusals(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         baseline = stamp_replay(run_dir, replay_dir)
         malformed = ["{", "[]", json.dumps({**baseline, "records": [None]}),
                      json.dumps({**baseline, "records": [{"record_id": []}]}),
@@ -311,8 +328,7 @@ class Integrity(unittest.TestCase):
 
     def test_nonpassed_replay_status_keeps_the_blocker(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         baseline = stamp_replay(run_dir, replay_dir)
         for status in ("failed", "nothing_to_replay"):
             report = {**baseline, "status": status}
