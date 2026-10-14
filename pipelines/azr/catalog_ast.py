@@ -44,6 +44,8 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, bound)
         return -inner if isinstance(inner, (int, float)) else UNSET
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _string_sum(node, bound)
     return _ordered_literal(node, bound)
 
 
@@ -71,14 +73,26 @@ def _unordered_or_text(node: ast.AST, bound: Mapping[str, Any]) -> Any:
 
 
 def _string_sum(node: ast.AST, bound: Mapping[str, Any]) -> Any:
-    """``str + str`` of two literals; anything else is ``UNSET``."""
+    """Left-nested ``str + str``. A non-string operand is ``UNSET``.
 
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
-    return UNSET
+    Terms are collected down the left spine so a long chain stays off the call stack.
+    """
+
+    if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Add):
+        return UNSET
+    terms: list[ast.AST] = []
+    current: ast.AST = node
+    while isinstance(current, ast.BinOp) and isinstance(current.op, ast.Add):
+        terms.insert(0, current.right)
+        current = current.left
+    terms.insert(0, current)
+    total = literal_value(terms[0], bound)
+    for term in terms[1:]:
+        piece = literal_value(term, bound)
+        if not isinstance(total, str) or not isinstance(piece, str):
+            return UNSET
+        total = total + piece
+    return total
 
 
 def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor) -> Any:

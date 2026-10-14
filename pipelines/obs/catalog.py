@@ -245,7 +245,16 @@ def _const_mapping_or_negative(node: ast.AST) -> Any:
             pairs.append((key, value))
         return {_const_eval(key): _const_eval(value) for key, value in pairs}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
+        # Same minus-on-the-way-out result, without a frame per unary.
+        cursor: ast.AST = node
+        layers: list[ast.AST] = []
+        while isinstance(cursor, ast.UnaryOp) and isinstance(cursor.op, ast.USub):
+            layers.append(cursor)
+            cursor = cursor.operand
+        value = _const_eval(cursor)
+        for _layer in layers:
+            value = -value
+        return value
     raise _not_a_constant(node)
 
 def _not_a_constant(node: ast.AST) -> ObsRefusal:

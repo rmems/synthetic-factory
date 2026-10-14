@@ -44,6 +44,8 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, bound)
         return -inner if isinstance(inner, (int, float)) else UNSET
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _added_text(node, bound)
     return _sequence_literal(node, bound)
 
 
@@ -67,12 +69,28 @@ def _mapping_or_text(node: ast.AST, bound: Mapping[str, Any]) -> Any:
         return _mapping(node, bound)
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
     return UNSET
+
+
+def _added_text(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
+    """Left-nested ``str + str``, evaluated left to right. Otherwise ``UNSET``."""
+
+    pending: list[ast.AST] = [node]
+    operands: list[ast.AST] = []
+    while pending:
+        current = pending.pop()
+        if isinstance(current, ast.BinOp) and isinstance(current.op, ast.Add):
+            pending.append(current.right)
+            pending.append(current.left)
+            continue
+        operands.append(current)
+    acc = literal_value(operands[0], bound)
+    for operand in operands[1:]:
+        right = literal_value(operand, bound)
+        if not isinstance(acc, str) or not isinstance(right, str):
+            return UNSET
+        acc = acc + right
+    return acc
 
 
 def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor) -> Any:

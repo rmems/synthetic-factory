@@ -369,7 +369,18 @@ def _const_dict_or_negated(node: ast.AST) -> Any:
             pairs.append((key, value))
         return {_const_eval(key): _const_eval(value) for key, value in pairs}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
+        # Apply each minus on the way out, but walk the spine in a loop. A
+        # 600-deep chain is the same value, including TypeError on a non-number.
+        operand: ast.AST = node
+        flips = 0
+        while isinstance(operand, ast.UnaryOp) and isinstance(operand.op, ast.USub):
+            flips += 1
+            operand = operand.operand
+        value = _const_eval(operand)
+        while flips:
+            value = -value
+            flips -= 1
+        return value
     raise CeiRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"pair source is not a constant ({type(node).__name__})",
