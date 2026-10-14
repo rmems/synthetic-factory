@@ -74,7 +74,7 @@ def extract_catalog_namespace(source: str, *, filename: str = "<cst-mill>") -> d
     globals_ns: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in CATALOG_CONSTRUCTOR_NAMES:
-            define_constructor(node, filename, globals_ns)
+            define_constructor(node, filename, globals_ns, namespace)
             continue
         names = assignment_names(node)
         if not names or not CATALOG_ASSIGNMENT_NAMES.intersection(names):

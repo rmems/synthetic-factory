@@ -19,16 +19,23 @@ _UNSUPPORTED_COMPREHENSION = "unsupported catalog comprehension"
 _Evaluator = Callable[[ast.expr, dict[str, Any], dict[str, Any]], Any]
 
 
-def define_constructor(node: ast.FunctionDef, filename: str, globals_ns: dict[str, Any]) -> None:
+def define_constructor(
+    node: ast.FunctionDef,
+    filename: str,
+    globals_ns: dict[str, Any],
+    namespace: dict[str, Any],
+) -> None:
     """Bind ``node`` into ``globals_ns`` the way a def statement would."""
 
+    if node.decorator_list:
+        raise ValueError("unsupported catalog decorator")
     module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
     code = compile(module, filename, "exec")
-    defaults = tuple(_eval_expr(item, {}, globals_ns) for item in node.args.defaults)
+    defaults = tuple(_eval_expr(item, namespace, globals_ns) for item in node.args.defaults)
     function = types.FunctionType(
         _function_code(code, node.name), globals_ns, node.name, defaults or None
     )
-    keywords = _keyword_defaults(node, globals_ns)
+    keywords = _keyword_defaults(node, namespace, globals_ns)
     if keywords:
         function.__kwdefaults__ = keywords
     globals_ns[node.name] = function
@@ -74,13 +81,15 @@ def _is_named_code(item: object, name: str) -> bool:
     return item.co_name == name
 
 
-def _keyword_defaults(node: ast.FunctionDef, globals_ns: dict[str, Any]) -> dict[str, Any]:
+def _keyword_defaults(
+    node: ast.FunctionDef, namespace: dict[str, Any], globals_ns: dict[str, Any]
+) -> dict[str, Any]:
     bound: dict[str, Any] = {}
     pairs = zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True)
     for arg, default in pairs:
         if default is None:
             continue
-        bound[arg.arg] = _eval_expr(default, {}, globals_ns)
+        bound[arg.arg] = _eval_expr(default, namespace, globals_ns)
     return bound
 
 
@@ -111,17 +120,12 @@ def _builtin(name: str, globals_ns: dict[str, Any]) -> Any:
 
 
 def _eval_expr(node: ast.expr, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
-    evaluator = _EVALUATORS.get(type(node))
-    if evaluator is None:
-        raise ValueError(f"unsupported catalog expression: {type(node).__name__}")
-    return evaluator(node, namespace, globals_ns)
-
-
-def _eval_constant(node: ast.expr, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
-    del namespace, globals_ns
-    if not isinstance(node, ast.Constant):
-        raise ValueError("unsupported catalog expression: Constant")
-    return node.value
+    if isinstance(node, ast.Constant):
+        return node.value
+    for kind, evaluator in _EVALUATORS:
+        if isinstance(node, kind):
+            return evaluator(node, namespace, globals_ns)
+    raise ValueError(f"unsupported catalog expression: {type(node).__name__}")
 
 
 def _eval_name(node: ast.expr, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
@@ -151,16 +155,22 @@ def _eval_dict(
         raise ValueError("unsupported catalog expression: Dict")
     evaluated: dict[Any, Any] = {}
     for key, value in zip(node.keys, node.values, strict=True):
-        if key is None:
-            raise ValueError("unsupported catalog dict unpack")
-        evaluated[_eval_expr(key, namespace, globals_ns)] = _eval_expr(value, namespace, globals_ns)
+        evaluated[_eval_expr(_dict_key(key), namespace, globals_ns)] = _eval_expr(
+            value, namespace, globals_ns
+        )
     return evaluated
+
+
+def _dict_key(key: ast.expr | None) -> ast.expr:
+    if key is None:
+        raise ValueError("unsupported catalog dict unpack")
+    return key
 
 
 def _eval_add(node: ast.expr, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
     if not isinstance(node, ast.BinOp):
         raise ValueError("unsupported catalog expression: BinOp")
-    if type(node.op) is not ast.Add:
+    if not isinstance(node.op, ast.Add):
         raise ValueError(f"unsupported catalog operator: {type(node.op).__name__}")
     left = _eval_expr(node.left, namespace, globals_ns)
     right = _eval_expr(node.right, namespace, globals_ns)
@@ -232,13 +242,12 @@ def _keywords(
     return kwargs
 
 
-_EVALUATORS: dict[type[ast.expr], _Evaluator] = {
-    ast.Constant: _eval_constant,
-    ast.Name: _eval_name,
-    ast.List: _eval_list,
-    ast.Tuple: _eval_tuple,
-    ast.Dict: _eval_dict,
-    ast.BinOp: _eval_add,
-    ast.ListComp: _eval_listcomp,
-    ast.Call: _eval_call,
-}
+_EVALUATORS: tuple[tuple[type[ast.expr], _Evaluator], ...] = (
+    (ast.Name, _eval_name),
+    (ast.List, _eval_list),
+    (ast.Tuple, _eval_tuple),
+    (ast.Dict, _eval_dict),
+    (ast.BinOp, _eval_add),
+    (ast.ListComp, _eval_listcomp),
+    (ast.Call, _eval_call),
+)

@@ -101,6 +101,27 @@ class MillRecordRefusalTests(unittest.TestCase):
             [{"slug_ok": "x", "slug_bad": "x", "ok": {"seed": 3}, "bad": {}}],
         )
 
+    def test_default_reads_an_earlier_catalog_assignment(self):
+        source = (
+            "CATALOG_FIRST = 4\n"
+            "def plant(slug, seed=CATALOG_FIRST):\n"
+            "    return {'slug_ok': slug, 'slug_bad': slug, 'ok': {'seed': seed}, 'bad': {}}\n"
+            "PLANTS = [plant('x')]\n"
+        )
+        record = extract_mill_catalog(source, path="experiments/cst-mill-r9999.py")
+        self.assertEqual(record["plants"][0]["ok"]["seed"], 4)
+
+    def test_a_decorator_on_a_constructor_is_refused(self):
+        source = (
+            "@wrap\n"
+            "def plant(slug):\n"
+            "    return {'slug_ok': slug, 'slug_bad': slug, 'ok': {}, 'bad': {}}\n"
+            "PLANTS = [plant('x')]\n"
+        )
+        with self.assertRaises(ValueError) as caught:
+            extract_mill_catalog(source, path="experiments/cst-mill-r9999.py")
+        self.assertEqual(str(caught.exception), "unsupported catalog decorator")
+
 
 if __name__ == "__main__":
     unittest.main()
