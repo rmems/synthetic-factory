@@ -260,8 +260,12 @@ def load_catalog(path: Path | None = None) -> Catalog:
     ))
     extract = _as_mapping(meta.get("extract"), "extract")
     raw_sources = meta.get("sources")
-    if not isinstance(raw_sources, list) or not raw_sources:
-        refuse(FINDING_CATALOG_EMPTY, "catalog has no source pins")
+    refuse_when(
+        not isinstance(raw_sources, list) or not raw_sources,
+        FINDING_CATALOG_EMPTY,
+        "catalog has no source pins",
+    )
+    raw_sources = cast(list[Any], raw_sources)
     plants_filename = _as_str(meta.get("plants_filename"), "plants_filename")
     refuse_when(
         plants_filename != PLANTS_FILENAME,

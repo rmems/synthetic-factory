@@ -10,8 +10,10 @@ bare-``ContractError`` paths, and both import forms of every thin ``cli``.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
+import json
 import multiprocessing
 import shutil
 import sys
@@ -29,7 +31,8 @@ else:
     import catalog_cli_import_probe as probe
     from pipeline_import_test_support import clean_package_imports, direct_pipeline_path
 
-from pipelines.catalog_cli import subcommands
+from pipelines.catalog_cli import source_const, subcommands
+from pipelines.catalog_cli.entry import _import_sibling
 
 GENERATE_PACKAGES = ("flk", "gql", "msd", "rag", "saf")
 EXTRACT_PACKAGES = ("mac", "sbox")
@@ -369,6 +372,84 @@ class ImportForms(unittest.TestCase):
                 code, out = self._main_exit(clis[name], [name, "catalog-check", "--json"])
                 self.assertEqual(code, 0)
                 self.assertIn('"status": "ok"', out)
+
+
+class SourceConstTests(unittest.TestCase):
+    def test_const_dict_rejects_unpacking_before_evaluating(self):
+        node = ast.parse("{**{}}").body[0].value
+        self.assertIsInstance(node, ast.Dict)
+        seen: list[ast.AST] = []
+
+        def evaluate(item: ast.AST) -> int:
+            seen.append(item)
+            return 1
+
+        with self.assertRaises(StubRefusal) as caught:
+            source_const.const_dict(
+                node,
+                evaluate,
+                StubRefusal,
+                "code",
+                "plant source uses dict unpacking",
+            )
+        self.assertEqual(seen, [])
+        self.assertIn("dict unpacking", str(caught.exception))
+
+    def test_const_dict_evaluates_literal_keys(self):
+        node = ast.parse("{'a': 1}").body[0].value
+        result = source_const.const_dict(
+            node, ast.literal_eval, StubRefusal, "code", "unused"
+        )
+        self.assertEqual(result, {"a": 1})
+
+    def test_registry_ids_skip_non_strings_and_refuse_a_bad_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = root / "config"
+            registry.mkdir()
+            (registry / "FACTORY-REGISTRY.json").write_text(
+                json.dumps(
+                    {
+                        "factories": [
+                            {"path_id": "flk"},
+                            "not-a-row",
+                            {"path_id": 3},
+                            {"path_id": "gql"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def repo_root() -> Path:
+                return root
+
+            ids = source_const.registry_factory_ids(
+                repo_root, json.loads, StubRefusal, "finding"
+            )
+            self.assertEqual(ids, {"flk", "gql"})
+
+            (registry / "FACTORY-REGISTRY.json").write_text(
+                json.dumps({"factories": {}}), encoding="utf-8"
+            )
+            with self.assertRaises(StubRefusal) as caught:
+                source_const.registry_factory_ids(
+                    repo_root, json.loads, StubRefusal, "finding"
+                )
+            self.assertIn("not a list", str(caught.exception))
+
+            (registry / "FACTORY-REGISTRY.json").unlink()
+            with self.assertRaises(StubRefusal) as caught:
+                source_const.registry_factory_ids(
+                    repo_root, json.loads, StubRefusal, "finding"
+                )
+            self.assertIn("unreadable", str(caught.exception))
+
+    def test_unknown_mill_module_is_refused(self):
+        with self.assertRaises(ImportError):
+            _import_sibling({"__package__": "pipelines.nope", "__file__": __file__}, "catalog")
+        with self.assertRaises(ImportError):
+            _import_sibling({"__package__": "", "__file__": __file__}, "catalog")
 
 
 if __name__ == "__main__":

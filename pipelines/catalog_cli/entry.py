@@ -48,14 +48,34 @@ def _package_key(module_globals: dict[str, Any]) -> str:
     return Path(module_globals["__file__"]).parent.name
 
 
+# ``(pipelines-form, flat-form)``. ``import_module`` receives one of these literals.
+_MODULES = {
+    ("flk", "catalog"): ("pipelines.flk.catalog", "flk.catalog"),
+    ("flk", "generate"): ("pipelines.flk.generate", "flk.generate"),
+    ("gql", "catalog"): ("pipelines.gql.catalog", "gql.catalog"),
+    ("gql", "generate"): ("pipelines.gql.generate", "gql.generate"),
+    ("msd", "catalog"): ("pipelines.msd.catalog", "msd.catalog"),
+    ("msd", "generate"): ("pipelines.msd.generate", "msd.generate"),
+    ("rag", "catalog"): ("pipelines.rag.catalog", "rag.catalog"),
+    ("rag", "generate"): ("pipelines.rag.generate", "rag.generate"),
+    ("saf", "catalog"): ("pipelines.saf.catalog", "saf.catalog"),
+    ("saf", "generate"): ("pipelines.saf.generate", "saf.generate"),
+    ("mac", "generate"): ("pipelines.mac.generate", "mac.generate"),
+    ("mac", "_contract"): ("pipelines.mac._contract", "mac._contract"),
+    ("sbox", "generate"): ("pipelines.sbox.generate", "sbox.generate"),
+    ("sbox", "_contract"): ("pipelines.sbox._contract", "sbox._contract"),
+}
+
+
 def _import_sibling(module_globals: dict[str, Any], name: str) -> ModuleType:
     """Import ``name`` the same way the CLI module itself was imported."""
 
     package = module_globals.get("__package__") or ""
-    if package.startswith("pipelines."):
-        return importlib.import_module(f".{name}", package)
-    key = package or _package_key(module_globals)
-    return importlib.import_module(f"{key}.{name}")
+    pair = _MODULES.get((_package_key(module_globals), name))
+    if pair is None:
+        raise ImportError(f"unknown mill module {name}")
+    qualified = pair[0] if package.startswith("pipelines.") else pair[1]
+    return importlib.import_module(qualified)
 
 
 def install_generate(module_globals: dict[str, Any]) -> None:

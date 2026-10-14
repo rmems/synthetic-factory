@@ -45,6 +45,11 @@ from ._contract import (
     repo_root,
 )
 
+if (__package__ or "").startswith("pipelines."):
+    from ..catalog_cli.source_const import const_dict, registry_factory_ids
+else:
+    from catalog_cli.source_const import const_dict, registry_factory_ids
+
 PLANT_KEYS = (
     "slug",
     "repo",
@@ -200,12 +205,13 @@ def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, ast.Set):
         return {_const_eval(item) for item in node.elts}
     if isinstance(node, ast.Dict):
-        keys: list[ast.expr] = []
-        for key in node.keys:
-            if key is None:
-                raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-            keys.append(key)
-        return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
+        return const_dict(
+            node,
+            _const_eval,
+            MsdRefusal,
+            FINDING_SOURCE_NOT_PARSEABLE,
+            "plant source uses dict unpacking",
+        )
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     raise MsdRefusal(
@@ -233,9 +239,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -502,24 +511,9 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
 
 
 def _registry_factory_ids() -> set[str]:
-    path = repo_root() / "config" / "FACTORY-REGISTRY.json"
-    try:
-        payload = load_strict_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise MsdRefusal(
-            FINDING_FACTORY_NOT_REGISTERED, f"factory registry is unreadable: {exc}"
-        ) from exc
-    factories = payload.get("factories") if isinstance(payload, dict) else None
-    if not isinstance(factories, list):
-        raise MsdRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    ids: set[str] = set()
-    for row in factories:
-        if not isinstance(row, dict):
-            continue
-        path_id = row.get("path_id")
-        if isinstance(path_id, str):
-            ids.add(path_id)
-    return ids
+    return registry_factory_ids(
+        repo_root, load_strict_json, MsdRefusal, FINDING_FACTORY_NOT_REGISTERED
+    )
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
