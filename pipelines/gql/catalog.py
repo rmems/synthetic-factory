@@ -12,42 +12,45 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import _contract
 from ._contract import (
-    CATALOG_FILENAME,
-    CATALOG_FORMAT,
-    FACTORY,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
-    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_FACTORY_NOT_REGISTERED,
     FINDING_MILL_NOT_FOUND,
-    FINDING_PLANT_DUPLICATE_ID,
     FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
-    GqlRefusal,
-    MILL_PREFIX,
-    PLANTS_FILENAME,
-    QUOTA_PER_ROUND,
-    RECORD_KIND,
     SHAPE_PAIR,
     SHAPE_SURFACE,
+    GqlRefusal,
     bind_import_twin,
     load_strict_json,
     repo_root,
 )
 
+CATALOG_FILENAME = _contract.CATALOG_FILENAME
+CATALOG_FORMAT = _contract.CATALOG_FORMAT
+FACTORY = _contract.FACTORY
+FINDING_CATALOG_SHA256_MISMATCH = _contract.FINDING_CATALOG_SHA256_MISMATCH
+FINDING_PLANT_DUPLICATE_ID = _contract.FINDING_PLANT_DUPLICATE_ID
+MILL_PREFIX = _contract.MILL_PREFIX
+PLANTS_FILENAME = _contract.PLANTS_FILENAME
+QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
+RECORD_KIND = _contract.RECORD_KIND
+
 if (__package__ or "").startswith("pipelines."):
-    from ..catalog_cli.source_const import const_dict, registry_factory_ids
+    from ..catalog_cli.source_const import const_dict, load_pinned_catalog, registry_factory_ids
 else:
-    from catalog_cli.source_const import const_dict, registry_factory_ids
+    from catalog_cli.source_const import const_dict, load_pinned_catalog, registry_factory_ids
 
 OK_KEYS = (
     "slug",
@@ -124,7 +127,7 @@ __all__ = [
 
 
 @dataclass(frozen=True)
-class Plant:
+class CatalogPlant:
     """One leftover-execution plant: pair (ok/bad sides) or surface tuple."""
 
     plant_id: str
@@ -136,6 +139,9 @@ class Plant:
     plant: str
     coverage: int
     payload: Mapping[str, Any]
+
+
+Plant = CatalogPlant
 
 
 @dataclass(frozen=True)
@@ -313,6 +319,59 @@ def _surface_from_raw(
     }
 
 
+def _selected_plants(found: Mapping[str, ast.AST], source: str) -> tuple[Any, str]:
+    """EXTRA wins, then PAIRS, PLANTS, and CATALOG. The message names ``source``."""
+
+    if "EXTRA" in found:
+        return _const_eval(found["EXTRA"]), SHAPE_PAIR
+    if "PAIRS" in found:
+        return _const_eval(found["PAIRS"]), SHAPE_PAIR
+    if "PLANTS" in found:
+        return _const_eval(found["PLANTS"]), SHAPE_PAIR
+    if "CATALOG" in found:
+        return _const_eval(found["CATALOG"]), SHAPE_SURFACE
+    raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no plant literal")
+
+
+def _refuse_banned_slugs(banned_node: ast.AST, rows: list[dict[str, Any]], source: str) -> None:
+    banned = _const_eval(banned_node)
+    if not isinstance(banned, (list, tuple)):
+        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} BANNED is not a list")
+    tokens = {str(token).lower() for token in banned}
+    for row in rows:
+        _refuse_banned_row(row, tokens, source)
+
+
+def _refuse_banned_row(row: Mapping[str, Any], tokens: set[str], source: str) -> None:
+    for side_name in ("ok", "bad"):
+        slug = str(row[side_name]["slug"]).lower()
+        for token in tokens:
+            if token in slug:
+                raise GqlRefusal(
+                    FINDING_PLANT_FIELD_INVALID,
+                    f"{source} {side_name}.slug carries banned token {token}",
+                )
+
+
+def _resolved_base(inferred: Any, base_round: int | None, mill_id: str, source: str) -> int:
+    base = inferred if base_round is None else base_round
+    if base is None:
+        base = int(mill_id[len("gql_r") :])
+    return _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
+
+
+def _row_from_raw(
+    raw: Any,
+    shape: str,
+    bound: tuple[str, str, int],
+    index: int,
+) -> dict[str, Any]:
+    mill_id, source, base = bound
+    if shape == SHAPE_PAIR:
+        return _pair_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
+    return _surface_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
+
+
 def plants_from_source(
     text: str,
     *,
@@ -343,52 +402,16 @@ def plants_from_source(
         elif name == "BANNED":
             banned_node = value
     # EXTRA before a computed PAIRS binding; never follow unused-pair loops.
-    if "EXTRA" in found:
-        raw_plants = _const_eval(found["EXTRA"])
-        shape = SHAPE_PAIR
-    elif "PAIRS" in found:
-        raw_plants = _const_eval(found["PAIRS"])
-        shape = SHAPE_PAIR
-    elif "PLANTS" in found:
-        raw_plants = _const_eval(found["PLANTS"])
-        shape = SHAPE_PAIR
-    elif "CATALOG" in found:
-        raw_plants = _const_eval(found["CATALOG"])
-        shape = SHAPE_SURFACE
-    else:
-        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no plant literal")
+    raw_plants, shape = _selected_plants(found, source)
     if not isinstance(raw_plants, list) or not raw_plants:
         raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} plant literal is empty")
     if not MILL_ID_RE.fullmatch(mill_id):
         raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not gql_rNNN")
-    base = inferred_base if base_round is None else base_round
-    if base is None:
-        base = int(mill_id[len("gql_r") :])
-    base = _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
-    rows = []
-    for index, raw in enumerate(raw_plants):
-        if shape == SHAPE_PAIR:
-            rows.append(
-                _pair_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
-            )
-        else:
-            rows.append(
-                _surface_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
-            )
+    base = _resolved_base(inferred_base, base_round, mill_id, source)
+    bound = (mill_id, source, base)
+    rows = [_row_from_raw(raw, shape, bound, index) for index, raw in enumerate(raw_plants)]
     if banned_node is not None:
-        banned = _const_eval(banned_node)
-        if not isinstance(banned, (list, tuple)):
-            raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} BANNED is not a list")
-        tokens = {str(token).lower() for token in banned}
-        for row in rows:
-            for side_name in ("ok", "bad"):
-                slug = str(row[side_name]["slug"]).lower()
-                for token in tokens:
-                    if token in slug:
-                        raise GqlRefusal(
-                            FINDING_PLANT_FIELD_INVALID,
-                            f"{source} {side_name}.slug carries banned token {token}",
-                        )
+        _refuse_banned_slugs(banned_node, rows, source)
     return tuple(rows)
 
 
@@ -516,108 +539,8 @@ def _registry_factory_ids() -> set[str]:
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
-    catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta_path = catalog_dir / CATALOG_FILENAME
-    plants_path = catalog_dir / PLANTS_FILENAME
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise GqlRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        meta = load_strict_json(meta_text)
-    except ValueError as exc:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    fmt = _field(meta, "format", str, CATALOG_FILENAME)
-    if fmt != CATALOG_FORMAT:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
-        )
-    factory = _field(meta, "factory", str, CATALOG_FILENAME)
-    if factory != FACTORY:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
-        )
-    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
-    if prefix != MILL_PREFIX:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
-        )
-    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
-    if kind != RECORD_KIND:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
-        )
-    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
-    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
-        )
-    plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
-    plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
-    mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
-    mills = tuple(
-        _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
-    )
-    try:
-        plants_bytes = plants_path.read_bytes()
-    except OSError as exc:
-        raise GqlRefusal(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is missing") from exc
-    digest = sha256_bytes(plants_bytes)
-    if digest != plants_sha256:
-        raise GqlRefusal(
-            FINDING_CATALOG_SHA256_MISMATCH,
-            f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
-        )
-    if factory not in _registry_factory_ids():
-        raise GqlRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
-    rows = _read_jsonl(plants_path)
-    if len(rows) != plant_count:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.plant_count is {plant_count}, file has {len(rows)}",
-        )
-    plants = tuple(
-        _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
-    )
-    seen: set[str] = set()
-    for plant in plants:
-        if plant.plant_id in seen:
-            raise GqlRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
-        seen.add(plant.plant_id)
-    by_mill: dict[str, int] = {}
-    for plant in plants:
-        by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    mill_ids = {mill.mill_id for mill in mills}
-    if mill_ids != set(by_mill):
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-        )
-    for mill in mills:
-        if by_mill[mill.mill_id] != mill.plant_count:
-            raise GqlRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
-            )
-    return Catalog(
-        catalog_id=catalog_id,
-        directory=catalog_dir,
-        factory=factory,
-        plants_sha256=digest,
-        plants=plants,
-        mills=mills,
-        meta=meta,
-    )
+    return load_pinned_catalog(directory, sys.modules[__name__], _contract, GqlRefusal)
+
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
