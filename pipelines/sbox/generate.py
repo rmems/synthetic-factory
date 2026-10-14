@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     FINDING_AST_NOT_A_PLANT,
@@ -69,14 +69,19 @@ __all__ = [
 def _const_eval(node: ast.AST) -> Any:
     """Literal values, containers, and keyword-only ``dict(...)``. Never exec."""
 
+    literal: Any = None
+    matched = False
     if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
+        literal = node.value
+        matched = True
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        literal = -_const_eval(node.operand)
+        matched = True
+    if matched:
+        return literal
+    if isinstance(node, (ast.List, ast.Tuple)):
+        values = [_const_eval(item) for item in node.elts]
+        return values if isinstance(node, ast.List) else tuple(values)
     if isinstance(node, ast.Dict):
         refuse_when(
             any(key is None for key in node.keys),
@@ -84,7 +89,7 @@ def _const_eval(node: ast.AST) -> Any:
             "plant source uses dict unpacking",
         )
         return {
-            _const_eval(key): _const_eval(value)
+            _const_eval(cast(ast.expr, key)): _const_eval(value)
             for key, value in zip(node.keys, node.values, strict=True)
         }
     if isinstance(node, ast.JoinedStr):
@@ -148,7 +153,7 @@ def _require_str(values: Mapping[str, Any], field: str, where: str) -> str:
         FINDING_FIELD_INVALID,
         f"{where}.{field} must be a non-empty string, got {shown(value)}",
     )
-    return value
+    return cast(str, value)
 
 
 def _require_int(values: Mapping[str, Any], field: str, where: str) -> int:
@@ -163,7 +168,7 @@ def _require_int(values: Mapping[str, Any], field: str, where: str) -> int:
         FINDING_FIELD_INVALID,
         f"{where}.{field} must be an int, got {shown(value)}",
     )
-    return value
+    return cast(int, value)
 
 
 def _runtime_identity(values: Mapping[str, Any], where: str) -> dict[str, Any]:

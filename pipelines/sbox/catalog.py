@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -343,7 +343,7 @@ def load_catalog(path: Path | None = None) -> Catalog:
     refuse_when(not plants, FINDING_CATALOG_EMPTY, "catalog has no plants")
     sources = tuple(
         _source_from_mapping(_as_mapping(row, f"sources[{index}]"), f"sources[{index}]")
-        for index, row in enumerate(raw_sources)
+        for index, row in enumerate(cast(list[Any], raw_sources))
     )
     return Catalog(
         catalog_id=CATALOG_ID,
