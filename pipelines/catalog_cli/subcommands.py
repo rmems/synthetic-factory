@@ -122,11 +122,11 @@ class GenerateCommands:
 
     @staticmethod
     def _refused(args: argparse.Namespace, refusal: Exception) -> int:
-        """A refusal without ``code`` reports ``null``, as the package CLIs did."""
+        """The generate-shape refusal classes always carry ``code``."""
 
         fields = {
             "status": "refused",
-            "code": getattr(refusal, "code", None),
+            "code": refusal.code,
             "message": str(refusal),
         }
         return _report(args, fields, str(refusal), _exact_line)

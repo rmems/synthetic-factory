@@ -41,6 +41,10 @@ class StubRefusal(Exception):
         self.code = code
 
 
+class CodeLessRefusal(Exception):
+    """A generate-shape refusal that never sets ``code``."""
+
+
 class StubContractError(ValueError):
     """Stands in for ``envelope.ContractError``: a refusal that may carry no code."""
 
@@ -174,6 +178,18 @@ class GenerateShape(unittest.TestCase):
         self.failure = RuntimeError("not a refusal")
         with self.assertRaisesRegex(RuntimeError, "not a refusal"):
             _invoke(self.commands, ["generate", "--out", "/stub/out", "--all"])
+
+    def test_a_refusal_without_code_raises(self):
+        commands = subcommands.GenerateCommands(
+            prog="stub.cli",
+            description="Stub mill commands.",
+            catalog=self.commands.catalog,
+            generate=self.commands.generate,
+            refusal=CodeLessRefusal,
+        )
+        self.failure = CodeLessRefusal("no code")
+        with self.assertRaises(AttributeError):
+            _invoke(commands, ["generate", "--out", "/stub/out", "--all", "--json"])
 
     def test_help_names_the_package_unit(self):
         default_help = self._help(self.commands, ["generate", "--help"])
