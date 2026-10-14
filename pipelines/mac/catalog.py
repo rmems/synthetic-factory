@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -260,8 +260,8 @@ def load_catalog(path: Path | None = None) -> Catalog:
     ))
     extract = _as_mapping(meta.get("extract"), "extract")
     raw_sources = meta.get("sources")
-    refuse_when(not isinstance(raw_sources, list) or not raw_sources,
-                FINDING_CATALOG_EMPTY, "catalog has no source pins")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        refuse(FINDING_CATALOG_EMPTY, "catalog has no source pins")
     plants_filename = _as_str(meta.get("plants_filename"), "plants_filename")
     refuse_when(
         plants_filename != PLANTS_FILENAME,
@@ -341,7 +341,7 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
         "extract.deferred_rows must be a non-negative int",
     )
     refuse_when(
-        committed_rows + deferred_rows != full_rows,
+        cast(int, committed_rows) + cast(int, deferred_rows) != full_rows,
         FINDING_CATALOG_FIELD_INVALID,
         "extract committed + deferred rows must equal full_row_count",
     )

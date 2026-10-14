@@ -170,9 +170,12 @@ def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+        keys: list[ast.expr] = []
+        for key in node.keys:
+            if key is None:
+                raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+            keys.append(key)
+        return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     raise RagRefusal(
@@ -405,11 +408,14 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise RagRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    ids: set[str] = set()
+    for row in factories:
+        if not isinstance(row, dict):
+            continue
+        path_id = row.get("path_id")
+        if isinstance(path_id, str):
+            ids.add(path_id)
+    return ids
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

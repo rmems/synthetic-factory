@@ -18,7 +18,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -200,9 +200,12 @@ def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, ast.Set):
         return {_const_eval(item) for item in node.elts}
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+        keys: list[ast.expr] = []
+        for key in node.keys:
+            if key is None:
+                raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+            keys.append(key)
+        return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     raise MsdRefusal(
@@ -222,7 +225,7 @@ def _call_kwargs(node: ast.AST, where: str) -> dict[str, Any]:
         raise MsdRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not a constant P()/dict() call"
         )
-    return {kw.arg: _const_eval(kw.value) for kw in node.keywords}
+    return {cast(str, kw.arg): _const_eval(kw.value) for kw in node.keywords}
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -509,11 +512,14 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise MsdRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    ids: set[str] = set()
+    for row in factories:
+        if not isinstance(row, dict):
+            continue
+        path_id = row.get("path_id")
+        if isinstance(path_id, str):
+            ids.add(path_id)
+    return ids
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

@@ -182,9 +182,12 @@ def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+        keys: list[ast.expr] = []
+        for key in node.keys:
+            if key is None:
+                raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+            keys.append(key)
+        return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values)}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
@@ -417,6 +420,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     plant = _require_text(row.get("plant"), f"{where}.plant", FINDING_PLANT_FIELD_MISSING)
     coverage = _require_int(row.get("coverage"), f"{where}.coverage", FINDING_PLANT_FIELD_INVALID, 1)
     source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
+    payload: dict[str, Any]
     if shape == SHAPE_PAIR:
         payload = {
             "bad": _side_dict(row.get("bad"), BAD_KEYS, f"{where}.bad"),
@@ -501,11 +505,14 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise GqlRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    ids: set[str] = set()
+    for row in factories:
+        if not isinstance(row, dict):
+            continue
+        path_id = row.get("path_id")
+        if isinstance(path_id, str):
+            ids.add(path_id)
+    return ids
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
