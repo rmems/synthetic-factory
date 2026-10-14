@@ -208,6 +208,7 @@ class ScanState:
     hashes: Counter = field(default_factory=Counter)
     first_seen: dict = field(default_factory=dict)
     directory_identities: dict = field(default_factory=dict)
+    descriptor_pinned: bool = True
     provenance: Counter = field(default_factory=Counter)
     reward_keys: Counter = field(default_factory=Counter)
     reward_shapes: Counter = field(default_factory=Counter)
@@ -230,6 +231,32 @@ def _record_unreadable(state, rel, exc):
         )
 
 
+def _descriptor_traversal_supported():
+    """Whether discovery and reads can stay bound to directory descriptors.
+
+    These APIs are not universally available:
+    https://docs.python.org/3.14/library/os.html#os.supports_dir_fd
+    """
+    return os.scandir in os.supports_fd and {os.open, os.stat} <= os.supports_dir_fd
+
+
+# Probed once: capability belongs to the platform, so wrapping an os function
+# later (as tests do to inject failures) must not silently switch the mode.
+_DESCRIPTOR_TRAVERSAL = _descriptor_traversal_supported()
+PATH_TRAVERSAL_WARNING = (
+    "descriptor-relative traversal is unavailable on this platform — inputs "
+    "were discovered and read by path after directory identity checks, which "
+    "cannot exclude a concurrent directory replacement"
+)
+
+
+def _directory_identity(metadata):
+    """Return a directory's (device, inode) pair; anything else has none."""
+    if stat.S_ISDIR(metadata.st_mode):
+        return metadata.st_dev, metadata.st_ino
+    return None
+
+
 def _open_nonblocking(path, flags, *, dir_fd=None):
     # POSIX FIFOs need nonblocking open; platforms without the flag still
     # support ordinary files and validate the opened descriptor below.
@@ -237,7 +264,9 @@ def _open_nonblocking(path, flags, *, dir_fd=None):
 
 
 def _open_regular_file(name, directory_descriptor, path):
-    descriptor = _open_nonblocking(name, os.O_RDONLY, dir_fd=directory_descriptor)
+    # O_BINARY keeps a Windows descriptor from translating line endings.
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    descriptor = _open_nonblocking(name, flags, dir_fd=directory_descriptor)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise OSError(f"JSONL input is not a regular file: {path}")
@@ -247,14 +276,20 @@ def _open_regular_file(name, directory_descriptor, path):
     return descriptor
 
 
-def _open_directory_chain(path, run_dir, directory_identities):
-    descriptor = _open_directory(run_dir, directory_identities[run_dir])
+def _discovered_parents(path, run_dir):
+    """Yield each discovered directory between the run root and ``path``."""
     current = run_dir
+    for name in path.relative_to(run_dir).parts[:-1]:
+        current /= name
+        yield current
+
+
+def _open_directory_chain(path, run_dir, directory_identities):
+    descriptor = _open_root(run_dir, directory_identities[run_dir])
     try:
-        for name in path.relative_to(run_dir).parts[:-1]:
-            current /= name
+        for current in _discovered_parents(path, run_dir):
             child = _open_directory(
-                name,
+                current.name,
                 directory_identities[current],
                 dir_fd=descriptor,
                 label=current,
@@ -267,21 +302,36 @@ def _open_directory_chain(path, run_dir, directory_identities):
     return descriptor
 
 
+def _read_file(path, directory_descriptor):
+    name = path if directory_descriptor is None else path.name
+    descriptor = _open_regular_file(name, directory_descriptor, path)
+    with os.fdopen(descriptor, "rb") as handle:
+        return handle.read()
+
+
 def _read_regular_bytes(path, run_dir, directory_identities):
     # Reopen every discovered directory through pinned descriptors so a
     # post-enumeration replacement cannot redirect the later file read.
     directory_descriptor = _open_directory_chain(path, run_dir, directory_identities)
     try:
-        descriptor = _open_regular_file(path.name, directory_descriptor, path)
-        with os.fdopen(descriptor, "rb") as handle:
-            return handle.read()
+        return _read_file(path, directory_descriptor)
     finally:
         os.close(directory_descriptor)
 
 
+def _read_by_path(path, run_dir, directory_identities):
+    # Without descriptor-relative APIs each check holds only when it runs; the
+    # report carries PATH_TRAVERSAL_WARNING instead of claiming race resistance.
+    _verify_by_path(run_dir, directory_identities[run_dir], follow=True)
+    for current in _discovered_parents(path, run_dir):
+        _verify_by_path(current, directory_identities[current], follow=False)
+    return _read_file(path, None)
+
+
 def _read_jsonl(path, rel, state, run_dir):
+    read = _read_regular_bytes if state.descriptor_pinned else _read_by_path
     try:
-        payload = _read_regular_bytes(path, run_dir, state.directory_identities)
+        payload = read(path, run_dir, state.directory_identities)
         return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
@@ -379,66 +429,107 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             )
 
 
-def _open_directory(directory, expected_identity, *, dir_fd=None, label=None):
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    descriptor = os.open(directory, flags, dir_fd=dir_fd)
+def _directory_flags():
+    return os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+
+
+def _pinned_directory(descriptor, expected_identity, label):
     try:
-        metadata = os.fstat(descriptor)
-        if (metadata.st_dev, metadata.st_ino) != expected_identity:
-            raise OSError(f"directory changed after discovery: {label or directory}")
+        if _directory_identity(os.fstat(descriptor)) != expected_identity:
+            raise OSError(f"directory changed after discovery: {label}")
     except BaseException:
         os.close(descriptor)
         raise
     return descriptor
 
 
+def _open_directory(directory, expected_identity, *, dir_fd=None, label=None):
+    flags = _directory_flags() | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(directory, flags, dir_fd=dir_fd)
+    return _pinned_directory(descriptor, expected_identity, label or directory)
+
+
+def _open_root(run_dir, expected_identity):
+    # The operator-named root may itself be an alias. Follow it, then hold the
+    # identity recorded at discovery so a retargeted alias blocks the read.
+    descriptor = os.open(run_dir, _directory_flags())
+    return _pinned_directory(descriptor, expected_identity, run_dir)
+
+
+def _traversal_stat(target, *, dir_fd=None, follow_symlinks):
+    try:
+        return os.stat(target, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+    except NotImplementedError as exc:
+        # No lstat/fstatat: a link cannot be told apart, so the input is unreadable.
+        raise OSError(f"cannot stat without following symlinks: {exc}") from exc
+
+
+def _verify_by_path(directory, expected_identity, *, follow):
+    # A type check as well: a replacement can reuse the freed inode number.
+    metadata = _traversal_stat(directory, follow_symlinks=follow)
+    if _directory_identity(metadata) != expected_identity:
+        raise OSError(f"directory changed after discovery: {directory}")
+
+
+def _sorted_names(directory):
+    with os.scandir(directory) as entries:
+        return sorted(entry.name for entry in entries)
+
+
 def _directory_entry(directory, name, descriptor):
     path = directory / name
+    target = path if descriptor is None else name
     try:
-        child = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+        child = _traversal_stat(target, dir_fd=descriptor, follow_symlinks=False)
     except OSError as exc:
         return path, None, exc
-    identity = (child.st_dev, child.st_ino) if stat.S_ISDIR(child.st_mode) else None
-    return path, identity, None
+    return path, _directory_identity(child), None
+
+
+def _list_pinned(directory, expected_identity, run_dir):
+    if directory == run_dir:
+        descriptor = _open_root(run_dir, expected_identity)
+    else:
+        descriptor = _open_directory(directory, expected_identity)
+    try:
+        return [
+            _directory_entry(directory, name, descriptor)
+            for name in _sorted_names(descriptor)
+        ]
+    finally:
+        os.close(descriptor)
+
+
+def _list_by_path(directory, expected_identity, run_dir):
+    _verify_by_path(directory, expected_identity, follow=directory == run_dir)
+    return [_directory_entry(directory, name, None) for name in _sorted_names(directory)]
 
 
 def _directory_members(directory, expected_identity, run_dir, state):
+    list_directory = _list_pinned if state.descriptor_pinned else _list_by_path
     try:
-        descriptor = _open_directory(directory, expected_identity)
+        members = list_directory(directory, expected_identity, run_dir)
     except OSError as exc:
         _record_unreadable(state, directory.relative_to(run_dir), exc)
         return
-    try:
-        with os.scandir(descriptor) as entries:
-            names = sorted(entry.name for entry in entries)
-        for name in names:
-            path, identity, error = _directory_entry(directory, name, descriptor)
-            if error is not None:
-                _record_unreadable(state, path.relative_to(run_dir), error)
-                continue
-            yield path, identity
-    except OSError as exc:
-        _record_unreadable(state, directory.relative_to(run_dir), exc)
-    finally:
-        os.close(descriptor)
+    for path, identity, error in members:
+        if error is not None:
+            _record_unreadable(state, path.relative_to(run_dir), error)
+            continue
+        yield path, identity
 
 
 def _jsonl_paths(run_dir, state):
     """Discover inputs without suppressing listing or metadata failures."""
     try:
-        metadata = run_dir.stat(follow_symlinks=False)
+        metadata = run_dir.stat()
     except OSError as exc:
         _record_unreadable(state, Path("."), exc)
         return []
-    if not stat.S_ISDIR(metadata.st_mode):
-        _record_unreadable(state, Path("."), OSError("run directory is a symlink"))
+    root_identity = _directory_identity(metadata)
+    if root_identity is None:
+        _record_unreadable(state, Path("."), OSError("run directory is not a directory"))
         return []
-    root_identity = (metadata.st_dev, metadata.st_ino)
     pending = [(run_dir, root_identity)]
     state.directory_identities[run_dir] = root_identity
     paths = []
@@ -458,7 +549,7 @@ def _jsonl_paths(run_dir, state):
 
 
 def _scan_run(run_dir, embedding_dedup):
-    state = ScanState()
+    state = ScanState(descriptor_pinned=_DESCRIPTOR_TRAVERSAL)
     for path in _jsonl_paths(run_dir, state):
         _scan_jsonl_file(path, run_dir, state, embedding_dedup)
     return state
@@ -531,6 +622,8 @@ def _input_messages(scan):
             f"{scan.malformed_lines} malformed JSON line(s) skipped — counts, "
             "mix and dedup cover only the parseable subset"
         )
+    if not scan.descriptor_pinned:
+        warnings.append(PATH_TRAVERSAL_WARNING)
     return blockers, warnings
 
 
