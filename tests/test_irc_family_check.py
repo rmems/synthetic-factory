@@ -76,7 +76,7 @@ class CatalogFamilyCheckTests(unittest.TestCase):
         same, probes, shown = _family_check(sources, spec_rows, live_legacy=live_legacy, ref=ref)
         self.assertTrue(same)
         for cmd in probes:
-            self.assertEqual(cmd, ["git", "rev-parse", pc.SOURCE_REF])
+            self.assertEqual(cmd, [pc._git_executable(), "rev-parse", pc.SOURCE_REF])
         return shown
 
     def test_committed_mill_sources_are_rechecked_against_the_legacy_ref(self):

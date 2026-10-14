@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import shutil
 import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -255,9 +256,20 @@ def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
     return field, _pipe_rows_literal(assign)
 
 
+def _git_executable() -> str:
+    """Absolute ``git`` on PATH. A bare name is a partial-path launch."""
+
+    found = shutil.which("git")
+    if found is None:
+        raise FileNotFoundError("git")
+    return found
+
+
 def _legacy_source(path: str) -> str:
+    git = _git_executable()
+    # nosemgrep
     return subprocess.check_output(
-        ["git", "show", f"{SOURCE_REF}:{path}"],
+        [git, "show", f"{SOURCE_REF}:{path}"],
         text=True,
         cwd=repo_root(),
         stderr=subprocess.DEVNULL,
@@ -302,7 +314,11 @@ def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
     if not live_legacy:
         return catalog
     try:
-        subprocess.check_output(["git", "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL)
+        git = _git_executable()
+        # nosemgrep
+        subprocess.check_output(
+            [git, "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return catalog
     for source in catalog.sources:

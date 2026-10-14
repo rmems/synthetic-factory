@@ -14,6 +14,7 @@ import io
 import json
 import subprocess
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -94,8 +95,40 @@ def _legacy_namespace():
         if isinstance(node, ast.FunctionDef) and node.name in ("hid", "episode"):
             keep = True
         if keep:
-            exec(compile(ast.Module([node], type_ignores=[]), "<legacy>", "exec"), ns)
+            _bind_legacy_statement(node, ns)
     return ns
+
+
+def _bind_legacy_statement(node: ast.stmt, ns: dict) -> None:
+    """Bind one kept legacy statement without ``exec``.
+
+    Assignments in the pinned mill are literals. ``hid`` and ``episode`` are
+    ordinary functions; their bodies run only when the test calls them.
+    """
+
+    if isinstance(node, ast.FunctionDef):
+        module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+        code = compile(module, "<legacy>", "exec")
+        function_code = next(
+            item
+            for item in code.co_consts
+            if isinstance(item, types.CodeType) and item.co_name == node.name
+        )
+        defaults = tuple(ast.literal_eval(item) for item in node.args.defaults)
+        ns[node.name] = types.FunctionType(function_code, ns, node.name, defaults or None)
+        return
+    if isinstance(node, ast.Assign):
+        value = ast.literal_eval(node.value)
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                ns[target.id] = value
+        return
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        ns[node.target.id] = ast.literal_eval(node.value)
 
 
 class SrlPackageLayout(unittest.TestCase):

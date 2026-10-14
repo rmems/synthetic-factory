@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -61,6 +62,15 @@ def deferred_sources(catalog_path: Path | None = None) -> tuple[Mapping[str, Any
     return load_deferred_sources_meta(catalog_path)
 
 
+def _git_executable() -> str:
+    """Absolute ``git`` on PATH. A bare name is a partial-path launch."""
+
+    found = shutil.which("git")
+    if found is None:
+        raise FileNotFoundError("git")
+    return found
+
+
 def git_show_deferred_source(path: str) -> str:
     root = repo_root()
     for spec in (
@@ -68,8 +78,10 @@ def git_show_deferred_source(path: str) -> str:
         f"{SOURCE_BYTES_REF}:{path}",
     ):
         try:
+            git = _git_executable()
+            # nosemgrep
             proc = subprocess.run(
-                ["git", "show", spec],
+                [git, "show", spec],
                 cwd=root,
                 check=False,
                 capture_output=True,

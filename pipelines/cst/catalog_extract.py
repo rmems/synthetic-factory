@@ -12,6 +12,7 @@ import ast
 import hashlib
 import json
 import re
+import types
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NamedTuple, TypeGuard
@@ -73,14 +74,98 @@ def extract_catalog_namespace(source: str, *, filename: str = "<cst-mill>") -> d
     globals_ns: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in CATALOG_CONSTRUCTOR_NAMES:
-            exec(compile(ast.Module(body=[node], type_ignores=[]), filename, "exec"), globals_ns, namespace)
-            globals_ns[node.name] = namespace[node.name]
+            _define_constructor(node, filename, globals_ns)
             continue
         names = _assignment_names(node)
         if not names or not CATALOG_ASSIGNMENT_NAMES.intersection(names):
             continue
-        exec(compile(ast.Module(body=[node], type_ignores=[]), filename, "exec"), globals_ns, namespace)
+        _bind_catalog_assignment(node, namespace, globals_ns)
     return {name: namespace[name] for name in namespace if name in CATALOG_ASSIGNMENT_NAMES}
+
+
+def _define_constructor(node: ast.FunctionDef, filename: str, globals_ns: dict[str, Any]) -> None:
+    """Bind ``node`` into ``globals_ns`` the way a def statement would, without ``exec``."""
+
+    module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+    code = compile(module, filename, "exec")
+    function_code = next(
+        item
+        for item in code.co_consts
+        if isinstance(item, types.CodeType) and item.co_name == node.name
+    )
+    defaults = tuple(_eval_expr(item, {}, globals_ns) for item in node.args.defaults)
+    globals_ns[node.name] = types.FunctionType(
+        function_code, globals_ns, node.name, defaults or None
+    )
+
+
+def _bind_catalog_assignment(
+    node: ast.stmt, namespace: dict[str, Any], globals_ns: dict[str, Any]
+) -> None:
+    if isinstance(node, ast.Assign):
+        value_node: ast.expr | None = node.value
+    elif isinstance(node, ast.AnnAssign):
+        value_node = node.value
+    else:
+        return
+    if value_node is None:
+        return
+    value = _eval_expr(value_node, namespace, globals_ns)
+    for name in _assignment_names(node):
+        namespace[name] = value
+
+
+def _lookup(name: str, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
+    if name in namespace:
+        return namespace[name]
+    if name in globals_ns and name != "__builtins__":
+        return globals_ns[name]
+    builtins = globals_ns.get("__builtins__")
+    if isinstance(builtins, dict) and name in builtins:
+        return builtins[name]
+    raise NameError(name)
+
+
+def _eval_expr(node: ast.expr, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return _lookup(node.id, namespace, globals_ns)
+    if isinstance(node, ast.List):
+        return [_eval_expr(item, namespace, globals_ns) for item in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_eval_expr(item, namespace, globals_ns) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return _eval_dict(node, namespace, globals_ns)
+    if isinstance(node, ast.Call):
+        return _eval_call(node, namespace, globals_ns)
+    raise ValueError(f"unsupported catalog expression: {type(node).__name__}")
+
+
+def _eval_dict(
+    node: ast.Dict, namespace: dict[str, Any], globals_ns: dict[str, Any]
+) -> dict[Any, Any]:
+    evaluated: dict[Any, Any] = {}
+    for key, value in zip(node.keys, node.values, strict=True):
+        if key is None:
+            raise ValueError("unsupported catalog dict unpack")
+        evaluated[_eval_expr(key, namespace, globals_ns)] = _eval_expr(value, namespace, globals_ns)
+    return evaluated
+
+
+def _eval_call(node: ast.Call, namespace: dict[str, Any], globals_ns: dict[str, Any]) -> Any:
+    if not isinstance(node.func, ast.Name) or any(
+        isinstance(arg, ast.Starred) for arg in node.args
+    ):
+        raise ValueError("unsupported catalog call")
+    args = [_eval_expr(arg, namespace, globals_ns) for arg in node.args]
+    kwargs: dict[str, Any] = {}
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            raise ValueError("unsupported catalog keyword unpack")
+        kwargs[keyword.arg] = _eval_expr(keyword.value, namespace, globals_ns)
+    func = _lookup(node.func.id, namespace, globals_ns)
+    return func(*args, **kwargs)
 
 
 def _assignment_names(node: ast.stmt) -> list[str]:
