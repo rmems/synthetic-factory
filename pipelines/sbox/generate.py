@@ -129,8 +129,9 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         if isinstance(target, ast.Name):
             return target.id, node.value
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+        value = node.value
+        if value is not None:
+            return node.target.id, value
     return None
 
 
@@ -236,7 +237,9 @@ def _call_row(node: ast.Call, params: tuple[str, ...], where: str) -> dict[str, 
 
 
 def _list_elts(node: ast.AST) -> list[ast.AST] | None:
-    return node.elts if isinstance(node, ast.List) else None
+    if not isinstance(node, ast.List):
+        return None
+    return cast(list[ast.AST], node.elts)
 
 
 def _family_neq_filter(node: ast.ListComp) -> str | None:
@@ -291,7 +294,7 @@ def _identities_from_row_elts(
                 "_ROWS uses _row() but no def _row is in the module",
             )
             return [
-                _call_row(elt, params, f"_ROWS[{index}]")
+                _call_row(elt, cast(tuple[str, ...], params), f"_ROWS[{index}]")
                 for index, elt in enumerate(elts)
                 if isinstance(elt, ast.Call)
             ]
@@ -323,7 +326,8 @@ def _rows_from_module(tree: ast.Module, params: tuple[str, ...] | None) -> list[
                 FINDING_AST_NOT_A_PLANT,
                 "_ROWS filter is not a supported family exclusion",
             )
-            rows = [row for row in rows if row["family"] != excluded]
+            kept = cast(list[dict[str, Any]], rows)
+            rows = [row for row in kept if row["family"] != excluded]
     return rows
 
 
