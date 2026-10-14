@@ -786,11 +786,12 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise ObsRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    path_ids: set[str] = set()
+    found: list[str] = []
     for row in factories:
-        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str):
-            path_ids.add(path_id)
-    return path_ids
+        path_id = row.get("path_id") if isinstance(row, dict) else None
+        if isinstance(path_id, str):
+            found.append(path_id)
+    return set(found)
 
 def _load_member_rows(
     catalog_dir: Path, files: Mapping[str, Any], digests: Mapping[str, Any]

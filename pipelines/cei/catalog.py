@@ -913,11 +913,11 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise CeiRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    path_ids: set[str] = set()
-    for row in factories:
-        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str):
-            path_ids.add(path_id)
-    return path_ids
+    return {
+        path_id
+        for row in factories
+        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str)
+    }
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
