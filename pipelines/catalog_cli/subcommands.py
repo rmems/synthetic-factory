@@ -1,9 +1,9 @@
 """The two subcommand shapes behind the catalog-backed mill packages' ``cli`` modules.
 
-Each shape was copied verbatim into every package that uses it; the package's
-``cli`` module now supplies only what differed: its docstring (the ``--help``
-description), ``prog``, refusal class, and its ``catalog`` / ``generate``
-modules.
+Each shape was copied verbatim into every package that uses it.
+``catalog_cli.entry`` now binds ``prog``, the refusal class, and the package's
+``catalog`` / ``generate`` modules. Generate-shape ``--help`` text is one
+shared docstring; extract-shape CLIs keep their own.
 
 * :class:`GenerateCommands` (``flk``, ``gql``, ``msd``, ``rag``, ``saf``):
   ``catalog-check`` over a pinned plant catalog directory, exit 1 when it
@@ -88,6 +88,8 @@ class GenerateCommands:
     unit: str = "plant"
 
     def build_parser(self) -> argparse.ArgumentParser:
+        """``catalog-check`` and ``generate``. The description is the package CLI docstring."""
+
         parser, commands = _command_parser(self.prog, self.description)
 
         check = commands.add_parser("catalog-check", help="load the pinned catalog and verify pins")
@@ -105,6 +107,8 @@ class GenerateCommands:
         return parser
 
     def run(self, argv: list[str] | None = None) -> int:
+        """Parse ``argv`` (or ``sys.argv``) and return the process exit code."""
+
         parser = self.build_parser()
         args = parser.parse_args(argv)
         try:
@@ -185,6 +189,8 @@ class ExtractCommands:
     refusal: type[Exception]
 
     def build_parser(self) -> argparse.ArgumentParser:
+        """``catalog-check`` and ``extract``. The description is the package CLI docstring."""
+
         parser, commands = _command_parser(self.prog, self.description)
 
         check = commands.add_parser(
@@ -202,6 +208,8 @@ class ExtractCommands:
         return parser
 
     def run(self, argv: list[str] | None = None) -> int:
+        """Parse ``argv`` (or ``sys.argv``) and return the process exit code."""
+
         args = self.build_parser().parse_args(argv)
         handlers = {"catalog-check": self._catalog_check, "extract": self._extract}
         try:
