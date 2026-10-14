@@ -15,6 +15,7 @@ else:
 
 FAMILY_PREFIX = "srl"
 FACTORY = "sparse-reward-long-task-factory"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 GENERATOR = "grok-4.6"
 GEN = GENERATOR
 N_STEPS = 32
@@ -83,6 +84,6 @@ class SrlError(ValueError):
 def require_round(rnd: int) -> int:
     """Accept a positive integer round token. Booleans are not rounds."""
 
-    if type(rnd) is not int or rnd < 1:
+    if type(rnd) not in _EXACT_INT or rnd < 1:
         raise SrlError(f"invalid_round: {rnd!r}")
     return rnd

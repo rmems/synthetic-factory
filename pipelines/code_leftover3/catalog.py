@@ -19,7 +19,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard, cast
 
 from ._contract import (
     FINDING_AST_NOT_A_PLANT,
@@ -45,6 +45,7 @@ CATALOG_ID = "code-leftover3-prior-v1"
 FACTORY = "code-review-preference-factory"
 GENERATOR = "grok-4.6"
 ID_PREFIX = "crp"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 WAVE_FIRST_ROUND = 679
 PLANTS_PER_ROUND = 3
 PAIR_FIRST_ROUND = 432
@@ -235,8 +236,15 @@ def _call_values(node: ast.Call) -> dict[str, Any] | None:
             refuse(FINDING_AST_NOT_A_PLANT, "P() has extra positional arguments")
         values[PLANT_FIELDS[index]] = _literal(arg)
     for keyword in node.keywords:
-        values[keyword.arg] = _literal(keyword.value)
+        # A ``**kwargs`` keyword (arg None) already returned None above.
+        values[cast(str, keyword.arg)] = _literal(keyword.value)
     return values
+
+
+def _is_exact_int(value: object) -> TypeGuard[int]:
+    """Exactly ``int``: a ``bool`` or any other ``int`` subclass is not."""
+
+    return type(value) in _EXACT_INT
 
 
 def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
@@ -250,7 +258,7 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
     )
     line = values["line"]
     refuse_when(
-        type(line) is not int,
+        not _is_exact_int(line),
         FINDING_FIELD_INVALID,
         f"{where}.line must be an int, got {shown(line)}",
     )
@@ -376,9 +384,9 @@ def plants_for_round(round_n: int, plants: tuple[Plant, ...] | None = None) -> t
     items = load_catalog().plants if plants is None else plants
     last = WAVE_FIRST_ROUND + len(items) // PLANTS_PER_ROUND - 1
     refuse_first((
-        (type(round_n) is not int, FINDING_ROUND_OUT_OF_DOMAIN,
+        (not _is_exact_int(round_n), FINDING_ROUND_OUT_OF_DOMAIN,
          f"round must be an int, got {shown(round_n)}"),
-        (type(round_n) is int and not WAVE_FIRST_ROUND <= round_n <= last,
+        (_is_exact_int(round_n) and not WAVE_FIRST_ROUND <= round_n <= last,
          FINDING_ROUND_OUT_OF_DOMAIN,
          f"round must lie in [{WAVE_FIRST_ROUND}, {last}], got {shown(round_n)}"),
     ))

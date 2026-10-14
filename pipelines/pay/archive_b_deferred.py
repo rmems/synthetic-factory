@@ -28,6 +28,8 @@ __all__ = [
     "load_deferred_sources_meta",
 ]
 
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
+
 
 def load_deferred_sources_meta(catalog_path: Path | None = None) -> tuple[Mapping[str, Any], ...]:
     path = package_dir() / "CATALOG.json" if catalog_path is None else catalog_path
@@ -97,7 +99,7 @@ def extract_all_deferred(
         path = str(entry["path"])
         expected = entry["n_pairs"]
         refuse_when(
-            type(expected) is not int or expected < 1,
+            type(expected) not in _EXACT_INT or expected < 1,
             FINDING_CATALOG_FIELD_INVALID,
             f"{path} n_pairs must be positive int",
         )

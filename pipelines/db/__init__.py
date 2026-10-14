@@ -4,10 +4,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .import_twins import bind_import_twin
 
-__all__ = ["FACTORY_DIR", "PLANTS", "build_episode", "build_pair", "self_check"]
+if TYPE_CHECKING:  # the lazy re-exports below, named for static analysis only
+    from .check import self_check
+    from .episode import build_episode
+    from .notes import build_pair
+    from .plants import PLANTS
+
+__all__ =["FACTORY_DIR", "PLANTS", "build_episode", "build_pair", "self_check"]
 
 
 def FACTORY_DIR(repo_root: Path | None = None) -> Path:

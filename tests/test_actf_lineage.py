@@ -129,7 +129,7 @@ def _write_lineage(
     listed.mkdir(parents=True)
     payload = {
         "path_key": path_key,
-        "original_path": "/tmp/actf/gen.py",
+        "original_path": "/srv/actf/gen.py",
         "original_basename": "gen.py",
         "classification": classification,
         "version_count": version_count,
