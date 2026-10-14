@@ -246,6 +246,26 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
+def _plants_for(plants, mill_id):
+    return [plant for plant in plants if plant.mill_id == mill_id]
+
+
+def _ok_slugs(plants):
+    return [plant.ok.slug for plant in plants]
+
+
+def _shapes(plants):
+    return {plant.shape for plant in plants}
+
+
+def _plant_ids(plants):
+    return {plant.plant_id for plant in plants}
+
+
+def _side_slugs(plants):
+    return [plant.ok.slug for plant in plants] + [plant.bad.slug for plant in plants]
+
+
 class CatalogLoading(unittest.TestCase):
     def test_committed_catalog_loads_r81_r48_and_slice3_ast_extracted_pairs(self):
         loaded = catalog.load_catalog(COMMITTED)
@@ -254,31 +274,25 @@ class CatalogLoading(unittest.TestCase):
         self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
         self.assertEqual(len(loaded.plants), 89)
         self.assertEqual(len(loaded.mills), 5)
-        r81 = [plant for plant in loaded.plants if plant.mill_id == SOURCE_MILL_ID]
-        r48 = [plant for plant in loaded.plants if plant.mill_id == LEFTOVER3_MILL_ID]
-        r42 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R42_MILL_ID]
-        r65 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R65_MILL_ID]
-        r137 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R137_MILL_ID]
+        r81 = _plants_for(loaded.plants, SOURCE_MILL_ID)
+        r48 = _plants_for(loaded.plants, LEFTOVER3_MILL_ID)
+        r42 = _plants_for(loaded.plants, SLICE3_R42_MILL_ID)
+        r65 = _plants_for(loaded.plants, SLICE3_R65_MILL_ID)
+        r137 = _plants_for(loaded.plants, SLICE3_R137_MILL_ID)
         self.assertEqual(len(r81), 39)
         self.assertEqual(len(r48), 16)
         self.assertEqual(len(r42), 7)
         self.assertEqual(len(r65), 12)
         self.assertEqual(len(r137), 15)
-        self.assertEqual([plant.ok.slug for plant in r81], list(EXPECTED_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r48], list(EXPECTED_R48_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r42], list(EXPECTED_R42_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r65], list(EXPECTED_R65_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r137], list(EXPECTED_R137_OK_SLUGS))
-        self.assertEqual({plant.shape for plant in r81}, {SHAPE_OK_BAD})
-        self.assertEqual(
-            {plant.shape for plant in r48 + r42 + r65 + r137},
-            {LEFTOVER3_SHAPE},
-        )
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 89)
-        slugs = [plant.ok.slug for plant in loaded.plants] + [
-            plant.bad.slug for plant in loaded.plants
-        ]
-        self.assertEqual(len(set(slugs)), 178)
+        self.assertEqual(_ok_slugs(r81), list(EXPECTED_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r48), list(EXPECTED_R48_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r42), list(EXPECTED_R42_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r65), list(EXPECTED_R65_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r137), list(EXPECTED_R137_OK_SLUGS))
+        self.assertEqual(_shapes(r81), {SHAPE_OK_BAD})
+        self.assertEqual(_shapes(r48 + r42 + r65 + r137), {LEFTOVER3_SHAPE})
+        self.assertEqual(len(_plant_ids(loaded.plants)), 89)
+        self.assertEqual(len(set(_side_slugs(loaded.plants))), 178)
         self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
         self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
         self.assertEqual(
@@ -681,8 +695,12 @@ class RefusalBranches(unittest.TestCase):
         for text, expected in (("[1, (2, -3)]", [1, (2, -3)]), ("{'a': [-1.5]}", {"a": [-1.5]})):
             with self.subTest(text=text):
                 self.assertEqual(catalog._const_eval(ast.parse(text, mode="eval").body), expected)
-        for text, message in (("{**extra}", "uses dict unpacking"), ("not 1", "(UnaryOp)"),
-                              ("{1, 2}", "(Set)")):
+        for text, message in (
+            ("{**extra}", "uses dict unpacking"),
+            ("{1: name, **extra}", "uses dict unpacking"),
+            ("not 1", "(UnaryOp)"),
+            ("{1, 2}", "(Set)"),
+        ):
             node = ast.parse(text, mode="eval").body
             with self.subTest(text=text), self._refusal(FINDING_SOURCE_NOT_PARSEABLE, message):
                 catalog._const_eval(node)

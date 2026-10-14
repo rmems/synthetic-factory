@@ -599,7 +599,7 @@ def dumps_rows(
         raise ValueError("dumps_rows table widths drifted")
     lines = []
     for offset in range(width):
-        record = {"i": start_index + offset}
+        record: dict[str, Any] = {"i": start_index + offset}
         for name in TABLE_NAMES:
             record[name] = list(tables[name][offset])
         lines.append(json.dumps(record, ensure_ascii=True, separators=(",", ":")))

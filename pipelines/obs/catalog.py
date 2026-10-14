@@ -237,9 +237,13 @@ def _const_mapping_or_negative(node: ast.AST) -> Any:
     """A dict display (``**`` unpacking refused) or ``-operand``; other node types are refused."""
 
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+        # Refuse ``**`` unpacking before any key or value is evaluated.
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        for key, value in zip(node.keys, node.values):
+            if key is None:
+                raise ObsRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+            pairs.append((key, value))
+        return {_const_eval(key): _const_eval(value) for key, value in pairs}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     raise _not_a_constant(node)
@@ -255,9 +259,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 def _require_text(value: Any, where: str, code: str, *, strip: bool = True) -> str:
@@ -779,11 +786,11 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise ObsRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    path_ids: set[str] = set()
+    for row in factories:
+        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str):
+            path_ids.add(path_id)
+    return path_ids
 
 def _load_member_rows(
     catalog_dir: Path, files: Mapping[str, Any], digests: Mapping[str, Any]

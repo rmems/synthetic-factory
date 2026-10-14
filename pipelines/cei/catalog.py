@@ -361,9 +361,13 @@ def _const_dict_or_negated(node: ast.AST) -> Any:
     """A dict display (``**`` unpacking refused) or ``-operand``; other node types are refused."""
 
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+        # Refuse ``**`` unpacking before any key or value is evaluated.
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        for key, value in zip(node.keys, node.values):
+            if key is None:
+                raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
+            pairs.append((key, value))
+        return {_const_eval(key): _const_eval(value) for key, value in pairs}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     raise CeiRefusal(
@@ -377,9 +381,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -906,11 +913,11 @@ def _registry_factory_ids() -> set[str]:
     factories = payload.get("factories") if isinstance(payload, dict) else None
     if not isinstance(factories, list):
         raise CeiRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    path_ids: set[str] = set()
+    for row in factories:
+        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str):
+            path_ids.add(path_id)
+    return path_ids
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

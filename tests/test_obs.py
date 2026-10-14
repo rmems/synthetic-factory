@@ -404,8 +404,12 @@ class RefusalBranches(unittest.TestCase):
         expected = [1, (2, -3), {4}, {"k": -1.5}]
         node = ast.parse("[1, (2, -3), {4}, {'k': -1.5}]", mode="eval").body
         self.assertEqual(catalog._const_eval(node), expected)
-        for text, message in (("{**extra}", "uses dict unpacking"), ("not 1", "(UnaryOp)"),
-                              ("name", "(Name)")):
+        for text, message in (
+            ("{**extra}", "uses dict unpacking"),
+            ("{1: name, **extra}", "uses dict unpacking"),
+            ("not 1", "(UnaryOp)"),
+            ("name", "(Name)"),
+        ):
             node = ast.parse(text, mode="eval").body
             with self.subTest(text=text), self._refusal(FINDING_SOURCE_NOT_PARSEABLE, message):
                 catalog._const_eval(node)
