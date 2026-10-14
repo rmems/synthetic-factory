@@ -111,6 +111,18 @@ class MillRecordRefusalTests(unittest.TestCase):
         record = extract_mill_catalog(source, path="experiments/cst-mill-r9999.py")
         self.assertEqual(record["plants"][0]["ok"]["seed"], 4)
 
+    def test_redefined_constructor_replaces_a_chained_assignment(self):
+        source = (
+            "ok = CATALOG_FIRST = 5\n"
+            "def ok(slug, seed=ok):\n"
+            "    return {'slug_ok': slug, 'slug_bad': slug, 'ok': {'seed': seed}, 'bad': {}}\n"
+            "def plant(slug, seed=ok):\n"
+            "    return seed(slug)\n"
+            "PLANTS = [plant('x')]\n"
+        )
+        record = extract_mill_catalog(source, path="experiments/cst-mill-r9999.py")
+        self.assertEqual(record["plants"][0]["ok"]["seed"], 5)
+
     def test_a_decorator_on_a_constructor_is_refused(self):
         source = (
             "@wrap\n"

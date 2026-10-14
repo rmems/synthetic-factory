@@ -25,7 +25,7 @@ def define_constructor(
     globals_ns: dict[str, Any],
     namespace: dict[str, Any],
 ) -> None:
-    """Bind ``node`` into ``globals_ns`` the way a def statement would."""
+    """Bind ``node`` after its defaults, into both namespaces."""
 
     if node.decorator_list:
         raise ValueError("unsupported catalog decorator")
@@ -39,6 +39,7 @@ def define_constructor(
     if keywords:
         function.__kwdefaults__ = keywords
     globals_ns[node.name] = function
+    namespace[node.name] = function
 
 
 def bind_catalog_assignment(
