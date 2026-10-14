@@ -53,9 +53,10 @@ class ComposeRunContextContract(unittest.TestCase):
             default = source / "failure-as-fuel-preference-cascade/units-migration.json"
             default.mkdir(parents=True)
             context = CalibrationContext(source, None)
+            services = calibration_services()
 
             with self.assertRaisesRegex(ComposeError, "not an exact regular file"):
-                load_calibration(context, calibration_services())
+                load_calibration(context, services)
 
     def test_direct_factory_root_selects_its_own_calibration_sidecar(self):
         from compose_curated_calibration import CalibrationContext, _calibration_path
@@ -78,9 +79,10 @@ class ComposeRunContextContract(unittest.TestCase):
 
         depth = 200_000
         payload = b"[" * depth + b"]" * depth
+        services = calibration_services()
 
         with self.assertRaisesRegex(ComposeError, "invalid calibration JSON"):
-            _decode_calibration(Path("units-migration.json"), payload, calibration_services())
+            _decode_calibration(Path("units-migration.json"), payload, services)
 
 
 if __name__ == "__main__":
