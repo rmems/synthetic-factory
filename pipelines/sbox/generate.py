@@ -305,7 +305,6 @@ def _identities_from_row_elts(
             if isinstance(elt, ast.Dict)
         ]
     refuse(FINDING_AST_NOT_A_PLANT, "_ROWS list shape is not dict(), _row(), or dict literals")
-    return []
 
 
 def _rows_from_module(tree: ast.Module, params: tuple[str, ...] | None) -> list[dict[str, Any]] | None:
