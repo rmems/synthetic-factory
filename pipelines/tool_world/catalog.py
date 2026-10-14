@@ -16,7 +16,12 @@ from typing import Any
 
 from . import pack as pk
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, load_strict_json, sha256_canonical
+from ._contract import (
+    bind_import_twin,
+    dumps_exact_json,
+    load_strict_json,
+    sha256_canonical,
+)
 
 __all__ = ["DEFAULT_CATALOG", "Catalog", "catalog_digest", "load_catalog", "write_pins"]
 
@@ -65,11 +70,10 @@ def _header(directory: Path) -> Mapping[str, Any]:
         raise cv.ToolWorldRefusal(
             cv.FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON ({exc})"
         ) from exc
-    cv.refuse_when(
-        not isinstance(header, Mapping),
-        cv.FINDING_CATALOG_FIELD_INVALID,
-        f"{CATALOG_FILENAME} must be an object",
-    )
+    if not isinstance(header, Mapping):
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} must be an object"
+        )
     cv.refuse_first(
         (
             (
