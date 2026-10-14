@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     FINDING_AST_NOT_A_PLANT,
@@ -66,42 +66,71 @@ __all__ = [
 ]
 
 
-def _const_eval(node: ast.AST) -> Any:
-    """Literal values, containers, and keyword-only ``dict(...)``. Never exec."""
+_NOT_LEAF = object()
 
+
+def _literal_leaf(node: ast.AST) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
+    return _NOT_LEAF
+
+
+def _dict_literal(node: ast.Dict) -> dict[Any, Any]:
+    refuse_when(
+        any(key is None for key in node.keys),
+        FINDING_AST_NOT_A_PLANT,
+        "plant source uses dict unpacking",
+    )
+    return {
+        _const_eval(cast(ast.expr, key)): _const_eval(value)
+        for key, value in zip(node.keys, node.values, strict=True)
+    }
+
+
+def _dict_call(node: ast.Call) -> dict[str, Any] | None:
+    func = node.func
+    if not isinstance(func, ast.Name):
+        return None
+    if func.id != "dict" or node.args:
+        return None
+    if any(keyword.arg is None for keyword in node.keywords):
+        return None
+    return {cast(str, keyword.arg): _const_eval(keyword.value) for keyword in node.keywords}
+
+
+def _container(node: ast.List | ast.Tuple) -> list[Any] | tuple[Any, ...]:
+    values = [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
+        return values
+    return tuple(values)
+
+
+def _call_const(node: ast.Call) -> Any:
+    called = _dict_call(node)
+    if called is not None:
+        return called
+    refuse(
+        FINDING_AST_NOT_A_PLANT,
+        f"plant source uses a non-literal call ({type(node).__name__})",
+    )
+
+
+def _const_eval(node: ast.AST) -> Any:
+    """Literal values, containers, and keyword-only ``dict(...)``. Never exec."""
+
+    leaf = _literal_leaf(node)
+    if leaf is not _NOT_LEAF:
+        return leaf
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return _container(node)
     if isinstance(node, ast.Dict):
-        refuse_when(
-            any(key is None for key in node.keys),
-            FINDING_AST_NOT_A_PLANT,
-            "plant source uses dict unpacking",
-        )
-        return {
-            _const_eval(key): _const_eval(value)
-            for key, value in zip(node.keys, node.values, strict=True)
-        }
+        return _dict_literal(node)
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node)
     if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id == "dict"
-            and not node.args
-            and all(keyword.arg is not None for keyword in node.keywords)
-        ):
-            return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
-        refuse(
-            FINDING_AST_NOT_A_PLANT,
-            f"plant source uses a non-literal call ({type(node).__name__})",
-        )
+        return _call_const(node)
     refuse(
         FINDING_AST_NOT_A_PLANT,
         f"plant source is not a constant ({type(node).__name__})",
@@ -124,8 +153,9 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         if isinstance(target, ast.Name):
             return target.id, node.value
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+        value = node.value
+        if value is not None:
+            return node.target.id, value
     return None
 
 
@@ -148,7 +178,7 @@ def _require_str(values: Mapping[str, Any], field: str, where: str) -> str:
         FINDING_FIELD_INVALID,
         f"{where}.{field} must be a non-empty string, got {shown(value)}",
     )
-    return value
+    return cast(str, value)
 
 
 def _require_int(values: Mapping[str, Any], field: str, where: str) -> int:
@@ -163,7 +193,7 @@ def _require_int(values: Mapping[str, Any], field: str, where: str) -> int:
         FINDING_FIELD_INVALID,
         f"{where}.{field} must be an int, got {shown(value)}",
     )
-    return value
+    return cast(int, value)
 
 
 def _runtime_identity(values: Mapping[str, Any], where: str) -> dict[str, Any]:
@@ -231,28 +261,39 @@ def _call_row(node: ast.Call, params: tuple[str, ...], where: str) -> dict[str, 
 
 
 def _list_elts(node: ast.AST) -> list[ast.AST] | None:
-    return node.elts if isinstance(node, ast.List) else None
+    if not isinstance(node, ast.List):
+        return None
+    return cast(list[ast.AST], node.elts)
 
 
-def _family_neq_filter(node: ast.ListComp) -> str | None:
-    """``[r for r in _ROWS if r["family"] != "slug"]`` when the test is literal."""
+def _rows_binding(generator: ast.comprehension) -> bool:
+    if not isinstance(generator.target, ast.Name) or generator.target.id != "r":
+        return False
+    if not isinstance(generator.iter, ast.Name) or generator.iter.id != "_ROWS":
+        return False
+    return len(generator.ifs) == 1
 
+
+def _rows_generator(node: ast.ListComp) -> ast.comprehension | None:
     if len(node.generators) != 1:
         return None
     if not isinstance(node.elt, ast.Name) or node.elt.id != "r":
         return None
     generator = node.generators[0]
-    if not isinstance(generator.target, ast.Name) or generator.target.id != "r":
+    if not _rows_binding(generator):
         return None
-    if not isinstance(generator.iter, ast.Name) or generator.iter.id != "_ROWS":
-        return None
-    if len(generator.ifs) != 1:
-        return None
-    test = generator.ifs[0]
+    return generator
+
+
+def _family_compare(test: ast.AST) -> ast.Compare | None:
     if not isinstance(test, ast.Compare) or len(test.ops) != 1:
         return None
     if not isinstance(test.ops[0], ast.NotEq):
         return None
+    return test
+
+
+def _family_token(test: ast.Compare) -> str | None:
     left, right = test.left, test.comparators[0]
     if not isinstance(left, ast.Subscript):
         return None
@@ -263,6 +304,18 @@ def _family_neq_filter(node: ast.ListComp) -> str | None:
     if not isinstance(right, ast.Constant) or not isinstance(right.value, str):
         return None
     return right.value
+
+
+def _family_neq_filter(node: ast.ListComp) -> str | None:
+    """``[r for r in _ROWS if r["family"] != "slug"]`` when the test is literal."""
+
+    generator = _rows_generator(node)
+    if generator is None:
+        return None
+    test = _family_compare(generator.ifs[0])
+    if test is None:
+        return None
+    return _family_token(test)
 
 
 def _identities_from_row_elts(
@@ -286,7 +339,7 @@ def _identities_from_row_elts(
                 "_ROWS uses _row() but no def _row is in the module",
             )
             return [
-                _call_row(elt, params, f"_ROWS[{index}]")
+                _call_row(elt, cast(tuple[str, ...], params), f"_ROWS[{index}]")
                 for index, elt in enumerate(elts)
                 if isinstance(elt, ast.Call)
             ]
@@ -297,7 +350,6 @@ def _identities_from_row_elts(
             if isinstance(elt, ast.Dict)
         ]
     refuse(FINDING_AST_NOT_A_PLANT, "_ROWS list shape is not dict(), _row(), or dict literals")
-    return []
 
 
 def _rows_from_module(tree: ast.Module, params: tuple[str, ...] | None) -> list[dict[str, Any]] | None:
@@ -318,7 +370,8 @@ def _rows_from_module(tree: ast.Module, params: tuple[str, ...] | None) -> list[
                 FINDING_AST_NOT_A_PLANT,
                 "_ROWS filter is not a supported family exclusion",
             )
-            rows = [row for row in rows if row["family"] != excluded]
+            kept = cast(list[dict[str, Any]], rows)
+            rows = [row for row in kept if row["family"] != excluded]
     return rows
 
 

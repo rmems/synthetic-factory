@@ -24,14 +24,20 @@ sys.path.insert(0, str(PIPELINES))
 from flk import catalog, cli, generate  # noqa: E402
 from flk._contract import (  # noqa: E402
     FACTORY,
+    FINDING_CATALOG_FIELD_INVALID,
+    FINDING_CATALOG_FILE_MISSING,
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
+    FINDING_FACTORY_NOT_REGISTERED,
+    FINDING_PLANT_DUPLICATE_ID,
+    FINDING_PLANT_FIELD_INVALID,
+    FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FINDING_USAGE,
-    FlkRefusal,
     GENERATOR,
+    FlkRefusal,
 )
 from record_kind import classify_kind  # noqa: E402
 from validate_run import check_episode  # noqa: E402
@@ -61,6 +67,16 @@ PLANTS = [
     }
 ]
 """
+
+
+def _read_meta(dest):
+    path = dest / catalog.CATALOG_FILENAME
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_meta(dest, meta):
+    path = dest / catalog.CATALOG_FILENAME
+    path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def invoke(argv):
@@ -113,6 +129,103 @@ class CatalogLoading(unittest.TestCase):
             loaded.plant("flk_r0001:missing")
         self.assertEqual(caught.exception.code, FINDING_PLANT_NOT_FOUND)
 
+    def _copied_catalog(self):
+        root = Path(tempfile.mkdtemp(prefix="flk-pin-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        dest = root / "catalog"
+        shutil.copytree(FIXTURE, dest)
+        return dest
+
+    def test_an_invalid_format_is_refused_before_a_missing_factory(self):
+        dest = self._copied_catalog()
+        meta = _read_meta(dest)
+        meta["format"] = "bogus"
+        del meta["factory"]
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FIELD_INVALID)
+        self.assertIn("format must be", str(caught.exception))
+
+        dest = self._copied_catalog()
+        (dest / catalog.CATALOG_FILENAME).write_text("{", encoding="utf-8")
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("is not strict JSON", str(caught.exception))
+
+    def test_a_bool_quota_and_a_short_file_are_coded_refusals(self):
+        dest = self._copied_catalog()
+        meta = _read_meta(dest)
+        meta["quota_per_round"] = True
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("quota_per_round has the wrong type", str(caught.exception))
+
+        meta["quota_per_round"] = 9
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("quota_per_round must be", str(caught.exception))
+
+        meta["quota_per_round"] = 2
+        meta["plant_count"] = 2
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("plant_count is 2, file has 1", str(caught.exception))
+
+    def test_duplicate_ids_and_mill_shape_are_coded_refusals(self):
+        dest = self._copied_catalog()
+        row = json.loads((dest / catalog.PLANTS_FILENAME).read_text(encoding="utf-8"))
+        text = (json.dumps(row, sort_keys=True) + "\n") * 2
+        (dest / catalog.PLANTS_FILENAME).write_text(text, encoding="utf-8")
+        meta = _read_meta(dest)
+        meta["plants_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+        meta["plant_count"] = 2
+        meta["mills"][0]["plant_count"] = 2
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertEqual(caught.exception.code, FINDING_PLANT_DUPLICATE_ID)
+
+        other = dict(row)
+        other["mill_id"] = "flk_r0002"
+        other["plant_id"] = "flk_r0002:pytest-clock-leftover"
+        text = json.dumps(other, sort_keys=True) + "\n"
+        (dest / catalog.PLANTS_FILENAME).write_text(text, encoding="utf-8")
+        meta["plants_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+        meta["plant_count"] = 1
+        meta["mills"][0]["plant_count"] = 1
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("do not match plant mill_id", str(caught.exception))
+
+        text = json.dumps(row, sort_keys=True) + "\n"
+        (dest / catalog.PLANTS_FILENAME).write_text(text, encoding="utf-8")
+        meta["plants_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+        meta["mills"][0]["plant_count"] = 2
+        _write_meta(dest, meta)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("plant_count 2 != 1", str(caught.exception))
+
+    def test_missing_plants_and_an_unregistered_factory_are_refused(self):
+        dest = self._copied_catalog()
+        (dest / catalog.PLANTS_FILENAME).unlink()
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertEqual(caught.exception.code, FINDING_CATALOG_FILE_MISSING)
+
+        dest = self._copied_catalog()
+        hooks = catalog.CATALOG_HOOKS
+        catalog.CATALOG_HOOKS = (*hooks[:-1], set)
+        self.addCleanup(setattr, catalog, "CATALOG_HOOKS", hooks)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertEqual(caught.exception.code, FINDING_FACTORY_NOT_REGISTERED)
+
 
 class AstExtract(unittest.TestCase):
     def test_plants_from_source_reads_literals_and_skips_hop(self):
@@ -130,6 +243,61 @@ class AstExtract(unittest.TestCase):
         with self.assertRaises(FlkRefusal) as caught:
             catalog.plants_from_source(source, mill_id="flk_r0001", source="bad.py")
         self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+
+    def test_plants_from_source_refuses_shape_base_and_mill_id(self):
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source("PLANTS = [\n", mill_id="flk_r0001", source="bad.py")
+        self.assertIn("does not parse", str(caught.exception))
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source("PLANTS = []\n", mill_id="flk_r0001", source="empty.py")
+        self.assertIn("has no PLANTS list", str(caught.exception))
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(
+                "PLANTS = [1]\nBASE = 1\n", mill_id="flk_r0001", source="row.py"
+            )
+        self.assertIn("is not an object", str(caught.exception))
+        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(
+                "PLANTS = [{}]\nBASE = 1\n", mill_id="flk_r0001", source="row.py"
+            )
+        self.assertIn("missing slug", str(caught.exception))
+        self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_MISSING)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(TINY_SOURCE, mill_id="nope", source="tiny.py")
+        self.assertIn("is not flk_rNNN", str(caught.exception))
+        self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(
+                TINY_SOURCE.replace("BASE = 7", "BASE = 0"),
+                mill_id="flk_r0007",
+                source="tiny.py",
+            )
+        self.assertIn("BASE must be a positive int", str(caught.exception))
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(
+                TINY_SOURCE.replace("BASE = 7", "BASE = True"),
+                mill_id="flk_r0007",
+                source="tiny.py",
+            )
+        self.assertIn("BASE must be a positive int", str(caught.exception))
+
+    def test_plants_from_source_reads_an_annotation_and_an_implied_base(self):
+        annotated = TINY_SOURCE.replace("BASE = 7", "BASE: int = 7").replace(
+            "PLANTS =", "PLANTS: list ="
+        )
+        rows = catalog.plants_from_source(annotated, mill_id="flk_r0007", source="tiny.py")
+        self.assertEqual(rows[0]["base_round"], 7)
+        implied = catalog.plants_from_source(
+            TINY_SOURCE.replace("BASE = 7\n", ""),
+            mill_id="flk_r0007",
+            source="tiny.py",
+        )
+        self.assertEqual(implied[0]["base_round"], 7)
+        chosen = catalog.plants_from_source(
+            TINY_SOURCE, mill_id="flk_r0007", source="tiny.py", base_round=3
+        )
+        self.assertEqual(chosen[0]["base_round"], 3)
 
     def test_package_tree_has_no_leftover_mill_scripts(self):
         hits = list((PIPELINES / "flk").rglob("*leftover*_mill.py"))
