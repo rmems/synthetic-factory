@@ -49,9 +49,11 @@ QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
 RECORD_KIND = _contract.RECORD_KIND
 
 if (__package__ or "").startswith("pipelines."):
-    from ..catalog_cli.source_const import const_dict, load_pinned_catalog, registry_factory_ids
+    from ..catalog_cli.pinned_load import load_pinned_catalog
+    from ..catalog_cli.source_const import const_dict, registry_factory_ids
 else:
-    from catalog_cli.source_const import const_dict, load_pinned_catalog, registry_factory_ids
+    from catalog_cli.pinned_load import load_pinned_catalog
+    from catalog_cli.source_const import const_dict, registry_factory_ids
 
 PLANT_KEYS = (
     "slug",
@@ -516,6 +518,16 @@ def _registry_factory_ids() -> set[str]:
         load_strict_json,
         lambda message: MsdRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
     )
+
+
+CATALOG_HOOKS = (
+    _field,
+    _require_text,
+    _mill_from_row,
+    _plant_from_row,
+    _read_jsonl,
+    _registry_factory_ids,
+)
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

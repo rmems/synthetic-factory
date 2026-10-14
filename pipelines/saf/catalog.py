@@ -48,21 +48,11 @@ QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
 RECORD_KIND = _contract.RECORD_KIND
 
 if (__package__ or "").startswith("pipelines."):
-    from ..catalog_cli.source_const import (
-        const_dict,
-        keyed_plant_rows,
-        load_pinned_catalog,
-        registry_factory_ids,
-        require_positive_base,
-    )
+    from ..catalog_cli.pinned_load import keyed_plants_from_source, load_pinned_catalog
+    from ..catalog_cli.source_const import const_dict, registry_factory_ids
 else:
-    from catalog_cli.source_const import (
-        const_dict,
-        keyed_plant_rows,
-        load_pinned_catalog,
-        registry_factory_ids,
-        require_positive_base,
-    )
+    from catalog_cli.pinned_load import keyed_plants_from_source, load_pinned_catalog
+    from catalog_cli.source_const import const_dict, registry_factory_ids
 
 MILL_ID_RE = re.compile(r"^saf_r[0-9]+$")
 SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -185,63 +175,31 @@ def _const_eval(node: ast.AST) -> Any:
     )
 
 
-def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target = node.targets[0]
-        if isinstance(target, ast.Name):
-            return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        value = node.value
-        if value is not None:
-            return node.target.id, value
-    return None
+_SOURCE_SPEC = {
+    "list_name": "PAIRS",
+    "base_name": "BASE",
+    "prefix": "saf_r",
+    "pattern": "saf_rNNN",
+    "keys": PAIR_KEYS,
+    "label": "PAIRS",
+    "evaluate": _const_eval,
+    "fullmatch": MILL_ID_RE.fullmatch,
+}
+_SOURCE_REFUSALS = (
+    SafRefusal,
+    FINDING_SOURCE_NOT_PARSEABLE,
+    FINDING_PLANT_FIELD_INVALID,
+    FINDING_PLANT_FIELD_MISSING,
+)
 
 
 def plants_from_source(
-    text: str,
-    *,
-    mill_id: str,
-    source: str,
-    base_round: int | None = None,
+    text: str, *, mill_id: str, source: str, base_round: int | None = None
 ) -> tuple[dict[str, Any], ...]:
     """AST-extract ``PAIRS`` from leftover-mill source text. Never exec."""
 
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as exc:
-        raise SafRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
-        ) from exc
-    raw_pairs: Any = None
-    inferred_base: Any = None
-    for node in tree.body:
-        assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name == "PAIRS":
-            raw_pairs = _const_eval(value)
-        elif name == "BASE":
-            inferred_base = _const_eval(value)
-    if not isinstance(raw_pairs, list) or not raw_pairs:
-        raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS list")
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not saf_rNNN")
-    base = require_positive_base(
-        inferred_base if base_round is None else base_round,
-        mill_id,
-        "saf_r",
-        lambda: SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{source} BASE must be a positive int"),
-    )
-    return keyed_plant_rows(
-        raw_pairs,
-        PAIR_KEYS,
-        {"mill_id": mill_id, "source": source, "base_round": base, "label": "PAIRS"},
-        (
-            lambda message: SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, message),
-            lambda message: SafRefusal(FINDING_PLANT_FIELD_MISSING, message),
-        ),
-    )
+    identity = {"mill_id": mill_id, "source": source, "base_round": base_round}
+    return keyed_plants_from_source(text, identity, _SOURCE_SPEC, _SOURCE_REFUSALS)
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -364,6 +322,16 @@ def _registry_factory_ids() -> set[str]:
         load_strict_json,
         lambda message: SafRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
     )
+
+
+CATALOG_HOOKS = (
+    _field,
+    _require_text,
+    _mill_from_row,
+    _plant_from_row,
+    _read_jsonl,
+    _registry_factory_ids,
+)
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

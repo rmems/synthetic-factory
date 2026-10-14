@@ -16,7 +16,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import _contract
 from ._contract import (
@@ -46,15 +46,15 @@ QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
 RECORD_KIND = _contract.RECORD_KIND
 
 if (__package__ or "").startswith("pipelines."):
+    from ..catalog_cli.pinned_load import load_pinned_catalog
     from ..catalog_cli.source_const import (
-        load_pinned_catalog,
         plant_const_eval,
         registry_factory_ids,
         require_positive_base,
     )
 else:
+    from catalog_cli.pinned_load import load_pinned_catalog
     from catalog_cli.source_const import (
-        load_pinned_catalog,
         plant_const_eval,
         registry_factory_ids,
         require_positive_base,
@@ -296,7 +296,7 @@ def plants_from_source(
             f"{source} CATALOG_FIRST must be a positive int",
         ),
     )
-    return _rows_from_pairs(raw_pairs.elts, mill_id, source, base)
+    return _rows_from_pairs(cast(list[ast.AST], raw_pairs.elts), mill_id, source, base)
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -414,6 +414,16 @@ def _registry_factory_ids() -> set[str]:
         load_strict_json,
         lambda message: RagRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
     )
+
+
+CATALOG_HOOKS = (
+    _field,
+    _require_text,
+    _mill_from_row,
+    _plant_from_row,
+    _read_jsonl,
+    _registry_factory_ids,
+)
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:

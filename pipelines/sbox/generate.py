@@ -66,12 +66,15 @@ __all__ = [
 ]
 
 
+_NOT_LEAF = object()
+
+
 def _literal_leaf(node: ast.AST) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
-    return None
+    return _NOT_LEAF
 
 
 def _dict_literal(node: ast.Dict) -> dict[Any, Any]:
@@ -97,28 +100,37 @@ def _dict_call(node: ast.Call) -> dict[str, Any] | None:
     return {cast(str, keyword.arg): _const_eval(keyword.value) for keyword in node.keywords}
 
 
+def _container(node: ast.List | ast.Tuple) -> list[Any] | tuple[Any, ...]:
+    values = [_const_eval(item) for item in node.elts]
+    if isinstance(node, ast.List):
+        return values
+    return tuple(values)
+
+
+def _call_const(node: ast.Call) -> Any:
+    called = _dict_call(node)
+    if called is not None:
+        return called
+    refuse(
+        FINDING_AST_NOT_A_PLANT,
+        f"plant source uses a non-literal call ({type(node).__name__})",
+    )
+
+
 def _const_eval(node: ast.AST) -> Any:
     """Literal values, containers, and keyword-only ``dict(...)``. Never exec."""
 
-    if isinstance(node, (ast.Constant, ast.UnaryOp)):
-        leaf = _literal_leaf(node)
-        if leaf is not None or isinstance(node, ast.Constant):
-            return leaf
+    leaf = _literal_leaf(node)
+    if leaf is not _NOT_LEAF:
+        return leaf
     if isinstance(node, (ast.List, ast.Tuple)):
-        values = [_const_eval(item) for item in node.elts]
-        return values if isinstance(node, ast.List) else tuple(values)
+        return _container(node)
     if isinstance(node, ast.Dict):
         return _dict_literal(node)
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node)
     if isinstance(node, ast.Call):
-        called = _dict_call(node)
-        if called is not None:
-            return called
-        refuse(
-            FINDING_AST_NOT_A_PLANT,
-            f"plant source uses a non-literal call ({type(node).__name__})",
-        )
+        return _call_const(node)
     refuse(
         FINDING_AST_NOT_A_PLANT,
         f"plant source is not a constant ({type(node).__name__})",
