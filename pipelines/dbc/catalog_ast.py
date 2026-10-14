@@ -72,8 +72,8 @@ def _mapping_or_text(node: ast.AST, bound: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _added_text(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
-    """Left-nested ``str + str``, evaluated left to right. Otherwise ``UNSET``."""
+def _add_operands(node: ast.BinOp) -> list[ast.AST]:
+    """Operands of a left-nested ``+`` chain, left to right."""
 
     pending: list[ast.AST] = [node]
     operands: list[ast.AST] = []
@@ -82,14 +82,22 @@ def _added_text(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
         if isinstance(current, ast.BinOp) and isinstance(current.op, ast.Add):
             pending.append(current.right)
             pending.append(current.left)
-            continue
-        operands.append(current)
+        else:
+            operands.append(current)
+    return operands
+
+
+def _added_text(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
+    """Left-nested ``str + str``, evaluated left to right. Otherwise ``UNSET``."""
+
+    operands = _add_operands(node)
     acc = literal_value(operands[0], bound)
     for operand in operands[1:]:
         right = literal_value(operand, bound)
-        if not isinstance(acc, str) or not isinstance(right, str):
+        if isinstance(acc, str) and isinstance(right, str):
+            acc = acc + right
+        else:
             return UNSET
-        acc = acc + right
     return acc
 
 
