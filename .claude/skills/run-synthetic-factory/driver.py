@@ -121,29 +121,40 @@ def cmd_validate(run_dir):
     return code
 
 
-def cmd_audit(run_dir):
-    """Run all three layers on one stable snapshot; never mutate the source."""
-    src = require_run_dir(run_dir)
-    temp, snap, visible_by_factory = marker_visible_snapshot(src, "factory-audit-")
-    results = []
-    try:
-        prune_snapshot_to_marker_visibility(snap, visible_by_factory)
-        commands = (
-            ("STRUCTURAL + SHAPE", VALIDATOR, ()),
-            ("DEEP RECORD INVARIANTS", CHECKER, ("--strict",)),
-            ("CORPUS TRAINING READINESS", AUDITOR, ("--strict", "--markdown")),
-        )
-        for title, script, options in commands:
-            code, out, err = run_tool(script, snap, *options)
-            results.append((title, code, out, err))
-    finally:
-        temp.cleanup()
+AUDIT_LAYERS = (
+    ("STRUCTURAL + SHAPE", VALIDATOR, ()),
+    ("DEEP RECORD INVARIANTS", CHECKER, ("--strict",)),
+    ("CORPUS TRAINING READINESS", AUDITOR, ("--strict", "--markdown")),
+)
 
+
+def run_audit_layers(snap):
+    results = []
+    for title, script, options in AUDIT_LAYERS:
+        code, out, err = run_tool(script, snap, *options)
+        results.append((title, code, out, err))
+    return results
+
+
+def print_audit_results(results):
     for title, code, out, err in results:
         print(f"\n=== {title} (exit {code}) ===")
         sys.stdout.write(out)
         if err:
             sys.stderr.write(f"\n--- {title} findings ---\n{err}")
+
+
+def cmd_audit(run_dir):
+    """Run all three layers on one stable snapshot; never mutate the source."""
+    src = require_run_dir(run_dir)
+    temp, snap, visible_by_factory = marker_visible_snapshot(src, "factory-audit-")
+    try:
+        prune_snapshot_to_marker_visibility(snap, visible_by_factory)
+        results = run_audit_layers(snap)
+    finally:
+        temp.cleanup()
+
+    print_audit_results(results)
     failed = [title for title, code, _out, _err in results if code]
     print("\nAUDIT RESULT: " + ("BLOCKED — " + ", ".join(failed) if failed else "TRAINING-READY"))
     return 1 if failed else 0
@@ -195,55 +206,49 @@ def notes_novel_coverage(path: Path):
     return parse_novel_coverage(text)
 
 
-def factory_token_efficiency(factory_dir: Path):
-    """Scan NOTES-rNN.md in committed order; detect a trailing 2-low streak.
+def note_parts(path):
+    note_match = NOTES_ROUND_RE.fullmatch(path.name)
+    if note_match is None:
+        return None
+    return int(note_match.group(1)), note_match.group(2)
 
-    Returns dict with per-round coverages, early-stop flag, saving estimate,
-    and generative quality note. Saving estimate assumes ~40% of tail tokens
-    avoided when plateau is caught early (docs/token-efficiency.md).
 
-    early_stop is the current trailing streak (mirrors a live lane starting
-    from the frontier): a later parseable NOTES with coverage >= 5% clears a
-    historical plateau so recovered factories are not omitted from starts.
-    """
-    factory_dir = Path(factory_dir)
-    notes = sorted(factory_dir.glob("NOTES-r*.md"))
+def baseline_note_rounds(factory_dir, baseline):
+    baseline_rounds = set()
+    for payload in legacy_baseline_jsonl_paths(factory_dir, baseline):
+        match = BATCH_ROUND_RE.fullmatch(payload.name)
+        baseline_rounds.add(int(match.group(1)) if match is not None else 1)
+    return baseline_rounds
 
-    def note_parts(path):
-        note_match = NOTES_ROUND_RE.fullmatch(path.name)
-        if note_match is None:
-            return None
-        return int(note_match.group(1)), note_match.group(2)
 
-    mode_path = marker_mode_path(factory_dir)
-    if mode_path is not None:
-        status = frontier_status(factory_dir)
-        baseline = status["baseline"]
-        manifests = completed_manifests(factory_dir)
-        baseline_rounds = set()
-        for payload in legacy_baseline_jsonl_paths(factory_dir, baseline):
-            match = BATCH_ROUND_RE.fullmatch(payload.name)
-            baseline_rounds.add(int(match.group(1)) if match is not None else 1)
-        for round_number, manifest in manifests.items():
-            note = factory_dir / f"NOTES-r{round_number:02d}.md"
-            completion_manifest_file_matches(note, manifest)
-        notes = [
-            path
-            for path in notes
-            if (parts := note_parts(path)) is not None
-            and (
-                parts[0] in baseline_rounds
-                or (
-                    not parts[1]
-                    and parts[0] in manifests
-                    and completion_manifest_file_matches(path, manifests[parts[0]])
-                )
-            )
-        ]
+def note_is_committed(path, parts, manifests):
+    """An unsuffixed note whose bytes match its round's completion manifest."""
+    if parts[1] or parts[0] not in manifests:
+        return False
+    return completion_manifest_file_matches(path, manifests[parts[0]])
 
-    # Lettered notes are legacy artifacts for the same numeric round. The
-    # canonical unsuffixed note wins; otherwise keep one deterministic suffix
-    # so the same round cannot count twice toward a plateau.
+
+def marker_visible_notes(factory_dir, notes):
+    """Keep only NOTES a marker-mode factory has published or baselined."""
+    status = frontier_status(factory_dir)
+    baseline = status["baseline"]
+    manifests = completed_manifests(factory_dir)
+    baseline_rounds = baseline_note_rounds(factory_dir, baseline)
+    for round_number, manifest in manifests.items():
+        note = factory_dir / f"NOTES-r{round_number:02d}.md"
+        completion_manifest_file_matches(note, manifest)
+    return [
+        path
+        for path in notes
+        if (parts := note_parts(path)) is not None
+        and (parts[0] in baseline_rounds or note_is_committed(path, parts, manifests))
+    ]
+
+
+def canonical_round_notes(notes):
+    """Lettered notes are legacy artifacts for the same numeric round. The
+    canonical unsuffixed note wins; otherwise keep one deterministic suffix
+    so the same round cannot count twice toward a plateau."""
     notes_by_round: dict[int, Path] = {}
     for path in notes:
         parts = note_parts(path)
@@ -253,7 +258,11 @@ def factory_token_efficiency(factory_dir: Path):
         previous = notes_by_round.get(round_number)
         if previous is None or (not suffix and note_parts(previous)[1]):
             notes_by_round[round_number] = path
-    notes = [notes_by_round[round_number] for round_number in sorted(notes_by_round)]
+    return [notes_by_round[round_number] for round_number in sorted(notes_by_round)]
+
+
+def coverage_streak(notes):
+    """Per-round coverages plus the trailing low streak and where it tripped."""
     rounds = []
     consecutive = 0
     early_stop_at = None
@@ -272,6 +281,25 @@ def factory_token_efficiency(factory_dir: Path):
             early_stop_at = None
         # None (unparseable) does not increment nor reset — holds streak
         rounds.append({"round": rn, "file": p.name, "novel_coverage_pct": pct, "is_low": is_low})
+    return rounds, consecutive, early_stop_at
+
+
+def factory_token_efficiency(factory_dir: Path):
+    """Scan NOTES-rNN.md in committed order; detect a trailing 2-low streak.
+
+    Returns dict with per-round coverages, early-stop flag, saving estimate,
+    and generative quality note. Saving estimate assumes ~40% of tail tokens
+    avoided when plateau is caught early (docs/token-efficiency.md).
+
+    early_stop is the current trailing streak (mirrors a live lane starting
+    from the frontier): a later parseable NOTES with coverage >= 5% clears a
+    historical plateau so recovered factories are not omitted from starts.
+    """
+    factory_dir = Path(factory_dir)
+    notes = sorted(factory_dir.glob("NOTES-r*.md"))
+    if marker_mode_path(factory_dir) is not None:
+        notes = marker_visible_notes(factory_dir, notes)
+    rounds, consecutive, early_stop_at = coverage_streak(canonical_round_notes(notes))
     early_stop = consecutive >= TOKEN_EFFICIENCY_CONSECUTIVE
     # 40% saving estimate: early-stop avoids ~40% of backstop tail when plateau detected.
     # For reporting, include saving mode metadata so callers can compute projected tokens.
@@ -293,6 +321,33 @@ def factory_token_efficiency(factory_dir: Path):
     }
 
 
+def factory_dirs(src):
+    return sorted(path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_"))
+
+
+def token_efficiency_headline(info):
+    if info["early_stop"]:
+        return f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})"
+    lows = sum(1 for r in info["rounds"] if r["is_low"])
+    return f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}"
+
+
+def token_efficiency_round_line(r):
+    pct_str = f"{r['novel_coverage_pct']:.1f}%" if r["novel_coverage_pct"] is not None else "n/a"
+    flag = " LOW" if r["is_low"] else ""
+    return f"  r{r['round']:02d} {r['file']}: {pct_str}{flag}"
+
+
+def print_token_efficiency(factories):
+    for info in factories:
+        print(token_efficiency_headline(info))
+        for r in info["rounds"]:
+            print(token_efficiency_round_line(r))
+    print(
+        f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow."
+    )
+
+
 def cmd_token_efficiency(run_dir, as_json=False):
     """Offline token-efficiency audit per factory.
 
@@ -301,84 +356,74 @@ def cmd_token_efficiency(run_dir, as_json=False):
     but scans committed NOTES-rNN.md on disk.
     """
     src = require_run_dir(run_dir)
-    factories = []
-    for directory in sorted(
-        path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")
-    ):
-        info = factory_token_efficiency(directory)
-        factories.append(info)
+    factories = [factory_token_efficiency(directory) for directory in factory_dirs(src)]
     payload = {"run_dir": str(src), "token_efficiency": factories}
     if as_json:
         print(json.dumps(payload, indent=2))
     else:
-        for info in factories:
-            if info["early_stop"]:
-                print(
-                    f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})"
-                )
-            else:
-                lows = sum(1 for r in info["rounds"] if r["is_low"])
-                print(
-                    f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}"
-                )
-            for r in info["rounds"]:
-                pct_str = (
-                    f"{r['novel_coverage_pct']:.1f}%"
-                    if r["novel_coverage_pct"] is not None
-                    else "n/a"
-                )
-                flag = " LOW" if r["is_low"] else ""
-                print(f"  r{r['round']:02d} {r['file']}: {pct_str}{flag}")
-        print(
-            f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow."
-        )
+        print_token_efficiency(factories)
     return payload
+
+
+def frontier_records(directory, status):
+    if status["mode"] == "marker":
+        return sum(count_nonblank_lines(path) for path in committed_jsonl_paths(directory))
+    return count_records(directory)
+
+
+def print_frontiers(factories):
+    for item in factories:
+        marker = "committed markers" if item["mode"] == "marker" else "validated legacy"
+        print(
+            f"{item['factory']}: {item['records']} records, "
+            f"highest r{item['highest_flushed']:02d}, "
+            f"next r{item['next_round']:02d} ({marker})"
+        )
 
 
 def cmd_frontiers(run_dir, as_json=False):
     src = require_run_dir(run_dir)
     factories = []
-    for directory in sorted(
-        path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")
-    ):
+    for directory in factory_dirs(src):
         status = frontier_status(directory)
-        if status["mode"] == "marker":
-            status["records"] = sum(
-                count_nonblank_lines(path) for path in committed_jsonl_paths(directory)
-            )
-        else:
-            status["records"] = count_records(directory)
+        status["records"] = frontier_records(directory, status)
         factories.append(status)
     payload = {"run_dir": str(src), "factories": factories}
     if as_json:
         print(json.dumps(payload, indent=2))
     else:
-        for item in factories:
-            marker = "committed markers" if item["mode"] == "marker" else "validated legacy"
-            print(
-                f"{item['factory']}: {item['records']} records, "
-                f"highest r{item['highest_flushed']:02d}, "
-                f"next r{item['next_round']:02d} ({marker})"
-            )
+        print_frontiers(factories)
     return factories
+
+
+def refuse_existing_snapshot(dst):
+    if dst.exists() or dst.is_symlink():
+        raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
+
+
+def snapshot_destination(src, label):
+    if not SAFE_LABEL.fullmatch(label):
+        raise SystemExit("snapshot label may contain only letters, digits, dot, dash, underscore")
+    dst = src.parent / f"{src.name}-{label}"
+    refuse_existing_snapshot(dst)
+    return dst
+
+
+def publish_staged_snapshot(staged, visible_by_factory, dst):
+    prune_snapshot_to_marker_visibility(staged, visible_by_factory)
+    refuse_existing_snapshot(dst)
+    try:
+        rename_snapshot_noreplace(staged, dst)
+    except FileExistsError as exc:
+        raise SystemExit(f"refusing to overwrite existing snapshot: {dst}") from exc
 
 
 def cmd_snapshot(run_dir, label):
     src = require_run_dir(run_dir)
-    if not SAFE_LABEL.fullmatch(label):
-        raise SystemExit("snapshot label may contain only letters, digits, dot, dash, underscore")
-    dst = src.parent / f"{src.name}-{label}"
-    if dst.exists() or dst.is_symlink():
-        raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
+    dst = snapshot_destination(src, label)
     temp, staged, visible_by_factory = marker_visible_snapshot(src, f".{dst.name}-", src.parent)
     try:
-        prune_snapshot_to_marker_visibility(staged, visible_by_factory)
-        if dst.exists() or dst.is_symlink():
-            raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
-        try:
-            rename_snapshot_noreplace(staged, dst)
-        except FileExistsError as exc:
-            raise SystemExit(f"refusing to overwrite existing snapshot: {dst}") from exc
+        publish_staged_snapshot(staged, visible_by_factory, dst)
     finally:
         temp.cleanup()
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
