@@ -196,7 +196,8 @@ def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        if node.func.id == "S" and not node.args:
+        func = node.func
+        if func.id == "S" and not node.args:
             return {kw.arg: _const_eval(kw.value) for kw in node.keywords}
     raise GqlRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
@@ -210,8 +211,9 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         if isinstance(target, ast.Name):
             return target.id, node.value
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+        value = node.value
+        if value is not None:
+            return node.target.id, value
     return None
 
 

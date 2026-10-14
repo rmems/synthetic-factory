@@ -17,13 +17,12 @@ else:
     from oracle_grounded.import_twins import bind_import_twin
 
 _LoadJson = Callable[[str], Any]
-_Raise = Callable[..., Any]
 
 
 def registry_factory_ids(
     repo_root: Callable[[], Path],
     load_strict_json: _LoadJson,
-    refuse: Callable[[str], _Raise],
+    refuse: Callable[[str], BaseException],
 ) -> set[str]:
     """Path ids from ``config/FACTORY-REGISTRY.json``.
 
@@ -53,7 +52,7 @@ def registry_factory_ids(
 def const_dict(
     node: ast.Dict,
     evaluate: Callable[[ast.AST], Any],
-    refuse: Callable[[], _Raise],
+    refuse: Callable[[], BaseException],
 ) -> dict[Any, Any]:
     """Evaluate a dict literal. A ``None`` key is unpacking and raises first."""
 
@@ -67,7 +66,7 @@ def const_dict(
     }
 
 
-def plant_const_eval(node: ast.AST, refusal: _Raise, finding: str) -> Any:
+def plant_const_eval(node: ast.AST, refusal: Callable[..., BaseException], finding: str) -> Any:
     """Literal values only. Refuses calls, names, and starred dicts."""
 
     def evaluate(item: ast.AST) -> Any:
