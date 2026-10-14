@@ -110,6 +110,11 @@ class HopperEpisodeTests(unittest.TestCase):
     def test_factory_dir_requires_root(self):
         import os
         from hopper.episode import set_raw_root
+        set_raw_root(Path("/hopper-set"))
+        self.assertEqual(
+            str(factory_dir("rate-limit-backoff-factory")),
+            "/hopper-set/rate-limit-backoff-factory",
+        )
         set_raw_root(None)
         env = {key: value for key, value in os.environ.items() if key != "HOPPER_RAW_ROOT"}
         with (
