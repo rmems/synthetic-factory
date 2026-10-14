@@ -271,12 +271,14 @@ class Generate(unittest.TestCase):
         self.assertEqual(second["reward"]["success"], False)
         notes = (out / "NOTES-r163.md").read_text(encoding="utf-8")
         self.assertIn("demoted", notes)
+        request = generate.RunRequest(163, out)
         with self.assertRaises(PkgRefusal) as exists:
-            generate.run(generate.RunRequest(163, out))
+            generate.run(request)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
+        request = generate.RunRequest(163, raw)
         with self.assertRaises(PkgRefusal) as under_raw:
-            generate.run(generate.RunRequest(163, raw))
+            generate.run(request)
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 

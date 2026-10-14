@@ -255,10 +255,12 @@ class MixEnforcement(unittest.TestCase):
         self.assertTrue(any("unlabeled_ratio 1.00" in b for b in blocking["blockers"]))
 
     def test_unsatisfiable_policy_is_rejected(self):
+        floor_above_ceiling = quality_gate.MixPolicy(min_synthetic_ratio=0.9)
         with self.assertRaises(ValueError):
-            quality_gate.MixPolicy(min_synthetic_ratio=0.9).validate()
+            floor_above_ceiling.validate()
+        target_out_of_range = quality_gate.MixPolicy(target=2.0)
         with self.assertRaises(ValueError):
-            quality_gate.MixPolicy(target=2.0).validate()
+            target_out_of_range.validate()
 
     def test_empty_run_does_not_block_on_mix(self):
         with tempfile.TemporaryDirectory() as td:
