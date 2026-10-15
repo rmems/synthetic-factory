@@ -17,6 +17,38 @@ import quality_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Multi-agent content fields that exact identity must keep verbatim.
+_MULTI_AGENT_IDENTITY_KEYS = (
+    "goal",
+    "agents",
+    "transcript",
+    "disagreements",
+    "resolution",
+    "joint_outcome",
+    "reward",
+)
+
+
+def _multi_agent_record(*, goal, resolution, record_id="mac-shared"):
+    """A two-agent coordination record that varies only in goal, resolution and id."""
+    return {
+        "id": record_id,
+        "goal": goal,
+        "agents": [
+            {"role": "implementer", "mandate": "land the change"},
+            {"role": "reviewer", "mandate": "block races"},
+        ],
+        "transcript": [
+            {"n": 1, "speaker": "implementer", "content": "ship the lock"},
+            {"n": 2, "speaker": "reviewer", "content": "the TTL races"},
+        ],
+        "disagreements": ["TTL race coverage"],
+        "resolution": resolution,
+        "joint_outcome": "shipped",
+        "reward": {"success": True},
+        "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
+    }
+
 
 class ExactDedup(unittest.TestCase):
     @staticmethod
@@ -259,43 +291,16 @@ class ExactDedup(unittest.TestCase):
         self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
 
     def test_multi_agent_content_is_exact_identity(self):
-        def record(*, goal, resolution, record_id="mac-shared"):
-            return {
-                "id": record_id,
-                "goal": goal,
-                "agents": [
-                    {"role": "implementer", "mandate": "land the change"},
-                    {"role": "reviewer", "mandate": "block races"},
-                ],
-                "transcript": [
-                    {"n": 1, "speaker": "implementer", "content": "ship the lock"},
-                    {"n": 2, "speaker": "reviewer", "content": "the TTL races"},
-                ],
-                "disagreements": ["TTL race coverage"],
-                "resolution": resolution,
-                "joint_outcome": "shipped",
-                "reward": {"success": True},
-                "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
-            }
-
-        first = record(goal="repair the queue consumer", resolution="kept the lock")
-        second = record(goal="rotate the edge certs", resolution="split the rollout")
+        first = _multi_agent_record(goal="repair the queue consumer", resolution="kept the lock")
+        second = _multi_agent_record(goal="rotate the edge certs", resolution="split the rollout")
         view = quality_gate.exact_identity_view(first)
-        for key in (
-            "goal",
-            "agents",
-            "transcript",
-            "disagreements",
-            "resolution",
-            "joint_outcome",
-            "reward",
-        ):
+        for key in _MULTI_AGENT_IDENTITY_KEYS:
             self.assertEqual(view[key], first[key])
         self.assertNotIn("id", view)
         self.assertNotIn("meta", view)
         self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
 
-        clone = record(
+        clone = _multi_agent_record(
             goal=first["goal"],
             resolution=first["resolution"],
             record_id="mac-other",
