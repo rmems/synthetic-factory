@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ from ._contract import (
     FINDING_CATALOG_FIELD_INVALID,
     SOURCE_BYTES_COMMIT,
     SOURCE_BYTES_REF,
+    PayRefusal,
     bind_import_twin,
     load_strict_json,
     package_dir,
@@ -35,9 +37,11 @@ def load_deferred_sources_meta(catalog_path: Path | None = None) -> tuple[Mappin
     path = package_dir() / "CATALOG.json" if catalog_path is None else catalog_path
     meta = load_strict_json(path)
     extract = meta.get("extract")
-    refuse_when(not isinstance(extract, dict), FINDING_CATALOG_FIELD_INVALID, "extract must be object")
+    if not isinstance(extract, dict):
+        raise PayRefusal(FINDING_CATALOG_FIELD_INVALID, "extract must be object")
     raw = extract.get("deferred_sources")
-    refuse_when(not isinstance(raw, list), FINDING_CATALOG_FIELD_INVALID, "deferred_sources must be a list")
+    if not isinstance(raw, list):
+        raise PayRefusal(FINDING_CATALOG_FIELD_INVALID, "deferred_sources must be a list")
     rows: list[Mapping[str, Any]] = []
     for index, entry in enumerate(raw):
         refuse_when(
@@ -58,20 +62,34 @@ def deferred_sources(catalog_path: Path | None = None) -> tuple[Mapping[str, Any
     return load_deferred_sources_meta(catalog_path)
 
 
+def _git_executable() -> str:
+    """Absolute ``git`` on PATH. A bare name is a partial-path launch."""
+
+    found = shutil.which("git")
+    if found is None:
+        raise FileNotFoundError("git")
+    return found
+
+
+def _git_show(spec: str) -> subprocess.CompletedProcess[str]:
+    git = _git_executable()
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.run(  # nosec B603 -- absolute git from PATH, no shell
+        [git, "show", spec],
+        cwd=repo_root(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def git_show_deferred_source(path: str) -> str:
-    root = repo_root()
     for spec in (
         f"{SOURCE_BYTES_COMMIT}:{path}",
         f"{SOURCE_BYTES_REF}:{path}",
     ):
         try:
-            proc = subprocess.run(
-                ["git", "show", spec],
-                cwd=root,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+            proc = _git_show(spec)
         except OSError as exc:
             refuse(FINDING_CATALOG_FIELD_INVALID, f"git show failed for {path}: {exc}")
         if proc.returncode == 0:
