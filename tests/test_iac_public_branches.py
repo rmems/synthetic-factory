@@ -113,11 +113,9 @@ class IacTableShapes(unittest.TestCase):
         source = "K8S = [('a-vs-old', 'g')]\nCLI_SPEC = 'x'\n"
         self.assertEqual(extract_error(source), NOTHING)
 
-    def test_short_k8s_rows_and_non_object_cli_rows_keep_empty_identities(self):
-        record = extracted("K8S = [('only',)]\nCLI_SPEC = ['x']\n")
-        identities = [(row["success_slug"], row["fail_handoff"]) for row in record["pairs"]]
-        found = (record["shape"], identities)
-        self.assertEqual(found, (extract.SHAPE_K8S_CLI_SPEC, [(None, True), (None, True)]))
+    def test_short_k8s_rows_and_non_object_cli_rows_extract_nothing(self):
+        source = "K8S = [('only',)]\nCLI_SPEC = ['x']\n"
+        self.assertEqual(extract_error(source), NOTHING)
 
 
 if __name__ == "__main__":

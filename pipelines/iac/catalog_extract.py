@@ -313,9 +313,13 @@ def _k8s_cli_tables(tree: ast.AST) -> dict[str, Any] | None:
     if cli_spec is not None:
         cli_ident = [_cli_spec_identity(row) for row in cli_spec]
         rows = k8s_rows + cli_ident
+        if any(row["success_slug"] is None for row in rows):
+            return None
         return _rows_record(SHAPE_K8S_CLI_SPEC, rows)
     if cli_rows is not None:
         rows = k8s_rows + cli_rows
+        if any(row["success_slug"] is None for row in rows):
+            return None
         return _rows_record(SHAPE_K8S_FILE, rows)
     return None
 
