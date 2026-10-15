@@ -7,26 +7,50 @@ import json
 import math
 import os
 import stat
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from check_records import walk_key
-from exact_json import parse_finite_json_float as _parse_exact_json_float
-from quality_gate_embedding import (
-    DEFAULT_EMBEDDING_THRESHOLD,
-    DEFAULT_MAX_EMBEDDING_PAIRS,
-    EMBEDDING_CANDIDATE_SKETCH,
-    EMBEDDING_ENCODER,
-    _embedding_duplicates,
-    embedding_tokens,
-    validate_embedding_threshold,
-)
-from quality_gate_identity import record_hash
-from tag_jsonutil import reject_duplicate_object_keys
-from training_audit import reward_shape
-from validate_run import reject_json_constant
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("quality_gate_audit")
+    from .check_records import walk_key
+    from .exact_json import parse_finite_json_float as _parse_exact_json_float
+    from .quality_gate_embedding import (
+        DEFAULT_EMBEDDING_THRESHOLD,
+        DEFAULT_MAX_EMBEDDING_PAIRS,
+        EMBEDDING_CANDIDATE_SKETCH,
+        EMBEDDING_ENCODER,
+        _embedding_duplicates,
+        embedding_tokens,
+        validate_embedding_threshold,
+    )
+    from .quality_gate_identity import record_hash
+    from .tag_jsonutil import reject_duplicate_object_keys
+    from .training_audit import reward_shape
+    from .validate_run import reject_json_constant
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "quality_gate_audit"
+    )
+    from check_records import walk_key
+    from exact_json import parse_finite_json_float as _parse_exact_json_float
+    from quality_gate_embedding import (
+        DEFAULT_EMBEDDING_THRESHOLD,
+        DEFAULT_MAX_EMBEDDING_PAIRS,
+        EMBEDDING_CANDIDATE_SKETCH,
+        EMBEDDING_ENCODER,
+        _embedding_duplicates,
+        embedding_tokens,
+        validate_embedding_threshold,
+    )
+    from quality_gate_identity import record_hash
+    from tag_jsonutil import reject_duplicate_object_keys
+    from training_audit import reward_shape
+    from validate_run import reject_json_constant
 
 
 DEFAULT_TARGET_SYNTHETIC_RATIO: float = 0.30
@@ -838,3 +862,7 @@ def write_manifest(path, run_dir, result, *, allow_within_run=False):
             f"could not create manifest {path}: {type(exc).__name__}: {exc}"
         ) from exc
     return path
+
+
+if __package__:
+    _expose_package_sibling(__name__)

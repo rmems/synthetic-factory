@@ -6,9 +6,20 @@ Patchable checker names live on the host module so tests that patch
 
 from __future__ import annotations
 
+import importlib
 import math
+import sys
 
-import verify_execution_safety as _safety
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("verify_execution_shapes")
+    from . import verify_execution_safety as _safety
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "verify_execution_shapes"
+    )
+    import verify_execution_safety as _safety
 
 _tool_call_name = _safety.tool_call_name
 _step_records_refusal = _safety.step_records_refusal
@@ -23,6 +34,12 @@ _safety_refusal_contradicts_calibrated_outcome = (
 
 
 def _host():
+    # Looked up at call time, in the import form this module was loaded in, so
+    # a patch on the bound verify_execution module is always the one seen. The
+    # package form goes through importlib so no static import edge closes the
+    # verify_execution -> verify_execution_shapes cycle (pylint R0401).
+    if __package__:
+        return importlib.import_module(".verify_execution", __package__)
     import verify_execution as host
     return host
 
@@ -755,3 +772,7 @@ def verify_record_execution(obj, where="record"):
         if predicate(obj):
             return verifier(obj, where)
     return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"
+
+
+if __package__:
+    _expose_package_sibling(__name__)
