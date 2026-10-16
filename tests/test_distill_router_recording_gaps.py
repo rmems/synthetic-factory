@@ -27,7 +27,8 @@ from distill_gap_test_support import clone, rehash, teacher_recording  # noqa: E
 class RecordedRouterGaps(unittest.TestCase):
     """moe_router.py: replayed recordings fail closed, ids stay bounded."""
 
-    def _oracle_with_layer(self, layer: dict) -> mr.RecordedTeacherRouter:
+    @staticmethod
+    def _oracle_with_layer(layer: dict) -> mr.RecordedTeacherRouter:
         recording = teacher_recording(["ctx"])
         key = mr.RecordedTeacherRouter.key_for("ctx")
         recording["observations"][key]["layers"][0].update(layer)

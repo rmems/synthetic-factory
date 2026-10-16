@@ -74,7 +74,8 @@ class Routing(unittest.TestCase):
 
 
 class ValidatePath(unittest.TestCase):
-    def write_run(self, tmp):
+    @staticmethod
+    def write_run(tmp):
         root = Path(tmp) / "run"
         oc.write_jsonl(root / "fault-recovery" / "batch.jsonl", fr.build_records(3, 6))
         oc.write_jsonl(root / "moe-router" / "batch.jsonl", mr.build_records(3, 4))
