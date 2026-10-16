@@ -26,9 +26,15 @@ reviewers.
 ## Generator lanes and rights
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
-(`factory-registry-v0.3`), keyed by exact `path_id` and `payload_factory`,
-that names its generator, provider/channel assignment, and rights profile
-(the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
+(`factory-registry-v0.4`), keyed by exact `path_id` and `payload_factory`,
+that names its generator and, where the row has them, its provider/channel
+assignment and rights profile (the Fable 5 generator appears on five rows,
+Grok 4.6 on 44). Four rows have no provider/channel: the two procedural rows
+(`python-function-repair-factory`, `oracle-grounded`) also have no rights
+profile and rest on their sealed source policy instead, and the two
+native-parity rows (`hardware-parity-spike-trajectories`,
+`nir-cross-runtime-equivalence`) carry the `native-parity-research-only-v1`
+rights profile. The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
 `schemas/rights-policy-v1.mapping.json`) resolves that row to `intended_use`
 and `project_training_policy`; unknown provenance resolves to blocked. There
@@ -135,8 +141,9 @@ GitHub Actions runs those checks on pull requests and `main`
 (`.github/workflows/python.yml` and `.github/workflows/python-smoke.yml`).
 
 Cursor Cloud Agents build from `.cursor/Dockerfile` via
-`.cursor/environment.json`. The install script is idempotent and re-runs the
-same unit tests and operator smoke check.
+`.cursor/environment.json`. The install script is idempotent; it compiles the
+tree and prefetches and builds the Rust `sf-oracle`, while the unit tests and
+operator smoke check run in GitHub Actions.
 
 ## Structure
 - `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1, vset-record-v1, and vset-release-manifest-v1
@@ -406,4 +413,5 @@ approved decision, and only training-candidate rows
 [#173]: https://github.com/rmems/synthetic-factory/issues/173
 [#175]: https://github.com/rmems/synthetic-factory/issues/175
 [#184]: https://github.com/rmems/synthetic-factory/issues/184
+[#186]: https://github.com/rmems/synthetic-factory/issues/186
 [PR #168]: https://github.com/rmems/synthetic-factory/pull/168
