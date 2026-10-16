@@ -179,4 +179,4 @@ Savings scale with backstop distance: a window starting at r12 with plateau at r
 ## References
 
 - Workflow: `.claude/skills/run-synthetic-factory/factory-window.workflow.js:211` (`TOKEN_EFFICIENCY`, `novelCoveragePct`, early-stop loop)
-- Driver: `.claude/skills/run-synthetic-factory/driver.py:78` (`TOKEN_EFFICIENCY_*`), `:85` (`LEGACY_NOVEL_COVERAGE_RE`), `:198` (`factory_token_efficiency`), `:296` (`cmd_token_efficiency`)
+- Driver: `.claude/skills/run-synthetic-factory/driver.py:78` (`TOKEN_EFFICIENCY_*`), `:85` (`LEGACY_NOVEL_COVERAGE_RE`), `:287` (`factory_token_efficiency`), `:351` (`cmd_token_efficiency`)
