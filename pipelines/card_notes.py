@@ -33,9 +33,6 @@ else:
 # byte-identical cards.
 LEGACY_NOTES_SENTENCE = "Supporting notes are under\n`data/metadata/NOTES-*.md`."
 
-# A scattered hole is summarised rather than listed span by span.
-MAX_LISTED_SPANS = 12
-
 
 @dataclasses.dataclass(frozen=True)
 class NotesCoverage:
@@ -118,11 +115,8 @@ def _partial_coverage_sentence(coverage: NotesCoverage) -> str:
 
 
 def _describe_spans(spans: tuple[tuple[int, int], ...]) -> str:
-    listed = ", ".join(_describe_span(first, last) for first, last in spans[:MAX_LISTED_SPANS])
-    hidden = len(spans) - MAX_LISTED_SPANS
-    if hidden > 0:
-        listed += f", and {hidden} more span(s)"
-    return listed
+    """Name every missing span: a disclosure that elides rounds is not one."""
+    return ", ".join(_describe_span(first, last) for first, last in spans)
 
 
 def _describe_span(first: int, last: int) -> str:

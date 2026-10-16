@@ -107,13 +107,17 @@ class NotesCoverageTests(unittest.TestCase):
             card_notes.LEGACY_NOTES_SENTENCE,
         )
 
-    def test_a_scattered_hole_is_summarised_after_the_listed_spans(self):
+    def test_a_scattered_hole_names_every_missing_round(self):
+        # Twenty isolated gaps: every one is named, none is folded into a count.
         rounds = range(1, 41)
         noted = [n for n in rounds if n % 2]
         sentence = card_notes.render_notes_sentence(card_notes.notes_coverage(rounds, noted))
 
-        self.assertIn("`r24`, and 8 more span(s)", sentence)
-        self.assertNotIn("`r26`", sentence)
+        self.assertIn("The other 20 have no published NOTES file: `r02`, `r04`", sentence)
+        for number in range(2, 41, 2):
+            self.assertIn(f"`r{number:02d}`", sentence)
+        self.assertIn("`r38`, `r40`. Their raw batches", sentence)
+        self.assertNotIn("more span", sentence)
 
 
 class PublisherCoverageTests(unittest.TestCase):
