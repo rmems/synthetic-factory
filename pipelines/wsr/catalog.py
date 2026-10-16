@@ -37,7 +37,6 @@ from ._contract import (
     LEGACY_MILL,
     LEGACY_MILL_SHA256,
     LEGACY_PLANTS,
-    LEGACY_PLANTS_SHA256,
     LLL_COMMIT,
     LLL_MILL,
     LLL_MILL_SHA256,

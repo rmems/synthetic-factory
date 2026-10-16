@@ -33,7 +33,6 @@ from ._contract import (
     contains_hidden_reasoning_key,
     dumps_exact_json,
     is_under_raw,
-    refuse,
     refuse_when,
 )
 

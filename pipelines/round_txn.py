@@ -236,8 +236,8 @@ EXECUTION_VERIFIER_SEMANTICS_VERSION = 6
 PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
 LEGACY_COMPLETION_MARKER_VERSION = 1
 EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION = 2
-EXECUTION_CUTOVER_KEY = "execution_verified_from_round"
-EXECUTION_VERIFIED_ROUNDS_KEY = "execution_verified_rounds"
+EXECUTION_CUTOVER_FIELD = "execution_verified_from_round"
+EXECUTION_VERIFIED_ROUNDS_FIELD = "execution_verified_rounds"
 CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
     {"counts", "gate", "override", "semantics_version", "strict"}
 )
@@ -485,13 +485,13 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
             raise TransactionError(f"staged file changed while publishing: {source}")
         try:
             os.link(temporary, destination, follow_symlinks=False)
-        except FileExistsError:
+        except FileExistsError as exc:
             if (
                 not destination.is_file()
                 or destination.is_symlink()
                 or file_sha256(destination) != expected_sha256
             ):
-                raise TransactionError(f"publication race at {destination}")
+                raise TransactionError(f"publication race at {destination}") from exc
     finally:
         if source_fd >= 0:
             os.close(source_fd)
@@ -1081,10 +1081,12 @@ def ensure_marker_mode(factory_dir: Path):
     try:
         write_exclusive_json(mode_path, payload)
         return payload
-    except FileExistsError:
+    except FileExistsError as exc:
         existing = marker_mode_path(factory_dir)
         if existing is None:
-            raise TransactionError(f"marker mode disappeared while creating it: {mode_path}")
+            raise TransactionError(
+                f"marker mode disappeared while creating it: {mode_path}"
+            ) from exc
         return validated_marker_mode(factory_dir, existing)
 
 
@@ -1133,17 +1135,17 @@ def validated_marker_mode(
 
 
 def _validated_execution_verified_rounds(mode, mode_path, cutover):
-    rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_KEY, [])
+    rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_FIELD, [])
     if not isinstance(rounds, list):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     if any(not _is_positive_int(round_number) for round_number in rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     if len(rounds) != len(set(rounds)) or rounds != sorted(rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     if cutover is None and rounds:
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     if cutover is not None and any(round_number >= cutover for round_number in rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     return frozenset(rounds)
 
 
@@ -1153,11 +1155,11 @@ def execution_gate_policy(factory_dir: Path):
     if mode_path is None:
         return None, frozenset()
     mode = read_json(mode_path)
-    cutover = mode.get(EXECUTION_CUTOVER_KEY)
+    cutover = mode.get(EXECUTION_CUTOVER_FIELD)
     if cutover is None:
         return None, _validated_execution_verified_rounds(mode, mode_path, None)
     if not _is_positive_int(cutover):
-        raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_CUTOVER_FIELD} in {mode_path}")
     return cutover, _validated_execution_verified_rounds(mode, mode_path, cutover)
 
 
@@ -1173,7 +1175,7 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
     if mode_path is None:
         return
     mode = read_json(mode_path)
-    existing = mode.get(EXECUTION_CUTOVER_KEY)
+    existing = mode.get(EXECUTION_CUTOVER_FIELD)
     if existing is None:
         legacy_rounds = []
         for path in factory_dir.glob("ROUND-r*.complete.json"):
@@ -1185,18 +1187,18 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
                 legacy_rounds.append(marker_round)
         cutover = max([round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)])
         updated = dict(mode)
-        updated[EXECUTION_CUTOVER_KEY] = cutover
+        updated[EXECUTION_CUTOVER_FIELD] = cutover
         if round_number < cutover:
-            updated[EXECUTION_VERIFIED_ROUNDS_KEY] = [round_number]
+            updated[EXECUTION_VERIFIED_ROUNDS_FIELD] = [round_number]
         replace_json_atomically(mode_path, updated)
         return
     if not _is_positive_int(existing):
-        raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+        raise TransactionError(f"invalid {EXECUTION_CUTOVER_FIELD} in {mode_path}")
     bound_rounds = _validated_execution_verified_rounds(mode, mode_path, existing)
     if round_number >= existing or round_number in bound_rounds:
         return
     updated = dict(mode)
-    updated[EXECUTION_VERIFIED_ROUNDS_KEY] = sorted({*bound_rounds, round_number})
+    updated[EXECUTION_VERIFIED_ROUNDS_FIELD] = sorted({*bound_rounds, round_number})
     replace_json_atomically(mode_path, updated)
 
 

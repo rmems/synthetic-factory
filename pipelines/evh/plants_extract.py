@@ -13,7 +13,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .catalog_extract import sha256_bytes
 from .vocabulary import (
     ARCHIVE_B_PATH,
     LEFTOVER_PLANT_ROW_KEYS,

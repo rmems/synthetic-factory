@@ -34,7 +34,6 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
-    refuse,
     refuse_when,
     shown,
 )

@@ -595,6 +595,8 @@ def _load_committed_catalog(catalog_dir: Path | None = None) -> Catalog:
 
 
 _CATALOG: Catalog | None = None
+# Exported but never bound here: ``__getattr__`` computes it from the catalog on first access.
+WAVE_ROUNDS: tuple[int, ...]
 
 
 def load_catalog() -> Catalog:

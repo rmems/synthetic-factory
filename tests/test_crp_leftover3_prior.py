@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-import ast
 import contextlib
 import hashlib
 import io
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,8 +23,6 @@ from crp import catalog as cat  # noqa: E402
 from crp import cli, generate, leftover3_prior, r432, r538, r729  # noqa: E402
 from crp._contract import (  # noqa: E402
     FINDING_AST_NOT_A_PLANT,
-    FINDING_DESTINATION_EXISTS,
-    FINDING_DESTINATION_UNDER_RAW,
     FINDING_PLANTS_SHA_MISMATCH,
     FINDING_ROUND_OUT_OF_DOMAIN,
     CrpRefusal,
