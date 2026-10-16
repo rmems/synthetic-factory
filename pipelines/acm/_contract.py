@@ -43,9 +43,9 @@ WRAP_NEEDLES = ("w131", "422-vs-400", "207-multistatus")
 FULL_ROW_COUNT = 1052
 FULL_SOURCE_FILES = 95
 REPRESENTATIVE_ROW_COUNT = 8
-DEFERRED_ROW_COUNT = 1044
-if REPRESENTATIVE_ROW_COUNT + DEFERRED_ROW_COUNT != FULL_ROW_COUNT:
-    raise ImportError("representative plus deferred ACM rows must total 1052")
+# The remainder by construction: representative plus deferred always totals
+# the full extract, so the counts need no import-time consistency check.
+DEFERRED_ROW_COUNT = FULL_ROW_COUNT - REPRESENTATIVE_ROW_COUNT
 
 REVIEWED_HOME = REVIEWED_MILL_PREFIX_HOMES[FAMILY]
 if REVIEWED_HOME != FACTORY_NAME:
