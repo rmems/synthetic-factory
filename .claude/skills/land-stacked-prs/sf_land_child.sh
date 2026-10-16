@@ -8,14 +8,18 @@ R="${SF_REPO:-rmems/synthetic-factory}"
 ROOT="${SF_REPO_ROOT:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)}"
 SESSION="${CLAUDE_SESSION_URL:-https://claude.ai/code/session_01T9WqTy6R6FuLKeJzSC8xTX}"
 TRAILER="${CLAUDE_TRAILER:-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>}"
-read -r BRANCH BASE < <(gh pr view "$PR" --repo $R --json headRefName,baseRefName --jq '"\(.headRefName) \(.baseRefName)"')
+read -r BRANCH BASE < <(gh pr view "$PR" --repo "$R" --json headRefName,baseRefName --jq '"\(.headRefName) \(.baseRefName)"')
 echo "== PR #$PR  head=$BRANCH  base=$BASE"
 [ "$BASE" = "main" ] || { echo "ABORT: base is '$BASE', not main (parent not merged / not retargeted yet)"; exit 2; }
 WT=$(git -C "$ROOT" worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '/^worktree /{w=$2} $0=="branch "b{print w}')
 [ -n "$WT" ] || { echo "ABORT: no existing worktree for $BRANCH"; exit 2; }
 cd "$WT" || exit 2
 [ -z "$(git status --porcelain)" ] || { echo "ABORT: dirty worktree $WT"; git status --short | head; exit 2; }
-git fetch -q origin && git pull -q --no-rebase origin "$BRANCH" || { echo "ABORT: pull failed"; exit 2; }
+if ! { git fetch -q origin && git pull -q --no-rebase origin "$BRANCH"; }; then
+  # a conflicted pull leaves a merge in progress; undo it so the worktree stays clean
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null; then git merge --abort; fi
+  echo "ABORT: pull failed"; exit 2
+fi
 BEFORE=$(git rev-parse --short HEAD)
 if git merge-base --is-ancestor origin/main HEAD; then
   echo "main already integrated at $BEFORE (no merge needed)"
@@ -23,11 +27,14 @@ else
   git merge --no-ff --no-commit origin/main >/dev/null 2>&1
   CONFLICTS=$(git diff --name-only --diff-filter=U)
   if [ -n "$CONFLICTS" ]; then
-    for f in $CONFLICTS; do
+    mapfile -t CONFLICT_FILES <<< "$CONFLICTS"
+    for f in "${CONFLICT_FILES[@]}"; do
       ok=0; for t in "${TAKE_MAIN[@]:-}"; do [ "$t" = "$f" ] && ok=1; done
       [ $ok = 1 ] || { echo "ABORT: unexpected conflict in $f (hand merge required)"; git merge --abort; exit 3; }
     done
-    git checkout origin/main -- $CONFLICTS && git add $CONFLICTS
+    if ! { git checkout origin/main -- "${CONFLICT_FILES[@]}" && git add "${CONFLICT_FILES[@]}"; }; then
+      echo "ABORT: could not take main's bytes for: $CONFLICTS"; git merge --abort; exit 3
+    fi
     echo "took main's bytes for: $CONFLICTS"
   fi
   OWN=$(git diff --cached --name-only origin/main | tr '\n' ' ')
@@ -51,7 +58,7 @@ echo "unittest=$UT smoke=$SM census=$CE | $STRICT"
 if [ "$UT" = 0 ] && [ "$SM" = 0 ] && [ "$CE" = 0 ]; then
   git push -q origin "$BRANCH" && echo "pushed $(git rev-parse --short HEAD)"
   git fetch -q origin; git merge-tree --write-tree origin/main "origin/$BRANCH" >/dev/null; echo "merge-tree vs main exit=$?"
-  echo "GitHub head: $(gh pr view "$PR" --repo $R --json headRefOid --jq .headRefOid | cut -c1-8)"
+  echo "GitHub head: $(gh pr view "$PR" --repo "$R" --json headRefOid --jq .headRefOid | cut -c1-8)"
 else
   echo "NOT PUSHED: a local check failed"; exit 4
 fi

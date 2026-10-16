@@ -22,7 +22,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 REPO = Path("/home/raulmc/rmems/synthetic-factory")
 PIPELINES = REPO / "pipelines"
@@ -83,13 +83,46 @@ OLD_PROV_RULE = (
 NEW_PROV_RULE = RULE_PLAIN + " Every NOTES-*.md is published verbatim."
 
 
+class FixBundleCheckError(Exception):
+    """A delta-bundle check failed. Raised explicitly so the build refuses under ``python -O``."""
+
+
+def _require(condition: object, message: object) -> None:
+    """Refuse with ``message`` unless ``condition`` holds (never stripped by ``-O``)."""
+    if not condition:
+        raise FixBundleCheckError(message)
+
+
+class _Target(NamedTuple):
+    """One FACTORIES row resolved: current Hub download, delta bundle, gate tree."""
+
+    factory: str
+    repo: str
+    cur: Path
+    fix: Path
+    run_fix: Path
+
+
+class _Selection(NamedTuple):
+    """Raw basenames on the Hub today, the base files to add, and the true duplicates."""
+
+    existing: list[str]
+    missing: list[str]
+    duplicates: list[str]
+
+    @property
+    def names(self) -> list[str]:
+        """Exactly the raw files that will be on the Hub after the PR, in round order."""
+        return sorted(self.existing + self.missing, key=round_key)
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 def round_key(name: str) -> tuple[int, str]:
     m = re.fullmatch(r"(?:batch|NOTES)-r(\d+)([a-z]?)\.(?:jsonl|md)", name)
-    assert m, name
+    _require(m, name)
     return int(m.group(1)), m.group(2)
 
 
@@ -109,15 +142,18 @@ def derive_missing(factory: str, existing: list[str]) -> tuple[list[str], list[s
     missing, duplicates = [], []
     for c in sorted(src.glob("batch-r*c.jsonl")):
         base = c.name[: -len("c.jsonl")] + ".jsonl"
-        assert (src / base).exists(), base
-        assert c.name in existing, c.name
-        assert base not in existing, base
+        _require((src / base).exists(), base)
+        _require(c.name in existing, c.name)
+        _require(base not in existing, base)
         c_ids, b_ids = record_ids(c), record_ids(src / base)
-        assert len(set(c_ids)) == len(c_ids) and len(set(b_ids)) == len(b_ids)
+        _require(
+            len(set(c_ids)) == len(c_ids) and len(set(b_ids)) == len(b_ids),
+            f"repeated record ids inside {c.name} or {base}",
+        )
         if set(c_ids) == set(b_ids):
             duplicates.append(base)
         else:
-            assert not (set(c_ids) & set(b_ids)), (factory, base, set(c_ids) & set(b_ids))
+            _require(not (set(c_ids) & set(b_ids)), (factory, base, set(c_ids) & set(b_ids)))
             missing.append(base)
     return sorted(missing, key=round_key), sorted(duplicates, key=round_key)
 
@@ -135,29 +171,42 @@ def load_rows(factory: str, names: list[str]):
             export_contract._loads_json(line, f"{name}:{line_number}")
             rows.append(ViewerRow(source_file=source_file, source_line=line_number, record_json=line))
             records.append(json.loads(line))
-        assert "\n".join(lines).encode("utf-8") + b"\n" == payload, name
+        _require("\n".join(lines).encode("utf-8") + b"\n" == payload, name)
         files_meta.append({"path": source_file, "sha256": sha256(payload), "records": len(lines)})
         raw_bytes += len(payload)
     return rows, records, files_meta, raw_bytes
 
 
-def census(records: list[dict]) -> dict:
-    ids = [r.get("id") for r in records]
-    assert len(ids) == len(set(ids)) and all(isinstance(i, str) for i in ids), "ids not unique"
-    key_sets = [set(r.keys()) for r in records]
-    common = sorted(set.intersection(*key_sets))
-    optional = sorted(set.union(*key_sets) - set(common))
+def _decision_counts(records: list[dict]) -> collections.Counter[str]:
     decisions: collections.Counter[str] = collections.Counter()
     for r in records:
         sd = r.get("safety_decision")
         if isinstance(sd, dict) and isinstance(sd.get("decision"), str):
             decisions[sd["decision"]] += 1
-    surface = collections.Counter(
+    return decisions
+
+
+def _surface_counts(records: list[dict]) -> collections.Counter[str]:
+    return collections.Counter(
         str(r.get("meta", {}).get("rights", {}).get("generation_surface")) for r in records
     )
-    rights_status_rows = sum(
+
+
+def _rights_status_rows(records: list[dict]) -> int:
+    return sum(
         1 for r in records if "research_retention_status" in r.get("meta", {}).get("rights", {})
     )
+
+
+def census(records: list[dict]) -> dict:
+    ids = [r.get("id") for r in records]
+    _require(len(ids) == len(set(ids)) and all(isinstance(i, str) for i in ids), "ids not unique")
+    key_sets = [set(r.keys()) for r in records]
+    common = sorted(set.intersection(*key_sets))
+    optional = sorted(set.union(*key_sets) - set(common))
+    decisions = _decision_counts(records)
+    surface = _surface_counts(records)
+    rights_status_rows = _rights_status_rows(records)
     return {
         "first_id": ids[0],
         "last_id": ids[-1],
@@ -171,34 +220,39 @@ def census(records: list[dict]) -> dict:
 
 def sub_once(text: str, pattern: str, replacement: str, label: str, flags: int = 0) -> str:
     matches = list(re.finditer(pattern, text, flags))
-    assert len(matches) == 1, (label, len(matches))
+    _require(len(matches) == 1, (label, len(matches)))
     return text[: matches[0].start()] + replacement + text[matches[0].end():]
 
 
-def patch_readme(text: str, old: dict, new: dict, names: list[str], files_meta: list[dict]) -> str:
-    t = text
-    # front matter: only the two split numbers change
-    t = sub_once(
+def _patch_split_numbers(t: str, old: dict, new: dict) -> str:
+    """Front matter: only the two split numbers change."""
+    return sub_once(
         t,
         rf"    num_examples: {old['rows']}\n    num_bytes: {old['parquet_bytes']}\n",
         f"    num_examples: {new['rows']}\n    num_bytes: {new['parquet_bytes']}\n",
         "front matter split numbers",
     )
-    # body: record / file counts and raw size
+
+
+def _patch_release_counts(t: str, old: dict, new: dict) -> str:
+    """Body: record / file counts and raw size."""
     m = re.search(
         rf"The release contains \*\*{old['records']} (.+?) across\n{old['file_count']} JSONL files\*\* "
         rf"\(~[\d.]+ MB of raw JSONL\)",
         t,
     )
-    assert m and len(re.findall(r"The release contains \*\*", t)) == 1, "release contains"
+    _require(m and len(re.findall(r"The release contains \*\*", t)) == 1, "release contains")
     kind_label = m.group(1)
-    t = (
+    return (
         t[: m.start()]
         + f"The release contains **{new['records']} {kind_label} across\n{new['file_count']} JSONL files** "
         f"(~{new['raw_bytes'] / 1_000_000:.2f} MB of raw JSONL)"
         + t[m.end():]
     )
-    # id range, gate outcomes, key census
+
+
+def _patch_census_paragraph(t: str, new: dict) -> str:
+    """Id range, gate outcomes, key census."""
     decisions_md = ""
     if new["decisions"]:
         decisions_md = " Gate outcomes: " + " / ".join(
@@ -207,7 +261,7 @@ def patch_readme(text: str, old: dict, new: dict, names: list[str], files_meta: 
     optional_md = ""
     if new["optional_keys"]:
         optional_md = " Some rows add " + ", ".join(f"`{k}`" for k in new["optional_keys"]) + "."
-    t = sub_once(
+    return sub_once(
         t,
         r"Record ids run `[^`]+` …\n`[^`]+` and are unique across the release\..*?\n\nThis is the \*\*Grok 4\.6 counterpart\*\*",
         f"Record ids run `{new['first_id']}` …\n`{new['last_id']}` and are unique across the release."
@@ -216,11 +270,14 @@ def patch_readme(text: str, old: dict, new: dict, names: list[str], files_meta: 
         "id range / census paragraph",
         re.DOTALL,
     )
-    # rights-status rows and generation surface
+
+
+def _patch_rights_surface(t: str, old: dict, new: dict) -> str:
+    """Rights-status rows and generation surface."""
     surface_md = "; ".join(
         f"`{k}`: {v}" for k, v in sorted(new["generation_surface"].items(), key=lambda kv: -kv[1])
     )
-    t = sub_once(
+    return sub_once(
         t,
         rf"record-level policy fields \({old['rights_status_rows']} of\n  {old['records']} rows also carry the "
         r"individual research/redistribution\n  status fields\)\. Record-level `generation_surface` values in "
@@ -231,7 +288,10 @@ def patch_readme(text: str, old: dict, new: dict, names: list[str], files_meta: 
         "rights status / surface",
         re.DOTALL,
     )
-    # rounds list + selection rule (replaces the supersession bullet)
+
+
+def _patch_rounds_bullets(t: str, names: list[str]) -> str:
+    """Rounds list + selection rule (replaces the supersession bullet)."""
     rounds_md = ", ".join(f"`{round_label(n)}`" for n in names)
     selection = (
         f"- **Rounds published:** {rounds_md}.\n"
@@ -242,117 +302,177 @@ def patch_readme(text: str, old: dict, new: dict, names: list[str], files_meta: 
         "  factory is published verbatim under `notes/`.\n"
         "- **Source:**"
     )
-    assert "".join(selection.split()) .count("".join(RULE_MD.split())) == 1, "rule wording drift"
-    t = sub_once(
+    _require("".join(selection.split()) .count("".join(RULE_MD.split())) == 1, "rule wording drift")
+    return sub_once(
         t,
         r"- \*\*Rounds published:\*\* .*?\n- \*\*Supersession rule:\*\* .*?under `notes/`\.\n- \*\*Source:\*\*",
         selection,
         "rounds + supersession bullets",
         re.DOTALL,
     )
-    # raw file table
+
+
+def _patch_file_table(t: str, files_meta: list[dict]) -> str:
+    """Raw file table."""
     files_md = "\n".join(
         f"| `{f['path']}` | {f['records']} | `{f['sha256'][:12]}…` |" for f in files_meta
     )
-    t = sub_once(
+    return sub_once(
         t,
         r"\| Raw file \| Records \| SHA-256 \(prefix\) \|\n\| --- \| ---: \| --- \|\n(?:\| `data/raw/[^\n]*\|\n)+",
         "| Raw file | Records | SHA-256 (prefix) |\n| --- | ---: | --- |\n" + files_md + "\n",
         "raw file table",
     )
+
+
+def patch_readme(text: str, old: dict, new: dict, names: list[str], files_meta: list[dict]) -> str:
+    t = _patch_split_numbers(text, old, new)
+    t = _patch_release_counts(t, old, new)
+    t = _patch_census_paragraph(t, new)
+    t = _patch_rights_surface(t, old, new)
+    t = _patch_rounds_bullets(t, names)
+    t = _patch_file_table(t, files_meta)
     # viewer row count in "How to read"
-    t = sub_once(
+    return sub_once(
         t, rf"indexes {old['rows']} rows\.", f"indexes {new['rows']} rows.", "viewer row count"
     )
-    return t
 
 
 def front_matter(text: str) -> list[str]:
-    assert text.startswith("---\n")
+    _require(text.startswith("---\n"), "README does not open with a front-matter fence")
     end = text.index("\n---\n", 4)
     return text[4:end].split("\n")
 
 
-def build_one(factory: str, repo: str, expected_missing: list[str]) -> dict:
-    name = repo.split("/")[1]
-    cur = CURRENT / name
-    fix = FIX / name
-    run_fix = RUN_FIX / factory
-    for d in (fix, run_fix):
+def _reset_output_dirs(target: _Target) -> None:
+    for d in (target.fix, target.run_fix):
         if d.exists():
             shutil.rmtree(d)
-    (fix / "data/raw").mkdir(parents=True)
-    (fix / "data/viewer").mkdir(parents=True)
-    run_fix.mkdir(parents=True)
+    (target.fix / "data/raw").mkdir(parents=True)
+    (target.fix / "data/viewer").mkdir(parents=True)
+    target.run_fix.mkdir(parents=True)
 
+
+def _current_raw_names(factory: str, cur: Path) -> list[str]:
+    """Raw basenames on the Hub today, in round order."""
     existing = sorted((p.name for p in (cur / "data/raw").iterdir()), key=round_key)
-    assert all(re.fullmatch(r"batch-r\d+c?\.jsonl", b) for b in existing), existing
+    _require(all(re.fullmatch(r"batch-r\d+c?\.jsonl", b) for b in existing), existing)
     for b in existing:  # current Hub raw files are byte-identical to the immutable tree
-        assert (cur / "data/raw" / b).read_bytes() == (SOURCE / factory / b).read_bytes(), b
-    assert not (cur / "data/viewer/records.jsonl").exists(), "unexpected records.jsonl"
+        _require((cur / "data/raw" / b).read_bytes() == (SOURCE / factory / b).read_bytes(), b)
+    _require(not (cur / "data/viewer/records.jsonl").exists(), "unexpected records.jsonl")
+    return existing
 
+
+def _selection(factory: str, existing: list[str], expected_missing: list[str]) -> _Selection:
     missing, duplicates = derive_missing(factory, existing)
-    assert missing == expected_missing, (factory, missing, expected_missing)
-    assert duplicates == TRUE_DUPLICATES.get(factory, []), (factory, duplicates)
+    _require(missing == expected_missing, (factory, missing, expected_missing))
+    _require(duplicates == TRUE_DUPLICATES.get(factory, []), (factory, duplicates))
+    return _Selection(existing, missing, duplicates)
 
-    # determinism: the predecessor's writer over the existing files must reproduce
-    # the parquet that is on the Hub today (same writer, same dialect, same order)
+
+def _reproduce_hub_viewer(factory: str, existing: list[str], cur: Path):
+    """Determinism: the predecessor's writer over the existing files must reproduce
+    the parquet that is on the Hub today (same writer, same dialect, same order)."""
     old_rows, old_records, _, _ = load_rows(factory, existing)
     old_parquet_hub = (cur / "data/viewer/records.parquet").read_bytes()
-    assert export_viewer.write_viewer_parquet(old_rows) == old_parquet_hub, "writer drift"
+    _require(export_viewer.write_viewer_parquet(old_rows) == old_parquet_hub, "writer drift")
+    return old_rows, old_records, old_parquet_hub
 
-    # raw additions: verbatim bytes from the immutable tree
-    for b in missing:
-        payload = (SOURCE / factory / b).read_bytes()
-        (fix / "data/raw" / b).write_bytes(payload)
-        assert (fix / "data/raw" / b).read_bytes() == payload
-    # gate tree: exactly the raw files that will be on the Hub after the PR
-    names = sorted(existing + missing, key=round_key)
+
+def _copy_verbatim(factory: str, names: list[str], dest: Path) -> None:
+    """Copy each named raw file from the immutable tree and prove the copy byte-identical."""
     for b in names:
         payload = (SOURCE / factory / b).read_bytes()
-        (run_fix / b).write_bytes(payload)
-        assert (run_fix / b).read_bytes() == payload
+        (dest / b).write_bytes(payload)
+        _require((dest / b).read_bytes() == payload, f"copy does not read back byte-identical: {b}")
 
-    # viewer projection over ALL raw files, proven lossless twice
-    rows, records, files_meta, raw_bytes = load_rows(factory, names)
-    parquet = export_viewer.write_viewer_parquet(rows)
-    assert export_viewer.read_viewer_parquet(parquet) == rows
+
+def _verify_viewer_parquet(parquet: bytes, rows: list) -> None:
+    """Prove the viewer projection lossless twice: the repo reader, then pyarrow."""
+    _require(
+        export_viewer.read_viewer_parquet(parquet) == rows,
+        "viewer parquet does not read back to the source rows",
+    )
     table = pq.read_table(io.BytesIO(parquet))
-    assert table.num_rows == len(rows)
-    assert table.column("source_file").to_pylist() == [r.source_file for r in rows]
-    assert table.column("source_line").to_pylist() == [r.source_line for r in rows]
-    assert table.column("record_json").to_pylist() == [r.record_json for r in rows]
-    assert [f.name for f in table.schema] == ["source_file", "source_line", "record_json"]
-    assert str(table.schema.field("source_line").type) == "int64"
-    (fix / "data/viewer/records.parquet").write_bytes(parquet)
+    _require(table.num_rows == len(rows), "viewer parquet row count differs from the source rows")
+    for column in ("source_file", "source_line", "record_json"):
+        _require(
+            table.column(column).to_pylist() == [getattr(r, column) for r in rows],
+            f"viewer parquet column {column} differs from the source rows",
+        )
+    _require(
+        [f.name for f in table.schema] == ["source_file", "source_line", "record_json"],
+        "viewer parquet columns are not source_file, source_line, record_json",
+    )
+    _require(
+        str(table.schema.field("source_line").type) == "int64",
+        "viewer parquet source_line is not int64",
+    )
 
-    assert all(r.get("meta", {}).get("generator") == "grok-4.6" for r in records)
-    assert all(r.get("meta", {}).get("factory") == factory for r in records)
-    assert all(r.get("meta", {}).get("run_label") == RUN_LABEL for r in records)
-    old_c = census(old_records)
-    new_c = census(records)
-    old = {
-        **old_c, "records": len(old_records), "file_count": len(existing), "rows": len(old_rows),
-        "parquet_bytes": len(old_parquet_hub),
-    }
-    new = {
-        **new_c, "records": len(records), "file_count": len(names), "rows": len(rows),
-        "parquet_bytes": len(parquet), "raw_bytes": raw_bytes,
+
+def _check_record_stamps(records: list[dict], factory: str) -> None:
+    _require(
+        all(r.get("meta", {}).get("generator") == "grok-4.6" for r in records),
+        "a record is not stamped meta.generator grok-4.6",
+    )
+    _require(
+        all(r.get("meta", {}).get("factory") == factory for r in records),
+        f"a record is not stamped meta.factory {factory}",
+    )
+    _require(
+        all(r.get("meta", {}).get("run_label") == RUN_LABEL for r in records),
+        f"a record is not stamped meta.run_label {RUN_LABEL}",
+    )
+
+
+def _totals(records: list[dict], file_count: int, row_count: int, parquet: bytes) -> dict:
+    """Card and provenance totals for one state of the repo (before or after the PR)."""
+    return {
+        **census(records), "records": len(records), "file_count": file_count, "rows": row_count,
+        "parquet_bytes": len(parquet), "parquet_sha256": sha256(parquet),
     }
 
-    # provenance.json: additions to the raw snapshot, new totals, accurate rule
+
+def _current_provenance(cur: Path) -> dict:
     prov_text = (cur / "provenance.json").read_text()
     prov = json.loads(prov_text)
-    assert json.dumps(prov, ensure_ascii=False, indent=2) + "\n" == prov_text, "provenance serialization"
-    snap = prov["raw_snapshot"]
-    assert snap["selection_rule"] == OLD_PROV_RULE
-    assert snap["records"] == old["records"] and len(snap["files"]) == old["file_count"]
-    assert snap["viewer"]["bytes"] == old["parquet_bytes"] and snap["viewer"]["sha256"] == sha256(old_parquet_hub)
-    assert snap["superseded_not_published"] == sorted(missing + duplicates, key=round_key)
+    _require(
+        json.dumps(prov, ensure_ascii=False, indent=2) + "\n" == prov_text,
+        "provenance serialization",
+    )
+    return prov
+
+
+def _check_old_snapshot(snap: dict, old: dict, omitted: list[str]) -> None:
+    """The Hub's raw_snapshot must describe exactly the Hub files under the old rule."""
+    _require(
+        snap["selection_rule"] == OLD_PROV_RULE,
+        "provenance selection_rule is not the old supersede rule",
+    )
+    _require(
+        snap["records"] == old["records"] and len(snap["files"]) == old["file_count"],
+        "provenance record or file totals differ from the Hub files",
+    )
+    _require(
+        snap["viewer"]["bytes"] == old["parquet_bytes"]
+        and snap["viewer"]["sha256"] == old["parquet_sha256"],
+        "provenance viewer size or digest differs from the Hub parquet",
+    )
+    _require(
+        snap["superseded_not_published"] == omitted,
+        "provenance superseded_not_published differs from the derived omissions",
+    )
+
+
+def _check_existing_entries(snap: dict, files_meta: list[dict]) -> None:
     old_files = {f["path"]: f for f in snap["files"]}
     for f in files_meta:  # existing entries are reproduced exactly
         if f["path"] in old_files:
-            assert old_files[f["path"]] == f, f["path"]
+            _require(old_files[f["path"]] == f, f["path"])
+
+
+def _rewritten_snapshot(snap: dict, new: dict, duplicates: list[str]) -> dict:
+    """Additions to the raw snapshot, new totals, accurate rule; key order kept."""
     new_snap: dict[str, Any] = {}
     for key, value in snap.items():
         if key == "selection_rule":
@@ -362,55 +482,135 @@ def build_one(factory: str, repo: str, expected_missing: list[str]) -> dict:
         elif key == "records":
             new_snap[key] = new["records"]
         elif key == "files":
-            new_snap[key] = files_meta
+            new_snap[key] = new["files"]
         elif key == "viewer":
-            assert value["writer"] == export_contract.CREATED_BY
-            new_snap[key] = {**value, "rows": new["rows"], "bytes": new["parquet_bytes"], "sha256": sha256(parquet)}
+            _require(
+                value["writer"] == export_contract.CREATED_BY,
+                "provenance viewer writer is not the factory's export writer",
+            )
+            new_snap[key] = {
+                **value, "rows": new["rows"], "bytes": new["parquet_bytes"],
+                "sha256": new["parquet_sha256"],
+            }
         else:
             new_snap[key] = value
-    prov["raw_snapshot"] = new_snap
-    (fix / "provenance.json").write_text(json.dumps(prov, ensure_ascii=False, indent=2) + "\n")
+    return new_snap
 
-    # rights.json: only the sentence about c files changes (raw text edit, re-validated)
-    rights_text = (cur / "rights.json").read_text()
-    assert rights_text.count(OLD_RIGHTS_SENTENCE) == 1
+
+def _write_provenance(target: _Target, sel: _Selection, old: dict, new: dict) -> dict:
+    prov = _current_provenance(target.cur)
+    snap = prov["raw_snapshot"]
+    _check_old_snapshot(snap, old, sorted(sel.missing + sel.duplicates, key=round_key))
+    _check_existing_entries(snap, new["files"])
+    prov["raw_snapshot"] = _rewritten_snapshot(snap, new, sel.duplicates)
+    (target.fix / "provenance.json").write_text(json.dumps(prov, ensure_ascii=False, indent=2) + "\n")
+    return prov
+
+
+def _write_rights(target: _Target) -> str:
+    """Only the sentence about c files changes (raw text edit, re-validated)."""
+    rights_text = (target.cur / "rights.json").read_text()
+    _require(
+        rights_text.count(OLD_RIGHTS_SENTENCE) == 1,
+        "rights.json does not carry the old c-file sentence exactly once",
+    )
     new_rights_text = rights_text.replace(OLD_RIGHTS_SENTENCE, RULE_PLAIN)
     rights_document.load_rights_document_bytes(new_rights_text.encode("utf-8"))  # must not raise
     a, b = json.loads(rights_text), json.loads(new_rights_text)
-    assert {k: v for k, v in a.items() if k != "notes"} == {k: v for k, v in b.items() if k != "notes"}
-    (fix / "rights.json").write_text(new_rights_text)
+    _require(
+        {k: v for k, v in a.items() if k != "notes"} == {k: v for k, v in b.items() if k != "notes"},
+        "rights.json changed outside notes",
+    )
+    (target.fix / "rights.json").write_text(new_rights_text)
+    return new_rights_text
 
-    # README.md: targeted replacements on the current card; license front matter untouched
-    readme = (cur / "README.md").read_text()
-    new_readme = patch_readme(readme, old, new, names, files_meta)
+
+def _check_front_matter_delta(readme: str, new_readme: str, old: dict, new: dict) -> None:
     fm_old, fm_new = front_matter(readme), front_matter(new_readme)
-    assert len(fm_old) == len(fm_new)
+    _require(len(fm_old) == len(fm_new), "README front matter line count changed")
     changed_fm = [(x, y) for x, y in zip(fm_old, fm_new) if x != y]
-    assert changed_fm == [
+    _require(changed_fm == [
         (f"    num_examples: {old['rows']}", f"    num_examples: {new['rows']}"),
         (f"    num_bytes: {old['parquet_bytes']}", f"    num_bytes: {new['parquet_bytes']}"),
-    ], changed_fm
-    assert "license: other\nlicense_name: synthetic-factory-research-only\nlicense_link: LICENSE\n" in new_readme
+    ], changed_fm)
+
+
+def _check_card_wording(new_readme: str, new_rights_text: str, prov: dict, missing: list) -> None:
+    _require(
+        "license: other\nlicense_name: synthetic-factory-research-only\nlicense_link: LICENSE\n"
+        in new_readme,
+        "README front matter does not declare the research-only license",
+    )
     for stale in ("supersed", "Supersession", "corrected re-emission"):
-        assert stale not in new_readme, stale
-        assert stale not in new_rights_text, stale
-        assert stale not in json.dumps(prov), stale
+        _require(stale not in new_readme, stale)
+        _require(stale not in new_rights_text, stale)
+        _require(stale not in json.dumps(prov), stale)
     for added in missing:
-        assert f"| `data/raw/{added}` |" in new_readme, added
-    (fix / "README.md").write_text(new_readme)
+        _require(f"| `data/raw/{added}` |" in new_readme, added)
 
-    # release-status.json carries no record count: unchanged, not part of the delta
+
+def _check_release_status(cur: Path) -> None:
+    """release-status.json carries no record count: unchanged, not part of the delta."""
     status = json.loads((cur / "release-status.json").read_text())
-    assert not any(isinstance(v, int) and not isinstance(v, bool) for v in status.values())
+    _require(
+        not any(isinstance(v, int) and not isinstance(v, bool) for v in status.values()),
+        "release-status.json carries a count",
+    )
 
+
+def build_one(factory: str, repo: str, expected_missing: list[str]) -> dict:
+    name = repo.split("/")[1]
+    target = _Target(factory, repo, CURRENT / name, FIX / name, RUN_FIX / factory)
+    _reset_output_dirs(target)
+
+    existing = _current_raw_names(factory, target.cur)
+    sel = _selection(factory, existing, expected_missing)
+    old_rows, old_records, old_parquet_hub = _reproduce_hub_viewer(factory, existing, target.cur)
+
+    # raw additions, then the gate tree: exactly the raw files on the Hub after the PR
+    _copy_verbatim(factory, sel.missing, target.fix / "data/raw")
+    names = sel.names
+    _copy_verbatim(factory, names, target.run_fix)
+
+    # viewer projection over ALL raw files, proven lossless twice
+    rows, records, files_meta, raw_bytes = load_rows(factory, names)
+    parquet = export_viewer.write_viewer_parquet(rows)
+    _verify_viewer_parquet(parquet, rows)
+    (target.fix / "data/viewer/records.parquet").write_bytes(parquet)
+
+    _check_record_stamps(records, factory)
+    old = _totals(old_records, len(existing), len(old_rows), old_parquet_hub)
+    new = {
+        **_totals(records, len(names), len(rows), parquet),
+        "raw_bytes": raw_bytes, "files": files_meta,
+    }
+
+    prov = _write_provenance(target, sel, old, new)
+    new_rights_text = _write_rights(target)
+
+    # README.md: targeted replacements on the current card; license front matter untouched
+    readme = (target.cur / "README.md").read_text()
+    new_readme = patch_readme(readme, old, new, names, files_meta)
+    _check_front_matter_delta(readme, new_readme, old, new)
+    _check_card_wording(new_readme, new_rights_text, prov, sel.missing)
+    (target.fix / "README.md").write_text(new_readme)
+
+    _check_release_status(target.cur)
+    return _fix_summary(target, sel, old, new)
+
+
+def _fix_summary(target: _Target, sel: _Selection, old: dict, new: dict) -> dict:
+    fix = target.fix
     return {
-        "repo": repo,
-        "factory": factory,
+        "repo": target.repo,
+        "factory": target.factory,
         "fix_bundle": str(fix),
-        "run_fix": str(run_fix),
-        "added_files": [f"data/raw/{b}" for b in missing],
-        "added_records": sum(f["records"] for f in files_meta if f["path"].split("/")[-1] in missing),
-        "omitted_duplicates": duplicates,
+        "run_fix": str(target.run_fix),
+        "added_files": [f"data/raw/{b}" for b in sel.missing],
+        "added_records": sum(
+            f["records"] for f in new["files"] if f["path"].split("/")[-1] in sel.missing
+        ),
+        "omitted_duplicates": sel.duplicates,
         "records_before": old["records"],
         "records_after": new["records"],
         "files_before": old["file_count"],
@@ -419,8 +619,8 @@ def build_one(factory: str, repo: str, expected_missing: list[str]) -> dict:
         "parquet_rows_after": new["rows"],
         "parquet_bytes_before": old["parquet_bytes"],
         "parquet_bytes_after": new["parquet_bytes"],
-        "parquet_sha256_after": sha256(parquet),
-        "rounds_after": [round_label(n) for n in names],
+        "parquet_sha256_after": new["parquet_sha256"],
+        "rounds_after": [round_label(n) for n in sel.names],
         "delta_files": sorted(str(p.relative_to(fix)) for p in fix.rglob("*") if p.is_file()),
     }
 

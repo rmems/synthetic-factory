@@ -1,5 +1,5 @@
-# Written and run by a Claude Fable 5.1 subagent during the 2026-09-04 Hub publication session.
 #!/usr/bin/env bash
+# Written and run by a Claude Fable 5.1 subagent during the 2026-09-04 Hub publication session.
 # NOT RUN. Uploads each prepared bundle as a Hub pull request (never to main).
 # Run only after the owner has settled the two open questions in the report
 # (viewer container format; rights.json statuses vs the repo validator).
