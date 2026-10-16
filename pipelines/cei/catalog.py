@@ -1019,8 +1019,8 @@ def _catalog_from_meta(catalog_dir: Path, plants_path: Path, meta: Any) -> Catal
     plants = tuple(
         _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
     )
-    _refuse_noncontiguous_indices(plants)
     _refuse_duplicate_identities(plants)
+    _refuse_noncontiguous_indices(plants)
     _refuse_mill_pins(mills, plants)
     return Catalog(
         catalog_id=catalog_id,

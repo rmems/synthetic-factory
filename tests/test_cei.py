@@ -794,7 +794,12 @@ class RefusalBranches(unittest.TestCase):
         )
         plants_path = copy / catalog.PLANTS_FILENAME
         first = json.loads(plants_path.read_text(encoding="utf-8").splitlines()[0])
-        rows = [first, dict(first, index=2)]
+        second = json.loads(json.dumps(first))
+        second["index"] = 2
+        second["ok"] = dict(second["ok"], slug="gap-index-two-ok")
+        second["plant_id"] = "cei_r0001:gap-index-two-ok"
+        second["bad"] = dict(second["bad"], slug="gap-index-two-bad")
+        rows = [first, second]
         payload = "".join(
             json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows
         )
