@@ -115,6 +115,32 @@ are re-published once, after [#165] makes publication and release verification
 rights-aware. Card viewer schemas are declared by hand for 35 of the 44
 datasets (`python3 scripts/publish_grok46_hub.py schemas` lists the gaps).
 
+```bash
+# Read-only: the viewer-schema audit (reads no root) and local mirror/source counts
+python3 scripts/publish_grok46_hub.py schemas --strict
+python3 scripts/publish_grok46_hub.py status --hf-root ~/hf --factory-root outputs/raw/2026-08-19-agentic
+# Writes the local Hub mirror under <hf-root>/grok-4.6/
+python3 scripts/publish_grok46_hub.py snapshot --only long-horizon-coding-trajectories --hf-root ~/hf
+# Hub writes (network): create, upload, collect, or all four in order
+python3 scripts/publish_grok46_hub.py create --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py upload --only long-horizon-coding-trajectories --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py collect --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py all --hf-root ~/hf
+```
+
+The publisher reads published rounds from a factory source root and mirrors
+them under `<hf-root>/grok-4.6/<dataset>/`. Each root resolves once per run:
+the `--hf-root` / `--factory-root` flag, then `SYNTHETIC_FACTORY_HF_ROOT` /
+`SYNTHETIC_FACTORY_SOURCE_ROOT`, then the owner's defaults
+(`/home/raulmc/rmems/hf`, and the first existing `outputs/raw/2026-08-19-agentic`
+under this checkout, `~/synthetic-factory`, or `~/synthetic-data`). A configured
+root is refused unless it already exists as a real, non-symlinked directory;
+the publisher does not create it. The Hub root is refused when it names or
+aliases `outputs/raw/` or overlaps the factory source root, so a Hub working
+tree cannot mutate raw bytes. A refusal exits 2 and names the flag or
+variable, not its value. `schemas` reads neither root and refuses the root
+flags, even with an empty value.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE) — see

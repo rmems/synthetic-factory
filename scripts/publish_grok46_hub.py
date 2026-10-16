@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Snapshot published Grok 4.6 factory JSONL into ~/rmems/hf/grok-4.6/<name>/ and publish to Hub.
+"""Snapshot published Grok 4.6 factory JSONL into <HF root>/grok-4.6/<name>/ and publish to Hub.
 
 Factory SoT stays under outputs/raw/2026-08-19-agentic/. Hub clones never nest rmems/.
 Creates public Apache-2.0 dataset repos, writes cards, uploads, adds to
 rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90.
 
 Usage:
-    python3 scripts/publish_grok46_hub.py snapshot
-    python3 scripts/publish_grok46_hub.py create
-    python3 scripts/publish_grok46_hub.py upload [--only HUB_NAME]
-    python3 scripts/publish_grok46_hub.py collect
-    python3 scripts/publish_grok46_hub.py status
+    python3 scripts/publish_grok46_hub.py snapshot [ROOTS]
+    python3 scripts/publish_grok46_hub.py create [ROOTS]
+    python3 scripts/publish_grok46_hub.py upload [--only HUB_NAME] [ROOTS]
+    python3 scripts/publish_grok46_hub.py collect [ROOTS]
+    python3 scripts/publish_grok46_hub.py status [ROOTS]
     python3 scripts/publish_grok46_hub.py schemas [--strict]
-    python3 scripts/publish_grok46_hub.py all
+    python3 scripts/publish_grok46_hub.py all [ROOTS]
+
+ROOTS is ``[--hf-root DIR] [--factory-root DIR]``. Each root resolves once per
+run: the flag, then ``SYNTHETIC_FACTORY_HF_ROOT`` /
+``SYNTHETIC_FACTORY_SOURCE_ROOT``, then the module defaults ``HF_ROOT`` and
+``FACTORY_ROOT``. A configured root is refused unless it already exists as a
+real directory, and ``schemas`` reads neither root. Resolution and validation
+live in scripts/publish_hub_roots.py.
 
 Card viewer schemas are declared one JSON file per dataset under
 config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
@@ -68,18 +75,36 @@ from round_txn import (  # noqa: E402
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
 )
+# The roots sibling sits beside this script. Put that directory on sys.path
+# explicitly: -I, -P and PYTHONSAFEPATH=1 leave it off. Append rather than
+# insert, so pipelines/ keeps precedence over the scripts/ shims.
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.append(str(SCRIPTS_ROOT))
+from publish_hub_roots import (  # noqa: E402
+    PublisherRoots,
+    active_factory_root,
+    active_hf_root,
+    active_roots,
+    add_root_arguments,
+    publication_roots,
+    real_directory,
+    refused_schemas_option,
+    safe_factory_root,
+)
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 
 
 def hf_datasets_root() -> Path:
-    """Directory holding this lane's Hub mirrors, one level under HF_ROOT.
+    """Directory holding this lane's Hub mirrors, one level under the Hub root.
 
     Resolved at call time rather than bound at import so that callers (and
-    tests) which override ``HF_ROOT`` get a matching mirror root instead of
-    silently pointing at the real home directory.
+    tests) which override ``HF_ROOT``, or a run with a configured Hub root, get
+    a matching mirror root instead of silently pointing at the real home
+    directory.
     """
-    return HF_ROOT / HF_DATASETS_DIRNAME
+    return active_hf_root(HF_ROOT) / HF_DATASETS_DIRNAME
 
 
 COLLECTION = "rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
@@ -429,10 +454,9 @@ def card_declaration_for_payload(
 
 def factory_source(slug: str) -> Path:
     """Return one in-tree, non-symlinked factory directory."""
-    if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
-        raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
-    root = FACTORY_ROOT.resolve()
-    source = FACTORY_ROOT / slug
+    factory_root = safe_factory_root(FACTORY_ROOT)
+    root = factory_root.resolve()
+    source = factory_root / slug
     if source.is_symlink() or not source.is_dir():
         raise SystemExit(f"unsafe factory directory: {source}")
     try:
@@ -443,10 +467,9 @@ def factory_source(slug: str) -> Path:
 
 
 def _factory_slugs() -> list[str]:
-    if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
-        raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
+    factory_root = safe_factory_root(FACTORY_ROOT)
     slugs: list[str] = []
-    for path in sorted(FACTORY_ROOT.iterdir()):
+    for path in sorted(factory_root.iterdir()):
         if path.is_symlink():
             raise SystemExit(f"unsafe factory directory: {path}")
         if path.is_dir():
@@ -567,24 +590,16 @@ def replace_snapshot_text(dst: Path, content: str) -> None:
 
 def snapshot_directories(dest: Path) -> tuple[Path, Path]:
     """Create a real, contained raw/metadata tree for one Hub snapshot."""
-    for directory in (HF_ROOT, hf_datasets_root()):
-        if directory.exists() or directory.is_symlink():
-            if not directory.is_dir() or directory.is_symlink():
-                raise SystemExit(f"unsafe snapshot directory: {directory}")
-        else:
-            directory.mkdir(parents=True)
-    root = HF_ROOT.resolve()
+    for directory in (active_hf_root(HF_ROOT), hf_datasets_root()):
+        real_directory(directory, parents=True)
+    root = active_hf_root(HF_ROOT).resolve()
 
     # Mirrors sit one level deeper than the Hub root (grouped by model), but
     # must still resolve inside it — the relative_to check below enforces that.
     if dest.parent != hf_datasets_root():
         raise SystemExit(f"snapshot destination escaped Hub root: {dest}")
     for directory in (dest, dest / "data", dest / "data" / "raw", dest / "data" / "metadata"):
-        if directory.exists() or directory.is_symlink():
-            if not directory.is_dir() or directory.is_symlink():
-                raise SystemExit(f"unsafe snapshot directory: {directory}")
-        else:
-            directory.mkdir()
+        real_directory(directory)
         try:
             directory.resolve().relative_to(root)
         except ValueError as exc:
@@ -1367,7 +1382,7 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
         else local_snapshot_stats(item)
         for item in items
     ]
-    inv = HF_ROOT / "SYNTHETIC-DATA-FACTORY-GROK46.md"
+    inv = active_hf_root(HF_ROOT) / "SYNTHETIC-DATA-FACTORY-GROK46.md"
     lines = [
         "# Synthetic data factory: Grok 4.6",
         "",
@@ -1433,10 +1448,10 @@ def cmd_create(only: str | None = None) -> None:
 
 def safe_upload_directory(item: dict) -> Path:
     """Return a real Hub mirror contained beneath a real ``HF_ROOT``."""
-    for directory in (HF_ROOT, hf_datasets_root()):
+    for directory in (active_hf_root(HF_ROOT), hf_datasets_root()):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"unsafe upload root: {directory}")
-    root = HF_ROOT.resolve()
+    root = active_hf_root(HF_ROOT).resolve()
     dest = hf_datasets_root() / item["hub"]
     if dest.parent != hf_datasets_root() or not dest.is_dir() or dest.is_symlink():
         raise SystemExit(f"unsafe upload directory: {dest}")
@@ -1647,7 +1662,7 @@ def cmd_status() -> None:
             if local_raw.is_dir()
             else 0
         )
-        factory_dir = FACTORY_ROOT / item["slug"]
+        factory_dir = active_factory_root(FACTORY_ROOT) / item["slug"]
         factory = 0
         if factory_dir.is_dir():
             marker_state = marker_mode_state(factory_dir)
@@ -1726,12 +1741,14 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="schemas: fail when any dataset has no card schema declaration",
     )
+    add_root_arguments(ap, PublisherRoots(hf=HF_ROOT, factory=FACTORY_ROOT))
     return ap.parse_args()
 
 
 def _schemas_exit_code(args: argparse.Namespace) -> int:
-    if args.only:
-        print("schemas does not accept --only", file=sys.stderr)
+    refused = refused_schemas_option(args)
+    if refused is not None:
+        print(f"schemas does not accept {refused}", file=sys.stderr)
         return 2
     return cmd_schemas(strict=args.strict)
 
@@ -1750,13 +1767,15 @@ def main() -> int:
     if args.strict:
         print("--strict only applies to the schemas command", file=sys.stderr)
         return 2
-    if args.only and not any(is_selected(item, args.only) for item in factories()):
-        print(f"unknown --only target: {args.only}", file=sys.stderr)
-        return 2
-    auth_error = _auth_error(args)
-    if auth_error is not None:
-        return auth_error
-    _dispatch_command(args)
+    roots = publication_roots(args, os.environ, PublisherRoots(hf=HF_ROOT, factory=FACTORY_ROOT))
+    with active_roots(roots):
+        if args.only and not any(is_selected(item, args.only) for item in factories()):
+            print(f"unknown --only target: {args.only}", file=sys.stderr)
+            return 2
+        auth_error = _auth_error(args)
+        if auth_error is not None:
+            return auth_error
+        _dispatch_command(args)
     return 0
 
 
