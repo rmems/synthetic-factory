@@ -117,7 +117,7 @@ class Catalog:
 
     def pair_for_slug(self, slug: str) -> PlantPair:
         for pair in self.pairs:
-            if pair.ok["slug"] == slug or pair.bad["slug"] == slug:
+            if slug in (pair.ok["slug"], pair.bad["slug"]):
                 return pair
         refuse("UNKNOWN_SLUG", f"no hopper plant with slug {slug!r}")
 
@@ -240,9 +240,7 @@ def _freeze_starts(raw: Any, prefixes: Mapping[str, str]) -> Mapping[str, Mappin
     return MappingProxyType(frozen)
 
 
-def load_catalog(directory: Path | None = None) -> Catalog:
-    catalog_dir = Path(directory) if directory is not None else DEFAULT_CATALOG_DIR
-    meta, plants_bytes, digest = _load_meta(catalog_dir)
+def _catalog_rows(plants_bytes: bytes, meta: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows = [
         _row_from_line(line, lineno)
         for lineno, line in enumerate(plants_bytes.decode("utf-8").splitlines(), start=1)
@@ -253,15 +251,25 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_CATALOG_FIELD_INVALID,
         f"plants.jsonl has {len(rows)} rows; CATALOG.json says {meta['plants']}",
     )
+    return rows
+
+
+def _prefix_map(meta: Mapping[str, Any]) -> Mapping[str, str]:
     prefixes = meta["prefixes"]
     refuse_when(not isinstance(prefixes, dict), FINDING_CATALOG_FIELD_INVALID, "prefixes must be an object")
-    prefix_map = MappingProxyType({
+    return MappingProxyType({
         _as_str(factory, "prefix factory"): _as_str(prefix, f"prefix {factory}")
         for factory, prefix in prefixes.items()
     })
+
+
+def _cycle(meta: Mapping[str, Any]) -> tuple[str, ...]:
     cycle_raw = meta["cycle"]
     refuse_when(not isinstance(cycle_raw, list), FINDING_CATALOG_FIELD_INVALID, "cycle must be a list")
-    cycle = tuple(_as_str(item, "cycle entry") for item in cycle_raw)
+    return tuple(_as_str(item, "cycle entry") for item in cycle_raw)
+
+
+def _catalog_pairs(rows: list[dict[str, Any]], meta: Mapping[str, Any]) -> list[PlantPair]:
     pairs = _grouped_pairs(rows)
     refuse_when(
         len(pairs) != meta["pairs"],
@@ -269,6 +277,14 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         f"grouped {len(pairs)} pairs; CATALOG.json says {meta['pairs']}",
     )
     _uniqueness(pairs)
+    return pairs
+
+
+def _wave_pairs(
+    pairs: list[PlantPair], prefix_map: Mapping[str, str]
+) -> Mapping[str, Mapping[str, tuple[PlantPair, ...]]]:
+    """Pairs by wave then factory; every pair's prefix must match the catalog's."""
+
     by_wave: dict[str, dict[str, list[PlantPair]]] = {wave: {} for wave in WAVES}
     for pair in pairs:
         refuse_when(
@@ -277,12 +293,22 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             f"{pair.factory} prefix {pair.prefix!r} != catalog {prefix_map.get(pair.factory)!r}",
         )
         by_wave[pair.wave].setdefault(pair.factory, []).append(pair)
-    frozen_wave_pairs = MappingProxyType({
+    return MappingProxyType({
         wave: MappingProxyType({
             factory: tuple(items) for factory, items in factories.items()
         })
         for wave, factories in by_wave.items()
     })
+
+
+def load_catalog(directory: Path | None = None) -> Catalog:
+    catalog_dir = Path(directory) if directory is not None else DEFAULT_CATALOG_DIR
+    meta, plants_bytes, digest = _load_meta(catalog_dir)
+    rows = _catalog_rows(plants_bytes, meta)
+    prefix_map = _prefix_map(meta)
+    cycle = _cycle(meta)
+    pairs = _catalog_pairs(rows, meta)
+    frozen_wave_pairs = _wave_pairs(pairs, prefix_map)
     return Catalog(
         directory=catalog_dir,
         meta=MappingProxyType(dict(meta)),

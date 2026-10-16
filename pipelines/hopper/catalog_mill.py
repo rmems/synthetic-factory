@@ -25,6 +25,8 @@ from ._contract import (
     refuse,
     refuse_when,
 )
+from ._mill_ast import literal_str as _literal_str
+from ._mill_ast import module_constants as _module_constants
 
 CATALOG_FILENAME = "CATALOG.json"
 PAIRS_FILENAME = "pairs.jsonl"
@@ -74,16 +76,6 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _literal_str(node: ast.AST, where: str) -> str:
-    refuse_when(
-        not isinstance(node, ast.Constant) or not isinstance(node.value, str),
-        FINDING_CATALOG_FIELD_INVALID,
-        f"{where} must be a string literal",
-    )
-    assert isinstance(node, ast.Constant)
-    return node.value
-
-
 def _side_tuple(node: ast.AST, where: str) -> dict[str, str]:
     refuse_when(
         not isinstance(node, ast.Tuple) or len(node.elts) != 8,
@@ -93,23 +85,6 @@ def _side_tuple(node: ast.AST, where: str) -> dict[str, str]:
     assert isinstance(node, ast.Tuple)
     values = [_literal_str(elt, f"{where}[{index}]") for index, elt in enumerate(node.elts)]
     return dict(zip(SIDE_KEYS, values, strict=True))
-
-
-def _module_constants(tree: ast.Module) -> dict[str, Any]:
-    found: dict[str, Any] = {}
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                continue
-            name = target.id
-            if name in {"FACTORY", "GEN", "CATALOG_FIRST"}:
-                value = node.value
-                if isinstance(value, ast.Constant) and isinstance(value.value, (str, int)):
-                    if not isinstance(value.value, bool):
-                        found[name] = value.value
-    return found
 
 
 def _pairs_list(tree: ast.Module) -> ast.List:
@@ -188,7 +163,7 @@ def load_mill_catalog(directory: Path | None = None) -> tuple[Mapping[str, Any],
         f"{pairs_path} sha256 drift",
     )
     rows: list[dict[str, Any]] = []
-    for line_no, line in enumerate(payload.splitlines(), start=1):
+    for line in payload.splitlines():
         if not line:
             continue
         row = json.loads(line)
