@@ -497,6 +497,15 @@ def _bind_mill_tables(mill_id: str, mill: MillCatalog) -> None:
         raise ValueError(f"{mill_id} last_slug drifted from slice rows")
 
 
+def _refuse_archive_b_plant_dimensions(plants: PlantsCatalog, slot: _PlantSlot) -> None:
+    if plants.n_pairs != slot.pair_count:
+        raise ValueError(f"Archive B {slot.label} n_pairs drifted from vocabulary")
+    if plants.plants_file != slot.jsonl:
+        raise ValueError(f"Archive B {slot.label} plants_file drifted from {slot.jsonl}")
+    if len(plants.pairs) != plants.n_pairs:
+        raise ValueError(f"{slot.jsonl} width drifted from header n_pairs")
+
+
 def _bind_plants(
     plants: PlantsCatalog, plant_pins: Mapping[str, MillSource], slot: _PlantSlot
 ) -> None:
@@ -509,12 +518,7 @@ def _bind_plants(
         raise ValueError(f"Archive B {slot.label} blob_sha disagrees with sources.py")
     if plants.kind != pin.kind or plants.kind != KIND_PLANTS:
         raise ValueError(f"Archive B {slot.label} kind disagrees with sources.py")
-    if plants.n_pairs != slot.pair_count:
-        raise ValueError(f"Archive B {slot.label} n_pairs drifted from vocabulary")
-    if plants.plants_file != slot.jsonl:
-        raise ValueError(f"Archive B {slot.label} plants_file drifted from {slot.jsonl}")
-    if len(plants.pairs) != plants.n_pairs:
-        raise ValueError(f"{slot.jsonl} width drifted from header n_pairs")
+    _refuse_archive_b_plant_dimensions(plants, slot)
 
 
 CATALOG = load_catalog() if catalog_json_path().exists() else None
