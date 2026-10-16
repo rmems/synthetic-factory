@@ -71,35 +71,57 @@ def _stat_identity(info: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _open_without_following(path: Path, label: str) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(path, flags)
+    except OSError as exc:
+        raise GateError(f"cannot open {label} {path} without following links: {exc}") from exc
+
+
+def _assert_single_regular_file(info: os.stat_result, path: Path, label: str) -> None:
+    if not stat.S_ISREG(info.st_mode):
+        raise GateError(f"{label} is not a regular file: {path}")
+    if info.st_nlink != 1:
+        raise GateError(f"{label} is multiply linked: {path}")
+
+
+def _read_descriptor(descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    while chunk := os.read(descriptor, 1 << 20):
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _changed_during_read(
+    before: os.stat_result,
+    after_descriptor: os.stat_result,
+    after_path: os.stat_result,
+    payload: bytes,
+) -> bool:
+    """Whether the descriptor, the pathname, or the byte count moved during the read."""
+    identity_before = _stat_identity(before)
+    if _stat_identity(after_descriptor) != identity_before:
+        return True
+    if _stat_identity(after_path) != identity_before:
+        return True
+    return len(payload) != before.st_size
+
+
 def _read_regular_file_snapshot(path: Path, label: str) -> tuple[bytes, str, int]:
     """Capture one regular file once and bind its bytes to its pathname identity."""
     path = Path(path)
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise GateError(f"cannot open {label} {path} without following links: {exc}") from exc
+    descriptor = _open_without_following(path, label)
     try:
         before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode):
-            raise GateError(f"{label} is not a regular file: {path}")
-        if before.st_nlink != 1:
-            raise GateError(f"{label} is multiply linked: {path}")
-        chunks: list[bytes] = []
-        while chunk := os.read(descriptor, 1 << 20):
-            chunks.append(chunk)
-        payload = b"".join(chunks)
+        _assert_single_regular_file(before, path, label)
+        payload = _read_descriptor(descriptor)
         after_descriptor = os.fstat(descriptor)
         try:
             after_path = path.lstat()
         except OSError as exc:
             raise GateError(f"{label} changed while it was being read: {path}") from exc
-        identity_before = _stat_identity(before)
-        if (
-            _stat_identity(after_descriptor) != identity_before
-            or _stat_identity(after_path) != identity_before
-            or len(payload) != before.st_size
-        ):
+        if _changed_during_read(before, after_descriptor, after_path, payload):
             raise GateError(f"{label} changed while it was being read: {path}")
         return payload, sha256_hex(payload), len(payload)
     finally:
