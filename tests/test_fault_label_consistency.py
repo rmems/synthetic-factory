@@ -21,10 +21,17 @@ class FaultLabelConsistency(unittest.TestCase):
                 self.assertTrue(any("predicted_outcome_label" in e for e in errors), errors)
 
     def test_requested_corruption_detail_must_match_intervention(self):
-        original = next(r for r in self.records if r["intervention"]["kind"] == "burst_corruption")
+        original = next(
+            (r for r in self.records if r["intervention"]["kind"] == "burst_corruption"), None
+        )
+        self.assertIsNotNone(original)
         for requested in (0.999, None, True):
             record = copy.deepcopy(original)
-            measurement = next(m for m in record["result"]["measurements"] if m["quantity"] == "corrupt_ratio")
+            measurement = next(
+                (m for m in record["result"]["measurements"] if m["quantity"] == "corrupt_ratio"),
+                None,
+            )
+            self.assertIsNotNone(measurement)
             measurement["detail"]["requested"] = requested
             record["provenance"]["record_sha256"] = oc.record_digest(record)
             with self.subTest(requested=requested):

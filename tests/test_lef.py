@@ -414,6 +414,27 @@ class LefSkeletonTests(unittest.TestCase):
 
 
 class LefLegacyExtractTests(unittest.TestCase):
+    def _assert_live_mill_matches_committed(self, live, mill_id):
+        committed = CATALOG.mills[mill_id]
+        self.assertEqual(live["n_rows"], committed.n_rows, mill_id)
+        self.assertEqual(live["first_slug"], committed.first_slug, mill_id)
+        self.assertEqual(live["last_slug"], committed.last_slug, mill_id)
+        self.assertEqual(live["catalog_first"], committed.catalog_first, mill_id)
+        self.assertEqual(live["sha256"], committed.sha256, mill_id)
+        self.assertEqual(live["shape"], committed.shape, mill_id)
+        for name in lv.TABLE_NAMES:
+            self.assertEqual(
+                tuple(tuple(row) for row in live["tables"][name]),
+                committed.tables[name],
+                mill_id,
+            )
+
+    def _assert_plants_record_matches_committed(self, record, committed):
+        self.assertEqual(record["n_pairs"], committed.n_pairs)
+        self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
+        self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
+        self.assertEqual(record["sha256"], committed.sha256)
+
     def test_committed_catalog_matches_live_ast_extract(self):
         if not _legacy_available():
             self.skipTest("origin/legacy-mill-lane is not fetched")
@@ -431,19 +452,7 @@ class LefLegacyExtractTests(unittest.TestCase):
             ).strip()
             self.assertEqual(blob, source.blob_sha, source.mill_id)
             live = extract_mill_catalog(text, path=source.path, blob_sha=source.blob_sha)
-            committed = CATALOG.mills[source.mill_id]
-            self.assertEqual(live["n_rows"], committed.n_rows, source.mill_id)
-            self.assertEqual(live["first_slug"], committed.first_slug, source.mill_id)
-            self.assertEqual(live["last_slug"], committed.last_slug, source.mill_id)
-            self.assertEqual(live["catalog_first"], committed.catalog_first, source.mill_id)
-            self.assertEqual(live["sha256"], committed.sha256, source.mill_id)
-            self.assertEqual(live["shape"], committed.shape, source.mill_id)
-            for name in lv.TABLE_NAMES:
-                self.assertEqual(
-                    tuple(tuple(row) for row in live["tables"][name]),
-                    committed.tables[name],
-                    source.mill_id,
-                )
+            self._assert_live_mill_matches_committed(live, source.mill_id)
             mills.append(mill_summary(live, include_tables=False))
         slugs_source = slug_sources()[0]
         slugs_text = subprocess.check_output(
@@ -535,10 +544,7 @@ class LefLegacyExtractTests(unittest.TestCase):
         )
         committed = CATALOG.plants
         assert committed is not None
-        self.assertEqual(record["n_pairs"], committed.n_pairs)
-        self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
-        self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
-        self.assertEqual(record["sha256"], committed.sha256)
+        self._assert_plants_record_matches_committed(record, committed)
         live_jsonl = dumps_plants_jsonl(
             live_pairs,
             mill_id=lv.PLANTS_MILL_ID,
@@ -587,10 +593,7 @@ class LefLegacyExtractTests(unittest.TestCase):
         )
         committed = CATALOG.plants_b
         assert committed is not None
-        self.assertEqual(record["n_pairs"], committed.n_pairs)
-        self.assertEqual(record["first_ok_slug"], committed.first_ok_slug)
-        self.assertEqual(record["last_ok_slug"], committed.last_ok_slug)
-        self.assertEqual(record["sha256"], committed.sha256)
+        self._assert_plants_record_matches_committed(record, committed)
         live_jsonl = dumps_plants_jsonl(
             live_pairs,
             mill_id=lv.PLANTS_B_MILL_ID,

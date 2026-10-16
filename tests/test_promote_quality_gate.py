@@ -46,7 +46,10 @@ def _cli(args):
 
 
 class TestPromoteQualityGatePreflight(unittest.TestCase):
-    def _assert_preflight_rejected(self, raw, cleaned, manifest, expected_message):
+    def _assert_preflight_rejected(self, root, manifest_relative, expected_message):
+        raw = root / "raw"
+        cleaned = root / "cleaned"
+        manifest = root / manifest_relative
         stderr = io.StringIO()
         with (
             mock.patch.object(promote, "promote_run") as promote_run,
@@ -160,13 +163,8 @@ class TestPromoteQualityGatePreflight(unittest.TestCase):
                 tempfile.TemporaryDirectory() as td,
             ):
                 root = Path(td)
-                raw = root / "raw"
-                cleaned = root / "cleaned"
-                manifest = root / manifest_relative
-                _write_jsonl(raw / raw_relative, [_record()])
-                self._assert_preflight_rejected(
-                    raw, cleaned, manifest, expected_message
-                )
+                _write_jsonl(root / "raw" / raw_relative, [_record()])
+                self._assert_preflight_rejected(root, manifest_relative, expected_message)
 
     def test_manifest_path_is_canonicalized_before_promotion_writes_it(self):
         with tempfile.TemporaryDirectory() as td:
