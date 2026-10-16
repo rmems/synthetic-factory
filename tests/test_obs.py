@@ -7,6 +7,7 @@ import ast
 import contextlib
 import hashlib
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -309,6 +310,13 @@ class GeneratePairs(unittest.TestCase):
         with self.assertRaises(ObsRefusal) as caught:
             generate.run(generate.GenerateRequest(FIXTURE, dest))
         self.assertEqual(caught.exception.code, FINDING_USAGE)
+
+    def test_query_command_keeps_single_quote_inside_data_argument(self):
+        query = "{resource.service.name='svc-a'}"
+        command = generate._query_call(query)
+        argv = shlex.split(command)
+        index = argv.index("--data-urlencode")
+        self.assertEqual(argv[index + 1], f"query={query}")
 
 
 class CliSurface(unittest.TestCase):

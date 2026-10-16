@@ -9,6 +9,7 @@ out to ``round_txn``, and does not stamp ``grok-4.6``.
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -117,6 +118,10 @@ def _write(path: str, contents: str) -> dict[str, Any]:
     return {"name": "write", "args": {"path": path, "contents": contents}}
 
 
+def _query_call(query: str) -> str:
+    return f"curl -sS $OBS/query --data-urlencode {shlex.quote(f'query={query}')}"
+
+
 def _meta(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
     return {
         "catalog_id": catalog_id,
@@ -152,7 +157,7 @@ def _success_diagnosis_steps(s: Mapping[str, Any], slug: str) -> list[dict[str, 
         _step(
             2,
             f"Observation: knob in {s['file']} (step 1). Query the live series.",
-            _bash(f"curl -sS $OBS/query --data-urlencode 'query={s['query']}'"),
+            _bash(_query_call(s["query"])),
             f"empty or capped series; lie: {s['lie']}",
         ),
         _step(
@@ -177,7 +182,7 @@ def _success_fix_steps(s: Mapping[str, Any], slug: str) -> list[dict[str, Any]]:
         _step(
             5,
             "Observation: first bind (step 4). Re-query.",
-            _bash(f"curl -sS $OBS/query --data-urlencode 'query={s['query']}'"),
+            _bash(_query_call(s["query"])),
             "series return; panel populated",
         ),
         _step(
@@ -237,7 +242,7 @@ def _fail_patch_steps(s: Mapping[str, Any], lslug: str) -> list[dict[str, Any]]:
         _step(
             2,
             f"Observation: leftover on {s['lsvc']} (step 1). Query the live series.",
-            _bash(f"curl -sS $OBS/query --data-urlencode 'query={s['lquery']}'"),
+            _bash(_query_call(s["lquery"])),
             f"empty series; lie: {s['llie']}",
         ),
         _step(
@@ -249,7 +254,7 @@ def _fail_patch_steps(s: Mapping[str, Any], lslug: str) -> list[dict[str, Any]]:
         _step(
             4,
             "Observation: first patch (step 3). Re-query.",
-            _bash(f"curl -sS $OBS/query --data-urlencode 'query={s['lquery']}'"),
+            _bash(_query_call(s["lquery"])),
             "still empty; naive patch did not bind the leftover lie",
         ),
     ]
@@ -268,7 +273,7 @@ def _fail_handoff_steps(s: Mapping[str, Any], lslug: str) -> list[dict[str, Any]
         _step(
             6,
             "Observation: handoff written (step 5). Gate still red.",
-            _bash(f"curl -sS $OBS/query --data-urlencode 'query={s['lquery']}'"),
+            _bash(_query_call(s["lquery"])),
             "empty; xfail the leftover residual",
         ),
         _step(

@@ -511,6 +511,8 @@ def _bind_plants(
         raise ValueError(f"Archive B {slot.label} kind disagrees with sources.py")
     if plants.n_pairs != slot.pair_count:
         raise ValueError(f"Archive B {slot.label} n_pairs drifted from vocabulary")
+    if plants.plants_file != slot.jsonl:
+        raise ValueError(f"Archive B {slot.label} plants_file drifted from {slot.jsonl}")
     if len(plants.pairs) != plants.n_pairs:
         raise ValueError(f"{slot.jsonl} width drifted from header n_pairs")
 

@@ -141,14 +141,15 @@ class LefRefusalBranchTests(unittest.TestCase):
         if plants is None:
             self.fail("the committed catalog has no Archive B plants")
         pins = {pin.mill_id: pin for pin in plant_sources()}
-        slot = lef_catalog._PlantSlot("plants_b", "plants_b.jsonl", lv.PLANTS_PAIR_COUNT)
+        slot = lef_catalog._PlantSlot("plant", lv.PLANTS_FILENAME, lv.PLANTS_PAIR_COUNT)
         cases = (
-            (replace(plants, mill_id="unknown"), "Archive B plants_b mill_id missing"),
-            (replace(plants, path="x.py"), "Archive B plants_b pin disagrees"),
-            (replace(plants, blob_sha="0" * 40), "Archive B plants_b blob_sha disagrees"),
-            (replace(plants, kind=lv.KIND_TABLES), "Archive B plants_b kind disagrees"),
-            (replace(plants, n_pairs=7), "Archive B plants_b n_pairs drifted"),
-            (replace(plants, pairs=plants.pairs[:1]), "plants_b.jsonl width drifted"),
+            (replace(plants, mill_id="unknown"), "Archive B plant mill_id missing"),
+            (replace(plants, path="x.py"), "Archive B plant pin disagrees"),
+            (replace(plants, blob_sha="0" * 40), "Archive B plant blob_sha disagrees"),
+            (replace(plants, kind=lv.KIND_TABLES), "Archive B plant kind disagrees"),
+            (replace(plants, n_pairs=7), "Archive B plant n_pairs drifted"),
+            (replace(plants, plants_file="plants_b.jsonl"), "Archive B plant plants_file drifted"),
+            (replace(plants, pairs=plants.pairs[:1]), "plants.jsonl width drifted"),
         )
         for value, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):

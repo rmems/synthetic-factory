@@ -1019,6 +1019,7 @@ def _catalog_from_meta(catalog_dir: Path, plants_path: Path, meta: Any) -> Catal
     plants = tuple(
         _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
     )
+    _refuse_noncontiguous_indices(plants)
     _refuse_duplicate_identities(plants)
     _refuse_mill_pins(mills, plants)
     return Catalog(
@@ -1059,6 +1060,22 @@ def _refuse_duplicate_identities(plants: tuple[Plant, ...]) -> None:
             if slug in seen_slugs:
                 raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
             seen_slugs.add(slug)
+
+
+def _refuse_noncontiguous_indices(plants: tuple[Plant, ...]) -> None:
+    """Each mill's indices must be exactly ``0..n-1`` with no duplicates or gaps."""
+
+    per_mill: dict[str, list[int]] = {}
+    for plant in plants:
+        per_mill.setdefault(plant.mill_id, []).append(plant.index)
+    for mill_id, indices in per_mill.items():
+        observed = sorted(indices)
+        expected = list(range(len(indices)))
+        if observed != expected:
+            raise CeiRefusal(
+                FINDING_PLANT_FIELD_INVALID,
+                f"{mill_id} indices must be exactly 0..n-1 with no duplicates or gaps",
+            )
 
 
 def _refuse_mill_pins(mills: tuple[Mill, ...], plants: tuple[Plant, ...]) -> None:
