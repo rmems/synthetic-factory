@@ -149,19 +149,23 @@ def _missing_heading(resolved: Path, anchor: str) -> bool:
 
 class DocsLinkTests(unittest.TestCase):
     def test_relative_links_and_anchors_resolve(self):
+        """Every relative link in README.md and docs/ names a real file and heading."""
         problems = [problem for path in doc_files() for problem in broken_links(path)]
         self.assertEqual(problems, [])
 
     def test_reference_links_have_definitions(self):
+        """Every reference-style use and issue citation has a definition."""
         problems = [problem for path in doc_files() for problem in undefined_references(path)]
         self.assertEqual(problems, [])
 
     def test_scope_covers_readme_and_docs(self):
+        """The checked set includes README.md and the docs/ pages."""
         names = {path.relative_to(REPO).as_posix() for path in doc_files()}
         self.assertIn("README.md", names)
         self.assertIn("docs/parity-oracles.md", names)
 
     def test_checker_reports_missing_files_and_headings(self):
+        """The link checker flags missing paths and headings, and skips fenced code."""
         self.assertEqual(github_slug("How the `separation` is enforced!"),
                          "how-the-separation-is-enforced")
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,6 +187,7 @@ class DocsLinkTests(unittest.TestCase):
             ])
 
     def test_checker_reports_undefined_references(self):
+        """The reference checker flags undefined labels and ignores code spans and prose brackets."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             page = root / "page.md"
