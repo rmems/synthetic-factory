@@ -33,6 +33,7 @@ from ._contract import (
     bind_import_twin,
     default_catalog_dir,
     dumps_exact_json,
+    finding_row,
     load_strict_json,
     refuse,
     refuse_when,
@@ -44,6 +45,19 @@ LEFTOVER3_FILENAME = "leftover3-pairs.jsonl"
 LLL_FILENAME = "lll-pairs.jsonl"
 HOP_PLANTS_FILENAME = "hop-plants.jsonl"
 HOP_PAIRS_FILENAME = "hop-pairs.jsonl"
+# CATALOG.json ``files`` key -> committed file name, in load and write order.
+_CATALOG_FILES = {
+    "leftover3_pairs": LEFTOVER3_FILENAME,
+    "lll_pairs": LLL_FILENAME,
+    "hop_plants": HOP_PLANTS_FILENAME,
+    "hop_pairs": HOP_PAIRS_FILENAME,
+}
+_META_IDENTITY = (
+    ("format", CATALOG_FORMAT),
+    ("catalog_id", CATALOG_ID),
+    ("factory", FACTORY),
+    ("generator", GENERATOR),
+)
 LEGACY_COMMIT = "813f93f1969c1c4421e5663492e9663739efa642"
 LEGACY_REF = "origin/legacy-mill-lane"
 
@@ -112,22 +126,20 @@ def _is_extend(node: ast.AST, name: str) -> bool:
     )
 
 
+def _is_catalog_node(node: ast.stmt, keep_names: set[str], keep_fns: set[str]) -> bool:
+    if isinstance(node, ast.FunctionDef) and node.name in keep_fns:
+        return True
+    if any(name in keep_names for name in _assign_names(node)):
+        return True
+    return any(_is_extend(node, name) for name in keep_names)
+
+
 def _exec_catalog_nodes(source: str, keep_names: set[str], keep_fns: set[str]) -> dict[str, Any]:
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
         refuse(FINDING_SOURCE_UNPARSEABLE, f"legacy mill source is unparseable: {exc}")
-    keep: list[ast.stmt] = []
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in keep_fns:
-            keep.append(node)
-            continue
-        names = _assign_names(node)
-        if any(name in keep_names for name in names):
-            keep.append(node)
-            continue
-        if any(_is_extend(node, name) for name in keep_names):
-            keep.append(node)
+    keep = [node for node in tree.body if _is_catalog_node(node, keep_names, keep_fns)]
     module = ast.Module(body=keep, type_ignores=[])
     ast.fix_missing_locations(module)
     namespace: dict[str, Any] = {}
@@ -142,7 +154,7 @@ def _constant_tuple(source: str, name: str) -> tuple[Any, ...]:
     tree = ast.parse(source)
     for node in tree.body:
         if name in _assign_names(node) and isinstance(node, (ast.Assign, ast.AnnAssign)):
-            value = node.value if isinstance(node, ast.AnnAssign) else node.value
+            value = node.value
             if value is None:
                 break
             literal = _literal(value)
@@ -150,52 +162,82 @@ def _constant_tuple(source: str, name: str) -> tuple[Any, ...]:
     return ()
 
 
-def extract_leftover3(source: str) -> list[dict[str, Any]]:
-    """AST-extract leftover3 ``PAIRS`` via ``_ok`` / ``_bad`` / ``_pair`` only."""
+def _extract_pairs(source: str, label: str, keep_fns: set[str]) -> list[dict[str, Any]]:
+    """Evaluate ``PAIRS`` through ``keep_fns`` and copy each ``(ok, bad)`` tuple."""
 
-    namespace = _exec_catalog_nodes(source, {"PAIRS"}, {"_p", "_ok", "_bad", "_pair"})
+    namespace = _exec_catalog_nodes(source, {"PAIRS"}, keep_fns)
     pairs = namespace.get("PAIRS")
     refuse_when(not isinstance(pairs, list) or not pairs, FINDING_SOURCE_UNPARSEABLE,
-                "leftover3 PAIRS is missing or empty")
+                f"{label} PAIRS is missing or empty")
     out: list[dict[str, Any]] = []
     for item in pairs:
         refuse_when(not isinstance(item, tuple) or len(item) != 2, FINDING_SOURCE_UNPARSEABLE,
-                    "leftover3 pair is not an (ok, bad) tuple")
+                    f"{label} pair is not an (ok, bad) tuple")
         ok, bad = item
         refuse_when(not isinstance(ok, dict) or not isinstance(bad, dict),
-                    FINDING_SOURCE_UNPARSEABLE, "leftover3 pair members must be objects")
+                    FINDING_SOURCE_UNPARSEABLE, f"{label} pair members must be objects")
         out.append({"ok": dict(ok), "bad": dict(bad)})
     return out
+
+
+def extract_leftover3(source: str) -> list[dict[str, Any]]:
+    """AST-extract leftover3 ``PAIRS`` via ``_ok`` / ``_bad`` / ``_pair`` only."""
+
+    return _extract_pairs(source, "leftover3", {"_p", "_ok", "_bad", "_pair"})
 
 
 def extract_lll(source: str) -> list[dict[str, Any]]:
     """AST-extract leftover-leftover-leftover ``PAIRS`` via ``pair`` only."""
 
-    namespace = _exec_catalog_nodes(source, {"PAIRS"}, {"pair"})
-    pairs = namespace.get("PAIRS")
-    refuse_when(not isinstance(pairs, list) or not pairs, FINDING_SOURCE_UNPARSEABLE,
-                "lll PAIRS is missing or empty")
-    out: list[dict[str, Any]] = []
-    for item in pairs:
-        refuse_when(not isinstance(item, tuple) or len(item) != 2, FINDING_SOURCE_UNPARSEABLE,
-                    "lll pair is not an (ok, bad) tuple")
-        ok, bad = item
-        refuse_when(not isinstance(ok, dict) or not isinstance(bad, dict),
-                    FINDING_SOURCE_UNPARSEABLE, "lll pair members must be objects")
-        out.append({"ok": dict(ok), "bad": dict(bad)})
-    return out
+    return _extract_pairs(source, "lll", {"pair"})
+
+
+def _is_fn_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return False
+    return node.func.id == "fn" and len(node.args) == 1
 
 
 def _fn_key(node: ast.AST) -> str:
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id != "fn"
-        or len(node.args) != 1,
+        not _is_fn_call(node),
         FINDING_SOURCE_UNPARSEABLE,
         "hop LHC_PAIRS entry is not fn(<plant-key>)",
     )
     return str(_literal(node.args[0]))
+
+
+def _hop_pair_row(elt: ast.AST, plant_rows: Mapping[str, Any]) -> dict[str, Any]:
+    refuse_when(not isinstance(elt, ast.Tuple) or len(elt.elts) < 6,
+                FINDING_SOURCE_UNPARSEABLE, "hop LHC_PAIRS row is short")
+    title = _literal(elt.elts[0])
+    ok_key = _fn_key(elt.elts[1])
+    bad_key = _fn_key(elt.elts[2])
+    densify = _literal(elt.elts[3])
+    loops = _literal(elt.elts[4])
+    nxt = _literal(elt.elts[5])
+    refuse_when(ok_key not in plant_rows or bad_key not in plant_rows,
+                FINDING_SOURCE_UNPARSEABLE, f"hop pair names unknown plants {ok_key!r}/{bad_key!r}")
+    return {
+        "title": title,
+        "ok": ok_key,
+        "bad": bad_key,
+        "densify": densify,
+        "loops": loops,
+        "next": nxt,
+    }
+
+
+def _hop_pairs(source: str, plant_rows: Mapping[str, Any]) -> list[dict[str, Any]]:
+    pairs: list[dict[str, Any]] = []
+    for node in ast.parse(source).body:
+        if "LHC_PAIRS" not in _assign_names(node):
+            continue
+        value = node.value
+        refuse_when(not isinstance(value, ast.List), FINDING_SOURCE_UNPARSEABLE,
+                    "hop LHC_PAIRS is not a list")
+        pairs.extend(_hop_pair_row(elt, plant_rows) for elt in value.elts)
+    return pairs
 
 
 def extract_hop(source: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], tuple[str, ...]]:
@@ -206,33 +248,7 @@ def extract_hop(source: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, 
     refuse_when(not isinstance(plants, dict) or not plants, FINDING_SOURCE_UNPARSEABLE,
                 "hop PLANTS is missing or empty")
     plant_rows = {str(key): dict(value) for key, value in plants.items()}
-    tree = ast.parse(source)
-    pairs: list[dict[str, Any]] = []
-    for node in tree.body:
-        if "LHC_PAIRS" not in _assign_names(node):
-            continue
-        value = node.value if isinstance(node, ast.AnnAssign) else node.value
-        refuse_when(not isinstance(value, ast.List), FINDING_SOURCE_UNPARSEABLE,
-                    "hop LHC_PAIRS is not a list")
-        for elt in value.elts:
-            refuse_when(not isinstance(elt, ast.Tuple) or len(elt.elts) < 6,
-                        FINDING_SOURCE_UNPARSEABLE, "hop LHC_PAIRS row is short")
-            title = _literal(elt.elts[0])
-            ok_key = _fn_key(elt.elts[1])
-            bad_key = _fn_key(elt.elts[2])
-            densify = _literal(elt.elts[3])
-            loops = _literal(elt.elts[4])
-            nxt = _literal(elt.elts[5])
-            refuse_when(ok_key not in plant_rows or bad_key not in plant_rows,
-                        FINDING_SOURCE_UNPARSEABLE, f"hop pair names unknown plants {ok_key!r}/{bad_key!r}")
-            pairs.append({
-                "title": title,
-                "ok": ok_key,
-                "bad": bad_key,
-                "densify": densify,
-                "loops": loops,
-                "next": nxt,
-            })
+    pairs = _hop_pairs(source, plant_rows)
     banned = _constant_tuple(source, "BANNED_SUB")
     return plant_rows, pairs, tuple(str(item) for item in banned)
 
@@ -314,6 +330,33 @@ class Catalog:
         return int(_field(row, "catalog_first", int, f"CATALOG.json.sources.{source_id}"))
 
 
+def _check_meta_identity(meta: Any) -> None:
+    refuse_when(not isinstance(meta, dict), FINDING_INPUT_NOT_AN_OBJECT, "CATALOG.json must be an object")
+    for key, expected in _META_IDENTITY:
+        refuse_when(meta.get(key) != expected, FINDING_CATALOG_FIELD_INVALID,
+                    f"CATALOG.json.{key} must be {expected}")
+
+
+def _pinned_rows(directory: Path, files: Any, digests: Any, file_key: str) -> list[Any]:
+    """Load one catalog JSONL file named by ``files`` and pinned by ``digests``."""
+
+    return _load_jsonl(
+        directory / _field(files, file_key, str, "CATALOG.json.files"),
+        _field(digests, f"{file_key}_sha256", str, "CATALOG.json.digests"),
+        _CATALOG_FILES[file_key],
+    )
+
+
+def _hop_plants_by_id(rows: list[Any]) -> dict[str, dict[str, Any]]:
+    hop_plants = {}
+    for row in rows:
+        refuse_when(not isinstance(row, dict) or "id" not in row, FINDING_CATALOG_FIELD_INVALID,
+                    "hop plant row must carry id")
+        plant_id = row["id"]
+        hop_plants[str(plant_id)] = {key: value for key, value in row.items() if key != "id"}
+    return hop_plants
+
+
 def load_catalog(catalog_dir: Path | None = None) -> Catalog:
     """Load the committed catalog and bind each JSONL file to its pin."""
 
@@ -321,51 +364,19 @@ def load_catalog(catalog_dir: Path | None = None) -> Catalog:
     meta_path = directory / CATALOG_FILENAME
     refuse_when(not meta_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing")
     meta = load_strict_json(meta_path.read_text(encoding="utf-8"))
-    refuse_when(not isinstance(meta, dict), FINDING_INPUT_NOT_AN_OBJECT, "CATALOG.json must be an object")
-    refuse_when(meta.get("format") != CATALOG_FORMAT, FINDING_CATALOG_FIELD_INVALID,
-                f"CATALOG.json.format must be {CATALOG_FORMAT}")
-    refuse_when(meta.get("catalog_id") != CATALOG_ID, FINDING_CATALOG_FIELD_INVALID,
-                f"CATALOG.json.catalog_id must be {CATALOG_ID}")
-    refuse_when(meta.get("factory") != FACTORY, FINDING_CATALOG_FIELD_INVALID,
-                f"CATALOG.json.factory must be {FACTORY}")
-    refuse_when(meta.get("generator") != GENERATOR, FINDING_CATALOG_FIELD_INVALID,
-                f"CATALOG.json.generator must be {GENERATOR}")
+    _check_meta_identity(meta)
     files = _field(meta, "files", dict, "CATALOG.json")
     digests = _field(meta, "digests", dict, "CATALOG.json")
-    leftover3_rows = _load_jsonl(
-        directory / _field(files, "leftover3_pairs", str, "CATALOG.json.files"),
-        _field(digests, "leftover3_pairs_sha256", str, "CATALOG.json.digests"),
-        LEFTOVER3_FILENAME,
-    )
-    lll_rows = _load_jsonl(
-        directory / _field(files, "lll_pairs", str, "CATALOG.json.files"),
-        _field(digests, "lll_pairs_sha256", str, "CATALOG.json.digests"),
-        LLL_FILENAME,
-    )
-    hop_plant_rows = _load_jsonl(
-        directory / _field(files, "hop_plants", str, "CATALOG.json.files"),
-        _field(digests, "hop_plants_sha256", str, "CATALOG.json.digests"),
-        HOP_PLANTS_FILENAME,
-    )
-    hop_pair_rows = _load_jsonl(
-        directory / _field(files, "hop_pairs", str, "CATALOG.json.files"),
-        _field(digests, "hop_pairs_sha256", str, "CATALOG.json.digests"),
-        HOP_PAIRS_FILENAME,
-    )
-    hop_plants = {}
-    for row in hop_plant_rows:
-        refuse_when(not isinstance(row, dict) or "id" not in row, FINDING_CATALOG_FIELD_INVALID,
-                    "hop plant row must carry id")
-        plant_id = row["id"]
-        hop_plants[str(plant_id)] = {key: value for key, value in row.items() if key != "id"}
+    rows = {key: _pinned_rows(directory, files, digests, key) for key in _CATALOG_FILES}
+    hop_plants = _hop_plants_by_id(rows["hop_plants"])
     banned = tuple(_field(meta, "banned_sub", list, "CATALOG.json"))
     return Catalog(
         catalog_dir=directory,
         meta=meta,
-        leftover3=tuple(leftover3_rows),
-        lll=tuple(lll_rows),
+        leftover3=tuple(rows["leftover3_pairs"]),
+        lll=tuple(rows["lll_pairs"]),
         hop_plants=hop_plants,
-        hop_pairs=tuple(hop_pair_rows),
+        hop_pairs=tuple(rows["hop_pairs"]),
         banned_sub=tuple(str(item) for item in banned),
     )
 
@@ -375,86 +386,107 @@ def _require_keys(row: Mapping[str, Any], keys: tuple[str, ...], where: str) -> 
     refuse_when(bool(missing), FINDING_CATALOG_FIELD_MISSING, f"{where} missing {missing}")
 
 
+_LEFTOVER3_OK_KEYS = (
+    "slug", "goal", "plan", "mod", "test_fn", "src_body", "first_old", "first_new",
+    "seed", "domain", "stack", "residual", "coverage", "plan_change",
+)
+_LEFTOVER3_BAD_KEYS = _LEFTOVER3_OK_KEYS + ("ticket", "ticket_why")
+_LLL_KEYS = ("slug", "domain", "stack", "seed", "leftover", "token", "ticket", "wrong", "right")
+_HOP_PAIR_KEYS = ("title", "ok", "bad", "densify", "loops", "next")
+_HOP_PLANT_KEYS = ("slug", "ok", "leftover", "what", "impl", "goal", "plan")
+
+
+class _CatalogAudit:
+    """Accumulates findings and slugs while one ``catalog_check`` walks the sources."""
+
+    def __init__(self, catalog: Catalog) -> None:
+        self.catalog = catalog
+        self.findings: list[dict[str, str]] = []
+        self.slugs: list[str] = []
+
+    def flag(self, source_id: str, detail: str) -> None:
+        self.findings.append(finding_row(FINDING_CATALOG_FIELD_INVALID, source_id, detail))
+
+    def check_source(self, source_id: str) -> None:
+        pairs = self.catalog.pairs_of(source_id)
+        refuse_when(not pairs, FINDING_CATALOG_FIELD_INVALID, f"{source_id} has no pairs")
+        for index, pair in enumerate(pairs):
+            where = f"{source_id}[{index}]"
+            refuse_when(not isinstance(pair, Mapping), FINDING_INPUT_NOT_AN_OBJECT,
+                        f"{where} must be an object")
+            if source_id == "hop":
+                self.check_hop_pair(where, pair)
+            else:
+                self.check_mill_pair(source_id, where, pair)
+
+    def check_hop_plant(self, where: str, pair: Mapping[str, Any], side: str) -> None:
+        plant_id = str(pair[side])
+        refuse_when(plant_id not in self.catalog.hop_plants, FINDING_CATALOG_FIELD_INVALID,
+                    f"{where}.{side} names unknown plant {plant_id!r}")
+        plant = self.catalog.hop_plants[plant_id]
+        _require_keys(plant, _HOP_PLANT_KEYS, f"{where}.{side}")
+        self.slugs.append(str(plant["slug"]))
+        low = str(plant["slug"]).lower()
+        for ban in self.catalog.banned_sub:
+            if ban in low:
+                self.flag("hop", f"banned token {ban} in {plant['slug']}")
+
+    def check_hop_pair(self, where: str, pair: Mapping[str, Any]) -> None:
+        _require_keys(pair, _HOP_PAIR_KEYS, where)
+        for side in ("ok", "bad"):
+            self.check_hop_plant(where, pair, side)
+        ok_flag = self.catalog.hop_plants[str(pair["ok"])]["ok"]
+        bad_flag = self.catalog.hop_plants[str(pair["bad"])]["ok"]
+        if ok_flag == bad_flag:
+            self.flag("hop", f"{where} success flags are not opposite")
+
+    def check_mill_pair(self, source_id: str, where: str, pair: Mapping[str, Any]) -> None:
+        _require_keys(pair, ("ok", "bad"), where)
+        ok, bad = pair["ok"], pair["bad"]
+        keys = _LEFTOVER3_OK_KEYS if source_id == "leftover3" else _LLL_KEYS
+        bad_keys = _LEFTOVER3_BAD_KEYS if source_id == "leftover3" else _LLL_KEYS
+        _require_keys(ok, keys, f"{where}.ok")
+        _require_keys(bad, bad_keys, f"{where}.bad")
+        self.slugs.append(str(ok["slug"]))
+        self.slugs.append(str(bad["slug"]))
+        if source_id == "leftover3":
+            for row in (ok, bad):
+                if row["first_old"] not in row["src_body"]:
+                    self.flag(source_id, f"{row['slug']} first_old not in src_body")
+
+
 def catalog_check(catalog: Catalog) -> list[dict[str, str]]:
     """Structural uniqueness and required-field check; empty when the catalog is clean."""
 
-    findings: list[dict[str, str]] = []
-    slugs: list[str] = []
-    leftover3_ok_keys = (
-        "slug", "goal", "plan", "mod", "test_fn", "src_body", "first_old", "first_new",
-        "seed", "domain", "stack", "residual", "coverage", "plan_change",
-    )
-    leftover3_bad_keys = leftover3_ok_keys + ("ticket", "ticket_why")
-    lll_keys = ("slug", "domain", "stack", "seed", "leftover", "token", "ticket", "wrong", "right")
-    hop_plant_keys = ("slug", "ok", "leftover", "what", "impl", "goal", "plan")
+    audit = _CatalogAudit(catalog)
     try:
         for source_id in SOURCES:
-            pairs = catalog.pairs_of(source_id)
-            refuse_when(not pairs, FINDING_CATALOG_FIELD_INVALID, f"{source_id} has no pairs")
-            for index, pair in enumerate(pairs):
-                where = f"{source_id}[{index}]"
-                refuse_when(not isinstance(pair, Mapping), FINDING_INPUT_NOT_AN_OBJECT,
-                            f"{where} must be an object")
-                if source_id == "hop":
-                    _require_keys(pair, ("title", "ok", "bad", "densify", "loops", "next"), where)
-                    for side in ("ok", "bad"):
-                        plant_id = str(pair[side])
-                        refuse_when(plant_id not in catalog.hop_plants, FINDING_CATALOG_FIELD_INVALID,
-                                    f"{where}.{side} names unknown plant {plant_id!r}")
-                        plant = catalog.hop_plants[plant_id]
-                        _require_keys(plant, hop_plant_keys, f"{where}.{side}")
-                        slugs.append(str(plant["slug"]))
-                        low = str(plant["slug"]).lower()
-                        for ban in catalog.banned_sub:
-                            if ban in low:
-                                findings.append({
-                                    "code": FINDING_CATALOG_FIELD_INVALID,
-                                    "source": source_id,
-                                    "detail": f"banned token {ban} in {plant['slug']}",
-                                })
-                    ok_flag = catalog.hop_plants[str(pair["ok"])]["ok"]
-                    bad_flag = catalog.hop_plants[str(pair["bad"])]["ok"]
-                    if ok_flag == bad_flag:
-                        findings.append({
-                            "code": FINDING_CATALOG_FIELD_INVALID,
-                            "source": source_id,
-                            "detail": f"{where} success flags are not opposite",
-                        })
-                    continue
-                _require_keys(pair, ("ok", "bad"), where)
-                ok, bad = pair["ok"], pair["bad"]
-                keys = leftover3_ok_keys if source_id == "leftover3" else lll_keys
-                bad_keys = leftover3_bad_keys if source_id == "leftover3" else lll_keys
-                _require_keys(ok, keys, f"{where}.ok")
-                _require_keys(bad, bad_keys, f"{where}.bad")
-                slugs.append(str(ok["slug"]))
-                slugs.append(str(bad["slug"]))
-                if source_id == "leftover3":
-                    if ok["first_old"] not in ok["src_body"]:
-                        findings.append({
-                            "code": FINDING_CATALOG_FIELD_INVALID,
-                            "source": source_id,
-                            "detail": f"{ok['slug']} first_old not in src_body",
-                        })
-                    if bad["first_old"] not in bad["src_body"]:
-                        findings.append({
-                            "code": FINDING_CATALOG_FIELD_INVALID,
-                            "source": source_id,
-                            "detail": f"{bad['slug']} first_old not in src_body",
-                        })
-        if len(slugs) != len(set(slugs)):
-            findings.append({
-                "code": FINDING_SLUG_COLLISION,
-                "source": "catalog",
-                "detail": "catalog slugs collide",
-            })
+            audit.check_source(source_id)
+        if len(audit.slugs) != len(set(audit.slugs)):
+            audit.findings.append(finding_row(FINDING_SLUG_COLLISION, "catalog", "catalog slugs collide"))
     except Exception as exc:
-        findings.append({
-            "code": getattr(exc, "code", FINDING_CATALOG_FIELD_INVALID),
-            "source": "catalog",
-            "detail": str(exc),
-        })
-    return findings
+        audit.findings.append(finding_row(
+            getattr(exc, "code", FINDING_CATALOG_FIELD_INVALID), "catalog", str(exc),
+        ))
+    return audit.findings
+
+
+def _catalog_meta(sources_meta: dict[str, Any], pair_counts: dict[str, int],
+                  payloads: dict[str, bytes], banned_sub: tuple[str, ...]) -> dict[str, Any]:
+    return {
+        "catalog_id": CATALOG_ID,
+        "format": CATALOG_FORMAT,
+        "family": "ffd",
+        "factory": FACTORY,
+        "prefix": PREFIX,
+        "generator": GENERATOR,
+        "legacy": {"ref": LEGACY_REF, "commit": LEGACY_COMMIT},
+        "sources": sources_meta,
+        "pair_counts": pair_counts,
+        "files": dict(_CATALOG_FILES),
+        "digests": {f"{key}_sha256": sha256_bytes(payloads[key]) for key in _CATALOG_FILES},
+        "banned_sub": list(banned_sub),
+    }
 
 
 def write_extracted(catalog_dir: Path, leftover3: list[dict[str, Any]], lll: list[dict[str, Any]],
@@ -465,43 +497,16 @@ def write_extracted(catalog_dir: Path, leftover3: list[dict[str, Any]], lll: lis
     refuse_when(catalog_dir.exists(), FINDING_CATALOG_FIELD_INVALID,
                 f"{catalog_dir} already exists")
     catalog_dir.mkdir(parents=True)
-    leftover3_bytes = _jsonl_bytes(leftover3)
-    lll_bytes = _jsonl_bytes(lll)
-    hop_plant_rows = [{"id": key, **value} for key, value in hop_plants.items()]
-    hop_plants_bytes = _jsonl_bytes(hop_plant_rows)
-    hop_pairs_bytes = _jsonl_bytes(hop_pairs)
-    (catalog_dir / LEFTOVER3_FILENAME).write_bytes(leftover3_bytes)
-    (catalog_dir / LLL_FILENAME).write_bytes(lll_bytes)
-    (catalog_dir / HOP_PLANTS_FILENAME).write_bytes(hop_plants_bytes)
-    (catalog_dir / HOP_PAIRS_FILENAME).write_bytes(hop_pairs_bytes)
-    meta = {
-        "catalog_id": CATALOG_ID,
-        "format": CATALOG_FORMAT,
-        "family": "ffd",
-        "factory": FACTORY,
-        "prefix": PREFIX,
-        "generator": GENERATOR,
-        "legacy": {"ref": LEGACY_REF, "commit": LEGACY_COMMIT},
-        "sources": sources_meta,
-        "pair_counts": {
-            "leftover3": len(leftover3),
-            "lll": len(lll),
-            "hop": len(hop_pairs),
-        },
-        "files": {
-            "leftover3_pairs": LEFTOVER3_FILENAME,
-            "lll_pairs": LLL_FILENAME,
-            "hop_plants": HOP_PLANTS_FILENAME,
-            "hop_pairs": HOP_PAIRS_FILENAME,
-        },
-        "digests": {
-            "leftover3_pairs_sha256": sha256_bytes(leftover3_bytes),
-            "lll_pairs_sha256": sha256_bytes(lll_bytes),
-            "hop_plants_sha256": sha256_bytes(hop_plants_bytes),
-            "hop_pairs_sha256": sha256_bytes(hop_pairs_bytes),
-        },
-        "banned_sub": list(banned_sub),
+    payloads = {
+        "leftover3_pairs": _jsonl_bytes(leftover3),
+        "lll_pairs": _jsonl_bytes(lll),
+        "hop_plants": _jsonl_bytes([{"id": key, **value} for key, value in hop_plants.items()]),
+        "hop_pairs": _jsonl_bytes(hop_pairs),
     }
+    for key, filename in _CATALOG_FILES.items():
+        (catalog_dir / filename).write_bytes(payloads[key])
+    pair_counts = {"leftover3": len(leftover3), "lll": len(lll), "hop": len(hop_pairs)}
+    meta = _catalog_meta(sources_meta, pair_counts, payloads, banned_sub)
     (catalog_dir / CATALOG_FILENAME).write_text(
         dumps_exact_json(meta, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
