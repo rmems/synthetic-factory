@@ -4,12 +4,11 @@ language: en-US
 reviews:
   profile: chill
   request_changes_workflow: false
-  # commit_status is ignored while review_progress publishes a check run.
-  # With both surfaces off, a skipped or failed review posts no pending or
-  # failing status, and request_changes_workflow stays off so comments do not
-  # request changes.
+  # schema.v2.json: commit_status is used only when review_progress is
+  # disabled. That legacy mirror posts success when the review finishes.
+  # fail_commit_status false keeps the same mirror from reporting failure.
   review_progress: false
-  commit_status: false
+  commit_status: true
   fail_commit_status: false
   auto_review:
     enabled: true
