@@ -221,7 +221,7 @@ def _validate_document(meta: object, pair_rows: list[dict[str, Any]], digest: st
         mill_ids.append(str(pinned[0]))
     refuse_when(len(pair_rows) != N_PAIRS, FINDING_CATALOG_PAIR_COUNT, f"need {N_PAIRS} pair rows, got {len(pair_rows)}")
     expected_windows = {row[0]: (row[5], row[6]) for row in MILL_SOURCES}
-    seen: dict[str, int] = {mill_id: 0 for mill_id in mill_ids}
+    seen: dict[str, int] = dict.fromkeys(mill_ids, 0)
     for index, entry in enumerate(pair_rows):
         item = _require_object(entry, f"pairs[{index}]")
         mill_id = _require_str(_require_field(item, "mill_id", f"pairs[{index}]"), f"pairs[{index}].mill_id")
