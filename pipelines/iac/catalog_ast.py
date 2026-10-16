@@ -63,7 +63,7 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: list[ast.expr], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
