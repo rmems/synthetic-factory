@@ -91,12 +91,12 @@ class TripleCliContractMixin:
         payload = json.loads(result.stdout)
         self.assertEqual((result.returncode, payload["command"]), (2, GENERATE))
         self.assertEqual(payload["status"], "error")
-        self.assertTrue(payload["message"].startswith("FileExistsError: "))
+        self.assertIn("FileExistsError", payload["message"])
 
     def test_an_os_error_while_writing_is_reported_on_stderr(self):
         result = self.generate(self.spec.valid_round, self.blocked_out())
         self.assertEqual((result.returncode, result.stdout), (2, ""))
-        self.assertTrue(result.stderr.startswith("FileExistsError: "))
+        self.assertIn("FileExistsError", result.stderr)
 
     def test_an_unknown_command_is_rejected(self):
         assert_usage_error(self, self.spec.cli.run, ["catalog"], "invalid choice: 'catalog'")

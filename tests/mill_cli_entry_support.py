@@ -12,6 +12,7 @@ as ``__main__`` registers.
 
 from __future__ import annotations
 
+import importlib
 import runpy
 import sys
 import tempfile
@@ -102,11 +103,19 @@ def script_entry(path: Path, *, pythonpath: tuple[Path, ...] = ()) -> Entry:
     fresh_path = [str(path.parent), *map(str, pythonpath), *inherited]
 
     def entry(argv: list[str]) -> object:
-        with ExitStack() as stack:
-            stack.enter_context(mock.patch.object(sys, "argv", [str(path), *argv]))
-            stack.enter_context(mock.patch.object(sys, "path", fresh_path.copy()))
-            stack.enter_context(_family_unloaded(path.parent.name))
-            return runpy.run_path(str(path), run_name="__main__")
+        modules_before = sys.modules.copy()
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(sys, "argv", [str(path), *argv]))
+                stack.enter_context(mock.patch.object(sys, "path", fresh_path.copy()))
+                stack.enter_context(_family_unloaded(path.parent.name))
+                return runpy.run_path(str(path), run_name="__main__")
+        finally:
+            for name, module in modules_before.items():
+                sys.modules[name] = module
+            for name in list(sys.modules):
+                if name not in modules_before:
+                    del sys.modules[name]
 
     return entry
 
@@ -120,7 +129,7 @@ def module_entry(name: str) -> Entry:
     """
 
     def entry(argv: list[str]) -> object:
-        spelling = sys.modules[name].__name__
+        spelling = importlib.import_module(name).__name__
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(sys, "argv", [spelling, *argv]))
             stack.enter_context(mock.patch.dict(sys.modules))

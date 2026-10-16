@@ -90,14 +90,16 @@ class AcmCliWriteTests(unittest.TestCase):
         dest.mkdir()
         (dest / "keep.txt").write_text("kept\n", encoding="utf-8")
         argv = [SOURCE, WRITE, str(dest)]
-        with self.assertRaises(FileExistsError):
-            main_in_process(cli.run, argv)
+        result = main_in_process(cli.run, argv)
+        self.assertEqual((result.returncode, result.stdout), (2, ""))
+        self.assertIn("acm.write.dest_exists", result.stderr)
         self.assertEqual(sorted(path.name for path in dest.iterdir()), ["keep.txt"])
 
     def test_write_refuses_a_destination_named_like_a_mill_script(self):
         dest = self.scratch / "acm-mill-r1.py"
         result = main_in_process(cli.run, [SOURCE, WRITE, str(dest)])
         self.assertEqual(result, (1, "", "refusing to vendor acm-mill-r1.py\n"))
+        self.assertFalse(dest.exists())
         self.assertFalse((dest / "CATALOG.json").exists())
 
 
