@@ -299,32 +299,33 @@ def _file_pair_table(value: ast.List) -> list[dict[str, Any]] | None:
     return rows
 
 
+def _assignment_values(tree: ast.AST) -> dict[str, ast.AST]:
+    values: dict[str, ast.AST] = {}
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name is not None and value is not None:
+            values[name] = value
+    return values
+
+
 def _k8s_cli_bindings(
     tree: ast.AST,
 ) -> tuple[list[Any], list[Any] | None, list[dict[str, Any]] | None] | None:
-    k8s: list[Any] | None = None
-    cli_spec: list[Any] | None = None
-    cli_rows: list[dict[str, Any]] | None = None
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name == "K8S" and value is not None:
-            parsed = _literal_nonempty_list(value)
-            if parsed is None:
-                return None
-            k8s = parsed
-            continue
-        if name == "CLI_SPEC" and value is not None:
-            parsed = _literal_nonempty_list(value)
-            if parsed is None:
-                return None
-            cli_spec = parsed
-            continue
-        if name == "CLI" and isinstance(value, ast.List):
-            parsed = _file_pair_table(value)
-            if parsed is not None:
-                cli_rows = parsed
+    values = _assignment_values(tree)
+    if "K8S" not in values:
+        return None
+    k8s = _literal_nonempty_list(values["K8S"])
     if k8s is None:
         return None
+    cli_spec: list[Any] | None = None
+    if "CLI_SPEC" in values:
+        cli_spec = _literal_nonempty_list(values["CLI_SPEC"])
+        if cli_spec is None:
+            return None
+    cli_rows: list[dict[str, Any]] | None = None
+    cli_value = values.get("CLI")
+    if isinstance(cli_value, ast.List):
+        cli_rows = _file_pair_table(cli_value)
     return k8s, cli_spec, cli_rows
 
 
