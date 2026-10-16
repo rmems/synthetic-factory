@@ -268,59 +268,85 @@ def _keep_extend(tree: ast.AST) -> dict[str, Any] | None:
     }
 
 
-def _k8s_cli_tables(tree: ast.AST) -> dict[str, Any] | None:
+def _literal_nonempty_list(value: ast.AST) -> list[Any] | None:
+    resolved = literal_value(value)
+    if isinstance(resolved, list) and resolved:
+        return resolved
+    return None
+
+
+def _file_pair_row(kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    slug = kwargs["s"]
+    gem = kwargs.get("g")
+    return {
+        "success_slug": slug,
+        "fail_slug": slug.replace("-vs-old", "-old-leftover"),
+        "success_plant": f"{gem}-prod" if isinstance(gem, str) else None,
+        "fail_plant": f"{gem}-jobs" if isinstance(gem, str) else None,
+        "fail_handoff": True,
+    }
+
+
+def _file_pair_table(value: ast.List) -> list[dict[str, Any]] | None:
+    if not value.elts or not all(call_name(elt) == "file_pair" for elt in value.elts):
+        return None
+    rows: list[dict[str, Any]] = []
+    for elt in value.elts:
+        kwargs = call_kwargs(elt)
+        if kwargs is None or "s" not in kwargs:
+            return None
+        rows.append(_file_pair_row(kwargs))
+    return rows
+
+
+def _k8s_cli_bindings(
+    tree: ast.AST,
+) -> tuple[list[Any], list[Any] | None, list[dict[str, Any]] | None] | None:
     k8s: list[Any] | None = None
     cli_spec: list[Any] | None = None
     cli_rows: list[dict[str, Any]] | None = None
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
         if name == "K8S" and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, list) or not resolved:
+            parsed = _literal_nonempty_list(value)
+            if parsed is None:
                 return None
-            k8s = resolved
+            k8s = parsed
             continue
         if name == "CLI_SPEC" and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, list) or not resolved:
+            parsed = _literal_nonempty_list(value)
+            if parsed is None:
                 return None
-            cli_spec = resolved
+            cli_spec = parsed
             continue
-        if name == "CLI" and isinstance(value, ast.List) and value.elts:
-            if all(call_name(elt) == "file_pair" for elt in value.elts):
-                rows = []
-                for elt in value.elts:
-                    kwargs = call_kwargs(elt)
-                    if kwargs is None or "s" not in kwargs:
-                        return None
-                    rows.append(
-                        {
-                            "success_slug": kwargs["s"],
-                            "fail_slug": kwargs["s"].replace("-vs-old", "-old-leftover"),
-                            "success_plant": (
-                                f"{kwargs['g']}-prod" if isinstance(kwargs.get("g"), str) else None
-                            ),
-                            "fail_plant": (
-                                f"{kwargs['g']}-jobs" if isinstance(kwargs.get("g"), str) else None
-                            ),
-                            "fail_handoff": True,
-                        }
-                    )
-                cli_rows = rows
+        if name == "CLI" and isinstance(value, ast.List):
+            parsed = _file_pair_table(value)
+            if parsed is not None:
+                cli_rows = parsed
     if k8s is None:
         return None
-    k8s_rows = [_k8s_identity(row) for row in k8s]
+    return k8s, cli_spec, cli_rows
+
+
+def _k8s_table_record(
+    shape: str, k8s: list[Any], extra: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    rows = [_k8s_identity(row) for row in k8s] + extra
+    if any(row["success_slug"] is None for row in rows):
+        return None
+    return _rows_record(shape, rows)
+
+
+def _k8s_cli_tables(tree: ast.AST) -> dict[str, Any] | None:
+    bindings = _k8s_cli_bindings(tree)
+    if bindings is None:
+        return None
+    k8s, cli_spec, cli_rows = bindings
     if cli_spec is not None:
-        cli_ident = [_cli_spec_identity(row) for row in cli_spec]
-        rows = k8s_rows + cli_ident
-        if any(row["success_slug"] is None for row in rows):
-            return None
-        return _rows_record(SHAPE_K8S_CLI_SPEC, rows)
+        extra = [_cli_spec_identity(row) for row in cli_spec]
+        return _k8s_table_record(SHAPE_K8S_CLI_SPEC, k8s, extra)
     if cli_rows is not None:
-        rows = k8s_rows + cli_rows
-        if any(row["success_slug"] is None for row in rows):
-            return None
-        return _rows_record(SHAPE_K8S_FILE, rows)
+        return _k8s_table_record(SHAPE_K8S_FILE, k8s, cli_rows)
     return None
 
 
