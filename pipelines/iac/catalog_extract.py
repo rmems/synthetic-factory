@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,7 @@ def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:
     keep_extend = _keep_extend(tree)
     if keep_extend is not None:
         return keep_extend
+    # Sibling import avoids a cycle while ``catalog_extract_k8s`` calls ``_rows_record``.
     from .catalog_extract_k8s import k8s_cli_tables
 
     tables = k8s_cli_tables(tree)

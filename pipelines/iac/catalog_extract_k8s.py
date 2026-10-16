@@ -8,7 +8,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from .catalog_ast import assignment_of, call_kwargs, call_name, literal_value
-from .catalog_extract import SHAPE_K8S_CLI_SPEC, SHAPE_K8S_FILE, _rows_record
+
+SHAPE_K8S_FILE = "k8s-file"
+SHAPE_K8S_CLI_SPEC = "k8s-cli-spec"
 
 
 def _literal_nonempty_list(value: ast.AST) -> list[Any] | None:
@@ -51,17 +53,17 @@ def _assignment_values(tree: ast.AST) -> dict[str, ast.AST]:
     return values
 
 
-def _k8s_identity(row: Any) -> dict[str, Any]:
-    if not isinstance(row, (tuple, list)) or len(row) < 2:
-        return {
-            "success_slug": None,
-            "fail_slug": None,
-            "success_plant": None,
-            "fail_plant": None,
-            "fail_handoff": True,
-        }
-    slug = row[0]
-    gem = row[1]
+def _empty_k8s_row() -> dict[str, Any]:
+    return {
+        "success_slug": None,
+        "fail_slug": None,
+        "success_plant": None,
+        "fail_plant": None,
+        "fail_handoff": True,
+    }
+
+
+def _k8s_row(slug: Any, gem: Any) -> dict[str, Any]:
     return {
         "success_slug": slug,
         "fail_slug": slug.replace("-vs-old", "-old-leftover") if isinstance(slug, str) else None,
@@ -69,26 +71,18 @@ def _k8s_identity(row: Any) -> dict[str, Any]:
         "fail_plant": f"{gem}-jobs" if isinstance(gem, str) else None,
         "fail_handoff": True,
     }
+
+
+def _k8s_identity(row: Any) -> dict[str, Any]:
+    if not isinstance(row, (tuple, list)) or len(row) < 2:
+        return _empty_k8s_row()
+    return _k8s_row(row[0], row[1])
 
 
 def _cli_spec_identity(row: Any) -> dict[str, Any]:
     if not isinstance(row, dict):
-        return {
-            "success_slug": None,
-            "fail_slug": None,
-            "success_plant": None,
-            "fail_plant": None,
-            "fail_handoff": True,
-        }
-    slug = row.get("s")
-    gem = row.get("g")
-    return {
-        "success_slug": slug,
-        "fail_slug": slug.replace("-vs-old", "-old-leftover") if isinstance(slug, str) else None,
-        "success_plant": f"{gem}-prod" if isinstance(gem, str) else None,
-        "fail_plant": f"{gem}-jobs" if isinstance(gem, str) else None,
-        "fail_handoff": True,
-    }
+        return _empty_k8s_row()
+    return _k8s_row(row.get("s"), row.get("g"))
 
 
 def _k8s_cli_bindings(
@@ -115,6 +109,8 @@ def _k8s_cli_bindings(
 def _k8s_table_record(
     shape: str, k8s: list[Any], extra: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
+    from .catalog_extract import _rows_record
+
     rows = [_k8s_identity(row) for row in k8s] + extra
     return _rows_record(shape, rows)
 
